@@ -106,7 +106,7 @@ struct ActionEngineTests {
 
     struct FixedExpectation: EffectExpecting {
         var effect: SceneEffect?
-        func expectedEffect(of verb: ActionVerb, on element: SceneElement, in bundleID: String) async -> SceneEffect? { effect }
+        func expectedEffect(of verb: ActionVerb, on element: SceneElement, in window: PerceivedWindow) async -> SceneEffect? { effect }
     }
 
     struct Unavailable: Error {}

@@ -17,7 +17,7 @@ extension SceneSnapshot {
     /// full scene is ninety thousand. An open menu shows up to sixty rows: its rows are the surface.
     public func mapText(notable: Int = 8) -> String {
         guard !sections.isEmpty else { return text() }
-        var out = header()
+        var out = header() + knowledgeText()
         out += "map: \(elements.count) elements in \(sections.count) sections (describe_section(name) drills in)\n"
         for section in sections {
             let members = elements.filter { $0.section == section.name }
@@ -59,6 +59,7 @@ extension SceneSnapshot {
     public func text() -> String {
         var out = header()
         out += "viewport: \(viewportPixelSize.width)x\(viewportPixelSize.height)\n"
+        out += knowledgeText()
         if sections.isEmpty {
             out += "elements (\(elements.count)):\n"
             out += lines(of: elements, indent: "  ").joined()
@@ -137,6 +138,11 @@ extension SceneSnapshot {
 
     func header() -> String {
         "app: \(appName) (\(bundleID))\(windowTitle.isEmpty ? "" : ": \"\(windowTitle)\"")\n"
+    }
+
+    /// What the memory said about the scene, one line each, or nothing for a scene it did not read.
+    func knowledgeText() -> String {
+        knowledge.map { $0.lines.map { $0 + "\n" }.joined() } ?? ""
     }
 
     func commandsLine() -> String {

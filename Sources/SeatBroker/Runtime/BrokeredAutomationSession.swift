@@ -652,7 +652,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The engine already recorded the transition, so the scene is not observed again.
     private func enriched(_ outcome: ActOutcome, by runtime: EngineRuntime) async -> ActOutcome {
         guard let scene = outcome.scene else { return outcome }
-        return outcome.with(scene: await runtime.memory.enrich(scene))
+        return outcome.with(scene: await Self.recorder(runtime, sessionID: id).enrich(scene))
     }
 
     private func current() throws -> (NSRunningApplication, EngineRuntime, SeatTarget) {

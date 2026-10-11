@@ -75,8 +75,14 @@ public actor CallRecorder: ActionObserving {
     public var recordingGap: String? { recordingGaps.isEmpty ? nil : recordingGaps.joined(separator: "; ") }
     /// The `current` sample of the call's latest observation, once it is in the archive.
     public private(set) var lastObservation: CaptureSampleKey?
+    /// The window the call last perceived (an observation, or an action's or a selector's capture after
+    /// acting), so a scene the call returns is placed in that window's state.
+    private var lastPerceived: PerceivedWindow?
     /// The observation events this call made for an application its own event does not name.
     private var observationEvents: [String: String] = [:]
+    /// What the action's record would teach the Brain's projection, kept until the call's end says
+    /// whether its check verified the gesture: an effect the check did not verify teaches nothing.
+    private var projectionCommand: BrainApplicationCommand?
 
     public init(memory: MemoryService, brain: BrainMemory, context: ActionContext,
                 minimization: ValueMinimization = ValueMinimization()) {
@@ -287,28 +293,45 @@ public actor CallRecorder: ActionObserving {
         await associate(samples.map(\.key))
         samples = []
         gaps    = []
+        await learn(tool: tool, check: saved == .whole ? check : nil)
+    }
+
+    /// What the call's facts teach the Brain, derived after they are saved and queued behind the scene
+    /// associations its relation reads: the projection's transition only from an effect the check
+    /// verified as the requested gesture's, and the relations from every operation, which say why when
+    /// they learn nothing.
+    private func learn(tool: AgentTool, check: OperationCheck?) async {
+        if let command = projectionCommand, let check, check.condition == .structuralEffect, check.verdict == .passed,
+           check.performed == .requested, !check.limits.contains(.deliveryUncertain), !check.limits.contains(.unattributed) {
+            await memory.enqueue("brain record") { repositories in
+                _ = try await repositories.applications.apply(command)
+            }
+        }
+        projectionCommand = nil
+        guard tool.isOperation else { return }
+        let callID = context.eventID, nowMS = memory.clock.brainMS()
+        let memory = self.memory
+        await memory.enqueue("brain relation") { repositories in
+            let evaluation = try await repositories.relations.apply(callEventID: callID, at: nowMS)
+            // A call whose sample is not placed yet is evaluated again once it is, by the recovery.
+            if evaluation.exclusion == .awaitingState { await memory.scheduleRelationRecovery() }
+        }
     }
 
     // MARK: ActionObserving
 
     /// An action's record: its perceptions as the `before` and `after` samples, written with the call's
-    /// end, and its learning, which the Brain takes only from an effect on an element, as it always did.
+    /// end, and what it would teach the Brain's projection, an effect on an element, applied at the end
+    /// only when the call's check verified that effect (`end`).
     public func record(_ record: ActionRecord) async {
         keep(effect: record.effect)
         attempt = record.attempt
+        if let after = record.after { lastPerceived = after }
         target  = OperationCheck.Target(record.element)
         await keep([(record.before, .before), (record.after, .after)], bundleID: record.bundleID)
         // An effect with a withheld value teaches nothing: its transition would predict the marker.
-        guard eventWritten, record.effect != nil, effectWithheld == nil,
-              let command = try? BrainApplicationCommand.record(
-                  admit(record),
-                  eventID    : context.eventID,
-                  requestedAt: requestedAt
-              )
-        else { return }
-        await memory.enqueue("brain record") { repositories in
-            _ = try await repositories.applications.apply(command)
-        }
+        guard eventWritten, record.effect != nil, effectWithheld == nil else { return }
+        projectionCommand = try? BrainApplicationCommand.record(admit(record), eventID: context.eventID, requestedAt: requestedAt)
     }
 
     /// An input's record: its perceptions as the `before`, `menu` and `after` samples, written with the
@@ -349,7 +372,8 @@ public actor CallRecorder: ActionObserving {
         } else {
             eventID = await observationEvent(for: identity)
         }
-        guard let eventID else { return await brain.enrich(scene) }
+        lastPerceived = window
+        guard let eventID else { return await brain.enrich(scene, window: window) }
         let key = CaptureSampleKey(eventID: eventID, phase: .current)
         let (sample, sampleGaps) = minimization.minimize(
             sample: CaptureSample(key: key, of: window, sessionRevision: nil)
@@ -357,7 +381,7 @@ public actor CallRecorder: ActionObserving {
         guard (try? sample.validate()) != nil else {
             recordingGaps.append("the observation's sample was refused by the contract and not kept")
             lastObservation = nil
-            return await brain.enrich(scene)
+            return await brain.enrich(scene, window: window)
         }
         do {
             try await memory.confirm("sample current", afterEffect: tool?.requiresConfirmedStart == true) {
@@ -366,7 +390,7 @@ public actor CallRecorder: ActionObserving {
         } catch {
             recordingGaps.append("the observation was not saved: \(error)")
             lastObservation = nil
-            return await brain.enrich(scene)
+            return await brain.enrich(scene, window: window)
         }
         lastObservation = key
         storedSamples.append(key)
@@ -381,12 +405,17 @@ public actor CallRecorder: ActionObserving {
             }
         }
         await memory.flush(within: Self.observationBudget)
-        return await brain.enrich(scene)
+        return await brain.enrich(scene, window: window)
     }
 
-    /// The scene enriched from the Brain, for a result that carries a scene the call did not observe.
+    /// The scene enriched from the Brain, for a result that carries a scene the call did not observe: in
+    /// the state of the window the call last perceived when the scene is that window's (its token says
+    /// so), named only otherwise, since a scene without its capture cannot be placed in a state.
     public func enrich(_ scene: SceneSnapshot) async -> SceneSnapshot {
-        await brain.enrich(scene)
+        if let window = lastPerceived, window.scene.token == scene.token, window.scene.bundleID == scene.bundleID {
+            return await brain.enrich(scene, window: window)
+        }
+        return await brain.enrich(scene)
     }
 
     /// A selection's or a contextual menu's perceptions, as its selector read them, written with the
@@ -394,6 +423,7 @@ public actor CallRecorder: ActionObserving {
     public func record(before: PerceivedWindow?, menu: PerceivedWindow?, after: PerceivedWindow?, bundleID: String,
                        target: SceneElement? = nil) async {
         if let target { self.target = OperationCheck.Target(target) }
+        if let after { lastPerceived = after }
         await keep([(before, .before), (menu, .menu), (after, .after)], bundleID: bundleID)
     }
 

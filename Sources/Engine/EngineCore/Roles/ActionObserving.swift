@@ -107,5 +107,7 @@ public extension ActionObserving {
 /// when memory has no opinion. The engine compares by effect family, never by exact string.
 public protocol EffectExpecting: Sendable {
 
-    func expectedEffect(of verb: ActionVerb, on element: SceneElement, in bundleID: String) async -> SceneEffect?
+    /// The effect a verb on an element of the perceived window is expected to have, or nil. The window
+    /// gives the application and the state the element is in, which an expectation depends on.
+    func expectedEffect(of verb: ActionVerb, on element: SceneElement, in window: PerceivedWindow) async -> SceneEffect?
 }

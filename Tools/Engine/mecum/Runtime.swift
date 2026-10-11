@@ -38,7 +38,7 @@ extension EngineRuntime {
     /// A command line recorder over the memory of `knowledge`, for a command that builds no runtime.
     static func commandLineRecorder(knowledge: URL) -> CallRecorder {
         let service = MemoryService.shared(for: knowledge)
-        return CallRecorder(memory: service, brain: BrainMemory(brains: service, applications: service,
+        return CallRecorder(memory: service, brain: BrainMemory(brains: service, applications: service, relations: service,
                                                                 clock: { service.clock.brainNow() }),
                             context: CommandLineTrace.context())
     }

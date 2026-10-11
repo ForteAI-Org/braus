@@ -593,7 +593,8 @@ public final class AutomationTools {
     private func makeRecorder(sessionID: UUID?, parent: CallRecorder? = nil, position: Int? = nil) -> CallRecorder? {
         guard let directory = session.memoryDirectory else { return nil }
         let service = MemoryService.shared(for: directory)
-        let brain   = BrainMemory(brains: service, applications: service, clock: { service.clock.brainNow() })
+        let brain   = BrainMemory(brains: service, applications: service, relations: service,
+                                  clock: { service.clock.brainNow() })
         let context: ActionContext
         if let parent, let position {
             context = parent.context.child(position)

@@ -169,7 +169,7 @@ public struct ActionEngine: Sendable {
         let point = perceived.globalPoint(of: element)
         let surfaces = await surfaces(pid)
         let expected = await dependencies.expectations?.expectedEffect(
-            of: request.verb, on: element, in: request.bundleID
+            of: request.verb, on: element, in: perceived
         )
 
         if request.verb == .setToggle {

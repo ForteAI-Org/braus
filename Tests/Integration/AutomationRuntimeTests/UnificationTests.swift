@@ -56,7 +56,7 @@ struct UnificationTests {
             .act(target: elements[0].label, verb: .click, value: nil, section: nil),
             app: AppContextIdentity(bundleID: W.bundle)
         )
-        await recorder.record(ActionRecord(
+        let record = ActionRecord(
             bundleID        : W.bundle,
             element         : elements[0],
             verb            : .click,
@@ -64,9 +64,12 @@ struct UnificationTests {
             windowTitleAfter: "Document",
             before          : W.window(elements),
             after           : W.window(elements + [W.button("Bold", x: 0.7)])
-        ))
+        )
+        await recorder.record(record)
         // An end with no check: an archive of schema 1 holds no operation verification.
         try await recorder.end(.completed, result: .outcome(.foundActed, message: "clicked"), tool: .act)
+        // An earlier build taught its Brain from the effect itself, with no check: as it did.
+        _ = try await W.brain(memory).record(record, eventID: recorder.eventID)
         #expect(await memory.flush(within: .seconds(10)))
         await memory.close()
         try downgrade(directory.appendingPathComponent("memory.sqlite"))

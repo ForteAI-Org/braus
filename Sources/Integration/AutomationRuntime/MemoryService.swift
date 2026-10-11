@@ -80,6 +80,7 @@ nonisolated public struct MemoryRepositories: Sendable {
     public let tasks       : SQLiteTaskContextRepository
     public let attributions: SQLiteTaskRepository
     public let verifications: SQLiteVerificationRepository
+    public let relations   : SQLiteBrainRelationRepository
 
     /// The store under the roles, for the package's tests: a write that holds it, as a long
     /// transaction of a producer would.
@@ -98,6 +99,7 @@ nonisolated public struct MemoryRepositories: Sendable {
         tasks        = SQLiteTaskContextRepository(store: store)
         attributions = SQLiteTaskRepository(store: store)
         verifications = SQLiteVerificationRepository(store: store)
+        relations    = SQLiteBrainRelationRepository(store: store)
     }
 }
 
@@ -146,7 +148,7 @@ nonisolated public struct MemoryRepositories: Sendable {
 /// recovery that stopped half way, in this process or another, is completed from its record on the
 /// next open, or the service stays degraded saying why, with every file kept: it never starts an
 /// empty memory in its place.
-public actor MemoryService: BrainReading, BrainApplicationStoring {
+public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelationReading {
 
     nonisolated public struct Configuration: Sendable, Equatable {
 
@@ -261,6 +263,12 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
         public let lastMigration: String?
         /// What the unification of the user's earlier archives took in, when it ran.
         public let lastUnification: String?
+        /// What the recovery of the Brain's relations did since the service was made: calls evaluated for
+        /// the first time after a stopped process or a lost queue, calls evaluated again when their
+        /// evidence arrived or under a new policy, samples placed in a state on the way; and whether a
+        /// pass is wanted.
+        public let relationRecovery: SQLiteBrainRelationRepository.CatchUp
+        public let relationRecoveryPending: Bool
     }
 
     /// Activity is what a quitting process may ask without waiting for the actor: whether this
@@ -336,6 +344,9 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
     private var lastBackup: Date?
     private var lastRecovery: String?
     private var lastImport: String?
+    /// What the relation recovery did, and whether a pass of it waits in the queue.
+    private var relationRecovery = SQLiteBrainRelationRepository.CatchUp()
+    private var relationRecoveryWanted = false
     private var backingUp: Task<Void, Never>?
     /// How the last copy ended: handed over, or abandoned with nothing published.
     private var lastCopyPublished: Bool?
@@ -582,7 +593,15 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
     }
 
     private func drain() async {
-        while !queue.isEmpty, !Task.isCancelled {
+        while !Task.isCancelled {
+            guard !queue.isEmpty else {
+                // The queue is empty: one bounded pass of the relation recovery when one is wanted, then the
+                // queue again, so whatever was offered meanwhile goes first.
+                guard relationRecoveryWanted, admitting, state == .open, let repositories else { break }
+                relationRecoveryWanted = false
+                await recoverRelations(with: repositories)
+                continue
+            }
             let write = queue.removeFirst()
             let tally = SQLiteMemoryStore.CommitTally()
             running = (write.label, tally)
@@ -618,6 +637,41 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
         let saved = tally.commits > 0 ? " after \(tally.commits) of its changes were saved" : ""
         lastFailure = "\(write.label)\(saved): \(Self.describe(error))"
         Self.log.error("memory write failed\(saved, privacy: .public): \(write.label, privacy: .public): \(Self.describe(error), privacy: .public)")
+    }
+
+    // MARK: Recovering the relations
+
+    /// The calls one pass of the relation recovery evaluates at most, by kind of work.
+    static let relationRecoveryBatch = 25
+
+    /// Asks for the relation recovery. It runs in the queue's drainer, only while the queue is empty, one
+    /// bounded pass at a time with the queue looked at again between passes: whatever is offered
+    /// meanwhile goes first, and the recovery never blocks an open, an action or a close, which stops it
+    /// between two passes. It is no offered write: the writes' counts do not include it, its own does
+    /// (`Status.relationRecovery`). It only reads facts and writes evaluations: no action is repeated.
+    func scheduleRelationRecovery() {
+        relationRecoveryWanted = true
+        guard admitting, state == .open, drainer == nil else { return }
+        drainer = Task { await self.drain() }
+    }
+
+    /// One pass of the relation recovery; another is wanted when it stopped at its limit. A pass that
+    /// fails is logged and not tried again until the recovery is asked for again.
+    private func recoverRelations(with repositories: MemoryRepositories) async {
+        let now = clock.brainMS()
+        do {
+            let report = try await repositories.relations.catchUp(at: now, limit: Self.relationRecoveryBatch) { key in
+                _ = try await repositories.scenes.associate(key, at: now)
+            }
+            relationRecovery.recovered    += report.recovered
+            relationRecovery.reconsidered += report.reconsidered
+            relationRecovery.reevaluated  += report.reevaluated
+            relationRecovery.associated   += report.associated
+            relationRecovery.remaining     = report.remaining
+            if report.remaining { relationRecoveryWanted = true }
+        } catch {
+            Self.log.error("memory relation recovery stopped: \(Self.describe(error), privacy: .public)")
+        }
     }
 
     // MARK: Opening
@@ -680,6 +734,9 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
             state             = .open
             degradedSince     = nil
             scheduleBackupIfDue()
+            // What a stopped process, a lost queue or an earlier policy left of the relations is recovered
+            // in bounded passes behind the writes, never before them.
+            scheduleRelationRecovery()
             let key    = directory.standardizedFileURL.resolvingSymlinksInPath().path
             let legacy = Self.legacyOrigins.withLock { $0[key] ?? [] }
             if !legacy.isEmpty, unifying == nil {
@@ -1068,7 +1125,8 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
                       lastRecovery: lastRecovery, lastImport: lastImport, lastClose: lastClose,
                       essentialWritten: essentialWritten, essentialFailed: essentialFailed,
                       suspended: suspendedReason, pendingEssential: pendingEssential.count,
-                      lastMigration: lastMigration, lastUnification: lastUnification)
+                      lastMigration: lastMigration, lastUnification: lastUnification,
+                      relationRecovery: relationRecovery, relationRecoveryPending: relationRecoveryWanted)
     }
 
     /// The archive's applications and counts.
@@ -1091,14 +1149,39 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
         try await ready().captures.sample(key)
     }
 
-    /// A stored event.
     /// The earlier archives a fact came from (`EventOrigin`): none for a fact this archive's producers wrote.
     public func origins(of eventID: String) async throws -> [EventOrigin] {
         try await SQLiteArchiveTransfer.origins(of: eventID, in: try await ready().store)
     }
 
+    /// A stored event.
     public func event(_ eventID: String) async throws -> MemoryEventRecord? {
         try await ready().captures.event(eventID)
+    }
+
+    // MARK: Relations
+
+    /// The part of an application's projection a scene's detections can match (`BrainReading`), read by
+    /// its labels, kinds and groups: never the whole projection, and not cached.
+    public func projection(of bundleID: String, for detections: [BrainDetection]) async throws -> UIBrain? {
+        try await ready().brains.projection(of: bundleID, for: detections)
+    }
+
+    /// The functional state a capture is, by the scenes of its own roles only (`BrainRelationReading`).
+    public func state(of skeleton: SceneSkeleton, isComplete: Bool, in bundleID: String) async throws -> String? {
+        try await ready().relations.state(of: skeleton, isComplete: isComplete, in: bundleID)
+    }
+
+    /// The state a stored sample was confirmed in.
+    public func state(of sample: CaptureSampleKey) async throws -> String? {
+        try await ready().relations.state(of: sample)
+    }
+
+    /// The relations of one state and some of its elements, by the state's index.
+    public func relations(from sceneID: String, in bundleID: String, elementKeys: [String],
+                          includingContext: Bool) async throws -> [BrainRelation] {
+        try await ready().relations.relations(from: sceneID, in: bundleID, elementKeys: elementKeys,
+                                              includingContext: includingContext)
     }
 
     // MARK: Reasons

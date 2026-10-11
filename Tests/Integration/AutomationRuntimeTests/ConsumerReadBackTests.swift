@@ -120,9 +120,15 @@ struct ConsumerReadBackTests {
         let (writer, reader): (MemoryEventSource, MemoryEventSource) =
             direction == .appToMCP ? (.app, .mcp) : (.mcp, .app)
         let taught = FactSession(directory: directory)
-        // Open is in the window the reader's session observes.
-        taught.plans["Open"] = FactSession.Plan(outcome: ActOutcome(.foundActed, "opened"),
-                                               effect: .menuOpened(labels: ["Bold", "Italic"]))
+        // Open is in the window the reader's session observes; the check verified the menu it opened.
+        taught.plans["Open"] = FactSession.Plan(
+            outcome: ActOutcome(.foundActed, "opened", check: OperationCheck(
+                condition: .structuralEffect, method: .sceneDifference, verdict: .passed, observed: "menuOpened",
+                limits: [.windowWide, .noExpectation], performed: .requested,
+                target: OperationCheck.Target(elementID: "control|open", role: "AXButton", label: "Open", section: nil)
+            )),
+            effect: .menuOpened(labels: ["Bold", "Italic"])
+        )
         let teacher = tools(taught, stream: "teacher", source: writer, trace: nil)
         _ = try await teacher.call("act", .object([
             "session": .string(taught.id!.uuidString), "target": .string("Open")
@@ -137,8 +143,8 @@ struct ConsumerReadBackTests {
         let learner = tools(reading, stream: "learner", source: reader, trace: nil)
         let answer = try await learner.call("observe", .object(["session": .string(reading.id!.uuidString)]))
         let text = String(decoding: try JSONEncoder().encode(answer), as: UTF8.self)
-        #expect(text.contains("Bold") && text.contains("Italic"),
-                "the reader's scene tells what Open opens: \(text.prefix(400))")
+        #expect(text.contains("click: menuOpened"),
+                "the reader's scene tells what Open does in this state, from the relation: \(text.prefix(400))")
         await MemoryService.shared(for: directory).close()
     }
 }

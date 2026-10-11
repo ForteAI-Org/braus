@@ -35,7 +35,7 @@ enum W {
     }
 
     static func brain(_ service: MemoryService) -> BrainMemory {
-        BrainMemory(brains: service, applications: service, clock: { service.clock.brainNow() })
+        BrainMemory(brains: service, applications: service, relations: service, clock: { service.clock.brainNow() })
     }
 
     static func recorder(_ service: MemoryService, trace: String = "trace-1", session: String? = "s1") -> CallRecorder {
@@ -252,7 +252,7 @@ struct MemoryWiringTests {
 
     // MARK: The recorder
 
-    @Test("a call through its recorder is planned, started, sampled, taught to the Brain and completed with its result and effect")
+    @Test("a call through its recorder is planned, started, sampled, taught to the Brain from its verified effect and completed")
     func actionCall() async throws {
         let service  = try W.service()
         let recorder = W.recorder(service)
@@ -266,7 +266,10 @@ struct MemoryWiringTests {
             before: W.window([W.open, W.format, W.save]),
             after : W.window([W.open, W.format, W.save, W.button("Bold", x: 0.3), W.button("Italic", x: 0.4)])
         ))
-        try await recorder.end(.completed, result: .outcome(.foundActed, message: "clicked 'Format'"), tool: .act)
+        let check = OperationCheck(condition: .structuralEffect, method: .sceneDifference, verdict: .passed,
+                                   observed: opened.family, limits: [.noExpectation, .windowWide], performed: .requested,
+                                   target: OperationCheck.Target(W.format))
+        try await recorder.end(.completed, result: .outcome(.foundActed, message: "clicked 'Format'"), tool: .act, check: check)
         #expect(await service.flush(within: .seconds(10)))
         #expect(await service.status().failed == 0)
 
@@ -282,9 +285,10 @@ struct MemoryWiringTests {
         #expect(try await service.sample(CaptureSampleKey(eventID: recorder.eventID, phase: .after)) != nil)
 
         let brain = try #require(try await service.brain(of: W.bundle))
-        #expect(brain.transitions.contains { $0.effect == opened.encoded }, "the Brain learned the menu the click opened")
-        let expected = await W.brain(service).expectedEffect(of: .click, on: W.format, in: W.bundle)
-        #expect(expected == opened, "the engine's next click on Format expects the menu, read back from SQLite")
+        #expect(brain.transitions.contains { $0.effect == opened.encoded }, "the projection learned the verified menu")
+        let expected = await W.brain(service).expectedEffect(of: .click, on: W.format, in: W.window([W.open, W.format, W.save]))
+        #expect(expected == .menuOpened(labels: []),
+                "the engine's next click on Format in that state expects a menu, from the relation read back from SQLite")
         await service.close()
     }
 
@@ -535,7 +539,7 @@ struct MemoryWiringTests {
         await service.close()
     }
 
-    @Test("the expectation an action reads before acting costs one projection load after a change and a cache hit otherwise")
+    @Test("the expectation an action reads before acting is a targeted read of the window's state and the element's relations")
     func brainReadLatency() async throws {
         let service = try W.service()
         let brain   = W.brain(service)
@@ -549,16 +553,16 @@ struct MemoryWiringTests {
         #expect(await service.flush(within: .seconds(20)))
         let target = elements[150]
         let missStart = ContinuousClock.now
-        _ = await brain.expectedEffect(of: .click, on: target, in: W.bundle)
+        _ = await brain.expectedEffect(of: .click, on: target, in: W.window(elements))
         let miss = missStart.duration(to: .now)
         var hits: [Duration] = []
         for _ in 0..<20 {
             let started = ContinuousClock.now
-            _ = await brain.expectedEffect(of: .click, on: target, in: W.bundle)
+            _ = await brain.expectedEffect(of: .click, on: target, in: W.window(elements))
             hits.append(started.duration(to: .now))
         }
         let hit = hits.sorted()[hits.count / 2]
-        print("MEMORY-LATENCY brain read, 300 anchors: first after a change \(miss), cached p50 \(hit)")
+        print("MEMORY-LATENCY expectation read, 300 controls: first \(miss), then p50 \(hit)")
         #expect(hit < .milliseconds(50) && miss < .milliseconds(500))
         await service.close()
     }

@@ -236,11 +236,12 @@ public final class AutomationSession: AutomationSessionOperating {
         application.map { $0.bundleIdentifier ?? "pid.\($0.processIdentifier)" }
     }
 
-    /// `outcome` with its scene enriched by the Brain, so an action's scene reads like an observed one.
-    /// The engine already recorded the transition, so the scene is not observed again.
+    /// `outcome` with its scene enriched by the Brain, so an action's scene reads like an observed one:
+    /// through the call's recorder, which places it in the state of the window it perceived after
+    /// acting. The engine already recorded the transition, so the scene is not observed again.
     private func enriched(_ outcome: ActOutcome, by runtime: EngineRuntime) async -> ActOutcome {
         guard let scene = outcome.scene else { return outcome }
-        return outcome.with(scene: await runtime.memory.enrich(scene))
+        return outcome.with(scene: await recorder(runtime).enrich(scene))
     }
 
     private func current() throws -> (NSRunningApplication, EngineRuntime, SeatTarget) {
