@@ -41,6 +41,38 @@ it (`migrationRequired`). Everything below about schema 1 still holds for its ta
 migration and the tests are in [MemoryFacts](MemoryFacts.md); `verify-memory-schema.py` runs schema 2's text on
 its populated schema 1 file and checks it (292 checks, 239 negative, on 2026-10-09).
 
+## Schema 3 (G76 D2)
+
+`brain-living-memory-schema-3.sql`, the first D2 delivery's (2026-10-11), follows schemas 1 and 2 unchanged and
+adds 20 tables, 47 triggers and 11 indexes (86, 122 and 52 in all) for procedure candidates, interpretations,
+versions and parts, parameters' details, templates and bindings, the qualification of parts with its policies,
+reasons, evidence and states, and the Brain's relations with their proofs, their register and the role keys of
+structural scenes. Archives of schema 3 exist, so its text is unchanged and schema 4 follows it.
+
+## Schema 4 (G76 D2, after its independent review)
+
+From the first corrections of 2026-10-11 until schema 5 the store bootstrapped and opened schema 4: schemas 1, 2 and 3 unchanged,
+followed by `brain-living-memory-schema-4.sql`, which adds 4 tables, 10 triggers and 8 indexes (90, 132 and 60
+in all) for the append-only history of what each call teaches the relations and the evidence of each
+evaluation, the anchors' label keys a scene's part of the projection is read by, and the check of a variant's
+common prefix. Schema 3's register of the first relation policy stays as written. A producer's open migrates
+an archive at exactly schema 3, 2 or 1 after a verified copy, in one transaction, and fills the label keys of
+the anchors it holds; readers refuse it until then. The contracts, the migration and the tests are in
+[MemoryProcedures](MemoryProcedures.md#schema-4-and-its-migration); `verify-memory-schema.py` runs schema 4's
+text after schema 3's on its populated file (390 checks, 324 negative, on 2026-10-11).
+
+## Schema 5 (G76 D2, after its second independent review)
+
+Since the second corrections of 2026-10-11 the store bootstraps and opens schema 5: schemas 1 to 4 unchanged,
+followed by `brain-living-memory-schema-5.sql`, which adds 1 table and 3 triggers (91, 135 and 60 in all):
+`memory_variant_prefix_checks`, the check of a variant's common prefix with the reason a prefix whose
+parameters do not correspond is only suggested. Schema 4's `memory_variant_prefixes` stays as written and is
+written no more. A producer's open migrates an archive at exactly schema 4, 3, 2 or 1 after a verified copy,
+in one transaction, copies schema 4's suggested prefixes and checks its verified ones again from the stored
+definitions; readers refuse it until then. The contracts, the migration and the tests are in
+[MemoryProcedures](MemoryProcedures.md#schema-5-and-its-migration); `verify-memory-schema.py` runs schema 5's
+text after schema 4's on its populated file (401 checks, 332 negative, on 2026-10-11).
+
 ## The resource
 
 `Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema.sql`, copied into the module's

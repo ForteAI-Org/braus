@@ -9,7 +9,8 @@ migration, and the one archive the app, its external MCP clients and the command
 The calls, samples and Brain applications this page builds on are described in
 [MemoryContracts](MemoryContracts.md) and [MemorySchema](MemorySchema.md). This page names the new
 contracts, the decisions taken with their alternatives, the inventory of every operation and what proves
-each part. D2 (procedures and qualification) and D3 (Recall) read these facts; neither is built here.
+each part. D2 (procedures and qualification) and D3 (Recall) read these facts; neither is built here. D2 is
+described in [MemoryProcedures](MemoryProcedures.md).
 
 ## The contracts
 

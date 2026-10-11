@@ -6,13 +6,18 @@ every table and rule are in [MemorySchema.md](MemorySchema.md); this page names 
 promises, and links the section that proves each one. Status on 2026-10-07, branch `tommaso/merge-memory`,
 updated on 2026-10-09 for G76 plan D1: the task an agent communicates, the essential writes, the typed
 verification of every operation, the withheld values, schema 2 and the one archive per user are described in
-[MemoryFacts](MemoryFacts.md), which prevails where the two differ.
+[MemoryFacts](MemoryFacts.md), which prevails where the two differ. Since G76 plan D2 (2026-10-11) the archive is
+at schema 5 (schema 3, the first delivery's, followed by the corrections of its two independent reviews) and also
+keeps the procedures built from a task's facts, their qualification and the Brain's relations with the history
+of their evaluations: [MemoryProcedures](MemoryProcedures.md), which prevails for those.
 
-The resource is schema version 2 (`user_version` 2): the schema 1 text,
+The resource is schema version 5 (`user_version` 5): the schema 1 text,
 `Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema.sql` (48 tables, 48 triggers, 31 explicit
-indexes), followed by `brain-living-memory-schema-2.sql`, which only adds (66 tables, 75 triggers, 41 indexes
-in all). An archive opens only at that exact shape; an archive at exactly schema 1 is migrated by a
-producer's open after a verified copy ([MemoryFacts](MemoryFacts.md#schema-2-and-its-migration)). Old JSON knowledge is never read at run time. Its Brains are imported once, when an open creates the
+indexes), followed by `brain-living-memory-schema-2.sql`, `-3.sql`, `-4.sql` and `-5.sql`, which only add (66,
+86, 90 and 91 tables, 75, 122, 132 and 135 triggers, 41, 52, 60 and 60 indexes in all). An archive opens only at
+that exact shape; an archive at exactly schema 1, 2, 3 or 4 is migrated by a producer's open after a verified copy
+([MemoryFacts](MemoryFacts.md#schema-2-and-its-migration),
+[MemoryProcedures](MemoryProcedures.md#schema-5-and-its-migration)). Old JSON knowledge is never read at run time. Its Brains are imported once, when an open creates the
 archive beside them, before anything is learned into it; `mecum memory --import-json <dir>` imports any other
 directory by hand. Both go through `JSONBrainImport` and fill only Brains the archive does not hold.
 
@@ -40,6 +45,9 @@ module (`Sources/Engine/Memory/Storage`), all implemented over SQLite by `SQLite
 | `RouteStoring`, `StepOccurrenceStoring`, `ExperienceStoring` | procedures (Routes), step occurrences, experiences and their uses |
 | `TaskContextStoring` (D1) | tasks, revisions, attempts, checkpoints and outputs ([MemoryFacts](MemoryFacts.md#the-contracts)) |
 | `OperationFactStoring` (D1) | a call's confirmed start and end, its effect, its verifications and the withheld values |
+| `SQLiteProcedureRepository` (D2) | candidates, interpretations, versions and parts, qualifications, part states, the catalogue, the diagnosis of a task ([MemoryProcedures](MemoryProcedures.md)) |
+| `BrainRelationReading`, `SQLiteBrainRelationRepository` (D2) | a capture's functional state, the relations of a state and their current evidence, each call's history of evaluations and the bounded recovery of what was never or no longer evaluated |
+| `BrainReading.projection(of:for:)` (D2) | the part of an application's projection a scene's detections can match, read by indexes, never the whole projection |
 
 `MemoryService` conforms to `BrainReading` and `BrainApplicationStoring` itself. Since D1 the essential facts
 of a call and a task's declarations are confirmed (`confirm`, `perform`): written and answered after their
