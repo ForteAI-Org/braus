@@ -396,6 +396,9 @@ public final class AutomationTools {
         } catch let error as TaskContextError {
             answered = Self.taskFailure(Self.failure(of: error))
             isError  = true
+        } catch let error as ProcedureError {
+            answered = Self.taskFailure(Self.failure(of: error))
+            isError  = true
         } catch {
             answered = Self.taskFailure(MemoryTaskTool.Failure(code: "memory_unavailable",
                 message: "Mecum's memory did not record the task (\(MemoryService.describe(error))). App actions still "
@@ -478,19 +481,24 @@ public final class AutomationTools {
                     memory  : memory
                 )
                 let recorded: JSONValue = .string(receipt == .committed ? "recorded" : "already recorded")
+                var extra: [String: JSONValue] = ["recorded": recorded]
+                // The checkpoint is saved whatever the candidate: a candidate that cannot be built now is
+                // built again from the same facts by `candidate` or the next checkpoint.
+                do {
+                    if let summary = try await ProcedureProducer.candidate(attemptID: current.attemptID, producer: producer,
+                                                                           memory: memory) {
+                        extra["candidate"] = Self.candidate(summary)
+                    }
+                } catch {
+                    extra["candidate_error"] = .string(MemoryService.describe(error))
+                }
                 if draft.kind == .end {
                     openTask = nil
-                    return open(
-                        current,
-                        "ended",
-                        ["outcome": .string(checkpoint.declared?.rawValue ?? ""), "recorded": recorded]
-                    )
+                    extra["outcome"] = .string(checkpoint.declared?.rawValue ?? "")
+                    return open(current, "ended", extra)
                 }
-                return open(
-                    current,
-                    "checkpointed",
-                    ["sequence": .number(Double(checkpoint.sequence)), "recorded": recorded]
-                )
+                extra["sequence"] = .number(Double(checkpoint.sequence))
+                return open(current, "checkpointed", extra)
             case .resume(let taskID):
                 if let current = openTask, current.taskID != taskID {
                     throw MemoryTaskTool.Failure(
@@ -508,6 +516,16 @@ public final class AutomationTools {
                     ["guidance": .string("A new attempt began. Observe the present state before "
                         + "acting: nothing of the earlier attempt is replayed.")]
                 )
+            case .candidate(let taskID):
+                guard let summary = try await ProcedureProducer.candidate(taskID: taskID, producer: producer, memory: memory) else {
+                    return .object(["status": .string("no candidate"), "task": .string(taskID),
+                                    "message": .string("The task's last attempt started no app action.")])
+                }
+                return .object(["status": .string("candidate"), "task": .string(taskID), "candidate": Self.candidate(summary)])
+            case .interpret(let interpretation, let declared):
+                keep(declared)
+                let outcome = try await ProcedureProducer.interpret(interpretation, producer: producer, memory: memory)
+                return Self.interpreted(outcome, candidateID: interpretation.candidateID)
             case .status:
                 let suspended = await memory.status().suspended
                 var answer: [String: JSONValue] = ["status": .string(openTask == nil ? "no open task" : "open")]
@@ -568,6 +586,123 @@ public final class AutomationTools {
         }
     }
 
+    private static func failure(of error: ProcedureError) -> MemoryTaskTool.Failure {
+        switch error {
+            case .unknownCandidate(let id):
+                return MemoryTaskTool.Failure(code: "unknown_candidate", message: "No candidate \(id) of your tasks is recorded.")
+            case .staleCandidate(let id, let current):
+                return MemoryTaskTool.Failure(
+                    code   : "stale_candidate",
+                    message: "Candidate \(id) is not the attempt's latest: interpret \(current), which covers the later actions.",
+                    details: ["current_candidate": .string(current)]
+                )
+            case .conflictingInterpretation(_, let revision):
+                return MemoryTaskTool.Failure(
+                    code   : "interpretation_conflict",
+                    message: "Revision \(revision) of this interpretation was recorded with other statements: omit the revision "
+                        + "to record a new one."
+                )
+            case .revisionOutOfOrder(_, let expected):
+                return MemoryTaskTool.Failure(code: "revision_out_of_order",
+                                              message: "The next revision of this interpretation is \(expected).",
+                                              details: ["next_revision": .number(Double(expected))])
+            case .unknownReference(let what):
+                return MemoryTaskTool.Failure(code: "unknown_reference",
+                                              message: "The interpretation names \(what), which the candidate or its actions do not have.")
+            case .contradictedPrefix(let step, let why):
+                return MemoryTaskTool.Failure(code: "contradicted_prefix",
+                                              message: "Step \(step + 1) is not the same operation in both versions (\(why)): they do not "
+                                                + "share the steps before the divergence you named. Name the first step that differs.",
+                                              details: ["step": .number(Double(step + 1))])
+            default:
+                return MemoryTaskTool.Failure(code: "invalid_interpretation",
+                                              message: "The interpretation cannot be recorded as given: \(error).")
+        }
+    }
+
+    /// A candidate as the agent reads it: its steps with their block, application, tool, arguments as
+    /// recorded, how each ended and how its check judged it, and the blocks.
+    static func candidate(_ summary: ProcedureProducer.CandidateSummary) -> JSONValue {
+        let steps: [JSONValue] = summary.steps.map { step in
+            var arguments: [String: JSONValue] = [:]
+            for argument in step.arguments {
+                let value: JSONValue = switch argument.value {
+                    case .text(let text): .string(text)
+                    case .integer(let number): .number(Double(number))
+                    case .real(let number): .number(number)
+                    case .boolean(let flag): .bool(flag)
+                }
+                if AgentCallArguments.specs(of: step.tool).first(where: { $0.name == argument.name })?.rows == .list {
+                    arguments[argument.name] = .array((arguments[argument.name]?.array ?? []) + [value])
+                } else {
+                    arguments[argument.name] = value
+                }
+            }
+            var fields: [String: JSONValue] = [
+                "step": .number(Double(step.number)), "block": .string("b\(step.block)"), "tool": .string(step.tool.rawValue),
+                "arguments": .object(arguments), "status": .string(step.status.rawValue),
+            ]
+            if let bundle = step.bundleID { fields["app"] = .string(bundle) }
+            if let condition = step.condition, let verdict = step.verdict {
+                fields["check"] = .string("\(condition.rawValue) \(verdict.rawValue)")
+            }
+            return .object(fields)
+        }
+        let blocks: [JSONValue] = summary.candidate.blocks.map { block in
+            var fields: [String: JSONValue] = ["part": .string("b\(block.index + 1)"),
+                                               "steps": .array([.number(Double(block.firstPosition + 1)),
+                                                                .number(Double(block.lastPosition + 1))])]
+            if let bundle = block.bundleID { fields["app"] = .string(bundle) }
+            return .object(fields)
+        }
+        return .object([
+            "id": .string(summary.candidate.candidateID),
+            "new": .bool(summary.isNew),
+            "steps": .array(steps),
+            "blocks": .array(blocks),
+            "interpret": .string("Call memory_task interpret with this candidate: labels and outcomes of the procedure, of the "
+                + "blocks when there are several, and of the steps; the parameters with their roles and values; the uses "
+                + "of parameters in steps' arguments as templates. Steps and blocks are fixed."),
+        ])
+    }
+
+    /// The answer to an interpretation: its revision and version, each part's qualification with its
+    /// reasons, and the uses the recorded actions contradicted.
+    static func interpreted(_ outcome: InterpretationOutcome, candidateID: String) -> JSONValue {
+        func reference(_ partID: String) -> String {
+            if partID.hasSuffix("/procedure") { return "procedure" }
+            if let range = partID.range(of: "/block-", options: .backwards), let index = Int(partID[range.upperBound...]) {
+                return "b\(index + 1)"
+            }
+            if let range = partID.range(of: "/step-", options: .backwards), let index = Int(partID[range.upperBound...]) {
+                return "s\(index + 1)"
+            }
+            return partID
+        }
+        let parts: [JSONValue] = outcome.qualifications.map { qualification in
+            var fields: [String: JSONValue] = ["part": .string(reference(qualification.partID)),
+                                               "admitted": .bool(qualification.verdict == .admitted)]
+            if !qualification.findings.isEmpty {
+                fields["reasons"] = .array(qualification.findings.map { finding in
+                    .string(finding.reason.rawValue + (finding.stepPosition.map { " (step \($0 + 1))" } ?? ""))
+                })
+            }
+            return .object(fields)
+        }
+        var answer: [String: JSONValue] = [
+            "status": .string(outcome.receipt == .committed ? "interpreted" : "already recorded"),
+            "candidate": .string(candidateID), "revision": .number(Double(outcome.revision)), "version": .string(outcome.routeID),
+            "parts": .array(parts),
+        ]
+        if !outcome.findings.isEmpty {
+            answer["findings"] = .array(outcome.findings.map { finding in
+                .object(["step": .number(Double(finding.stepPosition + 1)), "argument": .string(finding.argumentName),
+                         "finding": .string(finding.kind.rawValue)])
+            })
+        }
+        return .object(answer)
+    }
+
     private static func taskFailure(_ failure: MemoryTaskTool.Failure) -> JSONValue {
         .object(["status": .string("error"), "error": .string(failure.code), "message": .string(failure.message)]
             .merging(failure.details, uniquingKeysWith: { $1 }))
@@ -585,7 +720,7 @@ public final class AutomationTools {
             })
         }
         guard case .object(var object) = arguments else { return "{}" }
-        for key in ["inputs", "outputs"] where object[key] != nil { object[key] = mask(object[key] ?? .null) }
+        for key in ["inputs", "outputs", "parameters"] where object[key] != nil { object[key] = mask(object[key] ?? .null) }
         return String(decoding: (try? JSONEncoder().encode(JSONValue.object(object))) ?? Data(), as: UTF8.self)
     }
 

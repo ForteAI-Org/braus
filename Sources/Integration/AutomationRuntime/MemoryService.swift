@@ -80,6 +80,7 @@ nonisolated public struct MemoryRepositories: Sendable {
     public let tasks       : SQLiteTaskContextRepository
     public let attributions: SQLiteTaskRepository
     public let verifications: SQLiteVerificationRepository
+    public let procedures  : SQLiteProcedureRepository
     public let relations   : SQLiteBrainRelationRepository
 
     /// The store under the roles, for the package's tests: a write that holds it, as a long
@@ -99,6 +100,7 @@ nonisolated public struct MemoryRepositories: Sendable {
         tasks        = SQLiteTaskContextRepository(store: store)
         attributions = SQLiteTaskRepository(store: store)
         verifications = SQLiteVerificationRepository(store: store)
+        procedures   = SQLiteProcedureRepository(store: store)
         relations    = SQLiteBrainRelationRepository(store: store)
     }
 }

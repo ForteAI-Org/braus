@@ -14,7 +14,8 @@ import SQLiteMemory
 
 /// MemoryCommand prints what the living memory holds for an application: the Brain's size and clock,
 /// its most established anchors with what they do, and its groups. With `--import-json <dir>` it
-/// copies the Brains of an earlier JSON Knowledge directory into the memory instead.
+/// copies the Brains of an earlier JSON Knowledge directory into the memory instead; with
+/// `--task <id>` it prints what the procedures and the Brain hold of one task, read only.
 enum MemoryCommand {
 
     static func run(_ invocation: Invocation) async throws {
@@ -22,7 +23,21 @@ enum MemoryCommand {
             printStatus(of: Runtime.knowledgeDirectory(invocation).appendingPathComponent("memory.sqlite"))
             return
         }
+        if let taskID = invocation.options["task"] {
+            printTask(taskID, graph: invocation.flags.contains("graph"),
+                      in: Runtime.knowledgeDirectory(invocation).appendingPathComponent("memory.sqlite"))
+            return
+        }
         let runtime = Runtime(invocation: invocation)
+        if invocation.flags.contains("apply-relations") {
+            try await applyRelations(in: runtime)
+            return
+        }
+        if invocation.options["part"] != nil || invocation.options["requalify"] != nil
+            || invocation.options["quarantine-policy"] != nil {
+            try await changeProcedures(invocation, in: runtime)
+            return
+        }
         if let source = invocation.options["import-json"] {
             try await importJSON(from: URL(fileURLWithPath: (source as NSString).expandingTildeInPath, isDirectory: true),
                                  into: runtime)
@@ -102,6 +117,82 @@ enum MemoryCommand {
         if !report.quarantined.isEmpty { print("moved aside after a recovery: " + report.quarantined.joined(separator: ", ")) }
         print("writes waiting, failed or dropped live in the memory of the process that offered them;")
         print("this command has its own and shows none. The app shows its own on Settings > Brain.")
+    }
+
+    /// Prints one task by its id, read only as `--status` reads the file: its attempts and calls with
+    /// what each one is to the procedures, its candidates and versions with their parts, parameters,
+    /// contracts and qualifications, the relations its calls proved, and the counts kept apart. With
+    /// `--graph`, the same objects as one Mermaid graph.
+    private static func printTask(_ taskID: String, graph: Bool, in url: URL) {
+        switch SQLiteMemoryInspection.task(taskID, in: url) {
+            case .found(let inspection): print(graph ? inspection.graph : inspection.text.joined(separator: "\n"))
+            case .notFound:              print("no task \(taskID) in \(url.path)")
+            case .unavailable(let why):  print("the task was not read: \(why)")
+        }
+    }
+
+    /// Changes how the procedures are offered, without deleting anything: a part's operational state
+    /// (`--part <id> --state usable|to_reevaluate|retired --reason <text>`; `retired` is final), a
+    /// version evaluated again from the facts under the policy in force (`--requalify <route id>`), or a
+    /// qualification policy put in quarantine (`--quarantine-policy <version> --reason <text>`), which
+    /// stops offering what it admitted until a build with another policy evaluates the parts again.
+    private static func changeProcedures(_ invocation: Invocation, in runtime: Runtime) async throws {
+        let now = runtime.service.clock.calendarMS()
+        let reason = invocation.options["reason"] ?? ""
+        do {
+            if let partID = invocation.options["part"] {
+                let word = invocation.options["state"] ?? ""
+                guard let state = PartOperationalState(rawValue: word) else {
+                    throw UsageError.invalid(option: "state", value: word, expected: "usable, to_reevaluate or retired")
+                }
+                guard !reason.isEmpty else { throw UsageError.missing("--reason <text>") }
+                let receipt = try await runtime.service.perform {
+                    try await $0.procedures.setState(state, of: partID, reason: reason, by: "mecum-cli", at: now)
+                }
+                print("\(partID): \(state.rawValue) (\(receipt == .committed ? "recorded" : "already so"))")
+            } else if let routeID = invocation.options["requalify"] {
+                let qualifications = try await runtime.service.perform { try await $0.procedures.requalify(routeID: routeID, at: now) }
+                for qualification in qualifications {
+                    let reasons = qualification.findings.map(\.reason.rawValue).joined(separator: ", ")
+                    print("\(qualification.partID): \(qualification.verdict.rawValue) under \(qualification.policyVersion)"
+                          + (reasons.isEmpty ? "" : " (\(reasons))"))
+                }
+            } else if let policy = invocation.options["quarantine-policy"] {
+                guard !reason.isEmpty else { throw UsageError.missing("--reason <text>") }
+                let receipt = try await runtime.service.perform {
+                    try await $0.procedures.quarantine(policy: policy, reason: reason, at: now)
+                }
+                print("\(policy): quarantined (\(receipt == .committed ? "recorded" : "already so"))")
+            }
+        } catch let error as ProcedureError {
+            print("not changed: \(error)")
+        }
+        await runtime.finish()
+    }
+
+    /// Runs the relation recovery the service runs in the background, to its end, at once: every
+    /// operation never evaluated (an archive migrated from an earlier schema, a derived write lost when a
+    /// process ended), every one waiting for evidence that has arrived, every one evaluated under another
+    /// policy. A call counts once however often it is evaluated; a second run evaluates nothing.
+    private static func applyRelations(in runtime: Runtime) async throws {
+        var total = SQLiteBrainRelationRepository.CatchUp()
+        while true {
+            let now = runtime.service.clock.brainMS()
+            let pass = try await runtime.service.perform { repositories in
+                try await repositories.relations.catchUp(at: now, limit: 500) { key in
+                    _ = try await repositories.scenes.associate(key, at: now)
+                }
+            }
+            total.recovered += pass.recovered
+            total.reconsidered += pass.reconsidered
+            total.reevaluated += pass.reevaluated
+            total.associated += pass.associated
+            if !pass.remaining { break }
+        }
+        print("relations of \(runtime.service.url.path): \(total.recovered) operations evaluated for the first time, "
+              + "\(total.reconsidered) evaluated again with new evidence, \(total.reevaluated) under the current policy, "
+              + "\(total.associated) samples placed in a state")
+        await runtime.finish()
     }
 
     /// Why this build refuses a file, in a sentence.

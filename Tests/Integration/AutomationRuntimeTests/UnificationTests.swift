@@ -18,7 +18,8 @@ import Testing
 /// UnificationTests prove that the user's one archive takes in an external client's earlier private
 /// archive (schema 1, as builds before G76 wrote it): its facts with their source, its Brain learned again
 /// by key, a proven duplicate once, an identity conflict under a new identity, a stopped transfer resumed,
-/// a foreign file refused, and the earlier archive never changed.
+/// a foreign file and an archive of a later build (with tasks, procedures and relations) refused, and the
+/// earlier archive never changed.
 @Suite("Unifying the external clients' earlier archives into the user's one archive")
 struct UnificationTests {
 
@@ -296,6 +297,41 @@ struct UnificationTests {
         )
         #expect(report.status == "refused" && report.detail?.contains("schema") == true)
         #expect(try Self.digest(foreign) == before)
+        #expect(try await count("SELECT count(*) FROM memory_events", in: destination) == 0)
+        await destination.close()
+    }
+
+    @Test("an archive that holds procedures and relations is refused whole and left as it is: a build that wrote them already shared the archive")
+    @MainActor
+    func learnedArchiveRefused() async throws {
+        let place = try Self.place()
+        let directory = place.profile("F")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let session = ProcedureLearningTests.photoSession(directory)
+        let tools = ProcedureLearningTests.tools(session)
+        _ = try await ProcedureLearningTests.task(tools, #"{"operation":"begin","goal":"Export the photo"}"#)
+        try await ProcedureLearningTests.runPhotoExport(tools, session)
+        _ = try await ProcedureLearningTests.task(tools, #"{"operation":"end","outcome":"completed"}"#)
+        let memory = MemoryService.shared(for: directory)
+        #expect(await memory.flush(within: .seconds(10)))
+        await memory.close()
+        MemoryService.forget(directory)
+        let source = directory.appendingPathComponent("memory.sqlite")
+        let before = try Self.digest(source)
+        let destination = try await SQLiteMemoryStore.open(at: try temporaryArchive())
+        let report = try await SQLiteArchiveTransfer.transfer(
+            from    : source,
+            origin  : "mcp-profile:F",
+            location: "MCP/Knowledge/F",
+            into    : destination,
+            staging : place.support.appendingPathComponent("staging"),
+            nowMS   : 1
+        )
+        #expect(report.status == "refused")
+        for table in ["memory_procedure_candidates", "brain_relations", "brain_relation_evaluations"] {
+            #expect(report.detail?.contains(table) == true, "\(report.detail ?? "")")
+        }
+        #expect(try Self.digest(source) == before)
         #expect(try await count("SELECT count(*) FROM memory_events", in: destination) == 0)
         await destination.close()
     }

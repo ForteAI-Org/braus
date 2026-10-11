@@ -425,7 +425,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func menu(path: String) async throws -> ActOutcome {
-        let (application, _, seat) = try current()
+        let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
             agentSeat,
@@ -442,28 +442,31 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         // background input. Read and dispatch its menu during verified activation,
         // just as for Adobe; other native hosts remain separately qualified.
         let preparesMenu = platform == .adobeUXP || application.bundleIdentifier == "com.apple.TextEdit"
-        if preparesMenu {
-            return try await MenuBarCommand.performInFront(
-                path,
-                processID: processID,
-                allowsDestructive: allowsDestructive,
-                withFront: { command in
-                    let outcome = await agentSeat.performMenuCommandBrieflyInFront(
-                        when: { MenuBarCommand.isEnabled(path, processID: processID) },
-                        performOnce: command
-                    )
-                    if case .ready = outcome { return nil }
-                    return Self.briefMenuFailure(outcome)
-                },
-                observe: { try await self.observe() }
-            )
+        let allowsDestructive = self.allowsDestructive
+        return try await PerceivedCommand.perform(
+            bundleID: application.bundleIdentifier ?? "pid.\(processID)",
+            recorder: Self.recorder(runtime, sessionID: id),
+            perceive: { try await runtime.scenes.currentScene(of: processID) }
+        ) { observe in
+            if preparesMenu {
+                return try await MenuBarCommand.performInFront(
+                    path,
+                    processID: processID,
+                    allowsDestructive: allowsDestructive,
+                    withFront: { command in
+                        let outcome = await agentSeat.performMenuCommandBrieflyInFront(
+                            when: { MenuBarCommand.isEnabled(path, processID: processID) },
+                            performOnce: command
+                        )
+                        if case .ready = outcome { return nil }
+                        return Self.briefMenuFailure(outcome)
+                    },
+                    observe: observe
+                )
+            }
+            return try await MenuBarCommand.perform(path, processID: processID, allowsDestructive: allowsDestructive,
+                                                    observe: observe)
         }
-        return try await MenuBarCommand.perform(
-            path,
-            processID        : processID,
-            allowsDestructive: allowsDestructive,
-            observe          : { try await self.observe() }
-        )
     }
 
     private static func briefMenuFailure(_ outcome: BriefActivationOutcome) -> String {
@@ -502,7 +505,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func press(button: String) async throws -> ActOutcome {
-        let (application, _, seat) = try current()
+        let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
             agentSeat,
@@ -510,13 +513,17 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         ) {
             throw AutomationFailure(sentence)
         }
-        return try await DialogButtonPress.perform(
-            button,
-            processID        : application.processIdentifier,
-            dialogs          : agentSeat.openDialogs.map(\.windowNumber),
-            allowsDestructive: allowsDestructive,
-            observe          : { try await self.observe() }
-        )
+        let processID = application.processIdentifier
+        let dialogs   = agentSeat.openDialogs.map(\.windowNumber)
+        let allowsDestructive = self.allowsDestructive
+        return try await PerceivedCommand.perform(
+            bundleID: application.bundleIdentifier ?? "pid.\(processID)",
+            recorder: Self.recorder(runtime, sessionID: id),
+            perceive: { try await runtime.scenes.currentScene(of: processID) }
+        ) { observe in
+            try await DialogButtonPress.perform(button, processID: processID, dialogs: dialogs,
+                                                allowsDestructive: allowsDestructive, observe: observe)
+        }
     }
 
     public func select(control: String, item: String) async throws -> ActOutcome {

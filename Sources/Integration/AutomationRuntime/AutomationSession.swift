@@ -151,23 +151,25 @@ public final class AutomationSession: AutomationSessionOperating {
     }
 
     public func menu(path: String) async throws -> ActOutcome {
-        let (application, _, seat) = try current()
+        let (application, runtime, seat) = try current()
         if case .refuse(let sentence) = try await SeatAdmission.awaited(
             seat.agentSeat(),
             application: application.localizedName ?? "the application"
         ) {
             throw AutomationFailure(sentence)
         }
-        return try await MenuBarCommand.perform(
-            path,
-            processID        : application.processIdentifier,
-            allowsDestructive: allowsDestructive,
-            observe          : { try await self.observe() }
-        )
+        let processID = application.processIdentifier
+        return try await PerceivedCommand.perform(
+            bundleID: application.bundleIdentifier ?? "pid.\(processID)",
+            recorder: recorder(runtime),
+            perceive: { try await runtime.scenes.currentScene(of: processID) }
+        ) { observe in
+            try await MenuBarCommand.perform(path, processID: processID, allowsDestructive: allowsDestructive, observe: observe)
+        }
     }
 
     public func press(button: String) async throws -> ActOutcome {
-        let (application, _, seat) = try current()
+        let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
             agentSeat,
@@ -175,13 +177,16 @@ public final class AutomationSession: AutomationSessionOperating {
         ) {
             throw AutomationFailure(sentence)
         }
-        return try await DialogButtonPress.perform(
-            button,
-            processID        : application.processIdentifier,
-            dialogs          : agentSeat.openDialogs.map(\.windowNumber),
-            allowsDestructive: allowsDestructive,
-            observe          : { try await self.observe() }
-        )
+        let processID = application.processIdentifier
+        let dialogs   = agentSeat.openDialogs.map(\.windowNumber)
+        return try await PerceivedCommand.perform(
+            bundleID: application.bundleIdentifier ?? "pid.\(processID)",
+            recorder: recorder(runtime),
+            perceive: { try await runtime.scenes.currentScene(of: processID) }
+        ) { observe in
+            try await DialogButtonPress.perform(button, processID: processID, dialogs: dialogs,
+                                                allowsDestructive: allowsDestructive, observe: observe)
+        }
     }
 
     public func select(control: String, item: String) async throws -> ActOutcome {

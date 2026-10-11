@@ -18,7 +18,7 @@ nonisolated enum MemoryTaskTool {
 
     /// Operation is what one call of the tool asks.
     enum Operation: String, CaseIterable {
-        case begin, update, checkpoint, end, resume, status
+        case begin, update, checkpoint, end, resume, status, interpret, candidate
     }
 
     /// Request is one decoded call, with the secret values it carried, which the producer keeps in
@@ -30,6 +30,8 @@ nonisolated enum MemoryTaskTool {
         case end(TaskCheckpointDraft, secrets: [String])
         case resume(taskID: String)
         case status
+        case interpret(ProcedureInterpretation, secrets: [String])
+        case candidate(taskID: String)
     }
 
     /// Update is a revision's change: the fields given replace the revision's, inputs replace those of
@@ -97,6 +99,49 @@ nonisolated enum MemoryTaskTool {
             "additionalProperties": .bool(false),
         ])
         let values: JSONValue = .object(["type": .string("array"), "items": value])
+        let outcome: JSONValue = .object(["type": .string("string"),
+                                          "enum": .array(["completed", "failed", "not_completed"].map(JSONValue.string))])
+        let statement: JSONValue = .object([
+            "type": .string("object"),
+            "properties": .object(["label": text, "outcome": outcome]),
+            "additionalProperties": .bool(false),
+        ])
+        let partStatement: JSONValue = .object([
+            "type": .string("object"),
+            "properties": .object(["part": text, "label": text, "outcome": outcome]),
+            "required": .array([.string("part")]),
+            "additionalProperties": .bool(false),
+        ])
+        let stepStatement: JSONValue = .object([
+            "type": .string("object"),
+            "properties": .object(["step": .object(["type": .string("integer"), "minimum": .number(1)]), "label": text,
+                                   "outcome": outcome]),
+            "required": .array([.string("step")]),
+            "additionalProperties": .bool(false),
+        ])
+        let parameter: JSONValue = .object([
+            "type": .string("object"),
+            "properties": .object([
+                "name": text, "role": text, "value": .object(["type": .string("string")]),
+                "kind": .object(["type": .string("string"),
+                                 "enum": .array(["text", "number", "boolean", "file", "folder", "reference"].map(JSONValue.string))]),
+                "direction": .object(["type": .string("string"), "enum": .array(["input", "output", "inout"].map(JSONValue.string))]),
+                "unit": text, "secret": .object(["type": .string("boolean")]),
+                "source": .object(["type": .string("string"), "enum": .array(TaskValueSource.allCases.map { .string($0.rawValue) })]),
+                "source_ref": text, "source_version": text, "produced_by": text,
+            ]),
+            "required": .array([.string("name"), .string("role")]),
+            "additionalProperties": .bool(false),
+        ])
+        let use: JSONValue = .object([
+            "type": .string("object"),
+            "properties": .object([
+                "step": .object(["type": .string("integer"), "minimum": .number(1)]), "argument": text,
+                "position": .object(["type": .string("integer"), "minimum": .number(0)]), "template": text,
+            ]),
+            "required": .array([.string("step"), .string("argument"), .string("template")]),
+            "additionalProperties": .bool(false),
+        ])
         return .object([
             "name": .string(name),
             "description": .string(
@@ -107,7 +152,12 @@ nonisolated enum MemoryTaskTool {
                 + "whose value is never kept). update: when the request or your understanding of it changes; revision is the "
                 + "revision you last read. checkpoint: when a meaningful part is done, with its note and outputs. end: with "
                 + "outcome completed, failed or abandoned, a note and the outputs. resume: an unfinished task of yours, by its "
-                + "task id, after a restart; never begin it again. status: the open task. This tool performs no app action."
+                + "task id, after a restart; never begin it again. status: the open task. A checkpoint and an end answer the "
+                + "candidate procedure Mecum segmented from your actions (its steps and blocks, one step per UI action); then "
+                + "interpret it: candidate, procedure {label, outcome}, parts [{part b1.., label, outcome}], steps [{step 1.., "
+                + "label, outcome}], parameters [{name, role, kind, direction, value or none to take the task input of that "
+                + "name, source, secret}], uses [{step, argument, position, template such as {name}.{extension}}]. Only stated "
+                + "uses become parameters. candidate: the latest candidate of one of your tasks. This tool performs no app action."
             ),
             "inputSchema": .object([
                 "type": .string("object"),
@@ -126,6 +176,14 @@ nonisolated enum MemoryTaskTool {
                     "outcome": .object(["type": .string("string"),
                                         "enum": .array(["completed", "failed", "abandoned"].map(JSONValue.string))]),
                     "outputs": values,
+                    "candidate": text,
+                    "procedure": statement,
+                    "parts": .object(["type": .string("array"), "items": partStatement]),
+                    "steps": .object(["type": .string("array"), "items": stepStatement]),
+                    "parameters": .object(["type": .string("array"), "items": parameter]),
+                    "uses": .object(["type": .string("array"), "items": use]),
+                    "variant_of": text,
+                    "divergence_step": .object(["type": .string("integer"), "minimum": .number(1)]),
                 ]),
                 "required": .array([.string("operation")]),
                 "additionalProperties": .bool(false),
@@ -142,6 +200,14 @@ nonisolated enum MemoryTaskTool {
     end with completed, failed or abandoned once the task is over. A new request after an end is a new task; after a
     restart, resume your unfinished task by its id. Actions taken without an open task are recorded but cannot be
     learned as a procedure. memory_task performs no app action and needs no session.
+    A checkpoint or an end answers the candidate procedure Mecum segmented from your actions: one step per UI action,
+    grouped in blocks of one app. Interpret it in your next call with memory_task interpret: a short label of what the
+    procedure, each block and each step does, written for reuse without the rest; the outcome of each part as you know
+    it; the parameters, each with its role, kind and value in this task (omit the value to take the task input of the
+    same name); and every use of a parameter in a step's argument as a template over the argument's text, such as
+    {output_name}.{output_extension} for "photo_web.jpg". Leave fixed controls, commands and menu items as they are;
+    a text equal to a value is not a use unless you state it. Mecum checks every reference and use against the
+    recorded actions and qualifies each part from its verified operations; it does not change the steps.
     """
 
     // MARK: Decoding
@@ -151,7 +217,8 @@ nonisolated enum MemoryTaskTool {
         let messageRef = messageRef.flatMap { $0.isEmpty ? nil : $0 }
         guard let object = arguments.object else { throw invalid("arguments must be an object") }
         let allowed: Set<String> = ["operation", "task", "revision", "goal", "result", "constraints", "inputs",
-                                    "remove_inputs", "reason", "note", "outcome", "outputs"]
+                                    "remove_inputs", "reason", "note", "outcome", "outputs", "candidate", "procedure",
+                                    "parts", "steps", "parameters", "uses", "variant_of", "divergence_step"]
         guard Set(object.keys).isSubset(of: allowed) else { throw invalid("unknown argument") }
         guard let word = arguments["operation"].string, let operation = Operation(rawValue: word) else {
             throw invalid("operation must be one of \(Operation.allCases.map(\.rawValue).joined(separator: ", "))")
@@ -244,10 +311,131 @@ nonisolated enum MemoryTaskTool {
                     return .resume(taskID: task)
                 case .status:
                     return .status
+                case .candidate:
+                    guard let task = optionalText(arguments, "task") else { throw invalid("candidate needs the task id") }
+                    return .candidate(taskID: task)
+                case .interpret:
+                    return try interpretation(arguments, minimization: minimization)
             }
         } catch let error as TaskContextError {
             throw Failure(code: "invalid_task", message: "The task cannot be recorded as given: \(error).")
+        } catch let error as ProcedureError {
+            throw Failure(code: "invalid_interpretation", message: "The interpretation cannot be recorded as given: \(error).")
         }
+    }
+
+    /// An interpretation's statements, with every text minimized by what is known: labels, roles, values and
+    /// templates; a value declared secret is withheld and kept aside, as a task's is.
+    private static func interpretation(_ arguments: JSONValue, minimization: ValueMinimization) throws -> Request {
+        guard let candidate = optionalText(arguments, "candidate") else { throw invalidInterpretation("interpret needs the candidate") }
+        func kept(_ text: String?) -> String? { text.map { minimization.minimize(text: $0).0 } }
+        func outcome(_ value: JSONValue) throws -> DeclaredPartOutcome? {
+            guard value != .null else { return nil }
+            guard let word = value.string, let known = DeclaredPartOutcome(rawValue: word), known != .notDeclared else {
+                throw invalidInterpretation("an outcome is completed, failed or not_completed")
+            }
+            return known
+        }
+        func reference(_ word: String) throws -> PartReference {
+            if word == "procedure" { return .procedure }
+            if word.hasPrefix("b"), let index = Int(word.dropFirst()), index >= 1 { return .block(index - 1) }
+            if word.hasPrefix("s"), let index = Int(word.dropFirst()), index >= 1 { return .step(index - 1) }
+            throw invalidInterpretation("\(word) is not a part: procedure, b1, b2, … or s1, s2, …")
+        }
+        func whole(_ value: JSONValue, _ what: String) throws -> Int {
+            guard case .number(let number) = value, let integer = Int(exactly: number), integer >= 1 else {
+                throw invalidInterpretation("\(what) is a whole number from 1")
+            }
+            return integer
+        }
+        var parts: [PartStatement] = []
+        let procedure = arguments["procedure"]
+        parts.append(try PartStatement(reference: .procedure, label: kept(procedure["label"].string),
+                                       outcome: try outcome(procedure["outcome"])))
+        for item in arguments["parts"].array ?? [] {
+            guard let word = item["part"].string else { throw invalidInterpretation("every part names its part") }
+            parts.append(try PartStatement(reference: try reference(word), label: kept(item["label"].string),
+                                           outcome: try outcome(item["outcome"])))
+        }
+        for item in arguments["steps"].array ?? [] {
+            let number = try whole(item["step"], "a step")
+            parts.append(try PartStatement(reference: .step(number - 1), label: kept(item["label"].string),
+                                           outcome: try outcome(item["outcome"])))
+        }
+        var secrets: [String] = []
+        var parameters: [ParameterStatement] = []
+        for item in arguments["parameters"].array ?? [] {
+            guard let name = item["name"].string, let role = item["role"].string else {
+                throw invalidInterpretation("every parameter has a name and a role")
+            }
+            let secret = item["secret"].bool ?? false
+            let kind = try item["kind"].string.map { word -> TaskValueKind in
+                guard let known = TaskValueKind(rawValue: word), known != .missing else {
+                    throw invalidInterpretation("unknown kind of parameter \(name)")
+                }
+                return known
+            } ?? .text
+            let direction = try item["direction"].string.map { word -> ParameterDirection in
+                guard let known = ParameterDirection(rawValue: word) else { throw invalidInterpretation("unknown direction of \(name)") }
+                return known
+            } ?? .input
+            let source = try item["source"].string.map { word -> TaskValueSource in
+                guard let known = TaskValueSource(rawValue: word) else { throw invalidInterpretation("unknown source of \(name)") }
+                return known
+            }
+            var content: TaskValue.Content?
+            if let text = item["value"].string {
+                if secret || minimization.minimize(text: text).1 != nil {
+                    secrets.append(text)
+                    content = .withheld
+                } else {
+                    content = .text(text)
+                }
+            }
+            parameters.append(try ParameterStatement(
+                name         : name,
+                role         : kept(role) ?? role,
+                kind         : kind,
+                direction    : direction,
+                unit         : kept(item["unit"].string),
+                sensitivity  : secret ? .secret : .ordinary,
+                content      : content,
+                source       : source,
+                sourceRef    : kept(item["source_ref"].string),
+                sourceVersion: kept(item["source_version"].string),
+                producedBy   : try item["produced_by"].string.map(reference)
+            ))
+        }
+        var uses: [UseStatement] = []
+        for item in arguments["uses"].array ?? [] {
+            guard let argument = item["argument"].string, let template = item["template"].string else {
+                throw invalidInterpretation("every use names its argument and template")
+            }
+            let position: Int
+            if item["position"] == .null { position = 0 } else {
+                guard case .number(let number) = item["position"], let integer = Int(exactly: number), integer >= 0 else {
+                    throw invalidInterpretation("a use's position is a whole number from 0")
+                }
+                position = integer
+            }
+            uses.append(try UseStatement(stepPosition: try whole(item["step"], "a use's step") - 1, argumentName: argument,
+                                         argumentPosition: position, pieces: try UsePiece.parse(template)))
+        }
+        let revision = arguments["revision"] == .null ? nil : try whole(arguments["revision"], "revision")
+        let divergence = arguments["divergence_step"] == .null ? nil : try whole(arguments["divergence_step"], "divergence_step") - 1
+        return .interpret(try ProcedureInterpretation(
+            candidateID       : candidate,
+            revision          : revision,
+            parts             : parts,
+            parameters        : parameters,
+            uses              : uses,
+            variantOf         : optionalText(arguments, "variant_of"),
+            divergencePosition: divergence
+        ), secrets: secrets)
+    }
+
+    private static func invalidInterpretation(_ message: String) -> Failure {
+        Failure(code: "invalid_interpretation", message: "The interpretation cannot be recorded as given: \(message).")
     }
 
     /// The named values of `inputs` or `outputs`: a secret's text is withheld and kept aside, a text with
@@ -317,7 +505,7 @@ nonisolated enum MemoryTaskTool {
     /// of the request, its transcript first, withholds before any of it is written.
     static func declaredSecrets(in arguments: JSONValue) -> [String] {
         var found: [String] = []
-        for key in ["inputs", "outputs"] {
+        for key in ["inputs", "outputs", "parameters"] {
             for item in arguments[key].array ?? [] {
                 guard let text = item["value"].string, !text.isEmpty, !found.contains(text) else { continue }
                 if item["secret"].bool == true || ValueMinimization.hasCredentialShape(text) { found.append(text) }
