@@ -122,8 +122,11 @@ struct MemoryWiringTests {
 
     // MARK: Copies and recovery
 
+    /// The published files whose name has the marker: a copy still being written is a hidden partial
+    /// file beside them, and is not one of them.
     private func files(_ service: MemoryService, _ marker: String) throws -> [String] {
-        try FileManager.default.contentsOfDirectory(atPath: service.directory.path).filter { $0.contains(marker) }.sorted()
+        try FileManager.default.contentsOfDirectory(atPath: service.directory.path)
+            .filter { $0.contains(marker) && !$0.hasPrefix(".") }.sorted()
     }
 
     @Test("opening takes a verified copy of the archive once an interval, and keeps the newest copies only")

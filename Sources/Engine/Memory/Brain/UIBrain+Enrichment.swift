@@ -13,8 +13,10 @@ public extension UIBrain {
     /// matched element gains its sibling-group tag and its trusted affordances, and an unlabeled
     /// element whose anchor carries a name inherits it, marked recalled, with its id rebuilt from the
     /// recalled label so targeting and scene tokens stay stable. One index is built for the whole
-    /// scene; per-element scans were what made description degrade as knowledge grew.
-    func enrich(_ elements: [SceneElement]) -> [SceneElement] {
+    /// scene; per-element scans were what made description degrade as knowledge grew. With
+    /// `affordances` false the learned transitions are left out: a reader that offers qualified
+    /// relations instead names elements from here and nothing more.
+    func enrich(_ elements: [SceneElement], affordances: Bool = true) -> [SceneElement] {
         let index = BrainIndex(self)
         let groupByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let transitionsByAnchor = Dictionary(grouping: transitions, by: \.anchorKey)
@@ -27,7 +29,7 @@ public extension UIBrain {
             if let groupID = anchor.groupID, let group = groupByID[groupID] {
                 enriched.group = group.tag(forMember: key)
             }
-            enriched.does = Self.doesSummary(transitionsByAnchor[key] ?? [])
+            if affordances { enriched.does = Self.doesSummary(transitionsByAnchor[key] ?? []) }
             if element.isUnlabeled, !anchor.label.isEmpty {
                 enriched.label       = anchor.label
                 enriched.isUnlabeled = false

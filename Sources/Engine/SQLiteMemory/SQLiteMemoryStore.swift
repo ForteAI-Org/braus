@@ -758,6 +758,10 @@ public actor SQLiteMemoryStore {
         let migrated = try await transaction(on: writer, begin: "BEGIN IMMEDIATE", phase: .bootstrap) {
             guard try Self.inspect(writer, expected: expected) == .previous(version) else { return false }
             for text in texts { try writer.execute(text) }
+            // What a text cannot derive, derived here in the same transaction: the anchors' label keys, and
+            // the prefixes schema 4 verified without their parameters' correspondence, checked again.
+            if version < 4 { try SQLiteBrainRows.fillLabelKeys(writer) }
+            if version < 5 { try SQLiteProcedureRows.checkVerifiedPrefixesAgain(writer, at: nowMS) }
             try fault?()
             // A pragma cannot take a bound value; the version is this module's own constant.
             try writer.execute("PRAGMA user_version = \(SQLiteMemorySchema.version)")

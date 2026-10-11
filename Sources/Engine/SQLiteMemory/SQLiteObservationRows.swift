@@ -20,6 +20,7 @@ protocol SQLiteQuerying {
 
 extension SQLiteTransaction: SQLiteQuerying {}
 extension SQLiteSnapshot: SQLiteQuerying {}
+extension SQLiteConnection: SQLiteQuerying {}
 
 /// SQLiteIdentityRows finds or creates the identity rows an event hangs from: the application by
 /// its bundle id and the context by version and locale, with the empty string standing for

@@ -34,7 +34,7 @@ struct SQLiteMemoryStoreTests {
         let url   = try temporaryDatabase()
         let store = try await SQLiteMemoryStore.open(at: url)
         let first = try await store.diagnostics()
-        #expect(first.schemaVersion == 2)
+        #expect(first.schemaVersion == SQLiteMemorySchema.version)
         #expect(first.journalMode == "wal")
         #expect(first.synchronous == 2)
         #expect(first.foreignKeysEnabled)
@@ -55,7 +55,7 @@ struct SQLiteMemoryStoreTests {
 
         let again  = try await SQLiteMemoryStore.open(at: url)
         let second = try await again.diagnostics()
-        #expect(second.schemaVersion == 2)
+        #expect(second.schemaVersion == SQLiteMemorySchema.version)
         #expect(second.journalMode == "wal")
         #expect(!second.bootstrappedNow)
         #expect(try await again.read { snapshot in try SchemaShape(snapshot) } == shape)
@@ -67,7 +67,7 @@ struct SQLiteMemoryStoreTests {
         let names = SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text())
         #expect(names.count == SchemaShape.current.tables)
         #expect(names.first == "brain_apps")
-        #expect(names.last == "memory_origin_brain_contributions")
+        #expect(names.last == "memory_variant_prefix_checks")
         #expect(Set(names).count == SchemaShape.current.tables)
         let first = SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text(of: 1))
         #expect(first.count == 48 && first.last == "memory_experience_uses" && Array(names.prefix(48)) == first)
@@ -132,7 +132,7 @@ struct SQLiteMemoryStoreTests {
         raw.close()
 
         let error = await storeError { _ = try await SQLiteMemoryStore.open(at: url) }
-        #expect(error == .schema(.future(found: 7, supported: 2)))
+        #expect(error == .schema(.future(found: 7, supported: SQLiteMemorySchema.version)))
         let check = try SQLiteConnection(path: url.path)
         #expect(try check.query("PRAGMA user_version") { $0.integer(0) }.first == 7)
         #expect(try check.query(
@@ -198,7 +198,7 @@ struct SQLiteMemoryStoreTests {
         let da = try await a.diagnostics()
         let db = try await b.diagnostics()
         #expect([da.bootstrappedNow, db.bootstrappedNow].filter { $0 }.count == 1)
-        #expect(da.schemaVersion == 2 && db.schemaVersion == 2)
+        #expect(da.schemaVersion == SQLiteMemorySchema.version && db.schemaVersion == SQLiteMemorySchema.version)
         #expect(try await a.read { snapshot in try SchemaShape(snapshot) } == SchemaShape.current)
         await a.close()
         await b.close()

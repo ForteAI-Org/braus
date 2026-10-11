@@ -62,7 +62,7 @@ struct SchemaResourceTests {
         return store
     }
 
-    @Test("the resources ship schema 2: 66 tables, 75 triggers and 41 indexes, the four S1 triggers among them, and no JSON column")
+    @Test("the resources ship schema 5: 91 tables, 135 triggers and 60 indexes, the four S1 triggers among them, and no JSON column")
     func shape() async throws {
         let store = try await fixture()
         #expect(try await store.read { snapshot in try SchemaShape(snapshot) } == SchemaShape.current)

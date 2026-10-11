@@ -10,25 +10,29 @@ import Memory
 
 /// SQLiteMemorySchema is the DDL this module ships and what the bootstrap and the migration need to
 /// know about it: the `user_version` the current schema carries, the text that creates it, the text
-/// of each earlier schema it migrates from, and the tables they create. Schema 2 is the schema 1
-/// resource, unchanged, followed by the schema 2 resource, which only adds: a new archive runs both,
-/// and an archive at the exact shape of schema 1 runs the second one in its migration, so both end at
-/// one shape. The texts carry no `PRAGMA`, `BEGIN` or `COMMIT` of their own; the store owns those
-/// boundaries. Documentation/Engine/MemorySchema.md says what the resources are and how they differ
-/// from the candidate they were copied from; Documentation/Engine/MemoryFacts.md what schema 2 adds.
+/// of each earlier schema it migrates from, and the tables they create. Each schema is the one before
+/// it, unchanged, followed by its own resource, which only adds: a new archive runs every resource in
+/// order, and an archive at the exact shape of an earlier schema runs the resources it lacks in its
+/// migration, so all end at one shape. The texts carry no `PRAGMA`, `BEGIN` or `COMMIT` of their own;
+/// the store owns those boundaries. Documentation/Engine/MemorySchema.md says what the resources are
+/// and how they differ from the candidate they were copied from; Documentation/Engine/MemoryFacts.md
+/// what schema 2 adds; Documentation/Engine/MemoryProcedures.md what schemas 3, 4 and 5 add.
 enum SQLiteMemorySchema {
 
     /// The schema version this build bootstraps and opens. A file at version 0 with no tables is empty
     /// and is bootstrapped; a file at a version of `migrations` is migrated; any other is refused.
-    static let version: Int32 = 2
+    static let version: Int32 = 5
 
     /// The resource of schema 1, the base every later schema adds to.
     static let resourceName      = "brain-living-memory-schema"
     static let resourceExtension = "sql"
 
     /// The resources each migration runs, by the version it migrates from: version 1 to 2 adds the
-    /// tables of schema 2.
-    static let migrations: [Int32: String] = [1: "brain-living-memory-schema-2"]
+    /// tables of schema 2 (D1), version 2 to 3 those of schema 3 (D2), version 3 to 4 those of schema 4
+    /// (D2 after its review), version 4 to 5 those of schema 5 (D2 after its second review). An archive at
+    /// an earlier version runs every one it lacks.
+    static let migrations: [Int32: String] = [1: "brain-living-memory-schema-2", 2: "brain-living-memory-schema-3",
+                                              3: "brain-living-memory-schema-4", 4: "brain-living-memory-schema-5"]
 
     /// The text that creates the current schema in an empty file: every resource, in order.
     static func text() throws -> String {
@@ -115,6 +119,29 @@ enum SQLiteMemorySchema {
     /// differently, as sorted labels; empty when the file is exactly the expected shape.
     static func differences(found: Set<SchemaObject>, expected: Set<SchemaObject>) -> [String] {
         Set(found.symmetricDifference(expected).map(\.label)).sorted()
+    }
+
+    /// What the current schema holds that schema `version` does not, in the order that removes it from
+    /// a file: the triggers first, then the indexes, then the tables, the last created first. Nothing in
+    /// the product goes back to an earlier schema; a test uses this to leave a file exactly at the shape
+    /// an earlier build bootstraps, with the rows the earlier tables hold.
+    static func objectsAdded(since version: Int32) throws -> [SchemaObject] {
+        let earlier = try objects(of: try text(of: version))
+        let current = try text()
+        let added   = try objects(of: current).subtracting(earlier)
+        let tables  = tableNames(in: current)
+        func rank(_ object: SchemaObject) -> Int {
+            switch object.type {
+                case "trigger": 0
+                case "index"  : 1
+                default       : 2
+            }
+        }
+        return added.sorted { a, b in
+            if rank(a) != rank(b) { return rank(a) < rank(b) }
+            if a.type == "table" { return (tables.firstIndex(of: a.name) ?? 0) > (tables.firstIndex(of: b.name) ?? 0) }
+            return a.name < b.name
+        }
     }
 
     /// Every table the text creates, in creation order, read from its `CREATE TABLE` lines.

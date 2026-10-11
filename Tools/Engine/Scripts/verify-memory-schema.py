@@ -3,8 +3,8 @@
 They prove the shape of the schema (constraints, triggers, round trips) on the resources included
 in the module, through Python's sqlite3: not the Swift store, not the Brain's retention, not the
 desktop. Schema 1's checks run first; schema 2's additions then run on that populated file, as the
-migration does, with checks of their own. `make test` runs them; pass other DDL paths (schema 1, then
-schema 2) as arguments to check copies.
+migration does, with checks of their own, and schema 3's after them. `make test` runs them; pass other
+DDL paths (schema 1, then schema 2, then schema 3) as arguments to check copies.
 The library used is Python's, and it says nothing about the one the Swift binary links.
 """
 import sqlite3
@@ -18,6 +18,15 @@ DDL = Path(sys.argv[1]) if len(sys.argv) > 1 else \
 # Schema 2's additions, run after the schema 1 checks on the same file, as a migration runs them.
 DDL2 = Path(sys.argv[2]) if len(sys.argv) > 2 else \
     ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-2.sql"
+# Schema 3's additions (D2), run after schema 2's checks on the same populated file.
+DDL3 = Path(sys.argv[3]) if len(sys.argv) > 3 else \
+    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-3.sql"
+# Schema 4's additions (D2 after its review), run after schema 3's checks on the same populated file.
+DDL4 = Path(sys.argv[4]) if len(sys.argv) > 4 else \
+    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-4.sql"
+# Schema 5's additions (D2 after its second review), run after schema 4's checks on the same populated file.
+DDL5 = Path(sys.argv[5]) if len(sys.argv) > 5 else \
+    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-5.sql"
 db = sqlite3.connect(":memory:")
 # The resource carries no PRAGMA of its own: foreign keys are enabled per connection, as the store does.
 db.executescript("PRAGMA foreign_keys = ON;\n" + DDL.read_text())
@@ -856,9 +865,356 @@ rejects("schema 2: a migration from schema 1 names its copy", lambda: insert("me
 assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 ok("schema 2: gaps, origins and the migration record keep their shapes")
 
+# ================================================================== schema 3 (D2): procedures, parts, qualification, relations
+scenes_before = db.execute("SELECT count(*) FROM brain_scenes WHERE scene_kind <> 'app'").fetchone()[0]
+db.executescript(DDL3.read_text())
+assert db.execute("SELECT count(*) FROM brain_scene_shapes").fetchone()[0] == scenes_before
+assert db.execute("SELECT role_key FROM brain_scene_shapes WHERE scene_id='scene1'").fetchone()[0] == "\x1f".join(sorted(
+    r[0] for r in db.execute("SELECT role FROM brain_scene_roles WHERE scene_id='scene1'")))
+ok("schema 3: the shape of every structural scene the file held is filled from its roles, none for the app scope")
+rejects("schema 3: the app scope has no shape", lambda: insert("brain_scene_shapes", scene_id="app_scope1", app_id=1, role_key=""))
+rejects("schema 3: a shape is immutable", lambda: db.execute("UPDATE brain_scene_shapes SET role_key='x' WHERE scene_id='scene1'"))
+
+insert("memory_step_occurrences", step_occurrence_id="occ_v2", task_occurrence_id="o1", started_at_ms=100, status="completed",
+       assigned_by="mecum-segmentation")
+insert("memory_step_events", step_occurrence_id="occ_v2", event_id="v2_call", position=0, role="action")
+insert("memory_procedure_candidates", candidate_id="c1", task_id="t1", task_occurrence_id="o1", policy_version="app-blocks-1",
+       structure_digest="d1", checkpoint_sequence=1, built_at_ms=100, step_count=1, block_count=1)
+insert("memory_candidate_steps", candidate_id="c1", position=0, step_occurrence_id="occ_v2", call_event_id="v2_call",
+       block_index=0, app_id=1)
+ok("schema 3: a candidate of an attempt with one step, the occurrence of a started operation of that attempt")
+insert("memory_step_occurrences", step_occurrence_id="occ_open", task_occurrence_id="o1", started_at_ms=100, status="in_progress",
+       assigned_by="mecum-segmentation")
+insert("memory_step_events", step_occurrence_id="occ_open", event_id="v2_open", position=0, role="action")
+rejects("schema 3: a step of a call the attempt was never attributed", lambda: insert("memory_candidate_steps", candidate_id="c1",
+        position=1, step_occurrence_id="occ_open", call_event_id="v2_open", block_index=0, app_id=1))
+insert("memory_task_events", task_occurrence_id="o1", event_id="v2_open", position=1, role="action")
+rejects("schema 3: a step that does not follow the last one", lambda: insert("memory_candidate_steps", candidate_id="c1",
+        position=2, step_occurrence_id="occ_open", call_event_id="v2_open", block_index=0, app_id=1))
+rejects("schema 3: a new block on the same application", lambda: insert("memory_candidate_steps", candidate_id="c1",
+        position=1, step_occurrence_id="occ_open", call_event_id="v2_open", block_index=1, app_id=1))
+rejects("schema 3: a step whose occurrence is another call's", lambda: insert("memory_candidate_steps", candidate_id="c1",
+        position=1, step_occurrence_id="occ_v2", call_event_id="v2_open", block_index=0, app_id=1))
+rejects("schema 3: a step whose application is not its call's", lambda: insert("memory_candidate_steps", candidate_id="c1",
+        position=1, step_occurrence_id="occ_open", call_event_id="v2_open", block_index=1, app_id=2))
+event("v3_batch")
+insert("memory_agent_actions", event_id="v3_batch", app_id=1, tool_kind="batch", execution_status="completed", started_at_ms=1,
+       completed_at_ms=2)
+insert("memory_task_events", task_occurrence_id="o1", event_id="v3_batch", position=2, role="action")
+insert("memory_step_occurrences", step_occurrence_id="occ_batch", started_at_ms=1, status="completed")
+insert("memory_step_events", step_occurrence_id="occ_batch", event_id="v3_batch", position=0, role="action")
+rejects("schema 3: a batch is a container, never a step", lambda: insert("memory_candidate_steps", candidate_id="c1", position=1,
+        step_occurrence_id="occ_batch", call_event_id="v3_batch", block_index=0, app_id=1))
+rejects("schema 3: a candidate of no step", lambda: insert("memory_procedure_candidates", candidate_id="c0", task_id="t1",
+        task_occurrence_id="o1", policy_version="p", structure_digest="d0", built_at_ms=1, step_count=0, block_count=0))
+rejects("schema 3: one structure of an attempt is one candidate", lambda: insert("memory_procedure_candidates", candidate_id="c9",
+        task_id="t1", task_occurrence_id="o1", policy_version="app-blocks-1", structure_digest="d1", built_at_ms=1, step_count=1,
+        block_count=1))
+rejects("schema 3: a candidate is immutable", lambda: db.execute("UPDATE memory_procedure_candidates SET built_at_ms=5"))
+rejects("schema 3: a candidate is kept", lambda: db.execute("DELETE FROM memory_candidate_steps"))
+
+insert("memory_procedure_interpretations", interpretation_id="i1", candidate_id="c1", revision=1, contract_version=1,
+       payload_digest="12-abc", source="app", source_stream_id="worker", task_revision=1, attempt_state="ended", recorded_at_ms=101)
+rejects("schema 3: an interpretation revision out of order", lambda: insert("memory_procedure_interpretations", interpretation_id="i3",
+        candidate_id="c1", revision=3, contract_version=1, payload_digest="x", source="app", source_stream_id="worker",
+        task_revision=1, attempt_state="ended", recorded_at_ms=1))
+rejects("schema 3: an unknown attempt state", lambda: insert("memory_procedure_interpretations", interpretation_id="i2",
+        candidate_id="c1", revision=2, contract_version=1, payload_digest="x", source="app", source_stream_id="worker",
+        task_revision=1, attempt_state="paused", recorded_at_ms=1))
+rejects("schema 3: an interpretation is immutable", lambda: db.execute("UPDATE memory_procedure_interpretations SET payload_digest='y'"))
+insert("memory_interpretation_findings", interpretation_id="i1", position=0, finding="use_mismatch", step_position=0,
+       argument_name="text", argument_position=0)
+rejects("schema 3: an unknown finding", lambda: insert("memory_interpretation_findings", interpretation_id="i1", position=1,
+        finding="wrong_intent", step_position=0, argument_name="text", argument_position=0))
+
+insert("memory_routes", route_id="v1", name="Esportare <documento>", status="draft", created_at_ms=101)
+insert("memory_route_steps", step_id="v1s0", route_id="v1", position=0, step_kind="goal", goal_text="Impostare il nome", app_id=1)
+insert("memory_route_parameters", parameter_id="v1p0", route_id="v1", name="nome_output", direction="input", value_type="text",
+       is_required=1)
+insert("memory_step_operations", operation_id="v1op0", route_id="v1", step_id="v1s0", app_id=1, position=0, tool_kind="type_text")
+insert("memory_operation_argument_segments", route_id="v1", operation_id="v1op0", argument_name="text", argument_position=0,
+       argument_index=1, segment_position=0, segment_kind="parameter", parameter_id="v1p0")
+insert("memory_operation_argument_segments", route_id="v1", operation_id="v1op0", argument_name="text", argument_position=0,
+       argument_index=1, segment_position=1, segment_kind="literal", literal_text=".jpg")
+argument("target", "Nome", operation_id="v1op0", route_id="v1", app_id=1)
+ok("schema 3: a definition step of one operation whose text is a template of a parameter and a literal")
+rejects("schema 3: an argument that is a row and a template", lambda: argument("text", "x", operation_id="v1op0", route_id="v1",
+                                                                              app_id=1))
+rejects("schema 3: a template segment of an argument that is a row", lambda: insert("memory_operation_argument_segments",
+        route_id="v1", operation_id="v1op0", argument_name="target", argument_position=0, argument_index=0, segment_position=0,
+        segment_kind="literal", literal_text="x"))
+rejects("schema 3: an empty literal segment", lambda: insert("memory_operation_argument_segments", route_id="v1",
+        operation_id="v1op0", argument_name="text", argument_position=0, argument_index=1, segment_position=2,
+        segment_kind="literal", literal_text=""))
+rejects("schema 3: a parameter segment with a literal", lambda: insert("memory_operation_argument_segments", route_id="v1",
+        operation_id="v1op0", argument_name="text", argument_position=0, argument_index=1, segment_position=2,
+        segment_kind="parameter", parameter_id="v1p0", literal_text="x"))
+
+insert("memory_procedure_versions", route_id="v1", interpretation_id="i1", candidate_id="c1", task_id="t1", task_occurrence_id="o1",
+       contract_version=1, built_at_ms=101)
+rejects("schema 3: a version is immutable", lambda: db.execute("UPDATE memory_procedure_versions SET built_at_ms=1"))
+rejects("schema 3: a variant without its divergence", lambda: (
+    insert("memory_routes", route_id="v9", name="n", status="draft", created_at_ms=1),
+    insert("memory_procedure_interpretations", interpretation_id="i9", candidate_id="c1", revision=2, contract_version=1,
+           payload_digest="z", source="app", source_stream_id="worker", task_revision=1, attempt_state="ended", recorded_at_ms=1),
+    insert("memory_procedure_versions", route_id="v9", interpretation_id="i9", candidate_id="c1", task_id="t1",
+           task_occurrence_id="o1", contract_version=1, variant_of_route_id="v1", built_at_ms=1)))
+rejects("schema 3: a variant diverging past the version it names", lambda: (
+    insert("memory_routes", route_id="v9", name="n", status="draft", created_at_ms=1),
+    insert("memory_procedure_interpretations", interpretation_id="i9", candidate_id="c1", revision=2, contract_version=1,
+           payload_digest="z", source="app", source_stream_id="worker", task_revision=1, attempt_state="ended", recorded_at_ms=1),
+    insert("memory_procedure_versions", route_id="v9", interpretation_id="i9", candidate_id="c1", task_id="t1",
+           task_occurrence_id="o1", contract_version=1, variant_of_route_id="v1", divergence_position=5, built_at_ms=1)))
+
+insert("memory_procedure_parts", part_id="v1/procedure", route_id="v1", part_kind="procedure", first_position=0, last_position=0,
+       app_id=1, label="Esportare <documento>", declared_outcome="completed")
+insert("memory_procedure_parts", part_id="v1/step-0", route_id="v1", part_kind="step", parent_part_id="v1/procedure",
+       first_position=0, last_position=0, step_id="v1s0", app_id=1, declared_outcome="not_declared")
+ok("schema 3: a version's procedure part and its step part, the step unlabelled and kept")
+rejects("schema 3: a procedure without a label", lambda: insert("memory_procedure_parts", part_id="x", route_id="v1",
+        part_kind="procedure", first_position=0, last_position=0, declared_outcome="completed"))
+rejects("schema 3: two procedure parts of one version", lambda: insert("memory_procedure_parts", part_id="x", route_id="v1",
+        part_kind="procedure", first_position=0, last_position=1, label="altro", declared_outcome="completed"))
+rejects("schema 3: a subprocedure inside a step: containment goes to a finer kind only", lambda: insert("memory_procedure_parts",
+        part_id="x", route_id="v1", part_kind="subprocedure", parent_part_id="v1/step-0", first_position=0, last_position=0,
+        declared_outcome="not_declared"))
+rejects("schema 3: a part outside its parent's interval", lambda: insert("memory_procedure_parts", part_id="x", route_id="v1",
+        part_kind="subprocedure", parent_part_id="v1/procedure", first_position=0, last_position=3, declared_outcome="not_declared"))
+rejects("schema 3: a step part of another position than its step's", lambda: (
+    insert("memory_route_steps", step_id="v1s1", route_id="v1", position=1, step_kind="goal", goal_text="g", app_id=1),
+    insert("memory_procedure_parts", part_id="x", route_id="v1", part_kind="step", parent_part_id="v1/procedure",
+           first_position=0, last_position=0, step_id="v1s1", declared_outcome="not_declared")))
+rejects("schema 3: an unknown declared outcome", lambda: insert("memory_procedure_parts", part_id="x", route_id="v1",
+        part_kind="subprocedure", parent_part_id="v1/procedure", first_position=0, last_position=0, declared_outcome="maybe"))
+rejects("schema 3: a part is immutable", lambda: db.execute("UPDATE memory_procedure_parts SET label='x'"))
+rejects("schema 3: a part is kept", lambda: db.execute("DELETE FROM memory_procedure_parts WHERE part_id='v1/step-0'"))
+
+insert("memory_part_contract_items", part_id="v1/step-0", position=0, route_id="v1", item_kind="input", parameter_id="v1p0")
+insert("memory_part_contract_items", part_id="v1/step-0", position=1, route_id="v1", item_kind="application", app_id=1)
+insert("memory_part_contract_items", part_id="v1/step-0", position=2, route_id="v1", item_kind="entry_state", app_id=1)
+insert("memory_part_contract_items", part_id="v1/procedure", position=0, route_id="v1", item_kind="entry_state", app_id=1,
+       scene_id="scene1")
+rejects("schema 3: an input that names no parameter", lambda: insert("memory_part_contract_items", part_id="v1/step-0",
+        position=3, route_id="v1", item_kind="input"))
+rejects("schema 3: an application with a state", lambda: insert("memory_part_contract_items", part_id="v1/procedure",
+        position=1, route_id="v1", item_kind="application", app_id=1, scene_id="scene1"))
+rejects("schema 3: the same input twice in a contract", lambda: insert("memory_part_contract_items", part_id="v1/step-0",
+        position=3, route_id="v1", item_kind="input", parameter_id="v1p0"))
+insert("memory_parameter_details", parameter_id="v1p0", route_id="v1", role="nome del file esportato", value_kind="file",
+       sensitivity="ordinary", produced_by_part_id=None)
+insert("memory_parameter_bindings", parameter_id="v1p0", route_id="v1", task_occurrence_id="o1", content="text",
+       text_value="foto_web", source="request")
+rejects("schema 3: a binding is immutable", lambda: db.execute("UPDATE memory_parameter_bindings SET text_value='x'"))
+rejects("schema 3: a binding's text without content text", lambda: insert("memory_parameter_bindings", parameter_id="v1p0",
+        route_id="v1", task_occurrence_id="o2", content="missing", text_value="x", source="request"))
+db.execute("INSERT INTO memory_route_parameters (parameter_id, route_id, name, direction, value_type, is_required) VALUES ('v1p1', 'v1', 'pin', 'input', 'text', 1)")
+insert("memory_parameter_details", parameter_id="v1p1", route_id="v1", role="codice", value_kind="text", sensitivity="secret")
+rejects("schema 3: a secret parameter keeps no text", lambda: insert("memory_parameter_bindings", parameter_id="v1p1", route_id="v1",
+        task_occurrence_id="o1", content="text", text_value="1234", source="request"))
+insert("memory_parameter_bindings", parameter_id="v1p1", route_id="v1", task_occurrence_id="o1", content="withheld", source="request")
+insert("memory_procedure_step_occurrences", route_id="v1", step_id="v1s0", step_occurrence_id="occ_v2")
+rejects("schema 3: one occurrence for two steps of a version", lambda: insert("memory_procedure_step_occurrences", route_id="v1",
+        step_id="v1s1", step_occurrence_id="occ_v2"))
+ok("schema 3: a part's contract, a parameter's role, its episodic bindings (a secret withheld) and the step's occurrence")
+
+insert("memory_qualification_policies", policy_version="qualification-a-1", status="active", changed_at_ms=100)
+insert("memory_part_qualifications", part_id="v1/step-0", sequence=1, policy_version="qualification-a-1", verdict="refused",
+       evaluated_at_ms=101)
+insert("memory_part_qualification_reasons", part_id="v1/step-0", sequence=1, position=0, reason="missing_label")
+insert("memory_part_qualification_reasons", part_id="v1/step-0", sequence=1, position=1, reason="verification_not_positive",
+       step_position=0, call_event_id="v2_call")
+insert("memory_part_qualifications", part_id="v1/procedure", sequence=1, policy_version="qualification-a-1", verdict="admitted",
+       evaluated_at_ms=101)
+insert("memory_part_qualification_evidence", part_id="v1/procedure", sequence=1, step_position=0, call_event_id="v2_call",
+       verification_event_id="v2_check")
+rejects("schema 3: an admitted part with a reason against it", lambda: insert("memory_part_qualification_reasons",
+        part_id="v1/procedure", sequence=1, position=0, reason="missing_label"))
+rejects("schema 3: an unknown reason", lambda: insert("memory_part_qualification_reasons", part_id="v1/step-0", sequence=1,
+        position=2, reason="looks_wrong"))
+rejects("schema 3: an evaluation out of order", lambda: insert("memory_part_qualifications", part_id="v1/step-0", sequence=3,
+        policy_version="qualification-a-1", verdict="refused", evaluated_at_ms=1))
+rejects("schema 3: evidence that is another call's verification", lambda: insert("memory_part_qualification_evidence",
+        part_id="v1/procedure", sequence=1, step_position=0, call_event_id="v2_y", verification_event_id="v2_check"))
+rejects("schema 3: an evaluation is immutable", lambda: db.execute("UPDATE memory_part_qualifications SET verdict='admitted'"))
+rejects("schema 3: an evaluation is kept", lambda: db.execute("DELETE FROM memory_part_qualifications"))
+rejects("schema 3: a quarantine without its reason", lambda: db.execute(
+        "UPDATE memory_qualification_policies SET status='quarantined' WHERE policy_version='qualification-a-1'"))
+db.execute("UPDATE memory_qualification_policies SET status='quarantined', reason='wrong rule', changed_at_ms=200")
+rejects("schema 3: a policy change back in time", lambda: db.execute("UPDATE memory_qualification_policies SET changed_at_ms=1"))
+insert("memory_part_states", part_id="v1/procedure", sequence=1, state="to_reevaluate", reason="policy quarantined",
+       recorded_at_ms=200, recorded_by="test")
+insert("memory_part_states", part_id="v1/procedure", sequence=2, state="retired", reason="smentita", recorded_at_ms=201,
+       recorded_by="test")
+rejects("schema 3: nothing follows retirement", lambda: insert("memory_part_states", part_id="v1/procedure", sequence=3,
+        state="usable", reason="r", recorded_at_ms=202, recorded_by="test"))
+rejects("schema 3: a state is appended, never changed", lambda: db.execute("UPDATE memory_part_states SET state='usable'"))
+ok("schema 3: a part's evaluations with reasons and evidence, a policy in quarantine, a state history up to retirement")
+
+insert("brain_relations", relation_id="r1", app_id=1, context_id=1, from_scene_id="scene1", element_key="control||AXButton|invia",
+       verb="click", arguments_key="", to_scene_id="scene1", outcome="effect", effect_kind="elementsAppeared",
+       first_seen_ms=100, last_seen_ms=100)
+insert("brain_relations", relation_id="r2", app_id=1, context_id=1, from_scene_id="scene1", element_key="control||AXButton|invia",
+       verb="click", arguments_key="", outcome="effect", effect_kind="windowTitleChanged", first_seen_ms=100, last_seen_ms=100)
+insert("brain_relations", relation_id="r3", app_id=1, from_scene_id="scene1", element_key="control||AXCheckBox|attivo",
+       verb="set_toggle", arguments_key="value=on", to_scene_id="scene1", outcome="already_satisfied", first_seen_ms=100,
+       last_seen_ms=100)
+ok("schema 3: alternatives of one group, a self-loop and a verified no-op as relations")
+rejects("schema 3: one relation twice under two ids", lambda: insert("brain_relations", relation_id="r4", app_id=1, context_id=1,
+        from_scene_id="scene1", element_key="control||AXButton|invia", verb="click", arguments_key="", to_scene_id="scene1",
+        outcome="effect", effect_kind="elementsAppeared", first_seen_ms=1, last_seen_ms=1))
+rejects("schema 3: an effect without its family", lambda: insert("brain_relations", relation_id="r4", app_id=1,
+        from_scene_id="scene1", verb="click", arguments_key="", outcome="effect", first_seen_ms=1, last_seen_ms=1))
+rejects("schema 3: a verb fused under click", lambda: insert("brain_relations", relation_id="r4", app_id=1, from_scene_id="scene1",
+        verb="hover", arguments_key="", outcome="value_set", first_seen_ms=1, last_seen_ms=1))
+rejects("schema 3: a no-op that moves to another state", lambda: insert("brain_relations", relation_id="r4", app_id=1,
+        from_scene_id="scene1", verb="set_toggle", arguments_key="value=on", outcome="already_satisfied", first_seen_ms=1,
+        last_seen_ms=1))
+rejects("schema 3: a relation from the app scope", lambda: insert("brain_relations", relation_id="r4", app_id=1,
+        from_scene_id="app_scope1", verb="click", arguments_key="", outcome="value_set", first_seen_ms=1, last_seen_ms=1))
+rejects("schema 3: a relation's identity is immutable", lambda: db.execute("UPDATE brain_relations SET verb='double_click' WHERE relation_id='r1'"))
+db.execute("UPDATE brain_relations SET last_seen_ms=150 WHERE relation_id='r1'")
+insert("brain_relation_proofs", relation_id="r1", call_event_id="v2_call", relation="supports", verification_event_id="v2_check",
+       policy_version="brain-relations-1", assessed_at_ms=150)
+insert("brain_relation_proofs", relation_id="r2", call_event_id="v2_call", relation="contradicts", verification_event_id="v2_check",
+       policy_version="brain-relations-1", assessed_at_ms=150)
+rejects("schema 3: one call proves a relation once", lambda: insert("brain_relation_proofs", relation_id="r1",
+        call_event_id="v2_call", relation="contradicts", verification_event_id="v2_check", policy_version="p", assessed_at_ms=1))
+rejects("schema 3: a proof by another call's verification", lambda: insert("brain_relation_proofs", relation_id="r3",
+        call_event_id="v2_y", relation="supports", verification_event_id="v2_check", policy_version="p", assessed_at_ms=1))
+rejects("schema 3: a proof is kept", lambda: db.execute("DELETE FROM brain_relation_proofs"))
+insert("brain_relation_applications", call_event_id="v2_call", app_id=1, policy_version="brain-relations-1", outcome="supported",
+       applied_at_ms=150)
+insert("brain_relation_applications", call_event_id="v2_y", app_id=1, policy_version="brain-relations-1", outcome="excluded",
+       reason="no_verification", applied_at_ms=150)
+rejects("schema 3: an exclusion without its reason", lambda: insert("brain_relation_applications", call_event_id="v2_open",
+        policy_version="p", outcome="excluded", applied_at_ms=1))
+rejects("schema 3: what a call taught is immutable", lambda: db.execute("UPDATE brain_relation_applications SET outcome='excluded', reason='no_oracle'"))
+insert("memory_schema_migrations", to_version=3, from_version=2, migrated_at_ms=1, copy_name="memory.sqlite.schema-2-x")
+assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+ok("schema 3: proofs once per call and relation, the register of what each call taught, and the migration record")
+
+# ================================================================== schema 4 (D2 after its review): evaluations, evidence, label keys, prefixes
+# A variant built under schema 3, before prefixes were checked: schema 4's text states it suggested.
+insert("memory_routes", route_id="v8", name="Esportare di nuovo", status="draft", created_at_ms=160)
+insert("memory_procedure_interpretations", interpretation_id="i8", candidate_id="c1", revision=2, contract_version=1,
+       payload_digest="v8", source="app", source_stream_id="worker", task_revision=1, attempt_state="ended", recorded_at_ms=160)
+insert("memory_procedure_versions", route_id="v8", interpretation_id="i8", candidate_id="c1", task_id="t1", task_occurrence_id="o1",
+       contract_version=1, variant_of_route_id="v1", divergence_position=1, built_at_ms=160)
+db.executescript(DDL4.read_text())
+assert db.execute("SELECT status, compared_steps, reason FROM memory_variant_prefixes").fetchall() == \
+    [("suggested", 0, "declared_before_verification")]
+assert db.execute("SELECT count(*) FROM brain_relation_applications").fetchone()[0] == 2
+assert db.execute("SELECT count(*) FROM brain_relation_proofs").fetchone()[0] == 2
+ok("schema 4: runs on the populated schema 3 file; a variant built before states its prefix suggested; schema 3's register is kept")
+
+insert("brain_relation_evaluations", call_event_id="v2_call", sequence=1, app_id=1, policy_version="brain-relations-2",
+       cause="acquisition", outcome="excluded", reason="awaiting_state", recoverable=1, evaluated_at_ms=200)
+insert("brain_relation_evaluations", call_event_id="v2_call", sequence=2, app_id=1, policy_version="brain-relations-2",
+       cause="evidence", outcome="supported", recoverable=0, evaluated_at_ms=210)
+insert("brain_relation_evidence", relation_id="r1", call_event_id="v2_call", sequence=2, relation="supports",
+       verification_event_id="v2_check", policy_version="brain-relations-2", assessed_at_ms=210)
+insert("brain_relation_evaluations", call_event_id="v2_y", sequence=1, app_id=1, policy_version="brain-relations-2",
+       cause="recovery", outcome="excluded", reason="nothing_to_contradict", recoverable=1, group_key="group-x",
+       expected_effect_kind="menuOpened", evaluated_at_ms=200)
+ok("schema 4: a call waiting for its state, then supporting; a failure waiting for a relation of its group")
+rejects("schema 4: an evaluation out of order", lambda: insert("brain_relation_evaluations", call_event_id="v2_call", sequence=4,
+        app_id=1, policy_version="p", cause="policy", outcome="supported", recoverable=0, evaluated_at_ms=1))
+rejects("schema 4: an evaluation is immutable", lambda: db.execute("UPDATE brain_relation_evaluations SET outcome='supported'"))
+rejects("schema 4: an evaluation is kept", lambda: db.execute("DELETE FROM brain_relation_evaluations"))
+rejects("schema 4: an exclusion without its reason", lambda: insert("brain_relation_evaluations", call_event_id="v2_open",
+        sequence=1, policy_version="p", cause="recovery", outcome="excluded", recoverable=0, evaluated_at_ms=1))
+rejects("schema 4: a support that waits for evidence", lambda: insert("brain_relation_evaluations", call_event_id="v2_call",
+        sequence=3, app_id=1, policy_version="p", cause="policy", outcome="supported", recoverable=1, evaluated_at_ms=1))
+rejects("schema 4: a group key without a failure waiting for its group", lambda: insert("brain_relation_evaluations",
+        call_event_id="v2_call", sequence=3, app_id=1, policy_version="p", cause="policy", outcome="excluded",
+        reason="no_oracle", recoverable=0, group_key="g", evaluated_at_ms=1))
+rejects("schema 4: an unknown cause", lambda: insert("brain_relation_evaluations", call_event_id="v2_call", sequence=3, app_id=1,
+        policy_version="p", cause="guess", outcome="supported", recoverable=0, evaluated_at_ms=1))
+rejects("schema 4: an evaluation of another application than its call's", lambda: insert("brain_relation_evaluations",
+        call_event_id="v2_call", sequence=3, app_id=2, policy_version="p", cause="policy", outcome="supported", recoverable=0,
+        evaluated_at_ms=1))
+rejects("schema 4: evidence of an evaluation that excluded", lambda: insert("brain_relation_evidence", relation_id="r1",
+        call_event_id="v2_call", sequence=1, relation="supports", verification_event_id="v2_check", policy_version="p",
+        assessed_at_ms=1))
+rejects("schema 4: a contradiction from an evaluation that supported", lambda: insert("brain_relation_evidence", relation_id="r2",
+        call_event_id="v2_call", sequence=2, relation="contradicts", verification_event_id="v2_check", policy_version="p",
+        assessed_at_ms=1))
+rejects("schema 4: evidence of an evaluation that does not exist", lambda: insert("brain_relation_evidence", relation_id="r1",
+        call_event_id="v2_call", sequence=7, relation="supports", verification_event_id="v2_check", policy_version="p",
+        assessed_at_ms=1))
+rejects("schema 4: evidence by another call's verification", lambda: insert("brain_relation_evidence", relation_id="r3",
+        call_event_id="v2_y", sequence=1, relation="supports", verification_event_id="v2_check", policy_version="p",
+        assessed_at_ms=1))
+rejects("schema 4: evidence is immutable", lambda: db.execute("UPDATE brain_relation_evidence SET relation='contradicts'"))
+rejects("schema 4: evidence is kept", lambda: db.execute("DELETE FROM brain_relation_evidence"))
+
+insert("brain_anchor_label_keys", anchor_id="a2", app_id=1, label_key="invia")
+ok("schema 4: a label key of an anchor")
+rejects("schema 4: a label key of another application than its anchor's", lambda: insert("brain_anchor_label_keys",
+        anchor_id="a2", app_id=2, label_key="x"))
+rejects("schema 4: an empty label key", lambda: insert("brain_anchor_label_keys", anchor_id="a2", app_id=1, label_key=""))
+db.execute("DELETE FROM brain_anchor_label_keys WHERE anchor_id='a2' AND label_key='invia'")
+ok("schema 4: a label key is derived and rewritten with its anchor")
+
+insert("memory_routes", route_id="v7", name="Esportare ancora", status="draft", created_at_ms=170)
+insert("memory_procedure_interpretations", interpretation_id="i7", candidate_id="c1", revision=3, contract_version=1,
+       payload_digest="v7", source="app", source_stream_id="worker", task_revision=1, attempt_state="ended", recorded_at_ms=170)
+insert("memory_procedure_versions", route_id="v7", interpretation_id="i7", candidate_id="c1", task_id="t1", task_occurrence_id="o1",
+       contract_version=1, variant_of_route_id="v1", divergence_position=1, built_at_ms=170)
+rejects("schema 4: a verified prefix with a reason", lambda: insert("memory_variant_prefixes", route_id="v7", status="verified",
+        compared_steps=1, reason="withheld_literal", checked_at_ms=170))
+rejects("schema 4: a prefix past the divergence", lambda: insert("memory_variant_prefixes", route_id="v7", status="verified",
+        compared_steps=2, checked_at_ms=170))
+rejects("schema 4: a prefix of a version that varies none", lambda: insert("memory_variant_prefixes", route_id="v1",
+        status="verified", compared_steps=0, checked_at_ms=170))
+insert("memory_variant_prefixes", route_id="v7", status="verified", compared_steps=1, checked_at_ms=170)
+rejects("schema 4: one prefix per variant", lambda: insert("memory_variant_prefixes", route_id="v7", status="suggested",
+        compared_steps=1, reason="unreadable_step", checked_at_ms=171))
+rejects("schema 4: a prefix check is immutable", lambda: db.execute("UPDATE memory_variant_prefixes SET status='suggested'"))
+rejects("schema 4: a prefix check is kept", lambda: db.execute("DELETE FROM memory_variant_prefixes"))
+insert("memory_schema_migrations", to_version=4, from_version=3, migrated_at_ms=2, copy_name="memory.sqlite.schema-3-x")
+assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+ok("schema 4: a verified prefix and the migration record")
+
+# ================================================================== schema 5 (D2 after its second review): prefix checks
+# v8's prefix is suggested (schema 4's text stated it), v7's verified by schema 4's check: the text copies the first,
+# and leaves the second to the store, which checks it again with the parameters' correspondence.
+db.executescript(DDL5.read_text())
+assert db.execute("SELECT route_id, status, compared_steps, reason FROM memory_variant_prefix_checks").fetchall() == \
+    [("v8", "suggested", 0, "declared_before_verification")]
+assert db.execute("SELECT route_id, status FROM memory_variant_prefixes ORDER BY route_id").fetchall() == \
+    [("v7", "verified"), ("v8", "suggested")]
+ok("schema 5: runs on the populated schema 4 file; copies the suggested prefixes, keeps schema 4's rows as written")
+insert("memory_variant_prefix_checks", route_id="v7", status="suggested", compared_steps=1, reason="parameter_correspondence",
+       checked_at_ms=180)
+ok("schema 5: a prefix whose parameters do not correspond is suggested, and says why")
+rejects("schema 5: one check per variant", lambda: insert("memory_variant_prefix_checks", route_id="v7", status="verified",
+        compared_steps=1, checked_at_ms=181))
+rejects("schema 5: a prefix check is immutable", lambda: db.execute("UPDATE memory_variant_prefix_checks SET status='verified', reason=NULL"))
+rejects("schema 5: a prefix check is kept", lambda: db.execute("DELETE FROM memory_variant_prefix_checks"))
+rejects("schema 5: a prefix of a version that varies none", lambda: insert("memory_variant_prefix_checks", route_id="v1",
+        status="verified", compared_steps=0, checked_at_ms=181))
+insert("memory_routes", route_id="v6", name="Esportare in due", status="draft", created_at_ms=190)
+insert("memory_procedure_interpretations", interpretation_id="i6", candidate_id="c1", revision=4, contract_version=1,
+       payload_digest="v6", source="app", source_stream_id="worker", task_revision=1, attempt_state="ended", recorded_at_ms=190)
+insert("memory_procedure_versions", route_id="v6", interpretation_id="i6", candidate_id="c1", task_id="t1", task_occurrence_id="o1",
+       contract_version=1, variant_of_route_id="v1", divergence_position=1, built_at_ms=190)
+rejects("schema 5: a verified prefix with a reason", lambda: insert("memory_variant_prefix_checks", route_id="v6",
+        status="verified", compared_steps=1, reason="parameter_correspondence", checked_at_ms=190))
+rejects("schema 5: a suggested prefix without its reason", lambda: insert("memory_variant_prefix_checks", route_id="v6",
+        status="suggested", compared_steps=1, checked_at_ms=190))
+rejects("schema 5: a reason no check gives", lambda: insert("memory_variant_prefix_checks", route_id="v6", status="suggested",
+        compared_steps=1, reason="same_label", checked_at_ms=190))
+rejects("schema 5: a prefix past the divergence", lambda: insert("memory_variant_prefix_checks", route_id="v6",
+        status="verified", compared_steps=2, checked_at_ms=190))
+insert("memory_variant_prefix_checks", route_id="v6", status="verified", compared_steps=1, checked_at_ms=190)
+insert("memory_schema_migrations", to_version=5, from_version=4, migrated_at_ms=3, copy_name="memory.sqlite.schema-4-x")
+assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+ok("schema 5: a verified prefix and the migration record")
+
 # ================================================================== integrity, file reopen
 tables = db.execute("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()
-assert len(tables) == 66, len(tables)
+assert len(tables) == 91, len(tables)
 triggers = db.execute("SELECT count(*) FROM sqlite_schema WHERE type='trigger'").fetchone()[0]
 indexes = db.execute("SELECT count(*) FROM sqlite_schema WHERE type='index' AND sql IS NOT NULL").fetchone()[0]
 for (name,) in tables:
@@ -866,7 +1222,7 @@ for (name,) in tables:
     assert all("json" not in column[1].lower() for column in db.execute(f"PRAGMA table_info({name})"))
 assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 assert db.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
-ok(f"66 tables, {triggers} triggers, {indexes} explicit indexes, all foreign keys prepared, no JSON columns, integrity checks")
+ok(f"91 tables, {triggers} triggers, {indexes} explicit indexes, all foreign keys prepared, no JSON columns, integrity checks")
 
 db.commit()
 with tempfile.TemporaryDirectory(prefix="mecum-ddl-v5-") as folder:
@@ -892,6 +1248,6 @@ ok("orders, app scope, triggers, retired identities and evidence persist after f
 
 rejected = sum(1 for p in passed if p.startswith("rejects: "))
 print(f"PASS: {len(passed)} DDL checks ({rejected} negative) on SQLite {LIB[0]} [{LIB[1]}] via Python {sys.version.split()[0]} sqlite3 module {sqlite3.sqlite_version}")
-print("66 tables (schema 2); triggers:", triggers, "; explicit indexes:", indexes)
+print("91 tables (schema 5); triggers:", triggers, "; explicit indexes:", indexes)
 for p in passed:
     print(" -", p)

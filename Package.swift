@@ -362,7 +362,9 @@ let package = Package(
         // MemoryService composes it.
         engine("SQLiteMemory", ["Memory"], settings: pure,
                resources: [.copy("Resources/brain-living-memory-schema.sql"),
-                           .copy("Resources/brain-living-memory-schema-2.sql")]),
+                           .copy("Resources/brain-living-memory-schema-2.sql"),
+                           .copy("Resources/brain-living-memory-schema-3.sql"), .copy("Resources/brain-living-memory-schema-4.sql"),
+                           .copy("Resources/brain-living-memory-schema-5.sql")]),
 
         // `SceneProviding` for a window on the real screen: census, capture, pipeline.
         engine("LiveScenes", ["EngineCore", "PerceptionCore", "Perception", "ScreenCapture"], settings: pure),

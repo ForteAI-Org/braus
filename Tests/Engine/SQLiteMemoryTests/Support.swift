@@ -53,9 +53,28 @@ struct SchemaShape: Equatable, Sendable {
         self.init(tables: byType["table"] ?? 0, triggers: byType["trigger"] ?? 0, indexes: byType["index"] ?? 0)
     }
 
-    /// Schema 2, the one this build bootstraps and opens: schema 1's 48 tables, 48 triggers and 31
-    /// indexes, and the 18 tables, 27 triggers and 10 indexes schema 2 adds.
-    static let current = SchemaShape(tables: 66, triggers: 75, indexes: 41)
+    /// Schema 5, the one this build bootstraps and opens: schema 1's 48 tables, 48 triggers and 31
+    /// indexes, the 18 tables, 27 triggers and 10 indexes schema 2 adds, the 20 tables, 47 triggers and
+    /// 11 indexes schema 3 adds (one of its triggers on an earlier table), the 4 tables, 10 triggers and 8
+    /// indexes schema 4 adds, and the table and 3 triggers schema 5 adds.
+    static let current = SchemaShape(tables: 91, triggers: 135, indexes: 60)
+
+    /// Leaves a file of this build at an earlier schema: every trigger, index and table added since is
+    /// dropped, in that order, and the version set back. The earlier tables and their rows stay as
+    /// written: the shape an earlier build bootstraps, holding facts.
+    static func downgrade(_ raw: SQLiteConnection, to version: Int32) throws {
+        for object in try SQLiteMemorySchema.objectsAdded(since: version) {
+            try raw.execute("DROP \(object.type.uppercased()) \(object.name)")
+        }
+        if version >= 2 {
+            // The record an earlier build bootstrapping the file would have left, and none of the later ones.
+            try raw.execute("DELETE FROM memory_schema_migrations WHERE to_version > \(version)")
+            try raw.execute(
+                "INSERT OR IGNORE INTO memory_schema_migrations (to_version, from_version, migrated_at_ms) VALUES (\(version), 0, 0)"
+            )
+        }
+        try raw.execute("PRAGMA user_version = \(version)")
+    }
 }
 
 /// One `memory_events` row as the idempotency tests write and read it: the identity is the

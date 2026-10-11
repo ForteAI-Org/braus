@@ -72,12 +72,13 @@ struct UnificationTests {
         try downgrade(directory.appendingPathComponent("memory.sqlite"))
     }
 
-    /// Leaves a file of this build at schema 1: the tables schema 2 added are dropped, the version set back.
+    /// Leaves a file of this build at schema 1: what the later schemas added is dropped, in the order
+    /// that removes it, and the version set back.
     static func downgrade(_ url: URL) throws {
         let raw = try SQLiteConnection(path: url.path)
         defer { raw.close() }
-        for table in SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.migrationText(from: 1)).reversed() {
-            try raw.execute("DROP TABLE \(table)")
+        for object in try SQLiteMemorySchema.objectsAdded(since: 1) {
+            try raw.execute("DROP \(object.type.uppercased()) \(object.name)")
         }
         try raw.execute("PRAGMA user_version = 1")
         _ = try raw.query("PRAGMA wal_checkpoint(TRUNCATE)") { $0.integer(0) }

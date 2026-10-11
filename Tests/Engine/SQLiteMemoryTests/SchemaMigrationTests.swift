@@ -11,10 +11,10 @@ import Memory
 @testable import SQLiteMemory
 import Testing
 
-/// SchemaMigrationTests prove the move from schema 1 to schema 2 on real files: an archive of schema 1
-/// with facts in it migrates on a producer's open, after a verified copy, keeping every row; a reader
-/// never migrates; a migration that fails leaves schema 1 as it was; two openers migrate once.
-@Suite("Migrating an archive of schema 1 to schema 2")
+/// SchemaMigrationTests prove the move from schema 1 to the current schema on real files: an archive of
+/// schema 1 with facts in it migrates on a producer's open, after a verified copy, keeping every row; a
+/// reader never migrates; a migration that fails leaves schema 1 as it was; two openers migrate once.
+@Suite("Migrating an archive of schema 1 to the current schema")
 struct SchemaMigrationTests {
 
     /// The tables of schema 1, whose rows a migration must keep.
@@ -22,9 +22,9 @@ struct SchemaMigrationTests {
         SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text(of: 1))
     }
 
-    /// An archive of schema 1 holding facts: written through this build's repositories, then the
-    /// tables schema 2 added are dropped and the version set back, which leaves exactly the shape a
-    /// schema 1 build bootstraps (no table of schema 1 is altered by schema 2).
+    /// An archive of schema 1 holding facts: written through this build's repositories, then what the
+    /// later schemas added is dropped and the version set back, which leaves exactly the shape a schema
+    /// 1 build bootstraps (no table of schema 1 is altered by them).
     static func populatedVersion1() async throws -> URL {
         let memory = try await AgentCallFixtures.open()
         let call = try AgentCallFixtures.call("a1", .act(target: "Save", verb: .click, value: nil, section: nil))
@@ -41,14 +41,11 @@ struct SchemaMigrationTests {
         return memory.url
     }
 
-    /// Drops the tables schema 2 added and sets version 1: their indexes and triggers go with them.
+    /// Drops what schema 2 and 3 added and sets version 1.
     static func downgrade(_ url: URL) throws {
         let raw = try SQLiteConnection(path: url.path)
         defer { raw.close() }
-        for table in SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.migrationText(from: 1)).reversed() {
-            try raw.execute("DROP TABLE \(table)")
-        }
-        try raw.execute("PRAGMA user_version = 1")
+        try SchemaShape.downgrade(raw, to: 1)
     }
 
     static func counts(_ tables: [String], at url: URL) throws -> [String: Int64] {
@@ -69,15 +66,16 @@ struct SchemaMigrationTests {
         let store = try await SQLiteMemoryStore.open(at: url)
         let diagnostics = try await store.diagnostics()
         let migration = try #require(diagnostics.migration)
-        #expect(migration.fromVersion == 1 && migration.toVersion == 2)
-        #expect(diagnostics.schemaVersion == 2 && !diagnostics.bootstrappedNow)
+        #expect(migration.fromVersion == 1 && migration.toVersion == SQLiteMemorySchema.version)
+        #expect(diagnostics.schemaVersion == SQLiteMemorySchema.version && !diagnostics.bootstrappedNow)
         #expect(try await store.read { try SchemaShape($0) } == SchemaShape.current)
         let recorded = try await store.read { snapshot in
             try snapshot.query("SELECT to_version, from_version, copy_name FROM memory_schema_migrations") {
                 ($0.integer(0) ?? 0, $0.integer(1) ?? 0, try $0.text(2) ?? "")
             }
         }
-        #expect(recorded.count == 1 && recorded[0].0 == 2 && recorded[0].1 == 1 && recorded[0].2 == migration.copyName)
+        #expect(recorded.count == 1 && recorded[0].0 == Int64(SQLiteMemorySchema.version) && recorded[0].1 == 1
+                && recorded[0].2 == migration.copyName)
         let call = try #require(try await SQLiteAgentCallRepository(store: store).call("a1"))
         #expect(call.progress.status == .completed)
         await store.close()
@@ -105,7 +103,7 @@ struct SchemaMigrationTests {
         let before = try Self.counts(try Self.version1Tables(), at: url)
         let store  = SQLiteMemoryStore(url: url)
         let error  = await storeError { try await store.open(.existingArchive) }
-        #expect(error == .schema(.migrationRequired(found: 1, supported: 2)))
+        #expect(error == .schema(.migrationRequired(found: 1, supported: SQLiteMemorySchema.version)))
         #expect(try rawCount("PRAGMA user_version", at: url) == 1)
         #expect(try Self.counts(try Self.version1Tables(), at: url) == before)
         #expect(try strayFiles(beside: url).allSatisfy { !$0.contains(".schema-1-") }, "no copy either")
@@ -122,7 +120,7 @@ struct SchemaMigrationTests {
         await #expect(throws: (any Error).self) { try await store.open() }
         #expect(try rawCount("PRAGMA user_version", at: url) == 1)
         #expect(SQLiteMemoryInspection.inspect(url).shape == .migratable(from: 1),
-                "exactly schema 1, nothing of schema 2 left")
+                "exactly schema 1, nothing of the later schemas left")
         #expect(try Self.counts(tables, at: url) == before)
         #expect(try strayFiles(beside: url).filter { $0.contains(".schema-1-") && !$0.hasSuffix(".lock") }.count == 1,
                 "the verified copy stays")
@@ -134,7 +132,7 @@ struct SchemaMigrationTests {
         #expect(try Self.counts(tables, at: url) == before)
     }
 
-    @Test("two opens of one archive of schema 1 at once migrate it once; the second finds schema 2 and keeps no copy of its own")
+    @Test("two opens of one archive of schema 1 at once migrate it once; the second finds the current schema and keeps no copy of its own")
     func twoOpenersMigrateOnce() async throws {
         let url = try await Self.populatedVersion1()
         async let first  = SQLiteMemoryStore.open(at: url)
@@ -150,7 +148,7 @@ struct SchemaMigrationTests {
         #expect(try rawCount("SELECT count(*) FROM memory_schema_migrations", at: url) == 1)
     }
 
-    @Test("a new archive records its bootstrap at schema 2 from nothing, with no copy")
+    @Test("a new archive records its bootstrap at the current schema from nothing, with no copy")
     func bootstrapRecorded() async throws {
         let url   = try temporaryDatabase()
         let store = try await SQLiteMemoryStore.open(at: url)
@@ -160,7 +158,7 @@ struct SchemaMigrationTests {
                 ($0.integer(0) ?? 0, $0.integer(1) ?? 0, $0.integer(2) ?? 0)
             }
         }
-        #expect(row.count == 1 && row[0] == (2, 0, 1))
+        #expect(row.count == 1 && row[0] == (Int64(SQLiteMemorySchema.version), 0, 1))
         await store.close()
     }
 

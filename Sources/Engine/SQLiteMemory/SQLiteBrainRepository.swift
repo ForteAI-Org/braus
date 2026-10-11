@@ -53,6 +53,13 @@ public struct SQLiteBrainRepository: BrainStoring {
         }
     }
 
+    public func projection(of bundleID: String, for detections: [BrainDetection]) async throws -> UIBrain? {
+        try await store.read { snapshot in
+            guard let appID = try SQLiteIdentityRows.appID(snapshot, bundleID: bundleID) else { return nil }
+            return try SQLiteBrainRows.slice(snapshot, appID: appID, detections: detections)
+        }
+    }
+
     public func ingest(
         _ detections: [BrainDetection],
         into bundleID: String,

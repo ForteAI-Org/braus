@@ -183,6 +183,57 @@ public enum SQLiteMemoryInspection {
         }
     }
 
+    /// TaskReading is what a read of one task by its id found.
+    public enum TaskReading: Sendable {
+        /// The task and everything the procedures and the Brain hold of it (`ProcedureInspection`).
+        case found(ProcedureInspection)
+        /// The archive is current and holds no task with that id.
+        case notFound
+        /// Nothing was read, and why: the archive is missing, not current, held by a recovery or busy.
+        case unavailable(String)
+    }
+
+    /// Reads one task by its id as `inspect` reads the file: read only, under the shared presence lock,
+    /// in one read transaction, and only from an archive of exactly this build's shape. It creates,
+    /// migrates and recovers nothing, so an archive of an earlier schema is read by Mecum's next open
+    /// first.
+    public static func task(_ taskID: String, in url: URL) -> TaskReading {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: url.path) else { return .unavailable("no archive at \(url.path)") }
+        let presence: SQLiteMemoryPresence
+        do {
+            guard let taken = try SQLiteMemoryPresence.take(.shared, of: url) else {
+                return .unavailable("a recovery holds the archive; nothing was read")
+            }
+            presence = taken
+        } catch {
+            return .unavailable("the archive's presence lock could not be taken: \(error)")
+        }
+        defer { presence.release() }
+        if let pending = SQLiteMemoryRecovery.pending(of: url) { return .unavailable(pending) }
+        for attempt in 1...busyAttempts {
+            do {
+                let connection = try SQLiteConnection(path: url.path, readOnly: true, mayCreate: false)
+                defer { connection.close() }
+                let expected = try SQLiteMemoryStore.Expected()
+                try connection.execute("BEGIN")
+                defer { _ = try? connection.execute("COMMIT") }
+                guard case .current = try SQLiteMemoryStore.inspect(connection, expected: expected) else {
+                    return .unavailable("the archive is not of schema \(supportedVersion); `mecum memory --status` says what it is")
+                }
+                guard let found = try SQLiteProcedureRows.inspection(connection, taskID: taskID) else { return .notFound }
+                return .found(found)
+            } catch let failure as SQLiteConnection.Failure where failure.isBusy && attempt < busyAttempts {
+                usleep(busyPauseMicroseconds)
+            } catch MemoryStoreError.schema(let mismatch) {
+                return .unavailable("this build refuses the archive: \(mismatch)")
+            } catch {
+                return .unavailable("\(error)")
+            }
+        }
+        return .unavailable("the library answered busy \(busyAttempts) times; nothing was read")
+    }
+
     /// Whether the file's header says it is in WAL mode: read and write versions 2, bytes 18 and 19.
     private static func isWriteAheadLogged(_ url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }

@@ -65,7 +65,9 @@ package enum SQLiteArchiveTransfer {
         "memory_input_events", "memory_action_correlations", "memory_verifications", "memory_task_occurrences",
         "memory_task_events", "memory_task_labels", "memory_routes", "memory_step_occurrences", "memory_experiences",
         "brain_menu_commands", "memory_tasks", "memory_call_effects", "memory_value_redactions",
-        "memory_call_recording_gaps", "memory_origin_brain_contributions",
+        "memory_call_recording_gaps", "memory_origin_brain_contributions", "memory_procedure_candidates",
+        "brain_relations", "brain_relation_applications", "brain_relation_evaluations", "memory_variant_prefixes",
+        "memory_variant_prefix_checks",
     ]
 
     /// The statuses an origin keeps once its transfer ended: it is not offered again unless its archive
