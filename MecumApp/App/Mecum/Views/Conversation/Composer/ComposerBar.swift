@@ -18,12 +18,11 @@ import SwiftUI
 /// the bar's height as its bottom inset, so the last message scrolls clear of it.
 ///
 /// The caller may put one accessory in the row, before the buttons: the
-/// conversation puts the worker's model and effort there. It may also put a
-/// view outside the pill, before it, which sits on the pill's bottom line:
-/// the conversation's context ring. And it may join strips to the pill's top,
-/// on the pill's own surface, such as the message a reply quotes; Escape in the
-/// field can take it away (`onEscape(_:)`). A strip comes and goes as a bubble
-/// enters (`stripTransition`, `stripAnimation`), and the pill grows with it.
+/// conversation puts the worker's model and effort there. It may also join
+/// strips to the pill's top, on the pill's own surface, such as the message a
+/// reply quotes; Escape in the field can take it away (`onEscape(_:)`). A strip
+/// comes and goes as a bubble enters (`stripTransition`, `stripAnimation`), and
+/// the pill grows with it.
 /// A composer that queues (`queuesWhileAnswering(_:)`) hands the draft to
 /// `send` during a turn too, while the circle stays Stop. There is no Add
 /// context or microphone: nothing supplies attachments or voice yet, and a
@@ -62,9 +61,6 @@ struct ComposerBar: View {
 
     /// What sits in the row before the buttons, set with `accessory(_:)`.
     private var accessoryView: AnyView?
-
-    /// What sits outside the pill, before it, set with `leading(_:)`.
-    private var leadingView: AnyView?
 
     /// What sits joined above the pill, on its surface, set with `strip(_:)`.
     private var stripView: AnyView?
@@ -141,42 +137,34 @@ struct ComposerBar: View {
     }
 
     var body: some View {
-        // No spacing here: an absent leading view must leave no gap, so it brings its own.
-        HStack(
-            alignment: .bottom,
-            spacing  : 0
-        ) {
-            leadingView
+        // One surface under the strips and the pill, so they share an outline, a material and a shadow.
+        VStack(spacing: 0) {
+            stripView
 
-            // One surface under the strips and the pill, so they share an outline, a material and a shadow.
-            VStack(spacing: 0) {
-                stripView
-
-                HStack(alignment: .bottom, spacing: 8) {
-                    ComposerField(
-                        text        : $draft,
-                        placeholder : placeholder,
-                        onSubmit    : canSend || canQueue ? send : nil,
-                        returnSends : returnSends,
-                        onEscape    : escape,
-                        onPopupKey  : popupKeyHandler,
-                        focusRequest: focusRequest
-                    )
-                    .padding(
-                        .vertical,
-                        2
-                    )
-                    accessoryView
-                    actions
-                }
-                .padding(.leading, 14)
-                .padding([.vertical, .trailing], Self.padding)
+            HStack(alignment: .bottom, spacing: 8) {
+                ComposerField(
+                    text        : $draft,
+                    placeholder : placeholder,
+                    onSubmit    : canSend || canQueue ? send : nil,
+                    returnSends : returnSends,
+                    onEscape    : escape,
+                    onPopupKey  : popupKeyHandler,
+                    focusRequest: focusRequest
+                )
+                .padding(
+                    .vertical,
+                    2
+                )
+                accessoryView
+                actions
             }
-            .modifier(ComposerSurface(
-                shape: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous),
-                kind : kind
-            ))
+            .padding(.leading, 14)
+            .padding([.vertical, .trailing], Self.padding)
         }
+        .modifier(ComposerSurface(
+            shape: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous),
+            kind : kind
+        ))
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
     }
@@ -192,14 +180,6 @@ struct ComposerBar: View {
     func accessory(@ViewBuilder _ content: () -> some View) -> ComposerBar {
         var bar = self
         bar.accessoryView = AnyView(content())
-        return bar
-    }
-
-    /// The bar with `content` outside the pill, before it, on its bottom line. The content
-    /// brings its own gap to the pill, so a leading view that is absent leaves none.
-    func leading(@ViewBuilder _ content: () -> some View) -> ComposerBar {
-        var bar = self
-        bar.leadingView = AnyView(content())
         return bar
     }
 
@@ -253,9 +233,6 @@ struct ComposerBar: View {
         bar.focusRequest = request
         return bar
     }
-
-    /// The pill's height with one line of text: the circle and the padding around it.
-    static var restingHeight: CGFloat { circleSide + 2 * padding }
 
     private var isGlass: Bool {
         guard #available(macOS 26, *) else { return false }

@@ -21,6 +21,10 @@ nonisolated enum ShellChrome {
     /// A control that belongs to the window rather than to a worker. There is
     /// no sidebar toggle: the sidebar turns compact and is never hidden.
     enum ToolbarControl: Sendable, Hashable, CaseIterable {
+        /// How full the worker's context is, before the counter in its capsule, while the worker's
+        /// conversation is open and its context has a known window.
+        case contextRing
+
         /// The new tokens the worker's turns used, shown once it has recorded one.
         case tokenCounter
 
@@ -39,10 +43,12 @@ nonisolated enum ShellChrome {
     /// The window's title when no worker is selected: the app's scene name.
     static let untitled = "Mecum"
 
-    /// Everything the toolbar holds, in order. The token counter is a group of
-    /// its own, apart from the two toggles. Worker actions live with the
-    /// worker (the composer, the menu bar, the row's context menu), not here.
+    /// Everything the toolbar holds, in order. The context ring and the token
+    /// counter share one capsule, apart from the two toggles; the ring is there only
+    /// while the conversation is open and the context has a known window. Worker
+    /// actions live with the worker (the composer, the menu bar, the row's context menu), not here.
     static let toolbar: [ToolbarControl] = [
+        .contextRing,
         .tokenCounter,
         .screenToggle,
         .inspectorToggle,

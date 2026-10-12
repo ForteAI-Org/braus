@@ -206,10 +206,11 @@ struct TeamShellView: View {
     // MARK: Toolbar
 
     /// The window's own controls, `ShellChrome.toolbar`: the worker's header at
-    /// the leading edge; at the trailing edge the token counter, once the worker
-    /// has recorded a turn, in a group of its own, and the screen and inspector
-    /// toggles together. The connections are at the foot of the sidebar, and Release the computer is
-    /// in the composer beside Send and in the worker's commands.
+    /// the leading edge; at the trailing edge the token counter, once the worker has recorded a
+    /// turn, in a capsule of its own with the context ring before it while the conversation is
+    /// open and the context's window is known, and the screen and inspector toggles together.
+    /// The connections are at the foot of the sidebar, and Release the computer is in the
+    /// composer beside Send and in the worker's commands.
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         // The worker's name leads the conversation's side of the bar, in place of a title,
@@ -230,12 +231,34 @@ struct TeamShellView: View {
         if let worker = team.selectedWorker,
            let usage  = team.usage[worker.id],
            UsageWording.counter(of: usage) != nil {
+            // One item, so macOS 26 draws the ring and the counter in one glass capsule: two items,
+            // or a ToolbarItemGroup, get a capsule each. Each button anchors its own popover.
             ToolbarItem {
-                TokenCounterButton(
-                    worker         : worker,
-                    usage          : usage,
-                    isShowingDetail: $team.showsUsage
-                )
+                HStack(spacing: 0) {
+                    if team.conversation != nil,
+                       let context = UsageWording.ringContext(of: usage) {
+                        ConversationContextButton(
+                            context        : context,
+                            worker         : worker.name,
+                            isCompacting   : team.isCompacting(worker.id),
+                            waitReason     : team.isAnswering(worker.id)
+                                ? UsageWording.actionsWait(
+                                    worker      : worker.name,
+                                    isCompacting: team.isCompacting(worker.id)
+                                )
+                                : nil,
+                            compact        : { team.compactContext(of: worker.id) },
+                            startFresh     : { Task { await team.startFreshContext(of: worker.id) } },
+                            isShowingDetail: $team.showsContext
+                        )
+                    }
+
+                    TokenCounterButton(
+                        worker         : worker,
+                        usage          : usage,
+                        isShowingDetail: $team.showsUsage
+                    )
+                }
             }
 
             // Its own glass capsule, apart from the screen and inspector toggles.

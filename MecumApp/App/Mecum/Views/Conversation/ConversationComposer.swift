@@ -91,37 +91,6 @@ struct ConversationComposer: View {
                 }
             }
         }
-        .leading {
-            if let context {
-                ConversationContextButton(
-                    context        : context,
-                    lastTurn       : team.usage[worker.id]?.lastTurn?.turn,
-                    worker         : worker.name,
-                    isCompacting   : team.isCompacting(worker.id),
-                    waitReason     : team.isAnswering(worker.id)
-                        ? UsageWording.actionsWait(
-                            worker      : worker.name,
-                            isCompacting: team.isCompacting(worker.id)
-                        )
-                        : nil,
-                    compact        : { team.compactContext(of: worker.id) },
-                    startFresh     : { Task { await team.startFreshContext(of: worker.id) } },
-                    isShowingDetail: $team.showsContext
-                )
-                .padding(
-                    .trailing,
-                    8
-                )
-                // It comes out of the pill's leading edge and goes back into it, as Release does from Send.
-                .transition(
-                    .scale(
-                        scale : 0.3,
-                        anchor: .trailing
-                    )
-                    .combined(with: .opacity)
-                )
-            }
-        }
         .accessory {
             if let configuration = worker.configuration {
                 ConversationModelButton(
@@ -186,7 +155,6 @@ struct ConversationComposer: View {
                 )
             }
         }
-        .animation(reducesMotion ? nil : .spring(duration: 0.35, bounce: 0.15), value: context == nil)
         .animation(
             ComposerBar.stripAnimation,
             value: team.draftQuote
@@ -255,11 +223,6 @@ struct ConversationComposer: View {
             },
             remove     : { Task { await team.removeShownQueued() } }
         )
-    }
-
-    /// The selected worker's context while its conversation is open, nil while its fill or window is unknown.
-    private var context: WorkerUsage.Context? {
-        team.conversation == nil ? nil : UsageWording.ringContext(of: team.usage[worker.id])
     }
 
     /// Makes the popup's choice the worker's, a new version of its profile, when it changed anything.

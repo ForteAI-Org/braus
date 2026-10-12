@@ -107,34 +107,59 @@ enum WindowSnapshots {
             )
             opensModelPopup = false
 
-            // The context ring amber, at 85% of the context, then beside a pill grown to several lines.
-            let high = try await syntheticTeam(
-                in           : store.appending(
-                    path         : "High",
-                    directoryHint: .isDirectory
-                ),
-                contextTokens: 219_640
-            )
-            for (name, dark) in [("light", false), ("dark", true)] {
-                try await write(
-                    Root(
-                        team                : high,
-                        isInspectorRequested: false
-                    ),
-                    width: 1200,
-                    dark : dark,
-                    to   : output.appending(path: "window-1200-\(name)-context-high.png")
-                )
+            // The context ring green, orange and red, its button drawn alone in a capsule like the toolbar's,
+            // since offscreen the toolbar draws the window's glass blank.
+            for (level, tokens) in [("roomy", 142_318), ("filling", 219_640), ("full", 240_000)] {
+                guard let ring = WorkerUsage(
+                    turns     : [atlasUsage(contextTokens: tokens)],
+                    provider  : .codex,
+                    rateLimits: []
+                ).context else { throw SnapshotFailure("no context at \(tokens) tokens") }
+
+                for (name, dark) in [("light", false), ("dark", true)] {
+                    try await write(
+                        ConversationContextButton(
+                            context     : ring,
+                            worker      : "Atlas",
+                            isCompacting: false,
+                            waitReason  : nil,
+                            compact     : {},
+                            startFresh  : {}
+                        )
+                        .buttonStyle(.plain)
+                        .frame(height: 36)
+                        .padding(
+                            .horizontal,
+                            8
+                        )
+                        .background(
+                            .quinary,
+                            in: Capsule()
+                        )
+                        .padding(24)
+                        .background(Color(nsColor: .windowBackgroundColor)),
+                        width : 96,
+                        height: 96,
+                        dark  : dark,
+                        to    : output.appending(path: "context-ring-\(level)-\(name).png")
+                    )
+                }
             }
-            high.draft = "Rerun the capture suite first.\nThen the layout suite.\nThen send me both logs."
+
+            // The composer with a pill grown to several lines.
+            let grown = try await syntheticTeam(in: store.appending(
+                path         : "Grown",
+                directoryHint: .isDirectory
+            ))
+            grown.draft = "Rerun the capture suite first.\nThen the layout suite.\nThen send me both logs."
             try await write(
                 Root(
-                    team                : high,
+                    team                : grown,
                     isInspectorRequested: false
                 ),
                 width: 1200,
                 dark : false,
-                to   : output.appending(path: "window-1200-light-context-grown.png")
+                to   : output.appending(path: "window-1200-light-composer-grown.png")
             )
 
             // The two usage popovers drawn alone, as a popover is a window of its own.
@@ -148,11 +173,10 @@ enum WindowSnapshots {
             let popovers: [(name: String, popover: AnyView, height: Double)] = [
                 ("context-popover", AnyView(ConversationContextPopover(
                     context   : context,
-                    lastTurn  : atlas.lastTurn?.turn,
                     waitReason: nil,
                     compact   : {},
                     startFresh: {}
-                )), 340),
+                )), 230),
                 ("token-counter-popover", AnyView(TokenCounterPopover(
                     workerName: "Iris",
                     provider  : .claudeCode,
@@ -171,17 +195,26 @@ enum WindowSnapshots {
                 }
             }
 
-            // The ring while the context is compacted, its button drawn alone.
+            // The ring while the context is compacted, its button drawn alone in the same capsule.
             for (name, dark) in [("light", false), ("dark", true)] {
                 try await write(
                     ConversationContextButton(
                         context     : context,
-                        lastTurn    : nil,
                         worker      : "Atlas",
                         isCompacting: true,
                         waitReason  : nil,
                         compact     : {},
                         startFresh  : {}
+                    )
+                    .buttonStyle(.plain)
+                    .frame(height: 36)
+                    .padding(
+                        .horizontal,
+                        8
+                    )
+                    .background(
+                        .quinary,
+                        in: Capsule()
                     )
                     .padding(24)
                     .background(Color(nsColor: .windowBackgroundColor)),
@@ -507,7 +540,7 @@ enum WindowSnapshots {
     /// Three workers and Atlas's conversation: an earlier exchange, then one
     /// finished turn whose profile was changed afterwards, so the inspector has
     /// to show the turn's model and not the profile's. With `contextTokens` the
-    /// turn records its usage too (`atlasUsage`), so the context ring and the
+    /// turn records its usage too (`atlasUsage`), so the toolbar's context ring and the
     /// token counter are drawn. With `compaction` the context is compacted
     /// after the turn, to 38,200 tokens. `tools` are the turn's tool records.
     static func syntheticTeam(
