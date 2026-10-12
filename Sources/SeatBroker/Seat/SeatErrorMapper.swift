@@ -101,6 +101,9 @@ enum SeatErrorMapper {
         case .focusedNodeChanged:
             "The keyboard focus moved to another window, so these keys would have arrived "
                 + "somewhere nobody looked."
+        case .focusNotReadable:
+            "The application did not say in time which control has the keyboard focus, so "
+                + "nothing was sent. Observe and try again."
         case .selectionSuperseded:
             "The target changed after the recipient was read."
         }

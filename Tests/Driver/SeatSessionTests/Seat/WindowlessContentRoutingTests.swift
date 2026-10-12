@@ -42,6 +42,7 @@ struct WindowlessContentRoutingTests {
                 },
                 identity: { [self] _ in geometry?.window.identity },
                 focusedWindowNumber: { _ in nil },
+                focusedWindowReading: { _, _ in .noWindow },
                 windowlessContent: { [self] _, point, chain, generation in
                     windowlessReadings += 1
                     let now = DispatchTime.now().uptimeNanoseconds

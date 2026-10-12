@@ -2500,9 +2500,21 @@ public final class AgentSeat {
                 )
                 throw refusal
             }
+            // A click posted into a remote panel's content activates its host, so
+            // it and a remembered field's text go through accessibility instead.
+            let byAccessibility = textField != nil || ownContent != nil
+                || classification == .remotePanelContent && routed.hasMouseLocation
+            // An ordinary window's unprepared keys read the focus once, just before
+            // the first post: a second reading of a busy application only aged them.
+            let readsFocusOnlyBeforeFirstPost = endpoint.map(isOrdinaryKeyboardEndpoint) == true
+                && !isModalSurface
+                && !byAccessibility
+                && resolved.preparation(for: routed) == .none
+                && resolved.keyWindowPriming(for: routed) == nil
             // The other half of the attestation rule: what the driver cannot
             // read is that the surface and the selection are still these.
-            if let endpoint, let retired = endpointInvalidation(of: endpoint) {
+            if let endpoint, !readsFocusOnlyBeforeFirstPost,
+               let retired = endpointInvalidation(of: endpoint) {
                 restoreActionState(previous, reason: .cancelled)
                 sender.recordCompletedTrace(
                     traceContext.completed(at: DispatchTime.now().uptimeNanoseconds)
@@ -2510,10 +2522,6 @@ public final class AgentSeat {
                 throw retired
             }
             traceContext.beginQueue(at: DispatchTime.now().uptimeNanoseconds)
-            // A click posted into a remote panel's content activates its host, so
-            // it and a remembered field's text go through accessibility instead.
-            let byAccessibility = textField != nil || ownContent != nil
-                || classification == .remotePanelContent && routed.hasMouseLocation
             let receipt = try await byAccessibility ? actuateRemoteContent(
                 routed,
                 textField   : textField?.field,

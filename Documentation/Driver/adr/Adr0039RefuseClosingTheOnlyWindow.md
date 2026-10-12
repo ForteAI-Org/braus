@@ -96,3 +96,30 @@ made specific to terminals, by its own decision.
 - An accessory application is never at risk, and one whose activation policy cannot be
   read is treated as regular.
 - A drag that starts and ends on a closing control is not checked.
+
+## Follow-up: the boundary read of an ordinary window's keys (2026-10-12)
+
+The editor's `focusedNodeChanged` above was not a focus that moved. The boundary compared
+only the focused control's Window ID, read twice at the 0.1 s fast timeout, and a busy
+Resolve answers `-25204` (cannot complete) after 100 to 196 ms: two failed reads, about
+200 ms, and the unread focus was taken as a different one. Six of six keys were delivered
+when Resolve was not busy, so the failure was not reproduced live.
+
+For an ordinary window's own keyboard context (evidence `attestedSurfaceItself`, relation
+`logicalSurface`, no attested modal relation of any kind), the boundary now takes one
+**boundary read**: `DialogEndpointResolver.focusedNodeWindowReading` reads
+`kAXFocusedUIElement` and `_AXUIElementGetWindow` through `BoundedAccessibilityRead`, a fast
+attempt and one recovery attempt only after `.cannotComplete`, both inside the endpoint's
+deadline plus the recipe's own wait. Its outcome is a window, no window, or not responding.
+Only `.cannotComplete` after the recovery, or the deadline running out, is not responding,
+and it retires the keys with the new `InputEndpointInvalidation.focusNotReadable`: nothing
+is sent, and the person or agent is told to observe and try again. No focused control, an
+element without a window, a destroyed element or any other error is a reading, and with a
+different window retires the keys with `focusedNodeChanged` as before. Expiry is still
+decided first, on the time taken after the read. When the keys need no preparation and no
+key-window priming, the surface is not modal and nothing goes through accessibility, the
+first boundary's endpoint proof is skipped: the one before the first post is the only one,
+so a busy application is asked once. Only the endpoint proof is skipped there; the
+observation's `admissionRefusal` still runs at both boundaries. Every other evidence, remote content (always
+`accessibilityNodeIdentity` or its own routes) and every modal branch keep their proofs
+and their `focusedNodeChanged` unchanged (ADR 0014, ADR 0031).

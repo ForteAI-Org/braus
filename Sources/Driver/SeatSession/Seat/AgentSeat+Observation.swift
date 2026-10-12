@@ -100,6 +100,14 @@ struct EndpointDiscovery {
     /// retires a keyboard context whose focus moved.
     var focusedWindowNumber: (Int32) -> Int?
 
+    /// The same focus at the posting boundary of an ordinary window's keys,
+    /// read within a deadline, which tells an application that did not answer
+    /// in time from one that answered no window or another one.
+    var focusedWindowReading: (
+        _ assignedProcessID  : Int32,
+        _ deadlineNanoseconds: UInt64
+    ) -> FocusedWindowReading
+
     /// A remote WindowServer owner may use the AppKit panel recipe only when it
     /// identifies as the platform panel service. A distinct PID establishes a
     /// transport relation, not a backend or an input capability.
@@ -220,6 +228,11 @@ struct EndpointDiscovery {
             DialogEndpointResolver<AXUIElement>
                 .accessibility(assignedProcessID: $0)
                 .focusedNodeWindowNumber()
+        },
+        focusedWindowReading: { processID, deadline in
+            DialogEndpointResolver<AXUIElement>
+                .accessibility(assignedProcessID: processID)
+                .focusedNodeWindowReading(deadlineNanoseconds: deadline)
         },
         qualifiedAppKitPanelService: { identity in
             NSRunningApplication(processIdentifier: pid_t(identity.processID))?.bundleIdentifier
@@ -1104,6 +1117,12 @@ extension AgentSeat {
     /// 30/09/2026, a UXP key resolved at .988 was refused as expired at .548,
     /// 60 ms past its 500 ms, with nothing in the world changed. Every other
     /// reading is still taken now.
+    ///
+    /// An ordinary window's own keyboard context reads the focus once, bounded
+    /// by the endpoint's deadline and the grace, and an application that did
+    /// not answer in time retires it with `focusNotReadable`, never as a focus
+    /// that moved (ADR 0039, follow-up). Expiry is still decided first, on the
+    /// time taken after that reading.
 
     func endpointInvalidation(
         of endpoint    : ResolvedInputEndpoint,
@@ -1113,7 +1132,10 @@ extension AgentSeat {
            selectionKit.modals(blocking: endpoint.identity).contains(endpoint.logicalSurface) {
             return .relationNoLongerValid
         }
+        let graceNanoseconds = UInt64(max(0, grace.components.seconds)) * 1_000_000_000
+            + UInt64(max(0, grace.components.attoseconds / 1_000_000_000))
         let focused: Int?
+        var focusNotRead = false
         if endpoint.evidence == .focusedSurfaceDescendant
             || endpoint.kind == .keyboardContext && endpoint.evidence == .remoteContentOfSurface {
             guard let instance = assignmentKit.lifecycle.current?.instance,
@@ -1337,21 +1359,40 @@ extension AgentSeat {
                   current.focusedNodeWindowNumber == endpoint.identity.windowNumber
             else { return .focusedNodeChanged }
             focused = current.focusedNodeWindowNumber
+        } else if isOrdinaryKeyboardEndpoint(endpoint) {
+            let reading = assignmentKit.lifecycle.current.map {
+                endpoints.focusedWindowReading(
+                    $0.instance.processID,
+                    endpoint.expiresAtNanoseconds &+ graceNanoseconds
+                )
+            }
+            if case .window(let number)? = reading { focused = number } else { focused = nil }
+            focusNotRead = reading == .notResponding
         } else {
             focused = endpoint.kind == .keyboardContext
                 ? assignmentKit.lifecycle.current
                     .flatMap { endpoints.focusedWindowNumber($0.instance.processID) }
                 : nil
         }
-        let graceNanoseconds = UInt64(max(0, grace.components.seconds)) * 1_000_000_000
-            + UInt64(max(0, grace.components.attoseconds / 1_000_000_000))
-        return endpoint.invalidation(
+        let retired = endpoint.invalidation(
             at                     : DispatchTime.now().uptimeNanoseconds &- graceNanoseconds,
             selectionGeneration    : selectionKit.selected?.generation ?? .max,
             logicalSurface         : selectionKit.selected?.surface,
             currentIdentity        : endpoints.identity(endpoint.identity.windowNumber),
             focusedNodeWindowNumber: focused
         )
+        return focusNotRead && retired == .focusedNodeChanged ? .focusNotReadable : retired
+    }
+
+    /// Whether `endpoint` is an ordinary window's own keyboard context: the
+    /// focused control named the surface itself, and the surface has no attested
+    /// modal relation of any kind. Remote content and every modal keep their
+    /// own boundary proofs (ADR 0014, ADR 0031).
+    func isOrdinaryKeyboardEndpoint(_ endpoint: ResolvedInputEndpoint) -> Bool {
+        endpoint.kind == .keyboardContext
+            && endpoint.evidence == .attestedSurfaceItself
+            && endpoint.relation == .logicalSurface
+            && !attestedModalWindow(endpoint.logicalSurface)
     }
 
     /// Folds one more reading through both nuclei on request.

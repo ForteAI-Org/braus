@@ -81,6 +81,7 @@ struct WebAreaKeyRoutingTests {
                 },
                 identity: { [self] _ in geometry?.window.identity },
                 focusedWindowNumber: { _ in nil },
+                focusedWindowReading: { _, _ in .noWindow },
                 windowlessContent: { [self] _, _, chain, generation in
                     guard webAreaReadings >= 1, focusedPageControl,
                           let found = endpoint(

@@ -133,6 +133,11 @@ nonisolated public enum InputEndpointInvalidation: Error, Sendable, Equatable {
     /// context and says nothing about a pointer endpoint.
     case focusedNodeChanged
 
+    /// The application did not answer in time which control has the focus, so
+    /// nobody knows where the keys would arrive. Nothing moved as far as anyone
+    /// read; observing again and retrying is the answer.
+    case focusNotReadable
+
     /// A newer selection generation replaced the one it was resolved under.
     case selectionSuperseded
 }

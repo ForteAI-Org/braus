@@ -114,6 +114,7 @@ struct GestureEndpointRoutingTests {
                 },
                 identity: { [self] number in identities[number] },
                 focusedWindowNumber: { [self] _ in focusedWindowNumber },
+                focusedWindowReading: { [self] _, _ in focusedWindowNumber.map { .window($0) } ?? .noWindow },
                 qualifiedAppKitPanelService: { [self] _ in qualifiesRemotePanelService },
                 focusedDescendantKeyboardContext: { [self] _, chain, _ in
                     descendantKeyboardResolutions += 1
