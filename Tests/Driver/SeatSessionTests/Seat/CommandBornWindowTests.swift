@@ -197,11 +197,98 @@ struct CommandBornWindowTests {
         await rig.recovery.settleCommandProvenance()
 
         #expect(rig.requested == [target, Self.user, Self.user], "exactly one extra handback")
+        await AppWindowFollowTests.pass(rig.seat)
+        #expect(rig.seat.adoptedWindows.map(\.id).contains(Self.panelNumber),
+                "the panel the settle read sighted is adopted by the next passes, not only handed back for")
+        #expect(rig.requested.count == 3, "and adopting it asks for nothing more")
         #expect(rig.sensing.frontmostProcessID == Self.user.processID)
         #expect(rig.reports.isEmpty)
         #expect(!rig.recovery.isPaused)
         #expect(rig.seat.state != .waiting)
         #expect(rig.recovery.commandProvenance == nil)
+    }
+
+    // MARK: A window born while another transaction runs
+
+    /// The target retaking the front for the Command, with the margin open.
+    private static func startCommandEpisode(_ rig: Rig) async {
+        _ = await press(rig)
+        rig.sensing.frontmostProcessID = rig.target.processID
+        rig.recovery.activationChanged(to: rig.target.processID, source: .workspaceNotification)
+    }
+
+    @Test("a panel born while another window of the Command is being adopted is adopted too")
+    func aPanelBornDuringAnAdoption() async throws {
+        let rig = try await Self.rig(marker: 7_511)
+        defer { rig.recovery.stop() }
+        let target = rig.target
+        await Self.startCommandEpisode(rig)
+        #expect(rig.reports.isEmpty)
+
+        // The first window is born inside the display; the second appears on the
+        // person's while its placement is confirmed, after the reading found it.
+        let inside = CGRect(
+            x     : FakeGeometry.virtual.minX + 100,
+            y     : 100,
+            width : 400,
+            height: 300
+        )
+        _ = AppWindowFollowTests.offer(Self.panelNumber, to: rig.sensing, rig.placing, frame: inside, level: 8)
+        let fired = Holder<Bool>(false)
+        rig.sensing.windowGeometryOverride = { [weak rig] number in
+            guard let rig else { return nil }
+            if number == Self.panelNumber, rig.seat.state == .starting, !fired.value {
+                fired.value = true
+                Self.openPanel(rig, Self.secondPanelNumber)
+            }
+            return number == FakeGeometry.windowNumber
+                ? rig.sensing.geometry : rig.sensing.additionalWindows[number]
+        }
+
+        let adopted = await AppWindowFollowTests.settle({ rig.seat.adoptedWindows.count == 3 }, within: 8)
+        #expect(fired.value, "the second window was born during the adoption of the first")
+        #expect(adopted, "the window born during the adoption was left as furniture")
+        let ids = rig.seat.adoptedWindows.map(\.id)
+        #expect(ids.contains(Self.panelNumber) && ids.contains(Self.secondPanelNumber))
+        await AppWindowFollowTests.pause(0.3)
+        #expect(rig.requested == [target, Self.user, Self.user], "only one extra delivery")
+    }
+
+    @Test("a panel born while another window of the Command is being released is adopted too")
+    func aPanelBornDuringARelease() async throws {
+        let rig = try await Self.rig(marker: 7_512)
+        defer { rig.recovery.stop() }
+        let target = rig.target
+        await Self.startCommandEpisode(rig)
+        Self.openPanel(rig)
+        #expect(await AppWindowFollowTests.settle({ rig.seat.adoptedWindows.count == 2 }, within: 8))
+        let first = try #require(rig.seat.adoptedWindows.first { $0.id == Self.panelNumber })
+
+        // The second window appears while the first is returning, which the
+        // window server shows back where it was found.
+        let fired = Holder<Bool>(false)
+        rig.sensing.windowGeometryOverride = { [weak rig] number in
+            guard let rig else { return nil }
+            if number == Self.panelNumber {
+                if !fired.value {
+                    fired.value = true
+                    Self.openPanel(rig, Self.secondPanelNumber)
+                }
+                return AppWindowFollowTests.reference(Self.panelNumber)
+            }
+            return number == FakeGeometry.windowNumber
+                ? rig.sensing.geometry : rig.sensing.additionalWindows[number]
+        }
+        _ = await rig.seat.release(first)
+        #expect(fired.value, "the second window was born during the release of the first")
+
+        rig.seat.heartbeat()
+        let adopted = await AppWindowFollowTests.settle({
+            rig.seat.adoptedWindows.map(\.id).contains(Self.secondPanelNumber)
+        }, within: 8)
+        #expect(adopted, "the window born during the release was left as furniture")
+        await AppWindowFollowTests.pause(0.3)
+        #expect(rig.requested == [target, Self.user, Self.user], "only one extra delivery")
     }
 
     @Test("an activation of the target outside any record keeps producing waiting",

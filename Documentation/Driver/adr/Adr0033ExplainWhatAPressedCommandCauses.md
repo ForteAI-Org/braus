@@ -162,3 +162,10 @@ waiting, a window first seen after the margin refused, a panel that appeared whi
 follow pass did not run being sighted by the settle read, and the read of the verdict only
 after a verified return. `MenuBarCommandTests` pin both verdicts. Offline only: no live
 run was made, so the measured Place Embedded sequence is not reproduced.
+
+## Later
+
+The live Place Embedded run of 12 October 2026 found the panel of this ADR still
+unadopted, for a reason this ADR did not cover: the window was born while another
+adoption was finishing and was baselined as already there. [ADR 0040](Adr0040BaselineEachDrivingEpisodeOnce.md)
+records the cause and the fix.

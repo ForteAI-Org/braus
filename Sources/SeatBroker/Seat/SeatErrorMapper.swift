@@ -997,6 +997,8 @@ enum SeatErrorMapper {
         case .notMovable:                  "no accessibility element answers for it"
         case .tooLarge:                    "it does not fit on the background display and would not shrink"
         case .moveRefused:                 "the move, or one of the readings that confirm it, was refused"
+        case .placementNotConfirmed:       "the move was accepted and the window did not stay where it was sent"
+        case .seatNotReady:                "the seat was not ready to take it in"
         case .attemptsExhausted:           "the seat has spent its attempts on it"
         case .fullScreenTransferDisabled:  "it is in native fullscreen and fullscreen transfer is off"
         case .fullScreenNotSupported:      "it is in native fullscreen and cannot leave it"

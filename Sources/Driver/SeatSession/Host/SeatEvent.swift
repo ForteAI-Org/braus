@@ -72,10 +72,24 @@ nonisolated public enum WindowTransferRefusal: String, Sendable, Equatable {
     /// shrink is refused rather than left half moved.
     case tooLarge
 
-    /// The move, or one of the two readings that confirm it, was refused. The
-    /// window was put back where it was found, and `lastAdoptionFailure`
-    /// carries the whole record including the rollback.
+    /// The move, or one of the readings that confirm it, was refused, for a
+    /// reason other than the two below it. The window was put back where it was
+    /// found, and `lastAdoptionFailure` carries the whole record including the
+    /// rollback.
     case moveRefused
+
+    /// The write was accepted and the window never settled at the origin it was
+    /// sent to: the confirmation budget ran out, or the window went back to
+    /// where it was found and stayed there. It is the application disagreeing
+    /// with a move it did not refuse, which is what an application that anchors
+    /// its floating windows to a document looks like, and it is not
+    /// `moveRefused`: the write itself did not fail.
+    case placementNotConfirmed
+
+    /// The seat was not ready to take the window in: it refused to admit it,
+    /// or stopped being ready while the window was on its way in (it failed
+    /// or was torn down). The window did not refuse anything.
+    case seatNotReady
 
     /// The seat has spent its attempts on this Window ID. An application that
     /// puts its own window back on the physical display after every move is an

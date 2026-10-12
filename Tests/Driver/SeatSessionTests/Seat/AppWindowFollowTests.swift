@@ -11,6 +11,7 @@ import SeatCore
 import SeatInput
 @testable import SeatSession
 import Testing
+import VirtualScreens
 
 /// The watch driven through the seat and the three fakes: a window of the
 /// driven application appears on a physical display and is brought in, or it is
@@ -1815,5 +1816,284 @@ struct AppWindowFollowTests {
         let admitted = try seat.admitOrdinary(observation)
         #expect(admitted.id == first.id,
                 "a consumer giving back a window it never observed keeps the agent's observation")
+    }
+
+    // MARK: A move the application accepts and does not keep
+
+    @Test("an accepted move that never settled and a seat that stopped being ready have reasons of their own")
+    func transferRefusalReasons() {
+        #expect(AgentSeat.refusal(
+            for: DisplayFailure.placementNotConfirmed(windowNumber: 1, lastFrame: nil)
+        ) == .placementNotConfirmed)
+        #expect(AgentSeat.refusal(for: SessionFailure.seatNotReady(.failed)) == .seatNotReady)
+
+        // What it was and stays.
+        #expect(AgentSeat.refusal(
+            for: SessionFailure.fullScreenTransferDisabled(windowNumber: 1)
+        ) == .fullScreenTransferDisabled)
+        #expect(AgentSeat.refusal(
+            for: DisplayFailure.fullScreenSpaceStillOnScreen(windowNumber: 1)
+        ) == .fullScreenSpaceStillOnScreen)
+        #expect(AgentSeat.refusal(for: SessionFailure.turnRequired) == .moveRefused)
+    }
+
+    /// Where a window reads at a time after its move was written.
+    private enum Spot {
+        case home
+        case destination
+        case step(dx: CGFloat, dy: CGFloat)
+    }
+
+    /// Scripts the window server's answer for one window after its first move:
+    /// `spot` is told the seconds and the readings since that move, and the
+    /// window reads at its own origin until it is written.
+    private static func scriptMove(
+        _ sensing   : FakeSensing,
+        _ placing   : FakePlacing,
+        windowNumber: Int,
+        spot        : @escaping (_ seconds: Double, _ readings: Int) -> Spot
+    ) {
+        let started     = Holder<UInt64?>(nil)
+        let readings    = Holder<Int>(0)
+        let destination = Holder<CGPoint>(.zero)
+        placing.onMove = { origin in
+            guard started.value == nil else { return }
+            started.value     = DispatchTime.now().uptimeNanoseconds
+            destination.value = origin
+        }
+        sensing.windowGeometryOverride = { number in
+            guard number == windowNumber else {
+                return number == FakeGeometry.windowNumber ? sensing.geometry : sensing.additionalWindows[number]
+            }
+            let size   = physicalFrame.size
+            let origin: CGPoint
+            if let started = started.value {
+                readings.value += 1
+                let seconds = Double(DispatchTime.now().uptimeNanoseconds &- started) / 1_000_000_000
+                switch spot(seconds, readings.value) {
+                    case .home:                origin = physicalFrame.origin
+                    case .destination:         origin = destination.value
+                    case .step(let dx, let dy):
+                        origin = CGPoint(x: destination.value.x + dx, y: destination.value.y + dy)
+                }
+            } else {
+                origin = physicalFrame.origin
+            }
+            return reference(
+                windowNumber,
+                frame: CGRect(
+                    origin: origin,
+                    size  : size
+                )
+            )
+        }
+    }
+
+    @Test("a window that goes back where it was found and stays there is refused without waiting out the budget")
+    func aMoveUndoneIsRefusedEarly() async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, _) = try await Self.followingSeat(sensing: sensing, placing: placing, marker: 7_060)
+        let log = MultiWindowTests.EventLog(seat)
+        defer { log.stop() }
+
+        _ = Self.offer(Self.secondWindowNumber, to: sensing, placing)
+        Self.scriptMove(
+            sensing,
+            placing,
+            windowNumber: Self.secondWindowNumber,
+            spot        : { _, readings in readings == 1 ? .destination : .home }
+        )
+        let started = ContinuousClock.now
+        await Self.pass(seat)
+        let elapsed = ContinuousClock.now - started
+
+        #expect(seat.adoptedWindows.count == 1)
+        await log.drain()
+        #expect(Self.refusals(log).first?.1 == .placementNotConfirmed)
+        #expect(elapsed < .milliseconds(1_500), "the 2 s budget was waited out: \(elapsed)")
+    }
+
+    @Test("a slow mover is still accepted, whether it holds its steps or waits before the first",
+          arguments: [0, 1])
+    func aSlowMoverIsStillAccepted(variant: Int) async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, _) = try await Self.followingSeat(
+            sensing: sensing,
+            placing: placing,
+            marker : Int64(7_061 + variant)
+        )
+        let log = MultiWindowTests.EventLog(seat)
+        defer { log.stop() }
+
+        _ = Self.offer(Self.secondWindowNumber, to: sensing, placing)
+        // Variant 0 holds steps like Safari (ADR 0038); variant 1 waits at the
+        // origin past the snap-back evidence before it moves at all.
+        Self.scriptMove(sensing, placing, windowNumber: Self.secondWindowNumber) { seconds, _ in
+            switch (variant, seconds) {
+                case (0, ..<0.05):  .home
+                case (0, ..<0.45):  .step(dx: 300, dy: 200)
+                case (0, ..<0.85):  .step(dx: 100, dy: 60)
+                case (1, ..<0.8):   .home
+                default:            .destination
+            }
+        }
+        await Self.pass(seat)
+
+        #expect(seat.adoptedWindows.count == 2, "a window that is only slow is adopted")
+        await log.drain()
+        #expect(Self.refusals(log).isEmpty)
+    }
+
+    @Test("a window found inside the display and held there by its application is still adopted")
+    func aWindowHeldInsideTheDisplayIsAdopted() async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, _) = try await Self.followingSeat(sensing: sensing, placing: placing, marker: 7_063)
+        let inside = CGRect(
+            x     : FakeGeometry.virtual.minX + 40,
+            y     : FakeGeometry.virtual.minY + 40,
+            width : 400,
+            height: 300
+        )
+        let window = Self.offer(Self.secondWindowNumber, to: sensing, placing, frame: inside)
+
+        // The first reading after the move is at the destination, every later
+        // one where the window was found: a palette its application keeps.
+        let moves       = Holder<Int>(0)
+        let readings    = Holder<Int>(0)
+        let destination = Holder<CGPoint>(.zero)
+        placing.onMove = { origin in
+            moves.value += 1
+            if moves.value == 1 { destination.value = origin }
+        }
+        sensing.windowGeometryOverride = { number in
+            guard number == Self.secondWindowNumber else {
+                return number == FakeGeometry.windowNumber ? sensing.geometry : sensing.additionalWindows[number]
+            }
+            guard moves.value > 0 else { return window }
+            readings.value += 1
+            let origin = readings.value == 1 ? destination.value : inside.origin
+            return Self.reference(
+                Self.secondWindowNumber,
+                frame: CGRect(
+                    origin: origin,
+                    size  : inside.size
+                )
+            )
+        }
+
+        var thrown: (any Error)?
+        do { _ = try await seat.adopt(window) } catch { thrown = error }
+        #expect(thrown == nil, "refused: \(String(describing: thrown))")
+    }
+
+    // MARK: The baseline across driving episodes
+
+    @Test("a process whose only window was found destroyed is baselined afresh when it is driven again")
+    func aDroppedProcessIsBaselinedAgain() async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, first) = try await Self.followingSeat(sensing: sensing, placing: placing, marker: 7_064)
+        let other = FakeGeometry.distinctProcessID()
+
+        // A second application is driven too, then the first one's only window
+        // is found destroyed and the seat holds no window of it.
+        let otherWindow = Self.offer(Self.secondWindowNumber, to: sensing, placing, processID: other)
+        placing.onMove = { origin in
+            sensing.additionalWindows[Self.secondWindowNumber] = Self.reference(
+                Self.secondWindowNumber,
+                frame    : CGRect(
+                    origin: origin,
+                    size  : Self.physicalFrame.size
+                ),
+                processID: other
+            )
+        }
+        let held        = try await seat.adopt(otherWindow, platform: AppKitPlatform())
+        sensing.surfaces = [Self.surface(held.reference)]
+        #expect(seat.dropDestroyedRecord(first.id))
+
+        // The person opens a window of the first application, which the seat
+        // then drives again through another of its windows.
+        let persons     = Self.offer(Self.thirdWindowNumber, to: sensing, placing)
+        let againNumber = 780
+        let again       = Self.offer(againNumber, to: sensing, placing)
+        let readopted   = try await seat.adopt(again, platform: AppKitPlatform())
+        sensing.surfaces = [
+            Self.surface(held.reference),
+            Self.surface(readopted.reference),
+            Self.surface(persons),
+        ]
+        let movesBefore = placing.moves.count
+
+        await Self.pass(seat, 3)
+        #expect(!seat.adoptedWindows.map(\.id).contains(Self.thirdWindowNumber),
+                "the window the person opened meanwhile was transferred")
+        #expect(placing.moves.count == movesBefore)
+    }
+
+    // MARK: A window born while an adoption runs
+
+    @Test("a window born during an adoption is adopted when it ends, without waiting for the heartbeat",
+          arguments: [false, true])
+    func aWindowBornDuringAnAdoptionIsTakenWhenItEnds(sightedByObservation: Bool) async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, _) = try await Self.followingSeat(
+            sensing: sensing,
+            placing: placing,
+            marker : Int64(7_065 + (sightedByObservation ? 1 : 0))
+        )
+        let window = Self.offer(Self.secondWindowNumber, to: sensing, placing)
+        sensing.surfaces = [Self.surface(FakeGeometry.adoptedWindow)]
+
+        // A thumbnail first, so the adoption stages it: staging is its only wait
+        // that gives the main actor back here, every other one pumps the loop.
+        let destination = Holder<CGPoint?>(nil)
+        let staged      = Holder<Bool>(false)
+        placing.onMove = { origin in destination.value = destination.value ?? origin }
+        sensing.windowGeometryOverride = { number in
+            guard number == Self.secondWindowNumber else {
+                return number == FakeGeometry.windowNumber ? sensing.geometry : sensing.additionalWindows[number]
+            }
+            guard let origin = destination.value else { return window }
+            let size = staged.value ? Self.physicalFrame.size : CGSize(width: 120, height: 121)
+            return Self.reference(
+                Self.secondWindowNumber,
+                frame: CGRect(
+                    origin: origin,
+                    size  : size
+                )
+            )
+        }
+
+        // A third window is born meanwhile, and the pass that reads it (the
+        // seat's own or an observation's) stands down for the adoption.
+        let born = Self.reference(Self.thirdWindowNumber)
+        placing.onStageWait = {
+            await MainActor.run {
+                sensing.additionalWindows[Self.thirdWindowNumber] = born
+                placing.bodyFrames[Self.thirdWindowNumber]        = born.frame
+                sensing.surfaces = (sensing.surfaces ?? []) + [Self.surface(born)]
+            }
+            if sightedByObservation {
+                let budget = DispatchTime.now().uptimeNanoseconds + 5_000_000_000
+                await seat.settleWindowFollowingForObservation(until: budget)
+            } else {
+                await seat.runWindowFollowPass()
+            }
+            // The second window's move is written, so the link is the third's.
+            Self.linkMove(placing, sensing, windowNumber: Self.thirdWindowNumber, size: born.frame.size)
+            staged.value = true
+        }
+
+        _ = try await seat.adopt(window, platform: AppKitPlatform())
+        #expect(staged.value, "the third window was born during the adoption")
+        let adopted = await Self.settle({
+            seat.adoptedWindows.map(\.id).contains(Self.thirdWindowNumber)
+        }, within: 2)
+        #expect(adopted, "the window born during the adoption waited for the heartbeat")
     }
 }

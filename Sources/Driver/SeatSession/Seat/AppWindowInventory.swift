@@ -54,7 +54,9 @@ nonisolated enum AppWindowChange: Equatable {
 ///
 /// ## The first reading is a baseline and never a transfer
 ///
-/// Everything the first pass sees becomes the inventory and produces nothing.
+/// Everything the first reading of a process sees becomes the inventory and
+/// produces nothing. That holds once per driving episode of a process, not at
+/// every call (see `baseline`).
 /// The windows an application already had on the person's displays when the
 /// seat took control are the person's, and a feature that hoovered them onto
 /// the Virtual Display because it had just started looking would be taking
@@ -121,6 +123,10 @@ nonisolated struct AppWindowInventory {
     private var known    : [Int: KnownSurface] = [:]
     private var attempts : [Int: Int]          = [:]
 
+    /// The processes whose "already there" has been taken, for as long as the
+    /// seat keeps driving them.
+    private var baselined: Set<ProcessIdentity> = []
+
     /// True once the baseline pass has run. Before it, every difference is a
     /// window that was already there.
     private(set) var isPrimed = false
@@ -129,28 +135,51 @@ nonisolated struct AppWindowInventory {
     /// it, which is what tells the caller another pass soon is worth its cost.
     private(set) var hasPendingCandidate = false
 
-    /// Records every surface this reading carries that the inventory does not
-    /// already know, as one that was already there, and answers nothing.
+    /// Takes the baseline of the processes that were not driven before, and
+    /// forgets the processes that no longer are. It answers nothing.
     ///
-    /// It is called at the moment the seat starts driving a process, which is
-    /// the moment "already there" is defined. Taking the baseline from the
-    /// first periodic pass instead looks the same and is not: the pass runs
-    /// whenever the main actor is next free, and a window the application
-    /// opened in between would be baselined as the person's and never
-    /// transferred. Measured on the Live tier, where the first pass ran after
-    /// the second window had already appeared.
+    /// "Already there" is defined once per process and per driving episode: at
+    /// the moment the seat first holds a window of that process. A process
+    /// already baselined is left alone, however many times this is called, so a
+    /// window the application opens while another adoption or release is
+    /// finishing is still a candidate afterwards. Baselining every driven
+    /// process at every call, which this used to do, turned any window born
+    /// between a pass's reading and the end of someone else's transaction into
+    /// furniture for good: a panel born 47 ms before an adoption ended was
+    /// never adopted (Photoshop, Place Embedded).
     ///
-    /// Surfaces it already knows are left exactly as they are, so a candidate
-    /// waiting for its second reading is not quietly turned into furniture by a
-    /// second window being adopted next to it.
-    mutating func baseline(surfaces: [WindowSurface]?, processes: Set<ProcessIdentity>) {
+    /// A process that is no longer in `processes` is forgotten with its
+    /// surfaces and attempts, here and in `changes`, so driving it again takes
+    /// a fresh baseline. Keeping the old
+    /// records would propose every window the person opened meanwhile, which is
+    /// the retroactive transfer this feature must not do. The key is
+    /// `ProcessIdentity`, so a restarted application starts over as well.
+    ///
+    /// The limit is the first adoption of a process: the baseline is taken when
+    /// the seat holds its first window, so a window the application opens
+    /// between the start of that adoption and its end is read as already
+    /// there. Taking it earlier is a different design, because nothing before
+    /// the adoption knows which process will be driven.
+    ///
+    /// The reading is lazy and taken only when a process is new. A failed
+    /// reading leaves the process unbaselined, and whichever succeeds first,
+    /// the next call here or the next pass (`changes`), takes its baseline.
+    /// Surfaces already known are left exactly as they are.
+    mutating func baseline(
+        surfaces : @autoclosure () -> [WindowSurface]?,
+        processes: Set<ProcessIdentity>
+    ) {
+        forgetProcesses(otherThan: processes)
+        guard !processes.isEmpty else { return }
 
         isPrimed = true
-        guard let surfaces else { return }
+        let fresh = processes.subtracting(baselined)
+        guard !fresh.isEmpty, let surfaces = surfaces() else { return }
+        baselined.formUnion(fresh)
 
         for surface in surfaces {
             guard let identity = surface.reference.identity,
-                  processes.contains(identity.process),
+                  fresh.contains(identity.process),
                   known[identity.windowNumber] == nil
             else { continue }
 
@@ -161,6 +190,48 @@ nonisolated struct AppWindowInventory {
                 isMissing  : false,
                 hasReturned: false
             )
+        }
+    }
+
+    /// Records a reading the seat took while it could not act on it, so a
+    /// window that appears meanwhile is a candidate the moment the seat can.
+    ///
+    /// It only notes sightings: a surface it does not know becomes a candidate
+    /// waiting for its agreeing reading, and a candidate already waiting takes
+    /// the frame of this one. It never reports a change, never touches a
+    /// window the seat holds and never ends a candidacy, so a reading taken in
+    /// the middle of an adoption cannot lose a vanish or an escape the pass
+    /// has not yet reported. The first pass after the seat is free then finds
+    /// the candidate at the same frame and reports it at once, instead of
+    /// spending two more passes to see what an earlier one already saw.
+    mutating func sight(
+        surfaces : [WindowSurface]?,
+        processes: Set<ProcessIdentity>,
+        adopted  : Set<Int>
+    ) {
+        guard isPrimed, let surfaces else { return }
+
+        for surface in surfaces {
+            guard let identity = surface.reference.identity,
+                  processes.contains(identity.process),
+                  baselined.contains(identity.process),
+                  !adopted.contains(identity.windowNumber)
+            else { continue }
+
+            if var record = known[identity.windowNumber], record.identity == identity {
+                guard !record.agreed else { continue }
+                record.frame = surface.reference.frame
+                known[identity.windowNumber] = record
+            } else {
+                known[identity.windowNumber] = KnownSurface(
+                    identity   : identity,
+                    frame      : surface.reference.frame,
+                    agreed     : false,
+                    isMissing  : false,
+                    hasReturned: false
+                )
+            }
+            hasPendingCandidate = true
         }
     }
 
@@ -180,6 +251,9 @@ nonisolated struct AppWindowInventory {
     ) -> [AppWindowChange] {
 
         guard let surfaces else { return [] }
+        // The driven set is the truth whoever let a process go, so a process
+        // dropped without a baseline call is still baselined afresh.
+        forgetProcesses(otherThan: processes)
 
         var changes: [AppWindowChange] = []
         var seen   : Set<Int>          = []
@@ -195,15 +269,17 @@ nonisolated struct AppWindowInventory {
 
             guard let previous = known[windowNumber], previous.identity == identity else {
                 // Never seen, or a different window behind a Window ID the
-                // server handed out again. The baseline agrees with itself.
+                // server handed out again. The baseline agrees with itself, and
+                // so does the first reading of a process whose baseline failed.
+                let isCandidate = baselined.contains(identity.process)
                 known[windowNumber] = KnownSurface(
                     identity   : identity,
                     frame      : surface.reference.frame,
-                    agreed     : !isPrimed,
+                    agreed     : !isCandidate,
                     isMissing  : false,
                     hasReturned: false
                 )
-                if isPrimed { pending = true }
+                if isCandidate { pending = true }
                 continue
             }
 
@@ -285,7 +361,18 @@ nonisolated struct AppWindowInventory {
 
         hasPendingCandidate = pending && isPrimed
         isPrimed            = true
+        baselined.formUnion(processes)
         return changes
+    }
+
+    /// Forgets the baseline, the surfaces and the attempts of every process not
+    /// in `processes`, so driving one of them again starts a new episode.
+    private mutating func forgetProcesses(otherThan processes: Set<ProcessIdentity>) {
+        baselined.formIntersection(processes)
+        for (windowNumber, record) in known where !processes.contains(record.identity.process) {
+            known[windowNumber]    = nil
+            attempts[windowNumber] = nil
+        }
     }
 
     /// Whether the seat may spend one more attempt on this Window ID, counting
