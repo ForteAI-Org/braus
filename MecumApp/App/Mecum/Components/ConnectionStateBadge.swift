@@ -61,7 +61,7 @@ struct ConnectionStateBadge: View {
 
     private func tone(of state: ConnectionState) -> AnyShapeStyle {
         switch state {
-        case .credentialMissing: AnyShapeStyle(.secondary)
+        case .credentialMissing, .notInstalled: AnyShapeStyle(.secondary)
         case .usageLimited     : AnyShapeStyle(.orange)
         default                : AnyShapeStyle(.red)
         }

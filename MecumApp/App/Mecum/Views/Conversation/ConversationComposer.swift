@@ -141,6 +141,7 @@ struct ConversationComposer: View {
                 set: { pending = $0 }
             ),
             catalogue  : worker.configuration.flatMap { team.connections.catalogues[$0.provider] },
+            unavailable: worker.configuration.flatMap { team.connections.modelsUnavailable(for: $0.provider) },
             onClose    : { Task { await keepChoice() } }
         )
         .composerPopup(

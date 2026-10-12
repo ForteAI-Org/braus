@@ -82,4 +82,11 @@ struct SignInExpiredTests {
         #expect(refused.message(for: .anthropic) == refused.message)
         #expect(ConnectionState.ready.message(for: .claudeCode) == ConnectionState.ready.message)
     }
+
+    @Test func aMissingCommandLineSaysHowToInstallAndSignIn() {
+        let missing = ConnectionState.notInstalled
+        #expect(missing.message(for: .claudeCode) == ClaudeClientError.unavailable.errorDescription)
+        #expect(missing.message(for: .codex) == CodexClientError.unavailable.errorDescription)
+        #expect(missing.message(for: .ollama) == missing.message)
+    }
 }

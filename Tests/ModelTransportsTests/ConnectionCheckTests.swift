@@ -108,7 +108,7 @@ struct ConnectionCheckTests {
 
     @Test func everyStateReadsDifferently() {
         let states: [ConnectionState] = [
-            .ready, .credentialMissing, .credentialRejected(detail: "d"), .unreachable(destination: "h", detail: "d"),
+            .ready, .credentialMissing, .notInstalled, .credentialRejected(detail: "d"), .unreachable(destination: "h", detail: "d"),
             .usageLimited(detail: "d"), .modelRemoved(model: "m"), .refused(detail: "d"),
         ]
         #expect(Set(states.map(\.title)).count == states.count)
@@ -142,8 +142,8 @@ struct ConnectionCheckTests {
 
     @Test func aRemovedModelHasAReplacementProposedAndNeverItself() {
         #expect(ProviderCatalog.replacement(for: "claude-opus-4-1", provider: .anthropic,
-                                            catalogue: ["claude-haiku-4-5", "claude-opus-4-1", "claude-sonnet-5"])
-                == "claude-sonnet-5")
+                                            catalogue: ["claude-haiku-4-5", "claude-opus-4-1", "claude-sonnet-5-5"])
+                == "claude-sonnet-5-5")
         #expect(ProviderCatalog.replacement(for: "mistral:7b", provider: .ollama, catalogue: ["qwen3:8b"]) == "qwen3:8b")
         #expect(ProviderCatalog.replacement(for: "qwen3:8b", provider: .ollama, catalogue: ["qwen3:8b"]) == nil)
     }

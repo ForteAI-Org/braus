@@ -22,6 +22,9 @@ struct ConversationModelPopup: View {
     /// The provider's catalogue, nil while it has not been listed yet.
     let catalogue: [ModelInfo]?
 
+    /// Why there is no catalogue to wait for, when the connection says so.
+    let unavailable: String?
+
     @State private var isChoosingModel: Bool
 
     @Environment(\.accessibilityReduceMotion)
@@ -30,14 +33,18 @@ struct ConversationModelPopup: View {
     /// Fixed, so a longer level's name changes only the text, never the popup.
     static let width: CGFloat = 320
 
-    /// - Parameter showsModels: opens on the list of models, as a snapshot draws it.
+    /// - Parameters:
+    ///   - unavailable: shown in place of "Loading models…" while there is no catalogue.
+    ///   - showsModels: opens on the list of models, as a snapshot draws it.
     init(
         selection  : Binding<ModelSelection>,
         catalogue  : [ModelInfo]?,
-        showsModels: Bool = false
+        unavailable: String? = nil,
+        showsModels: Bool    = false
     ) {
         _selection       = selection
         self.catalogue   = catalogue
+        self.unavailable = unavailable
         _isChoosingModel = State(initialValue: showsModels)
     }
 
@@ -132,6 +139,14 @@ struct ConversationModelPopup: View {
             .buttonStyle(.plain)
             .disabled(catalogue.isEmpty)
             .help("Choose Model")
+        } else if let unavailable {
+            Text(unavailable)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(
+                    horizontal: false,
+                    vertical  : true
+                )
         } else {
             Text("Loading models…")
                 .font(.callout)

@@ -79,14 +79,17 @@ extension ProviderCatalog {
     }
 
     /// A Claude model id without the snapshot date some listings append, "claude-haiku-4-5-20251001"
-    /// read as "claude-haiku-4-5": the alias the command line and the API both take, and the id a
-    /// worker keeps, so one model is never listed twice or missed under its other name.
+    /// read as "claude-haiku-4-5", and without the "[1m]" tag of the 1M-token window: the alias the
+    /// command line and the API both take, and the id a worker keeps, so one model is never listed
+    /// twice or missed under its other name. A model with a native 1M window runs it whatever the
+    /// tag; for the others the tag is dropped and the standard window is used.
     static func claudeID(_ id: String) -> String {
-        id.replacing(/-\d{8}$/, with: "")
+        id.replacing(/\[1[mM]\]$/, with: "").replacing(/-\d{8}$/, with: "")
     }
 
     /// The models of Claude Code's answer to `initialize`, in its own order, each once by the id it
-    /// resolves to. The `default` row only repeats one of the others under another name.
+    /// resolves to. The `default` row names the model the account starts on: that model comes first,
+    /// so the first of the catalogue is the one the command line itself would use.
     static func claudeCatalogue(from data: Data) throws -> [ModelInfo] {
         let lines  = String(decoding: data, as: UTF8.self).split(separator: "\n")
         let answer = lines.lazy
@@ -96,18 +99,60 @@ extension ProviderCatalog {
               let models   = (response["response"] as? [String: Any])?["models"] as? [[String: Any]]
         else { throw ClaudeClientError.failed("claude listed no models") }
 
-        var seen = Set<String>()
-        return models.compactMap { model -> ModelInfo? in
-            guard model["value"] as? String != "default",
-                  let id = (model["resolvedModel"] as? String ?? model["value"] as? String).map(claudeID),
-                  seen.insert(id).inserted
-            else { return nil }
+        var seen    = Set<String>()
+        var listed  = [ModelInfo]()
+        var started : ModelInfo?
+        for model in models {
+            let isDefault = model["value"] as? String == "default"
+            let named = model["resolvedModel"] as? String ?? (isDefault ? nil : model["value"] as? String)
+            guard let id = named.map(claudeID) else { continue }
             let levels = model["supportedEffortLevels"] as? [String] ?? []
-            return ModelInfo(
+            let info   = ModelInfo(
                 id     : id,
-                title  : model["displayName"] as? String,
+                title  : isDefault ? nil : model["displayName"] as? String,
                 efforts: levels.compactMap(ReasoningEffort.init(rawValue:))
             )
+            if isDefault {
+                started = info
+            } else if seen.insert(id).inserted {
+                listed.append(info)
+            }
+        }
+        // The default row is named "Default (recommended)", so the model keeps the name of its own row.
+        if let started {
+            var first = started
+            if let index = listed.firstIndex(where: { $0.id == started.id }) {
+                first = listed.remove(at: index)
+            }
+            listed.insert(first, at: 0)
+        }
+        return listed
+    }
+
+    /// What a provider's catalogue is once `listing`, the result of asking it, is known: the live
+    /// list when it came, else the catalogue kept from an earlier listing, else the provider's fixed
+    /// `defaultModels`. A command line that is not installed and a key that is missing are not a
+    /// listing that failed: that error is thrown for the connection's own state to explain, and so is
+    /// the failure of a provider with nothing kept and nothing fixed (Ollama).
+    public static func resolvedCatalogue(
+        _ listing   : Result<[ModelInfo], any Error>,
+        for provider: ModelProvider,
+        kept        : [ModelInfo]?
+    ) throws -> [ModelInfo] {
+        switch listing {
+        case .success(let live):
+            return live
+        case .failure(let error):
+            switch error {
+            case ClaudeClientError.unavailable, CodexClientError.unavailable, ProviderError.missingAPIKey:
+                throw error
+            default:
+                break
+            }
+            if let kept, !kept.isEmpty { return kept }
+            let fixed = provider.defaultModels.map { ModelInfo.known($0, provider: provider) }
+            if fixed.isEmpty { throw error }
+            return fixed
         }
     }
 

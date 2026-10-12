@@ -1456,9 +1456,11 @@ final class TeamModel {
 
         let catalogue = (try? await connections.loadCatalogue(for: provider)) ?? []
         guard let model = provider.startingModel(in: catalogue) else {
+            let reason = connections.modelsUnavailable(for: provider)
+                ?? "\(provider.title) didn’t return any models, so \(worker.name) will keep the current provider."
             problem = UserFacingIssue(
                 title  : "No Models Available",
-                message: "\(provider.title) didn’t return any models, so \(worker.name) will keep the current provider."
+                message: reason
             )
             return
         }

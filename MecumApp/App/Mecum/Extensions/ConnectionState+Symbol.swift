@@ -15,6 +15,7 @@ extension ConnectionState {
         switch self {
         case .ready             : nil
         case .credentialMissing : "key"
+        case .notInstalled      : "arrow.down.circle"
         case .credentialRejected: "key.slash"
         case .unreachable       : "network.slash"
         case .usageLimited      : "hourglass"

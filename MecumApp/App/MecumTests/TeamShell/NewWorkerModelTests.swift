@@ -34,18 +34,33 @@ struct NewWorkerPreselectionTests {
         #expect(ModelProvider.preselected(in: [:]) == nil)
     }
 
-    @Test func theProvidersDefaultModelIsPreselectedWhenListed() {
+    @Test func aCommandLineStartsOnTheFirstModelItLists() {
         let catalogue = [
             ModelInfo(
-                id     : "gpt-5.4-mini",
+                id     : "claude-sonnet-5-5",
                 efforts: [.low]
             ),
             ModelInfo(
-                id     : "gpt-5.6-luna",
+                id     : "claude-opus-5-5",
                 efforts: [.low]
             ),
         ]
-        #expect(ModelProvider.codex.startingModel(in: catalogue)?.id == "gpt-5.6-luna")
+        #expect(ModelProvider.claudeCode.startingModel(in: catalogue)?.id == "claude-sonnet-5-5")
+        #expect(ModelProvider.codex.startingModel(in: catalogue)?.id == "claude-sonnet-5-5")
+    }
+
+    @Test func anAPIProviderStartsOnItsDefaultModelWhenListed() {
+        let catalogue = [
+            ModelInfo(
+                id     : "claude-haiku-4-5",
+                efforts: []
+            ),
+            ModelInfo(
+                id     : "claude-opus-5-5",
+                efforts: [.low]
+            ),
+        ]
+        #expect(ModelProvider.anthropic.startingModel(in: catalogue)?.id == "claude-opus-5-5")
     }
 
     @Test func theFirstModelIsPreselectedOtherwise() {
@@ -60,7 +75,7 @@ struct NewWorkerPreselectionTests {
             ),
         ]
         #expect(ModelProvider.ollama.startingModel(in: catalogue)?.id == "qwen3:8b")
-        #expect(ModelProvider.codex.startingModel(in: catalogue)?.id == "qwen3:8b")
+        #expect(ModelProvider.anthropic.startingModel(in: catalogue)?.id == "qwen3:8b")
     }
 
     @Test func anEmptyCatalogueHasNoModel() {

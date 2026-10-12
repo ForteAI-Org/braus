@@ -24,6 +24,8 @@ struct ConversationModelPresenter: ViewModifier {
 
     let catalogue: [ModelInfo]?
 
+    let unavailable: String?
+
     let onClose: () -> Void
 
     func body(content: Content) -> some View {
@@ -34,8 +36,9 @@ struct ConversationModelPresenter: ViewModifier {
             onClose    : onClose
         ) {
             ConversationModelPopup(
-                selection: $selection,
-                catalogue: catalogue
+                selection  : $selection,
+                catalogue  : catalogue,
+                unavailable: unavailable
             )
         }
     }
@@ -49,6 +52,7 @@ extension View {
         button     : CGRect,
         selection  : Binding<ModelSelection>,
         catalogue  : [ModelInfo]?,
+        unavailable: String?,
         onClose    : @escaping () -> Void
     ) -> some View {
         modifier(
@@ -57,6 +61,7 @@ extension View {
                 button     : button,
                 selection  : selection,
                 catalogue  : catalogue,
+                unavailable: unavailable,
                 onClose    : onClose
             )
         )
