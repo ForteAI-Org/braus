@@ -44,9 +44,9 @@ struct ConversationContextButton: View {
                 lineWidth      : 2.2,
                 isIndeterminate: isCompacting
             )
-            // Room between the ring and the capsule's rim, which the bare ring would touch.
+            // Room between the capsule's rim and the ring; the counter after it keeps its own.
             .padding(
-                .horizontal,
+                .leading,
                 4
             )
         }
