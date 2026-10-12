@@ -8,7 +8,7 @@
 import AppKit
 
 /// ThinkingBlobView is the "is responding" indicator of a thinking bubble: a
-/// small accent ball whose edge carries six soft lobes that breathe and turn
+/// small ball in its worker's colour whose edge carries six soft lobes that breathe and turn
 /// slowly, while the whole ball swells and fades gently.
 ///
 /// One `CAShapeLayer` carries everything. Its path is animated through a few
@@ -58,8 +58,10 @@ final class ThinkingBlobView: NSView {
     /// Where a change of the display options reads the new settings; tests replace it.
     var systemAccessibility: () -> Accessibility = { .system }
 
-    /// The ball's colour, resolved in the view's own appearance.
-    private let tint = NSColor.controlAccentColor
+    /// The ball's colour, the worker's, resolved in the view's own appearance; the accent until one is set.
+    var tint = NSColor.controlAccentColor {
+        didSet { if tint != oldValue { updateFill() } }
+    }
 
     private let blob = CAShapeLayer()
     private var isRunning   = false

@@ -48,6 +48,21 @@ enum MascotImages {
         return image
     }
 
+    /// The mascot's own colour, the ball's base: what the worker is known by wherever it is shown.
+    nonisolated static func baseColor(of drawing: MascotDrawing) -> NSColor {
+        NSColor(
+            hue       : drawing.hue,
+            saturation: drawing.saturation,
+            brightness: drawing.brightness,
+            alpha     : 1
+        )
+    }
+
+    /// The colour of the worker `appearance` describes.
+    nonisolated static func color(for appearance: WorkerAppearance) -> NSColor {
+        baseColor(of: MascotDrawing(appearance))
+    }
+
     /// Paints the ball: one round silhouette, one soft light, one darker rim.
     ///
     /// When the gradient cannot be made, the flat base colour fills the same
@@ -56,12 +71,7 @@ enum MascotImages {
     private nonisolated static func draw(_ drawing: MascotDrawing, in rect: NSRect) {
         let silhouette = NSBezierPath(ovalIn: rect)
 
-        let base = NSColor(
-            hue       : drawing.hue,
-            saturation: drawing.saturation,
-            brightness: drawing.brightness,
-            alpha     : 1
-        )
+        let base = baseColor(of: drawing)
         let light = NSColor(
             hue       : drawing.hue,
             saturation: max(0, drawing.saturation - 0.34 * drawing.highlightSpread),

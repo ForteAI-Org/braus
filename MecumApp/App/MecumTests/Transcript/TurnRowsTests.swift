@@ -193,4 +193,38 @@ struct TurnRowsTests {
         #expect(row.geometry.text.width == row.geometry.text.height)
         #expect(TranscriptWording.accessibilityLabel(for: row.item, workerName: "Atlas") == "Atlas is preparing a response")
     }
+
+    @Test("The thinking blob takes its worker's colour, and the accent only when a worker has none")
+    @MainActor
+    func thinkingBlobTakesTheWorkersColour() async throws {
+        let fixture = try await TranscriptFixture()
+        defer { fixture.discard() }
+        _ = try await running(fixture)
+        let items    = try await fixture.items()
+        let prepared = await RowPreparation.prepare(items, workerName: "Atlas", width: 600, style: TranscriptStyle(),
+                                                    cache: LayoutMeasurementCache(), pipeline: MarkdownContent())
+        let row    = try #require(prepared.rows.first { $0.item.kind == .thinking })
+        let colour = MascotImages.color(for: TranscriptFixture.appearance)
+
+        func blob(in view: TranscriptRowView) throws -> ThinkingBlobView {
+            try #require(view.subviews.compactMap { $0 as? ThinkingBlobView }.first)
+        }
+        func fill(of blob: ThinkingBlobView) throws -> NSColor {
+            let shape = try #require(blob.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.first)
+            return try #require(shape.fillColor.flatMap { NSColor(cgColor: $0) }?.usingColorSpace(.sRGB))
+        }
+
+        let owned = TranscriptRowView()
+        owned.configure(row, style: TranscriptStyle(), workerName: "Atlas", avatar: nil, workerTint: colour,
+                        selection: nil)
+        let expected = try #require(colour.usingColorSpace(.sRGB))
+        let painted  = try fill(of: try blob(in: owned))
+        #expect(abs(painted.redComponent - expected.redComponent) < 0.001)
+        #expect(abs(painted.greenComponent - expected.greenComponent) < 0.001)
+        #expect(abs(painted.blueComponent - expected.blueComponent) < 0.001)
+
+        let bare = TranscriptRowView()
+        bare.configure(row, style: TranscriptStyle(), workerName: "Atlas", avatar: nil, selection: nil)
+        #expect(try blob(in: bare).tint == NSColor.controlAccentColor)
+    }
 }

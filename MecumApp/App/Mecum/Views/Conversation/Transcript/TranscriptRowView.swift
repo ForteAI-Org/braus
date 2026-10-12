@@ -76,6 +76,7 @@ final class TranscriptRowView: NSView {
     private var style      = TranscriptStyle()
     private var workerName = ""
     private var avatar     : NSImage?
+    private var workerTint : NSColor?
     private(set) var selection: NSRange?
     private var pressLocation : NSPoint?
     private var didDrag       = false
@@ -114,6 +115,7 @@ final class TranscriptRowView: NSView {
         style     : TranscriptStyle,
         workerName: String,
         avatar    : NSImage?,
+        workerTint: NSColor? = nil,
         selection : NSRange?
     ) {
         // The same row again, as a streamed reply grows, keeps the laid out stacks of its unchanged blocks.
@@ -128,6 +130,7 @@ final class TranscriptRowView: NSView {
         self.style      = style
         self.workerName = workerName
         self.avatar     = avatar
+        self.workerTint = workerTint
         self.selection  = selection
         ranges          = row.text.blockRanges
         stacks          = zip(row.text.blocks, row.geometry.blockTexts).enumerated().map { index, pair in
@@ -165,6 +168,7 @@ final class TranscriptRowView: NSView {
             thinkingBlob = blob
             addSubview(blob)
         }
+        blob.tint     = workerTint ?? .controlAccentColor
         blob.frame    = row.geometry.text
         blob.isHidden = false
     }

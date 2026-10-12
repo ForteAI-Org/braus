@@ -142,6 +142,7 @@ final class TranscriptController: NSObject {
     @ObservationIgnored private var workerName    = ""
     @ObservationIgnored private var workerProvider: ModelProvider?
     @ObservationIgnored private var avatar        : NSImage?
+    @ObservationIgnored private var workerTint    : NSColor?
     @ObservationIgnored private(set) var textSelection: TranscriptSelection?
     @ObservationIgnored private(set) var bubbleSelection: Set<UUID> = []
     @ObservationIgnored private var bubbleAnchor  : UUID?
@@ -201,6 +202,7 @@ final class TranscriptController: NSObject {
                 self.workerName  = workerName
                 self.workerProvider = workerProvider
                 self.avatar      = MascotImages.image(for: appearance, size: RowGeometry.avatarSide)
+                self.workerTint  = MascotImages.color(for: appearance)
                 self.expanded    = []
                 self.textSelection = nil
                 self.setBubbles([], anchor: nil)
@@ -612,6 +614,7 @@ final class TranscriptController: NSObject {
             style     : style,
             workerName: workerName,
             avatar    : row.item.authorWorkerID == nil ? nil : avatar,
+            workerTint: workerTint,
             selection : selectedRange(ofRow: index)
         )
         cell.rowView.focusedAction = focusedAction?.id == id ? focusedAction?.action : nil
