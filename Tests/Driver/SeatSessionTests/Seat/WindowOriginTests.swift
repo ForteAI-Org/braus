@@ -96,6 +96,33 @@ struct WindowOriginTests {
         #expect(one?.body == CGRect(x: 0, y: 0, width: 20, height: 20))
     }
 
+    @Test("a window whose place is already held is not read again before the first move")
+    func aHeldPlaceIsNotReadAgain() async throws {
+        let target = FakeGeometry.userSeatWindow
+        let beside = FakeGeometry.reference(
+            frame: CGRect(x: -400, y: -1200, width: 600, height: 400), windowNumber: 778)
+        let held = WindowOrigin(
+            body: CGRect(x: 40, y: 60, width: 800, height: 600), serverFrame: nil,
+            displayID: Self.builtIn, spaceID: Self.builtInHome)
+
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        sensing.surfaces = [
+            WindowSurface(reference: target, level: 0, isVisible: true),
+            WindowSurface(reference: beside, level: 0, isVisible: true),
+        ]
+        // Counts only the body reads made once the windows are listed for the first move.
+        sensing.onSurfaceRead = { placing.frameReads.removeAll() }
+        let seat = makeSeat(sensing: sensing, placing: placing)
+        seat.noteOrigins([try #require(target.identity): held])
+
+        _ = try await seat.adopt(target)
+
+        #expect(placing.frameReads == [beside.windowNumber])
+        #expect(seat.physicalOrigins[try #require(target.identity)] == held)
+        #expect(seat.physicalOrigins[try #require(beside.identity)] != nil)
+    }
+
     // MARK: A window the application moved before the seat did
 
     @Test("a window already on the Virtual Display claims no desktop it cannot prove")

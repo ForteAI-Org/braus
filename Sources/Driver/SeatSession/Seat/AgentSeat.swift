@@ -970,7 +970,8 @@ public final class AgentSeat {
     /// Only before the first move: afterwards a reading would record places the
     /// seat itself produced. A window already inside the Virtual Display is left
     /// out, an unreadable list records nothing, and a window already recorded
-    /// keeps its earlier place.
+    /// keeps its earlier place and is not read again: its accessibility body is
+    /// a round trip to the application that `noteOrigins` would discard.
     private func recordPhysicalOrigins(beforeMoving window: WindowReference) {
 
         guard let process = window.identity?.process,
@@ -984,8 +985,11 @@ public final class AgentSeat {
                 """)
             return
         }
+        let unrecorded = surfaces.filter {
+            $0.reference.identity.map { physicalOrigins[$0] == nil } ?? false
+        }
         let read = WindowOrigin.read(
-            surfaces : surfaces,
+            surfaces : unrecorded,
             of       : process,
             excluding: sensing.virtualDisplayBounds,
             body     : { [placing] in ((try? placing.frame(of: $0)) ?? nil) },
@@ -1104,7 +1108,13 @@ public final class AgentSeat {
         restoringTo: CGRect? = nil,
         /// True for a window that is already inside the Virtual Display, which
         /// is taken in where it stands: nothing is written, and the two
-        /// readings that confirm every adoption confirm this one too.
+        /// readings that confirm every adoption confirm this one too. Its
+        /// fullscreen state is not read either: that cold accessibility read
+        /// waits on the application's main thread (717 ms on Photoshop while it
+        /// built a panel). The release exits fullscreen before it writes only
+        /// with `transfersFullScreenWindows` on, as in the app; with it off the
+        /// window stays in fullscreen and macOS migrates its Space when the
+        /// display goes (ADR 0041).
         takenInPlace: Bool = false
     ) async throws -> AdoptedWindow {
 
@@ -1113,7 +1123,9 @@ public final class AgentSeat {
         // The fullscreen exit happens before anything is recorded, because the
         // normal frame this whole transaction is written in terms of does not
         // exist until the window has left fullscreen.
-        let prepared      = try await leaveFullScreenForAdoption(inbound)
+        let prepared      = takenInPlace
+            ? (window: inbound, wasFullScreen: false)
+            : try await leaveFullScreenForAdoption(inbound)
         var window        = prepared.window
         let wasFullScreen = prepared.wasFullScreen
         if platform is QtPlatform, !takenInPlace, restoringTo == nil, !wasFullScreen {

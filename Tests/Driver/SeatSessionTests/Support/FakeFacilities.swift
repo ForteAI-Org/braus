@@ -318,7 +318,12 @@ final class FakePlacing: WindowPlacing, @unchecked Sendable {
     /// popup looks like to the relocator.
     var frameError: (any Error)?
 
+    /// Every window whose accessibility body was read, in order: a body read is
+    /// a round trip to the application, so a row can say which ones were spent.
+    var frameReads: [Int] = []
+
     func frame(of window: WindowReference) throws -> CGRect? {
+        frameReads.append(window.windowNumber)
         if let frameError { throw frameError }
         return bodyFrames[window.windowNumber] ?? bodyFrame
     }
@@ -398,8 +403,13 @@ final class FakePlacing: WindowPlacing, @unchecked Sendable {
     /// residual deadline rather than starting the collaborator's own timeout.
     var fullScreenAwaitBudgets: [Duration] = []
 
+    /// How many times `AXFullScreen` was read: the cold window-element resolution
+    /// behind it waited 717 ms on Photoshop's main thread (ADR 0041).
+    var fullScreenReads = 0
+
     func fullScreen(of window: WindowReference) throws -> WindowRelocator.FullScreenReading {
-        fullScreenStates[window.windowNumber] ?? .writable(false)
+        fullScreenReads += 1
+        return fullScreenStates[window.windowNumber] ?? .writable(false)
     }
 
     func requestFullScreen(_ wanted: Bool, of window: WindowReference) throws {
