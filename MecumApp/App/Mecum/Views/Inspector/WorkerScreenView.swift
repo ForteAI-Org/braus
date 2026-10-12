@@ -26,11 +26,15 @@ struct WorkerScreenView: NSViewRepresentable {
     let place   : ScreenPlace
     let isPaused: Bool
 
+    /// Told the shape of the picture the view draws, which can differ from the view's own.
+    var onPictureAspect: ((CGFloat) -> Void)?
+
     func makeNSView(context: Context) -> NSView {
         let view = team.makeScreenView(
             of           : workerID,
             contentsScale: NSScreen.main?.backingScaleFactor ?? 2
         ) ?? NSView()
+        (view as? LivePreviewView)?.onPictureAspect = onPictureAspect
         team.registerScreenView(
             view,
             in: place

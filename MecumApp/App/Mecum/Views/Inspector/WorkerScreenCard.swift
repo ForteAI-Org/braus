@@ -24,6 +24,9 @@ struct WorkerScreenCard: View {
 
     @State private var isHovering = false
 
+    /// The shape of the picture drawn inside the card, nil until the first frame.
+    @State private var pictureAspect: CGFloat?
+
     @FocusState private var isButtonFocused: Bool
 
     var body: some View {
@@ -33,10 +36,11 @@ struct WorkerScreenCard: View {
             // The enlarged screen stands in for it; hidden, it still has the frame the shrink lands in.
             let isEnlarged = team.enlargedScreen?.workerID == worker.id
             WorkerScreenView(
-                team    : team,
-                workerID: worker.id,
-                place   : place,
-                isPaused: isEnlarged
+                team           : team,
+                workerID       : worker.id,
+                place          : place,
+                isPaused       : isEnlarged,
+                onPictureAspect: { aspect in Task { @MainActor in pictureAspect = aspect } }
             )
             .opacity(isEnlarged ? 0 : 1)
             .id(worker.id)
@@ -50,8 +54,17 @@ struct WorkerScreenCard: View {
                     .onTapGesture(perform: enlarge)
                     .accessibilityHidden(true)
             }
-            .overlay(alignment: .topTrailing) { enlargeButton }
+            // The picture can be narrower than the card, with bars inside it; the button sits on the picture.
+            .overlay {
+                Color.clear
+                    .aspectRatio(
+                        pictureAspect ?? ratio,
+                        contentMode: .fit
+                    )
+                    .overlay(alignment: .topTrailing) { enlargeButton }
+            }
             .onHover { isHovering = $0 }
+            .onChange(of: worker.id) { pictureAspect = nil }
             .clipShape(RoundedRectangle(
                 cornerRadius: 8,
                 style       : .continuous
