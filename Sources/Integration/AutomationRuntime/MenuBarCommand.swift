@@ -84,6 +84,7 @@ public enum MenuBarCommand {
         _ steps          : [String],
         from root        : Element,
         allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)? = nil,
         items            : (Element) -> [Item<Element>]
     ) -> Resolution<Element> {
 
@@ -95,13 +96,13 @@ public enum MenuBarCommand {
         var chosen: Item<Element>?
         for (index, wanted) in steps.enumerated() {
             let shown = level.map(\.title).filter { !$0.isEmpty }
-            let exact = level.firstIndex(where: { normalized($0.title) == normalized(wanted) })
-            let verb = normalized(wanted)
+            let verb = ActionPolicy.normalizedLabel(wanted)
+            let exact = level.firstIndex(where: { ActionPolicy.normalizedLabel($0.title) == verb })
             // AppKit validates Redo into Redo Typing on activation. Only these
             // two bare editing verbs admit one terminal word-boundary suffix;
             // the exact title, including its disabled state, always wins.
             let dynamic = index > 0 && index == steps.count - 1 && ["undo", "redo"].contains(verb)
-                ? level.indices.filter { normalized(level[$0].title).hasPrefix(verb + " ") } : []
+                ? level.indices.filter { ActionPolicy.normalizedLabel(level[$0].title).hasPrefix(verb + " ") } : []
             if exact == nil, dynamic.count > 1 {
                 return .outcome(ActOutcome(.ambiguous, "More than one current '\(wanted)' command: "
                     + dynamic.map { level[$0].title }.joined(separator: ", ") + ". Name its exact title."))
@@ -131,8 +132,12 @@ public enum MenuBarCommand {
         if !allowsDestructive, trail.contains(where: { ActionPolicy.isDestructive(label: $0) }) {
             return .outcome(ActOutcome(.refused, "\(path) reads as destructive, and the person has not allowed it."))
         }
+        // A Close command may end the application; the caller reads whether it does only for one.
+        if ActionPolicy.isWindowClosingMenuTitle(chosen.title), let sentence = closingRefusal?(path) {
+            return .outcome(ActOutcome(.refused, sentence))
+        }
         guard chosen.isEnabled else { return .disabled(path: path) }
-        if normalized(chosen.title).hasPrefix("hide") {
+        if ActionPolicy.normalizedLabel(chosen.title).hasPrefix("hide") {
             return .outcome(ActOutcome(.refused, "\(path) would hide the application's windows."))
         }
         return .press(chosen.element, path: path)
@@ -221,15 +226,6 @@ public enum MenuBarCommand {
         return path
     }
 
-    /// Case, the ellipsis and trailing dots do not tell two titles apart: "Save As…", "Save As..."
-    /// and "save as" are one item.
-    static func normalized(_ title: String) -> String {
-        var text = title.lowercased().replacingOccurrences(of: "…", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        while text.hasSuffix(".") { text.removeLast() }
-        return text.trimmingCharacters(in: .whitespaces)
-    }
-
     // MARK: The live menu bar
 
     /// The refusal for an item that reads disabled. Measured on 30/09/2026: Photoshop left
@@ -254,22 +250,36 @@ public enum MenuBarCommand {
     public static func run(
         _ path           : String,
         processID        : pid_t,
-        allowsDestructive: Bool
+        allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)? = nil
     ) -> (pressed: String?, outcome: ActOutcome, disabled: String?) {
-        run(resolve(path, processID: processID, allowsDestructive: allowsDestructive)) {
-            AXUIElementPerformAction($0, kAXPressAction as CFString)
-        }
+        let resolution = resolve(
+            path,
+            processID        : processID,
+            allowsDestructive: allowsDestructive,
+            closingRefusal   : closingRefusal
+        )
+        return run(resolution) { AXUIElementPerformAction($0, kAXPressAction as CFString) }
     }
 
     private static func resolve(
-        _ path: String, processID: pid_t, allowsDestructive: Bool
+        _ path           : String,
+        processID        : pid_t,
+        allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)?
     ) -> Resolution<AXUIElement> {
         let application = AXUIElementCreateApplication(processID)
         AXUIElementSetMessagingTimeout(application, 1)
         guard let bar = element(application, kAXMenuBarAttribute) else {
             return .outcome(ActOutcome(.honestMiss, "This application shows no menu bar to accessibility."))
         }
-        return resolve(steps(of: path), from: bar, allowsDestructive: allowsDestructive, items: { menuItems(of: $0) })
+        return resolve(
+            steps(of: path),
+            from             : bar,
+            allowsDestructive: allowsDestructive,
+            closingRefusal   : closingRefusal,
+            items            : { menuItems(of: $0) }
+        )
     }
 
     private static func run<Element>(
@@ -380,6 +390,7 @@ public enum MenuBarCommand {
         _ path           : String,
         processID        : pid_t,
         allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)? = nil,
         withFront        : (@escaping @MainActor () -> Void) async -> String?,
         frontReturned    : () -> Bool,
         settling         : (any Settling)? = nil,
@@ -388,7 +399,14 @@ public enum MenuBarCommand {
         let before = windowSignature(of: processID)
         var frontIssue: String?
         let (pressed, outcome, _) = await runInFront(
-            read: { resolve(path, processID: processID, allowsDestructive: allowsDestructive) },
+            read: {
+                resolve(
+                    path,
+                    processID        : processID,
+                    allowsDestructive: allowsDestructive,
+                    closingRefusal   : closingRefusal
+                )
+            },
             press: { AXUIElementPerformAction($0, kAXPressAction as CFString) },
             withFront: { command in
                 frontIssue = await withFront(command)
@@ -420,6 +438,7 @@ public enum MenuBarCommand {
         _ path           : String,
         processID        : pid_t,
         allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)? = nil,
         refresh          : (() async -> Refresh)? = nil,
         preparesEnabledItems: Bool = false,
         settling         : (any Settling)? = nil,
@@ -431,7 +450,14 @@ public enum MenuBarCommand {
         if refresh == nil { await settling?.prepare(in: processID) }
         let (pressed, outcome, _) = await runPrepared(
             preparesEnabledItems: preparesEnabledItems,
-            read: { resolve(path, processID: processID, allowsDestructive: allowsDestructive) },
+            read: {
+                resolve(
+                    path,
+                    processID        : processID,
+                    allowsDestructive: allowsDestructive,
+                    closingRefusal   : closingRefusal
+                )
+            },
             press: { AXUIElementPerformAction($0, kAXPressAction as CFString) },
             refresh: refresh
         )

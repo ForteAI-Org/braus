@@ -37,7 +37,7 @@ and is never a reason to send the gesture again.
 
 | Module | What it owns |
 |---|---|
-| `EngineCore` | pure types and contracts: `ActOutcome` and its closed kinds, `ActVerification` with `ActOracle` and `OracleEvidence`, `ActionVerb`, `ActionPolicy` and `ActionPermissions`, `ActivationPolicy`, `ActionTiming`, `ActionRequest`, `ElsewhereGuide`, `PopupRowPick`, and the roles `Actuating`, `SceneProviding`, `ControlPressing`, `ApplicationActivating`, `EffectExpecting`, `ActionObserving`, `Settling` |
+| `EngineCore` | pure types and contracts: `ActOutcome` and its closed kinds, `ActVerification` with `ActOracle` and `OracleEvidence`, `ActionVerb`, `ActionPolicy`, `ActionPermissions` with `WindowClosureGuard`, `ActivationPolicy`, `ActionTiming`, `ActionRequest`, `ElsewhereGuide`, `PopupRowPick`, and the roles `Actuating`, `SceneProviding`, `ControlPressing`, `ApplicationActivating`, `EffectExpecting`, `ActionObserving`, `Settling` |
 | `Engine` | `ActionEngine`: the act cycle and the observe side (`describeScene`, `describeSection`, `checkGoal`) over the roles |
 | `HIDActuation` | the foreground `Actuating`: synthetic events at the HID system tap |
 | `AccessibilityActions` | `ControlPressing` over the live accessibility tree: open a dropdown by its own press, read a combo box's value, read a toggle under a point |

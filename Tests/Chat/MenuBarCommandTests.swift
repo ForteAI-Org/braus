@@ -32,14 +32,60 @@ struct MenuBarCommandTests {
     static let bar = Node("", [
         Node("Apple", [Node("Restart...")]),
         Node("Photoshop 2026", [Node("Hide Photoshop"), Node("Quit Photoshop")]),
-        Node("File", [Node("New..."), Node("Close"), Node("Save", enabled: false), Node(""), Node("Save As...")]),
+        Node("File", [
+            Node("New..."), Node("Close"), Node("Close Window"), Node("Save", enabled: false), Node(""),
+            Node("Save As..."),
+        ]),
         Node("Layer", [Node("New", [Node("Layer..."), Node("Group...")]), Node("Delete", [Node("Layer", enabled: false)])]),
     ])
 
-    func resolve(_ path: String, allowsDestructive: Bool = false) -> MenuBarCommand.Resolution<Node> {
-        MenuBarCommand.resolve(MenuBarCommand.steps(of: path), from: Self.bar, allowsDestructive: allowsDestructive) {
+    func resolve(
+        _ path           : String,
+        allowsDestructive: Bool = false,
+        closingRefusal   : ((String) -> String?)? = nil
+    ) -> MenuBarCommand.Resolution<Node> {
+        MenuBarCommand.resolve(
+            MenuBarCommand.steps(of: path),
+            from             : Self.bar,
+            allowsDestructive: allowsDestructive,
+            closingRefusal   : closingRefusal
+        ) {
             $0.children.map { MenuBarCommand.Item(title: $0.title, isEnabled: $0.enabled, element: $0) }
         }
+    }
+
+    @Test("a Close command is refused with the caller's sentence only when closing may end the application")
+    func closeIsRefusedUnderTheRule() {
+        let sentence: (String) -> String = { "refused \($0)" }
+        guard case .outcome(let outcome) = resolve("File > Close", closingRefusal: sentence) else {
+            Issue.record("Close was not refused"); return
+        }
+        #expect(outcome.kind == .refused)
+        #expect(outcome.message == "refused File > Close")
+        guard case .outcome(let window) = resolve("File > Close Window", closingRefusal: sentence) else {
+            Issue.record("Close Window was not refused"); return
+        }
+        #expect(window.kind == .refused)
+        guard case .press(_, "File > Close") = resolve("File > Close") else {
+            Issue.record("Close was refused without the rule"); return
+        }
+        guard case .press(_, "File > Save As...") = resolve("File > Save As...", closingRefusal: sentence) else {
+            Issue.record("another command was refused"); return
+        }
+        guard case .press(_, "File > Close") = resolve("File > Close", closingRefusal: { _ in nil }) else {
+            Issue.record("Close was refused when closing may not end the application"); return
+        }
+    }
+
+    @Test("whether closing may end the application is read only for a Close command")
+    func closingIsReadOnlyForClose() {
+        var asked: [String] = []
+        let sentence: (String) -> String? = { asked.append($0); return nil }
+        _ = resolve("File > Save As...", closingRefusal: sentence)
+        _ = resolve("File", closingRefusal: sentence)
+        #expect(asked.isEmpty)
+        _ = resolve("File > Close", closingRefusal: sentence)
+        #expect(asked == ["File > Close"])
     }
 
     @Test("an item is pressed by its path, whatever its case and ellipsis")
@@ -58,7 +104,7 @@ struct MenuBarCommandTests {
     func aMenuIsListed() {
         guard case .list(let path, let items) = resolve("File") else { Issue.record("the menu was not listed"); return }
         #expect(path == "File")
-        #expect(items == ["New...", "Close", "Save (disabled)", "Save As..."])
+        #expect(items == ["New...", "Close", "Close Window", "Save (disabled)", "Save As..."])
         guard case .list(_, let layer) = resolve("Layer") else { Issue.record("the menu was not listed"); return }
         #expect(layer == ["New >", "Delete >"])
     }

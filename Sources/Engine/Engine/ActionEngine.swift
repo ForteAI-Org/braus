@@ -173,6 +173,17 @@ public struct ActionEngine: Sendable {
         }
         let point = perceived.globalPoint(of: element)
         let surfaces = await surfaces(pid)
+        let closure = permissions.windowClosure
+        if closure.mayEndTheApplication,
+           ActionPolicy.isWindowClosingLabel(element.label) || closure.controlFrames.contains(where: {
+               $0.insetBy(dx: -2, dy: -2).contains(point)
+           }),
+           let refusal = windowClosureRefusal(
+               "Clicking '\(element.label)'", appName: request.appName, scene: scene,
+               hasOpenPopup: surfaces.hasOpenPopup
+           ) {
+            return refusal
+        }
         let expected = await dependencies.expectations?.expectedEffect(
             of: request.verb, on: element, in: request.bundleID
         )
@@ -567,6 +578,9 @@ public struct ActionEngine: Sendable {
         _ request     : InputRequest
     ) async -> ActOutcome {
         guard !text.isEmpty else { return ActOutcome(.refused, "insert_text needs a nonempty text") }
+        if ActionPolicy.containsControlCharacter(text) {
+            return ActOutcome(.refused, ActionPolicy.controlCharacterRefusal)
+        }
         if request.isDryRun {
             return ActOutcome(.dryRun, "would insert \(text.count) characters at the current focus and selection")
         }
@@ -597,6 +611,9 @@ public struct ActionEngine: Sendable {
     ) async -> ActOutcome {
         let pid = request.processID
         guard !text.isEmpty else { return ActOutcome(.refused, "type_text needs a nonempty text") }
+        if ActionPolicy.containsControlCharacter(text) {
+            return ActOutcome(.refused, ActionPolicy.controlCharacterRefusal)
+        }
         let element: SceneElement
         do throws(Unresolved) {
             element = try resolved(
@@ -674,6 +691,14 @@ public struct ActionEngine: Sendable {
             return ActOutcome(.refused, "\(chord) deletes in most applications: refused. If you want the agent "
                 + "to do this, the person must allow destructive actions.", scene: perceived.scene)
         }
+        if chord.key == .escape, permissions.windowClosure.mayEndTheApplication, !permissions.allowsDestructive {
+            let hasOpenPopup = (await surfaces(pid)).hasOpenPopup
+            if let refusal = windowClosureRefusal(
+                "\(chord)", appName: request.appName, scene: perceived.scene, hasOpenPopup: hasOpenPopup
+            ) {
+                return refusal
+            }
+        }
         guard (1...InputRequest.maximumKeyPresses).contains(times) else {
             return ActOutcome(.refused, "a key is pressed 1 to \(InputRequest.maximumKeyPresses) times")
         }
@@ -696,6 +721,31 @@ public struct ActionEngine: Sendable {
                 + "observe before pressing again.\(note)",
             // A typed key has no target; the field's new value is its effect.
             countsValueChange: true
+        )
+    }
+
+    /// The refusal for an input that would close the only window of the application, or nil when
+    /// the window is not that, a pop-up is open (the key then closes it) or the person allowed it.
+    /// The alternatives are real buttons of the scene, never a Cancel the window does not have.
+    private func windowClosureRefusal(
+        _ what      : String,
+        appName     : String,
+        scene       : SceneSnapshot,
+        hasOpenPopup: Bool
+    ) -> ActOutcome? {
+        guard permissions.windowClosure.mayEndTheApplication, !permissions.allowsDestructive,
+              !hasOpenPopup
+        else { return nil }
+        let alternatives = scene.elements.filter {
+            $0.kind == .control && $0.role == "AXButton" && !$0.isUnlabeled && $0.isEnabled != false
+                && !ActionPolicy.isWindowClosingLabel($0.label) && !ActionPolicy.isDestructive(label: $0.label)
+        }.prefix(3).map(\.label)
+        return ActOutcome(
+            .refused,
+            ActionPolicy.windowClosureRefusal(
+                what, window: scene.windowTitle, application: appName, alternatives: alternatives
+            ),
+            scene: scene
         )
     }
 

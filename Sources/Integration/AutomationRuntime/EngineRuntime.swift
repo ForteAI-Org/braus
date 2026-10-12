@@ -63,7 +63,8 @@ public struct EngineRuntime {
         allowsDestructive           : Bool,
         contextMenusOnTextFieldsOnly: Bool = false,
         selectsFieldsByTripleClick  : Bool = false,
-        refusesMenuOpeningClicks    : Bool = false
+        refusesMenuOpeningClicks    : Bool = false,
+        windowClosure               : WindowClosureGuard = WindowClosureGuard()
     ) -> ActionEngine {
         ActionEngine(
             ActionEngine.Dependencies(
@@ -80,7 +81,8 @@ public struct EngineRuntime {
                 allowsDestructive           : allowsDestructive,
                 contextMenusOnTextFieldsOnly: contextMenusOnTextFieldsOnly,
                 selectsFieldsByTripleClick  : selectsFieldsByTripleClick,
-                refusesMenuOpeningClicks    : refusesMenuOpeningClicks
+                refusesMenuOpeningClicks    : refusesMenuOpeningClicks,
+                windowClosure               : windowClosure
             )
         )
     }
