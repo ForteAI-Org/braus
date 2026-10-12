@@ -125,6 +125,7 @@ struct TeamShellView: View {
         }
         .frame(minWidth: isInspectorInWindow ? ShellMetrics.windowMinimumBesideInspector : ShellMetrics.windowMinimum)
         .background(WindowWidthReader(onWidth: windowResized))
+        .overlay { enlargedScreen }
         .onChange(of: columns) { previous, now in
             guard now != .all else { return }
 
@@ -135,8 +136,15 @@ struct TeamShellView: View {
             columns = .all
         }
         .onChange(of: team.selection) {
+            // Another worker takes the enlarged screen away with no shrink to land.
+            team.dismissEnlargedScreen()
             Task { await team.openSelectedConversation() }
         }
+        .onChange(of: hasScreen) { _, hasScreen in
+            if !hasScreen { team.dismissEnlargedScreen() }
+        }
+        // A window closed with the screen enlarged opens small again.
+        .onDisappear { team.dismissEnlargedScreen() }
         .sheet(isPresented: $team.isCreatingWorker) {
             NewWorkerSheet(team: team)
         }
@@ -382,6 +390,25 @@ struct TeamShellView: View {
     }
 
     // MARK: Areas
+
+    /// The selected worker's screen over the whole window, while it is enlarged.
+    @ViewBuilder
+    private var enlargedScreen: some View {
+        if let enlargement = team.enlargedScreen,
+           let worker      = team.selectedWorker,
+           enlargement.workerID == worker.id,
+           team.hasScreen(worker.id) {
+            ConversationEnlargedScreen(
+                team       : team,
+                worker     : worker,
+                enlargement: enlargement
+            )
+            .ignoresSafeArea(
+                .container,
+                edges: .top
+            )
+        }
+    }
 
     @ViewBuilder
     private var detail: some View {

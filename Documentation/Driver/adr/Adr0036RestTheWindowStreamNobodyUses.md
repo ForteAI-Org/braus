@@ -42,6 +42,9 @@ controller with any layer attached never rests, and attaching one wakes it: the 
 gets 30 fps exactly as before. A stream pinned to the display is shown the same way: it never
 rests while pinned, pinning wakes it and unpinning starts the delay. A view in a window that is
 hidden or covered still counts as shown; that only costs the rest it could have had.
+`LivePreviewView.isPaused` detaches its layer while the view stays in its window, for a view
+another one stands in for; it never starts or stops the stream, which rests only once no layer
+is attached at all. Like any detach, pausing the last shown view starts the rest delay.
 
 ### Freshness
 

@@ -26,8 +26,17 @@ public final class LivePreviewView: NSView {
         monitorLayer.contentsScale = window?.backingScaleFactor ?? monitorLayer.contentsScale
     }
 
+    /// While true the stream presents nothing here and the view keeps its last frame; the stream runs on.
+    public var isPaused = false {
+        didSet { if isPaused != oldValue { updateAttachment() } }
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { driver?.detach(monitorLayer) } else { driver?.attach(monitorLayer) }
+        updateAttachment()
+    }
+
+    private func updateAttachment() {
+        if window == nil || isPaused { driver?.detach(monitorLayer) } else { driver?.attach(monitorLayer) }
     }
 }

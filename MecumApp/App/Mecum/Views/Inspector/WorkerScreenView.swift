@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import SeatBroker
 import SwiftUI
 
 /// WorkerScreenView hosts the live view of the window a worker drives: the
@@ -14,20 +15,33 @@ import SwiftUI
 /// The caller mounts it only while `TeamModel.hasScreen` holds and gives it the
 /// worker's id as its identity, so another worker, or the same seat given to
 /// another worker, always gets a view of its own.
+///
+/// A view made for a `place` is the small one the team model keeps for the
+/// enlarged screen to grow from and shrink into. While `isPaused` the stream
+/// draws nothing into it and it keeps its last frame.
 struct WorkerScreenView: NSViewRepresentable {
 
     let team    : TeamModel
     let workerID: UUID
+    let place   : ScreenPlace
+    let isPaused: Bool
 
     func makeNSView(context: Context) -> NSView {
-        team.makeScreenView(
+        let view = team.makeScreenView(
             of           : workerID,
             contentsScale: NSScreen.main?.backingScaleFactor ?? 2
         ) ?? NSView()
+        team.registerScreenView(
+            view,
+            in: place
+        )
+        return view
     }
 
     func updateNSView(
         _ view : NSView,
         context: Context
-    ) {}
+    ) {
+        (view as? LivePreviewView)?.isPaused = isPaused
+    }
 }

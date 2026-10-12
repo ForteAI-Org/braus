@@ -19,7 +19,8 @@ struct InspectorScreenSection: View {
             Section("Screen") {
                 WorkerScreenCard(
                     team  : team,
-                    worker: worker
+                    worker: worker,
+                    place : .inspector
                 )
             }
         }
