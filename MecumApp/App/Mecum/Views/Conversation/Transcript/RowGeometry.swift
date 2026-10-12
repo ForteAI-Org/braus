@@ -125,10 +125,10 @@ nonisolated struct RowGeometry: Sendable, Hashable {
         }
     }
 
-    /// The three dots of a thinking bubble take the place of one body line.
+    /// The blob of a thinking bubble takes the place of one body line: a square as tall as it.
     static func thinkingSize(_ style: TranscriptStyle) -> CGSize {
-        let dot = (style.bodyPointSize * 0.5).rounded()
-        return CGSize(width: 3 * dot + 2 * (dot * 0.7).rounded(), height: (style.bodyPointSize * 1.2).rounded(.up))
+        let side = (style.bodyPointSize * 1.2).rounded(.up)
+        return CGSize(width: side, height: side)
     }
 
     /// The width `block`'s text is laid out and measured at, in whole points.

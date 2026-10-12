@@ -190,6 +190,7 @@ struct TurnRowsTests {
                                    blocks: [], sizes: [])
         #expect(authored.avatar != nil && authored.header != nil)
         #expect(row.geometry.text.size == RowGeometry.thinkingSize(TranscriptStyle()))
+        #expect(row.geometry.text.width == row.geometry.text.height)
         #expect(TranscriptWording.accessibilityLabel(for: row.item, workerName: "Atlas") == "Atlas is preparing a response")
     }
 }

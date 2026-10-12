@@ -81,7 +81,7 @@ final class TranscriptRowView: NSView {
     private var didDrag       = false
     private(set) var stacks: [TextStack?] = []
     private var ranges     : [NSRange] = []
-    private var thinkingDots: ThinkingDotsView?
+    private var thinkingBlob: ThinkingBlobView?
 
     /// The quote's name and excerpt, laid out as `RowPreparation` measured them.
     private var quoteStacks: (name: TextStack?, text: TextStack?) = (nil, nil)
@@ -154,21 +154,19 @@ final class TranscriptRowView: NSView {
         needsDisplay = true
     }
 
-    /// The dots of a thinking row, in its text's place; hidden for any other row.
+    /// The blob of a thinking row, in its text's place; hidden for any other row, which stops it.
     private func showThinking(_ row: PreparedRow) {
         guard row.item.kind == .thinking else {
-            thinkingDots?.stop()
-            thinkingDots?.isHidden = true
+            thinkingBlob?.isHidden = true
             return
         }
-        let dots = thinkingDots ?? ThinkingDotsView()
-        if thinkingDots == nil {
-            thinkingDots = dots
-            addSubview(dots)
+        let blob = thinkingBlob ?? ThinkingBlobView()
+        if thinkingBlob == nil {
+            thinkingBlob = blob
+            addSubview(blob)
         }
-        dots.frame    = row.geometry.text
-        dots.isHidden = false
-        dots.start(reducesMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        blob.frame    = row.geometry.text
+        blob.isHidden = false
     }
 
     /// Whether `row` is an open tool line, or nil when it is no tool line at all.
