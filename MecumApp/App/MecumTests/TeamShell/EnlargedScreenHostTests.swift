@@ -84,8 +84,6 @@ struct EnlargedScreenHostTests {
             host.layoutSubtreeIfNeeded()
         }
 
-        var closeButton: NSButton? { host.subviews.compactMap { $0 as? NSButton }.first }
-
         func press(
             _ code   : UInt16,
             modifiers: NSEvent.ModifierFlags = []
@@ -202,7 +200,7 @@ struct EnlargedScreenHostTests {
         #expect(calm.host.layer?.animation(forKey: "fade") is CABasicAnimation)
     }
 
-    @Test("Escape, the close button and a click on the backdrop ask to close; a click on the screen does not")
+    @Test("Escape, the accessibility action and a click on the backdrop ask to close; a click on the screen does not")
     func closingRequests() throws {
         let rig = Rig(reducesMotion: false)
         #expect(rig.window.firstResponder === rig.host)
@@ -222,26 +220,33 @@ struct EnlargedScreenHostTests {
         ))
         #expect(rig.requests.count == 2)
 
-        let button = try #require(rig.closeButton)
-        button.performClick(nil)
+        let action = try #require(rig.host.accessibilityCustomActions()?.first)
+        #expect(action.name == "Close Screen")
+        #expect(action.handler?() == true)
         #expect(rig.requests.count == 3)
     }
 
-    @Test("Tab moves the keyboard only between the overlay and its close button")
-    func theKeyboardStaysInside() throws {
-        let rig    = Rig(reducesMotion: false)
-        let button = try #require(rig.closeButton)
+    @Test("It shows no close button, and Tab keeps the keyboard on the overlay")
+    func theKeyboardStaysInside() {
+        let rig = Rig(reducesMotion: false)
+        #expect(!rig.host.subviews.contains { $0 is NSButton })
 
         rig.press(48)
-        #expect(rig.window.firstResponder === button)
         rig.press(
             48,
             modifiers: .shift
         )
         #expect(rig.window.firstResponder === rig.host)
-        rig.press(48)
-        rig.press(48)
-        #expect(rig.window.firstResponder === rig.host)
+        #expect(rig.requests.count == 0)
+    }
+
+    @Test("The backdrop is a translucent black that leaves the window behind it readable")
+    func theBackdropIsLight() throws {
+        let rig      = Rig(reducesMotion: false)
+        let backdrop = try #require(rig.host.layer?.sublayers?.first)
+        let alpha    = try #require(backdrop.backgroundColor?.alpha)
+        #expect(abs(alpha - 0.45) < 0.001)
+        #expect(backdrop.animation(forKey: "opacity") is CABasicAnimation)
     }
 
     @Test("Closing shrinks into the small view, hands it the last frame, gives the keyboard back and reports it landed")

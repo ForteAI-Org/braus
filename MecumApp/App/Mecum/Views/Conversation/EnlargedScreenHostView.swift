@@ -28,14 +28,18 @@ import QuartzCore
 /// small one it lands in, which the stream does not draw into while hidden.
 ///
 /// While it is in a window it owns the keyboard: Escape and a click on the
-/// backdrop close it, and Tab moves only between the overlay and its close
-/// button. It gives the keyboard back to what had it when it goes.
+/// backdrop close it, and Tab goes nowhere else. It shows no close button; the
+/// accessibility action "Close Screen" lets VoiceOver close it. It gives the
+/// keyboard back to what had it when it goes.
 final class EnlargedScreenHostView: NSView {
 
     private static let margin      : CGFloat       = 28
     private static let smallRadius : CGFloat       = 8
     private static let largeRadius : CGFloat       = 12
     private static let fadeDuration: CFTimeInterval = 0.2
+
+    /// The backdrop's black: light enough to keep the window behind readable.
+    private static let backdropAlpha: CGFloat = 0.45
 
     /// A spring that settles with a little overshoot, its duration the time it takes to rest.
     private static func spring(
@@ -55,7 +59,6 @@ final class EnlargedScreenHostView: NSView {
 
     private let screen        : NSView
     private let backdrop      = CALayer()
-    private let closeButton   : NSButton
     private let onRequestClose: () -> Void
 
     /// The small view the grow starts from, held until the first layout has a size to grow to.
@@ -96,18 +99,10 @@ final class EnlargedScreenHostView: NSView {
         self.minimumWidth   = opener?.bounds.width ?? 0
         self.reducesMotion  = reducesMotion
         self.onRequestClose = onRequestClose
-        closeButton         = NSButton(
-            image : NSImage(
-                systemSymbolName        : "xmark.circle.fill",
-                accessibilityDescription: "Close Screen"
-            ) ?? NSImage(),
-            target: nil,
-            action: nil
-        )
         super.init(frame: .zero)
 
         wantsLayer = true
-        backdrop.backgroundColor = CGColor(gray: 0, alpha: 0.75)
+        backdrop.backgroundColor = CGColor(gray: 0, alpha: Self.backdropAlpha)
         layer?.addSublayer(backdrop)
 
         screen.wantsLayer = true
@@ -116,19 +111,17 @@ final class EnlargedScreenHostView: NSView {
         screen.layer?.cornerCurve   = .continuous
         screen.layer?.masksToBounds = true
 
-        closeButton.target           = self
-        closeButton.action           = #selector(closePressed)
-        closeButton.isBordered       = false
-        closeButton.contentTintColor = NSColor(white: 1, alpha: 0.85)
-        closeButton.imageScaling     = .scaleProportionallyUpOrDown
-        closeButton.setAccessibilityLabel("Close Screen")
-        addSubview(closeButton)
-
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(label)
         setAccessibilityHelp("Press Escape to close.")
         setAccessibilityModal(true)
+        setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: "Close Screen") { [weak self] in
+                self?.requestClose()
+                return true
+            }
+        ])
     }
 
     @available(*, unavailable)
@@ -152,13 +145,6 @@ final class EnlargedScreenHostView: NSView {
         CATransaction.setDisableActions(true)
         backdrop.frame = bounds
         if !isClosing { screen.frame = restFrame }
-        let side: CGFloat = 22
-        closeButton.frame = CGRect(
-            x     : bounds.maxX - Self.margin + (Self.margin - side) / 2,
-            y     : bounds.maxY - topInset - Self.margin + (Self.margin - side) / 2,
-            width : side,
-            height: side
-        )
         CATransaction.commit()
 
         if !hasOpened, window != nil, bounds.width > 0 { open() }
@@ -202,8 +188,7 @@ final class EnlargedScreenHostView: NSView {
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         // A removal without a close, a worker chosen or a seat released, still gives the keyboard back.
-        if newWindow == nil, !isClosing, let window,
-           window.firstResponder === self || window.firstResponder === closeButton {
+        if newWindow == nil, !isClosing, let window, window.firstResponder === self {
             window.makeFirstResponder(previousResponder)
         }
         super.viewWillMove(toWindow: newWindow)
@@ -319,15 +304,12 @@ final class EnlargedScreenHostView: NSView {
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
             case 53: requestClose()
-            // Tab and Shift-Tab: the only other stop is the close button.
-            case 48: window?.makeFirstResponder(window?.firstResponder === self ? closeButton : self)
+            // Any other key, Tab included, is dropped: the overlay is the only stop.
             default: break
         }
     }
 
     override func cancelOperation(_ sender: Any?) { requestClose() }
-
-    @objc private func closePressed() { requestClose() }
 
     private func requestClose() {
         guard !isClosing else { return }
