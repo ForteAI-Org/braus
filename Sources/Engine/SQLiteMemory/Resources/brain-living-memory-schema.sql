@@ -17,6 +17,9 @@
 -- capture key memory_event_observations needs as the parent of a sample reference; two partial
 -- unique keys, a lookup index, and the triggers that seal and keep an application. 42 tables,
 -- 42 triggers, 31 explicit indexes; still schema 1.
+-- Merge of the value change: brain_transitions.effect_label and effect_value, and
+-- memory_agent_actions.observed_effect_label and observed_effect_value with the CHECKs of their
+-- family, valueChanged. No table, trigger or index added; still schema 1.
 -- What v5 changed against v4, all motivated in the S0 diff:
 --   A. app scope (decision 14): scene_kind is a closed vocabulary, the 'app' row has a fixed
 --      shape, one per app, no element/role/label/association/evidence on the scope, no
@@ -260,6 +263,8 @@ CREATE TABLE brain_transitions (
     effect_text TEXT,
     required_target_state TEXT,
     resulting_target_state TEXT,
+    effect_label TEXT,
+    effect_value TEXT,
     last_observed_epoch INTEGER,
     status TEXT NOT NULL CHECK (status IN ('candidate', 'trusted', 'rejected')),
     first_seen_ms INTEGER NOT NULL,
@@ -380,14 +385,16 @@ CREATE TABLE memory_agent_actions (
     -- The effect the engine attributed to a completed action or input, typed by family (S3-d
     -- correction): observed_effect_text is the title of windowTitleChanged, the two states belong to
     -- stateFlip, and the labels of the three list families are rows of
-    -- memory_agent_action_effect_labels, in order; textSelectionChanged is its family alone. No
-    -- encoded text, no separators.
+    -- memory_agent_action_effect_labels, in order; textSelectionChanged is its family alone; the label
+    -- and value columns belong to valueChanged. No encoded text, no separators.
     observed_effect_kind TEXT CHECK (observed_effect_kind IS NULL OR observed_effect_kind IN
         ('windowTitleChanged', 'stateFlip', 'menuOpened', 'elementsAppeared', 'elementsDisappeared',
-         'textSelectionChanged')),
+         'textSelectionChanged', 'valueChanged')),
     observed_effect_text TEXT,
     observed_state_before TEXT CHECK (observed_state_before IS NULL OR observed_state_before IN ('on', 'off', 'mixed', 'unknown')),
     observed_state_after TEXT CHECK (observed_state_after IS NULL OR observed_state_after IN ('on', 'off', 'mixed', 'unknown')),
+    observed_effect_label TEXT,
+    observed_effect_value TEXT,
     requested_count INTEGER CHECK (requested_count IS NULL OR requested_count >= 0),
     attempted_count INTEGER CHECK (attempted_count IS NULL OR attempted_count >= 0),
     verified_count INTEGER CHECK (verified_count IS NULL OR verified_count >= 0),
@@ -397,6 +404,8 @@ CREATE TABLE memory_agent_actions (
     CHECK ((observed_effect_kind IS 'windowTitleChanged') = (observed_effect_text IS NOT NULL)),
     CHECK ((observed_effect_kind IS 'stateFlip') = (observed_state_before IS NOT NULL AND observed_state_after IS NOT NULL)),
     CHECK (observed_effect_kind IS 'stateFlip' OR (observed_state_before IS NULL AND observed_state_after IS NULL)),
+    CHECK ((observed_effect_kind IS 'valueChanged') = (observed_effect_label IS NOT NULL AND observed_effect_value IS NOT NULL)),
+    CHECK (observed_effect_kind IS 'valueChanged' OR (observed_effect_label IS NULL AND observed_effect_value IS NULL)),
     CHECK (observed_effect_kind IS NULL OR execution_status = 'completed'),
     CHECK (attempted_count IS NULL OR requested_count IS NULL OR attempted_count <= requested_count),
     CHECK (verified_count IS NULL OR attempted_count IS NULL OR verified_count <= attempted_count),

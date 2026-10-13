@@ -8,6 +8,7 @@
 import ApplicationServices
 @testable import AutomationRuntime
 import EngineCore
+import PerceptionCore
 import Testing
 
 /// The walk of a menu path over a fake menu bar shaped like Photoshop's, measured on 30/09/2026.
@@ -31,14 +32,60 @@ struct MenuBarCommandTests {
     static let bar = Node("", [
         Node("Apple", [Node("Restart...")]),
         Node("Photoshop 2026", [Node("Hide Photoshop"), Node("Quit Photoshop")]),
-        Node("File", [Node("New..."), Node("Close"), Node("Save", enabled: false), Node(""), Node("Save As...")]),
+        Node("File", [
+            Node("New..."), Node("Close"), Node("Close Window"), Node("Save", enabled: false), Node(""),
+            Node("Save As..."),
+        ]),
         Node("Layer", [Node("New", [Node("Layer..."), Node("Group...")]), Node("Delete", [Node("Layer", enabled: false)])]),
     ])
 
-    func resolve(_ path: String, allowsDestructive: Bool = false) -> MenuBarCommand.Resolution<Node> {
-        MenuBarCommand.resolve(MenuBarCommand.steps(of: path), from: Self.bar, allowsDestructive: allowsDestructive) {
+    func resolve(
+        _ path           : String,
+        allowsDestructive: Bool = false,
+        closingRefusal   : ((String) -> String?)? = nil
+    ) -> MenuBarCommand.Resolution<Node> {
+        MenuBarCommand.resolve(
+            MenuBarCommand.steps(of: path),
+            from             : Self.bar,
+            allowsDestructive: allowsDestructive,
+            closingRefusal   : closingRefusal
+        ) {
             $0.children.map { MenuBarCommand.Item(title: $0.title, isEnabled: $0.enabled, element: $0) }
         }
+    }
+
+    @Test("a Close command is refused with the caller's sentence only when closing may end the application")
+    func closeIsRefusedUnderTheRule() {
+        let sentence: (String) -> String = { "refused \($0)" }
+        guard case .outcome(let outcome) = resolve("File > Close", closingRefusal: sentence) else {
+            Issue.record("Close was not refused"); return
+        }
+        #expect(outcome.kind == .refused)
+        #expect(outcome.message == "refused File > Close")
+        guard case .outcome(let window) = resolve("File > Close Window", closingRefusal: sentence) else {
+            Issue.record("Close Window was not refused"); return
+        }
+        #expect(window.kind == .refused)
+        guard case .press(_, "File > Close") = resolve("File > Close") else {
+            Issue.record("Close was refused without the rule"); return
+        }
+        guard case .press(_, "File > Save As...") = resolve("File > Save As...", closingRefusal: sentence) else {
+            Issue.record("another command was refused"); return
+        }
+        guard case .press(_, "File > Close") = resolve("File > Close", closingRefusal: { _ in nil }) else {
+            Issue.record("Close was refused when closing may not end the application"); return
+        }
+    }
+
+    @Test("whether closing may end the application is read only for a Close command")
+    func closingIsReadOnlyForClose() {
+        var asked: [String] = []
+        let sentence: (String) -> String? = { asked.append($0); return nil }
+        _ = resolve("File > Save As...", closingRefusal: sentence)
+        _ = resolve("File", closingRefusal: sentence)
+        #expect(asked.isEmpty)
+        _ = resolve("File > Close", closingRefusal: sentence)
+        #expect(asked == ["File > Close"])
     }
 
     @Test("an item is pressed by its path, whatever its case and ellipsis")
@@ -57,7 +104,7 @@ struct MenuBarCommandTests {
     func aMenuIsListed() {
         guard case .list(let path, let items) = resolve("File") else { Issue.record("the menu was not listed"); return }
         #expect(path == "File")
-        #expect(items == ["New...", "Close", "Save (disabled)", "Save As..."])
+        #expect(items == ["New...", "Close", "Close Window", "Save (disabled)", "Save As..."])
         guard case .list(_, let layer) = resolve("Layer") else { Issue.record("the menu was not listed"); return }
         #expect(layer == ["New >", "Delete >"])
     }
@@ -262,6 +309,108 @@ struct MenuBarCommandTests {
         }
         #expect(presses == 1)
         #expect(observations == 1)
+    }
+
+    private static let scene = SceneSnapshot(
+        bundleID: "test", appName: "Test", windowTitle: "Open",
+        viewportPixelSize: .init(width: 100, height: 100), elements: []
+    )
+
+    /// A settling role that records each wait and how many observations had run by then.
+    final class RecordingSettling: Settling, @unchecked Sendable {
+        var waits: [(processID: pid_t, cap: Duration, observations: Int)] = []
+        var observations = 0
+        var prepares: [pid_t] = []
+        func prepare(in processID: pid_t) async { prepares.append(processID) }
+        func settle(in processID: pid_t, cap: Duration) async {
+            waits.append((processID, cap, observations))
+        }
+    }
+
+    @Test("A press notes the window before it, unless a refresh would bring the application forward first")
+    func aPressPreparesTheSettlingRole() async throws {
+        let settling = RecordingSettling()
+        let missing: pid_t = 999_999
+        _ = try await MenuBarCommand.perform(
+            "File > New...", processID: missing, allowsDestructive: false,
+            settling: settling, observe: { Self.scene }
+        )
+        _ = try await MenuBarCommand.perform(
+            "File > New...", processID: missing, allowsDestructive: false,
+            refresh: { .stillDisabled(reason: nil) }, settling: settling, observe: { Self.scene }
+        )
+        #expect(settling.prepares == [missing], "only the press with no refresh")
+    }
+
+    @Test("A press settles through the seat's role with the 400 ms as its cap, before the observation")
+    func aPressSettlesBeforeItIsObserved() async throws {
+        let settling = RecordingSettling()
+        let dispatched = await MenuBarCommand.runInFront(
+            read     : { .press(Node("New..."), path: "File > New...") },
+            press    : { _ in .success },
+            withFront: { command in command(); return nil }
+        )
+        let result = try await MenuBarCommand.observedOutcome(
+            dispatched.pressed,
+            outcome  : dispatched.outcome,
+            processID: 4242,
+            before   : [],
+            settling : settling,
+            observe  : { settling.observations += 1; return Self.scene }
+        )
+        #expect(result.scene == Self.scene)
+        #expect(settling.waits.count == 1)
+        #expect(settling.waits.first?.processID == 4242)
+        #expect(settling.waits.first?.cap == .milliseconds(400))
+        #expect(settling.waits.first?.observations == 0, "the scene is observed after the settle")
+        #expect(settling.observations == 1)
+        #expect(MenuBarCommand.pressSettle == .milliseconds(400))
+    }
+
+    @Test("A handback that was not verified but is verified by the observation gets the window verdict",
+          arguments: [true, false])
+    func aLateVerifiedReturnGetsTheWindowVerdict(_ windowOpened: Bool) async throws {
+        let dispatched = await MenuBarCommand.runInFront(
+            read     : { .press(Node("Place Embedded..."), path: "File > Place Embedded...") },
+            press    : { _ in .success },
+            withFront: { command in command(); return "The return was not verified." }
+        )
+        let result = try await MenuBarCommand.observedOutcome(
+            dispatched.pressed,
+            outcome      : dispatched.outcome,
+            processID    : -1,
+            before       : windowOpened ? ["AXWindow|AXDialog|Open"] : [],
+            frontIssue   : "The return was not verified.",
+            frontReturned: { true },
+            observe      : { Self.scene }
+        )
+        #expect(result.kind == (windowOpened ? .foundActed : .actedUnverified))
+        #expect(result.scene == Self.scene)
+        #expect(!result.message.contains("not verified"))
+        #expect(!result.message.contains("Observe"))
+    }
+
+    @Test("A handback still not verified keeps actedUnverified with the scene and no advice to observe")
+    func aReturnStillNotVerifiedAttachesTheSceneAndAsksForNothing() async throws {
+        let dispatched = await MenuBarCommand.runInFront(
+            read     : { .press(Node("Place Embedded..."), path: "File > Place Embedded...") },
+            press    : { _ in .success },
+            withFront: { command in command(); return "The return was not verified." }
+        )
+        let result = try await MenuBarCommand.observedOutcome(
+            dispatched.pressed,
+            outcome      : dispatched.outcome,
+            processID    : -1,
+            before       : [],
+            frontIssue   : "The return was not verified.",
+            frontReturned: { false },
+            observe      : { Self.scene }
+        )
+        #expect(result.kind == .actedUnverified)
+        #expect(result.scene == Self.scene)
+        #expect(result.message.hasPrefix("pressed File > Place Embedded... The return was not verified."))
+        #expect(!result.message.localizedCaseInsensitiveContains("observe"))
+        #expect(result.message.contains("Do not repeat"))
     }
 
     @Test("An unprepared listing warns that disabled flags and history may be stale without requesting input")

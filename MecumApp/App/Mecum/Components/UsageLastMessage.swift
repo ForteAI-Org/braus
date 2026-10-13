@@ -8,7 +8,7 @@
 import ChatCore
 import SwiftUI
 
-/// UsageLastMessage is the "Last message" section both usage popovers show:
+/// UsageLastMessage is the "Last message" section of the token counter's popover:
 /// what the worker's latest turn read, how much of it came from the cache,
 /// and what it wrote.
 struct UsageLastMessage: View {

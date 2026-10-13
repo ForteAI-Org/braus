@@ -348,3 +348,12 @@ The Cancel action completed but its learned effect prediction disagreed;
 fresh observation confirmed panel withdrawal and return to the Project Manager.
 Resolve exceeded the one-second quit confirmation and was reported still
 running at handback; a later independent process check found it had exited.
+
+## Escape closes the only window (2026-10-12)
+
+DaVinci Resolve with no project open has the Project Manager as its only window: no main
+window, no cancel button, role interactive panel. Escape there closes it and Resolve
+exits. The seat refuses Escape, a click on a Cancel or Close control and a Close menu
+command for a window like that, by evidence and not by name; with a project open the
+editor is a main document window and Escape is not refused. See
+[ADR 0039](../adr/Adr0039RefuseClosingTheOnlyWindow.md).

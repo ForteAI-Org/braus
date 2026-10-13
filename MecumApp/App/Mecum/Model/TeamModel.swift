@@ -1230,6 +1230,43 @@ final class TeamModel {
     /// Whether the worker's live screen floats over the conversation instead of sitting in the inspector.
     var showsScreenInConversation = false
 
+    /// The worker's screen enlarged over the conversation, nil while it is small.
+    var enlargedScreen: ScreenEnlargement?
+
+    /// The small live views on screen, by place: where the enlarged one grows from and shrinks into.
+    @ObservationIgnored
+    private var smallScreens: [ScreenPlace: WeakScreenView] = [:]
+
+    /// Records the small live view that now sits in `place`.
+    func registerScreenView(
+        _ view: NSView,
+        in place: ScreenPlace
+    ) {
+        smallScreens[place] = WeakScreenView(view: view)
+    }
+
+    /// The small live view in `place`, nil while there is none.
+    func screenView(in place: ScreenPlace) -> NSView? { smallScreens[place]?.view }
+
+    /// Enlarges the worker's screen from `place`; nothing while it is already enlarged or has no window.
+    func enlargeScreen(
+        of workerID: UUID,
+        from place : ScreenPlace
+    ) {
+        guard enlargedScreen == nil, hasScreen(workerID) else { return }
+
+        enlargedScreen = ScreenEnlargement(
+            workerID: workerID,
+            origin  : place
+        )
+    }
+
+    /// Asks the enlarged screen to shrink back; the overlay finishes it when it has landed.
+    func closeEnlargedScreen() { enlargedScreen?.close() }
+
+    /// Removes the enlarged screen at once, for a worker or a seat that went away.
+    func dismissEnlargedScreen() { enlargedScreen = nil }
+
     /// Gives the worker's seat back (§3.4). The conversation, a running turn and the worker stay
     /// as they are; the next tool call that needs the computer waits in the queue for it again.
     func releaseComputer(_ workerID: UUID) async {
@@ -1461,9 +1498,11 @@ final class TeamModel {
 
         let catalogue = (try? await connections.loadCatalogue(for: provider)) ?? []
         guard let model = provider.startingModel(in: catalogue) else {
+            let reason = connections.modelsUnavailable(for: provider)
+                ?? "\(provider.title) didn’t return any models, so \(worker.name) will keep the current provider."
             problem = UserFacingIssue(
                 title  : "No Models Available",
-                message: "\(provider.title) didn’t return any models, so \(worker.name) will keep the current provider."
+                message: reason
             )
             return
         }
@@ -1648,4 +1687,10 @@ final class TeamModel {
     private func name(of id: UUID) -> String {
         worker(id)?.name ?? "That worker"
     }
+}
+
+/// A small live view held without keeping it alive; the card that made it owns it.
+private struct WeakScreenView {
+
+    weak var view: NSView?
 }

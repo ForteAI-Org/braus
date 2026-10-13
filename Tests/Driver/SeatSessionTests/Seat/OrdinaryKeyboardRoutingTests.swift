@@ -78,6 +78,7 @@ struct OrdinaryKeyboardRoutingTests {
                 },
                 identity: { [self] _ in geometry?.window.identity },
                 focusedWindowNumber: { _ in nil },
+                focusedWindowReading: { _, _ in .noWindow },
                 ordinaryKeyboardContext: { [self] _, chain, generation in
                     readings += 1
                     guard isValid, keyboardReading == .absent, let geometry else {

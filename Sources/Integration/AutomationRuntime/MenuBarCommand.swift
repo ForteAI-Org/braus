@@ -84,6 +84,7 @@ public enum MenuBarCommand {
         _ steps          : [String],
         from root        : Element,
         allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)? = nil,
         items            : (Element) -> [Item<Element>]
     ) -> Resolution<Element> {
 
@@ -95,13 +96,13 @@ public enum MenuBarCommand {
         var chosen: Item<Element>?
         for (index, wanted) in steps.enumerated() {
             let shown = level.map(\.title).filter { !$0.isEmpty }
-            let exact = level.firstIndex(where: { normalized($0.title) == normalized(wanted) })
-            let verb = normalized(wanted)
+            let verb = ActionPolicy.normalizedLabel(wanted)
+            let exact = level.firstIndex(where: { ActionPolicy.normalizedLabel($0.title) == verb })
             // AppKit validates Redo into Redo Typing on activation. Only these
             // two bare editing verbs admit one terminal word-boundary suffix;
             // the exact title, including its disabled state, always wins.
             let dynamic = index > 0 && index == steps.count - 1 && ["undo", "redo"].contains(verb)
-                ? level.indices.filter { normalized(level[$0].title).hasPrefix(verb + " ") } : []
+                ? level.indices.filter { ActionPolicy.normalizedLabel(level[$0].title).hasPrefix(verb + " ") } : []
             if exact == nil, dynamic.count > 1 {
                 return .outcome(ActOutcome(.ambiguous, "More than one current '\(wanted)' command: "
                     + dynamic.map { level[$0].title }.joined(separator: ", ") + ". Name its exact title."))
@@ -131,8 +132,12 @@ public enum MenuBarCommand {
         if !allowsDestructive, trail.contains(where: { ActionPolicy.isDestructive(label: $0) }) {
             return .outcome(ActOutcome(.refused, "\(path) reads as destructive, and the person has not allowed it."))
         }
+        // A Close command may end the application; the caller reads whether it does only for one.
+        if ActionPolicy.isWindowClosingMenuTitle(chosen.title), let sentence = closingRefusal?(path) {
+            return .outcome(ActOutcome(.refused, sentence))
+        }
         guard chosen.isEnabled else { return .disabled(path: path) }
-        if normalized(chosen.title).hasPrefix("hide") {
+        if ActionPolicy.normalizedLabel(chosen.title).hasPrefix("hide") {
             return .outcome(ActOutcome(.refused, "\(path) would hide the application's windows."))
         }
         return .press(chosen.element, path: path)
@@ -221,15 +226,6 @@ public enum MenuBarCommand {
         return path
     }
 
-    /// Case, the ellipsis and trailing dots do not tell two titles apart: "Save As…", "Save As..."
-    /// and "save as" are one item.
-    static func normalized(_ title: String) -> String {
-        var text = title.lowercased().replacingOccurrences(of: "…", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        while text.hasSuffix(".") { text.removeLast() }
-        return text.trimmingCharacters(in: .whitespaces)
-    }
-
     // MARK: The live menu bar
 
     /// The refusal for an item that reads disabled. Measured on 30/09/2026: Photoshop left
@@ -254,22 +250,36 @@ public enum MenuBarCommand {
     public static func run(
         _ path           : String,
         processID        : pid_t,
-        allowsDestructive: Bool
+        allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)? = nil
     ) -> (pressed: String?, outcome: ActOutcome, disabled: String?) {
-        run(resolve(path, processID: processID, allowsDestructive: allowsDestructive)) {
-            AXUIElementPerformAction($0, kAXPressAction as CFString)
-        }
+        let resolution = resolve(
+            path,
+            processID        : processID,
+            allowsDestructive: allowsDestructive,
+            closingRefusal   : closingRefusal
+        )
+        return run(resolution) { AXUIElementPerformAction($0, kAXPressAction as CFString) }
     }
 
     private static func resolve(
-        _ path: String, processID: pid_t, allowsDestructive: Bool
+        _ path           : String,
+        processID        : pid_t,
+        allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)?
     ) -> Resolution<AXUIElement> {
         let application = AXUIElementCreateApplication(processID)
         AXUIElementSetMessagingTimeout(application, 1)
         guard let bar = element(application, kAXMenuBarAttribute) else {
             return .outcome(ActOutcome(.honestMiss, "This application shows no menu bar to accessibility."))
         }
-        return resolve(steps(of: path), from: bar, allowsDestructive: allowsDestructive, items: { menuItems(of: $0) })
+        return resolve(
+            steps(of: path),
+            from             : bar,
+            allowsDestructive: allowsDestructive,
+            closingRefusal   : closingRefusal,
+            items            : { menuItems(of: $0) }
+        )
     }
 
     private static func run<Element>(
@@ -374,20 +384,45 @@ public enum MenuBarCommand {
     /// Performs an admitted menu command once during the consumer-supplied
     /// foreground scope, then observes its effect after handback. Input is
     /// separate from readiness, and cleanup failure stays in the outcome.
+    /// `frontReturned` is read once, after the observation: a handback that
+    /// was not verified when the scope ended may be verified by then.
     public static func performInFront(
         _ path           : String,
         processID        : pid_t,
         allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)? = nil,
         withFront        : (@escaping @MainActor () -> Void) async -> String?,
+        frontReturned    : () -> Bool,
+        settling         : (any Settling)? = nil,
         observe          : () async throws -> SceneSnapshot
     ) async throws -> ActOutcome {
         let before = windowSignature(of: processID)
+        var frontIssue: String?
         let (pressed, outcome, _) = await runInFront(
-            read: { resolve(path, processID: processID, allowsDestructive: allowsDestructive) },
+            read: {
+                resolve(
+                    path,
+                    processID        : processID,
+                    allowsDestructive: allowsDestructive,
+                    closingRefusal   : closingRefusal
+                )
+            },
             press: { AXUIElementPerformAction($0, kAXPressAction as CFString) },
-            withFront: withFront
+            withFront: { command in
+                frontIssue = await withFront(command)
+                return frontIssue
+            }
         )
-        return try await observedOutcome(pressed, outcome: outcome, processID: processID, before: before, observe: observe)
+        return try await observedOutcome(
+            pressed,
+            outcome      : outcome,
+            processID    : processID,
+            before       : before,
+            frontIssue   : frontIssue,
+            frontReturned: frontReturned,
+            settling     : settling,
+            observe      : observe
+        )
     }
 
     /// Runs `path` and, when it pressed an item, observes the scene after it. Pressing is verified
@@ -403,42 +438,80 @@ public enum MenuBarCommand {
         _ path           : String,
         processID        : pid_t,
         allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)? = nil,
         refresh          : (() async -> Refresh)? = nil,
         preparesEnabledItems: Bool = false,
+        settling         : (any Settling)? = nil,
         observe          : () async throws -> SceneSnapshot
     ) async throws -> ActOutcome {
 
         let before = windowSignature(of: processID)
+        // A refresh brings the application forward first, which redraws it: no reference then.
+        if refresh == nil { await settling?.prepare(in: processID) }
         let (pressed, outcome, _) = await runPrepared(
             preparesEnabledItems: preparesEnabledItems,
-            read: { resolve(path, processID: processID, allowsDestructive: allowsDestructive) },
+            read: {
+                resolve(
+                    path,
+                    processID        : processID,
+                    allowsDestructive: allowsDestructive,
+                    closingRefusal   : closingRefusal
+                )
+            },
             press: { AXUIElementPerformAction($0, kAXPressAction as CFString) },
             refresh: refresh
         )
-        return try await observedOutcome(pressed, outcome: outcome, processID: processID, before: before, observe: observe)
+        return try await observedOutcome(
+            pressed,
+            outcome  : outcome,
+            processID: processID,
+            before   : before,
+            settling : settling,
+            observe  : observe
+        )
     }
 
+    /// The wait after a press before its effect is observed. With a settling role it is the cap of
+    /// that role's wait, which ends once the window settled.
+    static let pressSettle: Duration = .milliseconds(400)
+
     /// Retains an acknowledged dispatch even when its later observation fails.
+    ///
+    /// `frontIssue` is what the foreground scope reported after the press. When
+    /// `frontReturned` then reads true the scope's issue is over and the
+    /// window verdict applies. When it reads false the scene is attached and the
+    /// message does not ask for another observation (ADR 0033).
     static func observedOutcome(
-        _ pressed: String?,
-        outcome  : ActOutcome,
-        processID: pid_t,
-        before   : [String],
-        observe  : () async throws -> SceneSnapshot
+        _ pressed    : String?,
+        outcome      : ActOutcome,
+        processID    : pid_t,
+        before       : [String],
+        frontIssue   : String? = nil,
+        frontReturned: () -> Bool = { false },
+        settling     : (any Settling)? = nil,
+        observe      : () async throws -> SceneSnapshot
     ) async throws -> ActOutcome {
         guard let pressed else { return outcome }
-        try? await Task.sleep(for: .milliseconds(400))
+        if let settling {
+            await settling.settle(in: processID, cap: pressSettle)
+        } else {
+            try? await Task.sleep(for: pressSettle)
+        }
         let scene: SceneSnapshot
         do {
             scene = try await observe()
         } catch {
             return ActOutcome(.actedUnverified, outcome.message
                 + " Observation after dispatch failed: \(error). Do not repeat this command. "
-                + "Observe the session before further input; if observation remains unavailable, "
+                + "Observe the session before further input. If observation stays unavailable, "
                 + "stop and report this error.")
         }
-        if outcome.kind == .actedUnverified {
-            return ActOutcome(.actedUnverified, outcome.message, scene: scene)
+        if outcome.kind == .actedUnverified, !(frontIssue != nil && frontReturned()) {
+            guard let frontIssue else { return ActOutcome(.actedUnverified, outcome.message, scene: scene) }
+            return ActOutcome(.actedUnverified, (pressed.hasSuffix(".") ? "pressed \(pressed)" : "pressed \(pressed).")
+                + " \(frontIssue) The scene is attached."
+                + " The seat accepts no input until the front is back with the person's window."
+                + " Do not repeat it blind.", scene: scene)
         }
         let changed = windowSignature(of: processID) != before
         return changed

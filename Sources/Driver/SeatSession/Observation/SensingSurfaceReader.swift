@@ -92,6 +92,7 @@ nonisolated package struct SensingSurfaceReader: AssignedSurfaceReading {
                 "[known-missing] requesting named WindowServer rows=\(requested, privacy: .public)"
             )
         }
+        let passStarted = DispatchTime.now().uptimeNanoseconds
         switch nativePass(processIDs, retained, windowNumbers) {
             case .success(let native):
                 if !retained.isEmpty {
@@ -109,6 +110,11 @@ nonisolated package struct SensingSurfaceReader: AssignedSurfaceReading {
             case .failure(let failure):
                 windowNumbers.removeAll()
                 nativeFailure = failure
+                let elapsedMilliseconds = (DispatchTime.now().uptimeNanoseconds &- passStarted) / 1_000_000
+                Self.observationLog.notice("""
+                    native surface pass failed after \(elapsedMilliseconds, privacy: .public) ms, \
+                    taking the on-screen fallback: \(String(describing: failure), privacy: .public)
+                    """)
         }
 
         guard let surfaces = sensing.windowSurfaces(ownedBy: processIDs) else {

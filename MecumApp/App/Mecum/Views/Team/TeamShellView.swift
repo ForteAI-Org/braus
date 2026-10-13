@@ -32,7 +32,9 @@ import SwiftUI
 /// gives room first (the sidebar turning compact, the inspector closing), and
 /// what takes it after (the inspector opening, the sidebar widening). The
 /// inspector closes over about a quarter of a second while the sidebar widens
-/// at once, so the second step waits `inspectorClosing` after a close.
+/// at once, so the second step waits `inspectorClosing` after a close. The
+/// window's minimum leaves out the inspector's width from its request on, as
+/// AppKit adds that width itself (`ShellMetrics.windowMinimumBesideInspector`).
 ///
 /// The request is the window's own memory, passed in as a binding, so the
 /// offscreen snapshot hosts this view without a scene. The column widths a
@@ -121,7 +123,9 @@ struct TeamShellView: View {
                         )
                 }
         }
+        .frame(minWidth: isInspectorInWindow ? ShellMetrics.windowMinimumBesideInspector : ShellMetrics.windowMinimum)
         .background(WindowWidthReader(onWidth: windowResized))
+        .overlay { enlargedScreen }
         .onChange(of: columns) { previous, now in
             guard now != .all else { return }
 
@@ -132,8 +136,15 @@ struct TeamShellView: View {
             columns = .all
         }
         .onChange(of: team.selection) {
+            // Another worker takes the enlarged screen away with no shrink to land.
+            team.dismissEnlargedScreen()
             Task { await team.openSelectedConversation() }
         }
+        .onChange(of: hasScreen) { _, hasScreen in
+            if !hasScreen { team.dismissEnlargedScreen() }
+        }
+        // A window closed with the screen enlarged opens small again.
+        .onDisappear { team.dismissEnlargedScreen() }
         .sheet(isPresented: $team.isCreatingWorker) {
             NewWorkerSheet(team: team)
         }
@@ -203,10 +214,11 @@ struct TeamShellView: View {
     // MARK: Toolbar
 
     /// The window's own controls, `ShellChrome.toolbar`: the worker's header at
-    /// the leading edge; at the trailing edge the token counter, once the worker
-    /// has recorded a turn, in a group of its own, and the screen and inspector
-    /// toggles together. The connections are at the foot of the sidebar, and Release the computer is
-    /// in the composer beside Send and in the worker's commands.
+    /// the leading edge; at the trailing edge the token counter, once the worker has recorded a
+    /// turn, in a capsule of its own with the context ring before it while the conversation is
+    /// open and the context's window is known, and the screen and inspector toggles together.
+    /// The connections are at the foot of the sidebar, and Release the computer is in the
+    /// composer beside Send and in the worker's commands.
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         // The worker's name leads the conversation's side of the bar, in place of a title,
@@ -227,12 +239,34 @@ struct TeamShellView: View {
         if let worker = team.selectedWorker,
            let usage  = team.usage[worker.id],
            UsageWording.counter(of: usage) != nil {
+            // One item, so macOS 26 draws the ring and the counter in one glass capsule: two items,
+            // or a ToolbarItemGroup, get a capsule each. Each button anchors its own popover.
             ToolbarItem {
-                TokenCounterButton(
-                    worker         : worker,
-                    usage          : usage,
-                    isShowingDetail: $team.showsUsage
-                )
+                HStack(spacing: 0) {
+                    if team.conversation != nil,
+                       let context = UsageWording.ringContext(of: usage) {
+                        ConversationContextButton(
+                            context        : context,
+                            worker         : worker.name,
+                            isCompacting   : team.isCompacting(worker.id),
+                            waitReason     : team.isAnswering(worker.id)
+                                ? UsageWording.actionsWait(
+                                    worker      : worker.name,
+                                    isCompacting: team.isCompacting(worker.id)
+                                )
+                                : nil,
+                            compact        : { team.compactContext(of: worker.id) },
+                            startFresh     : { Task { await team.startFreshContext(of: worker.id) } },
+                            isShowingDetail: $team.showsContext
+                        )
+                    }
+
+                    TokenCounterButton(
+                        worker         : worker,
+                        usage          : usage,
+                        isShowingDetail: $team.showsUsage
+                    )
+                }
             }
 
             // Its own glass capsule, apart from the screen and inspector toggles.
@@ -265,6 +299,11 @@ struct TeamShellView: View {
             )
             .help("Show or hide the inspector.")
         }
+    }
+
+    /// Whether the inspector is asked for or still shown, when the window's minimum leaves out its width.
+    private var isInspectorInWindow: Bool {
+        target.isInspectorShown || division.isInspectorShown
     }
 
     /// True while the selected worker has a screen to watch, which is when the screen toggle works.
@@ -351,6 +390,25 @@ struct TeamShellView: View {
     }
 
     // MARK: Areas
+
+    /// The selected worker's screen over the whole window, while it is enlarged.
+    @ViewBuilder
+    private var enlargedScreen: some View {
+        if let enlargement = team.enlargedScreen,
+           let worker      = team.selectedWorker,
+           enlargement.workerID == worker.id,
+           team.hasScreen(worker.id) {
+            ConversationEnlargedScreen(
+                team       : team,
+                worker     : worker,
+                enlargement: enlargement
+            )
+            .ignoresSafeArea(
+                .container,
+                edges: .top
+            )
+        }
+    }
 
     @ViewBuilder
     private var detail: some View {

@@ -128,7 +128,18 @@ struct BrainApplicationContractTests {
             input: .record(verb: .setToggle, target: detection("Wi-Fi", state: .off),
                            effect: try TransitionEffectRecord(effect: "elementsAppeared:Queue|Export")))
         let named = try BrainApplicationCommand.setName("", anchorKey: "k", in: "test.app", eventID: "e3", requestedAt: t0)
-        for command in [observation, record, named, try observe([], window: nil)] {
+        let valueChange = try BrainApplicationCommand(
+            key          : .record(eventID: "e4"),
+            bundleID     : "test.app",
+            requestedAtMS: 6,
+            input        : .record(
+                verb  : .click,
+                target: detection("Name"),
+                effect: try TransitionEffectRecord(effect: SceneEffect.valueChanged(label: "Name", value: "").encoded)
+            )
+        )
+        #expect(valueChange.arguments.filter { $0.name.hasPrefix("effect_") }.map(\.name) == ["effect_kind", "effect_label", "effect_value"])
+        for command in [observation, record, named, valueChange, try observe([], window: nil)] {
             let rebuilt = try BrainApplicationCommand(key: command.key, bundleID: command.bundleID, requestedAtMS: command.requestedAtMS,
                                                       arguments: command.arguments, applicationID: 1)
             #expect(rebuilt.hasSameInput(as: command))
@@ -175,6 +186,13 @@ struct BrainApplicationContractTests {
         }
         #expect(throws: refusal(.unknownCode(argument: "verb", code: "tap"))) {
             _ = try rebuild(record.arguments.map { $0.name == "verb" ? BrainArgument(name: "verb", position: 0, value: .text("tap")) : $0 }, key: record.key)
+        }
+        #expect(throws: refusal(.forbiddenArgument("effect_value"))) {
+            _ = try rebuild(record.arguments.filter { $0.name != "effect_kind" && $0.name != "effect_item" }
+                + [BrainArgument(name: "effect_value", position: 0, value: .text("Ada"))], key: record.key)
+        }
+        #expect(throws: BrainProjectionError.malformedEffect("menuOpened", .forbiddenValue)) {
+            _ = try rebuild(record.arguments + [BrainArgument(name: "effect_label", position: 0, value: .text("Name"))], key: record.key)
         }
         #expect(throws: BrainProjectionError.malformedEffect("stateFlip", .missingState)) {
             _ = try rebuild(record.arguments.filter { $0.name != "effect_item" }.map {

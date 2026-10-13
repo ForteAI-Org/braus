@@ -4,8 +4,9 @@ The SQLite schema of the living memory: what the `SQLiteMemory` module ships, ho
 file, the observation contract its repositories write and read, the stored projection of the brain,
 the agent calls, how production writes all of it, and how the shipped resource differs from the
 candidate it was copied from. Status on 2026-10-07, branch `tommaso/merge-memory`: schema 1, 48
-tables, 48 triggers, 31 explicit indexes, resource sha256
-`9df535abc689f7f2610a023ed6be483d408896f7356e88b015b72c2b4324b9e4`.
+tables, 48 triggers, 31 explicit indexes. On 2026-10-13 the merge of the value change added four
+columns ([below](#the-value-change)): resource sha256
+`b93622990ea5ec285c53aed98af4ffac956c3bf2ddd7c65aa11de99e68452141`.
 
 The store and its repositories were built on `tommaso/memory-model` and documented there at
 `f163651`. This branch transplanted that data layer onto main, extended the contract to main's
@@ -24,8 +25,9 @@ The resource's history, as `tommaso/memory-model` recorded it and as this branch
 | S3-d correction (`memory-model`, `f163651`) | `b99be960b3247d8bf2aa23d0622102686b73ad8d95a85a31eb11c8762c528ae4` | monotone `duration_ms`, typed observed effects, the structured results of the listing and scene tools, `memory_events.origin_event_id` |
 | merge into main (`4f6f075`) | `4c39eed0c6729673eb077b9a2450b63aa2814e3f9e7d7720c4baf60641cd533b` | the `identifier` label origin, the `mcp` source, the `textSelectionChanged` effect, `is_default_browser` |
 | merge into main, docs | `9df535abc689f7f2610a023ed6be483d408896f7356e88b015b72c2b4324b9e4` | the correlation triggers' error message names `mcp` too |
+| the value change | `b93622990ea5ec285c53aed98af4ffac956c3bf2ddd7c65aa11de99e68452141` | `effect_label`, `effect_value` and the `observed_effect_*` pair, the `valueChanged` family |
 
-Only the last two hashes were recomputed for this page; the others are as `memory-model` recorded
+Only the last three hashes were recomputed for this page; the others are as `memory-model` recorded
 them. Every step stayed at schema 1. Which tables production writes, and which have only an API and
 fixtures, is in [the memory contracts](MemoryContracts.md#what-production-writes-today). The
 contract items listed at the end were carried into S2 as they stand.
@@ -49,8 +51,9 @@ its own: the bootstrap sets `user_version = 1` in the same transaction that crea
 A file at version 1 must carry every table of the resource; every column this build writes that an
 earlier development form lacked (`SQLiteMemorySchema.requiredColumns`: `brain_anchors.current_group_id`,
 `memory_operation_arguments.brain_application_id`, `memory_agent_actions.started_at_ms`,
-`memory_agent_actions.duration_ms`, `memory_agent_actions.observed_state_before` and
-`memory_events.origin_event_id`); and exactly the tables, indexes and triggers the resource creates,
+`memory_agent_actions.duration_ms`, `memory_agent_actions.observed_state_before`,
+`memory_events.origin_event_id`, `brain_transitions.effect_label` and
+`memory_agent_actions.observed_effect_label`); and exactly the tables, indexes and triggers the resource creates,
 compared with a scratch bootstrap of the shipped DDL in memory. A difference is
 `schema(.differentShape)`, naming each object as `type name`. The archives `tommaso/memory-model`'s
 builds created are at version 1 with every table and required column, and their CHECKs and triggers
@@ -538,17 +541,19 @@ the import, and shares its read, `brain(of:)`.
 | `.memberAnchors` | `brain_group_members(anchor_id, position)` | `position` 0, 1, ...; only active anchors of an active group are read |
 | `.seenCount`, `.lastSeen`, `.lastSeenEpoch` | `seen_count`, `last_seen_ms`, `last_seen_epoch` | |
 | `LearnedTransition.anchorKey`, `.trigger` | `anchor_id`, `trigger_kind` | `scene_element_id` and `menu_command_id` NULL |
-| `.effect` | `effect_kind` and `effect_text`, `required_target_state`, `resulting_target_state`, `brain_transition_menu_items(position, title)` | see below; the string is never stored |
+| `.effect` | `effect_kind` and `effect_text`, `required_target_state`, `resulting_target_state`, `effect_label`, `effect_value`, `brain_transition_menu_items(position, title)` | see below; the string is never stored |
 | `.evidence` | `evidence_count` | |
 | `.lastObserved`, `.lastObservedEpoch` | `last_seen_ms`, `last_observed_epoch` | epoch NULL is nil |
 | (none) | `transition_id`, `first_seen_ms`, `status` | technical id; the instant the row was created, never moved; cache of trust |
 | (none) | `from_scene_id`, `to_scene_id` | the application's scope (`scene_kind = 'app'`, created with the first transition); destination NULL, unknown |
 
-Effects (`TransitionEffectRecord`, six families): `windowTitleChanged` keeps the title in
+Effects (`TransitionEffectRecord`, seven families): `windowTitleChanged` keeps the title in
 `effect_text`; `stateFlip` keeps the direction in `required_target_state` and
 `resulting_target_state`; `menuOpened`, `elementsAppeared` and `elementsDisappeared` keep their
 labels as ordered item rows, none for an empty list; `textSelectionChanged` is its family alone, with
-no text, state or item. `brain_transitions.effect_kind` has no CHECK of its own: the vocabulary is
+no text, state or item; `valueChanged` keeps the field's label in `effect_label` and the text it now
+reads in `effect_value`, both required, with no text, state or item. Every other family leaves the
+two NULL. `brain_transitions.effect_kind` has no CHECK of its own: the vocabulary is
 `TransitionEffectRecord.kinds`, checked on the way in and out. The string `LearnedTransition.effect` holds is rebuilt in memory with
 `SceneEffect.encoded`. An effect string the vocabulary cannot decode, or one that would not rebuild
 to itself (an empty label beside others, which the separator loses), is
@@ -661,7 +666,7 @@ out:
 | | `target_kind`, `target_label`, `target_x` … `target_height` | text, real | one each |
 | | `target_state` | text | at most one |
 | | `effect_kind` | text | at most one; absent is no effect |
-| | `effect_text`, `effect_required_state`, `effect_resulting_state` | text | at most one each, only with a kind |
+| | `effect_text`, `effect_required_state`, `effect_resulting_state`, `effect_label`, `effect_value` | text | at most one each, only with a kind |
 | | `effect_item` | text | a list at positions 0, 1, ...; only with a kind |
 | set_name | `anchor_key` | text | one; a literal, which need not name a stored anchor |
 | | `name` | text | one, as given |
@@ -1062,11 +1067,12 @@ for at the Brain's clock, read once per call (`MemoryClock`), which is neither o
 
 `observed_effect_kind` is the family of the effect the engine attributed to a `completed` action or
 input (`ObservedEffect`, built from the engine's `SceneEffect` without passing through its text), one
-of six: `observed_effect_text` is the title of `windowTitleChanged`, `observed_state_before` and
+of seven: `observed_effect_text` is the title of `windowTitleChanged`, `observed_state_before` and
 `observed_state_after` the two states of `stateFlip`, the labels of `menuOpened`,
 `elementsAppeared` and `elementsDisappeared` are rows of `memory_agent_action_effect_labels`, in the
-engine's order, an empty label a row, zero rows an empty list, and `textSelectionChanged` is its
-family alone, with no title, state or label. Two menus whose labels differ only in where a separator
+engine's order, an empty label a row, zero rows an empty list, `textSelectionChanged` is its
+family alone, with no title, state or label, and `observed_effect_label` and `observed_effect_value`
+are the field and the text of `valueChanged`, both required by a CHECK and NULL for every other family. Two menus whose labels differ only in where a separator
 falls are two effects, as they are in Perception, and labels keep their bytes. NULL when the engine
 attributed none, and always for `select` and `context_menu`, whose selectors report nothing to the
 recorder, and for `menu` and `press`, which act outside the engine and are no batch step
@@ -1570,6 +1576,22 @@ keeps it off a `windows` row. No table, index or trigger was added or removed:
 of `1a3e22b` is what refuses the archives `memory-model`'s builds created ([The resource](#the-resource)).
 The resource's SHA-256 moved from `b99be960…` to `4c39eed0…`, then to `9df535ab…` when the correlation
 triggers' error message came to read "an app, cli or mcp action event".
+
+### The value change
+
+Perception reports `SceneEffect.valueChanged(label:value:)`, a uniquely identified text field that now
+reads another value. The memory keeps it as a seventh family, typed like the others: no table, index or
+trigger was added.
+
+| Change | Producer → column → reader | Why | Proof |
+|---|---|---|---|
+| `brain_transitions.effect_label TEXT`, `effect_value TEXT`; the application arguments `effect_label`, `effect_value` | the Brain's `LearnedTransition.effect` → `TransitionEffectRecord` → the columns → the exact string | a learned value change must rebuild the string it was learned under; a label holding the encoding's separator is refused as unrepresentable | `AgentCallResultContractTests.brainEffectRecords`, `BrainProjectionTests.valueChangeEffect`, `BrainApplicationContractTests` |
+| `memory_agent_actions.observed_effect_kind` admits `valueChanged`; `observed_effect_label TEXT`, `observed_effect_value TEXT` with two CHECKs: both present exactly for `valueChanged` | the engine's `SceneEffect` → `ObservedEffect` → the columns → `ObservedEffect.sceneEffect` | the call keeps the field and the text, bytes kept, the empty text a text | `AgentCallResultContractTests`, `AgentCallTimingTests.effectsRoundTripThroughTheFile`, 8 SQL checks |
+
+`SQLiteMemorySchema.requiredColumns` gains `brain_transitions.effect_label` and
+`memory_agent_actions.observed_effect_label`, and `user_version` stays 1: a file bootstrapped before
+this change is refused untouched by name (`missingColumns`), never migrated, reset or imported
+(`SQLiteMemoryStoreTests.formBeforeTheValueChangeRefused`).
 
 Every other difference from the archived v5 is textual, as `memory-model` recorded it: the header, the
 comments translated to English, and the removed `PRAGMA foreign_keys = ON;`, `BEGIN;` and `COMMIT;`

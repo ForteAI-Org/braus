@@ -11,12 +11,14 @@ public enum CodexClientError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .unavailable: "The Codex command-line tool isn’t installed. Install Codex or the ChatGPT app, then sign in with your subscription."
-        case .signInRequired: "Codex isn’t signed in with ChatGPT. Run “codex login” in Terminal and choose ChatGPT."
-        case .timedOut: "Codex took too long to respond. Try again."
-        case .outputLimit: "The Codex response is too large for Mecum."
-        case .inputLimit: "This request is too large to send to Codex."
-        case .failed(let reason): "Codex couldn’t complete the response. \(reason)"
+            case .unavailable: "The Codex command-line tool isn’t installed. Install Codex or the ChatGPT app, then sign in with your subscription."
+                
+            case .signInRequired: "Codex isn’t signed in with ChatGPT. Run “codex login” in Terminal and choose ChatGPT."
+                
+            case .timedOut          : "Codex took too long to respond. Try again."
+            case .outputLimit       : "The Codex response is too large for Mecum."
+            case .inputLimit        : "This request is too large to send to Codex."
+            case .failed(let reason): "Codex couldn’t complete the response. \(reason)"
         }
     }
 }
@@ -35,12 +37,14 @@ public actor CodexCLIClient: ModelTransport {
     /// behind it. Nothing here carries a chat, and pretending otherwise would
     /// mean buffering a whole answer and calling it a stream.
     public nonisolated var streaming: StreamingSupport {
-        .unsupported(reason: "the Codex CLI is run as one non-interactive exec whose output is read "
-            + "only after the process exits")
+        .unsupported(
+            reason: "the Codex CLI is run as one non-interactive exec whose output is read "
+            + "only after the process exits"
+        )
     }
 
     init(model: String, effort: ReasoningEffort) {
-        self.model = model
+        self.model  = model
         self.effort = effort
     }
 
@@ -52,8 +56,13 @@ public actor CodexCLIClient: ModelTransport {
         }
         try Task.checkCancellation()
         let started = ContinuousClock.now
-        let result = try await Self.run(executable: Self.executableURL(), arguments: try arguments(),
-                                        input: Data(prompt.utf8), schema: schema, timeout: timeout)
+        let result = try await Self.run(
+            executable: Self.executableURL(),
+            arguments : try arguments(),
+            input     : Data(prompt.utf8),
+            schema    : schema,
+            timeout   : timeout
+        )
         let output = try Self.decodeStructuredOutput(output: result.output, exitStatus: result.status)
         // The CLI reports no token counts; only the wall clock is known.
         return (String(decoding: output, as: UTF8.self),
@@ -71,23 +80,32 @@ public actor CodexCLIClient: ModelTransport {
     /// The `codex` at one of its install locations, never looked up on
     /// `PATH`, which is minimal for an app launched from the Finder.
     public static func executableURL() throws -> URL {
-        let paths = [
+        
+        let paths: [String] = [
             "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
             "/Applications/ChatGPT.app/Contents/Resources/codex",
             "/Applications/Codex.app/Contents/Resources/codex",
             "/opt/homebrew/bin/codex", "/usr/local/bin/codex",
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/codex").path,
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
+                ".local/bin/codex"
+            ).path,
         ]
-        guard let path = paths.first(where: FileManager.default.isExecutableFile(atPath:)) else {
-            throw CodexClientError.unavailable
-        }
+        
+        guard let path = paths.first(
+            where: FileManager.default.isExecutableFile(atPath:)
+        ) else { throw CodexClientError.unavailable }
+        
         return URL(fileURLWithPath: path)
     }
 
     private func arguments() throws -> [String] {
-        guard ModelSelection.supportedEfforts(provider: .codex, model: model).contains(effort) else {
+        guard ModelSelection.supportedEfforts(
+            provider: .codex,
+            model   : model
+        ).contains(effort) else {
             throw CodexClientError.failed("effort \(effort.title) is not supported by \(model)")
         }
+        
         var result = [
             "exec", "--ignore-user-config", "--ephemeral", "--skip-git-repo-check",
             "--sandbox", "read-only", "--color", "never", "--json", "--model", model,
@@ -170,12 +188,26 @@ public actor CodexCLIClient: ModelTransport {
     /// Process and file handles stay on the concurrent pool; no child I/O or
     /// waitUntilExit ever runs on the main actor.
     @concurrent
-    static func run(executable: URL, arguments: [String], input: Data, schema: Data?,
-                    timeout: TimeInterval) async throws -> ProcessResult {
+    static func run(
+        executable: URL,
+        arguments : [String],
+        input     : Data,
+        schema    : Data?,
+        timeout   : TimeInterval
+    ) async throws -> ProcessResult {
+    
         try Task.checkCancellation()
+        
         guard input.count <= 1_000_000 else { throw CodexClientError.inputLimit }
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Mecum-Codex-" + UUID().uuidString, isDirectory: true)
+        
+        let directory = FileManager
+            .default
+            .temporaryDirectory
+            .appendingPathComponent(
+                "Mecum-Codex-" + UUID().uuidString,
+                isDirectory: true
+            )
+        
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                 attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -185,9 +217,11 @@ public actor CodexCLIClient: ModelTransport {
         try input.write(to: inputURL)
         try Data().write(to: outputURL)
         try Data().write(to: errorURL)
-        let stdin = try FileHandle(forReadingFrom: inputURL)
+        
+        let stdin  = try FileHandle(forReadingFrom: inputURL)
         let stdout = try FileHandle(forWritingTo: outputURL)
         let stderr = try FileHandle(forWritingTo: errorURL)
+        
         defer { try? stdin.close(); try? stdout.close(); try? stderr.close() }
 
         let process = Process()

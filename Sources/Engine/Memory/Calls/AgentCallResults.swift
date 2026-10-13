@@ -11,8 +11,9 @@ import PerceptionCore
 /// ObservedEffect is the effect the engine attributed to a concluded action or input, as the call's
 /// rows keep it: the family (`SceneEffect.family`) and, by family, the title a window changed to,
 /// the states a control flipped from and to, or the labels of the rows a menu opened or the
-/// elements that appeared or disappeared, each label its own row in order; a selection change is its
-/// family alone. Built from the engine's
+/// elements that appeared or disappeared, each label its own row in order, or the label and value of a
+/// text field that now reads another value; a selection change is its family alone. Built from the
+/// engine's
 /// `SceneEffect` without passing through its text encoding, so two menus whose labels differ only
 /// in where a separator falls stay two effects, texts keep their bytes, and an empty label is a
 /// label. It is what was observed, not a verdict: a call with none observed none.
@@ -25,6 +26,9 @@ public struct ObservedEffect: Sendable, Equatable {
     public let title: String?
     public let stateBefore: ControlState?
     public let stateAfter: ControlState?
+    /// The field a value change names, and the text it now reads; nil for every other family.
+    public let label: String?
+    public let value: String?
     public let labels: [String]
 
     /// The effect as the engine attributed it.
@@ -38,19 +42,47 @@ public struct ObservedEffect: Sendable, Equatable {
                 self.init(family: effect.family, title: nil, before: nil, after: nil, labels: labels)
             case .textSelectionChanged:
                 self.init(family: effect.family, title: nil, before: nil, after: nil, labels: [])
+            case .valueChanged(let label, let value):
+                self.init(
+                    family: effect.family,
+                    title : nil,
+                    before: nil,
+                    after : nil,
+                    label : label,
+                    value : value,
+                    labels: []
+                )
         }
     }
 
-    private init(family: String, title: String?, before: ControlState?, after: ControlState?, labels: [String]) {
+    private init(
+        family: String,
+        title : String?,
+        before: ControlState?,
+        after : ControlState?,
+        label : String? = nil,
+        value : String? = nil,
+        labels: [String]
+    ) {
         self.kind        = family
         self.title       = title
         self.stateBefore = before
         self.stateAfter  = after
+        self.label       = label
+        self.value       = value
         self.labels      = labels
     }
 
     /// The effect read back from its columns and rows, refusing a shape its family does not have.
-    public init(kind: String, title: String?, stateBefore: String?, stateAfter: String?, labels: [String]) throws {
+    public init(
+        kind       : String,
+        title      : String?,
+        stateBefore: String?,
+        stateAfter : String?,
+        label      : String?,
+        value      : String?,
+        labels     : [String]
+    ) throws {
         func refuse(_ what: String) -> AgentCallError { .invalidProgress(.effectShape(what)) }
         guard Self.kinds.contains(kind) else { throw refuse("kind \(kind)") }
         func state(_ code: String?) throws -> ControlState? {
@@ -59,6 +91,7 @@ public struct ObservedEffect: Sendable, Equatable {
             return state
         }
         let before = try state(stateBefore), after = try state(stateAfter)
+        if kind != "valueChanged", label != nil || value != nil { throw refuse("label or value outside a value change") }
         switch kind {
             case "windowTitleChanged":
                 guard title != nil else { throw refuse("title missing") }
@@ -70,10 +103,23 @@ public struct ObservedEffect: Sendable, Equatable {
                 guard title == nil, before == nil, after == nil, labels.isEmpty else {
                     throw refuse("selection change with title, states or labels")
                 }
+            case "valueChanged":
+                guard label != nil, value != nil else { throw refuse("label or value missing") }
+                guard title == nil, before == nil, after == nil, labels.isEmpty else {
+                    throw refuse("value change with title, states or labels")
+                }
             default:
                 guard title == nil, before == nil, after == nil else { throw refuse("labels with title or states") }
         }
-        self.init(family: kind, title: title, before: before, after: after, labels: labels)
+        self.init(
+            family: kind,
+            title : title,
+            before: before,
+            after : after,
+            label : label,
+            value : value,
+            labels: labels
+        )
     }
 
     /// The engine's effect, rebuilt: the inverse of `init(_:)`, exact.
@@ -84,15 +130,17 @@ public struct ObservedEffect: Sendable, Equatable {
             case "elementsAppeared"    : .elementsAppeared(labels: labels)
             case "elementsDisappeared" : .elementsDisappeared(labels: labels)
             case "textSelectionChanged": .textSelectionChanged
+            case "valueChanged"        : .valueChanged(label: label ?? "", value: value ?? "")
             default                    : .menuOpened(labels: labels)
         }
     }
 
-    /// Whether the other effect is this one exactly: family, states, title and labels byte for byte,
-    /// labels in order.
+    /// Whether the other effect is this one exactly: family, states, title, label, value and labels
+    /// byte for byte, labels in order.
     public func isExactly(_ other: ObservedEffect) -> Bool {
         kind.utf8.elementsEqual(other.kind.utf8) && stateBefore == other.stateBefore && stateAfter == other.stateAfter
-            && CanonicalText.same(title, other.title) && labels.count == other.labels.count
+            && CanonicalText.same(title, other.title) && CanonicalText.same(label, other.label)
+            && CanonicalText.same(value, other.value) && labels.count == other.labels.count
             && zip(labels, other.labels).allSatisfy { $0.utf8.elementsEqual($1.utf8) }
     }
 }

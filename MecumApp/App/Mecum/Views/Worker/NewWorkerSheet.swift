@@ -233,11 +233,12 @@ struct NewWorkerSheet: View {
         return "\(provider.title) · \(state)"
     }
 
-    /// Why a provider lists no model: its connection's trouble when it has one.
+    /// Why a provider lists no model: its connection's state title, and for a command line that is
+    /// not installed what to do about it, since the provider picker already names the state.
     private func unavailable(_ provider: ModelProvider) -> String {
         guard let state = team.connections.states[provider], !state.isReady else { return "No models available" }
 
-        return state.title
+        return state == .notInstalled ? "Install \(provider.title), then sign in." : state.title
     }
 
     /// Lists the chosen provider's models and picks the one it comes with.

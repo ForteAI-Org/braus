@@ -97,6 +97,168 @@ struct AppWindowInventoryTests {
         #expect(Self.fold(&inventory, [seenOnce]) == [.appeared(arriving.reference)])
     }
 
+    @Test("a window born between one baseline and the next is still a candidate")
+    func aWindowBornBetweenTwoBaselinesIsACandidate() {
+        var inventory = AppWindowInventory()
+        let there     = [Self.surface(700)]
+        inventory.baseline(surfaces: there, processes: Self.driven)
+        Self.fold(&inventory, [there])
+
+        // Another adoption ends and the baseline is taken again, with a window
+        // the pass has not read yet: it was never "already there".
+        let born = Self.surface(702)
+        inventory.baseline(surfaces: there + [born], processes: Self.driven)
+
+        #expect(Self.fold(&inventory, [there + [born], there + [born]]) == [.appeared(born.reference)])
+    }
+
+    @Test("a process the seat no longer drives is forgotten, and driving it again takes a fresh baseline")
+    func aForgottenProcessIsBaselinedAgain() {
+        var inventory = AppWindowInventory()
+        let there     = [Self.surface(700)]
+        inventory.baseline(surfaces: there, processes: Self.driven)
+
+        // A window the person opened is seen once, then every window is released.
+        let opened = Self.surface(702)
+        Self.fold(&inventory, [there + [opened]])
+        inventory.baseline(surfaces: there + [opened], processes: [])
+
+        // Driven again: what the person opened meanwhile is theirs, and moving
+        // it would be a retroactive transfer.
+        inventory.baseline(surfaces: there + [opened], processes: Self.driven)
+        let first  = Self.fold(&inventory, [there + [opened]])
+        let second = Self.fold(&inventory, [there + [opened]])
+        #expect(first.isEmpty && second.isEmpty, "proposed: \(first + second)")
+    }
+
+    @Test("a process that joins is baselined without baselining the ones already driven")
+    func aJoiningProcessIsBaselinedAlone() {
+        var inventory = AppWindowInventory()
+        let other     = FakeGeometry.distinctProcessID()
+        let both      = Self.driven.union([FakeGeometry.identity(processID: other).process])
+
+        inventory.baseline(surfaces: [Self.surface(700)], processes: Self.driven)
+        let born  = Self.surface(702)
+        let there = Self.surface(710, processID: other)
+        inventory.baseline(surfaces: [Self.surface(700), born, there], processes: both)
+
+        let reading = [Self.surface(700), born, there]
+        #expect(Self.fold(&inventory, [reading, reading], processes: both) == [.appeared(born.reference)])
+    }
+
+    @Test("the window server is read only when a process is new")
+    func theBaselineReadingIsLazy() {
+        var inventory = AppWindowInventory()
+        var readings  = 0
+        func read() -> [WindowSurface] { readings += 1; return [Self.surface(700)] }
+
+        inventory.baseline(surfaces: read(), processes: Self.driven)
+        inventory.baseline(surfaces: read(), processes: Self.driven)
+        inventory.baseline(surfaces: read(), processes: [])
+        #expect(readings == 1)
+
+        inventory.baseline(surfaces: read(), processes: Self.driven)
+        #expect(readings == 2, "a process driven again is new again")
+    }
+
+    @Test("a process the passes stop reading is forgotten even without a baseline call")
+    func aProcessDroppedBetweenBaselinesIsForgotten() {
+        var inventory = AppWindowInventory()
+        let other     = FakeGeometry.distinctProcessID()
+        let first     = FakeGeometry.identity().process
+        let second    = FakeGeometry.identity(processID: other).process
+        let held      = Self.surface(700)
+        let otherHeld = Self.surface(710, processID: other)
+        inventory.baseline(surfaces: [held, otherHeld], processes: [first, second])
+        Self.fold(&inventory, [[held, otherHeld]], adopted: [700, 710], processes: [first, second])
+
+        // The first process's only window is gone and the passes read the second
+        // alone; then the person opens a window of the first, which is driven again.
+        Self.fold(&inventory, [[otherHeld], [otherHeld]], adopted: [710], processes: [second])
+        let persons = Self.surface(705)
+        let again   = Self.surface(706)
+        let reading = [persons, again, otherHeld]
+        inventory.baseline(surfaces: reading, processes: [first, second])
+
+        let proposed = Self.fold(&inventory, [reading, reading], adopted: [706, 710], processes: [first, second])
+        #expect(!proposed.contains(.appeared(persons.reference)), "retroactive: \(proposed)")
+    }
+
+    @Test("a forgotten process leaves its attempts behind")
+    func aForgottenProcessForgetsItsAttempts() {
+        var inventory = AppWindowInventory()
+        let window    = [Self.surface(700)]
+        inventory.baseline(surfaces: window, processes: Self.driven)
+        for _ in 0..<AppWindowInventory.maximumAttempts { _ = inventory.mayAttempt(700) }
+        let spent = inventory.mayAttempt(700)
+        #expect(!spent)
+
+        inventory.baseline(surfaces: window, processes: [])
+        let renewed = inventory.mayAttempt(700)
+        #expect(renewed, "driving it again starts from a full budget")
+    }
+
+    @Test("a failed baseline reading leaves the process to be baselined at the next call")
+    func aFailedBaselineIsRetried() {
+        var inventory = AppWindowInventory()
+        inventory.baseline(surfaces: nil, processes: Self.driven)
+        inventory.baseline(surfaces: [Self.surface(700)], processes: Self.driven)
+
+        let first  = Self.fold(&inventory, [[Self.surface(700)]])
+        let second = Self.fold(&inventory, [[Self.surface(700)]])
+        #expect(first.isEmpty && second.isEmpty, "proposed: \(first + second)")
+    }
+
+    @Test("a failed baseline reading is taken by the next pass, which proposes nothing")
+    func aFailedBaselineIsTakenByThePass() {
+        var inventory = AppWindowInventory()
+        let there     = [Self.surface(700)]
+        inventory.baseline(surfaces: nil, processes: Self.driven)
+
+        // A sighting before any reading succeeded has no baseline to compare with.
+        inventory.sight(surfaces: there, processes: Self.driven, adopted: [])
+        let first  = Self.fold(&inventory, [there])
+        let second = Self.fold(&inventory, [there])
+        #expect(first.isEmpty && second.isEmpty, "the person's window was proposed: \(first + second)")
+    }
+
+    @Test("a process baselined by a pass is not baselined again by the next call")
+    func aPassBaselineHoldsAcrossTheNextCall() {
+        var inventory = AppWindowInventory()
+        let there     = [Self.surface(700)]
+        inventory.baseline(surfaces: nil, processes: Self.driven)
+        Self.fold(&inventory, [there])
+
+        let born = Self.surface(702)
+        inventory.baseline(surfaces: there + [born], processes: Self.driven)
+        #expect(Self.fold(&inventory, [there + [born], there + [born]]) == [.appeared(born.reference)])
+    }
+
+    @Test("a sighting taken while the seat cannot act is proposed by the first pass after it")
+    func aSightingIsProposedAtOnce() {
+        var inventory = AppWindowInventory()
+        let there     = [Self.surface(700)]
+        inventory.baseline(surfaces: there, processes: Self.driven)
+
+        let born = Self.surface(702)
+        inventory.sight(surfaces: there + [born], processes: Self.driven, adopted: [])
+        #expect(inventory.hasPendingCandidate)
+        #expect(Self.fold(&inventory, [there + [born]]) == [.appeared(born.reference)],
+                "one pass, not the two a fresh sighting costs")
+    }
+
+    @Test("a sighting never reports, never touches a held window and never loses a vanish")
+    func aSightingChangesNothingElse() {
+        var inventory = AppWindowInventory()
+        let held      = Self.surface(700)
+        inventory.baseline(surfaces: [held], processes: Self.driven)
+        Self.fold(&inventory, [[held]], adopted: [700])
+
+        inventory.sight(surfaces: [], processes: Self.driven, adopted: [700])
+        inventory.sight(surfaces: nil, processes: Self.driven, adopted: [700])
+        #expect(Self.fold(&inventory, [[]], adopted: [700]) == [.vanished(windowNumber: 700)])
+    }
+
     @Test("a window already on the person's display that moves is still not transferred")
     func aPreexistingWindowThatMovesStaysPut() {
         var inventory = AppWindowInventory()

@@ -98,7 +98,7 @@ included, is refused untouched, never migrated: see [The resource](MemorySchema.
   `planned`, `started`, `completed`, `failed`, `cancelled`, `interrupted` and `skipped`, moving only forward.
   Production writes `planned`, `started`, `completed`, `failed` and `skipped`. `completed` means the call
   concluded; its outcome (`found_acted`, `acted_unverified`, `honest_miss`, …) keeps its own meaning, and
-  neither says that the user's task succeeded. The observed effect is one of six families. See
+  neither says that the user's task succeeded. The observed effect is one of seven families. See
   [The seventeen signatures](MemorySchema.md#the-seventeen-signatures) and
   [States and results](MemorySchema.md#states-and-results).
 - **Provenance and times.** A call's event names its source, stream, trace and session; a batch step names its

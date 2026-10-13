@@ -232,7 +232,7 @@ enum SQLiteBrainRows {
             """
             SELECT transition_id, from_scene_id, anchor_id, scene_element_id, menu_command_id, trigger_kind, effect_kind,
                    effect_text, required_target_state, resulting_target_state, last_observed_epoch, status,
-                   last_seen_ms, evidence_count
+                   last_seen_ms, evidence_count, effect_label, effect_value
             FROM brain_transitions t WHERE \(owned) ORDER BY insertion_order
             """,
             [.integer(appID), .text(appScopeID)]
@@ -248,6 +248,8 @@ enum SQLiteBrainRows {
                 text          : try row.text(7),
                 requiredState : try row.text(8),
                 resultingState: try row.text(9),
+                label         : try row.text(14),
+                value         : try row.text(15),
                 items         : itemsByID[id] ?? []
             )
             let transition = LearnedTransition(
@@ -444,14 +446,15 @@ enum SQLiteBrainRows {
                     INSERT INTO brain_transitions
                         (transition_id, app_id, insertion_order, from_scene_id, anchor_id, scene_element_id, menu_command_id,
                          trigger_kind, to_scene_id, effect_kind, effect_text, required_target_state, resulting_target_state,
-                         last_observed_epoch, status, first_seen_ms, last_seen_ms, evidence_count)
-                    VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         effect_label, effect_value, last_observed_epoch, status, first_seen_ms, last_seen_ms, evidence_count)
+                    VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         .text(id), .integer(appID), .integer(nextTransitionOrder), .text(scope), .text(transition.anchorKey),
                         .text(transition.trigger.rawValue), .text(effect.kind), effect.text.map(SQLiteValue.text) ?? .null,
                         effect.requiredState.map { .text($0.rawValue) } ?? .null,
                         effect.resultingState.map { .text($0.rawValue) } ?? .null,
+                        effect.label.map(SQLiteValue.text) ?? .null, effect.value.map(SQLiteValue.text) ?? .null,
                         transition.lastObservedEpoch.map { .integer(Int64($0)) } ?? .null, .text(status(of: transition)),
                         .integer(nowMS), .integer(try milliseconds(of: transition.lastObserved)), .integer(Int64(transition.evidence)),
                     ]

@@ -94,7 +94,8 @@ struct NativeTextInputTests {
                 return .success(endpoint)
             },
             identity: { sensing.windowGeometry(of: $0)?.identity },
-            focusedWindowNumber: { _ in FakeGeometry.windowNumber }
+            focusedWindowNumber: { _ in FakeGeometry.windowNumber },
+            focusedWindowReading: { _, _ in .window(FakeGeometry.windowNumber) }
         )
         let keyboardContext = endpoints.keyboardContext
         endpoints.windowlessContent = { processID, _, chain, generation in

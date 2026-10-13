@@ -49,6 +49,51 @@ struct DialogButtonPressTests {
                      allowsDestructive: true) == nil)
     }
 
+    // MARK: Closing the only window
+
+    @Test("a button that closes the only window is refused with the caller's sentence, by title or identity")
+    func closingButtonIsRefused() {
+        var asked: [String] = []
+        let refusal: (String) -> String? = { asked.append($0); return "refused: \($0)" }
+        let dialog = [
+            Button(title: "Open", isEnabled: true, element: "open"),
+            Button(title: "Cancel", isEnabled: true, element: "cancel"),
+            Button(title: "Go Back", isEnabled: true, element: "back", closesItsWindow: true),
+        ]
+        for title in ["cancel", "Go Back"] {
+            guard case .outcome(let outcome) = DialogButtonPress.resolve(
+                title,
+                among            : dialog,
+                allowsDestructive: false,
+                closingRefusal   : refusal
+            ) else { Issue.record("'\(title)' was pressed"); continue }
+            #expect(outcome.kind == .refused)
+        }
+        #expect(asked == ["Pressing 'Cancel'", "Pressing 'Go Back'"])
+
+        guard case .press(let open, _) = DialogButtonPress.resolve(
+            "Open",
+            among            : dialog,
+            allowsDestructive: false,
+            closingRefusal   : refusal
+        ) else { Issue.record("Open was not pressed"); return }
+        #expect(open == "open")
+        #expect(asked.count == 2, "the facts are not asked for a button that closes nothing")
+    }
+
+    @Test("a closing button is pressed when the window is not the only one or without the rule")
+    func closingButtonIsPressedOtherwise() {
+        guard case .press(let cancel, _) = DialogButtonPress.resolve(
+            "Cancel",
+            among            : Self.alert,
+            allowsDestructive: false,
+            closingRefusal   : { _ in nil }
+        ) else { Issue.record("Cancel was refused"); return }
+        #expect(cancel == "cancel")
+        guard case .press = DialogButtonPress.resolve("Cancel", among: Self.alert, allowsDestructive: false)
+        else { Issue.record("Cancel was refused without the rule"); return }
+    }
+
     // MARK: The scope searched
 
     /// Photoshop's document behind its "Save changes?" alert, and a second dialog, by Window ID.

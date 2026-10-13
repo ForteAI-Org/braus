@@ -215,17 +215,6 @@ extension WindowSnapshots {
             quoting: question
         )
 
-        // One turn's usage, so the context ring sits on the pill's bottom line beside the strip.
-        try await store.append(NewEvent(
-            workspaceID   : UUID(),
-            subjectID     : UUID(),
-            conversationID: conversation,
-            workerID      : atlas.id,
-            timestamp     : origin.addingTimeInterval(81),
-            type          : .turnUsage,
-            payload       : try atlasUsage(contextTokens: 142_318).encoded()
-        ))
-
         // A stand-in command line that answers nothing until it is stopped, for the queue's scenes.
         let agent = directory.appending(path: "agent")
         try Data("#!/bin/sh\nexec sleep 600\n".utf8).write(to: agent)

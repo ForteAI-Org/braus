@@ -9,6 +9,9 @@ import CoreGraphics
 import EngineCore
 import Foundation
 import PerceptionCore
+#if MECUM_PHASES
+import PhaseSignposts
+#endif
 
 /// ActionEngine performs one action the honest way: perceive this instant, resolve the target by
 /// name, refuse what policy refuses, deliver the gesture through a role, perceive again, and judge
@@ -31,6 +34,8 @@ public struct ActionEngine: Sendable {
         public var activation: (any ApplicationActivating)?
         public var expectations: (any EffectExpecting)?
         public var observer: (any ActionObserving)?
+        /// Ends the wait after a gesture once the window settled; nil sleeps the fixed pause.
+        public var settling: (any Settling)?
 
         public init(
             scenes      : any SceneProviding,
@@ -39,7 +44,8 @@ public struct ActionEngine: Sendable {
             controls    : (any ControlPressing)? = nil,
             activation  : (any ApplicationActivating)? = nil,
             expectations: (any EffectExpecting)? = nil,
-            observer    : (any ActionObserving)? = nil
+            observer    : (any ActionObserving)? = nil,
+            settling    : (any Settling)? = nil
         ) {
             self.scenes       = scenes
             self.actuator     = actuator
@@ -48,6 +54,7 @@ public struct ActionEngine: Sendable {
             self.activation   = activation
             self.expectations = expectations
             self.observer     = observer
+            self.settling     = settling
         }
     }
 
@@ -66,7 +73,15 @@ public struct ActionEngine: Sendable {
         self.dependencies = dependencies
         self.permissions  = permissions
         self.timing       = timing
+        #if MECUM_PHASES
+        self.pause = { duration in
+            let phase = PhaseInterval.begin("pause")
+            defer { phase.end() }
+            await pause(duration)
+        }
+        #else
         self.pause        = pause
+        #endif
     }
 
     // MARK: Observe
@@ -158,6 +173,17 @@ public struct ActionEngine: Sendable {
         }
         let point = perceived.globalPoint(of: element)
         let surfaces = await surfaces(pid)
+        let closure = permissions.windowClosure
+        if closure.mayEndTheApplication,
+           ActionPolicy.isWindowClosingLabel(element.label) || closure.controlFrames.contains(where: {
+               $0.insetBy(dx: -2, dy: -2).contains(point)
+           }),
+           let refusal = windowClosureRefusal(
+               "Clicking '\(element.label)'", appName: request.appName, scene: scene,
+               hasOpenPopup: surfaces.hasOpenPopup
+           ) {
+            return refusal
+        }
         let expected = await dependencies.expectations?.expectedEffect(
             of: request.verb, on: element, in: request.bundleID
         )
@@ -270,6 +296,7 @@ public struct ActionEngine: Sendable {
         // The census after activation on purpose: raising an application floats its own palettes.
         let censusBefore = await surfaces(pid).verdicts
         var openedByPress = false
+        await dependencies.settling?.prepare(in: pid)
         // In a remote file panel the seat's own route acts on the control instead.
         if request.verb == .click, !permissions.refusesMenuOpeningClicks, let controls = dependencies.controls {
             openedByPress = await controls.pressControl(labelled: element.label, in: pid)
@@ -291,7 +318,7 @@ public struct ActionEngine: Sendable {
             return ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)': delivery failed: "
                 + "\(error)", scene: nil)
         }
-        await pause(timing.clickSettle)
+        await settle(pid)
         guard let afterWindow = await perceive(pid) else {
             await dependencies.actuator.confirm(.unknown, in: pid)
             await dependencies.observer?.record(ActionRecord(
@@ -367,12 +394,13 @@ public struct ActionEngine: Sendable {
         if request.isDryRun {
             return ActOutcome(.dryRun, "would click '\(element.label)' to set it \(desired.rawValue)")
         }
+        await dependencies.settling?.prepare(in: pid)
         do { try await dependencies.actuator.perform(.click(at: point), in: pid) }
         catch {
             await dependencies.actuator.confirm(.unknown, in: pid)
             return ActOutcome(.actedUnverified, "set '\(element.label)': delivery failed: \(error)")
         }
-        await pause(timing.clickSettle)
+        await settle(pid)
         let afterWindow = await perceive(pid)
         let after = afterWindow?.scene
         let readBack = await dependencies.controls?.toggleState(at: point, in: pid)
@@ -590,6 +618,9 @@ public struct ActionEngine: Sendable {
         _ request     : InputRequest
     ) async -> ActOutcome {
         guard !text.isEmpty else { return ActOutcome(.refused, "insert_text needs a nonempty text") }
+        if ActionPolicy.containsControlCharacter(text) {
+            return ActOutcome(.refused, ActionPolicy.controlCharacterRefusal)
+        }
         if request.isDryRun {
             return ActOutcome(.dryRun, "would insert \(text.count) characters at the current focus and selection")
         }
@@ -597,7 +628,7 @@ public struct ActionEngine: Sendable {
         if let error = await send([.insert(text)], to: pid) {
             return ActOutcome(.actedUnverified, "inserting text: delivery failed: \(error); observe before any retry")
         }
-        await pause(timing.clickSettle)
+        await settle(pid)
         let after = await perceive(pid)?.scene
         let value = await dependencies.controls?.focusedFieldValue(in: pid)
         let verified = expecting != nil && value != nil && value == expecting
@@ -620,6 +651,9 @@ public struct ActionEngine: Sendable {
     ) async -> ActOutcome {
         let pid = request.processID
         guard !text.isEmpty else { return ActOutcome(.refused, "type_text needs a nonempty text") }
+        if ActionPolicy.containsControlCharacter(text) {
+            return ActOutcome(.refused, ActionPolicy.controlCharacterRefusal)
+        }
         let element: SceneElement
         do throws(Unresolved) {
             element = try resolved(
@@ -656,7 +690,7 @@ public struct ActionEngine: Sendable {
         if let error = await send(gestures, to: pid) {
             return ActOutcome(.actedUnverified, "typing into '\(element.label)': delivery failed: \(error)")
         }
-        await pause(timing.clickSettle)
+        await settle(pid)
         let after = await perceive(pid)?.scene
         let readBack = await dependencies.controls?.focusedFieldValue(in: pid)
             ?? after?.elements.first(where: { $0.id == element.id })?.value
@@ -697,6 +731,14 @@ public struct ActionEngine: Sendable {
             return ActOutcome(.refused, "\(chord) deletes in most applications: refused. If you want the agent "
                 + "to do this, the person must allow destructive actions.", scene: perceived.scene)
         }
+        if chord.key == .escape, permissions.windowClosure.mayEndTheApplication, !permissions.allowsDestructive {
+            let hasOpenPopup = (await surfaces(pid)).hasOpenPopup
+            if let refusal = windowClosureRefusal(
+                "\(chord)", appName: request.appName, scene: perceived.scene, hasOpenPopup: hasOpenPopup
+            ) {
+                return refusal
+            }
+        }
         guard (1...InputRequest.maximumKeyPresses).contains(times) else {
             return ActOutcome(.refused, "a key is pressed 1 to \(InputRequest.maximumKeyPresses) times")
         }
@@ -716,7 +758,34 @@ public struct ActionEngine: Sendable {
             ghost: "If you expected an effect, the key likely reached a control that ignores it: click the "
                 + "control that should receive it first.\(note)",
             repaint: "A key's effect is often only a moved focus or caret, which the scene cannot attribute: "
-                + "observe before pressing again.\(note)"
+                + "observe before pressing again.\(note)",
+            // A typed key has no target; the field's new value is its effect.
+            countsValueChange: true
+        )
+    }
+
+    /// The refusal for an input that would close the only window of the application, or nil when
+    /// the window is not that, a pop-up is open (the key then closes it) or the person allowed it.
+    /// The alternatives are real buttons of the scene, never a Cancel the window does not have.
+    private func windowClosureRefusal(
+        _ what      : String,
+        appName     : String,
+        scene       : SceneSnapshot,
+        hasOpenPopup: Bool
+    ) -> ActOutcome? {
+        guard permissions.windowClosure.mayEndTheApplication, !permissions.allowsDestructive,
+              !hasOpenPopup
+        else { return nil }
+        let alternatives = scene.elements.filter {
+            $0.kind == .control && $0.role == "AXButton" && !$0.isUnlabeled && $0.isEnabled != false
+                && !ActionPolicy.isWindowClosingLabel($0.label) && !ActionPolicy.isDestructive(label: $0.label)
+        }.prefix(3).map(\.label)
+        return ActOutcome(
+            .refused,
+            ActionPolicy.windowClosureRefusal(
+                what, window: scene.windowTitle, application: appName, alternatives: alternatives
+            ),
+            scene: scene
         )
     }
 
@@ -851,6 +920,7 @@ public struct ActionEngine: Sendable {
         if let error = await send([.click(at: point, button: .right)], to: pid) {
             return ActOutcome(.actedUnverified, "right-clicking '\(element.label)': delivery failed: \(error)")
         }
+        // The fixed pause on purpose: the menu is a window of its own, which the target's frames never show.
         await pause(timing.clickSettle)
         let popups = (await surfaces(pid)).popups
         guard let menu = popups.first(where: { !before.popups.contains($0) }) ?? popups.first,
@@ -941,10 +1011,19 @@ public struct ActionEngine: Sendable {
         }
     }
 
+    /// Waits for a gesture's effect before it is judged: the settling role's wait, capped at the click
+    /// settle, when the composition gave one, and otherwise the click settle itself.
+    private func settle(_ processID: pid_t) async {
+        guard let settling = dependencies.settling else { return await pause(timing.clickSettle) }
+        await settling.settle(in: processID, cap: timing.clickSettle)
+    }
+
     /// Delivers the gestures in order and answers the error that stopped them, nil when all went out.
     /// A failure closes the delivery as unknown: what went out before it is never repeated.
     private func send(_ gestures: [Gesture], to processID: pid_t) async -> (any Error)? {
         do {
+            // One reference before the first gesture: any effect of the whole input then counts.
+            if !gestures.isEmpty { await dependencies.settling?.prepare(in: processID) }
             for gesture in gestures { try await dependencies.actuator.perform(gesture, in: processID) }
             return nil
         } catch {
@@ -956,22 +1035,24 @@ public struct ActionEngine: Sendable {
     /// An input with no reading of its own is judged by the two scenes alone, and its delivery closed
     /// with what they showed. `ghost` and `repaint` are what to do next when nothing was attributed.
     private func judged(
-        _ performed: String,
-        in request : InputRequest,
-        before     : SceneSnapshot,
-        targetID   : String?,
-        ghost      : String,
-        repaint    : String
+        _ performed      : String,
+        in request       : InputRequest,
+        before           : SceneSnapshot,
+        targetID         : String?,
+        ghost            : String,
+        repaint          : String,
+        countsValueChange: Bool = false
     ) async -> ActOutcome {
         let pid = request.processID
-        await pause(timing.clickSettle)
+        await settle(pid)
         guard let after = await perceive(pid)?.scene else {
             await dependencies.actuator.confirm(.unknown, in: pid)
             return ActOutcome(.actedUnverified, "\(performed): no scene could be read afterwards; observe when "
                 + "the window is back")
         }
         let effect = Self.gatedEffect(
-            before: before, after: after, targetID: targetID ?? "", popupIsOpen: (await surfaces(pid)).hasOpenPopup
+            before: before, after: after, targetID: targetID ?? "", popupIsOpen: (await surfaces(pid)).hasOpenPopup,
+            countsValueChange: countsValueChange
         )
         let verdict = ActVerification.verdict(before: before, after: after, effect: effect)
         Self.inputTrail?.attribute(effect)
@@ -1002,12 +1083,15 @@ public struct ActionEngine: Sendable {
     /// A menu is believable only while a pop-up window exists; and when one does, the menu's rows
     /// are the effect whatever the scene difference read, because the after scene IS the menu.
     static func gatedEffect(
-        before     : SceneSnapshot,
-        after      : SceneSnapshot,
-        targetID   : String,
-        popupIsOpen: Bool
+        before           : SceneSnapshot,
+        after            : SceneSnapshot,
+        targetID         : String,
+        popupIsOpen      : Bool,
+        countsValueChange: Bool = false
     ) -> SceneEffect? {
-        var effect = SceneDifference.effect(before: before, after: after, targetID: targetID)
+        var effect = SceneDifference.effect(
+            before: before, after: after, targetID: targetID, countsValueChange: countsValueChange
+        )
         if case .menuOpened(let labels) = effect, !popupIsOpen { effect = .elementsAppeared(labels: labels) }
         if popupIsOpen {
             let items = after.elements

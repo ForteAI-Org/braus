@@ -121,7 +121,8 @@ final class ModelSettingsStore {
     private(set) var states: [ModelProvider: ConnectionState] = [:]
 
     /// Each provider's models as its catalogue listed them after its last check
-    /// that passed. Absent until then, and kept when a later listing fails.
+    /// that passed. Absent until then, and kept when a later listing fails; a
+    /// first listing that fails holds the provider's fixed list instead.
     private(set) var catalogues: [ModelProvider: [ModelInfo]] = [:]
 
     /// When each of those checks finished.
@@ -185,11 +186,8 @@ final class ModelSettingsStore {
                 states[provider]    = state
                 checkedAt[provider] = Date()
 
-                if state.isReady, let listed = try? await ProviderCatalog.catalogue(
-                    provider,
-                    settings: settings
-                ), !Task.isCancelled {
-                    catalogues[provider] = listed
+                if state.isReady {
+                    _ = try? await loadCatalogue(for: provider)
                 }
                 guard !Task.isCancelled else { return }
 
@@ -263,6 +261,14 @@ final class ModelSettingsStore {
         refresh([provider])
     }
 
+    /// Why `provider` lists no model, in the words of its connection's state, nil while the
+    /// connection is ready or not checked yet.
+    func modelsUnavailable(for provider: ModelProvider) -> String? {
+        guard let state = states[provider], !state.isReady else { return nil }
+
+        return state.message(for: provider)
+    }
+
     /// Stands `models` in for `provider`'s catalogue, for the offscreen snapshots.
     func recordCatalogue(
         _ models    : [ModelInfo],
@@ -272,12 +278,37 @@ final class ModelSettingsStore {
     }
 
     /// Lists `provider`'s catalogue now and keeps it, for the profile and the composer's popup.
+    ///
+    /// A listing that fails leaves the catalogue already kept, else the provider's fixed list
+    /// (`ProviderCatalog.resolvedCatalogue`). It throws for a command line that is not installed, a
+    /// missing key, and a provider with neither kept nor fixed models; the connection's state says why.
+    @discardableResult
     func loadCatalogue(for provider: ModelProvider) async throws -> [ModelInfo] {
-        let listed = try await ProviderCatalog.catalogue(
-            provider,
-            settings: providerSettings
+        
+        let listing: Result<[ModelInfo], any Error>
+        
+        do {
+            listing = .success(
+                try await ProviderCatalog.catalogue(
+                    provider,
+                    settings: providerSettings
+                )
+            )
+            
+        } catch {
+            // A cancelled listing says nothing about the provider.
+            if Task.isCancelled { throw CancellationError() }
+            listing = .failure(error)
+        }
+        
+        let resolved = try ProviderCatalog.resolvedCatalogue(
+            listing,
+            for : provider,
+            kept: catalogues[provider]
         )
-        catalogues[provider] = listed
-        return listed
+        
+        try Task.checkCancellation()
+        catalogues[provider] = resolved
+        return resolved
     }
 }

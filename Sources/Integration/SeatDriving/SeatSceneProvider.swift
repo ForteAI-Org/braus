@@ -10,6 +10,9 @@ import EngineCore
 import Foundation
 import Perception
 import PerceptionCore
+#if MECUM_PHASES
+import PhaseSignposts
+#endif
 import SeatCapture
 import SeatCore
 import SeatSession
@@ -23,12 +26,20 @@ import SeatSession
 /// frame is that union. Accessibility geometry is never mixed in; the augmenter's trust rule drops
 /// frames that do not intersect the captured rectangle, and on the Seat the application's own child
 /// frames still point at the window's old place.
+///
+/// A window still whose pixels are byte for byte those the last scene was read from, of the same
+/// window with the same census facts, answers that scene again without the pipeline (ADR 0034), so
+/// the layer above answers "Unchanged since revision N." through its own baseline. The trade-off,
+/// accepted by the owner: a change that draws nothing (an accessibility value or focus) is not seen.
+/// Every call still takes a fresh observation, so a reused scene is bound to pixels taken after the
+/// last Command. The display path never reuses.
 public struct SeatSceneProvider: SceneProviding {
 
     private let target: SeatTarget
     private let pipeline: ScenePipeline
     private let windows: any WindowListing
     private let identity: @Sendable (pid_t) -> ApplicationIdentity?
+    private let lastScene = LastScene()
 
     public init(
         target  : SeatTarget,
@@ -43,6 +54,12 @@ public struct SeatSceneProvider: SceneProviding {
     }
 
     public func currentScene(of processID: pid_t) async throws -> PerceivedWindow {
+        #if MECUM_PHASES
+        let perception = PhaseInterval.begin("perception")
+        defer { perception.end() }
+        // Ended only when the kept scene is answered, so the table counts and times the reuses alone.
+        let reusing = PhaseInterval.begin("perception.reused")
+        #endif
         let application = identity(processID)
             ?? ApplicationIdentity(bundleID: "pid.\(processID)", name: "pid \(processID)")
         // Only the windows on the seat's display: one left on the person's display is not in this scene.
@@ -52,17 +69,35 @@ public struct SeatSceneProvider: SceneProviding {
         let image: CGImage
         let frame: CGRect
         let observedWindow: AdoptedWindow
+        var comparable: SeatFrame?
         if popups.isEmpty {
+            #if MECUM_PHASES
+            let windowStill = PhaseInterval.begin("capture.windowStill")
+            #endif
             let still = try await target.windowStill()
+            #if MECUM_PHASES
+            windowStill.end()
+            let conversion = PhaseInterval.begin("capture.makeCGImage")
+            #endif
             guard still.geometry.isValid, let pixels = still.makeCGImage() else {
                 throw SeatDrivingFailure.frameUnusable
             }
+            #if MECUM_PHASES
+            conversion.end()
+            #endif
             image = pixels
             frame = still.geometry.screenRect
+            comparable = still
             guard let captured = await target.lastCapturedWindow else { throw SeatDrivingFailure.frameUnusable }
             observedWindow = captured
         } else {
+            #if MECUM_PHASES
+            let displayStill = PhaseInterval.begin("capture.displayStill")
+            #endif
             let still = try await target.displayStill()
+            #if MECUM_PHASES
+            displayStill.end()
+            #endif
             guard still.geometry.isValid, let pixels = still.makeCGImage() else {
                 throw SeatDrivingFailure.frameUnusable
             }
@@ -92,13 +127,49 @@ public struct SeatSceneProvider: SceneProviding {
             frame       : frame,
             windowNumber: observedWindow.id
         )
-        let capture = try await pipeline.capture(image, of: window)
-        await MainActor.run { target.lastSceneImage = image }
         // The union with an open pop-up is two windows in one picture, not a structural surface.
-        let surface = popups.isEmpty
-            ? CaptureSurface.classified(role: capture.quality.windowRole, subrole: capture.quality.windowSubrole)
-            : CaptureSurface.popupUnion
-        return PerceivedWindow(scene: capture.scene, frame: frame, capture: capture.quality, surface: surface)
+        func perceived(_ capture: SceneCapture) -> PerceivedWindow {
+            let surface = popups.isEmpty
+                ? CaptureSurface.classified(role: capture.quality.windowRole, subrole: capture.quality.windowSubrole)
+                : CaptureSurface.popupUnion
+            return PerceivedWindow(scene: capture.scene, frame: frame, capture: capture.quality, surface: surface)
+        }
+        // ADR 0034: the same window and census over byte-identical pixels is the scene already read.
+        if let comparable, let kept = await lastScene.kept, kept.window == window,
+           kept.frame.showsSameContent(as: comparable) {
+            #if MECUM_PHASES
+            reusing.end()
+            #endif
+            await MainActor.run { target.lastSceneImage = image }
+            return perceived(kept.capture)
+        }
+        #if MECUM_PHASES
+        let perceiving = PhaseInterval.begin("pipeline")
+        #endif
+        let capture = try await pipeline.capture(image, of: window)
+        #if MECUM_PHASES
+        perceiving.end()
+        #endif
+        await MainActor.run {
+            target.lastSceneImage = image
+            if let comparable { lastScene.kept = LastScene.Kept(frame: comparable, window: window, capture: capture) }
+        }
+        return perceived(capture)
+    }
+
+    /// LastScene keeps the window still the last scene was built from, with the window facts and the
+    /// scene, so the next still can be compared to it. Only the latest is kept, and replacing it
+    /// releases the Frame, which owns its surface (a stopped Still's, or a detached copy).
+    @MainActor
+    private final class LastScene {
+
+        struct Kept: Sendable {
+            let frame  : SeatFrame
+            let window : ScenePipeline.Window
+            let capture: SceneCapture
+        }
+
+        var kept: Kept?
     }
 }
 

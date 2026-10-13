@@ -37,6 +37,11 @@ struct TokenCounterButton: View {
                 .default,
                 value: count
             )
+            // Room between the capsule's rim and the icon and number, on both sides.
+            .padding(
+                .horizontal,
+                4
+            )
         }
         .help("Tokens used")
         .accessibilityLabel("Tokens used, \(wording.spoken(count))")

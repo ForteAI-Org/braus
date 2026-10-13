@@ -108,8 +108,11 @@ nonisolated public protocol SeatSensing: Sendable {
     /// Reads every on-screen window owned by the requested processes. The
     /// snapshot declares its coverage and refuses incomplete evidence. The
     /// default uses the existing full-list reader for custom implementations.
+    /// `targets` are the adopted windows: live sensing reads off-screen evidence
+    /// for those that the on-screen list lacks, and for no other window.
     @MainActor func prepareFocusRecoverySnapshot(
-        for processIDs: Set<Int32>
+        for processIDs  : Set<Int32>,
+        adopting targets: [WindowReference]
     ) async -> FocusRecoverySnapshot?
     var userMayBeSwitchingApplications: Bool { get }
     func windowIsVisibleOnPhysicalDisplay(_ window: WindowReference) -> Bool
@@ -155,6 +158,16 @@ nonisolated public protocol SeatSensing: Sendable {
     /// wait brings it back. An ordered-out or withdrawn window still has its
     /// row, and a reading that failed is `false`, never a destruction.
     func windowIsDestroyed(_ window: WindowReference) -> Bool
+
+    // MARK: The desktops
+
+    /// The desktops (Spaces) of every display, or nil when they cannot be read.
+    /// Read-only: nothing is switched. Nil is "Space unknown" and a caller
+    /// never reads it as proof of anything (ADR 0037).
+    var desktopLayout: DesktopLayout? { get }
+
+    /// The desktops one window is on, or nil when they cannot be read.
+    func windowSpaces(of windowNumber: Int) -> [Int]?
 }
 
 extension SeatSensing {
@@ -167,7 +180,8 @@ extension SeatSensing {
         focusRecoverySnapshot
     }
     @MainActor public func prepareFocusRecoverySnapshot(
-        for processIDs: Set<Int32>
+        for processIDs  : Set<Int32>,
+        adopting targets: [WindowReference]
     ) async -> FocusRecoverySnapshot? {
         await prepareFocusRecoverySnapshot()
     }
@@ -177,4 +191,6 @@ extension SeatSensing {
     public func windowSurfaces(ownedBy processIDs: Set<Int32>) -> [WindowSurface]? { nil }
     public func windowIsOrderedOut(_ window: WindowReference) -> Bool { false }
     public func windowIsDestroyed(_ window: WindowReference) -> Bool { false }
+    public var desktopLayout: DesktopLayout? { nil }
+    public func windowSpaces(of windowNumber: Int) -> [Int]? { nil }
 }

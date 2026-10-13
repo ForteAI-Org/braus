@@ -49,6 +49,16 @@ nonisolated enum SignInFailure {
         }
     }
 
+    /// What the person does when `provider`'s command line is not installed, nil for a provider that
+    /// is not a command line.
+    static func installSteps(for provider: ModelProvider) -> String? {
+        switch provider {
+        case .claudeCode:                   ClaudeClientError.unavailable.errorDescription
+        case .codex:                        CodexClientError.unavailable.errorDescription
+        case .anthropic, .gemini, .ollama:  nil
+        }
+    }
+
     /// The command line's own name, which is what the person runs: "Claude" alone reads as the API.
     static func name(of provider: ModelProvider) -> String {
         provider == .claudeCode ? "Claude Code" : provider.title
@@ -63,6 +73,8 @@ extension ConnectionState {
         switch self {
         case .credentialMissing, .credentialRejected:
             SignInFailure.steps(for: provider) ?? message
+        case .notInstalled:
+            SignInFailure.installSteps(for: provider) ?? message
         default:
             message
         }

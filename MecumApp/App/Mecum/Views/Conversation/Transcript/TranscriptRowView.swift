@@ -76,12 +76,13 @@ final class TranscriptRowView: NSView {
     private var style      = TranscriptStyle()
     private var workerName = ""
     private var avatar     : NSImage?
+    private var workerTint : NSColor?
     private(set) var selection: NSRange?
     private var pressLocation : NSPoint?
     private var didDrag       = false
     private(set) var stacks: [TextStack?] = []
     private var ranges     : [NSRange] = []
-    private var thinkingDots: ThinkingDotsView?
+    private var thinkingBlob: ThinkingBlobView?
 
     /// The quote's name and excerpt, laid out as `RowPreparation` measured them.
     private var quoteStacks: (name: TextStack?, text: TextStack?) = (nil, nil)
@@ -114,6 +115,7 @@ final class TranscriptRowView: NSView {
         style     : TranscriptStyle,
         workerName: String,
         avatar    : NSImage?,
+        workerTint: NSColor? = nil,
         selection : NSRange?
     ) {
         // The same row again, as a streamed reply grows, keeps the laid out stacks of its unchanged blocks.
@@ -128,6 +130,7 @@ final class TranscriptRowView: NSView {
         self.style      = style
         self.workerName = workerName
         self.avatar     = avatar
+        self.workerTint = workerTint
         self.selection  = selection
         ranges          = row.text.blockRanges
         stacks          = zip(row.text.blocks, row.geometry.blockTexts).enumerated().map { index, pair in
@@ -154,21 +157,20 @@ final class TranscriptRowView: NSView {
         needsDisplay = true
     }
 
-    /// The dots of a thinking row, in its text's place; hidden for any other row.
+    /// The blob of a thinking row, in its text's place; hidden for any other row, which stops it.
     private func showThinking(_ row: PreparedRow) {
         guard row.item.kind == .thinking else {
-            thinkingDots?.stop()
-            thinkingDots?.isHidden = true
+            thinkingBlob?.isHidden = true
             return
         }
-        let dots = thinkingDots ?? ThinkingDotsView()
-        if thinkingDots == nil {
-            thinkingDots = dots
-            addSubview(dots)
+        let blob = thinkingBlob ?? ThinkingBlobView()
+        if thinkingBlob == nil {
+            thinkingBlob = blob
+            addSubview(blob)
         }
-        dots.frame    = row.geometry.text
-        dots.isHidden = false
-        dots.start(reducesMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        blob.tint     = workerTint ?? .controlAccentColor
+        blob.frame    = row.geometry.text
+        blob.isHidden = false
     }
 
     /// Whether `row` is an open tool line, or nil when it is no tool line at all.
@@ -763,6 +765,15 @@ final class TranscriptRowView: NSView {
         return true
     }
 
+    /// Worded when assistive technology asks, never on configure: a tool line's
+    /// label reads every step's JSON, and a resize configures each visible row per frame.
+    override func accessibilityLabel() -> String? {
+        guard let row else { return nil }
+        return TranscriptWording.accessibilityLabel(
+            for: row.item, workerName: workerName, content: row.item.messageID != nil ? row.text.string : nil
+        )
+    }
+
     private func copyControl(at point: CGPoint, in row: PreparedRow) -> Int? {
         row.text.blocks.indices.first { index in
             row.text.blocks[index].isCompleteCode && row.geometry.blocks.indices.contains(index)
@@ -859,9 +870,6 @@ final class TranscriptRowView: NSView {
         let isMessage = row.item.messageID != nil
         setAccessibilityElement(true)
         setAccessibilityRole(Self.isToolRun(row) ? .button : .staticText)
-        setAccessibilityLabel(TranscriptWording.accessibilityLabel(
-            for: row.item, workerName: workerName, content: isMessage ? row.text.string : nil
-        ))
 
         let isStructured = isMessage && row.text.blocks.contains { $0.kind != .text }
         setAccessibilityChildren(isStructured ? blockElements(row) : nil)

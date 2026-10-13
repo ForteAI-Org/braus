@@ -91,6 +91,23 @@ public final class AgentSeat {
     /// absolute monotonic budget rather than a number of laps.
     private static let placementConfirmationNanoseconds: UInt64 = 2_000_000_000
 
+    /// How long a window has to stay where it stopped, short of the origin it
+    /// was sent to, before `confirmPlacement` takes that as its place. Safari
+    /// moves in steps after an accessibility write and holds each step for 300
+    /// to 450 ms (ADR 0038), so two agreeing readings 20 ms apart accepted a
+    /// step on the way as the target in 4 of 17 sessions; a window that is
+    /// simply held elsewhere by its application pays this once.
+    private static let offOriginSettleNanoseconds: UInt64 = 1_000_000_000
+
+    /// How long a window that left the origin it was found at has to read back
+    /// at that origin, in agreeing readings, before `confirmPlacement` takes it
+    /// as an application that undid the move and stops waiting. It has to
+    /// outlast the longest step a slow mover holds (450 ms, ADR 0038, ADR 0040),
+    /// so only a window that has gone home and stayed there is refused early,
+    /// never one that is merely slow. A window found inside the display is
+    /// never judged this way.
+    private static let snapBackNanoseconds: UInt64 = 500_000_000
+
     // MARK: The state, which used to be seventeen properties of a view controller
 
     /// Where the seat is. Reading it is always allowed; acting on it is what
@@ -155,6 +172,19 @@ public final class AgentSeat {
     /// life rather than one assignment because that is what the teardown
     /// report's own field says it is.
     var releaseLedger: [Int: WindowReleaseOutcome] = [:]
+
+    /// Where every window of the assigned application stood in the User Seat
+    /// before the first of them was moved. Filled once per application, spent by
+    /// the adoptions that find a window already inside the Virtual Display, and
+    /// dropped with the assignment (ADR 0037).
+    var physicalOrigins: [WindowIdentity: WindowOrigin] = [:]
+
+    /// How long the returns of one release may still wait for the window server
+    /// to put a returned window on its desktop. The desktop follows the frame a
+    /// moment later, and a window that really stays on another desktop must not
+    /// cost a wait per window, so the budget is shared by the whole release.
+    private var desktopSettleRemaining: Duration = AgentSeat.desktopSettleBudget
+    private static let desktopSettleBudget: Duration = .seconds(1)
 
     private var adoptionWaiters: [CheckedContinuation<Void, Never>] = []
     var stagedWindowNumber         : Int?
@@ -319,7 +349,7 @@ public final class AgentSeat {
     private static func returnRequiresHost(_ outcome: WindowReleaseOutcome) -> Bool {
         switch outcome {
         case .refused, .leftOnVirtualDisplay: true
-        case .returned, .vanished, .returnsWhenShown: false
+        case .returned, .returnedToOtherSpace, .vanished, .returnsWhenShown: false
         }
     }
 
@@ -799,8 +829,23 @@ public final class AgentSeat {
             // surface does not reopen ordinary command admission.
             && (state == .unavailable || state.acceptsCommands
                 || selectedContainmentRecoveryMayAdmit(window)
-                || selectedModalRecoveryMayAdmit(window))
+                || selectedModalRecoveryMayAdmit(window)
+                || commandBornMayAdmit(window))
             && session[window.windowNumber] == nil
+    }
+
+    /// A window the Command pressed in a brief activation opened, admitted
+    /// while the seat waits on the focus episode that Command's own activation
+    /// began (ADR 0033). The record says it is the target's, absent before the
+    /// press and first seen inside its margin; this adds that it is a modal
+    /// panel by level or by the nucleus' own attestation of a dialog.
+    private func commandBornMayAdmit(_ window: WindowReference) -> Bool {
+        guard state == .waiting, let recovery = focusRecovery,
+              recovery.episodeBeganDuringCommand, !recovery.isRestoring,
+              let sighting = recovery.commandSighting(of: window)
+        else { return false }
+        return sighting.level == CrossCheckedSurfaceReader.modalPanelLevel
+            || window.identity.map(selectionKit.isApplicationModal) == true
     }
 
     private func selectedContainmentRecoveryMayAdmit(_ window: WindowReference) -> Bool {
@@ -912,16 +957,95 @@ public final class AgentSeat {
         }
     }
 
+    /// Takes the places read before the Virtual Display existed, which the broker
+    /// owns and no reading the seat takes itself can replace (ADR 0037). They
+    /// win over a later reading of the same window.
+    package func noteOrigins(_ origins: [WindowIdentity: WindowOrigin]) {
+        physicalOrigins.merge(origins) { held, _ in held }
+    }
+
+    /// Reads the windows of the application the seat holds nothing of yet, for
+    /// a caller that did not bring places read earlier (ADR 0037).
+    ///
+    /// Only before the first move: afterwards a reading would record places the
+    /// seat itself produced. A window already inside the Virtual Display is left
+    /// out, an unreadable list records nothing, and a window already recorded
+    /// keeps its earlier place and is not read again: its accessibility body is
+    /// a round trip to the application that `noteOrigins` would discard.
+    private func recordPhysicalOrigins(beforeMoving window: WindowReference) {
+
+        guard let process = window.identity?.process,
+              !session.processIDs.contains(window.processID),
+              !pendingAdoptions.values.contains(where: { $0.reference.processID == window.processID })
+        else { return }
+        guard let surfaces = sensing.windowSurfaces(ownedBy: [window.processID]) else {
+            Self.log.notice("""
+                the windows of process \(window.processID, privacy: .public) could not be read \
+                before the first move: no origin recorded
+                """)
+            return
+        }
+        let unrecorded = surfaces.filter {
+            $0.reference.identity.map { physicalOrigins[$0] == nil } ?? false
+        }
+        let read = WindowOrigin.read(
+            surfaces : unrecorded,
+            of       : process,
+            excluding: sensing.virtualDisplayBounds,
+            body     : { [placing] in ((try? placing.frame(of: $0)) ?? nil) },
+            display  : displayContaining,
+            spaces   : { [sensing] in sensing.windowSpaces(of: $0) }
+        )
+        noteOrigins(read)
+        Self.log.notice("""
+            holding the place of \(self.physicalOrigins.count, privacy: .public) windows of \
+            process \(window.processID, privacy: .public) before the first move, \
+            \(read.count, privacy: .public) of them read now
+            """)
+    }
+
+    /// The place recorded for a window that is not at it now, and nil for one
+    /// that has no record or was moved since by someone else.
+    ///
+    /// A window inside the Virtual Display is not where it was read, wherever
+    /// the seat got the reading, and a window still at the recorded rectangle
+    /// has nothing newer to say. Anything else, read at another place outside
+    /// the Virtual Display, was moved by the person and owes where it is.
+    private func originRecorded(for window: WindowReference, inside bounds: CGRect) -> WindowOrigin? {
+        guard let identity = window.identity, let origin = physicalOrigins[identity] else { return nil }
+        let live = sensing.windowGeometry(of: window.windowNumber)?.frame ?? window.frame
+        guard bounds.contains(CGPoint(x: live.midX, y: live.midY))
+                || VirtualWindowPlacementCheck.framesMatch(live, origin.serverFrame ?? origin.body)
+        else { return nil }
+        Self.log.notice("""
+            window \(window.windowNumber, privacy: .public) owes the place it had before the \
+            first move
+            """)
+        return origin
+    }
+
+    /// The desktop of a window that is in the User Seat now, nil inside the
+    /// Virtual Display, where it says nothing about the origin. The window is
+    /// read where it is, not at the rectangle the seat was handed, which can be
+    /// older than a move the application made by itself.
+    private func currentSpaceID(of window: WindowReference, outside bounds: CGRect) -> Int? {
+        let live = sensing.windowGeometry(of: window.windowNumber)?.frame ?? window.frame
+        guard !bounds.contains(CGPoint(x: live.midX, y: live.midY)) else { return nil }
+        return singleSpace(of: window.windowNumber)
+    }
+
+    /// The one desktop a window is on. A window on several or none carries no
+    /// owed desktop.
+    func singleSpace(of windowNumber: Int) -> Int? {
+        guard let spaces = sensing.windowSpaces(of: windowNumber), spaces.count == 1 else { return nil }
+        return spaces[0]
+    }
+
     /// Which display a rectangle belongs to, so that a return names a display
     /// instead of inferring one. `nil` when no display contains its centre,
     /// which a window parked off the edge legitimately is.
     private func displayContaining(_ frame: CGRect) -> CGDirectDisplayID? {
-        let centre = CGPoint(x: frame.midX, y: frame.midY)
-        var count  = UInt32.zero
-        guard CGGetOnlineDisplayList(0, nil, &count) == .success, count > 0 else { return nil }
-        var identifiers = [CGDirectDisplayID](repeating: 0, count: Int(count))
-        guard CGGetOnlineDisplayList(count, &identifiers, &count) == .success else { return nil }
-        return identifiers.prefix(Int(count)).first { CGDisplayBounds($0).contains(centre) }
+        WindowOrigin.physicalDisplay(containing: frame)
     }
 
     /// The window server's rectangle for a window that is still at the frame
@@ -984,14 +1108,24 @@ public final class AgentSeat {
         restoringTo: CGRect? = nil,
         /// True for a window that is already inside the Virtual Display, which
         /// is taken in where it stands: nothing is written, and the two
-        /// readings that confirm every adoption confirm this one too.
+        /// readings that confirm every adoption confirm this one too. Its
+        /// fullscreen state is not read either: that cold accessibility read
+        /// waits on the application's main thread (717 ms on Photoshop while it
+        /// built a panel). The release exits fullscreen before it writes only
+        /// with `transfersFullScreenWindows` on, as in the app; with it off the
+        /// window stays in fullscreen and macOS migrates its Space when the
+        /// display goes (ADR 0041).
         takenInPlace: Bool = false
     ) async throws -> AdoptedWindow {
+
+        if !takenInPlace { recordPhysicalOrigins(beforeMoving: inbound) }
 
         // The fullscreen exit happens before anything is recorded, because the
         // normal frame this whole transaction is written in terms of does not
         // exist until the window has left fullscreen.
-        let prepared      = try await leaveFullScreenForAdoption(inbound)
+        let prepared      = takenInPlace
+            ? (window: inbound, wasFullScreen: false)
+            : try await leaveFullScreenForAdoption(inbound)
         var window        = prepared.window
         let wasFullScreen = prepared.wasFullScreen
         if platform is QtPlatform, !takenInPlace, restoringTo == nil, !wasFullScreen {
@@ -999,6 +1133,9 @@ public final class AgentSeat {
         }
         let homeDisplay   = displayContaining(window.frame)
         let bounds        = sensing.virtualDisplayBounds
+        // A window found already inside the Virtual Display owes the place it
+        // had when the application was handed over, not the one it is found at.
+        let recorded      = originRecorded(for: window, inside: bounds)
 
         // A window larger than the display is adapted, not refused, and still
         // owes the frame it arrived at. Beside the fullscreen exit because it
@@ -1026,8 +1163,13 @@ public final class AgentSeat {
             let waiting = adoptionWaiters
             adoptionWaiters.removeAll()
             for waiter in waiting { waiter.resume() }
+            // A window sighted while this ran is proposed now, not at the heartbeat.
+            if windowInventory.hasPendingCandidate { requestWindowFollow() }
         }
         let previous = state
+        // A window the Command opened is taken in while the seat waits on that
+        // Command's own episode, and the seat goes back to waiting after it.
+        let resumesWaiting = previous == .waiting && commandBornMayAdmit(inbound)
         transition(to: .starting, reason: .requested)
 
         // Centred, then clamped so the whole window fits: the frame comes from
@@ -1046,22 +1188,29 @@ public final class AgentSeat {
         // Both sources of the same window, in the same place, before anything
         // moves: the return is verified against the window server, so the
         // server's own rectangle is what it has to be compared with.
-        let owed              = restoringTo ?? adapted ?? window.frame
-        let originalOnServer  = serverFrameOwed(owed, of: window)
+        let owed              = restoringTo ?? adapted ?? recorded?.body ?? window.frame
+        let originalOnServer  = recorded?.serverFrame ?? serverFrameOwed(owed, of: window)
         // Read here, while the tree still holds the relation: a sheet has no
         // destination of its own and the frame it was born at is not one.
         let owesNoReturn = window.identity.map {
             selectionKit.attachedHost(of: $0) != nil
         } ?? false
 
+        // A fullscreen window's desktop is its fullscreen one, which it leaves.
+        let originalSpace: Int?
+        if wasFullScreen             { originalSpace = nil }
+        else if let recorded         { originalSpace = recorded.spaceID }
+        else                         { originalSpace = currentSpaceID(of: window, outside: bounds) }
+
         var pending = AdoptedWindow(
             reference          : window,
             originalFrame      : owed,
             title              : title,
-            originalDisplayID  : homeDisplay,
+            originalDisplayID  : recorded?.displayID ?? homeDisplay,
             wasFullScreen      : wasFullScreen,
             originalServerFrame: originalOnServer,
-            owesNoReturn       : owesNoReturn
+            owesNoReturn       : owesNoReturn,
+            originalSpaceID    : originalSpace
         )
         pendingAdoptions[window.windowNumber] = pending
         adoptionRestorations[window.windowNumber] = nil
@@ -1089,7 +1238,7 @@ public final class AgentSeat {
                 wasStashed    : wasStashed
             )
             let placed = confirmation.reference
-            if takenInPlace, restoringTo == nil, !wasFullScreen,
+            if takenInPlace, restoringTo == nil, !wasFullScreen, recorded == nil,
                confirmation.body != window.frame {
                 // No physical frame was borrowed for this in-place adoption.
                 // The application's settled AX body, bracketed by agreeing
@@ -1102,7 +1251,8 @@ public final class AgentSeat {
                     originalDisplayID  : pending.originalDisplayID,
                     wasFullScreen      : pending.wasFullScreen,
                     originalServerFrame: placed.frame,
-                    owesNoReturn       : pending.owesNoReturn
+                    owesNoReturn       : pending.owesNoReturn,
+                    originalSpaceID    : pending.originalSpaceID
                 )
                 pendingAdoptions[window.windowNumber] = pending
             }
@@ -1130,7 +1280,11 @@ public final class AgentSeat {
             windowInventory.clearAttempts(of: record.window.id)
             refreshWindowFollowing()
 
-            transition(to: previous == .degraded ? .degraded : .ready, reason: .requested)
+            transition(
+                to: previous == .degraded ? .degraded
+                    : (resumesWaiting && focusRecovery?.isPaused == true ? .waiting : .ready),
+                reason: .requested
+            )
             // The instance is handed over to the assignment nucleus here, at the
             // one moment the seat knows it is driving it, and the observation of
             // whatever was current before stops being current with the target.
@@ -1180,7 +1334,7 @@ public final class AgentSeat {
             // A window the seat found by itself is left where it is and fails nothing; the ledger keeps
             // what it is owed, and the follower is not held up by it (a Qt drag image, 06/10/2026).
             let failsTheSeat = restoration == .refused && reason != .detected
-            if restoration == .returned || restoration == .vanished || reason == .detected {
+            if restoration.leavesNothingToRestore || reason == .detected {
                 pendingAdoptions[window.windowNumber] = nil
             }
             lastAdoptionFailure = WindowAdoptionFailure(
@@ -1193,7 +1347,8 @@ public final class AgentSeat {
                 restorationError: rollback.error
             )
             if state != .failed, !isTearingDown {
-                transition(to: failsTheSeat ? .failed : previous, reason: .cancelled)
+                let back = resumesWaiting && focusRecovery?.isPaused != true ? SeatState.ready : previous
+                transition(to: failsTheSeat ? .failed : back, reason: .cancelled)
                 if state == .failed { turns.failAll(with: SessionFailure.seatNotReady(.failed)) }
             }
             throw error
@@ -1309,6 +1464,7 @@ public final class AgentSeat {
             if cleanup.needsRecovery { report([.preparationNotRestored]) }
         }
         if stagedWindowNumber == window.id { stagedWindowNumber = nil }
+        if !isReleasingAssignment, !isTearingDown { desktopSettleRemaining = Self.desktopSettleBudget }
 
         // The return is a placement transition like the adoption, and the
         // watcher has to know: a window on its way home passes through frames
@@ -1320,7 +1476,6 @@ public final class AgentSeat {
         let outcome = await returnToUserSeat(window, mode)
         endTransfer()
         let successor = forgetRecord(window.id)
-        refreshWindowFollowing()
         noteSurfaceGone(window.id)
         releaseLedger[window.id] = outcome
         eventChannel.yield(.windowReleased(windowNumber: window.id, outcome: outcome))
@@ -1352,6 +1507,9 @@ public final class AgentSeat {
     func forgetRecord(_ windowNumber: Int) -> Int? {
 
         let successor = session.forget(windowNumber)
+        // The inventory forgets a process the seat no longer holds a window of,
+        // so driving it again takes a fresh baseline (ADR 0040).
+        refreshWindowFollowing()
         // A Command moves the guard onto the window it went to, which need not
         // be the target: a panel or a dialog closing then leaves the target it
         // was opened from, and the guard goes back to it.
@@ -1541,6 +1699,7 @@ public final class AgentSeat {
         }
 
         let instance = assignment.instance
+        desktopSettleRemaining = Self.desktopSettleBudget
         isReleasingAssignment = true
         // One cause for the whole operation: between two returns the gate would
         // otherwise reopen on a window the next step is about to move.
@@ -1582,7 +1741,7 @@ public final class AgentSeat {
             windows[number]              = outcome
             releaseLedger[number]        = outcome
             adoptionRestorations[number] = outcome
-            if outcome == .returned || outcome == .vanished { pendingAdoptions[number] = nil }
+            if outcome.leavesNothingToRestore { pendingAdoptions[number] = nil }
             else { note(pending.reference, pending.originalFrame, .restorationOwed) }
         }
 
@@ -1596,7 +1755,7 @@ public final class AgentSeat {
                 }
                 windows[window.id] = outcome
                 // The shared hidden-window ledger owns an accepted deferred return.
-                if outcome != .returned, outcome != .vanished, outcome != .returnsWhenShown {
+                if !outcome.leavesNothingToRestore, outcome != .returnsWhenShown {
                     note(window.reference, window.originalFrame, .returnRefused)
                 }
             }
@@ -1617,8 +1776,9 @@ public final class AgentSeat {
                     break
                 }
                 windows[member.windowNumber] = outcome
-                if outcome != .returned, outcome != .vanished, outcome != .returnsWhenShown {
-                    note(member.reference, member.originalFrame, .returnRefused)
+                if !outcome.leavesNothingToRestore, outcome != .returnsWhenShown {
+                    note(member.reference, physicalOrigins[member.identity]?.body ?? member.originalFrame,
+                         .returnRefused)
                 }
             }
         }
@@ -1750,7 +1910,6 @@ public final class AgentSeat {
 
         forgetRecord(windowNumber)
         if stagedWindowNumber == windowNumber { stagedWindowNumber = nil }
-        refreshWindowFollowing()
         noteSurfaceGone(windowNumber)
         releaseLedger[windowNumber] = .returned
         eventChannel.yield(.windowReleased(windowNumber: windowNumber, outcome: .returned))
@@ -1772,10 +1931,13 @@ public final class AgentSeat {
         until limit: UInt64? = nil
     ) async -> WindowReleaseOutcome? {
 
+        let origin = physicalOrigins[member.identity]
         let window = AdoptedWindow(
-            reference        : member.reference,
-            originalFrame    : member.originalFrame,
-            originalDisplayID: member.originalDisplayID
+            reference          : member.reference,
+            originalFrame      : origin?.body ?? member.originalFrame,
+            originalDisplayID  : origin?.displayID ?? member.originalDisplayID,
+            originalServerFrame: origin?.serverFrame,
+            originalSpaceID    : origin?.spaceID ?? member.originalSpaceID
         )
         beginTransfer()
         let outcome = await returnToUserSeat(window, .returnToUserSeat, until: limit)
@@ -1783,7 +1945,7 @@ public final class AgentSeat {
         guard Self.mayContinue(until: limit) else { return nil }
         releaseLedger[window.id] = outcome
         eventChannel.yield(.windowReleased(windowNumber: window.id, outcome: outcome))
-        if outcome == .returned || outcome == .vanished { noteSurfaceGone(window.id) }
+        if outcome.leavesNothingToRestore { noteSurfaceGone(window.id) }
         else if outcome == .returnsWhenShown {
             noteSurfaceGone(window.id, evidence: .windowServerConfirmedOrderingOut)
         }
@@ -1804,7 +1966,6 @@ public final class AgentSeat {
         endTransfer()
         guard Self.mayContinue(until: limit) else { return nil }
         let successor = forgetRecord(window.id)
-        refreshWindowFollowing()
         noteSurfaceGone(window.id)
         releaseLedger[window.id] = outcome
         eventChannel.yield(.windowReleased(windowNumber: window.id, outcome: outcome))
@@ -2351,9 +2512,21 @@ public final class AgentSeat {
                 )
                 throw refusal
             }
+            // A click posted into a remote panel's content activates its host, so
+            // it and a remembered field's text go through accessibility instead.
+            let byAccessibility = textField != nil || ownContent != nil
+                || classification == .remotePanelContent && routed.hasMouseLocation
+            // An ordinary window's unprepared keys read the focus once, just before
+            // the first post: a second reading of a busy application only aged them.
+            let readsFocusOnlyBeforeFirstPost = endpoint.map(isOrdinaryKeyboardEndpoint) == true
+                && !isModalSurface
+                && !byAccessibility
+                && resolved.preparation(for: routed) == .none
+                && resolved.keyWindowPriming(for: routed) == nil
             // The other half of the attestation rule: what the driver cannot
             // read is that the surface and the selection are still these.
-            if let endpoint, let retired = endpointInvalidation(of: endpoint) {
+            if let endpoint, !readsFocusOnlyBeforeFirstPost,
+               let retired = endpointInvalidation(of: endpoint) {
                 restoreActionState(previous, reason: .cancelled)
                 sender.recordCompletedTrace(
                     traceContext.completed(at: DispatchTime.now().uptimeNanoseconds)
@@ -2361,10 +2534,6 @@ public final class AgentSeat {
                 throw retired
             }
             traceContext.beginQueue(at: DispatchTime.now().uptimeNanoseconds)
-            // A click posted into a remote panel's content activates its host, so
-            // it and a remembered field's text go through accessibility instead.
-            let byAccessibility = textField != nil || ownContent != nil
-                || classification == .remotePanelContent && routed.hasMouseLocation
             let receipt = try await byAccessibility ? actuateRemoteContent(
                 routed,
                 textField   : textField?.field,
@@ -3425,6 +3594,7 @@ public final class AgentSeat {
     /// make it back.
     func releaseAllWindows(_ mode: ReleaseMode) async -> [Int: WindowReleaseOutcome] {
 
+        desktopSettleRemaining = Self.desktopSettleBudget
         reportStrandedKeys()
         isTearingDown = true
         if let context = nativeTextInputContext,
@@ -3507,20 +3677,22 @@ public final class AgentSeat {
     }
 
     /// Reconciles the observed processes with the ones the seat still holds
-    /// windows of, and takes the baseline for whichever of them is new.
+    /// windows of: a process it starts driving gets its baseline, and one it no
+    /// longer drives is forgotten.
     ///
-    /// The baseline belongs here and not in the first pass, because here is the
-    /// moment the seat starts driving a process and therefore the moment
-    /// "already there" is defined. A pass runs whenever the main actor is next
-    /// free, which on a busy caller is long enough for the application to have
-    /// opened the very window the feature is about.
+    /// It runs after every adoption and release, so it must not baseline a
+    /// process it already knows: whatever the application opened since is a
+    /// candidate for the pass, and baselining it here is how a window born
+    /// during another transaction became furniture (`AppWindowInventory`). It
+    /// reads the window server only when a process is new. The baseline for a
+    /// process is taken once the seat holds its first window, which is where
+    /// "already there" is defined and also where its limit is.
     private func refreshWindowFollowing() {
 
         guard let windowWatch else { return }
         windowWatch.follow(session.processIDs)
 
         let processes = session.processIdentities
-        guard !processes.isEmpty else { return }
         windowInventory.baseline(
             surfaces : sensing.windowSurfaces(ownedBy: Set(processes.map(\.processID))),
             processes: processes
@@ -3615,7 +3787,10 @@ public final class AgentSeat {
                     the window follow pass \(did, privacy: .public): \(held, privacy: .public)
                     """)
             }
-            if scope.isStandDown { return }
+            if scope.isStandDown {
+                sightWindowsDuringAdoption()
+                return
+            }
             // Reconciliation is what the suspension does not stop: a reading
             // and the registers it settles, with nothing moved, adopted or
             // given back. Without it a window that really went away stays in
@@ -3643,6 +3818,7 @@ public final class AgentSeat {
         defer { windowFollowPassInFlight = false }
         windowFollowScanCount += 1
         let surfaces = sensing.windowSurfaces(ownedBy: Set(processes.map(\.processID)))
+        focusRecovery?.noteCommandWindows(surfaces)
         // The level is the reading's and is kept for the evidence line: it is
         // not carried by a change, and re-reading it per candidate would cost.
         let levels = Dictionary(
@@ -3664,20 +3840,24 @@ public final class AgentSeat {
                 case .appeared(let window), .reappeared(let window):
                     guard state.acceptsCommands || containmentOnlyFollowWait
                             || selectedModalRecoveryMayAdmit(window)
+                            || commandBornMayAdmit(window)
                     else {
                         windowInventory.offerAgain(window.windowNumber)
                         continue
                     }
                     await transferDetectedWindow(window, level: levels[window.windowNumber])
+                    await noteCommandWindowAdoption(window)
 
                 case .appearedInVirtualDisplay(let window):
                     guard state.acceptsCommands || containmentOnlyFollowWait
                             || selectedModalRecoveryMayAdmit(window)
+                            || commandBornMayAdmit(window)
                     else {
                         windowInventory.offerAgain(window.windowNumber)
                         continue
                     }
                     await ownWindowBornInSeat(window, level: levels[window.windowNumber])
+                    await noteCommandWindowAdoption(window)
 
                 case .leftVirtualDisplay(let window):
                     guard state.acceptsCommands || containmentOnlyFollowWait
@@ -3694,6 +3874,40 @@ public final class AgentSeat {
                     }
             }
         }
+        // A pass that ran only for the Command's windows still settles the
+        // registers, as the reconciliation a waiting seat always gets.
+        if commandEpisodeFollowMayProceed {
+            foldCurrentReading()
+            publishCoherentState()
+        }
+    }
+
+    /// Notes the windows of the driven processes while an adoption runs, and
+    /// acts on none of them.
+    ///
+    /// The pass stands down for the whole adoption, which can take seconds on
+    /// a busy application, and a window born meanwhile used to be first seen
+    /// only when the adoption ended. The reading is only recorded: the adoption
+    /// asks for a pass as it ends, and that pass proposes the window at once,
+    /// so an observation that waited for the adoption finds it inside its
+    /// budget. A process not yet baselined is not sighted at all.
+    private func sightWindowsDuringAdoption() {
+
+        guard adoptionInFlight, windowWatch != nil, !isTearingDown else { return }
+        let processes = session.processIdentities
+        guard !processes.isEmpty else { return }
+        windowInventory.sight(
+            surfaces : sensing.windowSurfaces(ownedBy: Set(processes.map(\.processID))),
+            processes: processes,
+            adopted  : Set(session.records.keys)
+        )
+    }
+
+    /// Tells the focus recovery that a window of the Command's record is now
+    /// held, which is when its one extra handback may be made (ADR 0033).
+    private func noteCommandWindowAdoption(_ window: WindowReference) async {
+        guard session[window.windowNumber] != nil else { return }
+        await focusRecovery?.commandWindowWasAdopted(window.windowNumber)
     }
 
     /// Whether a target that left the on-screen list is still the window server's
@@ -4093,11 +4307,22 @@ public final class AgentSeat {
     /// reading the event stream: one is a window this seat was not asked to
     /// handle, one is a window macOS will not let go of, one is a moment that
     /// costs too much, and only the last is an attempt that failed.
-    private static func refusal(for error: any Error) -> WindowTransferRefusal {
-        if case .fullScreenTransferDisabled = error as? SessionFailure {
-            return .fullScreenTransferDisabled
+    ///
+    /// A move that was accepted and never confirmed, and a seat that was not
+    /// ready for the window or stopped being ready under it, have a reason
+    /// each: told apart from a refused write they are what separates an
+    /// application that anchors its window from one that cannot be moved at
+    /// all (ADR 0040). It is not
+    /// private so that a test can state the whole mapping.
+    static func refusal(for error: any Error) -> WindowTransferRefusal {
+        switch error as? SessionFailure {
+            case .fullScreenTransferDisabled: return .fullScreenTransferDisabled
+            case .seatNotReady:               return .seatNotReady
+            default:                          break
         }
         switch error as? DisplayFailure {
+            case .placementNotConfirmed:
+                return .placementNotConfirmed
             case .fullScreenStateUnreadable, .fullScreenNotSettable:
                 return .fullScreenNotSupported
             case .fullScreenSpaceStillOnScreen:
@@ -4380,6 +4605,11 @@ public final class AgentSeat {
         await withBriefTargetActivation(until: isReady, atMost: .seconds(2), performOnce: performOnce)
     }
 
+    /// Whether the front is back with the person after the last Command pressed
+    /// in a brief activation, when that activation's handback was not verified
+    /// and the one extra handback of ADR 0033 was (a read, no input).
+    package var frontIsBackAfterCommand: Bool { focusRecovery?.frontIsBackAfterCommand ?? false }
+
     private func withBriefTargetActivation(
         until isReady: @MainActor () -> Bool,
         atMost bound : Duration,
@@ -4412,8 +4642,12 @@ public final class AgentSeat {
         defer {
             actionInFlight = false
             restoreActionState(previous, reason: .requested)
-            // What the application did while it was in front is looked for now.
-            requestWindowFollow()
+            // What the application did while it was in front is looked for now,
+            // and through the margin of the Command's record when there is one.
+            requestWindowFollow(
+                through: recovery.commandProvenance == nil
+                    ? .zero : .nanoseconds(Int64(CommandProvenance.marginNanoseconds))
+            )
         }
         var scopedCommand: (@MainActor () -> Bool)?
         if let command = performOnce {
@@ -4610,7 +4844,7 @@ public final class AgentSeat {
         Task { @MainActor [weak focusRecovery] in await focusRecovery?.refreshPreparation() }
     }
 
-    private func focusRecoveryChanged(_ report: UserFocusRecoveryReport) {
+    func focusRecoveryChanged(_ report: UserFocusRecoveryReport) {
         lastFocusRecovery = report
         eventChannel.yield(.userFocusRecoveryChanged(report))
         // The event carries this to a consumer that subscribes, and the one the
@@ -4724,11 +4958,20 @@ public final class AgentSeat {
         var refusedRaise: DisplayFailure?
         var didAttemptStage = false
         var readings = 0
+        // The stable reading a window gave short of its requested origin, and
+        // since when it has held it; kept only while the readings stay stable.
+        var offOrigin: (reference: WindowReference, body: CGRect, since: UInt64)?
+        // Whether the window was read away from the origin it was found at, and
+        // since when it reads there again: the evidence of a move undone.
+        var hasLeftHome = false
+        var homeSince: UInt64?
 
         let deadline = DispatchTime.now().uptimeNanoseconds
             + Self.placementConfirmationNanoseconds
 
         while DispatchTime.now().uptimeNanoseconds < deadline {
+            let heldOffOrigin = offOrigin
+            offOrigin = nil
             try checkAdoptionMayContinue()
             await EventLoopWait.step(
                 readings < 4 ? .milliseconds(20) : .milliseconds(100)
@@ -4746,6 +4989,32 @@ public final class AgentSeat {
 
             guard reading.hasSameIdentity(as: window) else {
                 throw SeatInterruption(issues: [.identityChanged])
+            }
+
+            // Only a window found outside the display can be sent home by its
+            // application; one found inside was accepted where it stood.
+            if !takenInPlace, !bounds.contains(window.frame) {
+                let isHome = VirtualWindowPlacementCheck.framesMatch(
+                    CGRect(
+                        origin: window.frame.origin,
+                        size  : reading.frame.size
+                    ),
+                    reading.frame,
+                    tolerance: VirtualWindowPlacementCheck.crossSourceTolerance
+                )
+                if !isHome {
+                    hasLeftHome = true
+                    homeSince   = nil
+                } else if hasLeftHome {
+                    let now = DispatchTime.now().uptimeNanoseconds
+                    homeSince = homeSince ?? now
+                    if now &- (homeSince ?? now) >= Self.snapBackNanoseconds {
+                        throw DisplayFailure.placementNotConfirmed(
+                            windowNumber: window.windowNumber,
+                            lastFrame   : reading.frame
+                        )
+                    }
+                }
             }
 
             var fullBody = window.frame
@@ -4825,12 +5094,28 @@ public final class AgentSeat {
                    fullBody
                ),
                bounds.contains(reading.frame) {
-                return (reading, fullBody)
+                if takenInPlace || VirtualWindowPlacementCheck.framesMatch(
+                    reading.frame,
+                    requestedFrame,
+                    tolerance: VirtualWindowPlacementCheck.crossSourceTolerance
+                ) {
+                    return (reading, fullBody)
+                }
+                let now   = DispatchTime.now().uptimeNanoseconds
+                let since = heldOffOrigin.flatMap {
+                    VirtualWindowPlacementCheck.framesMatch($0.reference.frame, reading.frame) ? $0.since : nil
+                } ?? now
+                if now &- since >= Self.offOriginSettleNanoseconds { return (reading, fullBody) }
+                offOrigin = (reading, fullBody, since)
             }
 
             previous = reading
             previousBody = fullBody
         }
+
+        // Stable, and stopped short of its origin until the budget ran out: the
+        // window is where its application holds it, as before this check existed.
+        if let offOrigin { return (offOrigin.reference, offOrigin.body) }
 
         throw refusedRaise ?? DisplayFailure.placementNotConfirmed(
             windowNumber: window.windowNumber,
@@ -4876,7 +5161,7 @@ public final class AgentSeat {
                 do { matches = try originalFrameMatches(window, server: reading) }
                 catch { writeError = error; return (.refused, writeError) }
                 if matches, previousMatched {
-                    return (await finishReturn(of: window, until: limit), writeError)
+                    return (await confirmedReturn(of: window, until: limit), writeError)
                 }
                 previousMatched = matches
                 if !matches, !requested {
@@ -5049,7 +5334,7 @@ public final class AgentSeat {
 
             do {
                 let matches = try originalFrameMatches(window, server: reading)
-                if matches && previousMatched { return await finishReturn(of: window, until: limit) }
+                if matches && previousMatched { return await confirmedReturn(of: window, until: limit) }
                 previousMatched = matches
             } catch { return .refused }
         }
@@ -5101,6 +5386,59 @@ public final class AgentSeat {
                 """)
         }
         return .returned
+    }
+
+    /// The end of a return the frame readings agreed on: it is `returned` only
+    /// when two agreeing readings also put the window on the desktop it came
+    /// from (ADR 0037).
+    ///
+    /// The seat never writes a desktop. A window back at its place on its
+    /// display but on another desktop is `returnedToOtherSpace`, and a desktop
+    /// that cannot be read, or was never recorded, leaves the return as the
+    /// frame readings proved it and says so in the log.
+    private func confirmedReturn(
+        of window: AdoptedWindow,
+        until limit: UInt64? = nil
+    ) async -> WindowReleaseOutcome {
+
+        let outcome = await finishReturn(of: window, until: limit)
+        guard outcome == .returned else { return outcome }
+        guard !window.wasFullScreen, window.originalSpaceID != nil, sensing.desktopLayout != nil else {
+            Self.log.notice("""
+                window \(window.id, privacy: .public) is back; its desktop is unknown, so the \
+                return says nothing about it
+                """)
+            return outcome
+        }
+        // Two agreeing readings, as the frame has; one that reads elsewhere is read
+        // again until the shared budget is spent, as the desktop trails the frame.
+        let step = Duration.milliseconds(50)
+        var previous: SpaceVerdict?
+        while true {
+            let current = spaceVerdict(of: window)
+            let settled = current == previous && (current != .otherSpace || desktopSettleRemaining <= .zero)
+            if settled {
+                switch current {
+                    case .inPlace, .unknown: return .returned
+                    case .otherSpace       : return .returnedToOtherSpace
+                }
+            }
+            guard Self.mayContinue(until: limit) else { return .refused }
+            previous = current
+            await EventLoopWait.step(Self.boundedPause(step, until: limit))
+            if current == .otherSpace { desktopSettleRemaining -= step }
+        }
+    }
+
+    private func spaceVerdict(of window: AdoptedWindow) -> SpaceVerdict {
+        SpaceReturn.verdict(
+            windowSpaces: sensing.windowSpaces(of: window.id),
+            target      : SpaceReturn.target(
+                originalSpace  : window.originalSpaceID,
+                originalDisplay: window.originalDisplayID,
+                in             : sensing.desktopLayout
+            )
+        )
     }
 
     /// Uses the release's one absolute deadline around a cancellable fullscreen
@@ -5253,15 +5591,24 @@ public final class AgentSeat {
         if focusRecovery?.isRestoring == true {
             return .reconciliationOnly(reason: "a focus request is in flight and unverified")
         }
-        if state == .waiting, !containmentOnlyFollowWait {
+        if state == .waiting, !containmentOnlyFollowWait, !commandEpisodeFollowMayProceed {
             return .reconciliationOnly(reason: "the seat is waiting for the person")
         }
         if !state.acceptsCommands,
            !containmentOnlyFollowWait,
-           !recoverySuccessorFollowMayProceed {
+           !recoverySuccessorFollowMayProceed,
+           !commandEpisodeFollowMayProceed {
             return .standDown(reason: "the seat is \(state.rawValue)")
         }
         return .full
+    }
+
+    /// The seat waits on the episode its Command's own activation began, so the
+    /// pass may read and take in the windows that Command opened (ADR 0033).
+    /// Each of them still has to pass `commandBornMayAdmit`; any other window
+    /// is offered again and left where it is.
+    private var commandEpisodeFollowMayProceed: Bool {
+        state == .waiting && focusRecovery?.episodeBeganDuringCommand == true
     }
 
     /// A newly discovered modal can itself be the one uncontained surface that
@@ -5537,6 +5884,7 @@ public final class AgentSeat {
         else { return false }
 
         _ = session.forget(windowNumber)
+        refreshWindowFollowing()
         if stagedWindowNumber == windowNumber { stagedWindowNumber = nil }
         eventChannel.yield(.windowReleased(windowNumber: windowNumber, outcome: .vanished))
         transition(to: wasDegradedBeforeRecovery ? .degraded : .ready, reason: .recovered)

@@ -69,12 +69,59 @@ struct ModelCatalogueTests {
         #expect(models[3].efforts == [.low, .medium, .high, .max], "an unknown level is left out")
     }
 
+    /// An `initialize` answer carrying `rows`, on the one line the command line prints it.
+    private static func claudeAnswer(_ rows: String) -> Data {
+        let line = rows.replacing("\n", with: "")
+        return Data(#"{"type":"control_response","response":{"subtype":"success","request_id":"models","response":{"models":[\#(line)]}}}"#.utf8)
+    }
+
+    @Test("The model the default row resolves to comes first, under the name of its own row")
+    func claudeCatalogueStartsOnTheDefault() throws {
+        let models = try ProviderCatalog.claudeCatalogue(from: Self.claudeAnswer("""
+        {"value":"default","resolvedModel":"claude-sonnet-5-5","displayName":"Default (recommended)"},
+        {"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus 5.5"},
+        {"value":"sonnet","resolvedModel":"claude-sonnet-5-5","displayName":"Sonnet 5.5","supportedEffortLevels":["low","high"]},
+        {"value":"haiku","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5"}
+        """))
+
+        #expect(models.map(\.id) == ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-4-5"])
+        #expect(models[0].title == "Sonnet 5.5")
+        #expect(models[0].efforts == [.low, .high])
+    }
+
+    @Test("A default that no other row lists is listed first, named by its id")
+    func claudeCatalogueListsAnUnlistedDefault() throws {
+        let models = try ProviderCatalog.claudeCatalogue(from: Self.claudeAnswer("""
+        {"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus 5.5"},
+        {"value":"default","resolvedModel":"claude-fable-5-1","supportedEffortLevels":["medium"]}
+        """))
+
+        #expect(models.map(\.id) == ["claude-fable-5-1", "claude-opus-5-5"])
+        #expect(models[0].title == "Fable 5.1")
+        #expect(models[0].efforts == [.medium])
+    }
+
+    @Test("A model listed again with the 1M tag is one model, and a default with the tag starts on it")
+    func claudeCatalogueFoldsTheOneMillionTag() throws {
+        let models = try ProviderCatalog.claudeCatalogue(from: Self.claudeAnswer("""
+        {"value":"default","resolvedModel":"claude-opus-5-5[1m]","displayName":"Default (recommended)"},
+        {"value":"sonnet","resolvedModel":"claude-sonnet-5-5","displayName":"Sonnet 5.5"},
+        {"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus 5.5"},
+        {"value":"opus[1m]","resolvedModel":"claude-opus-5-5[1m]","displayName":"Opus 5.5 (1M context)"}
+        """))
+
+        #expect(models.map(\.id) == ["claude-opus-5-5", "claude-sonnet-5-5"])
+        #expect(models[0].title == "Opus 5.5")
+    }
+
     @Test("A Claude id loses only a trailing snapshot date")
     func claudeIDDropsTheSnapshotDate() {
         #expect(ProviderCatalog.claudeID("claude-haiku-4-5-20251001") == "claude-haiku-4-5")
         #expect(ProviderCatalog.claudeID("claude-opus-5-5") == "claude-opus-5-5")
         #expect(ProviderCatalog.claudeID("claude-sonnet-4-20250514") == "claude-sonnet-4")
         #expect(ProviderCatalog.claudeID("claude-20251001-x") == "claude-20251001-x")
+        #expect(ProviderCatalog.claudeID("claude-opus-5-5[1m]") == "claude-opus-5-5")
+        #expect(ProviderCatalog.claudeID("claude-sonnet-4-20250514[1m]") == "claude-sonnet-4")
     }
 
     @Test("A model known only by id reads by its family and version, an id of another shape as itself")
@@ -97,6 +144,65 @@ struct ModelCatalogueTests {
         #expect(throws: (any Error).self) {
             try ProviderCatalog.claudeCatalogue(from: Data(#"{"type":"result","is_error":true}"#.utf8))
         }
+    }
+
+    private struct ListingFailed: Error {}
+
+    private static let live = [ModelInfo(id: "claude-opus-5-5", efforts: [.low])]
+    private static let kept = [ModelInfo(id: "claude-sonnet-5-5", efforts: [.low])]
+
+    @Test("A listing that came is the catalogue, whatever was kept")
+    func resolvedCatalogueIsTheLiveListing() throws {
+        let models = try ProviderCatalog.resolvedCatalogue(.success(Self.live), for: .claudeCode, kept: Self.kept)
+        #expect(models == Self.live)
+    }
+
+    @Test("A listing that failed leaves the catalogue kept from an earlier one")
+    func resolvedCatalogueKeepsTheKeptOne() throws {
+        let models = try ProviderCatalog.resolvedCatalogue(.failure(ListingFailed()), for: .claudeCode, kept: Self.kept)
+        #expect(models == Self.kept)
+    }
+
+    @Test("A listing that failed with nothing kept leaves the provider's fixed list, one that is empty counting as nothing")
+    func resolvedCatalogueFallsBackToTheFixedList() throws {
+        for kept in [nil, []] as [[ModelInfo]?] {
+            let models = try ProviderCatalog.resolvedCatalogue(.failure(ListingFailed()), for: .claudeCode, kept: kept)
+            #expect(models.map(\.id) == ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"])
+            #expect(models[0].efforts == [.low, .medium, .high, .xhigh, .max])
+            #expect(models[2].efforts.isEmpty, "Haiku takes no effort")
+        }
+        let codex = try ProviderCatalog.resolvedCatalogue(.failure(ListingFailed()), for: .codex, kept: nil)
+        #expect(codex.map(\.id) == ["gpt-5.6-luna"])
+    }
+
+    @Test("A command line that is not installed and a missing key are thrown, kept list or not")
+    func resolvedCatalogueRefusesToHideAMissingConnection() {
+        let missing: [(ModelProvider, any Error)] = [
+            (.claudeCode, ClaudeClientError.unavailable),
+            (.codex, CodexClientError.unavailable),
+            (.anthropic, ProviderError.missingAPIKey(.anthropic)),
+        ]
+        for (provider, error) in missing {
+            #expect(throws: (any Error).self) {
+                try ProviderCatalog.resolvedCatalogue(.failure(error), for: provider, kept: Self.kept)
+            }
+        }
+    }
+
+    @Test("A provider with nothing kept and nothing fixed throws the failure")
+    func resolvedCatalogueThrowsWhenThereIsNothingToStandIn() throws {
+        #expect(ModelProvider.ollama.defaultModels.isEmpty)
+        #expect(throws: ListingFailed.self) {
+            try ProviderCatalog.resolvedCatalogue(.failure(ListingFailed()), for: .ollama, kept: nil)
+        }
+        let models = try ProviderCatalog.resolvedCatalogue(.failure(ListingFailed()), for: .ollama, kept: Self.kept)
+        #expect(models == Self.kept)
+    }
+
+    @Test("The fixed lists name only models their provider still has")
+    func fixedListsAreCurrent() {
+        #expect(ModelProvider.claudeCode.defaultModels == ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"])
+        #expect(!ModelProvider.codex.defaultModels.contains("gpt-5.4-mini"))
     }
 
     @Test("Ultra is Codex's alone")

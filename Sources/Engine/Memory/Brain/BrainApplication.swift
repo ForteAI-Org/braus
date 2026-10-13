@@ -366,8 +366,8 @@ public enum BrainApplicationError: Error, Sendable, Equatable {
 /// - record: `verb` (text, one); `target_kind`, `target_label`, `target_x`, `target_y`,
 ///   `target_width`, `target_height` (one each), `target_state` (at most one); `effect_kind` (at
 ///   most one; absent is no effect), `effect_text`, `effect_required_state`,
-///   `effect_resulting_state` (at most one each, only with a kind), `effect_item` (text, a list at
-///   positions 0, 1, ...).
+///   `effect_resulting_state`, `effect_label`, `effect_value` (at most one each, only with a kind),
+///   `effect_item` (text, a list at positions 0, 1, ...).
 /// - set_name: `anchor_key` (text, one; a literal: it need not name a stored anchor), `name`
 ///   (text, one).
 ///
@@ -414,6 +414,7 @@ public enum BrainApplicationContract {
                     spec("target_height", .real, .one), spec("target_state", .text, .optional),
                     spec("effect_kind", .text, .optional), spec("effect_text", .text, .optional),
                     spec("effect_required_state", .text, .optional), spec("effect_resulting_state", .text, .optional),
+                    spec("effect_label", .text, .optional), spec("effect_value", .text, .optional),
                     spec("effect_item", .text, .list),
                 ]
             case .setName:
@@ -518,6 +519,8 @@ extension BrainApplicationCommand {
                     if let text = effect.text { add("effect_text", 0, .text(text)) }
                     if let state = effect.requiredState { add("effect_required_state", 0, .text(state.rawValue)) }
                     if let state = effect.resultingState { add("effect_resulting_state", 0, .text(state.rawValue)) }
+                    if let label = effect.label { add("effect_label", 0, .text(label)) }
+                    if let value = effect.value { add("effect_value", 0, .text(value)) }
                     for (position, item) in effect.items.enumerated() { add("effect_item", position, .text(item)) }
                 }
             case .setName(let anchorKey, let name):
@@ -626,11 +629,19 @@ extension BrainApplicationCommand {
                 var effect: TransitionEffectRecord?
                 if let kind = try text("effect_kind") {
                     effect = try TransitionEffectRecord(
-                        kind: kind, text: try text("effect_text"), requiredState: try text("effect_required_state"),
-                        resultingState: try text("effect_resulting_state"), items: try list("effect_item")
+                        kind          : kind,
+                        text          : try text("effect_text"),
+                        requiredState : try text("effect_required_state"),
+                        resultingState: try text("effect_resulting_state"),
+                        label         : try text("effect_label"),
+                        value         : try text("effect_value"),
+                        items         : try list("effect_item")
                     )
                 } else {
-                    for name in ["effect_text", "effect_required_state", "effect_resulting_state", "effect_item"] where byName[name] != nil {
+                    let effectArguments = [
+                        "effect_text", "effect_required_state", "effect_resulting_state", "effect_label", "effect_value", "effect_item",
+                    ]
+                    for name in effectArguments where byName[name] != nil {
                         throw refuse(.forbiddenArgument(name))
                     }
                 }

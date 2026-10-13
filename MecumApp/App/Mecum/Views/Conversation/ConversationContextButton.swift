@@ -8,20 +8,16 @@
 import ChatCore
 import SwiftUI
 
-/// ConversationContextButton is the context ring on a round button of its own,
-/// left of the composer's pill and as tall as the pill at one line. It is
-/// drawn on the pill's own surface (`ComposerSurface`), the material, or the
-/// solid surface with Reduce Transparency, so the two read as one family; the
-/// pill is never Liquid Glass, so neither is this. Its tooltip says how full
-/// the context is, or that it is being compacted, and it opens a popover of
-/// the context, the last message and the context's actions
-/// (`ConversationContextPopover`) above itself. Starting a fresh context asks
-/// first, since it forgets.
+/// ConversationContextButton is the context ring as a toolbar item, before the
+/// token counter in the same glass capsule: the toolbar draws its surface, so
+/// the ring is bare. Its tooltip says how full the context is, or that it is
+/// being compacted, and it opens a popover of the context and the context's
+/// actions (`ConversationContextPopover`) below itself. Starting a fresh
+/// context asks first, since it forgets.
 struct ConversationContextButton: View {
 
     /// A context whose window is known (`UsageWording.ringContext`).
     let context     : WorkerUsage.Context
-    let lastTurn    : ProviderUsage.Tokens?
 
     /// The worker's name, which the confirmation says.
     let worker      : String
@@ -38,44 +34,31 @@ struct ConversationContextButton: View {
 
     @State private var isConfirmingFresh = false
 
-    @Environment(\.accessibilityReduceTransparency)
-    private var reducesTransparency
-
     var body: some View {
         let wording = UsageWording()
-        let side    = ComposerBar.restingHeight
 
         Button { isShowingDetail.wrappedValue.toggle() } label: {
             ConversationContextRing(
                 fraction       : context.fraction ?? 0,
-                side           : 20,
+                side           : 16,
                 lineWidth      : 2.2,
                 isIndeterminate: isCompacting
             )
-            .frame(
-                width : side,
-                height: side
+            // Room between the capsule's rim and the ring; the counter after it keeps its own.
+            .padding(
+                .leading,
+                4
             )
-            .modifier(ComposerSurface(
-                shape: RoundedRectangle(
-                    cornerRadius: side / 2,
-                    style       : .circular
-                ),
-                kind : .resolved(reducesTransparency: reducesTransparency)
-            ))
-            .contentShape(Circle())
         }
-        .buttonStyle(.plain)
         .help(isCompacting ? UsageWording.compacting : wording.contextTip(context))
         .accessibilityLabel("Context")
         .accessibilityValue(isCompacting ? UsageWording.compacting : wording.contextSpoken(context))
         .popover(
             isPresented: isShowingDetail,
-            arrowEdge  : .top
+            arrowEdge  : .bottom
         ) {
             ConversationContextPopover(
                 context   : context,
-                lastTurn  : lastTurn,
                 waitReason: waitReason,
                 compact   : {
                     isShowingDetail.wrappedValue = false

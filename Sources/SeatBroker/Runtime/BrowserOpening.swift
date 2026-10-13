@@ -30,6 +30,11 @@ import WindowPlacement
 /// thumbnail in its strip, and about a second later Safari's `AXWindows` was empty while the window
 /// server still listed both its windows.
 ///
+/// Measured on 09/10/2026 (ADR 0038), Safari behind the person's application: the item is pressed
+/// and no window opens until Safari is active. `openWindow` brings it in front for the press when
+/// `bringingForward` is given, keeps it there until the window is listed, and `tick` then gives the
+/// front back as for Chrome.
+///
 /// The first live run, the same day, pressed that item and then failed to start the background
 /// display, which another process held: the new empty window stayed on the person's display for
 /// good, since by then nothing in accessibility listed it to close. Hence `seat`'s order.
@@ -48,6 +53,16 @@ enum BrowserOpening {
     /// How long a pressed item is given to show its window: Safari took about 1 s, Chrome 28 ms.
     static let windowTimeout: Duration = .seconds(3)
 
+    /// How long Safari is given, in front, to show an enabled new window item: its menu bar is
+    /// read again while it activates, and an unreadable one is not ready yet.
+    static let readinessTimeout: Duration = .seconds(2)
+
+    /// Whether the new window item of this browser opens a window only while the browser is
+    /// active (ADR 0038): Safari, measured on 09/10/2026. Chrome's opens one from the background.
+    static func needsFrontToOpen(bundleID: String) -> Bool {
+        bundleID == TargetPlatform.safariBundleIdentifier
+    }
+
     /// How many times the front is read after the adoption, one `tailInterval` apart: about a
     /// second, since Chrome took the front during or just after it (30/09/2026, 2 of 2).
     static let frontTailReadings = 20
@@ -63,7 +78,8 @@ enum BrowserOpening {
     /// Makes the seat ready, opens a window of `app` and seats it, in that order, and answers what
     /// `use` answered. Nothing is pressed before `prepare` succeeds, so a seat that cannot come up
     /// costs the person nothing. When `use` fails, the window `open` made is closed again with
-    /// `close`, and the refusal says whether it was; no other window is ever closed.
+    /// `close`, and the refusal says whether it was; no other window is ever closed. A window that
+    /// was seated stays open here: the session closes it when it finishes with the browser.
     ///
     /// The browser can take the front during or just after the adoption, while the seat knows no
     /// window of the person's to give it back to. So `arm` reads the person's window after
@@ -77,7 +93,7 @@ enum BrowserOpening {
         prepare     : () async throws -> Void,
         arm         : () -> (any FrontRestoring)?,
         open        : (_ tick: () -> Void) async throws -> OpenedWindow,
-        use         : (TargetWindow) async throws -> TargetApp,
+        use         : (OpenedWindow) async throws -> TargetApp,
         close       : (OpenedWindow) async -> Bool,
         tailInterval: Duration = .milliseconds(50)
     ) async throws -> TargetApp {
@@ -94,7 +110,7 @@ enum BrowserOpening {
         let opened = try await open(giveFrontBack)
         let seated: TargetApp
         do {
-            seated = try await use(opened.window)
+            seated = try await use(opened)
         } catch {
             let closing = await close(opened)
                 ? "The new window it opened for the seat was closed again."
@@ -137,31 +153,47 @@ enum BrowserOpening {
     /// Once the window is listed, its accessibility element is looked for by Window ID until
     /// `timeout`, and the window is answered with or without it. `tick` runs before every reading.
     ///
+    /// `bringingForward`, given for a browser that opens nothing from the background, brings the
+    /// browser in front first and answers whether it held the front. The item is then read until it
+    /// is enabled, at most `readinessTimeout`, and pressed once: a read that finds no item presses
+    /// nothing, and an error from the press itself is final. `tick` gives the front back after the
+    /// listing of the new window, and on every refusal after the browser was brought forward.
+    ///
     /// Throws `SeatBrokerError.driver` when there is no such item, the press fails or no new window
     /// appears within `timeout`, having adopted nothing and released nothing. A window that appears
     /// after the timeout stays open on the person's display.
     @MainActor
     static func openWindow(
-        of app        : TargetApp,
-        within timeout: Duration = windowTimeout,
-        tick          : () -> Void
+        of app          : TargetApp,
+        within timeout  : Duration = windowTimeout,
+        bringingForward : (() async -> Bool)? = nil,
+        tick            : () -> Void
     ) async throws -> OpenedWindow {
 
         guard let pid = app.pid else { throw refusal(app.name, "It is not running.") }
         let before  = windowNumbers(of: pid)
         let pressed: String
         do {
-            pressed = try MenuBarCommand.pressNewWindow(processID: pid)
+            pressed = try await pressNewWindow(of: pid, bringingForward: bringingForward, tick: tick)
         } catch {
+            if error is CancellationError { throw error }
             throw refusal(app.name, "\(error)")
         }
         let started = ContinuousClock.now
-        let opened  = try await awaitWindow(
-            within : timeout,
-            tick   : tick,
-            find   : { newWindow(among: TargetEnumerator.windows(of: pid), before: before) },
-            element: { element(ofWindow: $0.windowNumber, of: pid) }
-        )
+        // A browser brought forward for the press keeps the front until its window is listed.
+        let opened: OpenedWindow?
+        do {
+            opened = try await awaitWindow(
+                within : timeout,
+                tick   : bringingForward == nil ? tick : {},
+                find   : { newWindow(among: TargetEnumerator.windows(of: pid), before: before) },
+                element: { element(ofWindow: $0.windowNumber, of: pid) }
+            )
+        } catch {
+            if bringingForward != nil { tick() }
+            throw error
+        }
+        if bringingForward != nil { tick() }
         guard let opened else {
             throw refusal(app.name, "\(pressed) was pressed and no new window of it appeared within "
                 + "\(timeout.components.seconds) s; if one opens later, it stays on the person's screen.")
@@ -175,6 +207,43 @@ enum BrowserOpening {
             \(opened.element != nil, privacy: .public)
             """)
         return opened
+    }
+
+    /// Presses the new window item of `pid` through `press`, with the browser in front first when
+    /// `bringingForward` is given. Only a read that found no enabled item is repeated, until
+    /// `readiness` passes, since it pressed nothing; an error from the press itself is final. The
+    /// front goes back through `tick` when the item never became ready.
+    @MainActor
+    static func pressNewWindow(
+        of pid         : pid_t,
+        bringingForward: (() async -> Bool)?,
+        readiness      : Duration = readinessTimeout,
+        press          : (pid_t) throws -> String = { try MenuBarCommand.pressNewWindow(processID: $0) },
+        tick           : () -> Void
+    ) async throws -> String {
+
+        guard let bringingForward else { return try press(pid) }
+        guard await bringingForward() else {
+            tick()
+            throw AutomationFailure("Its new window item opens nothing while it is in the background, "
+                + "and it could not be brought forward for a moment.")
+        }
+        let deadline = ContinuousClock.now + readiness
+        while true {
+            do {
+                return try press(pid)
+            } catch {
+                // A failure of the press itself says the action was attempted: it is final.
+                guard !"\(error)".hasPrefix("Pressing "), ContinuousClock.now < deadline else {
+                    tick()
+                    throw error
+                }
+            }
+            do { try await Task.sleep(for: .milliseconds(20)) } catch {
+                tick()
+                throw error
+            }
+        }
     }
 
     /// Reads `find` until it answers a window and `element` answers that window's element, or
@@ -201,9 +270,11 @@ enum BrowserOpening {
         return found.map { OpenedWindow(window: $0, element: nil) }
     }
 
-    /// Presses the close button of `opened` and answers whether the window server stopped listing
-    /// it within a second. The element is the one read by Window ID when the window appeared, so no
-    /// other window can be closed; with no element, or no close button to press, nothing is done.
+    /// Presses the close button of `opened` and answers whether the window is gone within a second
+    /// (20 readings, 50 ms apart), by `isClosed`. The element is the one read by Window ID when the
+    /// window appeared, so no other window can be closed; with no element, or no close button to
+    /// press, nothing is done. Nothing is pressed or typed twice, and an unreadable element or
+    /// window list counts as still there.
     @MainActor
     static func close(_ opened: OpenedWindow) async -> Bool {
         var button: CFTypeRef?
@@ -214,10 +285,38 @@ enum BrowserOpening {
                 == .success
         else { return false }
         for _ in 0..<20 {
-            if !isListed(opened.window) { return true }
+            if isGone(opened.window, element: element) { return true }
             do { try await Task.sleep(for: .milliseconds(50)) } catch { break }
         }
-        return !isListed(opened.window)
+        return isGone(opened.window, element: element)
+    }
+
+    /// Whether a window the person was shown is closed, from four readings taken after the press.
+    /// An application may keep a closed window in the window server, off screen, so being listed
+    /// is not enough to say it is open: accessibility must also no longer have it, since a
+    /// minimized window is off screen too and stays in `AXWindows`. A window on screen never is.
+    static func isClosed(listed: Bool, onScreen: Bool, elementIsValid: Bool, inWindows: Bool) -> Bool {
+        !listed || (!onScreen && (!elementIsValid || !inWindows))
+    }
+
+    /// Takes the four readings for `isClosed`, reading accessibility only for a window that the
+    /// window server lists off screen.
+    private static func isGone(_ window: TargetWindow, element: AXUIElement) -> Bool {
+        guard let row = description(of: window) else {
+            return isClosed(listed: false, onScreen: false, elementIsValid: true, inWindows: true)
+        }
+        if row[kCGWindowIsOnscreen as String] as? Bool ?? false { return false }
+
+        AXUIElementSetMessagingTimeout(element, 0.5)
+        var role: CFTypeRef?
+        let elementIsValid = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+            != .invalidUIElement
+        let application = AXUIElementCreateApplication(window.pid)
+        AXUIElementSetMessagingTimeout(application, 0.5)
+        var windows: CFTypeRef?
+        let read = AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &windows)
+        let inWindows = read != .success || ((windows as? [AXUIElement]) ?? []).contains { CFEqual($0, element) }
+        return isClosed(listed: true, onScreen: false, elementIsValid: elementIsValid, inWindows: inWindows)
     }
 
     /// The refusal for a browser that got no window of its own, in a sentence the worker can act on.
@@ -243,9 +342,19 @@ enum BrowserOpening {
         return candidates.first { WindowRelocator.windowNumber(of: $0) == number }
     }
 
-    /// Whether the window server still lists `window` for its process, on screen or not.
-    private static func isListed(_ window: TargetWindow) -> Bool {
-        windowNumbers(of: window.pid).contains(window.windowNumber)
+    /// The window server's row for `window` alone, nil when it no longer lists that Window ID for
+    /// that process. The ID crosses as a raw `CFArray` value, the shape
+    /// `CGWindowListCreateDescriptionFromArray` reads, not as a `CFNumber`.
+    private static func description(of window: TargetWindow) -> [String: Any]? {
+        var values = [UnsafeRawPointer(bitPattern: UInt(window.windowNumber))]
+        guard let requested = values.withUnsafeMutableBufferPointer({
+            CFArrayCreate(kCFAllocatorDefault, $0.baseAddress, $0.count, nil)
+        }) else { return nil }
+        let rows = CGWindowListCreateDescriptionFromArray(requested) as? [[String: Any]] ?? []
+        return rows.first {
+            $0[kCGWindowNumber as String] as? Int == window.windowNumber
+                && $0[kCGWindowOwnerPID as String] as? pid_t == window.pid
+        }
     }
 
     /// Every window the window server has for `pid`, on screen or not.

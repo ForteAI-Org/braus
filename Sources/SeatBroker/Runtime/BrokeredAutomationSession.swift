@@ -377,7 +377,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             allowsDestructive           : allowsDestructive,
             contextMenusOnTextFieldsOnly: Self.drawsMenusUnderThePointer(application),
             selectsFieldsByTripleClick  : remotePanel,
-            refusesMenuOpeningClicks    : remotePanel
+            refusesMenuOpeningClicks    : remotePanel,
+            windowClosure               : windowClosure(of: seat)
         ).act(request), by: runtime)
     }
 
@@ -412,16 +413,20 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             input    : input,
             section  : section
         )
+        // Of these inputs only Escape closes a window: the engine refuses text that carries one.
+        var closesTheWindow = false
+        if case .pressKey(let chord, _) = input { closesTheWindow = chord.key == .escape }
         return await enriched(runtime.engine(
             recorder                    : Self.recorder(runtime, sessionID: id),
             allowsDestructive           : allowsDestructive,
             contextMenusOnTextFieldsOnly: Self.drawsMenusUnderThePointer(application),
-            selectsFieldsByTripleClick  : try seat.agentSeat().holdsRemoteFilePanel
+            selectsFieldsByTripleClick  : try seat.agentSeat().holdsRemoteFilePanel,
+            windowClosure               : closesTheWindow ? windowClosure(of: seat) : WindowClosureGuard()
         ).deliver(request), by: runtime)
     }
 
     public func menu(path: String) async throws -> ActOutcome {
-        let (application, _, seat) = try current()
+        let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
             agentSeat,
@@ -430,19 +435,17 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             throw AutomationFailure(sentence)
         }
         let processID = application.processIdentifier
+        let closingRefusal = closingRefusal(application, agentSeat)
         let platform = TargetPlatform.chosen(
             bundleURL       : application.bundleURL,
             bundleIdentifier: application.bundleIdentifier
         )
-        // TextEdit leaves its editing menu disabled while its text view accepts
-        // background input. Read and dispatch its menu during verified activation,
-        // just as for Adobe; other native hosts remain separately qualified.
-        let preparesMenu = platform == .adobeUXP || application.bundleIdentifier == "com.apple.TextEdit"
-        if preparesMenu {
+        if Self.preparesMenuInFront(platform, bundleIdentifier: application.bundleIdentifier) {
             return try await MenuBarCommand.performInFront(
                 path,
                 processID: processID,
                 allowsDestructive: allowsDestructive,
+                closingRefusal: closingRefusal,
                 withFront: { command in
                     let outcome = await agentSeat.performMenuCommandBrieflyInFront(
                         when: { MenuBarCommand.isEnabled(path, processID: processID) },
@@ -451,6 +454,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                     if case .ready = outcome { return nil }
                     return Self.briefMenuFailure(outcome)
                 },
+                frontReturned: { agentSeat.frontIsBackAfterCommand },
+                settling: runtime.settling,
                 observe: { try await self.observe() }
             )
         }
@@ -458,8 +463,52 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             path,
             processID        : processID,
             allowsDestructive: allowsDestructive,
+            closingRefusal   : closingRefusal,
+            settling         : runtime.settling,
             observe          : { try await self.observe() }
         )
+    }
+
+    /// What closing the window `seat` targets would do to its application, read now. Nothing is read
+    /// when the person allowed destructive actions, because nothing would be refused.
+    private func windowClosure(of seat: SeatTarget) -> WindowClosureGuard {
+        guard !allowsDestructive, let seat = try? seat.agentSeat(), let facts = seat.windowClosureFacts
+        else { return WindowClosureGuard() }
+        return WindowClosureGuard(
+            mayEndTheApplication: facts.mayEndTheApplication,
+            controlFrames       : facts.controlFrames
+        )
+    }
+
+    /// The sentence a command that closes the target window is refused with, given what it is, or
+    /// nil when it may be sent. The facts are read only when a closing command is asked for.
+    private func closingRefusal(
+        _ application: NSRunningApplication,
+        _ seat       : AgentSeat
+    ) -> (String) -> String? {
+        let allowsDestructive = allowsDestructive
+        let name = application.localizedName ?? "the application"
+        return { what in
+            guard !allowsDestructive, seat.windowClosureFacts?.mayEndTheApplication == true else { return nil }
+            let window = seat.currentTarget.flatMap { CGWindowID(exactly: $0.id) }.flatMap {
+                (CGWindowListCopyWindowInfo(.optionIncludingWindow, $0) as? [[String: Any]])?
+                    .first?[kCGWindowName as String] as? String
+            } ?? ""
+            return ActionPolicy.windowClosureRefusal(
+                what,
+                window      : window,
+                application : name,
+                alternatives: []
+            )
+        }
+    }
+
+    /// Whether a menu command of this application is read and pressed during a verified brief
+    /// activation. Adobe's UXP hosts and TextEdit leave menus disabled while driven in the
+    /// background (ADR 0013, 0029); Safari opens no window from File > New Window until it is
+    /// active (ADR 0038). Other native hosts remain separately qualified.
+    nonisolated static func preparesMenuInFront(_ platform: TargetPlatform, bundleIdentifier: String?) -> Bool {
+        platform == .adobeUXP || platform == .webKitBrowser || bundleIdentifier == "com.apple.TextEdit"
     }
 
     private static func briefMenuFailure(_ outcome: BriefActivationOutcome) -> String {
@@ -482,7 +531,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 return .stillDisabled(reason: nil)
             case .handbackNotVerified:
                 return .stillDisabled(reason: "It was brought forward for a moment, but the return to "
-                    + "the person's own window was not verified. Observe before more input.")
+                    + "the person's own window was not verified.")
             case .refused(let refusal):
                 let because: String
                 switch refusal {
@@ -511,6 +560,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             processID        : application.processIdentifier,
             dialogs          : agentSeat.openDialogs.map(\.windowNumber),
             allowsDestructive: allowsDestructive,
+            closingRefusal   : closingRefusal(application, agentSeat),
             observe          : { try await self.observe() }
         )
     }
@@ -720,6 +770,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         // case and payload: the sentence is the one the seat's mapper writes for a person.
         if error is ObservationUnavailable {
             return AutomationFailure(SeatErrorMapper.message(for: error))
+        }
+        if let refused = error as? SeatBrokerError, case .windowOnAnotherDesktop = refused {
+            return AutomationFailure(refused.localizedDescription)
         }
         guard case .noWindowShown(let name, let seconds, let wasLaunched, let wasQuit)? = error as? SeatBrokerError
         else { return error }

@@ -23,6 +23,8 @@ struct AgentCallResultContractTests {
         .elementsAppeared(labels: ["Queue", "", "A|B"]),
         .elementsDisappeared(labels: []),
         .textSelectionChanged,
+        .valueChanged(label: "Name", value: "Ada\nLovelace"),
+        .valueChanged(label: "", value: ""),
     ]
 
     @Test("every effect becomes typed parts and are rebuilt exactly, labels in order, an empty label kept")
@@ -31,8 +33,15 @@ struct AgentCallResultContractTests {
             let observed = ObservedEffect(effect)
             #expect(observed.kind == effect.family)
             #expect(observed.sceneEffect == effect, Comment(rawValue: effect.encoded))
-            let stored = try ObservedEffect(kind: observed.kind, title: observed.title, stateBefore: observed.stateBefore?.rawValue,
-                                            stateAfter: observed.stateAfter?.rawValue, labels: observed.labels)
+            let stored = try ObservedEffect(
+                kind       : observed.kind,
+                title      : observed.title,
+                stateBefore: observed.stateBefore?.rawValue,
+                stateAfter : observed.stateAfter?.rawValue,
+                label      : observed.label,
+                value      : observed.value,
+                labels     : observed.labels
+            )
             #expect(stored.isExactly(observed), Comment(rawValue: effect.encoded))
             #expect(stored.sceneEffect == effect)
         }
@@ -54,9 +63,25 @@ struct AgentCallResultContractTests {
 
     @Test("a stored effect whose parts do not fit its family is refused on the way out")
     func malformedEffects() {
-        func refused(_ kind: String, title: String? = nil, before: String? = nil, after: String? = nil, labels: [String] = []) {
+        func refused(
+            _ kind: String,
+            title : String? = nil,
+            before: String? = nil,
+            after : String? = nil,
+            label : String? = nil,
+            value : String? = nil,
+            labels: [String] = []
+        ) {
             #expect(throws: AgentCallError.self) {
-                try ObservedEffect(kind: kind, title: title, stateBefore: before, stateAfter: after, labels: labels)
+                try ObservedEffect(
+                    kind       : kind,
+                    title      : title,
+                    stateBefore: before,
+                    stateAfter : after,
+                    label      : label,
+                    value      : value,
+                    labels     : labels
+                )
             }
         }
         refused("rowsMoved")
@@ -70,6 +95,15 @@ struct AgentCallResultContractTests {
         refused("textSelectionChanged", title: "x")
         refused("textSelectionChanged", before: "off", after: "on")
         refused("textSelectionChanged", labels: ["a"])
+        refused("valueChanged")
+        refused("valueChanged", label: "Name")
+        refused("valueChanged", value: "Ada")
+        refused("valueChanged", title: "x", label: "Name", value: "Ada")
+        refused("valueChanged", before: "off", after: "on", label: "Name", value: "Ada")
+        refused("valueChanged", label: "Name", value: "Ada", labels: ["a"])
+        refused("windowTitleChanged", title: "x", label: "Name", value: "Ada")
+        refused("textSelectionChanged", value: "Ada")
+        refused("menuOpened", label: "Name", labels: ["a"])
     }
 
     @Test("the Brain keeps every effect family as columns and rebuilds the exact string; a selection change carries nothing else")
@@ -78,15 +112,54 @@ struct AgentCallResultContractTests {
         for effect in Self.effects where SceneEffect(encoded: effect.encoded) == effect {
             let record = try TransitionEffectRecord(effect: effect.encoded)
             #expect(record.effect == effect.encoded, Comment(rawValue: effect.encoded))
-            let read = try TransitionEffectRecord(kind: record.kind, text: record.text, requiredState: record.requiredState?.rawValue,
-                                                  resultingState: record.resultingState?.rawValue, items: record.items)
+            let read = try TransitionEffectRecord(
+                kind          : record.kind,
+                text          : record.text,
+                requiredState : record.requiredState?.rawValue,
+                resultingState: record.resultingState?.rawValue,
+                label         : record.label,
+                value         : record.value,
+                items         : record.items
+            )
             #expect(read.sceneEffect == effect, Comment(rawValue: effect.encoded))
         }
-        #expect(throws: BrainProjectionError.self) {
-            try TransitionEffectRecord(kind: "textSelectionChanged", text: nil, requiredState: nil, resultingState: nil, items: ["a"])
+        func refusal(
+            _ kind: String,
+            text  : String? = nil,
+            label : String? = nil,
+            value : String? = nil,
+            items : [String] = []
+        ) -> BrainProjectionError? {
+            do {
+                _ = try TransitionEffectRecord(
+                    kind          : kind,
+                    text          : text,
+                    requiredState : nil,
+                    resultingState: nil,
+                    label         : label,
+                    value         : value,
+                    items         : items
+                )
+                return nil
+            } catch {
+                return error as? BrainProjectionError
+            }
         }
-        #expect(throws: BrainProjectionError.self) {
-            try TransitionEffectRecord(kind: "textSelectionChanged", text: "x", requiredState: nil, resultingState: nil, items: [])
+        #expect(refusal("textSelectionChanged", items: ["a"]) == .malformedEffect("textSelectionChanged", .forbiddenItems))
+        #expect(refusal("textSelectionChanged", text: "x") == .malformedEffect("textSelectionChanged", .forbiddenText))
+        #expect(refusal("valueChanged", label: "Name") == .malformedEffect("valueChanged", .missingValue))
+        #expect(refusal("valueChanged", value: "Ada") == .malformedEffect("valueChanged", .missingValue))
+        #expect(refusal("valueChanged", text: "x", label: "Name", value: "Ada") == .malformedEffect("valueChanged", .forbiddenText))
+        #expect(refusal("valueChanged", label: "Name", value: "Ada", items: ["a"]) == .malformedEffect("valueChanged", .forbiddenItems))
+        #expect(refusal("textSelectionChanged", label: "Name") == .malformedEffect("textSelectionChanged", .forbiddenValue))
+        #expect(refusal("windowTitleChanged", text: "x", value: "Ada") == .malformedEffect("windowTitleChanged", .forbiddenValue))
+        // The separator inside a label has no exact string: refused on the way in and out.
+        #expect(refusal("valueChanged", label: "a\u{1F}b", value: "c") == .malformedEffect("valueChanged", .notCanonical))
+        #expect(throws: BrainProjectionError.unrepresentableEffect("valueChanged:a\u{1F}b\u{1F}c", .undecodable)) {
+            try TransitionEffectRecord(effect: "valueChanged:a\u{1F}b\u{1F}c")
+        }
+        #expect(throws: BrainProjectionError.unrepresentableEffect("valueChanged:Name", .undecodable)) {
+            try TransitionEffectRecord(effect: "valueChanged:Name")
         }
     }
 

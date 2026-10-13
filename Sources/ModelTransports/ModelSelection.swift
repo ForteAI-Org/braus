@@ -14,12 +14,13 @@ public enum ModelProvider: String, Sendable, CaseIterable, Codable, Identifiable
         }
     }
 
-    /// Models offered before the person edits the favorites. Ollama's come
-    /// from the local server instead.
+    /// The fixed list for a provider whose live listing failed, and what the API providers start
+    /// from. Codex and Claude Code start on the first model of their own catalogue instead. Ollama's
+    /// come from the local server and have no fixed list.
     public var defaultModels: [String] {
         switch self {
-        case .codex: ["gpt-5.6-luna", "gpt-5.4-mini"]
-        case .claudeCode, .anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
+        case .codex: ["gpt-5.6-luna"]
+        case .claudeCode, .anthropic: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"]
         case .gemini: ["gemini-3-pro-preview", "gemini-3-flash-preview"]
         case .ollama: []
         }

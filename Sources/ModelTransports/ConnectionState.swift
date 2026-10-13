@@ -25,6 +25,9 @@ public enum ConnectionState: Sendable, Hashable {
     /// through is not signed in.
     case credentialMissing
 
+    /// The command line this connection goes through is not where the app looks for it.
+    case notInstalled
+
     /// A credential exists and the destination refused it.
     case credentialRejected(detail: String)
 
@@ -48,6 +51,7 @@ public enum ConnectionState: Sendable, Hashable {
         switch self {
         case .ready:              "Connected"
         case .credentialMissing:  "Setup Required"
+        case .notInstalled:       "Not Installed"
         case .credentialRejected: "Access Rejected"
         case .unreachable:        "Can’t Connect"
         case .usageLimited:       "Usage Limit Reached"
@@ -66,6 +70,9 @@ public enum ConnectionState: Sendable, Hashable {
 
         case .credentialMissing:
             "Sign in or add an API key, then check the connection again."
+
+        case .notInstalled:
+            "The command-line tool isn’t installed. Install it, then check the connection again."
 
         case .credentialRejected:
             "The API key or sign-in was rejected. Update your credentials, then check again."
@@ -92,7 +99,7 @@ public enum ConnectionState: Sendable, Hashable {
             detail
         case .unreachable(_, let detail):
             detail
-        case .ready, .credentialMissing, .modelRemoved:
+        case .ready, .credentialMissing, .notInstalled, .modelRemoved:
             nil
         }
     }

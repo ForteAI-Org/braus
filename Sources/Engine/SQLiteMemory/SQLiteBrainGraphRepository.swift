@@ -67,14 +67,15 @@ public struct SQLiteBrainGraphRepository: BrainGraphStoring {
                 """
                 INSERT INTO brain_transitions (transition_id, app_id, insertion_order, from_scene_id, anchor_id, scene_element_id, menu_command_id,
                     trigger_kind, to_scene_id, effect_kind, effect_text, required_target_state, resulting_target_state, last_observed_epoch,
-                    status, first_seen_ms, last_seen_ms, evidence_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, first_seen_ms, last_seen_ms, evidence_count, effect_label, effect_value)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [.text(arc.transitionID), .integer(appID), .integer(order), .text(arc.fromSceneID), anchor, element, menu, .text(code),
                  arc.toSceneID.map(SQLiteValue.text) ?? .null, .text(arc.effect.kind), arc.effect.text.map(SQLiteValue.text) ?? .null,
                  arc.effect.requiredState.map { .text($0.rawValue) } ?? .null, arc.effect.resultingState.map { .text($0.rawValue) } ?? .null,
                  arc.lastObservedEpoch.map(SQLiteValue.integer) ?? .null, .text(arc.status.rawValue), .integer(arc.firstSeenMS),
-                 .integer(arc.lastSeenMS), .integer(arc.evidenceCount)]
+                 .integer(arc.lastSeenMS), .integer(arc.evidenceCount), arc.effect.label.map(SQLiteValue.text) ?? .null,
+                 arc.effect.value.map(SQLiteValue.text) ?? .null]
             )
             for (position, title) in arc.effect.items.enumerated() {
                 try transaction.execute("INSERT INTO brain_transition_menu_items (transition_id, position, title) VALUES (?, ?, ?)",
@@ -234,7 +235,7 @@ enum SQLiteGraphRows {
             """
             SELECT a.bundle_id, t.from_scene_id, t.anchor_id, t.scene_element_id, t.menu_command_id, t.trigger_kind, t.to_scene_id, t.effect_kind,
                    t.effect_text, t.required_target_state, t.resulting_target_state, t.last_observed_epoch, t.status, t.first_seen_ms, t.last_seen_ms,
-                   t.evidence_count, \(projectionOwned)
+                   t.evidence_count, \(projectionOwned), t.effect_label, t.effect_value
             FROM brain_transitions t JOIN brain_apps a ON a.app_id = t.app_id WHERE t.transition_id = ?
             """,
             [.text(id)],
@@ -242,7 +243,7 @@ enum SQLiteGraphRows {
                 (bundle: try row.text(0) ?? "", from: try row.text(1) ?? "", anchor: try row.text(2), element: try row.text(3), menu: try row.text(4),
                  trigger: try row.text(5) ?? "", to: try row.text(6), kind: try row.text(7) ?? "", text: try row.text(8), required: try row.text(9),
                  resulting: try row.text(10), epoch: row.integer(11), status: try row.text(12) ?? "", first: row.integer(13) ?? 0, last: row.integer(14) ?? 0,
-                 evidence: row.integer(15) ?? 0, owned: row.integer(16) == 1)
+                 evidence: row.integer(15) ?? 0, owned: row.integer(16) == 1, label: try row.text(17), value: try row.text(18))
             }
         ).first else { return nil }
         if row.owned { return nil }
@@ -267,7 +268,15 @@ enum SQLiteGraphRows {
         guard items.enumerated().allSatisfy({ Int64($0.offset) == $0.element.position }) else { throw refuse(.invalid(.shape(field: "items"))) }
         let effect: TransitionEffectRecord
         do {
-            effect = try TransitionEffectRecord(kind: row.kind, text: row.text, requiredState: row.required, resultingState: row.resulting, items: items.map(\.title))
+            effect = try TransitionEffectRecord(
+                kind          : row.kind,
+                text          : row.text,
+                requiredState : row.required,
+                resultingState: row.resulting,
+                label         : row.label,
+                value         : row.value,
+                items         : items.map(\.title)
+            )
         } catch {
             throw refuse(.unknownCode(column: "effect", code: "\(error)"))
         }

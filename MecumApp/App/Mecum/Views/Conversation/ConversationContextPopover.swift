@@ -10,9 +10,10 @@ import SwiftUI
 
 /// ConversationContextPopover is what the context ring opens, laid out as the
 /// token counter's popover is: how full the model's context is, as a share and
-/// in tokens against the window with a bar, then the last message's tokens,
-/// then what acts on the context, below a hairline: compacting it and starting it
-/// again, as icons side by side at the trailing edge.
+/// in tokens against the window with a bar, then what acts on the context,
+/// below a hairline: compacting it and starting it again, as icons side by
+/// side at the trailing edge. The last message's tokens are the token
+/// counter's popover, which is about tokens.
 ///
 /// The actions stay enabled while the worker is busy. Used then, they do
 /// nothing, and their tooltip says why (`waitReason`) until the worker is free.
@@ -20,9 +21,6 @@ struct ConversationContextPopover: View {
 
     /// A context whose window is known (`UsageWording.ringContext`).
     let context   : WorkerUsage.Context
-
-    /// The worker's latest turn's own tokens, nil before one reported them.
-    let lastTurn  : ProviderUsage.Tokens?
 
     /// Why the actions wait, nil while the worker is free to act on its context.
     let waitReason: String?
@@ -34,12 +32,6 @@ struct ConversationContextPopover: View {
     var body: some View {
         UsagePopover {
             contextSection
-
-            if let lastTurn {
-                Divider()
-
-                UsageLastMessage(tokens: lastTurn)
-            }
 
             Divider()
 

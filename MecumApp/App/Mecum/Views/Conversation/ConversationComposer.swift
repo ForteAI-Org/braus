@@ -48,8 +48,7 @@ struct ConversationComposer: View {
 
     @State private var isChoosingModel = WindowSnapshots.opensModelPopup
 
-    @AppStorage(AppPreferences.chatSendsWithCommandReturn)
-    private var sendsWithCommandReturn = AppPreferences.chatSendsWithCommandReturnDefault
+    private var sendsWithCommandReturn: Bool { AppPreferenceValues.shared.chatSendsWithCommandReturn }
 
     /// The model button's frame in the window, which the popup is centred on.
     @State private var modelButton = CGRect.zero
@@ -92,37 +91,6 @@ struct ConversationComposer: View {
                 }
             }
         }
-        .leading {
-            if let context {
-                ConversationContextButton(
-                    context        : context,
-                    lastTurn       : team.usage[worker.id]?.lastTurn?.turn,
-                    worker         : worker.name,
-                    isCompacting   : team.isCompacting(worker.id),
-                    waitReason     : team.isAnswering(worker.id)
-                        ? UsageWording.actionsWait(
-                            worker      : worker.name,
-                            isCompacting: team.isCompacting(worker.id)
-                        )
-                        : nil,
-                    compact        : { team.compactContext(of: worker.id) },
-                    startFresh     : { Task { await team.startFreshContext(of: worker.id) } },
-                    isShowingDetail: $team.showsContext
-                )
-                .padding(
-                    .trailing,
-                    8
-                )
-                // It comes out of the pill's leading edge and goes back into it, as Release does from Send.
-                .transition(
-                    .scale(
-                        scale : 0.3,
-                        anchor: .trailing
-                    )
-                    .combined(with: .opacity)
-                )
-            }
-        }
         .accessory {
             if let configuration = worker.configuration {
                 ConversationModelButton(
@@ -142,6 +110,7 @@ struct ConversationComposer: View {
                 set: { pending = $0 }
             ),
             catalogue  : worker.configuration.flatMap { team.connections.catalogues[$0.provider] },
+            unavailable: worker.configuration.flatMap { team.connections.modelsUnavailable(for: $0.provider) },
             onClose    : { Task { await keepChoice() } }
         )
         .composerPopup(
@@ -186,7 +155,6 @@ struct ConversationComposer: View {
                 )
             }
         }
-        .animation(reducesMotion ? nil : .spring(duration: 0.35, bounce: 0.15), value: context == nil)
         .animation(
             ComposerBar.stripAnimation,
             value: team.draftQuote
@@ -255,11 +223,6 @@ struct ConversationComposer: View {
             },
             remove     : { Task { await team.removeShownQueued() } }
         )
-    }
-
-    /// The selected worker's context while its conversation is open, nil while its fill or window is unknown.
-    private var context: WorkerUsage.Context? {
-        team.conversation == nil ? nil : UsageWording.ringContext(of: team.usage[worker.id])
     }
 
     /// Makes the popup's choice the worker's, a new version of its profile, when it changed anything.

@@ -75,7 +75,7 @@ extension WindowSnapshots {
     }
 
     /// Atlas on Codex's GPT-5.4-Mini, with Codex's catalogue listed and one
-    /// turn's usage, so the context ring and the token counter are shown, and a
+    /// turn's usage, so the toolbar's context ring and token counter are shown, and a
     /// stand-in command line that answers nothing until it is stopped.
     private static func commandTeam(in directory: URL) async throws -> TeamModel {
         let store = try WorkspaceStore.opening(in: directory)

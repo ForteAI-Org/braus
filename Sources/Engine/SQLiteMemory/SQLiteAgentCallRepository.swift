@@ -230,7 +230,8 @@ enum SQLiteAgentCallRows {
             """
             UPDATE memory_agent_actions SET execution_status = ?, started_at_ms = COALESCE(?, started_at_ms), completed_at_ms = ?,
                 duration_ms = ?, result_kind = ?, result_message = ?, attempted_count = ?, verified_count = ?,
-                observed_effect_kind = ?, observed_effect_text = ?, observed_state_before = ?, observed_state_after = ?
+                observed_effect_kind = ?, observed_effect_text = ?, observed_state_before = ?, observed_state_after = ?,
+                observed_effect_label = ?, observed_effect_value = ?
             WHERE event_id = ?
             """,
             [.text(progress.status.rawValue), progress.startedAtMS.map(SQLiteValue.integer) ?? .null,
@@ -238,6 +239,7 @@ enum SQLiteAgentCallRows {
              columns.kind, columns.message, columns.attempted, columns.verified,
              effect.map { .text($0.kind) } ?? .null, effect?.title.map(SQLiteValue.text) ?? .null,
              effect?.stateBefore.map { .text($0.rawValue) } ?? .null, effect?.stateAfter.map { .text($0.rawValue) } ?? .null,
+             effect?.label.map(SQLiteValue.text) ?? .null, effect?.value.map(SQLiteValue.text) ?? .null,
              .text(eventID)]
         )
         if let effect {
@@ -399,7 +401,7 @@ enum SQLiteAgentCallRows {
             SELECT e.local_order, a.tool_kind, a.contract_version, a.execution_status, a.completed_at_ms, a.result_kind,
                    a.result_message, a.observed_effect_kind, a.observed_effect_text, a.requested_count, a.attempted_count,
                    a.verified_count, e.parent_event_id, a.started_at_ms, a.duration_ms, a.observed_state_before,
-                   a.observed_state_after
+                   a.observed_state_after, a.observed_effect_label, a.observed_effect_value
             FROM memory_agent_actions a JOIN memory_events e ON e.event_id = a.event_id
             WHERE a.event_id = ?
             """,
@@ -428,12 +430,20 @@ enum SQLiteAgentCallRows {
                     throw refuse(.positionsNotContiguous("effect labels"))
                 }
                 do {
-                    observed = try ObservedEffect(kind: effectKind, title: try row.text(8), stateBefore: try row.text(15),
-                                                  stateAfter: try row.text(16), labels: labels.map(\.1))
+                    observed = try ObservedEffect(
+                        kind       : effectKind,
+                        title      : try row.text(8),
+                        stateBefore: try row.text(15),
+                        stateAfter : try row.text(16),
+                        label      : try row.text(17),
+                        value      : try row.text(18),
+                        labels     : labels.map(\.1)
+                    )
                 } catch AgentCallError.invalidProgress(.effectShape(let what)) {
                     throw refuse(.resultShape("observed_effect: \(what)"))
                 }
-            } else if try row.text(8) != nil || row.text(15) != nil || row.text(16) != nil {
+            } else if try row.text(8) != nil || row.text(15) != nil || row.text(16) != nil || row.text(17) != nil
+                        || row.text(18) != nil {
                 throw refuse(.resultShape("observed_effect"))
             }
             let requested = row.integer(9)

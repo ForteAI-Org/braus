@@ -24,7 +24,7 @@ nonisolated struct SlashCommandContext: Equatable {
     var hasScreen                 = false
     var showsScreenInConversation = false
 
-    /// The toolbar's token counter and the composer's context ring are shown.
+    /// The toolbar's token counter and the context ring are shown.
     var showsCounter = false
     var showsRing    = false
 

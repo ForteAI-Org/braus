@@ -3,6 +3,9 @@ import AutomationRuntime
 import CoreGraphics
 import Foundation
 import OSLog
+#if MECUM_PHASES
+import PhaseSignposts
+#endif
 import PrivateSymbols
 import ScreenCaptureKit
 import SeatCapture
@@ -104,6 +107,16 @@ final class SeatDriver {
     /// reused Window ID and the frame it is owed.
     private var lastObligations: [AssignmentObligation] = []
 
+    /// The windows the last release put back on their display but on another
+    /// desktop than their own. They are home for the seat, which cannot write a
+    /// desktop, and the person is told to move them.
+    private var lastWindowsOnAnotherDesktop: [Int] = []
+
+    /// What those windows leave the person to do, nil when there are none.
+    var otherDesktopSentence: String? {
+        SeatErrorMapper.otherDesktop(lastWindowsOnAnotherDesktop)
+    }
+
     /// Only logical proxy surfaces positively listed by the public WindowServer
     /// reader may later use a repeated public absence as destruction evidence.
     /// Remote helper content remains unreadable when its owner disappears.
@@ -138,6 +151,9 @@ final class SeatDriver {
     /// there is none yet: the display is created with the host, on the first
     /// adoption, and before that there is nothing to watch.
     func setPreviewShowsDisplay(_ showsDisplay: Bool) -> Bool {
+        #if MECUM_PHASES
+        PhaseInterval.event("preview.showsDisplay", "asked=\(showsDisplay)")
+        #endif
         guard showsDisplay, let displayID = host.displayID,
               let bounds = host.sensing?.virtualDisplayBounds
         else {
@@ -185,8 +201,8 @@ final class SeatDriver {
     /// back: at its original frame, or gone. The other two leave it held.
     static func isHome(_ outcome: WindowReleaseOutcome) -> Bool {
         switch outcome {
-        case .returned, .vanished, .returnsWhenShown: true
-        case .refused, .leftOnVirtualDisplay:         false
+        case .returned, .returnedToOtherSpace, .vanished, .returnsWhenShown: true
+        case .refused, .leftOnVirtualDisplay:                              false
         }
     }
 
@@ -334,8 +350,21 @@ final class SeatDriver {
               server.identity != nil, server.processID == target.pid
         else { throw SeatBrokerError.windowNotAttested(windowNumber: target.windowNumber) }
 
+        // Read before the display is created or touched: its creation can move
+        // the application's windows into it, and none of them can say after that
+        // where it stood (ADR 0037).
+        let origins = WindowOrigin.readBeforeHostStarts(
+            processID: target.pid,
+            excluding: host.sensing?.virtualDisplayBounds
+        )
+        Self.log.notice("""
+            read the place of \(origins.count, privacy: .public) windows of process \
+            \(target.pid, privacy: .public) before the host started
+            """)
+
         lastReleases    = []
         lastObligations = []
+        lastWindowsOnAnotherDesktop = []
         // Kept outside the transaction because a failure has to name them and
         // the seat writes an adoption report for only some of the failures.
         var requested: CGSize?
@@ -397,6 +426,7 @@ final class SeatDriver {
             requested = reference.frame.size
 
             let seat = try await liveSeat()
+            seat.noteOrigins(origins)
             guard let bounds = host.sensing?.virtualDisplayBounds else {
                 throw SeatBrokerError.driver(
                     "The background display started but published no bounds.")
@@ -585,7 +615,8 @@ final class SeatDriver {
         let target = SeatTarget(
             borrowing    : host,
             seat         : seat,
-            initialWindow: identity
+            initialWindow: identity,
+            liveFrames   : preview
         ) { [weak self] delivery in
             self?.preview.follow(delivery)
         }
@@ -614,12 +645,15 @@ final class SeatDriver {
 
     func acquireTurn() async throws -> Turn {
         guard let seat else { throw SeatBrokerError.sessionClosed }
+        // A Turn comes before a Command and its settle: the resting stream wakes now (ADR 0036).
+        preview.noteActivity(.turn)
         return try await mapped { try await seat.acquire() }
     }
 
     func send(_ input: ActionInput, observation: SeatObservationReference,
               turn: Turn) async throws -> InputReceipt {
         guard let seat, window != nil else { throw SeatBrokerError.sessionClosed }
+        preview.noteActivity(.command)
         return try await mapped {
             switch input {
             case .command(let command):
@@ -977,10 +1011,13 @@ final class SeatDriver {
         guard let report = await seat?.releaseAssignment() else {
             lastReleases    = []
             lastObligations = []
+            lastWindowsOnAnotherDesktop = []
             return
         }
         lastReleases    = report.windows.keys.sorted().compactMap { report.windows[$0] }
         lastObligations = report.obligations
+        lastWindowsOnAnotherDesktop = report.windows
+            .filter { $0.value == .returnedToOtherSpace }.keys.sorted()
         // `hasUnrestoredWindow` already stops the quit; this is what names the
         // window and says how to finish it by hand.
         if let sentence = SeatErrorMapper.obligations(report.obligations) { keep(sentence) }
@@ -1082,9 +1119,11 @@ final class SeatDriver {
             // they are no window of the adoption that is about to start.
             lastReleases    = []
             lastObligations = []
+            lastWindowsOnAnotherDesktop = []
         }
         try await host.start()
-        let created = try host.makeSeat()
+        // The preview already streams the adopted window, so an observation reads it first.
+        let created = try host.makeSeat(liveFrames: preview)
         seat = created
         // The host's stream once per driver and the seat's once per seat. The
         // replaced seat's watcher had the whole restart to drain its stream.

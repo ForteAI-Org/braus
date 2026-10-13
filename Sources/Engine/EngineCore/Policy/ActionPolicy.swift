@@ -36,6 +36,59 @@ public enum ActionPolicy {
         return ["q", "w"].contains(character.lowercased())
     }
 
+    /// The labels of a control that closes its window without saving anything. Matched whole, after
+    /// `normalizedLabel`: "Cancel download", "Close sidebar" and "Cancelled" are other controls.
+    static let windowClosingLabels: Set<String> = ["cancel", "close", "annulla", "chiudi"]
+
+    /// The titles of a menu command that closes the window it is pressed for, matched whole.
+    static let windowClosingMenuTitles: Set<String> = ["close", "close window", "chiudi", "chiudi finestra"]
+
+    /// Case, the ellipsis and trailing dots do not tell two labels apart: "Save As\u{2026}",
+    /// "Save As..." and "save as" are one label.
+    public static func normalizedLabel(_ label: String) -> String {
+        var text = label.lowercased().replacingOccurrences(of: "\u{2026}", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        while text.hasSuffix(".") { text.removeLast() }
+        return text.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// True when the label is exactly the name of a control that closes its window.
+    public static func isWindowClosingLabel(_ label: String?) -> Bool {
+        label.map { windowClosingLabels.contains(normalizedLabel($0)) } ?? false
+    }
+
+    /// True when the menu item title is exactly a command that closes the window.
+    public static func isWindowClosingMenuTitle(_ title: String) -> Bool {
+        windowClosingMenuTitles.contains(normalizedLabel(title))
+    }
+
+    /// True when `text` holds a C0 control character other than tab, line feed and carriage return.
+    /// Posted as a key's text, U+001B reads as Escape to AppKit and Qt: text never carries a key.
+    public static func containsControlCharacter(_ text: String) -> Bool {
+        text.unicodeScalars.contains { $0.value < 0x20 && !["\t", "\n", "\r"].contains($0) }
+    }
+
+    /// Why a text holding a control character was not sent.
+    public static let controlCharacterRefusal = "The text holds a control character other than a tab or a line "
+        + "break, and U+001B reads as Escape: nothing was sent. Use press_key for a key."
+
+    /// Why a key or a press that closes the only window of an application was not sent, in the
+    /// seat's own words: what, why, that nothing was sent, and what to use instead.
+    public static func windowClosureRefusal(
+        _ what       : String,
+        window       : String,
+        application  : String,
+        alternatives : [String]
+    ) -> String {
+        let name = window.isEmpty ? "its window" : "'\(window)'"
+        let controls = alternatives.isEmpty
+            ? "a control of the window by name"
+            : "one of its controls by name (\(alternatives.joined(separator: ", ")))"
+        let sentence = what.prefix(1).uppercased() + what.dropFirst()
+        return "\(sentence) would close \(name), the only window of \(application), with nothing else open: "
+            + "the application may quit. Nothing was sent. Use \(controls), or close the session."
+    }
+
     /// The roles whose press opens a menu the panel service of a remote file panel owns.
     public static let menuOpeningRoles: Set<String> = ["AXPopUpButton", "AXMenuButton"]
 
@@ -76,16 +129,24 @@ public struct ActionPermissions: Sendable, Equatable, Codable {
     /// service owns, outside the scene, which stays open (05/10/2026); `select` chooses in it.
     public var refusesMenuOpeningClicks: Bool
 
+    /// What closing the target window would do to its application. When it may end it, Escape, a
+    /// click on the window's own closing control and a Close menu command are refused unless
+    /// `allowsDestructive` is set: measured on 12/10/2026, Escape on the Project Manager of DaVinci
+    /// Resolve closes it and Resolve quits.
+    public var windowClosure: WindowClosureGuard
+
     public init(
         allowsDestructive           : Bool = false,
         contextMenusOnTextFieldsOnly: Bool = false,
         selectsFieldsByTripleClick  : Bool = false,
-        refusesMenuOpeningClicks    : Bool = false
+        refusesMenuOpeningClicks    : Bool = false,
+        windowClosure               : WindowClosureGuard = WindowClosureGuard()
     ) {
         self.allowsDestructive            = allowsDestructive
         self.contextMenusOnTextFieldsOnly = contextMenusOnTextFieldsOnly
         self.selectsFieldsByTripleClick   = selectsFieldsByTripleClick
         self.refusesMenuOpeningClicks     = refusesMenuOpeningClicks
+        self.windowClosure                = windowClosure
     }
 
     public init(from decoder: any Decoder) throws {
@@ -97,5 +158,7 @@ public struct ActionPermissions: Sendable, Equatable, Codable {
             ?? false
         refusesMenuOpeningClicks     = try container.decodeIfPresent(Bool.self, forKey: .refusesMenuOpeningClicks)
             ?? false
+        windowClosure                = try container.decodeIfPresent(WindowClosureGuard.self, forKey: .windowClosure)
+            ?? WindowClosureGuard()
     }
 }

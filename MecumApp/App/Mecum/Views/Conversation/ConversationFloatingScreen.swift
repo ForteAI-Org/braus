@@ -54,7 +54,8 @@ struct ConversationFloatingScreen: View {
     private var card: some View {
         WorkerScreenCard(
             team  : team,
-            worker: worker
+            worker: worker,
+            place : .conversation
         )
         .padding(6)
         .background {
@@ -69,6 +70,8 @@ struct ConversationFloatingScreen: View {
                 y     : 4
             )
         }
+        // The whole card steps aside while its screen is enlarged; its frame stays measurable.
+        .opacity(team.enlargedScreen?.workerID == worker.id ? 0 : 1)
         .frame(width: 280)
         .padding(
             .top,

@@ -142,7 +142,7 @@ struct SQLiteMemoryStoreTests {
     func differentShapeRefused() async throws {
         let url = try temporaryDatabase()
         let ddl = try SQLiteMemorySchema.text()
-        let earlier = ddl.replacingOccurrences(of: ",\n         'textSelectionChanged')),", with: ")),")
+        let earlier = ddl.replacingOccurrences(of: ", 'valueChanged')),", with: ")),")
         #expect(earlier != ddl)
         let raw = try SQLiteConnection(path: url.path)
         try raw.execute(earlier)
@@ -156,6 +156,32 @@ struct SQLiteMemoryStoreTests {
 
         let fresh = try await SQLiteMemoryStore.open(at: try temporaryDatabase())
         await fresh.close()
+    }
+
+    @Test("a version 1 file bootstrapped before the value change, without its columns, is refused by name and left untouched")
+    func formBeforeTheValueChangeRefused() async throws {
+        let url = try temporaryDatabase()
+        let ddl = try SQLiteMemorySchema.text()
+        let earlier = ddl
+            .replacingOccurrences(of: "    effect_label TEXT,\n    effect_value TEXT,\n", with: "")
+            .replacingOccurrences(of: "    observed_effect_label TEXT,\n    observed_effect_value TEXT,\n", with: "")
+            .replacingOccurrences(of: ", 'valueChanged')),", with: ")),")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.contains("observed_effect_label IS") }
+            .joined(separator: "\n")
+        #expect(earlier != ddl && !earlier.contains("effect_label TEXT") && !earlier.contains("observed_effect_label IS"))
+        let raw = try SQLiteConnection(path: url.path)
+        try raw.execute(earlier)
+        try raw.execute("PRAGMA user_version = 1")
+        raw.close()
+        let before = try Data(contentsOf: url)
+
+        let error = await storeError { _ = try await SQLiteMemoryStore.open(at: url) }
+        #expect(error == .schema(.missingColumns([
+            "brain_transitions.effect_label",
+            "memory_agent_actions.observed_effect_label",
+        ])))
+        #expect(try Data(contentsOf: url) == before)
     }
 
     @Test("a version 0 file with somebody else's tables is refused and left exactly as found")

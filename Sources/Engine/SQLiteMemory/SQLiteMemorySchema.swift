@@ -49,6 +49,9 @@ enum SQLiteMemorySchema {
         ("memory_agent_actions", "duration_ms"),
         ("memory_agent_actions", "observed_state_before"),
         ("memory_events", "origin_event_id"),
+        // The value change: a file bootstrapped before it has neither pair and is refused untouched.
+        ("brain_transitions", "effect_label"),
+        ("memory_agent_actions", "observed_effect_label"),
     ]
 
     /// SchemaObject is one table, index or trigger as `sqlite_schema` keeps it: its type, its name

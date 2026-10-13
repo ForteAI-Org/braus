@@ -1,5 +1,8 @@
 import CoreGraphics
 import Foundation
+#if MECUM_PHASES
+import PhaseSignposts
+#endif
 import SeatCapture
 import SeatCore
 import SeatSession
@@ -15,6 +18,8 @@ protocol PreviewCaptureStreaming: AnyObject {
     func stop(timeout: Duration) async
     func attach(_ layer: MonitorLayer)
     func detach(_ layer: MonitorLayer)
+    func firstFrame(displayedAfter notBefore: UInt64, within bound: Duration) async throws -> SeatFrame
+    func invalidateWindowServerReadings()
 }
 
 extension SeatCaptureStream: PreviewCaptureStreaming {}
@@ -116,7 +121,13 @@ final class PreviewStreamController {
     /// Whether the person has a live picture, and why not when they do not.
     /// It is nothing to do with the adoption: the seat holds the window in
     /// every one of these states and input still waits for a fresh observation.
+    #if MECUM_PHASES
+    private(set) var availability: PreviewAvailability = .idle {
+        didSet { PhaseInterval.event("preview.availability", String(describing: availability)) }
+    }
+    #else
     private(set) var availability: PreviewAvailability = .idle
+    #endif
 
     /// The bounded recovery: the task running it, how many attempts it has
     /// spent, and the monotone instant its window started at.
@@ -124,11 +135,30 @@ final class PreviewStreamController {
     private var recoveryAttempts = 0
     private var recoveryStartedAt: UInt64?
 
+    /// The rate the stream runs at while it is used or shown.
+    static let activeFramesPerSecond = 30
+
+    /// The rest (ADR 0036): whether the rate wanted is the plan's, the rate the running stream
+    /// was last started or updated with, the uptime of the last use, and the task that waits for
+    /// the delay. A frame is handed over only once the stream is confirmed at the active rate.
+    private let rest: PreviewRestPlan
+    private(set) var isResting = false
+    private var streamFramesPerSecond: Int?
+    private var lastActivityAt: UInt64 = 0
+    private var restTimer: Task<Void, Never>?
+
+    /// The size and the previous reading the last transition was asked for, with `desiredTarget`:
+    /// a rate change re-runs that same transition, so it can never undo a newer wish.
+    private var desiredPixelSize: CGSize?
+    private var desiredPreviousReading: CGSize?
+
     init(
         recovery  : PreviewRecoveryPlan = PreviewRecoveryPlan(),
+        rest      : PreviewRestPlan = PreviewRestPlan(),
         makeStream: @escaping StreamFactory = { SeatCaptureStream(target: $0) }
     ) {
         self.recovery   = recovery
+        self.rest       = rest
         self.makeStream = makeStream
     }
 
@@ -149,15 +179,23 @@ final class PreviewStreamController {
         // the display stream running. Starting one here beside it is the two
         // streams the transition exists to make impossible.
         guard pinnedTarget == nil else { return }
-        desiredTarget = target
+        desiredTarget          = target
+        desiredPixelSize       = pixelSize
+        desiredPreviousReading = nil
+        // An adoption is a use: the new stream starts at the full rate.
+        isResting      = false
+        lastActivityAt = DispatchTime.now().uptimeNanoseconds
         let stream = makeStream(target)
         self.stream = stream
         streamPixelSize = pixelSize
+        let configuration = configuration(pixelSize: pixelSize)
+        streamFramesPerSecond = configuration.framesPerSecond
         attachLayersToCurrentStream()
         do {
-            try await stream.start(configuration: configuration(pixelSize: pixelSize), timeout: .seconds(5))
+            try await stream.start(configuration: configuration, timeout: .seconds(5))
             lastFailure  = nil
             availability = .live
+            armRestTimer()
         } catch {
             lastFailure = String(describing: error)
             // The window is the seat's either way. The picture is what failed,
@@ -179,6 +217,9 @@ final class PreviewStreamController {
     /// invalidate an observation that Mecum has already qualified.
     func follow(_ delivery: SeatObservationDelivery) {
         guard !isStoppingOrStopped else { return }
+        #if MECUM_PHASES
+        PhaseInterval.event("preview.follow", "pinned=\(pinnedTarget != nil)")
+        #endif
         let target = delivery.captureTarget
             ?? .attestedWindow(delivery.reference.recipient)
         // Under a pin the window's own frame is the one thing taken from the
@@ -210,6 +251,12 @@ final class PreviewStreamController {
     /// on that same target so it cannot reintroduce host-sized letterboxing.
     func follow(target: SeatCaptureTarget, frame: CGRect, pixelSize: CGSize) {
         guard !isStoppingOrStopped else { return }
+        noteActivity(.observation)
+        // An observation that saw the window elsewhere or at another size makes the stream read
+        // the window server again instead of reusing its cached answers.
+        if frame != windowFrame || pixelSize != windowPixelSize {
+            stream?.invalidateWindowServerReadings()
+        }
         windowFrame = frame
         // A reading only settles against the reading before it of the same
         // window. A new recipient starts the budget again.
@@ -231,6 +278,9 @@ final class PreviewStreamController {
     /// which is the honest answer to a seat holding nothing.
     func pin(to target: SeatCaptureTarget?, pixelSize: CGSize) {
         pinnedTarget = target
+        // A pinned stream is shown like an attached layer: pinning wakes it,
+        // unpinning starts the rest delay.
+        noteActivity(.pin)
         // A pinned size is the display's bounds and not a measurement of what a
         // capture filled, so it needs no settle budget: it is handed in as its
         // own previous reading, which is what says "already settled".
@@ -249,7 +299,9 @@ final class PreviewStreamController {
 
     private func transition(to target: SeatCaptureTarget?, pixelSize: CGSize,
                             previousReading: CGSize? = nil) {
-        desiredTarget = target
+        desiredTarget          = target
+        desiredPixelSize       = pixelSize
+        desiredPreviousReading = previousReading
         transitionGeneration &+= 1
         let generation = transitionGeneration
         let preceding = transition
@@ -270,15 +322,40 @@ final class PreviewStreamController {
         }
     }
 
+    /// A layer is the person watching: while one is attached the stream never rests, and
+    /// attaching one wakes it.
     func attach(_ layer: MonitorLayer) {
         guard !layers.contains(where: { $0 === layer }) else { return }
         layers.append(layer)
         if stream?.target == desiredTarget { stream?.attach(layer) }
+        noteActivity(.layer)
     }
 
+    /// Detaching the last layer starts the rest delay from now.
     func detach(_ layer: MonitorLayer) {
         layers.removeAll { $0 === layer }
         stream?.detach(layer)
+        noteActivity(.layer)
+    }
+
+    /// Records a use of the stream: it restarts the rest delay and, if the stream rests, asks
+    /// for the active rate at once. `SeatDriver` calls it for a Turn and a Command; frame requests,
+    /// observations and layers call it here.
+    func noteActivity(_ activity: PreviewActivity) {
+        lastActivityAt = DispatchTime.now().uptimeNanoseconds
+        armRestTimer()
+        guard isResting else { return }
+        isResting = false
+        #if MECUM_PHASES
+        PhaseInterval.event("preview.rest", "leave.\(activity.rawValue)")
+        #endif
+        applyRate()
+    }
+
+    /// Test join point: waits for the rest delay to run out, then for the rate change it queued.
+    func waitForRestTimer() async {
+        await restTimer?.value
+        await transition?.value
     }
 
     /// Ends the preview of one application's window.
@@ -311,6 +388,9 @@ final class PreviewStreamController {
         previousWindowPixelSize = nil
         availability = .idle
         endRecovery()
+        restTimer?.cancel()
+        restTimer = nil
+        isResting = false
         transitionGeneration &+= 1
         detachLayersFromCurrentStream()
         let pending = transition
@@ -344,15 +424,17 @@ final class PreviewStreamController {
         // to the running stream.
         if let target, let stream, stream.target == target, stream.isRunning,
            let running = streamPixelSize {
-            guard let settled = CaptureShapeStabilisation.settledShape(
+            let settled = CaptureShapeStabilisation.settledShape(
                 running        : running,
                 reading        : pixelSize,
                 previousReading: previousReading
-            ) else {
+            )
+            // The rate wanted is read now, so a rest or a wake queued behind this is never undone.
+            guard settled != nil || streamFramesPerSecond != framesPerSecond else {
                 if layersAreDetached { attachLayersToCurrentStream() }
                 return
             }
-            if await reshape(stream, to: settled) {
+            if await reshape(stream, to: settled ?? running) {
                 if layersAreDetached { attachLayersToCurrentStream() }
                 return
             }
@@ -361,6 +443,9 @@ final class PreviewStreamController {
         }
 
         if let stream {
+            #if MECUM_PHASES
+            PhaseInterval.event("preview.replace", "stop")
+            #endif
             detachLayersFromCurrentStream()
             await stream.stop(timeout: .seconds(5))
             guard !stream.hasUnconfirmedResource else {
@@ -387,13 +472,18 @@ final class PreviewStreamController {
             return
         }
 
+        #if MECUM_PHASES
+        PhaseInterval.event("preview.replace", "start")
+        #endif
         let replacement = makeStream(target)
         stream = replacement
         streamPixelSize = pixelSize
+        let configuration = configuration(pixelSize: pixelSize)
+        streamFramesPerSecond = configuration.framesPerSecond
         attachLayersToCurrentStream()
         do {
             try await replacement.start(
-                configuration: configuration(pixelSize: pixelSize),
+                configuration: configuration,
                 timeout: .seconds(5)
             )
             guard !isStoppingOrStopped, transitionGeneration == generation,
@@ -402,6 +492,7 @@ final class PreviewStreamController {
             lastFailure  = nil
             availability = .live
             endRecovery()
+            armRestTimer()
         } catch {
             lastFailure = String(describing: error)
             await replacement.stop(timeout: .seconds(5))
@@ -423,17 +514,79 @@ final class PreviewStreamController {
     /// stale: it stays on screen, saying what it is, until a frame of the new
     /// shape replaces it. Nothing here authorises a coordinate — the agent's
     /// own observation does that, and it is taken fresh every time.
+    ///
+    /// The same update carries the rate. One that changes the rate only keeps the picture live,
+    /// and in the phase build its `preview.update` interval is named `rate.<fps>`.
     private func reshape(_ stream: any PreviewCaptureStreaming, to size: CGSize) async -> Bool {
+        let configuration = configuration(pixelSize: size)
+        let isReshape = size != streamPixelSize
+        #if MECUM_PHASES
+        let phase = PhaseInterval.begin("preview.update")
+        #endif
         do {
-            try await stream.updateConfiguration(configuration(pixelSize: size), timeout: .seconds(2))
-            streamPixelSize = size
-            for layer in layers { layer.markStale() }
+            try await stream.updateConfiguration(configuration, timeout: .seconds(2))
+            streamPixelSize       = size
+            streamFramesPerSecond = configuration.framesPerSecond
+            if isReshape { for layer in layers { layer.markStale() } }
             lastFailure = nil
+            #if MECUM_PHASES
+            phase.end(isReshape ? "reshape" : "rate.\(configuration.framesPerSecond)")
+            if isReshape { PhaseInterval.event("preview.reshape", "ok") }
+            #endif
             return true
         } catch {
             lastFailure = String(describing: error)
+            #if MECUM_PHASES
+            PhaseInterval.event("preview.reshape", isReshape ? "refused" : "refused.rate")
+            #endif
             return false
         }
+    }
+
+    private var framesPerSecond: Int {
+        isResting ? rest.framesPerSecond : Self.activeFramesPerSecond
+    }
+
+    /// Starts the wait for the rest delay unless one is running. It ends by resting the stream
+    /// when nothing used it for the whole delay; a use during the wait only moves its end.
+    private func armRestTimer() {
+        guard restTimer == nil, !isStoppingOrStopped else { return }
+        let delay = UInt64(rest.delay.components.seconds) * NSEC_PER_SEC
+            + UInt64(rest.delay.components.attoseconds / 1_000_000_000)
+        restTimer = Task { @MainActor [weak self] in
+            while let self, !Task.isCancelled {
+                let unused = DispatchTime.now().uptimeNanoseconds &- self.lastActivityAt
+                guard unused < delay else {
+                    self.restTimer = nil
+                    self.enterRestIfUnused()
+                    return
+                }
+                try? await Task.sleep(nanoseconds: delay - unused)
+            }
+        }
+    }
+
+    /// Rests the stream when nobody shows it (no layer, no pin) and it runs live on the window or
+    /// display wanted.
+    /// Anything else leaves it alone, and the next use arms the delay again.
+    private func enterRestIfUnused() {
+        guard !isResting, layers.isEmpty, pinnedTarget == nil, !isStoppingOrStopped,
+              availability == .live, let stream, stream.isRunning, stream.target == desiredTarget
+        else { return }
+        isResting = true
+        #if MECUM_PHASES
+        PhaseInterval.event("preview.rest", "enter")
+        #endif
+        applyRate()
+    }
+
+    /// Asks the running stream for the rate wanted by re-running the last transition. A stream
+    /// that is not running is left alone: it is started with the rate wanted then.
+    private func applyRate() {
+        guard let stream, stream.isRunning, stream.target == desiredTarget,
+              let pixelSize = desiredPixelSize
+        else { return }
+        transition(to: desiredTarget, pixelSize: pixelSize, previousReading: desiredPreviousReading)
     }
 
     /// Takes the picture away without touching the adoption, and says why.
@@ -469,6 +622,9 @@ final class PreviewStreamController {
                 try? await Task.sleep(for: self.recovery.pause)
                 guard !self.isStoppingOrStopped, self.desiredTarget == target else { break }
                 self.recoveryAttempts += 1
+                #if MECUM_PHASES
+                PhaseInterval.event("preview.recovery", "attempt=\(self.recoveryAttempts)")
+                #endif
                 // Through the transition chain and not straight into the
                 // replacement: an observation arriving mid-recovery must not
                 // end up building a second stream beside this one.
@@ -502,7 +658,84 @@ final class PreviewStreamController {
     private func configuration(pixelSize: CGSize) -> SeatCaptureConfiguration {
         SeatCaptureConfiguration(
             pixelSize: CGSize(width: max(1, pixelSize.width), height: max(1, pixelSize.height)),
-            framesPerSecond: 30
+            framesPerSecond: framesPerSecond
         )
+    }
+}
+
+/// The preview is the running stream of the adopted window that observation reads first.
+///
+/// It offers a frame only while it is live on exactly that window: pinned to the display, in
+/// recovery, idle, unavailable or on another target, it declines at once and the seat takes a
+/// Still of its own. What it hands over is checked again by the seat; see `LiveFrameHandover`.
+///
+/// Every request is a use. One that finds the stream resting, or not yet confirmed back at the
+/// active rate, wakes it and waits, within `afterRestWithin`, for a frame displayed after its own
+/// instant, which `FrameWaiters` enforces: a frame drawn during the rest is never handed over, and
+/// a frame at the rest rate displayed after the instant is as fresh as any. When none comes the
+/// request declines and the seat takes the Still, so the worst case is today's: never an error.
+extension PreviewStreamController: LiveWindowFrameSourcing {
+
+    func liveFrame(
+        of identity             : WindowIdentity,
+        displayedAfter notBefore: UInt64,
+        within bound            : Duration
+    ) async -> Result<SeatFrame, LiveFrameFallback> {
+        await liveFrame(
+            of             : identity,
+            displayedAfter : notBefore,
+            within         : bound,
+            afterRestWithin: bound
+        )
+    }
+
+    /// Declines with `resting` only when the wake was still unconfirmed at the end of the bound,
+    /// and with `noFrameInBound` when the stream was awake and still delivered no frame in time.
+    func liveFrame(
+        of identity              : WindowIdentity,
+        displayedAfter notBefore : UInt64,
+        within bound             : Duration,
+        afterRestWithin restBound: Duration
+    ) async -> Result<SeatFrame, LiveFrameFallback> {
+
+        let wasResting = isResting
+        noteActivity(.frameRequest)
+        guard pinnedTarget == nil else { return .failure(.pinnedToDisplay) }
+        switch availability {
+            case .live                : break
+            case .suspended           : return .failure(.recovering)
+            case .idle, .unavailable  : return .failure(.notLive)
+        }
+        guard let stream, stream.isRunning else {
+            markEnded(stream)
+            return .failure(.notLive)
+        }
+        guard stream.target == .attestedWindow(identity) else { return .failure(.otherWindow) }
+        let isWaking = wasResting || streamFramesPerSecond != Self.activeFramesPerSecond
+        do {
+            return .success(try await stream.firstFrame(
+                displayedAfter: notBefore,
+                within        : isWaking ? restBound : bound
+            ))
+        } catch CaptureFailure.frameUnavailable {
+            markEnded(stream)
+            return .failure(.notLive)
+        } catch {
+            let unconfirmed = isWaking && streamFramesPerSecond != Self.activeFramesPerSecond
+            return .failure(unconfirmed ? .resting : .noFrameInBound)
+        }
+    }
+
+    /// Makes a live preview whose current stream is no longer running unavailable, so a dead stream
+    /// never reads as live. The next observation the preview follows replaces it, as for any stream
+    /// that is not running. A transition under way is left alone: it sets the availability it ends
+    /// with, and its fast path for a running stream would never set it back to live.
+    private func markEnded(_ ended: (any PreviewCaptureStreaming)?) {
+        guard availability == .live, transition == nil,
+              let ended, ended === stream, !ended.isRunning
+        else { return }
+        lastFailure = "The preview stream ended."
+        for layer in layers { layer.markStale() }
+        availability = .unavailable(lastFailure ?? "")
     }
 }
