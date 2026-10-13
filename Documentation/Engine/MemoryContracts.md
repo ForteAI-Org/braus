@@ -9,7 +9,10 @@ verification of every operation, the withheld values, schema 2 and the one archi
 [MemoryFacts](MemoryFacts.md), which prevails where the two differ. Since G76 plan D2 (2026-10-11) the archive is
 at schema 5 (schema 3, the first delivery's, followed by the corrections of its two independent reviews) and also
 keeps the procedures built from a task's facts, their qualification and the Brain's relations with the history
-of their evaluations: [MemoryProcedures](MemoryProcedures.md), which prevails for those.
+of their evaluations: [MemoryProcedures](MemoryProcedures.md), which prevails for those. Since G76 plan D3
+(2026-10-11, corrected 2026-10-12) the archive is at schema 6 and also keeps the Recall's derived index and its
+facts (queries, selections and exclusions, requirements, links of calls, declared uses): [MemoryRecall](MemoryRecall.md), which prevails for
+those.
 
 The resource is schema version 5 (`user_version` 5): the schema 1 text,
 `Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema.sql` (48 tables, 48 triggers, 31 explicit
@@ -48,6 +51,7 @@ module (`Sources/Engine/Memory/Storage`), all implemented over SQLite by `SQLite
 | `SQLiteProcedureRepository` (D2) | candidates, interpretations, versions and parts, qualifications, part states, the catalogue, the diagnosis of a task ([MemoryProcedures](MemoryProcedures.md)) |
 | `BrainRelationReading`, `SQLiteBrainRelationRepository` (D2) | a capture's functional state, the relations of a state and their current evidence, each call's history of evaluations and the bounded recovery of what was never or no longer evaluated |
 | `BrainReading.projection(of:for:)` (D2) | the part of an application's projection a scene's detections can match, read by indexes, never the whole projection |
+| `SQLiteRecallRepository` (D3) | the Recall's spaces, generations, documents, vectors, entries and work queue; the versions a query reads from the authoritative tables; queries, selections, requirements, links and declared uses ([MemoryRecall](MemoryRecall.md)) |
 
 `MemoryService` conforms to `BrainReading` and `BrainApplicationStoring` itself. Since D1 the essential facts
 of a call and a task's declarations are confirmed (`confirm`, `perform`): written and answered after their

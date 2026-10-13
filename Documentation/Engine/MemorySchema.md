@@ -73,6 +73,68 @@ definitions; readers refuse it until then. The contracts, the migration and the 
 [MemoryProcedures](MemoryProcedures.md#schema-5-and-its-migration); `verify-memory-schema.py` runs schema 5's
 text after schema 4's on its populated file (401 checks, 332 negative, on 2026-10-11).
 
+## Schema 6 (G76 D3, the Recall)
+
+Since D3 (2026-10-11) the store bootstraps and opens schema 6: schemas 1 to 5 unchanged, followed by
+`brain-living-memory-schema-6.sql`, which adds 12 tables, 35 triggers and 12 indexes (103, 170 and 72 in all):
+the Recall's derived index (`memory_recall_spaces`, `_generations`, `_documents`, `_vectors`, `_entries`, and
+the durable queue `_work`) and its facts (`memory_recall_queries`, `_needs`, `_selections`, `_requirements`,
+`_links`, `_reports`). Five of its triggers sit on schema 3's tables (versions, part qualifications, part states,
+qualification policies) and record index work in the same transaction as every write that changes what the
+catalogue may offer, and four of its indexes give schema 3's lookups by version (bindings, parameter details,
+contract items, the version that supersedes another) the index they lacked; no table of an earlier schema is
+altered. A producer's open migrates an archive at exactly
+schema 5 to 1 after a verified copy, in one transaction, and queues one rebuild of the index there, since the
+text cannot read the time; readers refuse it until then. The index is derived and rebuildable; its contract,
+lifecycle and tests are in [MemoryRecall](MemoryRecall.md). `verify-memory-schema.py` runs schema 6's text after
+schema 5's on its populated file (481 checks, 403 negative, on 2026-10-12): spaces, generations and their
+transitions, vectors of the space's length, entries of a live generation in its format, the work triggers and
+their coalescing, queries whose search status, coverage, channel and delivery agree, needs whose reason fits
+their coverage (`excluded` only for an absence), selections within their version (an excluded episode allowed
+for an absence, never for a search that could not answer), requirements on their selection's steps (a
+prerequisite out of the catalogue, a step done before the selection or an output's producer on a step of its
+version before it), exclusions only on excluded selections and excluded selections stating only exclusions, a
+constraint named by its position, an observed state with its scene, links of calls of the query's attempt to
+its selected interval, reports in order, and every fact immutable and kept. The correction round of the
+independent review (2026-10-12) changed schema 6's text before any release: the requirement kinds
+(`observed_state`, `prepared_before`, `input_produced`, `output_ready`, `constraint_unchecked`,
+`certain_conflict`, `constraint_excluded`), the `constraint_position` column, the `produced` binding match, the
+`excluded` selection role and need reason, a link's `undetermined` flag; the counts are unchanged.
+
+## Schema 7 (G76 D3, the experiment of the agent's choice)
+
+Since the experiment A round (2026-10-12) the store bootstraps and opens schema 7: schemas 1 to 6 unchanged, followed by
+`brain-living-memory-schema-7.sql`, which adds 6 tables, 17 triggers and 1 index (109, 187 and 73 in all):
+
+- a proposal (`memory_recall_proposals`), its needs (`memory_recall_proposal_needs`) and the versions it shortlisted
+  per need with their names and the automatic suggestion (`memory_recall_proposal_sources`);
+- the choice that answers a proposal, one per proposal (`memory_recall_choices`);
+- the agent's declaration of coverage per need (`memory_recall_choice_needs`): `all`, `part`, `none` or `ambiguous`,
+  what remains or the question for the person, and the request's words it quoted to settle a choice (`settled_by`); an
+  ambiguous need has no selected row and two `alternative` rows at least;
+- the links of a choice's calls to the tract they carried out (`memory_recall_choice_links`).
+
+One trigger sits on schema 6's `memory_recall_links`: a choice's calls are never linked there, since those links name
+no tract. Schema 6's check of a requirement's step (`memory_recall_requirements_valid`) is dropped and written again with
+the same checks and one case admitted: an `input_produced` of a chosen tract may name the producer's step in an earlier
+selected tract of the same version and need. The measure with a real agent found that case refused. No table of an
+earlier schema is altered. Why the experiment needs these, and why schema 6's columns would
+have changed meaning to hold them, is in [RecallAgentChoice](RecallAgentChoice.md#persistence-schema-7).
+
+A producer's open migrates an archive at exactly schema 6 to 7 after a verified copy, in one transaction, with no data
+statement and no rebuild; an archive at schema 5 or earlier runs every text it lacks. `RecallLifecycleTests` migrates
+an archive of schema 6 that holds a query, its selection and its index, and reads every row back.
+`verify-memory-schema.py` runs schema 7's text after schema 6's on its populated file (520 checks, 437 negative, on
+2026-10-12). The checks cover:
+- one name per version in a proposal;
+- a suggestion with both ends;
+- a source of a need the proposal has;
+- a choice of a proposal of the same attempt, revision and producer, at most one per proposal;
+- a declaration of all covered with nothing uncovered;
+- a link to a step of the tract it names, a call linked once per query;
+- no schema 6 link for a choice's call;
+- every row immutable and kept.
+
 ## The resource
 
 `Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema.sql`, copied into the module's

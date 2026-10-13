@@ -648,6 +648,11 @@ passes.
 
 ## What D3 can rely on
 
+D3 is built on these and is described in [MemoryRecall](MemoryRecall.md): its index reads the catalogue's
+offered parts and their contracts, its selector reads versions whole (parts, contracts with entry states,
+parameters with roles, bindings as episodic values never delivered), and five triggers of schema 6 on this
+page's tables record its index work.
+
 - `catalogue(after:limit:)`: each offered part with its procedure's label, candidate, task, attempt,
   revision, contract items, parameters (Route parameter and detail, never a value) and its qualification
   with the verifications it rests on.
