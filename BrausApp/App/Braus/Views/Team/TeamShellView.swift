@@ -242,31 +242,11 @@ struct TeamShellView: View {
             // One item, so macOS 26 draws the ring and the counter in one glass capsule: two items,
             // or a ToolbarItemGroup, get a capsule each. Each button anchors its own popover.
             ToolbarItem {
-                HStack(spacing: 0) {
-                    if team.conversation != nil,
-                       let context = UsageWording.ringContext(of: usage) {
-                        ConversationContextButton(
-                            context        : context,
-                            worker         : worker.name,
-                            isCompacting   : team.isCompacting(worker.id),
-                            waitReason     : team.isAnswering(worker.id)
-                                ? UsageWording.actionsWait(
-                                    worker      : worker.name,
-                                    isCompacting: team.isCompacting(worker.id)
-                                )
-                                : nil,
-                            compact        : { team.compactContext(of: worker.id) },
-                            startFresh     : { Task { await team.startFreshContext(of: worker.id) } },
-                            isShowingDetail: $team.showsContext
-                        )
-                    }
-
-                    TokenCounterButton(
-                        worker         : worker,
-                        usage          : usage,
-                        isShowingDetail: $team.showsUsage
-                    )
-                }
+                ToolbarUsageCapsule(
+                    team  : team,
+                    worker: worker,
+                    usage : usage
+                )
             }
 
             // Its own glass capsule, apart from the screen and inspector toggles.

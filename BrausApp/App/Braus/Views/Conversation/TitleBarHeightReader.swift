@@ -17,7 +17,8 @@ import SwiftUI
 /// is not one to rely on: while the window or the inspector resizes, the
 /// conversation's alternates between zero and the bar's height within one
 /// update, and every change moved the transcript's rows. The view takes no
-/// space and asks for none.
+/// space and asks for none. A change is reported on the next turn of the main
+/// queue, since the rect changes inside the window's layout.
 struct TitleBarHeightReader: NSViewRepresentable {
 
     let onHeight: (CGFloat) -> Void
@@ -52,6 +53,8 @@ struct TitleBarHeightReader: NSViewRepresentable {
 
         private var reported: CGFloat?
 
+        private var isReportPending = false
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             observation = nil
@@ -60,10 +63,21 @@ struct TitleBarHeightReader: NSViewRepresentable {
 
             // AppKit changes it on the main thread, with the window's frame and toolbar.
             observation = window.observe(\.contentLayoutRect) { [weak self] _, _ in
-                MainActor.assumeIsolated { self?.report() }
+                MainActor.assumeIsolated { self?.scheduleReport() }
             }
             // Reported after this pass, so the first height is not set inside a layout.
-            DispatchQueue.main.async { [weak self] in self?.report() }
+            scheduleReport()
+        }
+
+        /// Reports after the current pass, once however many changes arrive within it.
+        private func scheduleReport() {
+            guard !isReportPending else { return }
+
+            isReportPending = true
+            DispatchQueue.main.async { [weak self] in
+                self?.isReportPending = false
+                self?.report()
+            }
         }
 
         private func report() {

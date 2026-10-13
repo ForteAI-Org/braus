@@ -75,6 +75,21 @@ struct ComposerField: NSViewRepresentable {
         coordinator.agreed = text
     }
 
+    /// The field's height for the proposed width, measured rather than read from
+    /// the live layout, so a new width needs no invalidation inside a layout pass.
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView    : ComposerScrollView,
+        context   : Context
+    ) -> CGSize? {
+        guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
+
+        return CGSize(
+            width : width,
+            height: nsView.fittingHeight(forWidth: width)
+        )
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(field: self) }
 
     /// Coordinator carries typed text into the binding. Main actor: it is the

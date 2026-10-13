@@ -6,14 +6,19 @@
 //
 
 import AppKit
+import os
 
 /// ComposerScrollView holds the composer's text view and is as tall as its
 /// text, from one line up to `maximumLines`; past that the text scrolls inside
 /// and the conversation above keeps its room (§13.1).
 ///
-/// The height is its intrinsic content size, which SwiftUI reads for the
-/// hosted view, so it is invalidated whenever the text or the width changes
-/// the number of lines. It uses TextKit 1, whose used rect is the measurement.
+/// The height is measured for a width, which `ComposerField` answers SwiftUI's
+/// proposal with, so a new width needs no invalidation; a change of text
+/// invalidates the intrinsic content size, never from inside a layout pass.
+/// The text is laid out in a scratch TextKit 1 stack at the scroll view's full
+/// width, whose used rect is the measurement: below the maximum the text never
+/// scrolls, so no scroller takes width, and at the maximum the height is
+/// clamped, so a legacy scroller cannot feed the height back into itself.
 final class ComposerScrollView: NSScrollView {
 
     static let maximumLines = 6
@@ -21,9 +26,17 @@ final class ComposerScrollView: NSScrollView {
     /// The conversation body's size, and the spec's floor (§3.3).
     static let pointSize: CGFloat = 14
 
+    private static let log = Logger(
+        subsystem: "dev.forte.Braus",
+        category : "Composer"
+    )
+
     let textView = ComposerTextView(usingTextLayoutManager: false)
 
     private var measuredHeight: CGFloat = 0
+
+    /// The last measurement, dropped when the text changes.
+    private var cachedHeight: (width: CGFloat, height: CGFloat)?
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
@@ -67,25 +80,33 @@ final class ComposerScrollView: NSScrollView {
         NSSize(width: NSView.noIntrinsicMetric, height: fittingHeight)
     }
 
-    /// The height the text asks for, clamped to one line and `maximumLines`.
-    var fittingHeight: CGFloat {
-        let line  = lineHeight
-        let inset = textView.textContainerInset.height * 2
-        return (min(max(textHeight, line), line * CGFloat(Self.maximumLines)) + inset).rounded(.up)
+    /// The height the text asks for at the current width.
+    var fittingHeight: CGFloat { fittingHeight(forWidth: bounds.width) }
+
+    /// The height the text asks for at `width`, clamped to one line and `maximumLines`.
+    func fittingHeight(forWidth width: CGFloat) -> CGFloat {
+        if let cachedHeight, cachedHeight.width == width { return cachedHeight.height }
+
+        let line   = lineHeight
+        let inset  = textView.textContainerInset.height * 2
+        let height = (min(max(textHeight(forWidth: width), line), line * CGFloat(Self.maximumLines)) + inset)
+            .rounded(.up)
+        cachedHeight = (width, height)
+        return height
     }
 
-    /// Asks SwiftUI for a new height when the text now needs one.
+    /// Asks SwiftUI for a new height when the text now needs one. Called when
+    /// the text changes, never from inside a layout pass.
     func updateHeight() {
-        let height = fittingHeight
+        cachedHeight = nil
+        let height   = fittingHeight
         guard height != measuredHeight else { return }
+
+        Self.log.notice(
+            "Composer height \(self.measuredHeight, privacy: .public) -> \(height, privacy: .public) at width \(self.bounds.width, privacy: .public), scroller \(self.scrollerStyle == .legacy ? "legacy" : "overlay", privacy: .public), shown \(self.verticalScroller.map { !$0.isHidden } ?? false, privacy: .public)"
+        )
         measuredHeight = height
         invalidateIntrinsicContentSize()
-    }
-
-    override func layout() {
-        super.layout()
-        // A new width can rewrap the text into more or fewer lines.
-        updateHeight()
     }
 
     private var lineHeight: CGFloat {
@@ -93,8 +114,20 @@ final class ComposerScrollView: NSScrollView {
         return layoutManager.defaultLineHeight(for: font)
     }
 
-    private var textHeight: CGFloat {
-        guard let layoutManager = textView.layoutManager, let container = textView.textContainer else { return 0 }
+    /// The text as displayed, marked text included, laid out apart from the live
+    /// layout manager, so measuring never touches the text view's own layout.
+    private func textHeight(forWidth width: CGFloat) -> CGFloat {
+        guard let storage = textView.textStorage else { return 0 }
+
+        let text          = NSTextStorage(attributedString: storage)
+        let layoutManager = NSLayoutManager()
+        let container     = NSTextContainer(size: NSSize(
+            width : width,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+        container.lineFragmentPadding = textView.textContainer?.lineFragmentPadding ?? 0
+        layoutManager.addTextContainer(container)
+        text.addLayoutManager(layoutManager)
         layoutManager.ensureLayout(for: container)
         return layoutManager.usedRect(for: container).height
     }

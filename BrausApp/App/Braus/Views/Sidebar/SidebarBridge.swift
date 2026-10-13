@@ -17,6 +17,7 @@ import SwiftUI
 /// SwiftUI sets the item back each time it updates the split, so the bridge
 /// observes the property and answers every change; a drag of the divider then
 /// stops at the column's minimum, and `toggleSidebar:` finds nothing to collapse.
+/// It answers on the next turn of the main queue, outside SwiftUI's update.
 ///
 /// It depends on SwiftUI hosting the split in an `NSSplitViewController`, as
 /// macOS 26 does. Without the split item the shell's guard on the column
@@ -47,6 +48,8 @@ struct SidebarBridge: NSViewRepresentable {
 
         private var observation: NSKeyValueObservation?
 
+        private var isReapplyPending = false
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             observation = nil
@@ -63,7 +66,18 @@ struct SidebarBridge: NSViewRepresentable {
             reapply()
             // SwiftUI changes it on the main thread, as AppKit requires of split items.
             observation = item.observe(\.canCollapse) { [weak self] _, _ in
-                MainActor.assumeIsolated { self?.reapply() }
+                MainActor.assumeIsolated { self?.scheduleReapply() }
+            }
+        }
+
+        /// Reapplies after the current update, once however many changes arrive within it.
+        private func scheduleReapply() {
+            guard !isReapplyPending else { return }
+
+            isReapplyPending = true
+            DispatchQueue.main.async { [weak self] in
+                self?.isReapplyPending = false
+                self?.reapply()
             }
         }
 

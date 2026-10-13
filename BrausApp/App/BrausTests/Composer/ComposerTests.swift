@@ -138,6 +138,76 @@ struct ComposerTests {
         #expect(abs(scrollView.contentView.bounds.maxY - textView.frame.maxY) < 2)
     }
 
+    @Test("With a legacy scroller the height converges, for a line that wraps only beside the scroller and at the maximum")
+    func heightConvergesBesideALegacyScroller() async throws {
+        let harness    = ComposerHarness(width: 420)
+        defer { harness.close() }
+        let scrollView = try #require(harness.scrollView)
+        let hosting    = try #require(harness.hosting)
+        scrollView.scrollerStyle = .legacy
+        try await harness.settle()
+
+        let width    = scrollView.frame.width
+        let font     = try #require(scrollView.textView.font)
+        let scroller = NSScroller.scrollerWidth(
+            for          : .regular,
+            scrollerStyle: .legacy
+        )
+        let straddle = try #require(
+            Self.straddlingText(
+                at    : width,
+                beside: scroller,
+                font  : font
+            ),
+            "no text wraps beside the scroller and not without it"
+        )
+        let full     = (1...ComposerScrollView.maximumLines).map { "line \($0)" }.joined(separator: "\n")
+
+        for draft in [straddle, full + "\n" + straddle] {
+            harness.draft = draft
+            try await harness.settle()
+            let height = scrollView.frame.height
+            hosting.layoutSubtreeIfNeeded()
+            hosting.layoutSubtreeIfNeeded()
+            #expect(scrollView.frame.height == height, "layout converged")
+            // What `ComposerField.sizeThatFits` answers for the width SwiftUI proposed.
+            #expect(height == scrollView.fittingHeight(forWidth: scrollView.frame.width))
+            #expect(height == scrollView.fittingHeight)
+        }
+
+        // A trailing line break opens the next line, as the live layout's extra fragment does.
+        harness.draft = "one\n"
+        try await harness.settle()
+        let opened = scrollView.frame.height
+        harness.draft = "one\ntwo"
+        try await harness.settle()
+        #expect(opened == scrollView.frame.height)
+    }
+
+    /// The shortest prefix of a sentence that takes one more line at `width`
+    /// less a scroller than at `width`, so its last line wraps only beside it.
+    private static func straddlingText(
+        at width       : CGFloat,
+        beside scroller: CGFloat,
+        font           : NSFont
+    ) -> String? {
+        let sentence = String(repeating: "the quick brown fox jumps over the lazy dog ", count: 4)
+        let line     = NSLayoutManager().defaultLineHeight(for: font)
+        func lines(_ text: String, _ width: CGFloat) -> Int {
+            let rect = (text as NSString).boundingRect(
+                with      : NSSize(width: width, height: .greatestFiniteMagnitude),
+                options   : [.usesLineFragmentOrigin],
+                attributes: [.font: font]
+            )
+            return Int((rect.height / line).rounded())
+        }
+        for end in sentence.indices.dropFirst() {
+            let text = String(sentence[..<end])
+            if lines(text, width - scroller) > lines(text, width) { return text }
+        }
+        return nil
+    }
+
     @Test("A refused send puts the text back into the field and the draft")
     func refusedSendRestores() async throws {
         let harness = ComposerHarness()
