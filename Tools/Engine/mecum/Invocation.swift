@@ -18,7 +18,8 @@ struct Invocation {
 
     /// Option names that take a value; anything else starting with `--` is a flag.
     private static let valued: Set<String> = ["verb", "value", "section", "knowledge", "evidence", "window", "import-json",
-                                              "task", "part", "state", "reason", "requalify", "quarantine-policy"]
+                                              "task", "part", "state", "reason", "requalify", "quarantine-policy",
+                                              "recall-explain", "limit", "within"]
 
     init(arguments: [String]) {
         self.arguments = arguments

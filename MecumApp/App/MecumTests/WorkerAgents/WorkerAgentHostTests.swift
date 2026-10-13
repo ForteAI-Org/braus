@@ -87,6 +87,12 @@ struct WorkerAgentHostTests {
     end with completed, failed or abandoned once the task is over. A new request after an end is a new task; after a
     restart, resume your unfinished task by its id. Actions taken without an open task are recorded but cannot be
     learned as a procedure. memory_task performs no app action and needs no session.
+    begin also searches what Mecum learned for the remaining work and answers recall: per need, a coverage and at
+    most one selection of learned steps with the task's values bound, its conditions and evidence, or alternatives to
+    choose between. State as remaining only the work still to do, and name needs when it has several results.
+    Resolve every element live and verify as usual. Search again with memory_task recall only when the request or an
+    input changes, a new important need appears or the path cannot be used, giving that reason. At a checkpoint or
+    the end, report with use whether you followed, adapted, abandoned or did not execute each need's selection.
     A checkpoint or an end answers the candidate procedure Mecum segmented from your actions: one step per UI action,
     grouped in blocks of one app. Interpret it in your next call with memory_task interpret: a short label of what the
     procedure, each block and each step does, written for reuse without the rest; the outcome of each part as you know

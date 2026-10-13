@@ -37,6 +37,12 @@ enum Usage {
                                               arrived, ones evaluated under an earlier policy
       mecum memory  --quarantine-policy <version> --reason <text>
                                               stop offering what a qualification policy admitted
+      mecum memory  --recall-status            the Recall's index: generations, entries, vectors and work pending
+      mecum memory  --recall-rebuild [--within <seconds>]
+                                              rebuild the Recall's index from the catalogue and wait for it
+      mecum memory  --recall-explain <text> [--limit <n>]
+                                              score the indexed parts against a text, most relevant first;
+                                              no query is recorded and nothing is selected
       mecum memory  --import-json <dir>        copy the Brains of an earlier JSON Knowledge directory into
                                               the memory, for applications it holds nothing about yet; a new
                                               archive already took those beside it when it was created

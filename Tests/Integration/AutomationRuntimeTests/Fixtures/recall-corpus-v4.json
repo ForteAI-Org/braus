@@ -1,0 +1,9343 @@
+{
+ "version": "recall-corpus-v4",
+ "created": "2026-10-12",
+ "purpose": "Development corpus of experiment A (the agent's choice): recall-corpus-v3 with two fixture repairs (Photos and Keynote windows whose steps had unknown entry states) and five new development queries (a producer and its consumer apart, two producers of equal file names, a ready output, the F11 paraphrase). Every query is development: none is a holdout.",
+ "conventions": {
+  "steps": "1-based positions of a knowledge item's UI operations in its candidate (open is a context call, not a step)",
+  "accept": "any one of the listed selections is correct; an empty list with coverage absent means nothing should be proposed",
+  "coverage": "the expected coverage of the need, or a list of acceptable ones",
+  "exclude": "knowledge whose delivery for this need is an error (incompatible or retired)",
+  "forbid_steps": "steps that must not appear in any delivered selection of that knowledge",
+  "bindings": "parameter name of the selected version -> the value of the task it must take",
+  "excluded": "knowledge whose relevant episode must be named among the outcome's exclusions",
+  "conditions": "requirement kinds the selection must state",
+  "bootstrap": "the knowledge of the minimal archive the query is also judged on",
+  "observed": "the source step (knowledge, 1-based step) whose entry state the session showed before the query",
+  "critical": "an incompatible delivery or a false complete coverage of this query counts against the inviolable criteria",
+  "accept_plans": "for a plan of several tracts: any one of the listed plans (each a list of selections in order) is correct"
+ },
+ "apps": {
+  "com.apple.finder": {
+   "windows": {
+    "main": {
+     "title": "Prove",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "Search",
+       "origin": "description",
+       "container": "toolbar"
+      },
+      {
+       "kind": "row",
+       "label": "foto_demo.png",
+       "list": "files"
+      },
+      {
+       "kind": "row",
+       "label": "report_q3.pdf",
+       "list": "files"
+      },
+      {
+       "kind": "row",
+       "label": "Progetto",
+       "list": "files"
+      },
+      {
+       "kind": "checkbox",
+       "label": "Show Preview",
+       "state": "off"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.Preview": {
+   "windows": {
+    "editing": {
+     "title": "foto_demo.png",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "Rotate Right",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Markup",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Share",
+       "container": "toolbar"
+      }
+     ]
+    },
+    "export": {
+     "title": "Export",
+     "surface": "dialog",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "foto_demo.png",
+       "origin": "value"
+      },
+      {
+       "kind": "popup",
+       "label": "Format",
+       "value": "PNG"
+      },
+      {
+       "kind": "popup",
+       "label": "Quartz Filter",
+       "value": "None"
+      },
+      {
+       "kind": "button",
+       "label": "Save"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "adjust": {
+     "title": "Adjust Size",
+     "surface": "dialog",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "Width",
+       "origin": "title"
+      },
+      {
+       "kind": "textfield",
+       "label": "Height",
+       "origin": "title"
+      },
+      {
+       "kind": "checkbox",
+       "label": "Scale proportionally",
+       "state": "on"
+      },
+      {
+       "kind": "button",
+       "label": "OK"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "pdf": {
+     "title": "contratto.pdf",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "Sidebar",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Highlight",
+       "container": "toolbar"
+      },
+      {
+       "kind": "textfield",
+       "label": "Search",
+       "origin": "description",
+       "container": "toolbar"
+      }
+     ]
+    },
+    "print": {
+     "title": "Print",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "text",
+       "label": "1 of 4"
+      },
+      {
+       "kind": "button",
+       "label": "Previous page"
+      },
+      {
+       "kind": "button",
+       "label": "Next page"
+      },
+      {
+       "kind": "popup",
+       "label": "Printer",
+       "value": "Office"
+      },
+      {
+       "kind": "popup",
+       "label": "Presets",
+       "value": "Default Settings"
+      },
+      {
+       "kind": "textfield",
+       "label": "Copies",
+       "origin": "title"
+      },
+      {
+       "kind": "popup",
+       "label": "Pages",
+       "value": "All"
+      },
+      {
+       "kind": "checkbox",
+       "label": "Double-sided",
+       "state": "off"
+      },
+      {
+       "kind": "popup",
+       "label": "PDF",
+       "value": "PDF"
+      },
+      {
+       "kind": "button",
+       "label": "Show Details"
+      },
+      {
+       "kind": "button",
+       "label": "Print"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.TextEdit": {
+   "windows": {
+    "document": {
+     "title": "note",
+     "elements": [
+      {
+       "kind": "text",
+       "label": "Body"
+      },
+      {
+       "kind": "button",
+       "label": "Styles",
+       "container": "toolbar"
+      }
+     ]
+    },
+    "save": {
+     "title": "Save",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "Untitled",
+       "origin": "value"
+      },
+      {
+       "kind": "popup",
+       "label": "Where",
+       "value": "Documents"
+      },
+      {
+       "kind": "button",
+       "label": "Save"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "saveas": {
+     "title": "Save As",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "note",
+       "origin": "value"
+      },
+      {
+       "kind": "popup",
+       "label": "Where",
+       "value": "Documents"
+      },
+      {
+       "kind": "checkbox",
+       "label": "Keep original",
+       "state": "off"
+      },
+      {
+       "kind": "button",
+       "label": "Save"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    }
+   }
+  },
+  "com.google.Chrome": {
+   "windows": {
+    "form": {
+     "title": "Contatti",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "Name",
+       "origin": "title"
+      },
+      {
+       "kind": "textfield",
+       "label": "Email",
+       "origin": "title"
+      },
+      {
+       "kind": "textfield",
+       "label": "Message",
+       "origin": "title"
+      },
+      {
+       "kind": "button",
+       "label": "Submit"
+      }
+     ]
+    },
+    "thanks": {
+     "title": "Grazie",
+     "elements": [
+      {
+       "kind": "text",
+       "label": "Message sent"
+      },
+      {
+       "kind": "link",
+       "label": "Home"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.mail": {
+   "windows": {
+    "viewer": {
+     "title": "Inbox",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "New Message",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Reply",
+       "container": "toolbar"
+      },
+      {
+       "kind": "row",
+       "label": "Weekly update",
+       "list": "messages"
+      }
+     ]
+    },
+    "compose": {
+     "title": "New Message",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "To",
+       "origin": "title"
+      },
+      {
+       "kind": "textfield",
+       "label": "Subject",
+       "origin": "title"
+      },
+      {
+       "kind": "button",
+       "label": "Attach",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Send",
+       "container": "toolbar"
+      }
+     ]
+    },
+    "attach": {
+     "title": "Choose File",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "row",
+       "label": "report_q3.pdf",
+       "list": "files"
+      },
+      {
+       "kind": "row",
+       "label": "foto_demo.png",
+       "list": "files"
+      },
+      {
+       "kind": "button",
+       "label": "Choose File"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "attach-invoice": {
+     "title": "Choose File",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "row",
+       "label": "INV-2026-031.pdf",
+       "list": "files"
+      },
+      {
+       "kind": "row",
+       "label": "report_q3.pdf",
+       "list": "files"
+      },
+      {
+       "kind": "button",
+       "label": "Choose File"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "attach-chart": {
+     "title": "Choose File",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "row",
+       "label": "vendite_q3.png",
+       "list": "files"
+      },
+      {
+       "kind": "row",
+       "label": "report_q3.pdf",
+       "list": "files"
+      },
+      {
+       "kind": "button",
+       "label": "Choose File"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.iWork.Numbers": {
+   "windows": {
+    "sheet": {
+     "title": "Vendite",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "Sort & Filter",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Chart",
+       "container": "toolbar"
+      },
+      {
+       "kind": "row",
+       "label": "North",
+       "list": "table"
+      }
+     ]
+    },
+    "sort": {
+     "title": "Sort",
+     "surface": "panel",
+     "elements": [
+      {
+       "kind": "popup",
+       "label": "Column",
+       "value": "Region"
+      },
+      {
+       "kind": "popup",
+       "label": "Order",
+       "value": "Ascending"
+      },
+      {
+       "kind": "button",
+       "label": "Sort Now"
+      },
+      {
+       "kind": "button",
+       "label": "Filter"
+      }
+     ]
+    },
+    "filter": {
+     "title": "Filter",
+     "surface": "panel",
+     "elements": [
+      {
+       "kind": "popup",
+       "label": "Column",
+       "value": "Region"
+      },
+      {
+       "kind": "popup",
+       "label": "Rule",
+       "value": "is"
+      },
+      {
+       "kind": "textfield",
+       "label": "Value",
+       "origin": "title"
+      },
+      {
+       "kind": "button",
+       "label": "Apply Filter"
+      }
+     ]
+    },
+    "chartmenu": {
+     "title": "Chart",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "Bar"
+      },
+      {
+       "kind": "button",
+       "label": "Pie"
+      },
+      {
+       "kind": "button",
+       "label": "Line"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "exportimage": {
+     "title": "Export Your Spreadsheet",
+     "surface": "dialog",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "Untitled",
+       "origin": "title"
+      },
+      {
+       "kind": "popup",
+       "label": "Format"
+      },
+      {
+       "kind": "button",
+       "label": "Export"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.iWork.Keynote": {
+   "windows": {
+    "slides": {
+     "title": "deck",
+     "elements": [
+      {
+       "kind": "row",
+       "label": "Slide 1",
+       "list": "slides"
+      },
+      {
+       "kind": "row",
+       "label": "Slide 2",
+       "list": "slides"
+      },
+      {
+       "kind": "button",
+       "label": "Play",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Add Slide",
+       "container": "toolbar"
+      }
+     ]
+    },
+    "exportpdf": {
+     "title": "Export Your Presentation",
+     "surface": "dialog",
+     "elements": [
+      {
+       "kind": "checkbox",
+       "label": "Include skipped slides",
+       "state": "off"
+      },
+      {
+       "kind": "popup",
+       "label": "Image Quality",
+       "value": "Good"
+      },
+      {
+       "kind": "button",
+       "label": "Next…"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "saveexport": {
+     "title": "Export",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "deck",
+       "origin": "value"
+      },
+      {
+       "kind": "popup",
+       "label": "Where",
+       "value": "Documents"
+      },
+      {
+       "kind": "button",
+       "label": "Export"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "deck": {
+     "title": "Presentazione Q3",
+     "elements": [
+      {
+       "kind": "row",
+       "label": "Slide 1",
+       "list": "slides"
+      },
+      {
+       "kind": "row",
+       "label": "Slide 2",
+       "list": "slides"
+      },
+      {
+       "kind": "row",
+       "label": "Slide 3",
+       "list": "slides"
+      },
+      {
+       "kind": "button",
+       "label": "Play",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Add Slide",
+       "container": "toolbar"
+      }
+     ]
+    },
+    "exportimages": {
+     "title": "Export Your Presentation",
+     "surface": "dialog",
+     "elements": [
+      {
+       "kind": "popup",
+       "label": "Format"
+      },
+      {
+       "kind": "textfield",
+       "label": "Save As",
+       "origin": "title"
+      },
+      {
+       "kind": "button",
+       "label": "Export"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.iWork.Pages": {
+   "windows": {
+    "document": {
+     "title": "relazione",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "Insert",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Format",
+       "container": "toolbar"
+      }
+     ]
+    },
+    "export": {
+     "title": "Export Your Document",
+     "surface": "dialog",
+     "elements": [
+      {
+       "kind": "popup",
+       "label": "Image Quality",
+       "value": "Better"
+      },
+      {
+       "kind": "button",
+       "label": "Next…"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "saveexport": {
+     "title": "Export",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "relazione",
+       "origin": "value"
+      },
+      {
+       "kind": "popup",
+       "label": "Where",
+       "value": "Documents"
+      },
+      {
+       "kind": "button",
+       "label": "Export"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.Safari": {
+   "windows": {
+    "portal": {
+     "title": "Portale fornitori",
+     "elements": [
+      {
+       "kind": "link",
+       "label": "Invoices"
+      },
+      {
+       "kind": "link",
+       "label": "Orders"
+      },
+      {
+       "kind": "link",
+       "label": "Profile"
+      }
+     ]
+    },
+    "invoices": {
+     "title": "Invoices",
+     "elements": [
+      {
+       "kind": "row",
+       "label": "INV-2026-031",
+       "list": "invoices"
+      },
+      {
+       "kind": "row",
+       "label": "INV-2026-032",
+       "list": "invoices"
+      },
+      {
+       "kind": "button",
+       "label": "Download PDF"
+      },
+      {
+       "kind": "link",
+       "label": "Back"
+      }
+     ]
+    },
+    "shared": {
+     "title": "Shared files",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "Search shared files",
+       "origin": "description"
+      },
+      {
+       "kind": "popup",
+       "label": "Sort by",
+       "value": "Name"
+      },
+      {
+       "kind": "row",
+       "label": "report_q3.pdf",
+       "list": "files"
+      },
+      {
+       "kind": "row",
+       "label": "budget.xlsx",
+       "list": "files"
+      },
+      {
+       "kind": "button",
+       "label": "Download"
+      },
+      {
+       "kind": "button",
+       "label": "Upload"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.Notes": {
+   "windows": {
+    "notes": {
+     "title": "Notes",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "New Note",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Share",
+       "container": "toolbar"
+      },
+      {
+       "kind": "textfield",
+       "label": "Note title",
+       "origin": "description"
+      },
+      {
+       "kind": "row",
+       "label": "Spesa",
+       "list": "notes"
+      }
+     ]
+    }
+   }
+  },
+  "com.microsoft.VSCode": {
+   "windows": {
+    "editor": {
+     "title": "config.yaml",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "Explorer",
+       "container": "activity"
+      },
+      {
+       "kind": "button",
+       "label": "Search",
+       "container": "activity"
+      },
+      {
+       "kind": "text",
+       "label": "Editor"
+      }
+     ]
+    },
+    "find": {
+     "title": "config.yaml",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "Find",
+       "origin": "description"
+      },
+      {
+       "kind": "textfield",
+       "label": "Replace",
+       "origin": "description"
+      },
+      {
+       "kind": "button",
+       "label": "Replace All"
+      },
+      {
+       "kind": "button",
+       "label": "Close"
+      }
+     ]
+    },
+    "saveas": {
+     "title": "Save As",
+     "surface": "dialog",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "config.yaml",
+       "origin": "value"
+      },
+      {
+       "kind": "popup",
+       "label": "Where",
+       "value": "project"
+      },
+      {
+       "kind": "button",
+       "label": "Save"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.AddressBook": {
+   "windows": {
+    "list": {
+     "title": "Contacts",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "New Contact",
+       "container": "toolbar"
+      },
+      {
+       "kind": "textfield",
+       "label": "Search",
+       "origin": "description"
+      },
+      {
+       "kind": "row",
+       "label": "Anna Bianchi",
+       "list": "contacts"
+      },
+      {
+       "kind": "row",
+       "label": "Luca Verdi",
+       "list": "contacts"
+      },
+      {
+       "kind": "row",
+       "label": "Marco Rossi",
+       "list": "contacts"
+      }
+     ]
+    },
+    "card": {
+     "title": "New Contact",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "First name",
+       "origin": "title"
+      },
+      {
+       "kind": "textfield",
+       "label": "Last name",
+       "origin": "title"
+      },
+      {
+       "kind": "textfield",
+       "label": "Phone",
+       "origin": "title"
+      },
+      {
+       "kind": "button",
+       "label": "Done"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.Music": {
+   "windows": {
+    "library": {
+     "title": "Music",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "Add Songs",
+       "container": "toolbar"
+      },
+      {
+       "kind": "row",
+       "label": "Songs",
+       "list": "sidebar"
+      },
+      {
+       "kind": "row",
+       "label": "Albums",
+       "list": "sidebar"
+      },
+      {
+       "kind": "row",
+       "label": "Estate 2026",
+       "list": "sidebar"
+      }
+     ]
+    },
+    "newplaylist": {
+     "title": "New Playlist",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "Playlist name",
+       "origin": "title"
+      },
+      {
+       "kind": "button",
+       "label": "Create"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "songs": {
+     "title": "Add Songs",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "row",
+       "label": "Azzurro",
+       "list": "songs"
+      },
+      {
+       "kind": "row",
+       "label": "Volare",
+       "list": "songs"
+      },
+      {
+       "kind": "button",
+       "label": "Add"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.iCal": {
+   "windows": {
+    "week": {
+     "title": "Calendar",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "New Event",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Today",
+       "container": "toolbar"
+      },
+      {
+       "kind": "row",
+       "label": "Riunione budget",
+       "list": "events"
+      },
+      {
+       "kind": "row",
+       "label": "Standup",
+       "list": "events"
+      }
+     ]
+    },
+    "event": {
+     "title": "New Event",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "Title",
+       "origin": "title"
+      },
+      {
+       "kind": "textfield",
+       "label": "Date",
+       "origin": "title"
+      },
+      {
+       "kind": "textfield",
+       "label": "Start time",
+       "origin": "title"
+      },
+      {
+       "kind": "button",
+       "label": "Add"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "details": {
+     "title": "Event",
+     "surface": "popup_union",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "Invitees",
+       "origin": "title"
+      },
+      {
+       "kind": "button",
+       "label": "Send"
+      },
+      {
+       "kind": "button",
+       "label": "Close"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.Photos": {
+   "windows": {
+    "library": {
+     "title": "Photos",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "Info",
+       "container": "toolbar"
+      },
+      {
+       "kind": "button",
+       "label": "Share",
+       "container": "toolbar"
+      },
+      {
+       "kind": "row",
+       "label": "spiaggia.jpg",
+       "list": "photos"
+      },
+      {
+       "kind": "row",
+       "label": "rifugio.jpg",
+       "list": "photos"
+      },
+      {
+       "kind": "row",
+       "label": "tramonto.jpg",
+       "list": "photos"
+      },
+      {
+       "kind": "row",
+       "label": "Vacanze 2026",
+       "list": "albums"
+      },
+      {
+       "kind": "row",
+       "label": "Preferiti",
+       "list": "albums"
+      }
+     ]
+    },
+    "newalbum": {
+     "title": "New Album",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "textfield",
+       "label": "Album name",
+       "origin": "title"
+      },
+      {
+       "kind": "button",
+       "label": "OK"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    },
+    "albumpicker": {
+     "title": "Add to Album",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "row",
+       "label": "Vacanze 2026",
+       "list": "targets"
+      },
+      {
+       "kind": "row",
+       "label": "Preferiti",
+       "list": "targets"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    }
+   }
+  },
+  "com.apple.MobileSMS": {
+   "windows": {
+    "conversations": {
+     "title": "Messages",
+     "elements": [
+      {
+       "kind": "row",
+       "label": "Luca",
+       "list": "conversations"
+      },
+      {
+       "kind": "row",
+       "label": "Sara",
+       "list": "conversations"
+      },
+      {
+       "kind": "button",
+       "label": "Compose",
+       "container": "toolbar"
+      }
+     ]
+    },
+    "chat": {
+     "title": "Luca",
+     "elements": [
+      {
+       "kind": "button",
+       "label": "Attach"
+      },
+      {
+       "kind": "textfield",
+       "label": "Message",
+       "origin": "title"
+      },
+      {
+       "kind": "button",
+       "label": "Send"
+      }
+     ]
+    },
+    "chooser": {
+     "title": "Choose File",
+     "surface": "sheet",
+     "elements": [
+      {
+       "kind": "row",
+       "label": "slide_q3.png",
+       "list": "files"
+      },
+      {
+       "kind": "row",
+       "label": "report_q3.pdf",
+       "list": "files"
+      },
+      {
+       "kind": "button",
+       "label": "Choose"
+      },
+      {
+       "kind": "button",
+       "label": "Cancel"
+      }
+     ]
+    }
+   }
+  }
+ },
+ "knowledge": [
+  {
+   "id": "photo-export",
+   "family": "photo",
+   "goal": "Find foto_demo, rotate it right in Preview and export it as foto_web.jpg in JPEG",
+   "inputs": [
+    {
+     "name": "criterion",
+     "value": "foto_demo"
+    },
+    {
+     "name": "output_name",
+     "value": "foto_web"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.finder",
+     "window": "main"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Search",
+      "text": "foto_demo"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "foto_demo.png"
+     }
+    },
+    {
+     "open": "com.apple.Preview",
+     "window": "editing"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Rotate Right"
+     }
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Export…"
+     },
+     "next": "export"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "foto_demo.png",
+      "text": "foto_web.jpg"
+     }
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Format",
+      "item": "JPEG"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Save"
+     },
+     "next": "editing"
+    },
+    {
+     "open": "com.apple.finder",
+     "window": "main"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Show Preview",
+      "verb": "set_toggle",
+      "value": "on"
+     }
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Find <file> in Finder, rotate it in Preview and export it as <name>.<extension>"
+    },
+    "parts": [
+     {
+      "part": "b1",
+      "label": "Find <file> in Finder",
+      "outcome": "completed"
+     },
+     {
+      "part": "b2",
+      "label": "Rotate <file> and export it as <name>.<extension> in <format>",
+      "outcome": "completed"
+     },
+     {
+      "part": "b3",
+      "label": "Keep Finder's preview shown",
+      "outcome": "completed"
+     }
+    ],
+    "steps": [
+     {
+      "step": 1,
+      "label": "Search <criterion> in Finder"
+     },
+     {
+      "step": 2,
+      "label": "Select the file found"
+     },
+     {
+      "step": 3,
+      "label": "Rotate the image right"
+     },
+     {
+      "step": 4,
+      "label": "Open the Export dialog"
+     },
+     {
+      "step": 5,
+      "label": "Set <name>.<extension> in the Name field"
+     },
+     {
+      "step": 6,
+      "label": "Choose <format>"
+     },
+     {
+      "step": 7,
+      "label": "Confirm the export"
+     },
+     {
+      "step": 8,
+      "label": "Show the preview in Finder"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "criterion",
+      "role": "text searched for the input file",
+      "kind": "text"
+     },
+     {
+      "name": "output_name",
+      "role": "name of the exported file without extension",
+      "kind": "text"
+     },
+     {
+      "name": "output_extension",
+      "role": "extension of the exported file",
+      "kind": "text",
+      "value": "jpg",
+      "source": "derived"
+     },
+     {
+      "name": "output_format",
+      "role": "format chosen in the Export dialog",
+      "kind": "text",
+      "value": "JPEG",
+      "source": "request"
+     }
+    ],
+    "uses": [
+     {
+      "step": 1,
+      "argument": "text",
+      "template": "{criterion}"
+     },
+     {
+      "step": 5,
+      "argument": "text",
+      "template": "{output_name}.{output_extension}"
+     },
+     {
+      "step": 6,
+      "argument": "item",
+      "template": "{output_format}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "print-current-page",
+   "family": "print",
+   "goal": "Print only the page I am reading of contratto.pdf",
+   "run": [
+    {
+     "open": "com.apple.Preview",
+     "window": "pdf"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Print…"
+     },
+     "next": "print"
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Pages",
+      "item": "Current"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Print"
+     },
+     "next": "pdf"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Print only the current page of the open PDF"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the Print dialog"
+     },
+     {
+      "step": 2,
+      "label": "Choose to print the current page only"
+     },
+     {
+      "step": 3,
+      "label": "Confirm printing"
+     }
+    ]
+   }
+  },
+  {
+   "id": "print-all-pages",
+   "family": "print",
+   "goal": "Print the whole contratto.pdf",
+   "run": [
+    {
+     "open": "com.apple.Preview",
+     "window": "pdf"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Print…"
+     },
+     "next": "print"
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Pages",
+      "item": "All"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Print"
+     },
+     "next": "pdf"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Print all pages of the open PDF"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the Print dialog"
+     },
+     {
+      "step": 2,
+      "label": "Choose to print all pages"
+     },
+     {
+      "step": 3,
+      "label": "Confirm printing"
+     }
+    ]
+   }
+  },
+  {
+   "id": "textedit-duplicate-save",
+   "family": "textcopy",
+   "goal": "Save a copy of the note as note_copy on the Desktop",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "note_copy"
+    },
+    {
+     "name": "output_folder",
+     "value": "Desktop"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.TextEdit",
+     "window": "document"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Duplicate"
+     }
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Save…"
+     },
+     "next": "save"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Untitled",
+      "text": "note_copy"
+     }
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Where",
+      "item": "Desktop"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Save"
+     },
+     "next": "document"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Duplicate the document and save the copy"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Duplicate the document"
+     },
+     {
+      "step": 2,
+      "label": "Open the Save sheet"
+     },
+     {
+      "step": 3,
+      "label": "Type <output_name> as the copy's name"
+     },
+     {
+      "step": 4,
+      "label": "Choose <output_folder> as destination"
+     },
+     {
+      "step": 5,
+      "label": "Save the copy"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "output_name",
+      "role": "name of the copy",
+      "kind": "text"
+     },
+     {
+      "name": "output_folder",
+      "role": "folder where the copy is saved",
+      "kind": "folder"
+     }
+    ],
+    "uses": [
+     {
+      "step": 3,
+      "argument": "text",
+      "template": "{output_name}"
+     },
+     {
+      "step": 4,
+      "argument": "item",
+      "template": "{output_folder}"
+     }
+    ]
+   },
+   "after": [
+    {
+     "reinterpret": {
+      "procedure": {
+       "label": "Duplicate the document and save the duplicate under a new name"
+      },
+      "steps": [
+       {
+        "step": 1,
+        "label": "Make a duplicate of the document"
+       },
+       {
+        "step": 2,
+        "label": "Open the Save sheet for the duplicate"
+       },
+       {
+        "step": 3,
+        "label": "Type <output_name> as the duplicate's name"
+       },
+       {
+        "step": 4,
+        "label": "Choose <output_folder> as destination"
+       },
+       {
+        "step": 5,
+        "label": "Save the duplicate"
+       }
+      ],
+      "parameters": [
+       {
+        "name": "output_name",
+        "role": "name of the copy",
+        "kind": "text"
+       },
+       {
+        "name": "output_folder",
+        "role": "folder where the copy is saved",
+        "kind": "folder"
+       }
+      ],
+      "uses": [
+       {
+        "step": 3,
+        "argument": "text",
+        "template": "{output_name}"
+       },
+       {
+        "step": 4,
+        "argument": "item",
+        "template": "{output_folder}"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "textedit-save-as-copy",
+   "family": "textcopy",
+   "goal": "Save the note as a new file keeping the original",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "note_v2"
+    },
+    {
+     "name": "output_folder",
+     "value": "Documents"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.TextEdit",
+     "window": "document"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Save As…"
+     },
+     "next": "saveas"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "note",
+      "text": "note_v2"
+     }
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Where",
+      "item": "Documents"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Keep original",
+      "verb": "set_toggle",
+      "value": "on"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Save"
+     },
+     "next": "document"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Save the document as a new file, keeping the original"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the Save As sheet"
+     },
+     {
+      "step": 2,
+      "label": "Type <output_name> as the new file's name"
+     },
+     {
+      "step": 3,
+      "label": "Choose <output_folder> as destination"
+     },
+     {
+      "step": 4,
+      "label": "Keep the original file"
+     },
+     {
+      "step": 5,
+      "label": "Save the new file"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "output_name",
+      "role": "name of the new file",
+      "kind": "text"
+     },
+     {
+      "name": "output_folder",
+      "role": "folder where the new file is saved",
+      "kind": "folder"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "text",
+      "template": "{output_name}"
+     },
+     {
+      "step": 3,
+      "argument": "item",
+      "template": "{output_folder}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "contact-form",
+   "family": "webform",
+   "goal": "Send the supplier contact form with my name, email and request",
+   "inputs": [
+    {
+     "name": "full_name",
+     "value": "Mario Rossi"
+    },
+    {
+     "name": "email",
+     "value": "mario@example.com"
+    },
+    {
+     "name": "message",
+     "value": "Vorrei informazioni sui prezzi"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.google.Chrome",
+     "window": "form"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Name",
+      "text": "Mario Rossi"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Email",
+      "text": "mario@example.com"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Message",
+      "text": "Vorrei informazioni sui prezzi"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Submit"
+     },
+     "next": "thanks"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Fill the contact form with <full_name>, <email> and <message> and submit it"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Type <full_name> in the Name field"
+     },
+     {
+      "step": 2,
+      "label": "Type <email> in the Email field"
+     },
+     {
+      "step": 3,
+      "label": "Type <message> in the Message field"
+     },
+     {
+      "step": 4,
+      "label": "Submit the contact form"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "full_name",
+      "role": "name of the person writing",
+      "kind": "text"
+     },
+     {
+      "name": "email",
+      "role": "email address to be answered at",
+      "kind": "text"
+     },
+     {
+      "name": "message",
+      "role": "text of the request",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 1,
+      "argument": "text",
+      "template": "{full_name}"
+     },
+     {
+      "step": 2,
+      "argument": "text",
+      "template": "{email}"
+     },
+     {
+      "step": 3,
+      "argument": "text",
+      "template": "{message}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "mail-attach",
+   "family": "mailattach",
+   "goal": "Find report_q3.pdf and send it by email to Anna with subject Report Q3",
+   "inputs": [
+    {
+     "name": "file_name",
+     "value": "report_q3.pdf"
+    },
+    {
+     "name": "recipient",
+     "value": "anna@example.com"
+    },
+    {
+     "name": "subject",
+     "value": "Report Q3"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.finder",
+     "window": "main"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Search",
+      "text": "report_q3"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "report_q3.pdf"
+     }
+    },
+    {
+     "open": "com.apple.mail",
+     "window": "viewer"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "New Message"
+     },
+     "next": "compose"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "To",
+      "text": "anna@example.com"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Subject",
+      "text": "Report Q3"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Attach"
+     },
+     "next": "attach"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "report_q3.pdf"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Choose File"
+     },
+     "next": "compose"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Send"
+     },
+     "next": "viewer"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Find <file_name> in Finder and email it to <recipient>"
+    },
+    "parts": [
+     {
+      "part": "b1",
+      "label": "Find <file_name> in Finder",
+      "outcome": "completed"
+     },
+     {
+      "part": "b2",
+      "label": "Email <file_name> as an attachment to <recipient> with subject <subject>",
+      "outcome": "completed"
+     }
+    ],
+    "steps": [
+     {
+      "step": 1,
+      "label": "Search the file in Finder"
+     },
+     {
+      "step": 2,
+      "label": "Select <file_name>"
+     },
+     {
+      "step": 3,
+      "label": "Start a new email"
+     },
+     {
+      "step": 4,
+      "label": "Type <recipient> in To"
+     },
+     {
+      "step": 5,
+      "label": "Type <subject> as the subject"
+     },
+     {
+      "step": 6,
+      "label": "Open the attachment chooser"
+     },
+     {
+      "step": 7,
+      "label": "Pick <file_name> to attach"
+     },
+     {
+      "step": 8,
+      "label": "Confirm the attachment"
+     },
+     {
+      "step": 9,
+      "label": "Send the email"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "file_criterion",
+      "role": "text searched for the file",
+      "kind": "text",
+      "value": "report_q3",
+      "source": "derived"
+     },
+     {
+      "name": "file_name",
+      "role": "name of the file to send",
+      "kind": "text"
+     },
+     {
+      "name": "recipient",
+      "role": "email address of the recipient",
+      "kind": "text"
+     },
+     {
+      "name": "subject",
+      "role": "subject of the email",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 1,
+      "argument": "text",
+      "template": "{file_criterion}"
+     },
+     {
+      "step": 2,
+      "argument": "target",
+      "template": "{file_name}"
+     },
+     {
+      "step": 4,
+      "argument": "text",
+      "template": "{recipient}"
+     },
+     {
+      "step": 5,
+      "argument": "text",
+      "template": "{subject}"
+     },
+     {
+      "step": 7,
+      "argument": "target",
+      "template": "{file_name}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "numbers-sort-desc",
+   "family": "sheets",
+   "goal": "Sort the sales table by Total from the largest",
+   "inputs": [
+    {
+     "name": "sort_column",
+     "value": "Total"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.iWork.Numbers",
+     "window": "sheet"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Sort & Filter"
+     },
+     "next": "sort"
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Column",
+      "item": "Total"
+     }
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Order",
+      "item": "Descending"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Sort Now"
+     },
+     "next": "sheet"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Sort the table by <sort_column> in descending order"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the Sort & Filter panel"
+     },
+     {
+      "step": 2,
+      "label": "Choose <sort_column> as the sort column"
+     },
+     {
+      "step": 3,
+      "label": "Choose descending order"
+     },
+     {
+      "step": 4,
+      "label": "Apply the sort"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "sort_column",
+      "role": "column the rows are sorted by",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "item",
+      "template": "{sort_column}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "numbers-filter",
+   "family": "sheets",
+   "goal": "Show only the rows of the North region",
+   "inputs": [
+    {
+     "name": "filter_column",
+     "value": "Region"
+    },
+    {
+     "name": "filter_value",
+     "value": "North"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.iWork.Numbers",
+     "window": "sheet"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Sort & Filter"
+     },
+     "next": "sort"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Filter"
+     },
+     "next": "filter"
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Column",
+      "item": "Region"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Value",
+      "text": "North"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Apply Filter"
+     },
+     "next": "sheet"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Filter the table to rows where <filter_column> is <filter_value>"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the Sort & Filter panel"
+     },
+     {
+      "step": 2,
+      "label": "Switch to the filter options"
+     },
+     {
+      "step": 3,
+      "label": "Choose <filter_column> as the filtered column"
+     },
+     {
+      "step": 4,
+      "label": "Type <filter_value> as the value to keep"
+     },
+     {
+      "step": 5,
+      "label": "Apply the filter"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "filter_column",
+      "role": "column the rows are filtered on",
+      "kind": "text"
+     },
+     {
+      "name": "filter_value",
+      "role": "value the kept rows have",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 3,
+      "argument": "item",
+      "template": "{filter_column}"
+     },
+     {
+      "step": 4,
+      "argument": "text",
+      "template": "{filter_value}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "keynote-export-pdf",
+   "family": "slides",
+   "goal": "Export the deck to PDF including the skipped slides, best quality, as deck_v2",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "deck_v2"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.iWork.Keynote",
+     "window": "slides"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Export To > PDF…"
+     },
+     "next": "exportpdf"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Include skipped slides",
+      "verb": "set_toggle",
+      "value": "on"
+     }
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Image Quality",
+      "item": "Best"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Next…"
+     },
+     "next": "saveexport"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "deck",
+      "text": "deck_v2"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Export"
+     },
+     "next": "slides"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Export the presentation to PDF as <output_name>, skipped slides included"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the PDF export options"
+     },
+     {
+      "step": 2,
+      "label": "Include the skipped slides"
+     },
+     {
+      "step": 3,
+      "label": "Choose the best image quality"
+     },
+     {
+      "step": 4,
+      "label": "Go on to the file name"
+     },
+     {
+      "step": 5,
+      "label": "Type <output_name> as the PDF's name"
+     },
+     {
+      "step": 6,
+      "label": "Export the PDF"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "output_name",
+      "role": "name of the exported PDF",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 5,
+      "argument": "text",
+      "template": "{output_name}"
+     }
+    ]
+   },
+   "after": [
+    {
+     "state": {
+      "step": 2,
+      "value": "retired",
+      "reason": "skipped slides now break the export"
+     }
+    }
+   ]
+  },
+  {
+   "id": "preview-resize-export",
+   "family": "resize",
+   "goal": "Make the photo 1200 pixels wide and export it as foto_small.png",
+   "inputs": [
+    {
+     "name": "width",
+     "value": "1200"
+    },
+    {
+     "name": "output_name",
+     "value": "foto_small"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.Preview",
+     "window": "editing"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "Tools > Adjust Size…"
+     },
+     "next": "adjust"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Width",
+      "text": "1200"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "OK"
+     },
+     "next": "editing"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Export…"
+     },
+     "next": "export"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "foto_demo.png",
+      "text": "foto_small.png"
+     }
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Format",
+      "item": "PNG"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Save"
+     },
+     "next": "editing"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Resize the image to <width> pixels wide and export it as <name>.<extension>"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the Adjust Size dialog"
+     },
+     {
+      "step": 2,
+      "label": "Type <width> as the new width"
+     },
+     {
+      "step": 3,
+      "label": "Apply the new size"
+     },
+     {
+      "step": 4,
+      "label": "Open the Export dialog"
+     },
+     {
+      "step": 5,
+      "label": "Type <name>.<extension> as the exported file's name"
+     },
+     {
+      "step": 6,
+      "label": "Pick <format> as the export format"
+     },
+     {
+      "step": 7,
+      "label": "Save the exported image"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "width",
+      "role": "new width of the image in pixels",
+      "kind": "number",
+      "unit": "px"
+     },
+     {
+      "name": "name",
+      "role": "name of the exported file without extension",
+      "kind": "text",
+      "value": "foto_small",
+      "source": "request"
+     },
+     {
+      "name": "extension",
+      "role": "extension of the exported file",
+      "kind": "text",
+      "value": "png",
+      "source": "derived"
+     },
+     {
+      "name": "format",
+      "role": "format of the exported image",
+      "kind": "text",
+      "value": "PNG",
+      "source": "derived"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "text",
+      "template": "{width}"
+     },
+     {
+      "step": 5,
+      "argument": "text",
+      "template": "{name}.{extension}"
+     },
+     {
+      "step": 6,
+      "argument": "item",
+      "template": "{format}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "pages-export-word",
+   "family": "docexport",
+   "goal": "Export the report as a Word document named relazione_word",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "relazione_word"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.iWork.Pages",
+     "window": "document"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Export To > Word…"
+     },
+     "next": "export"
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Next…"
+     },
+     "next": "saveexport"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "relazione",
+      "text": "relazione_word"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Export"
+     },
+     "next": "document"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Export the document to Word as <output_name>"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the Word export options"
+     },
+     {
+      "step": 2,
+      "label": "Go on to the file name"
+     },
+     {
+      "step": 3,
+      "label": "Type <output_name> as the exported file's name"
+     },
+     {
+      "step": 4,
+      "label": "Export the file"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "output_name",
+      "role": "name of the exported file",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 3,
+      "argument": "text",
+      "template": "{output_name}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "pages-export-pdf",
+   "family": "docexport",
+   "goal": "Export the report as PDF named relazione_pdf",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "relazione_pdf"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.iWork.Pages",
+     "window": "document"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Export To > PDF…"
+     },
+     "next": "export"
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Next…"
+     },
+     "next": "saveexport"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "relazione",
+      "text": "relazione_pdf"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Export"
+     },
+     "next": "document"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Export the document to PDF as <output_name>"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the PDF export options"
+     },
+     {
+      "step": 2,
+      "label": "Go on to the file name"
+     },
+     {
+      "step": 3,
+      "label": "Type <output_name> as the exported file's name"
+     },
+     {
+      "step": 4,
+      "label": "Export the file"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "output_name",
+      "role": "name of the exported file",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 3,
+      "argument": "text",
+      "template": "{output_name}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "safari-download-invoice",
+   "family": "download",
+   "goal": "Download invoice INV-2026-031 from the supplier portal",
+   "inputs": [
+    {
+     "name": "invoice",
+     "value": "INV-2026-031"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.Safari",
+     "window": "portal"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Invoices"
+     },
+     "next": "invoices"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "INV-2026-031"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Download PDF"
+     }
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Download invoice <invoice> as PDF from the supplier portal"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the invoices page of the portal"
+     },
+     {
+      "step": 2,
+      "label": "Select invoice <invoice>"
+     },
+     {
+      "step": 3,
+      "label": "Download the selected invoice as PDF"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "invoice",
+      "role": "number of the invoice",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "target",
+      "template": "{invoice}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "notes-share-mail",
+   "family": "notes",
+   "goal": "Write a note titled Riunione and send it by email to Paolo",
+   "inputs": [
+    {
+     "name": "note_title",
+     "value": "Riunione"
+    },
+    {
+     "name": "recipient",
+     "value": "paolo@example.com"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.Notes",
+     "window": "notes"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "New Note"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Note title",
+      "text": "Riunione"
+     }
+    },
+    {
+     "op": "context_menu",
+     "args": {
+      "target": "Share",
+      "item": "Mail"
+     }
+    },
+    {
+     "open": "com.apple.mail",
+     "window": "compose"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "To",
+      "text": "paolo@example.com"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Send"
+     },
+     "next": "viewer"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Create a note titled <note_title> and email it to <recipient>"
+    },
+    "parts": [
+     {
+      "part": "b1",
+      "label": "Create a note titled <note_title> and share it by Mail",
+      "outcome": "completed"
+     },
+     {
+      "part": "b2",
+      "label": "Send the shared note to <recipient>",
+      "outcome": "completed"
+     }
+    ],
+    "steps": [
+     {
+      "step": 1,
+      "label": "Create a new note"
+     },
+     {
+      "step": 2,
+      "label": "Type <note_title> as the note's title"
+     },
+     {
+      "step": 3,
+      "label": "Share the note through Mail"
+     },
+     {
+      "step": 4,
+      "label": "Type <recipient> in To"
+     },
+     {
+      "step": 5,
+      "label": "Send the email"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "note_title",
+      "role": "title of the note",
+      "kind": "text"
+     },
+     {
+      "name": "recipient",
+      "role": "email address of the recipient",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "text",
+      "template": "{note_title}"
+     },
+     {
+      "step": 4,
+      "argument": "text",
+      "template": "{recipient}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "finder-compress-folder",
+   "family": "compress",
+   "goal": "Compress the Progetto folder into a zip archive",
+   "inputs": [
+    {
+     "name": "folder",
+     "value": "Progetto"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.finder",
+     "window": "main"
+    },
+    {
+     "op": "context_menu",
+     "args": {
+      "target": "Progetto",
+      "item": "Compress"
+     }
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Compress the folder <folder> into a zip archive"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Compress <folder> from its contextual menu"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "folder",
+      "role": "folder to archive",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 1,
+      "argument": "target",
+      "template": "{folder}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "preview-reduce-pdf-size",
+   "family": "compress",
+   "goal": "Make contratto.pdf smaller with the Reduce File Size filter",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "contratto_small.pdf"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.Preview",
+     "window": "pdf"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Export…"
+     },
+     "next": "export"
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Quartz Filter",
+      "item": "Reduce File Size"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "foto_demo.png",
+      "text": "contratto_small.pdf"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Save"
+     },
+     "next": "pdf"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Reduce the size of the PDF by exporting it with the Reduce File Size filter"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the Export dialog of the PDF"
+     },
+     {
+      "step": 2,
+      "label": "Apply the Reduce File Size filter"
+     },
+     {
+      "step": 3,
+      "label": "Type <output_name> as the smaller PDF's name"
+     },
+     {
+      "step": 4,
+      "label": "Save the smaller PDF"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "output_name",
+      "role": "file name of the reduced PDF",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 3,
+      "argument": "text",
+      "template": "{output_name}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "vscode-find-replace",
+   "family": "editor",
+   "goal": "Replace staging with production everywhere in config.yaml and save",
+   "inputs": [
+    {
+     "name": "search_text",
+     "value": "staging"
+    },
+    {
+     "name": "replacement",
+     "value": "production"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.microsoft.VSCode",
+     "window": "editor"
+    },
+    {
+     "op": "press_key",
+     "args": {
+      "key": "f",
+      "modifiers": [
+       "cmd",
+       "opt"
+      ]
+     },
+     "next": "find"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Find",
+      "text": "staging"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Replace",
+      "text": "production"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Replace All"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Close"
+     },
+     "next": "editor"
+    },
+    {
+     "op": "press_key",
+     "args": {
+      "key": "s",
+      "modifiers": [
+       "cmd"
+      ]
+     }
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Replace every <search_text> with <replacement> in the open file and save it"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open find and replace"
+     },
+     {
+      "step": 2,
+      "label": "Type <search_text> as the text to find"
+     },
+     {
+      "step": 3,
+      "label": "Type <replacement> as the replacement"
+     },
+     {
+      "step": 4,
+      "label": "Replace every occurrence"
+     },
+     {
+      "step": 5,
+      "label": "Close find and replace"
+     },
+     {
+      "step": 6,
+      "label": "Save the file"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "search_text",
+      "role": "text to replace",
+      "kind": "text"
+     },
+     {
+      "name": "replacement",
+      "role": "text written instead",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "text",
+      "template": "{search_text}"
+     },
+     {
+      "step": 3,
+      "argument": "text",
+      "template": "{replacement}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "vscode-save-copy",
+   "family": "editor",
+   "goal": "Save config.yaml as a copy named config.prod.yaml in the project folder",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "config.prod.yaml"
+    },
+    {
+     "name": "output_folder",
+     "value": "project"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.microsoft.VSCode",
+     "window": "editor"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Save As…"
+     },
+     "next": "saveas"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "config.yaml",
+      "text": "config.prod.yaml"
+     }
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Where",
+      "item": "project"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Save"
+     },
+     "next": "editor"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Save the open file under the name <output_name> in <output_folder>"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open Save As"
+     },
+     {
+      "step": 2,
+      "label": "Type <output_name> as the file name"
+     },
+     {
+      "step": 3,
+      "label": "Choose <output_folder> as the folder"
+     },
+     {
+      "step": 4,
+      "label": "Save the file under the new name"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "output_name",
+      "role": "new file name",
+      "kind": "text"
+     },
+     {
+      "name": "output_folder",
+      "role": "folder of the new file",
+      "kind": "folder"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "text",
+      "template": "{output_name}"
+     },
+     {
+      "step": 3,
+      "argument": "item",
+      "template": "{output_folder}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "invoice-mail",
+   "family": "invoice",
+   "goal": "Download invoice INV-2026-031 and email it to Anna",
+   "inputs": [
+    {
+     "name": "invoice",
+     "value": "INV-2026-031"
+    },
+    {
+     "name": "recipient",
+     "value": "anna@example.com"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.Safari",
+     "window": "portal"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Invoices"
+     },
+     "next": "invoices"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "INV-2026-031"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Download PDF"
+     }
+    },
+    {
+     "open": "com.apple.mail",
+     "window": "viewer"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "New Message"
+     },
+     "next": "compose"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "To",
+      "text": "anna@example.com"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Attach"
+     },
+     "next": "attach-invoice"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "INV-2026-031.pdf"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Choose File"
+     },
+     "next": "compose"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Send"
+     },
+     "next": "viewer"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Download invoice <invoice> and email it to <recipient>"
+    },
+    "parts": [
+     {
+      "part": "b1",
+      "label": "Download invoice <invoice> from the supplier portal",
+      "outcome": "completed"
+     },
+     {
+      "part": "b2",
+      "label": "Email <attachment> to <recipient>",
+      "outcome": "completed"
+     }
+    ],
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the invoices page"
+     },
+     {
+      "step": 2,
+      "label": "Select invoice <invoice>"
+     },
+     {
+      "step": 3,
+      "label": "Download the selected invoice"
+     },
+     {
+      "step": 4,
+      "label": "Start a new email"
+     },
+     {
+      "step": 5,
+      "label": "Type <recipient> in To"
+     },
+     {
+      "step": 6,
+      "label": "Open the attachment chooser"
+     },
+     {
+      "step": 7,
+      "label": "Pick <attachment>"
+     },
+     {
+      "step": 8,
+      "label": "Confirm the attachment"
+     },
+     {
+      "step": 9,
+      "label": "Send the email"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "invoice",
+      "role": "number of the invoice",
+      "kind": "text"
+     },
+     {
+      "name": "invoice_file",
+      "role": "file of the downloaded invoice",
+      "kind": "text",
+      "direction": "output",
+      "value": "INV-2026-031.pdf",
+      "source": "observation",
+      "produced_by": "b1"
+     },
+     {
+      "name": "attachment",
+      "role": "name of the file attached",
+      "kind": "text",
+      "value": "INV-2026-031.pdf",
+      "source": "observation"
+     },
+     {
+      "name": "recipient",
+      "role": "email address of the recipient",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "target",
+      "template": "{invoice}"
+     },
+     {
+      "step": 5,
+      "argument": "text",
+      "template": "{recipient}"
+     },
+     {
+      "step": 7,
+      "argument": "target",
+      "template": "{attachment}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "contacts-new-person",
+   "family": "contacts",
+   "goal": "Add Marco Rossi with phone +39 333 1234567 to Contacts and share his card",
+   "inputs": [
+    {
+     "name": "first_name",
+     "value": "Marco"
+    },
+    {
+     "name": "last_name",
+     "value": "Rossi"
+    },
+    {
+     "name": "phone",
+     "value": "+39 333 1234567"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.AddressBook",
+     "window": "list"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "New Contact"
+     },
+     "next": "card"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "First name",
+      "text": "Marco"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Last name",
+      "text": "Rossi"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Phone",
+      "text": "+39 333 1234567"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Done"
+     },
+     "next": "list"
+    },
+    {
+     "op": "context_menu",
+     "args": {
+      "target": "Marco Rossi",
+      "item": "Share Contact"
+     }
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Add <first_name> <last_name> with phone <phone> to Contacts and share the card"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Start a new contact"
+     },
+     {
+      "step": 2,
+      "label": "Type <first_name> as the first name"
+     },
+     {
+      "step": 3,
+      "label": "Type <last_name> as the last name"
+     },
+     {
+      "step": 4,
+      "label": "Type <phone> as the phone number"
+     },
+     {
+      "step": 5,
+      "label": "Save the new contact"
+     },
+     {
+      "step": 6,
+      "label": "Share the contact card"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "first_name",
+      "role": "first name of the person",
+      "kind": "text"
+     },
+     {
+      "name": "last_name",
+      "role": "last name of the person",
+      "kind": "text"
+     },
+     {
+      "name": "phone",
+      "role": "phone number of the person",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "text",
+      "template": "{first_name}"
+     },
+     {
+      "step": 3,
+      "argument": "text",
+      "template": "{last_name}"
+     },
+     {
+      "step": 4,
+      "argument": "text",
+      "template": "{phone}"
+     },
+     {
+      "step": 6,
+      "argument": "target",
+      "template": "{first_name} {last_name}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "music-new-playlist",
+   "family": "music",
+   "goal": "Create the playlist Estate 2026 and add Azzurro to it",
+   "inputs": [
+    {
+     "name": "playlist_name",
+     "value": "Estate 2026"
+    },
+    {
+     "name": "song",
+     "value": "Azzurro"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.Music",
+     "window": "library"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > New > Playlist"
+     },
+     "next": "newplaylist"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Playlist name",
+      "text": "Estate 2026"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Create"
+     },
+     "next": "library"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Estate 2026"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Add Songs"
+     },
+     "next": "songs"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Azzurro"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Add"
+     },
+     "next": "library"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Create the playlist <playlist_name> and add <song> to it"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the new playlist sheet"
+     },
+     {
+      "step": 2,
+      "label": "Type <playlist_name> as the playlist's name"
+     },
+     {
+      "step": 3,
+      "label": "Create the playlist"
+     },
+     {
+      "step": 4,
+      "label": "Select the playlist <playlist_name>"
+     },
+     {
+      "step": 5,
+      "label": "Open the song picker"
+     },
+     {
+      "step": 6,
+      "label": "Pick <song>"
+     },
+     {
+      "step": 7,
+      "label": "Add the song to the playlist"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "playlist_name",
+      "role": "name of the playlist",
+      "kind": "text"
+     },
+     {
+      "name": "song",
+      "role": "title of the song to add",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "text",
+      "template": "{playlist_name}"
+     },
+     {
+      "step": 4,
+      "argument": "target",
+      "template": "{playlist_name}"
+     },
+     {
+      "step": 6,
+      "argument": "target",
+      "template": "{song}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "numbers-chart-mail",
+   "family": "chart",
+   "goal": "Make a bar chart of the sales table, export it as vendite_q3 in PNG and email it to Paola",
+   "inputs": [
+    {
+     "name": "chart_name",
+     "value": "vendite_q3"
+    },
+    {
+     "name": "recipient",
+     "value": "paola@example.com"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.iWork.Numbers",
+     "window": "sheet"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Chart"
+     },
+     "next": "chartmenu"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Bar"
+     },
+     "next": "sheet"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Export To > Image…"
+     },
+     "next": "exportimage"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Untitled",
+      "text": "vendite_q3"
+     }
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Format",
+      "item": "PNG"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Export"
+     },
+     "next": "sheet"
+    },
+    {
+     "open": "com.apple.mail",
+     "window": "viewer"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "New Message"
+     },
+     "next": "compose"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "To",
+      "text": "paola@example.com"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Attach"
+     },
+     "next": "attach-chart"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "vendite_q3.png"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Choose File"
+     },
+     "next": "compose"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Send"
+     },
+     "next": "viewer"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Make a bar chart of the table, export it as <chart_name> in PNG and email it to <recipient>"
+    },
+    "parts": [
+     {
+      "part": "b1",
+      "label": "Make a bar chart of the table and export it as <chart_name> in PNG",
+      "outcome": "completed"
+     },
+     {
+      "part": "b2",
+      "label": "Email <attachment> to <recipient>",
+      "outcome": "completed"
+     }
+    ],
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the chart menu"
+     },
+     {
+      "step": 2,
+      "label": "Insert a bar chart"
+     },
+     {
+      "step": 3,
+      "label": "Open the Export To Image dialog"
+     },
+     {
+      "step": 4,
+      "label": "Type <chart_name> as the image's name"
+     },
+     {
+      "step": 5,
+      "label": "Choose PNG as the image format"
+     },
+     {
+      "step": 6,
+      "label": "Export the chart image"
+     },
+     {
+      "step": 7,
+      "label": "Start a new email"
+     },
+     {
+      "step": 8,
+      "label": "Type <recipient> in To"
+     },
+     {
+      "step": 9,
+      "label": "Open the attachment chooser"
+     },
+     {
+      "step": 10,
+      "label": "Pick <attachment>"
+     },
+     {
+      "step": 11,
+      "label": "Confirm the attachment"
+     },
+     {
+      "step": 12,
+      "label": "Send the email"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "chart_name",
+      "role": "name of the exported chart image",
+      "kind": "text"
+     },
+     {
+      "name": "chart_file",
+      "role": "file of the exported chart image",
+      "kind": "text",
+      "direction": "output",
+      "value": "vendite_q3.png",
+      "source": "observation",
+      "produced_by": "b1"
+     },
+     {
+      "name": "attachment",
+      "role": "name of the file attached",
+      "kind": "text",
+      "value": "vendite_q3.png",
+      "source": "observation"
+     },
+     {
+      "name": "recipient",
+      "role": "email address of the recipient",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 4,
+      "argument": "text",
+      "template": "{chart_name}"
+     },
+     {
+      "step": 8,
+      "argument": "text",
+      "template": "{recipient}"
+     },
+     {
+      "step": 10,
+      "argument": "target",
+      "template": "{attachment}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "calendar-new-event",
+   "family": "calendar",
+   "goal": "Create the event Riunione budget on 2026-10-20 at 10:00 and invite anna@example.com",
+   "inputs": [
+    {
+     "name": "event_title",
+     "value": "Riunione budget"
+    },
+    {
+     "name": "event_date",
+     "value": "2026-10-20"
+    },
+    {
+     "name": "event_time",
+     "value": "10:00"
+    },
+    {
+     "name": "invitee",
+     "value": "anna@example.com"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.iCal",
+     "window": "week"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "New Event"
+     },
+     "next": "event"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Title",
+      "text": "Riunione budget"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Date",
+      "text": "2026-10-20"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Start time",
+      "text": "10:00"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Add"
+     },
+     "next": "week"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Riunione budget"
+     },
+     "next": "details"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Invitees",
+      "text": "anna@example.com"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Send"
+     },
+     "next": "week"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Create the event <event_title> on <event_date> at <event_time> and invite <invitee>"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Start a new event"
+     },
+     {
+      "step": 2,
+      "label": "Type <event_title> as the event's title"
+     },
+     {
+      "step": 3,
+      "label": "Type <event_date> as the date"
+     },
+     {
+      "step": 4,
+      "label": "Type <event_time> as the start time"
+     },
+     {
+      "step": 5,
+      "label": "Add the event to the calendar"
+     },
+     {
+      "step": 6,
+      "label": "Open the event <event_title>"
+     },
+     {
+      "step": 7,
+      "label": "Type <invitee> as an invitee"
+     },
+     {
+      "step": 8,
+      "label": "Send the invitation"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "event_title",
+      "role": "title of the event",
+      "kind": "text"
+     },
+     {
+      "name": "event_date",
+      "role": "date of the event",
+      "kind": "text"
+     },
+     {
+      "name": "event_time",
+      "role": "start time of the event",
+      "kind": "text"
+     },
+     {
+      "name": "invitee",
+      "role": "email address of the person invited",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "text",
+      "template": "{event_title}"
+     },
+     {
+      "step": 3,
+      "argument": "text",
+      "template": "{event_date}"
+     },
+     {
+      "step": 4,
+      "argument": "text",
+      "template": "{event_time}"
+     },
+     {
+      "step": 6,
+      "argument": "target",
+      "template": "{event_title}"
+     },
+     {
+      "step": 7,
+      "argument": "text",
+      "template": "{invitee}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "photos-new-album",
+   "family": "photos",
+   "goal": "Create the album Vacanze 2026 and add the photo spiaggia.jpg to it",
+   "inputs": [
+    {
+     "name": "album_name",
+     "value": "Vacanze 2026"
+    },
+    {
+     "name": "photo",
+     "value": "spiaggia.jpg"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.Photos",
+     "window": "library"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > New Album"
+     },
+     "next": "newalbum"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Album name",
+      "text": "Vacanze 2026"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "OK"
+     },
+     "next": "library"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "spiaggia.jpg"
+     }
+    },
+    {
+     "op": "context_menu",
+     "args": {
+      "target": "spiaggia.jpg",
+      "item": "Add to Album"
+     },
+     "next": "albumpicker"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Vacanze 2026"
+     },
+     "next": "library"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Create the album <album_name> and add the photo <photo> to it"
+    },
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the new album dialog"
+     },
+     {
+      "step": 2,
+      "label": "Type <album_name> as the album's name"
+     },
+     {
+      "step": 3,
+      "label": "Create the album"
+     },
+     {
+      "step": 4,
+      "label": "Select the photo <photo>"
+     },
+     {
+      "step": 5,
+      "label": "Open the Add to Album menu for the photo"
+     },
+     {
+      "step": 6,
+      "label": "Choose the album <album_name>"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "album_name",
+      "role": "name of the album",
+      "kind": "text"
+     },
+     {
+      "name": "photo",
+      "role": "file name of the photo to add",
+      "kind": "file"
+     }
+    ],
+    "uses": [
+     {
+      "step": 2,
+      "argument": "text",
+      "template": "{album_name}"
+     },
+     {
+      "step": 4,
+      "argument": "target",
+      "template": "{photo}"
+     },
+     {
+      "step": 5,
+      "argument": "target",
+      "template": "{photo}"
+     },
+     {
+      "step": 6,
+      "argument": "target",
+      "template": "{album_name}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "keynote-slide-message",
+   "family": "slide",
+   "goal": "Export slide 3 of the presentation as PNG named slide_q3 and send it to Luca in Messages",
+   "inputs": [
+    {
+     "name": "slide_number",
+     "value": "3"
+    },
+    {
+     "name": "image_name",
+     "value": "slide_q3"
+    },
+    {
+     "name": "contact",
+     "value": "Luca"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.iWork.Keynote",
+     "window": "deck"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Slide 3"
+     }
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Export To > Images…"
+     },
+     "next": "exportimages"
+    },
+    {
+     "op": "select",
+     "args": {
+      "control": "Format",
+      "item": "PNG"
+     }
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "Save As",
+      "text": "slide_q3"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Export"
+     },
+     "next": "deck"
+    },
+    {
+     "open": "com.apple.MobileSMS",
+     "window": "conversations"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Luca"
+     },
+     "next": "chat"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Attach"
+     },
+     "next": "chooser"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "slide_q3.png"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Choose"
+     },
+     "next": "chat"
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Send"
+     }
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Export slide <slide_number> as a PNG image named <image_name> and send it to <contact> in Messages"
+    },
+    "parts": [
+     {
+      "part": "b1",
+      "label": "Export slide <slide_number> as a PNG image named <image_name>",
+      "outcome": "completed"
+     },
+     {
+      "part": "b2",
+      "label": "Send <attachment> to <contact> in Messages",
+      "outcome": "completed"
+     }
+    ],
+    "steps": [
+     {
+      "step": 1,
+      "label": "Select slide <slide_number>"
+     },
+     {
+      "step": 2,
+      "label": "Open the Export To Images dialog"
+     },
+     {
+      "step": 3,
+      "label": "Choose PNG as the image format"
+     },
+     {
+      "step": 4,
+      "label": "Type <image_name> as the file name"
+     },
+     {
+      "step": 5,
+      "label": "Export the slide image"
+     },
+     {
+      "step": 6,
+      "label": "Open the conversation with <contact>"
+     },
+     {
+      "step": 7,
+      "label": "Open the attachment chooser"
+     },
+     {
+      "step": 8,
+      "label": "Pick <attachment>"
+     },
+     {
+      "step": 9,
+      "label": "Confirm the attachment"
+     },
+     {
+      "step": 10,
+      "label": "Send the message"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "slide_number",
+      "role": "number of the slide",
+      "kind": "text"
+     },
+     {
+      "name": "image_name",
+      "role": "name of the exported image without extension",
+      "kind": "text"
+     },
+     {
+      "name": "slide_image",
+      "role": "file of the exported slide image",
+      "kind": "file",
+      "direction": "output",
+      "value": "slide_q3.png",
+      "source": "observation",
+      "produced_by": "b1"
+     },
+     {
+      "name": "attachment",
+      "role": "file attached to the message",
+      "kind": "file",
+      "value": "slide_q3.png",
+      "source": "previous_output",
+      "source_ref": "slide_image"
+     },
+     {
+      "name": "contact",
+      "role": "name of the person written to",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 1,
+      "argument": "target",
+      "template": "Slide {slide_number}"
+     },
+     {
+      "step": 4,
+      "argument": "text",
+      "template": "{image_name}"
+     },
+     {
+      "step": 6,
+      "argument": "target",
+      "template": "{contact}"
+     },
+     {
+      "step": 8,
+      "argument": "target",
+      "template": "{attachment}"
+     }
+    ]
+   }
+  },
+  {
+   "id": "report-relay",
+   "family": "relay",
+   "goal": "Export the report as report_q3 from Pages, download the shared report, then email the exported report to Anna",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "report_q3"
+    },
+    {
+     "name": "recipient",
+     "value": "anna@example.com"
+    }
+   ],
+   "run": [
+    {
+     "open": "com.apple.iWork.Pages",
+     "window": "document"
+    },
+    {
+     "op": "menu",
+     "args": {
+      "path": "File > Export To > PDF…"
+     },
+     "next": "export"
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Next…"
+     },
+     "next": "saveexport"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "relazione",
+      "text": "report_q3"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Export"
+     },
+     "next": "document"
+    },
+    {
+     "open": "com.apple.Safari",
+     "window": "shared"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "report_q3.pdf"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Download"
+     }
+    },
+    {
+     "open": "com.apple.mail",
+     "window": "viewer"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "New Message"
+     },
+     "next": "compose"
+    },
+    {
+     "op": "type_text",
+     "args": {
+      "target": "To",
+      "text": "anna@example.com"
+     }
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Attach"
+     },
+     "next": "attach"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "report_q3.pdf"
+     }
+    },
+    {
+     "op": "press",
+     "args": {
+      "button": "Choose File"
+     },
+     "next": "compose"
+    },
+    {
+     "op": "act",
+     "args": {
+      "target": "Send"
+     },
+     "next": "viewer"
+    }
+   ],
+   "end": "completed",
+   "interpretation": {
+    "procedure": {
+     "label": "Export the report from Pages, download the shared report, and email the exported one to <recipient>"
+    },
+    "parts": [
+     {
+      "part": "b1",
+      "label": "Export the document to PDF as <output_name>",
+      "outcome": "completed"
+     },
+     {
+      "part": "b2",
+      "label": "Download the shared report",
+      "outcome": "completed"
+     },
+     {
+      "part": "b3",
+      "label": "Email <attachment> to <recipient>",
+      "outcome": "completed"
+     }
+    ],
+    "steps": [
+     {
+      "step": 1,
+      "label": "Open the PDF export options"
+     },
+     {
+      "step": 2,
+      "label": "Go on to the file name"
+     },
+     {
+      "step": 3,
+      "label": "Type <output_name> as the exported file's name"
+     },
+     {
+      "step": 4,
+      "label": "Export the file"
+     },
+     {
+      "step": 5,
+      "label": "Select the shared report"
+     },
+     {
+      "step": 6,
+      "label": "Download the selected file"
+     },
+     {
+      "step": 7,
+      "label": "Start a new email"
+     },
+     {
+      "step": 8,
+      "label": "Type <recipient> in To"
+     },
+     {
+      "step": 9,
+      "label": "Open the attachment chooser"
+     },
+     {
+      "step": 10,
+      "label": "Pick <attachment>"
+     },
+     {
+      "step": 11,
+      "label": "Confirm the attachment"
+     },
+     {
+      "step": 12,
+      "label": "Send the email"
+     }
+    ],
+    "parameters": [
+     {
+      "name": "output_name",
+      "role": "name of the exported file",
+      "kind": "text"
+     },
+     {
+      "name": "exported_report",
+      "role": "the report exported from Pages",
+      "kind": "file",
+      "direction": "output",
+      "value": "report_q3.pdf",
+      "source": "observation",
+      "produced_by": "b1"
+     },
+     {
+      "name": "downloaded_report",
+      "role": "the shared report downloaded from the portal",
+      "kind": "file",
+      "direction": "output",
+      "value": "report_q3.pdf",
+      "source": "observation",
+      "produced_by": "b2"
+     },
+     {
+      "name": "attachment",
+      "role": "the file attached to the email",
+      "kind": "file",
+      "value": "report_q3.pdf",
+      "source": "previous_output",
+      "source_ref": "exported_report"
+     },
+     {
+      "name": "recipient",
+      "role": "email address of the recipient",
+      "kind": "text"
+     }
+    ],
+    "uses": [
+     {
+      "step": 3,
+      "argument": "text",
+      "template": "{output_name}"
+     },
+     {
+      "step": 8,
+      "argument": "text",
+      "template": "{recipient}"
+     },
+     {
+      "step": 10,
+      "argument": "target",
+      "template": "{attachment}"
+     }
+    ]
+   }
+  }
+ ],
+ "queries": [
+  {
+   "id": "photo-1",
+   "family": "photo",
+   "split": "dev",
+   "language": "en",
+   "kind": "tract with ready output",
+   "remaining": "Export the photo already rotated in Preview as foto_mail.png in PNG",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "foto_mail"
+    },
+    {
+     "name": "output_extension",
+     "value": "png"
+    },
+    {
+     "name": "output_format",
+     "value": "PNG"
+    }
+   ],
+   "expect": {
+    "forbid_steps": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       3
+      ]
+     }
+    ],
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       4,
+       7
+      ]
+     },
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       4,
+       7
+      ]
+     }
+    ],
+    "bindings": {
+     "output_name": "foto_mail"
+    }
+   },
+   "why": "the rotation is done: only the export episode, with the new values",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "photo-2",
+   "family": "photo",
+   "split": "dev",
+   "language": "it",
+   "kind": "tract with ready output, Italian",
+   "remaining": "Esporta in PNG la foto già aperta in Anteprima con il nome foto_mail",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "foto_mail"
+    },
+    {
+     "name": "output_extension",
+     "value": "png"
+    },
+    {
+     "name": "output_format",
+     "value": "PNG"
+    }
+   ],
+   "expect": {
+    "forbid_steps": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       3
+      ]
+     }
+    ],
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       4,
+       7
+      ]
+     },
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       4,
+       7
+      ]
+     }
+    ]
+   },
+   "why": "Italian request over English labels",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "photo-3",
+   "family": "photo",
+   "split": "dev",
+   "language": "en",
+   "kind": "whole procedure, new values",
+   "remaining": "Find ritratto.png in Finder, rotate it right in Preview and export it as ritratto_web.jpg",
+   "inputs": [
+    {
+     "name": "criterion",
+     "value": "ritratto"
+    },
+    {
+     "name": "output_name",
+     "value": "ritratto_web"
+    },
+    {
+     "name": "output_extension",
+     "value": "jpg"
+    },
+    {
+     "name": "output_format",
+     "value": "JPEG"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       1,
+       7
+      ]
+     },
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       1,
+       8
+      ]
+     }
+    ],
+    "bindings": {
+     "criterion": "ritratto"
+    }
+   },
+   "why": "the whole method, without copying foto_demo or foto_web",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "photo-4",
+   "family": "photo",
+   "split": "dev",
+   "language": "en",
+   "kind": "single step",
+   "remaining": "Rotate the open image to the right",
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       3,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "a step that leaves the state unchanged is an episode of its own",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "photo-5",
+   "family": "photo",
+   "split": "dev",
+   "language": "en",
+   "kind": "missing parameter",
+   "remaining": "Export the edited photo in Preview with the name foto_mail",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "foto_mail"
+    },
+    {
+     "name": "output_extension",
+     "value": "png"
+    }
+   ],
+   "expect": {
+    "forbid_steps": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       3
+      ]
+     }
+    ],
+    "coverage": "ambiguous",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       4,
+       7
+      ]
+     },
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       4,
+       7
+      ]
+     }
+    ]
+   },
+   "why": "the format is needed and the request does not give it: the agent must ask or observe",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "photo-6",
+   "family": "photo",
+   "split": "dev",
+   "language": "mixed",
+   "kind": "mixed language, compatibility unknown",
+   "remaining": "export la foto modificata as TIFF chiamata foto_stampa",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "foto_stampa"
+    },
+    {
+     "name": "output_extension",
+     "value": "tiff"
+    },
+    {
+     "name": "output_format",
+     "value": "TIFF"
+    }
+   ],
+   "expect": {
+    "forbid_steps": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       3
+      ]
+     }
+    ],
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       4,
+       7
+      ]
+     },
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       4,
+       7
+      ]
+     }
+    ],
+    "conditions": [
+     "compatibility_unknown"
+    ]
+   },
+   "why": "TIFF was never chosen: the method is proposed with its compatibility to check",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "print-1",
+   "family": "print",
+   "split": "dev",
+   "language": "en",
+   "kind": "near but incompatible, resolved",
+   "remaining": "Print all the pages of the open PDF",
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "print-all-pages",
+      "steps": [
+       1,
+       3
+      ]
+     }
+    ],
+    "exclude": [
+     "print-current-page"
+    ]
+   },
+   "why": "printing all pages is not printing the current page",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "print-2",
+   "family": "print",
+   "split": "dev",
+   "language": "en",
+   "kind": "near but incompatible, resolved",
+   "remaining": "Print just the current page of this PDF",
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "print-current-page",
+      "steps": [
+       1,
+       3
+      ]
+     }
+    ],
+    "exclude": [
+     "print-all-pages"
+    ]
+   },
+   "why": "only the page being read",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "print-3",
+   "family": "print",
+   "split": "dev",
+   "language": "en",
+   "kind": "ambiguity between variants",
+   "remaining": "Print the open PDF",
+   "expect": {
+    "coverage": "ambiguous",
+    "accept": [],
+    "alternatives": [
+     "print-current-page",
+     "print-all-pages"
+    ]
+   },
+   "why": "the request does not say which pages",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "print-4",
+   "family": "print",
+   "split": "dev",
+   "language": "it",
+   "kind": "near but incompatible, Italian",
+   "remaining": "Stampa tutte le pagine del PDF aperto",
+   "expect": {
+    "coverage": [
+     "complete",
+     "ambiguous"
+    ],
+    "accept": [
+     {
+      "knowledge": "print-all-pages",
+      "steps": [
+       1,
+       3
+      ]
+     }
+    ],
+    "exclude": [
+     "print-current-page"
+    ]
+   },
+   "why": "Italian over English labels; asking is acceptable, the current page is not",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "textcopy-1",
+   "family": "textcopy",
+   "split": "dev",
+   "language": "en",
+   "kind": "alternative valid methods, superseded version",
+   "remaining": "Save a copy of the open note named appunti_copia on the Desktop",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "appunti_copia"
+    },
+    {
+     "name": "output_folder",
+     "value": "Desktop",
+     "kind": "folder"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "textedit-duplicate-save",
+      "steps": [
+       1,
+       5
+      ]
+     },
+     {
+      "knowledge": "textedit-save-as-copy",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "exclude": [
+     "textedit-duplicate-save@1"
+    ]
+   },
+   "why": "either method makes a copy; the version superseded by the reinterpretation is never offered",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "textcopy-2",
+   "family": "textcopy",
+   "split": "dev",
+   "language": "it",
+   "kind": "alternative valid methods, Italian",
+   "remaining": "Salva il documento come nuovo file mantenendo l'originale, nome bozza_2 in Documenti",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "bozza_2"
+    },
+    {
+     "name": "output_folder",
+     "value": "Documents",
+     "kind": "folder"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "textedit-save-as-copy",
+      "steps": [
+       1,
+       5
+      ]
+     },
+     {
+      "knowledge": "textedit-duplicate-save",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "exclude": [
+     "textedit-duplicate-save@1"
+    ]
+   },
+   "why": "keeping the original is what both methods do",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "textcopy-3",
+   "family": "textcopy",
+   "split": "dev",
+   "language": "en",
+   "kind": "binding by role",
+   "remaining": "Make a duplicate of the document and save it as verbale_def in Documents",
+   "inputs": [
+    {
+     "name": "copy name",
+     "value": "verbale_def",
+     "role": "name of the copy"
+    },
+    {
+     "name": "destination",
+     "value": "Documents",
+     "kind": "folder",
+     "role": "folder where the copy is saved"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "textedit-duplicate-save",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "bindings": {
+     "output_name": "verbale_def",
+     "output_folder": "Documents"
+    },
+    "exclude": [
+     "textedit-duplicate-save@1"
+    ]
+   },
+   "why": "the task's names differ from the parameters'; the roles bind them",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "webform-1",
+   "family": "webform",
+   "split": "dev",
+   "language": "en",
+   "kind": "whole procedure, new values",
+   "remaining": "Fill in the supplier contact form with Giulia Bianchi, giulia@example.com and ask for a quote, then submit",
+   "inputs": [
+    {
+     "name": "full_name",
+     "value": "Giulia Bianchi"
+    },
+    {
+     "name": "email",
+     "value": "giulia@example.com"
+    },
+    {
+     "name": "message",
+     "value": "Vorrei un preventivo"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "contact-form",
+      "steps": [
+       1,
+       4
+      ]
+     }
+    ],
+    "bindings": {
+     "email": "giulia@example.com"
+    }
+   },
+   "why": "the form with the new person's values",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "webform-2",
+   "family": "webform",
+   "split": "dev",
+   "language": "en",
+   "kind": "output ready, last step",
+   "remaining": "The contact form is already filled in: just submit it",
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "contact-form",
+      "steps": [
+       4,
+       4
+      ]
+     }
+    ]
+   },
+   "why": "typing again what is already in the form would repeat done work",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "webform-3",
+   "family": "webform",
+   "split": "dev",
+   "language": "it",
+   "kind": "missing parameter, Italian",
+   "remaining": "Compila e invia il modulo contatti a nome di Luca Verdi chiedendo un appuntamento",
+   "inputs": [
+    {
+     "name": "full_name",
+     "value": "Luca Verdi"
+    },
+    {
+     "name": "message",
+     "value": "Vorrei un appuntamento"
+    }
+   ],
+   "expect": {
+    "coverage": "ambiguous",
+    "accept": [
+     {
+      "knowledge": "contact-form",
+      "steps": [
+       1,
+       4
+      ]
+     }
+    ]
+   },
+   "why": "the email address is needed and not given",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "mail-1",
+   "family": "mailattach",
+   "split": "dev",
+   "language": "en",
+   "kind": "subprocedure with ready input",
+   "remaining": "Email the already found report_q3.pdf to luca@example.com with subject Numeri Q3",
+   "inputs": [
+    {
+     "name": "file_name",
+     "value": "report_q3.pdf"
+    },
+    {
+     "name": "recipient",
+     "value": "luca@example.com"
+    },
+    {
+     "name": "subject",
+     "value": "Numeri Q3"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "mail-attach",
+      "steps": [
+       3,
+       9
+      ]
+     }
+    ],
+    "bindings": {
+     "recipient": "luca@example.com"
+    }
+   },
+   "why": "the file is ready: the Finder search is not repeated",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "mail-2",
+   "family": "mailattach",
+   "split": "dev",
+   "language": "it",
+   "kind": "whole procedure, Italian",
+   "remaining": "Trova il file bilancio.pdf nel Finder e mandalo per email a marta@example.com con oggetto Bilancio",
+   "inputs": [
+    {
+     "name": "file_name",
+     "value": "bilancio.pdf"
+    },
+    {
+     "name": "recipient",
+     "value": "marta@example.com"
+    },
+    {
+     "name": "subject",
+     "value": "Bilancio"
+    }
+   ],
+   "expect": {
+    "coverage": [
+     "complete",
+     "ambiguous"
+    ],
+    "accept": [
+     {
+      "knowledge": "mail-attach",
+      "steps": [
+       1,
+       9
+      ]
+     }
+    ]
+   },
+   "why": "the whole procedure; the search criterion may be asked",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "mail-3",
+   "family": "mailattach",
+   "split": "dev",
+   "language": "en",
+   "kind": "needs split, one absent",
+   "remaining": "Send report_q3.pdf to anna@example.com and then archive the email thread",
+   "needs": [
+    {
+     "text": "Email report_q3.pdf to anna@example.com"
+    },
+    {
+     "text": "Archive the email thread"
+    }
+   ],
+   "inputs": [
+    {
+     "name": "file_name",
+     "value": "report_q3.pdf"
+    },
+    {
+     "name": "recipient",
+     "value": "anna@example.com"
+    },
+    {
+     "name": "subject",
+     "value": "Report"
+    }
+   ],
+   "expect": {
+    "coverage": [
+     "partial",
+     "ambiguous"
+    ],
+    "needs": [
+     {
+      "coverage": [
+       "complete",
+       "ambiguous"
+      ],
+      "accept": [
+       {
+        "knowledge": "mail-attach",
+        "steps": [
+         3,
+         9
+        ]
+       },
+       {
+        "knowledge": "mail-attach",
+        "steps": [
+         1,
+         9
+        ]
+       }
+      ]
+     },
+     {
+      "coverage": "absent",
+      "accept": []
+     }
+    ]
+   },
+   "why": "nothing learned archives a thread",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "sheets-1",
+   "family": "sheets",
+   "split": "dev",
+   "language": "en",
+   "kind": "compatibility unknown",
+   "remaining": "Sort the sales table by Amount, largest first",
+   "inputs": [
+    {
+     "name": "sort_column",
+     "value": "Amount"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "numbers-sort-desc",
+      "steps": [
+       1,
+       4
+      ]
+     }
+    ],
+    "exclude": [
+     "numbers-filter"
+    ],
+    "conditions": [
+     "compatibility_unknown"
+    ]
+   },
+   "why": "another column than the learned one: to check in the pop-up",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "sheets-2",
+   "family": "sheets",
+   "split": "dev",
+   "language": "en",
+   "kind": "near method, different result",
+   "remaining": "Keep only the rows where Region is South",
+   "inputs": [
+    {
+     "name": "filter_column",
+     "value": "Region"
+    },
+    {
+     "name": "filter_value",
+     "value": "South"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "numbers-filter",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "exclude": [
+     "numbers-sort-desc"
+    ]
+   },
+   "why": "filtering is not sorting, though both start from Sort & Filter",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "sheets-3",
+   "family": "sheets",
+   "split": "dev",
+   "language": "it",
+   "kind": "Italian paraphrase",
+   "remaining": "Ordina la tabella dal valore più grande al più piccolo sulla colonna Totale",
+   "inputs": [
+    {
+     "name": "sort_column",
+     "value": "Total"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "numbers-sort-desc",
+      "steps": [
+       1,
+       4
+      ]
+     }
+    ],
+    "exclude": [
+     "numbers-filter"
+    ]
+   },
+   "why": "Italian paraphrase of the learned sort",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "slides-1",
+   "family": "slides",
+   "split": "dev",
+   "language": "en",
+   "kind": "retired part",
+   "remaining": "Export the presentation to PDF named deck_final",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "deck_final"
+    }
+   ],
+   "expect": {
+    "coverage": [
+     "partial",
+     "absent"
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "keynote-export-pdf",
+      "steps": [
+       2
+      ]
+     }
+    ]
+   },
+   "why": "the step retired after indexing is never delivered, and the episode without it is not complete",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "absent-1",
+   "family": "absent-dev",
+   "split": "dev",
+   "language": "en",
+   "kind": "absence",
+   "remaining": "Create an event in Calendar for Friday at 10 called Revisione",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned works with Calendar",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "absent-2",
+   "family": "absent-dev",
+   "split": "dev",
+   "language": "it",
+   "kind": "absence, Italian",
+   "remaining": "Imposta una sveglia alle 7 nell'app Orologio",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "no clock knowledge",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "absent-3",
+   "family": "absent-dev",
+   "split": "dev",
+   "language": "en",
+   "kind": "absence near a learned app",
+   "remaining": "Change the Wi-Fi network in System Settings",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "no settings knowledge",
+   "v1_split": "dev",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "resize-1",
+   "family": "resize",
+   "split": "dev",
+   "language": "en",
+   "kind": "tract inside a procedure",
+   "remaining": "Resize the open image to 800 pixels wide",
+   "inputs": [
+    {
+     "name": "width",
+     "value": "800",
+     "kind": "number"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       1,
+       3
+      ]
+     }
+    ],
+    "bindings": {
+     "width": "800"
+    }
+   },
+   "why": "the adjust-size episode only, not the export",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "resize-2",
+   "family": "resize",
+   "split": "dev",
+   "language": "it",
+   "kind": "Italian tract inside a procedure",
+   "remaining": "Ridimensiona l'immagine aperta in Anteprima a 640 pixel di larghezza",
+   "inputs": [
+    {
+     "name": "width",
+     "value": "640",
+     "kind": "number"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       1,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "Italian request",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "resize-3",
+   "family": "resize",
+   "split": "dev",
+   "language": "en",
+   "kind": "whole procedure",
+   "remaining": "Scale the picture to 1024 px wide and then export it as thumb.png",
+   "inputs": [
+    {
+     "name": "width",
+     "value": "1024",
+     "kind": "number"
+    },
+    {
+     "name": "name",
+     "value": "thumb"
+    },
+    {
+     "name": "extension",
+     "value": "png"
+    },
+    {
+     "name": "format",
+     "value": "PNG"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       1,
+       7
+      ]
+     }
+    ]
+   },
+   "why": "both episodes",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "resize-4",
+   "family": "resize",
+   "split": "dev",
+   "language": "en",
+   "kind": "missing parameter",
+   "remaining": "Make the open image smaller in width",
+   "expect": {
+    "coverage": "ambiguous",
+    "accept": [
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       1,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "the width is needed",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "docexport-1",
+   "family": "docexport",
+   "split": "dev",
+   "language": "en",
+   "kind": "variants resolved",
+   "remaining": "Export the open Pages document to Word as relazione_v3",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "relazione_v3"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "pages-export-word",
+      "steps": [
+       1,
+       4
+      ]
+     }
+    ],
+    "exclude": [
+     "pages-export-pdf"
+    ]
+   },
+   "why": "Word, not PDF",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "docexport-2",
+   "family": "docexport",
+   "split": "dev",
+   "language": "it",
+   "kind": "variants resolved, Italian",
+   "remaining": "Esporta il documento di Pages in PDF con nome relazione_finale",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "relazione_finale"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "pages-export-pdf",
+      "steps": [
+       1,
+       4
+      ]
+     }
+    ],
+    "exclude": [
+     "pages-export-word"
+    ]
+   },
+   "why": "PDF, not Word",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "docexport-3",
+   "family": "docexport",
+   "split": "dev",
+   "language": "en",
+   "kind": "ambiguity between variants",
+   "remaining": "Export the open Pages document as relazione_x",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "relazione_x"
+    }
+   ],
+   "expect": {
+    "coverage": "ambiguous",
+    "accept": [],
+    "alternatives": [
+     "pages-export-word",
+     "pages-export-pdf"
+    ]
+   },
+   "why": "the format is the request's choice",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "docexport-4",
+   "family": "docexport",
+   "split": "dev",
+   "language": "en",
+   "kind": "no method for the requested choice",
+   "remaining": "Export the open Pages document to EPUB",
+   "expect": {
+    "coverage": [
+     "absent",
+     "ambiguous",
+     "partial"
+    ],
+    "exclude": [
+     "pages-export-word",
+     "pages-export-pdf"
+    ]
+   },
+   "why": "neither learned method produces EPUB: a complete proposal of either would be an incompatible delivery",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "download-1",
+   "family": "download",
+   "split": "dev",
+   "language": "en",
+   "kind": "whole procedure, new value",
+   "remaining": "Download invoice INV-2026-032 from the supplier portal as PDF",
+   "inputs": [
+    {
+     "name": "invoice",
+     "value": "INV-2026-032"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "safari-download-invoice",
+      "steps": [
+       1,
+       3
+      ]
+     }
+    ],
+    "bindings": {
+     "invoice": "INV-2026-032"
+    }
+   },
+   "why": "another invoice, the same method",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "download-2",
+   "family": "download",
+   "split": "dev",
+   "language": "it",
+   "kind": "output ready",
+   "remaining": "Sono già sulla pagina delle fatture con la fattura INV-2026-040 selezionata: scaricala in PDF",
+   "inputs": [
+    {
+     "name": "invoice",
+     "value": "INV-2026-040"
+    }
+   ],
+   "expect": {
+    "coverage": [
+     "complete",
+     "partial"
+    ],
+    "accept": [
+     {
+      "knowledge": "safari-download-invoice",
+      "steps": [
+       3,
+       3
+      ]
+     },
+     {
+      "knowledge": "safari-download-invoice",
+      "steps": [
+       2,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "the page is open and the invoice selected: the navigation is not repeated",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "notes-1",
+   "family": "notes",
+   "split": "dev",
+   "language": "en",
+   "kind": "cross-application procedure",
+   "remaining": "Write a note titled Budget and email it to sara@example.com",
+   "inputs": [
+    {
+     "name": "note_title",
+     "value": "Budget"
+    },
+    {
+     "name": "recipient",
+     "value": "sara@example.com"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "notes-share-mail",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ]
+   },
+   "why": "both blocks, with the switch of application declared",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "notes-2",
+   "family": "notes",
+   "split": "dev",
+   "language": "en",
+   "kind": "subprocedure in one application",
+   "remaining": "Create a new note titled Idee in Notes",
+   "inputs": [
+    {
+     "name": "note_title",
+     "value": "Idee"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "notes-share-mail",
+      "steps": [
+       1,
+       2
+      ]
+     }
+    ]
+   },
+   "why": "only the note, no sharing",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "compress-1",
+   "family": "compress",
+   "split": "dev",
+   "language": "it",
+   "kind": "homonymy",
+   "remaining": "Comprimi la cartella Progetto in un archivio zip",
+   "inputs": [
+    {
+     "name": "folder",
+     "value": "Progetto"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "finder-compress-folder",
+      "steps": [
+       1,
+       1
+      ]
+     }
+    ],
+    "exclude": [
+     "preview-reduce-pdf-size"
+    ]
+   },
+   "why": "compressing a folder is not reducing a PDF",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "compress-2",
+   "family": "compress",
+   "split": "dev",
+   "language": "en",
+   "kind": "homonymy",
+   "remaining": "Make the open PDF smaller so it can be emailed, as contratto_light.pdf",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "contratto_light.pdf"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "preview-reduce-pdf-size",
+      "steps": [
+       1,
+       4
+      ]
+     }
+    ],
+    "exclude": [
+     "finder-compress-folder"
+    ]
+   },
+   "why": "reducing a PDF is not zipping a folder",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "editor-1",
+   "family": "editor",
+   "split": "dev",
+   "language": "en",
+   "kind": "whole procedure, new values",
+   "remaining": "In the open file replace every occurrence of debug with release and save it",
+   "inputs": [
+    {
+     "name": "search_text",
+     "value": "debug"
+    },
+    {
+     "name": "replacement",
+     "value": "release"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "vscode-find-replace",
+      "steps": [
+       1,
+       6
+      ]
+     },
+     {
+      "knowledge": "vscode-find-replace",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "exclude": [
+     "vscode-save-copy"
+    ]
+   },
+   "why": "find and replace, then save",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "editor-2",
+   "family": "editor",
+   "split": "dev",
+   "language": "it",
+   "kind": "near method",
+   "remaining": "Salva il file aperto con il nome config.dev.yaml nella cartella project",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "config.dev.yaml"
+    },
+    {
+     "name": "output_folder",
+     "value": "project",
+     "kind": "folder"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "vscode-save-copy",
+      "steps": [
+       1,
+       4
+      ]
+     }
+    ],
+    "exclude": [
+     "vscode-find-replace"
+    ]
+   },
+   "why": "saving under a new name, not replacing text",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "partial-1",
+   "family": "partial-final",
+   "split": "dev",
+   "language": "en",
+   "kind": "needs split, one absent near a known word",
+   "remaining": "Download invoice INV-2026-033 from the supplier portal and upload it to the accounting system",
+   "needs": [
+    {
+     "text": "Download invoice INV-2026-033 from the supplier portal"
+    },
+    {
+     "text": "Upload the downloaded invoice to the accounting system"
+    }
+   ],
+   "inputs": [
+    {
+     "name": "invoice",
+     "value": "INV-2026-033"
+    }
+   ],
+   "expect": {
+    "coverage": "partial",
+    "needs": [
+     {
+      "coverage": "complete",
+      "accept": [
+       {
+        "knowledge": "safari-download-invoice",
+        "steps": [
+         1,
+         3
+        ]
+       }
+      ]
+     },
+     {
+      "coverage": "absent",
+      "accept": []
+     }
+    ]
+   },
+   "why": "the download is known, the upload is not, though it speaks of the same invoice",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "absent-4",
+   "family": "absent-final",
+   "split": "dev",
+   "language": "en",
+   "kind": "absence",
+   "remaining": "Book a meeting room for tomorrow in the company intranet",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned books rooms",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "absent-5",
+   "family": "absent-final",
+   "split": "dev",
+   "language": "it",
+   "kind": "absence, Italian",
+   "remaining": "Registra una nota vocale con Memo Vocali",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "no voice memo knowledge",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "absent-6",
+   "family": "absent-final",
+   "split": "dev",
+   "language": "en",
+   "kind": "absence near learned words",
+   "remaining": "Export the browser bookmarks to an HTML file",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "export is a learned word, bookmarks are not learned",
+   "v1_split": "final",
+   "critical": false,
+   "v2_split": "regression"
+  },
+  {
+   "id": "d2-photo-original",
+   "family": "photo",
+   "split": "dev",
+   "language": "en",
+   "kind": "bootstrap, ready document",
+   "critical": true,
+   "remaining": "Export the document already open and edited in Preview as a PNG file named foto_mail",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "foto_mail",
+     "role": "name of the exported file without extension"
+    },
+    {
+     "name": "output_extension",
+     "value": "png",
+     "role": "extension of the exported file"
+    },
+    {
+     "name": "output_format",
+     "value": "PNG",
+     "role": "format chosen in the Export dialog"
+    },
+    {
+     "name": "document",
+     "value": "foto_demo.png",
+     "kind": "file",
+     "source": "previous_output",
+     "source_ref": "task-1/exported"
+    }
+   ],
+   "bootstrap": [
+    "photo-export"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       4,
+       7
+      ]
+     },
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       4,
+       7
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       1,
+       2,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "the review's wording of the first learned case: the export tract, not the search and the edit",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-photo-evaluated",
+   "family": "photo",
+   "split": "dev",
+   "language": "en",
+   "kind": "bootstrap, ready document",
+   "critical": true,
+   "remaining": "Export the photo already rotated in Preview as foto_mail.png in PNG",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "foto_mail",
+     "role": "name of the exported file without extension"
+    },
+    {
+     "name": "output_extension",
+     "value": "png",
+     "role": "extension of the exported file"
+    },
+    {
+     "name": "output_format",
+     "value": "PNG",
+     "role": "format chosen in the Export dialog"
+    },
+    {
+     "name": "document",
+     "value": "foto_demo.png",
+     "kind": "file",
+     "source": "previous_output",
+     "source_ref": "task-1/exported"
+    }
+   ],
+   "bootstrap": [
+    "photo-export"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       4,
+       7
+      ]
+     },
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       4,
+       7
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       1,
+       2,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "the wording of v1's photo-1, now on an archive of one procedure as well",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-photo-para-en",
+   "family": "photo",
+   "split": "dev",
+   "language": "en",
+   "kind": "paraphrase, ready document",
+   "critical": true,
+   "remaining": "Save the picture I just edited in Preview as a PNG called foto_mail",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "foto_mail",
+     "role": "name of the exported file without extension"
+    },
+    {
+     "name": "output_extension",
+     "value": "png",
+     "role": "extension of the exported file"
+    },
+    {
+     "name": "output_format",
+     "value": "PNG",
+     "role": "format chosen in the Export dialog"
+    },
+    {
+     "name": "document",
+     "value": "foto_demo.png",
+     "kind": "file",
+     "source": "previous_output",
+     "source_ref": "task-1/exported"
+    }
+   ],
+   "bootstrap": [
+    "photo-export"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       4,
+       7
+      ]
+     },
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       4,
+       7
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       1,
+       2,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "an English paraphrase that shares few words with the labels",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-photo-para-it",
+   "family": "photo",
+   "split": "dev",
+   "language": "it",
+   "kind": "paraphrase, ready document",
+   "critical": true,
+   "remaining": "Salva l'immagine appena modificata in Anteprima come PNG con nome foto_mail",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "foto_mail",
+     "role": "name of the exported file without extension"
+    },
+    {
+     "name": "output_extension",
+     "value": "png",
+     "role": "extension of the exported file"
+    },
+    {
+     "name": "output_format",
+     "value": "PNG",
+     "role": "format chosen in the Export dialog"
+    },
+    {
+     "name": "document",
+     "value": "foto_demo.png",
+     "kind": "file",
+     "source": "previous_output",
+     "source_ref": "task-1/exported"
+    }
+   ],
+   "bootstrap": [
+    "photo-export"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       4,
+       7
+      ]
+     },
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       4,
+       7
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       1,
+       2,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "an Italian request over English labels",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-photo-para-mixed",
+   "family": "photo",
+   "split": "dev",
+   "language": "mixed",
+   "kind": "paraphrase, ready document",
+   "critical": true,
+   "remaining": "esporta l'immagine edited in PNG, name foto_mail",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "foto_mail",
+     "role": "name of the exported file without extension"
+    },
+    {
+     "name": "output_extension",
+     "value": "png",
+     "role": "extension of the exported file"
+    },
+    {
+     "name": "output_format",
+     "value": "PNG",
+     "role": "format chosen in the Export dialog"
+    },
+    {
+     "name": "document",
+     "value": "foto_demo.png",
+     "kind": "file",
+     "source": "previous_output",
+     "source_ref": "task-1/exported"
+    }
+   ],
+   "bootstrap": [
+    "photo-export"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       4,
+       7
+      ]
+     },
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       4,
+       7
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       1,
+       2,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "a mixed request",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-photo-dialog",
+   "family": "photo",
+   "split": "dev",
+   "language": "en",
+   "kind": "partial segment, dialog open",
+   "critical": false,
+   "remaining": "In the Export dialog already open, choose PNG as the format",
+   "inputs": [
+    {
+     "name": "output_format",
+     "value": "PNG",
+     "role": "format chosen in the Export dialog"
+    }
+   ],
+   "observed": {
+    "knowledge": "photo-export",
+    "step": 6
+   },
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       6,
+       6
+      ]
+     },
+     {
+      "knowledge": "preview-resize-export",
+      "steps": [
+       6,
+       6
+      ]
+     }
+    ],
+    "conditions": [
+     "observed_state"
+    ]
+   },
+   "why": "the dialog is open: only its format control",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-photo-left-it",
+   "family": "photo",
+   "split": "dev",
+   "language": "it",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Ruota la foto di 90 gradi verso sinistra",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "only a rotation to the right was learned",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-print-all",
+   "family": "print",
+   "split": "dev",
+   "language": "en",
+   "kind": "fixed choice, compatible variant",
+   "critical": true,
+   "remaining": "Print the open PDF",
+   "inputs": [
+    {
+     "name": "pages",
+     "value": "All",
+     "role": "pages to print"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "print-all-pages",
+      "steps": [
+       1,
+       3
+      ]
+     }
+    ],
+    "exclude": [
+     "print-current-page"
+    ],
+    "excluded": [
+     "print-current-page"
+    ]
+   },
+   "why": "the task says all pages: the current-page variant contradicts it",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-print-dialog",
+   "family": "print",
+   "split": "dev",
+   "language": "en",
+   "kind": "partial segment, dialog open",
+   "critical": false,
+   "remaining": "The Print dialog is already open: confirm printing",
+   "observed": {
+    "knowledge": "print-all-pages",
+    "step": 3
+   },
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "print-all-pages",
+      "steps": [
+       3,
+       3
+      ]
+     },
+     {
+      "knowledge": "print-current-page",
+      "steps": [
+       3,
+       3
+      ]
+     }
+    ],
+    "conditions": [
+     "observed_state"
+    ]
+   },
+   "why": "only the confirmation",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-print-it",
+   "family": "print",
+   "split": "dev",
+   "language": "it",
+   "kind": "variant chosen by words",
+   "critical": true,
+   "remaining": "Stampa soltanto la pagina che sto leggendo del PDF aperto",
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "print-current-page",
+      "steps": [
+       1,
+       3
+      ]
+     }
+    ],
+    "exclude": [
+     "print-all-pages"
+    ]
+   },
+   "why": "the current page, in Italian",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-mail-constraint",
+   "family": "mailattach",
+   "split": "dev",
+   "language": "en",
+   "kind": "constraint",
+   "critical": true,
+   "remaining": "Email report_q3.pdf to luca@example.com with subject Numeri, without using Finder",
+   "inputs": [
+    {
+     "name": "file_name",
+     "value": "report_q3.pdf"
+    },
+    {
+     "name": "recipient",
+     "value": "luca@example.com"
+    },
+    {
+     "name": "subject",
+     "value": "Numeri"
+    }
+   ],
+   "constraints": [
+    "Do not open Finder"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "mail-attach",
+      "steps": [
+       3,
+       9
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "mail-attach",
+      "steps": [
+       1,
+       2
+      ]
+     }
+    ]
+   },
+   "why": "the constraint forbids the Finder block",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-mail-it",
+   "family": "mailattach",
+   "split": "dev",
+   "language": "it",
+   "kind": "ready input",
+   "critical": false,
+   "remaining": "Manda per email report_q3.pdf, già trovato, a luca@example.com con oggetto Numeri",
+   "inputs": [
+    {
+     "name": "file_name",
+     "value": "report_q3.pdf"
+    },
+    {
+     "name": "recipient",
+     "value": "luca@example.com"
+    },
+    {
+     "name": "subject",
+     "value": "Numeri"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "mail-attach",
+      "steps": [
+       3,
+       9
+      ]
+     }
+    ]
+   },
+   "why": "the file is found: the Mail block",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-invoice-full",
+   "family": "invoice",
+   "split": "dev",
+   "language": "en",
+   "kind": "input produced by an earlier part",
+   "critical": false,
+   "remaining": "Download invoice INV-2026-040 and email it to luca@example.com",
+   "inputs": [
+    {
+     "name": "invoice",
+     "value": "INV-2026-040"
+    },
+    {
+     "name": "recipient",
+     "value": "luca@example.com"
+    }
+   ],
+   "bootstrap": [
+    "invoice-mail"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "invoice-mail",
+      "steps": [
+       1,
+       9
+      ]
+     }
+    ],
+    "conditions": [
+     "input_produced"
+    ]
+   },
+   "why": "the attached file is produced by the download",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-invoice-ready",
+   "family": "invoice",
+   "split": "dev",
+   "language": "en",
+   "kind": "output ready",
+   "critical": true,
+   "remaining": "Email the invoice INV-2026-040, already downloaded, to luca@example.com",
+   "inputs": [
+    {
+     "name": "invoice",
+     "value": "INV-2026-040"
+    },
+    {
+     "name": "invoice_file",
+     "value": "INV-2026-040.pdf",
+     "role": "file of the downloaded invoice",
+     "source": "previous_output",
+     "source_ref": "task-0/invoice_file"
+    },
+    {
+     "name": "recipient",
+     "value": "luca@example.com"
+    }
+   ],
+   "bootstrap": [
+    "invoice-mail"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "invoice-mail",
+      "steps": [
+       4,
+       9
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "invoice-mail",
+      "steps": [
+       1,
+       2,
+       3
+      ]
+     }
+    ],
+    "bindings": {
+     "attachment": "INV-2026-040.pdf"
+    }
+   },
+   "why": "the download is done: its output is the attachment",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-invoice-it",
+   "family": "invoice",
+   "split": "dev",
+   "language": "it",
+   "kind": "input produced, Italian",
+   "critical": false,
+   "remaining": "Scarica la fattura INV-2026-041 dal portale e inviala per email a marta@example.com",
+   "inputs": [
+    {
+     "name": "invoice",
+     "value": "INV-2026-041"
+    },
+    {
+     "name": "recipient",
+     "value": "marta@example.com"
+    }
+   ],
+   "bootstrap": [
+    "invoice-mail"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "invoice-mail",
+      "steps": [
+       1,
+       9
+      ]
+     }
+    ]
+   },
+   "why": "download and email, in Italian",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-notes-constraint",
+   "family": "notes",
+   "split": "dev",
+   "language": "en",
+   "kind": "constraint, trailing work",
+   "critical": true,
+   "remaining": "Create a new note titled Idee in Notes",
+   "inputs": [
+    {
+     "name": "note_title",
+     "value": "Idee"
+    }
+   ],
+   "constraints": [
+    "Do not share the note and do not open Mail"
+   ],
+   "bootstrap": [
+    "notes-share-mail"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "notes-share-mail",
+      "steps": [
+       1,
+       2
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "notes-share-mail",
+      "steps": [
+       3,
+       4,
+       5
+      ]
+     }
+    ]
+   },
+   "why": "the review's case: no sharing, no Mail",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-notes-delete-it",
+   "family": "notes",
+   "split": "dev",
+   "language": "it",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Elimina la nota Spesa",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned deletes a note",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-sheets-ascending",
+   "family": "sheets",
+   "split": "dev",
+   "language": "en",
+   "kind": "certain conflict",
+   "critical": true,
+   "remaining": "Sort the sales table by Region from A to Z",
+   "inputs": [
+    {
+     "name": "sort_column",
+     "value": "Region"
+    },
+    {
+     "name": "sort_order",
+     "value": "Ascending",
+     "role": "order of the sort"
+    }
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": [],
+    "exclude": [
+     "numbers-sort-desc"
+    ],
+    "excluded": [
+     "numbers-sort-desc"
+    ]
+   },
+   "why": "the learned sort fixes the descending order",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-sheets-mixed",
+   "family": "sheets",
+   "split": "dev",
+   "language": "mixed",
+   "kind": "compatibility unknown",
+   "critical": false,
+   "remaining": "sort la tabella per Amount, dal più grande al più piccolo",
+   "inputs": [
+    {
+     "name": "sort_column",
+     "value": "Amount"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "numbers-sort-desc",
+      "steps": [
+       1,
+       4
+      ]
+     }
+    ],
+    "exclude": [
+     "numbers-filter"
+    ],
+    "conditions": [
+     "compatibility_unknown"
+    ]
+   },
+   "why": "another column, descending",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-textcopy-para",
+   "family": "textcopy",
+   "split": "dev",
+   "language": "en",
+   "kind": "paraphrase",
+   "critical": false,
+   "remaining": "Keep the original and save a new copy named bozza_3 in Documents",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "bozza_3"
+    },
+    {
+     "name": "output_folder",
+     "value": "Documents",
+     "kind": "folder"
+    }
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "textedit-save-as-copy",
+      "steps": [
+       1,
+       5
+      ]
+     },
+     {
+      "knowledge": "textedit-duplicate-save",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "exclude": [
+     "textedit-duplicate-save@1"
+    ]
+   },
+   "why": "either copy method",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-webform-it",
+   "family": "webform",
+   "split": "dev",
+   "language": "it",
+   "kind": "output ready, last step",
+   "critical": false,
+   "remaining": "Il modulo contatti è già compilato: invialo e basta",
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "contact-form",
+      "steps": [
+       4,
+       4
+      ]
+     }
+    ]
+   },
+   "why": "only the submission",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-absent-reply",
+   "family": "absent",
+   "split": "dev",
+   "language": "en",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Reply to the email Weekly update",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned replies to an email",
+   "v2_split": "dev"
+  },
+  {
+   "id": "d2-absent-rename-it",
+   "family": "absent",
+   "split": "dev",
+   "language": "it",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Rinomina il file report_q3.pdf in report_def.pdf nel Finder",
+   "inputs": [
+    {
+     "name": "file_name",
+     "value": "report_q3.pdf"
+    },
+    {
+     "name": "new_name",
+     "value": "report_def.pdf"
+    }
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned renames a file",
+   "v2_split": "dev"
+  },
+  {
+   "id": "f2-contacts-en",
+   "family": "contacts",
+   "split": "dev",
+   "language": "en",
+   "kind": "subprocedure without trailing work",
+   "critical": true,
+   "remaining": "Add Marco Rossi to Contacts with the phone number +39 333 1234567",
+   "inputs": [
+    {
+     "name": "first_name",
+     "value": "Marco"
+    },
+    {
+     "name": "last_name",
+     "value": "Rossi"
+    },
+    {
+     "name": "phone",
+     "value": "+39 333 1234567"
+    }
+   ],
+   "bootstrap": [
+    "contacts-new-person"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "contacts-new-person",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "contacts-new-person",
+      "steps": [
+       6
+      ]
+     }
+    ]
+   },
+   "why": "the contact, not its sharing",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-contacts-it",
+   "family": "contacts",
+   "split": "dev",
+   "language": "it",
+   "kind": "Italian, Italian input names",
+   "critical": true,
+   "remaining": "Aggiungi Giulia Neri ai contatti con il numero +39 347 7654321",
+   "inputs": [
+    {
+     "name": "nome",
+     "value": "Giulia",
+     "role": "nome della persona"
+    },
+    {
+     "name": "cognome",
+     "value": "Neri",
+     "role": "cognome della persona"
+    },
+    {
+     "name": "telefono",
+     "value": "+39 347 7654321",
+     "role": "numero di telefono"
+    }
+   ],
+   "bootstrap": [
+    "contacts-new-person"
+   ],
+   "expect": {
+    "coverage": [
+     "complete",
+     "ambiguous"
+    ],
+    "accept": [
+     {
+      "knowledge": "contacts-new-person",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "contacts-new-person",
+      "steps": [
+       6
+      ]
+     }
+    ]
+   },
+   "why": "an Italian request whose inputs are named in Italian",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-contacts-mixed",
+   "family": "contacts",
+   "split": "dev",
+   "language": "mixed",
+   "kind": "mixed",
+   "critical": true,
+   "remaining": "add il contatto Paolo Gialli, telefono +39 320 1112223",
+   "inputs": [
+    {
+     "name": "first_name",
+     "value": "Paolo"
+    },
+    {
+     "name": "last_name",
+     "value": "Gialli"
+    },
+    {
+     "name": "phone",
+     "value": "+39 320 1112223"
+    }
+   ],
+   "bootstrap": [
+    "contacts-new-person"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "contacts-new-person",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "contacts-new-person",
+      "steps": [
+       6
+      ]
+     }
+    ]
+   },
+   "why": "a mixed request",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-contacts-constraint",
+   "family": "contacts",
+   "split": "dev",
+   "language": "en",
+   "kind": "constraint",
+   "critical": true,
+   "remaining": "Create a contact for Sara Blu with phone +39 345 9998887",
+   "inputs": [
+    {
+     "name": "first_name",
+     "value": "Sara"
+    },
+    {
+     "name": "last_name",
+     "value": "Blu"
+    },
+    {
+     "name": "phone",
+     "value": "+39 345 9998887"
+    }
+   ],
+   "constraints": [
+    "Do not share the contact"
+   ],
+   "bootstrap": [
+    "contacts-new-person"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "contacts-new-person",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "contacts-new-person",
+      "steps": [
+       6
+      ]
+     }
+    ]
+   },
+   "why": "the constraint forbids sharing",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-contacts-share",
+   "family": "contacts",
+   "split": "dev",
+   "language": "en",
+   "kind": "whole procedure",
+   "critical": false,
+   "remaining": "Add Elena Viola with phone +39 331 2223334 to Contacts and share her card",
+   "inputs": [
+    {
+     "name": "first_name",
+     "value": "Elena"
+    },
+    {
+     "name": "last_name",
+     "value": "Viola"
+    },
+    {
+     "name": "phone",
+     "value": "+39 331 2223334"
+    }
+   ],
+   "bootstrap": [
+    "contacts-new-person"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "contacts-new-person",
+      "steps": [
+       1,
+       6
+      ]
+     }
+    ]
+   },
+   "why": "the whole procedure with new values",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-contacts-delete",
+   "family": "contacts",
+   "split": "dev",
+   "language": "en",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Delete the contact Luca Verdi",
+   "bootstrap": [
+    "contacts-new-person"
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned deletes a contact",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-contacts-call-it",
+   "family": "contacts",
+   "split": "dev",
+   "language": "it",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Chiama Anna Bianchi dai contatti",
+   "bootstrap": [
+    "contacts-new-person"
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned calls",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-music-en",
+   "family": "music",
+   "split": "dev",
+   "language": "en",
+   "kind": "whole procedure",
+   "critical": false,
+   "remaining": "Create a playlist called Inverno and add the song Volare to it",
+   "inputs": [
+    {
+     "name": "playlist_name",
+     "value": "Inverno"
+    },
+    {
+     "name": "song",
+     "value": "Volare"
+    }
+   ],
+   "bootstrap": [
+    "music-new-playlist"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "music-new-playlist",
+      "steps": [
+       1,
+       7
+      ]
+     }
+    ]
+   },
+   "why": "the whole procedure with new values",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-music-it",
+   "family": "music",
+   "split": "dev",
+   "language": "it",
+   "kind": "Italian, Italian input names",
+   "critical": false,
+   "remaining": "Crea una nuova playlist di nome Autunno e aggiungici il brano Azzurro",
+   "inputs": [
+    {
+     "name": "nome_playlist",
+     "value": "Autunno",
+     "role": "nome della playlist"
+    },
+    {
+     "name": "brano",
+     "value": "Azzurro",
+     "role": "titolo del brano"
+    }
+   ],
+   "bootstrap": [
+    "music-new-playlist"
+   ],
+   "expect": {
+    "coverage": [
+     "complete",
+     "ambiguous"
+    ],
+    "accept": [
+     {
+      "knowledge": "music-new-playlist",
+      "steps": [
+       1,
+       7
+      ]
+     }
+    ]
+   },
+   "why": "an Italian request whose inputs are named in Italian",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-music-partial",
+   "family": "music",
+   "split": "dev",
+   "language": "en",
+   "kind": "partial segment",
+   "critical": true,
+   "remaining": "My playlist Estate 2026 is selected: add the song Volare to it",
+   "inputs": [
+    {
+     "name": "playlist_name",
+     "value": "Estate 2026"
+    },
+    {
+     "name": "song",
+     "value": "Volare"
+    }
+   ],
+   "bootstrap": [
+    "music-new-playlist"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "music-new-playlist",
+      "steps": [
+       5,
+       7
+      ]
+     },
+     {
+      "knowledge": "music-new-playlist",
+      "steps": [
+       4,
+       7
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "music-new-playlist",
+      "steps": [
+       1,
+       2,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "the playlist exists: not created again",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-music-partial-it",
+   "family": "music",
+   "split": "dev",
+   "language": "it",
+   "kind": "partial segment, Italian",
+   "critical": true,
+   "remaining": "Aggiungi la canzone Azzurro alla playlist Estate 2026 che esiste già",
+   "inputs": [
+    {
+     "name": "playlist_name",
+     "value": "Estate 2026"
+    },
+    {
+     "name": "song",
+     "value": "Azzurro"
+    }
+   ],
+   "bootstrap": [
+    "music-new-playlist"
+   ],
+   "expect": {
+    "coverage": [
+     "complete",
+     "ambiguous"
+    ],
+    "accept": [
+     {
+      "knowledge": "music-new-playlist",
+      "steps": [
+       5,
+       7
+      ]
+     },
+     {
+      "knowledge": "music-new-playlist",
+      "steps": [
+       4,
+       7
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "music-new-playlist",
+      "steps": [
+       1,
+       2,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "the playlist exists, in Italian",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-music-rename",
+   "family": "music",
+   "split": "dev",
+   "language": "en",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Rename the playlist Estate 2026 to Inverno",
+   "inputs": [
+    {
+     "name": "playlist_name",
+     "value": "Estate 2026"
+    },
+    {
+     "name": "new_name",
+     "value": "Inverno"
+    }
+   ],
+   "bootstrap": [
+    "music-new-playlist"
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned renames a playlist",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-music-delete-it",
+   "family": "music",
+   "split": "dev",
+   "language": "it",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Elimina la playlist Estate 2026",
+   "inputs": [
+    {
+     "name": "playlist_name",
+     "value": "Estate 2026"
+    }
+   ],
+   "bootstrap": [
+    "music-new-playlist"
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned deletes a playlist",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-chart-full",
+   "family": "chart",
+   "split": "dev",
+   "language": "en",
+   "kind": "input produced by an earlier part",
+   "critical": false,
+   "remaining": "Make a bar chart of the sales table, export it as vendite_q4 and email it to paola@example.com",
+   "inputs": [
+    {
+     "name": "chart_name",
+     "value": "vendite_q4"
+    },
+    {
+     "name": "recipient",
+     "value": "paola@example.com"
+    }
+   ],
+   "bootstrap": [
+    "numbers-chart-mail"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "numbers-chart-mail",
+      "steps": [
+       1,
+       12
+      ]
+     }
+    ],
+    "conditions": [
+     "input_produced"
+    ]
+   },
+   "why": "the attached image is produced by the export",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-chart-ready",
+   "family": "chart",
+   "split": "dev",
+   "language": "en",
+   "kind": "output ready",
+   "critical": true,
+   "remaining": "Email the chart image vendite_q4.png, already exported, to paola@example.com",
+   "inputs": [
+    {
+     "name": "chart_file",
+     "value": "vendite_q4.png",
+     "role": "file of the exported chart image",
+     "source": "previous_output",
+     "source_ref": "task-0/chart_file"
+    },
+    {
+     "name": "recipient",
+     "value": "paola@example.com"
+    }
+   ],
+   "bootstrap": [
+    "numbers-chart-mail"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "numbers-chart-mail",
+      "steps": [
+       7,
+       12
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "numbers-chart-mail",
+      "steps": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6
+      ]
+     }
+    ],
+    "bindings": {
+     "attachment": "vendite_q4.png"
+    }
+   },
+   "why": "the image is ready: only the email",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-chart-pdf",
+   "family": "chart",
+   "split": "dev",
+   "language": "en",
+   "kind": "certain conflict",
+   "critical": true,
+   "remaining": "Make a bar chart of the table and export it as a PDF named vendite_q4",
+   "inputs": [
+    {
+     "name": "chart_name",
+     "value": "vendite_q4"
+    },
+    {
+     "name": "image_format",
+     "value": "PDF",
+     "role": "format of the exported chart image"
+    }
+   ],
+   "bootstrap": [
+    "numbers-chart-mail"
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": [],
+    "exclude": [
+     "numbers-chart-mail"
+    ],
+    "excluded": [
+     "numbers-chart-mail"
+    ]
+   },
+   "why": "the learned export fixes PNG",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-chart-constraint",
+   "family": "chart",
+   "split": "dev",
+   "language": "en",
+   "kind": "constraint",
+   "critical": true,
+   "remaining": "Make a bar chart of the sales table and export it as vendite_q4 without emailing it",
+   "inputs": [
+    {
+     "name": "chart_name",
+     "value": "vendite_q4"
+    }
+   ],
+   "constraints": [
+    "Do not open Mail"
+   ],
+   "bootstrap": [
+    "numbers-chart-mail"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "numbers-chart-mail",
+      "steps": [
+       1,
+       6
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "numbers-chart-mail",
+      "steps": [
+       7,
+       8,
+       9,
+       10,
+       11,
+       12
+      ]
+     }
+    ]
+   },
+   "why": "the constraint forbids Mail",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-chart-it",
+   "family": "chart",
+   "split": "dev",
+   "language": "it",
+   "kind": "subprocedure, Italian",
+   "critical": true,
+   "remaining": "Crea un grafico a barre della tabella ed esportalo come vendite_q4",
+   "inputs": [
+    {
+     "name": "chart_name",
+     "value": "vendite_q4"
+    }
+   ],
+   "bootstrap": [
+    "numbers-chart-mail"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "numbers-chart-mail",
+      "steps": [
+       1,
+       6
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "numbers-chart-mail",
+      "steps": [
+       7,
+       8,
+       9,
+       10,
+       11,
+       12
+      ]
+     }
+    ]
+   },
+   "why": "the chart and its export, no email",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-chart-mixed",
+   "family": "chart",
+   "split": "dev",
+   "language": "mixed",
+   "kind": "subprocedure, mixed",
+   "critical": true,
+   "remaining": "fai un bar chart della tabella e export as vendite_q4 in PNG",
+   "inputs": [
+    {
+     "name": "chart_name",
+     "value": "vendite_q4"
+    }
+   ],
+   "bootstrap": [
+    "numbers-chart-mail"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "numbers-chart-mail",
+      "steps": [
+       1,
+       6
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "numbers-chart-mail",
+      "steps": [
+       7,
+       8,
+       9,
+       10,
+       11,
+       12
+      ]
+     }
+    ]
+   },
+   "why": "a mixed request",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-absent-password",
+   "family": "absent2",
+   "split": "dev",
+   "language": "en",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Change the password of my supplier portal account",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned changes a password",
+   "v2_split": "final"
+  },
+  {
+   "id": "f2-absent-numbers-it",
+   "family": "absent2",
+   "split": "dev",
+   "language": "it",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Imposta Numbers perché apra sempre l'ultimo foglio usato",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned changes Numbers' settings",
+   "v2_split": "final"
+  },
+  {
+   "id": "f3-calendar-en",
+   "family": "calendar",
+   "split": "dev",
+   "language": "en",
+   "kind": "subprocedure without trailing work",
+   "critical": true,
+   "remaining": "Create the event Pranzo team on 2026-11-03 at 12:30 in Calendar",
+   "inputs": [
+    {
+     "name": "event_title",
+     "value": "Pranzo team"
+    },
+    {
+     "name": "event_date",
+     "value": "2026-11-03"
+    },
+    {
+     "name": "event_time",
+     "value": "12:30"
+    }
+   ],
+   "bootstrap": [
+    "calendar-new-event"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "calendar-new-event",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "calendar-new-event",
+      "steps": [
+       6,
+       7,
+       8
+      ]
+     }
+    ]
+   },
+   "why": "the event, no invitation",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-calendar-invite",
+   "family": "calendar",
+   "split": "dev",
+   "language": "en",
+   "kind": "whole procedure",
+   "critical": false,
+   "remaining": "Create the event Pranzo team on 2026-11-03 at 12:30 and invite luca@example.com",
+   "inputs": [
+    {
+     "name": "event_title",
+     "value": "Pranzo team"
+    },
+    {
+     "name": "event_date",
+     "value": "2026-11-03"
+    },
+    {
+     "name": "event_time",
+     "value": "12:30"
+    },
+    {
+     "name": "invitee",
+     "value": "luca@example.com"
+    }
+   ],
+   "bootstrap": [
+    "calendar-new-event"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "calendar-new-event",
+      "steps": [
+       1,
+       8
+      ]
+     }
+    ]
+   },
+   "why": "the event and the invitation, new values",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-calendar-existing",
+   "family": "calendar",
+   "split": "dev",
+   "language": "en",
+   "kind": "partial segment",
+   "critical": true,
+   "remaining": "The event Riunione budget already exists: invite marta@example.com to it",
+   "inputs": [
+    {
+     "name": "event_title",
+     "value": "Riunione budget"
+    },
+    {
+     "name": "invitee",
+     "value": "marta@example.com"
+    }
+   ],
+   "bootstrap": [
+    "calendar-new-event"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "calendar-new-event",
+      "steps": [
+       6,
+       8
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "calendar-new-event",
+      "steps": [
+       1,
+       2,
+       3,
+       4,
+       5
+      ]
+     }
+    ]
+   },
+   "why": "the event exists: not created again",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-calendar-it",
+   "family": "calendar",
+   "split": "dev",
+   "language": "it",
+   "kind": "subprocedure, Italian",
+   "critical": true,
+   "remaining": "Crea l'evento Cena il 2026-12-10 alle 20:00 nel calendario",
+   "inputs": [
+    {
+     "name": "event_title",
+     "value": "Cena"
+    },
+    {
+     "name": "event_date",
+     "value": "2026-12-10"
+    },
+    {
+     "name": "event_time",
+     "value": "20:00"
+    }
+   ],
+   "bootstrap": [
+    "calendar-new-event"
+   ],
+   "expect": {
+    "coverage": [
+     "complete",
+     "ambiguous"
+    ],
+    "accept": [
+     {
+      "knowledge": "calendar-new-event",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "calendar-new-event",
+      "steps": [
+       6,
+       7,
+       8
+      ]
+     }
+    ]
+   },
+   "why": "an Italian request: the event only",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-calendar-mixed",
+   "family": "calendar",
+   "split": "dev",
+   "language": "mixed",
+   "kind": "whole procedure, mixed",
+   "critical": false,
+   "remaining": "aggiungi l'evento Standup il 2026-11-04 alle 09:00 and invite paolo@example.com",
+   "inputs": [
+    {
+     "name": "event_title",
+     "value": "Standup"
+    },
+    {
+     "name": "event_date",
+     "value": "2026-11-04"
+    },
+    {
+     "name": "event_time",
+     "value": "09:00"
+    },
+    {
+     "name": "invitee",
+     "value": "paolo@example.com"
+    }
+   ],
+   "bootstrap": [
+    "calendar-new-event"
+   ],
+   "expect": {
+    "coverage": [
+     "complete",
+     "ambiguous"
+    ],
+    "accept": [
+     {
+      "knowledge": "calendar-new-event",
+      "steps": [
+       1,
+       8
+      ]
+     }
+    ]
+   },
+   "why": "a mixed request, the whole procedure",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-calendar-move",
+   "family": "calendar",
+   "split": "dev",
+   "language": "en",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Move the event Riunione budget to 2026-10-21",
+   "inputs": [
+    {
+     "name": "event_title",
+     "value": "Riunione budget"
+    },
+    {
+     "name": "event_date",
+     "value": "2026-10-21"
+    }
+   ],
+   "bootstrap": [
+    "calendar-new-event"
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned moves an event",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-calendar-delete-it",
+   "family": "calendar",
+   "split": "dev",
+   "language": "it",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Cancella l'evento Riunione budget dal calendario",
+   "inputs": [
+    {
+     "name": "event_title",
+     "value": "Riunione budget"
+    }
+   ],
+   "bootstrap": [
+    "calendar-new-event"
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned deletes an event",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-calendar-constraint",
+   "family": "calendar",
+   "split": "dev",
+   "language": "en",
+   "kind": "constraint",
+   "critical": true,
+   "remaining": "Create the event Pranzo team on 2026-11-03 at 12:30 without inviting anyone",
+   "inputs": [
+    {
+     "name": "event_title",
+     "value": "Pranzo team"
+    },
+    {
+     "name": "event_date",
+     "value": "2026-11-03"
+    },
+    {
+     "name": "event_time",
+     "value": "12:30"
+    }
+   ],
+   "constraints": [
+    "Do not send invitations"
+   ],
+   "bootstrap": [
+    "calendar-new-event"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "calendar-new-event",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "calendar-new-event",
+      "steps": [
+       6,
+       7,
+       8
+      ]
+     }
+    ]
+   },
+   "why": "the constraint forbids the invitation",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-photos-en",
+   "family": "photos",
+   "split": "dev",
+   "language": "en",
+   "kind": "whole procedure",
+   "critical": false,
+   "remaining": "Create an album named Montagna and add the photo rifugio.jpg to it",
+   "inputs": [
+    {
+     "name": "album_name",
+     "value": "Montagna"
+    },
+    {
+     "name": "photo",
+     "value": "rifugio.jpg",
+     "kind": "file"
+    }
+   ],
+   "bootstrap": [
+    "photos-new-album"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photos-new-album",
+      "steps": [
+       1,
+       6
+      ]
+     }
+    ]
+   },
+   "why": "the album and the photo, new values",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-photos-existing",
+   "family": "photos",
+   "split": "dev",
+   "language": "en",
+   "kind": "partial segment",
+   "critical": true,
+   "remaining": "Add the photo rifugio.jpg to my album Vacanze 2026, which already exists",
+   "inputs": [
+    {
+     "name": "album_name",
+     "value": "Vacanze 2026"
+    },
+    {
+     "name": "photo",
+     "value": "rifugio.jpg",
+     "kind": "file"
+    }
+   ],
+   "bootstrap": [
+    "photos-new-album"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photos-new-album",
+      "steps": [
+       4,
+       6
+      ]
+     },
+     {
+      "knowledge": "photos-new-album",
+      "steps": [
+       5,
+       6
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "photos-new-album",
+      "steps": [
+       1,
+       2,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "the album exists: not created again",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-photos-create",
+   "family": "photos",
+   "split": "dev",
+   "language": "en",
+   "kind": "subprocedure without trailing work",
+   "critical": true,
+   "remaining": "Create a new album called Montagna in Photos",
+   "inputs": [
+    {
+     "name": "album_name",
+     "value": "Montagna"
+    }
+   ],
+   "bootstrap": [
+    "photos-new-album"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photos-new-album",
+      "steps": [
+       1,
+       3
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "photos-new-album",
+      "steps": [
+       4,
+       5,
+       6
+      ]
+     }
+    ]
+   },
+   "why": "the album only",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-photos-it",
+   "family": "photos",
+   "split": "dev",
+   "language": "it",
+   "kind": "whole procedure, Italian",
+   "critical": false,
+   "remaining": "Crea l'album Natale e aggiungi la foto albero.jpg",
+   "inputs": [
+    {
+     "name": "album_name",
+     "value": "Natale"
+    },
+    {
+     "name": "photo",
+     "value": "albero.jpg",
+     "kind": "file"
+    }
+   ],
+   "bootstrap": [
+    "photos-new-album"
+   ],
+   "expect": {
+    "coverage": [
+     "complete",
+     "ambiguous"
+    ],
+    "accept": [
+     {
+      "knowledge": "photos-new-album",
+      "steps": [
+       1,
+       6
+      ]
+     }
+    ]
+   },
+   "why": "an Italian request, the whole procedure",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-photos-mixed",
+   "family": "photos",
+   "split": "dev",
+   "language": "mixed",
+   "kind": "partial segment, mixed",
+   "critical": true,
+   "remaining": "add la foto tramonto.jpg all'album Vacanze 2026",
+   "inputs": [
+    {
+     "name": "album_name",
+     "value": "Vacanze 2026"
+    },
+    {
+     "name": "photo",
+     "value": "tramonto.jpg",
+     "kind": "file"
+    }
+   ],
+   "bootstrap": [
+    "photos-new-album"
+   ],
+   "expect": {
+    "coverage": [
+     "complete",
+     "ambiguous"
+    ],
+    "accept": [
+     {
+      "knowledge": "photos-new-album",
+      "steps": [
+       4,
+       6
+      ]
+     },
+     {
+      "knowledge": "photos-new-album",
+      "steps": [
+       5,
+       6
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "photos-new-album",
+      "steps": [
+       1,
+       2,
+       3
+      ]
+     }
+    ]
+   },
+   "why": "adding to a named album: it is not created again",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-photos-rename",
+   "family": "photos",
+   "split": "dev",
+   "language": "en",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Rename the album Vacanze 2026 to Estate",
+   "inputs": [
+    {
+     "name": "album_name",
+     "value": "Vacanze 2026"
+    },
+    {
+     "name": "new_name",
+     "value": "Estate"
+    }
+   ],
+   "bootstrap": [
+    "photos-new-album"
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned renames an album",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-photos-delete-it",
+   "family": "photos",
+   "split": "dev",
+   "language": "it",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Elimina la foto spiaggia.jpg",
+   "inputs": [
+    {
+     "name": "photo",
+     "value": "spiaggia.jpg",
+     "kind": "file"
+    }
+   ],
+   "bootstrap": [
+    "photos-new-album"
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned deletes a photo",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-slide-full",
+   "family": "slide",
+   "split": "dev",
+   "language": "en",
+   "kind": "input produced by an earlier part",
+   "critical": false,
+   "remaining": "Export slide 5 of the presentation as PNG named slide_q4 and send it to Luca in Messages",
+   "inputs": [
+    {
+     "name": "slide_number",
+     "value": "5"
+    },
+    {
+     "name": "image_name",
+     "value": "slide_q4"
+    },
+    {
+     "name": "contact",
+     "value": "Luca"
+    }
+   ],
+   "bootstrap": [
+    "keynote-slide-message"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "keynote-slide-message",
+      "steps": [
+       1,
+       10
+      ]
+     }
+    ],
+    "conditions": [
+     "input_produced"
+    ]
+   },
+   "why": "the attached image is the one the export produces, as the attempt stated",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-slide-ready",
+   "family": "slide",
+   "split": "dev",
+   "language": "en",
+   "kind": "output ready",
+   "critical": true,
+   "remaining": "Send slide_q4.png, already exported, to Luca in Messages",
+   "inputs": [
+    {
+     "name": "slide_image",
+     "value": "slide_q4.png",
+     "role": "file of the exported slide image",
+     "kind": "file",
+     "source": "previous_output",
+     "source_ref": "task-0/slide_image"
+    },
+    {
+     "name": "contact",
+     "value": "Luca"
+    }
+   ],
+   "bootstrap": [
+    "keynote-slide-message"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "keynote-slide-message",
+      "steps": [
+       6,
+       10
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "keynote-slide-message",
+      "steps": [
+       1,
+       2,
+       3,
+       4,
+       5
+      ]
+     }
+    ],
+    "bindings": {
+     "attachment": "slide_q4.png"
+    }
+   },
+   "why": "the image is ready: only the message",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-slide-export",
+   "family": "slide",
+   "split": "dev",
+   "language": "en",
+   "kind": "subprocedure without trailing work",
+   "critical": true,
+   "remaining": "Export slide 2 of the presentation as a PNG image named intro",
+   "inputs": [
+    {
+     "name": "slide_number",
+     "value": "2"
+    },
+    {
+     "name": "image_name",
+     "value": "intro"
+    }
+   ],
+   "bootstrap": [
+    "keynote-slide-message"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "keynote-slide-message",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "keynote-slide-message",
+      "steps": [
+       6,
+       7,
+       8,
+       9,
+       10
+      ]
+     }
+    ]
+   },
+   "why": "the export only",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-slide-jpeg",
+   "family": "slide",
+   "split": "dev",
+   "language": "en",
+   "kind": "certain conflict",
+   "critical": true,
+   "remaining": "Export slide 2 of the presentation as a JPEG image named intro",
+   "inputs": [
+    {
+     "name": "slide_number",
+     "value": "2"
+    },
+    {
+     "name": "image_name",
+     "value": "intro"
+    },
+    {
+     "name": "image_format",
+     "value": "JPEG",
+     "role": "format of the exported image"
+    }
+   ],
+   "bootstrap": [
+    "keynote-slide-message"
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": [],
+    "exclude": [
+     "keynote-slide-message"
+    ],
+    "excluded": [
+     "keynote-slide-message"
+    ]
+   },
+   "why": "the learned export fixes PNG",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-slide-it",
+   "family": "slide",
+   "split": "dev",
+   "language": "it",
+   "kind": "input produced, Italian",
+   "critical": false,
+   "remaining": "Esporta la slide 7 come PNG chiamata grafico e mandala a Sara su Messaggi",
+   "inputs": [
+    {
+     "name": "slide_number",
+     "value": "7"
+    },
+    {
+     "name": "image_name",
+     "value": "grafico"
+    },
+    {
+     "name": "contact",
+     "value": "Sara"
+    }
+   ],
+   "bootstrap": [
+    "keynote-slide-message"
+   ],
+   "expect": {
+    "coverage": [
+     "complete",
+     "ambiguous"
+    ],
+    "accept": [
+     {
+      "knowledge": "keynote-slide-message",
+      "steps": [
+       1,
+       10
+      ]
+     }
+    ]
+   },
+   "why": "export and send, in Italian",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-slide-constraint",
+   "family": "slide",
+   "split": "dev",
+   "language": "en",
+   "kind": "constraint",
+   "critical": true,
+   "remaining": "Export slide 3 of the presentation as PNG named riepilogo, without sending it",
+   "inputs": [
+    {
+     "name": "slide_number",
+     "value": "3"
+    },
+    {
+     "name": "image_name",
+     "value": "riepilogo"
+    }
+   ],
+   "constraints": [
+    "Do not open Messages"
+   ],
+   "bootstrap": [
+    "keynote-slide-message"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "keynote-slide-message",
+      "steps": [
+       1,
+       5
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "keynote-slide-message",
+      "steps": [
+       6,
+       7,
+       8,
+       9,
+       10
+      ]
+     }
+    ]
+   },
+   "why": "the constraint forbids Messages",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-slide-delete",
+   "family": "slide",
+   "split": "dev",
+   "language": "en",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Delete slide 3 of the presentation",
+   "inputs": [
+    {
+     "name": "slide_number",
+     "value": "3"
+    }
+   ],
+   "bootstrap": [
+    "keynote-slide-message"
+   ],
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned deletes a slide",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-absent-wallpaper",
+   "family": "absent3",
+   "split": "dev",
+   "language": "en",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Change the desktop wallpaper of the Mac",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned changes the wallpaper",
+   "v3_split": "final"
+  },
+  {
+   "id": "f3-absent-messages-it",
+   "family": "absent3",
+   "split": "dev",
+   "language": "it",
+   "kind": "close negative",
+   "critical": true,
+   "remaining": "Imposta Messaggi perché non mostri l'anteprima dei messaggi",
+   "expect": {
+    "coverage": "absent",
+    "accept": []
+   },
+   "why": "nothing learned changes the settings of Messages",
+   "v3_split": "final"
+  },
+  {
+   "id": "a-relay-en",
+   "family": "relay",
+   "split": "dev",
+   "language": "en",
+   "kind": "producer and consumer apart",
+   "critical": true,
+   "remaining": "Export the report from Pages as report_q3 and email it to luca@example.com",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "report_q3"
+    },
+    {
+     "name": "recipient",
+     "value": "luca@example.com"
+    }
+   ],
+   "bootstrap": [
+    "report-relay"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept_plans": [
+     [
+      {
+       "knowledge": "report-relay",
+       "steps": [
+        1,
+        4
+       ]
+      },
+      {
+       "knowledge": "report-relay",
+       "steps": [
+        7,
+        12
+       ]
+      }
+     ]
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "report-relay",
+      "steps": [
+       5,
+       6
+      ]
+     }
+    ],
+    "bindings": {
+     "recipient": "luca@example.com"
+    }
+   },
+   "why": "the export and the email, not the unrelated download of a file with the same name between them"
+  },
+  {
+   "id": "a-relay-it",
+   "family": "relay",
+   "split": "dev",
+   "language": "it",
+   "kind": "producer and consumer apart, Italian",
+   "critical": true,
+   "remaining": "Esporta da Pages il report come report_q3 e mandalo per email a luca@example.com",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "report_q3"
+    },
+    {
+     "name": "recipient",
+     "value": "luca@example.com"
+    }
+   ],
+   "bootstrap": [
+    "report-relay"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept_plans": [
+     [
+      {
+       "knowledge": "report-relay",
+       "steps": [
+        1,
+        4
+       ]
+      },
+      {
+       "knowledge": "report-relay",
+       "steps": [
+        7,
+        12
+       ]
+      }
+     ]
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "report-relay",
+      "steps": [
+       5,
+       6
+      ]
+     }
+    ]
+   },
+   "why": "as a-relay-en, in Italian"
+  },
+  {
+   "id": "a-relay-ready",
+   "family": "relay",
+   "split": "dev",
+   "language": "en",
+   "kind": "output ready",
+   "critical": true,
+   "remaining": "Email report_q3.pdf, already exported from Pages, to luca@example.com",
+   "inputs": [
+    {
+     "name": "attachment",
+     "value": "report_q3.pdf",
+     "role": "the report exported from Pages",
+     "kind": "file",
+     "source": "previous_output",
+     "source_ref": "task-0/exported_report"
+    },
+    {
+     "name": "recipient",
+     "value": "luca@example.com"
+    }
+   ],
+   "bootstrap": [
+    "report-relay"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "report-relay",
+      "steps": [
+       7,
+       12
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "report-relay",
+      "steps": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6
+      ]
+     }
+    ],
+    "bindings": {
+     "attachment": "report_q3.pdf"
+    }
+   },
+   "why": "the report is ready: only the email, its producer not repeated"
+  },
+  {
+   "id": "a-turn-en",
+   "family": "photo",
+   "split": "dev",
+   "language": "en",
+   "kind": "synonyms (F11)",
+   "critical": true,
+   "remaining": "Turn the open picture clockwise and export it as foto_mail.png in PNG",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "foto_mail"
+    },
+    {
+     "name": "output_extension",
+     "value": "png"
+    },
+    {
+     "name": "output_format",
+     "value": "PNG"
+    }
+   ],
+   "bootstrap": [
+    "photo-export"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       3,
+       7
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       1,
+       2,
+       8
+      ]
+     }
+    ]
+   },
+   "why": "the rotation is asked with synonyms: the rotation and the export, the picture already open"
+  },
+  {
+   "id": "a-turn-it",
+   "family": "photo",
+   "split": "dev",
+   "language": "it",
+   "kind": "synonyms (F11), Italian",
+   "critical": true,
+   "remaining": "Gira in senso orario l'immagine aperta ed esportala come foto_mail.png in PNG",
+   "inputs": [
+    {
+     "name": "output_name",
+     "value": "foto_mail"
+    },
+    {
+     "name": "output_extension",
+     "value": "png"
+    },
+    {
+     "name": "output_format",
+     "value": "PNG"
+    }
+   ],
+   "bootstrap": [
+    "photo-export"
+   ],
+   "expect": {
+    "coverage": "complete",
+    "accept": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       3,
+       7
+      ]
+     }
+    ],
+    "forbid_steps": [
+     {
+      "knowledge": "photo-export",
+      "steps": [
+       1,
+       2,
+       8
+      ]
+     }
+    ]
+   },
+   "why": "as a-turn-en, in Italian"
+  }
+ ]
+}

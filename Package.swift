@@ -294,8 +294,13 @@ let package = Package(
         .testTarget(
             name         : "AutomationRuntimeTests",
             dependencies : ["AutomationRuntime", "AutomationMCP", "Memory", "SQLiteMemory", "EngineCore",
-                            "PerceptionCore", "LocalMCP"].map { .target(name: $0) },
+                            "PerceptionCore", "LocalMCP", "LocalEmbedding"].map { .target(name: $0) },
             path         : "Tests/Integration/AutomationRuntimeTests",
+            // The Recall's quality corpus: knowledge learned through the tools and queries split by family.
+            resources    : [.copy("Fixtures/recall-corpus-v1.json"), .copy("Fixtures/recall-calibration-v1.json"),
+                            .copy("Fixtures/recall-corpus-v2.json"), .copy("Fixtures/recall-calibration-v2.json"),
+                            .copy("Fixtures/recall-corpus-v3.json"), .copy("Fixtures/recall-calibration-v3.json"),
+                            .copy("Fixtures/recall-corpus-v4.json")],
             swiftSettings: suite
         ),
 
@@ -404,7 +409,7 @@ let package = Package(
         integration("AutomationRuntime", ["Perception", "VisionText", "PixelSections", "PixelRegions", "WindowServerListing", "AccessibilityFacts",
                     "ScreenCapture", "Engine", "EngineCore", "HIDActuation", "AccessibilityActions",
                     "WorkspaceActivation", "Memory", "SQLiteMemory", "LiveScenes", "PerceptionCore",
-                    "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement"]),
+                    "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding"]),
         integration("AutomationMCP", ["AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing"]),
         // The foreground command line: windows, scene, act, memory. What a model host does, by hand.
@@ -414,7 +419,8 @@ let package = Package(
                            "ScreenCapture", "Engine", "EngineCore", "HIDActuation", "AccessibilityActions",
                            "WorkspaceActivation", "Memory", "FileKnowledge", "SQLiteMemory", "LiveScenes",
                            "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "AutomationRuntime",
-                           "ChatCore", "CLIProviders", "FileConversations", "LocalMCP", "AutomationMCP", "SceneOverlay", "InteractionListener", "InteractionObservation"].map { .target(name: $0) },
+                           "ChatCore", "CLIProviders", "FileConversations", "LocalMCP", "AutomationMCP", "SceneOverlay", "InteractionListener", "InteractionObservation",
+                           "LocalEmbedding"].map { .target(name: $0) },
             path: "Tools/Engine/mecum",
             swiftSettings: facility
         ),

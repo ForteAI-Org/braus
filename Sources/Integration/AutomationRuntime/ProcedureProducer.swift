@@ -75,8 +75,26 @@ nonisolated public enum ProcedureProducer {
     /// every part.
     public static func interpret(_ interpretation: ProcedureInterpretation, producer: TaskProducer,
                                  memory: MemoryService) async throws -> InterpretationOutcome {
+        let interpretation = try await admitting(interpretation, producer: producer, memory: memory)
         let now = memory.clock.calendarMS()
         return try await memory.perform { try await $0.procedures.interpret(interpretation, by: producer, at: now) }
+    }
+
+    /// The interpretation with each structural reference of its parameters kept only when it resolves: to an output of an
+    /// earlier task of the producer, or of the candidate's own task, as its checkpoints or this interpretation declare it.
+    static func admitting(_ interpretation: ProcedureInterpretation, producer: TaskProducer,
+                          memory: MemoryService) async throws -> ProcedureInterpretation {
+        let references = interpretation.parameters.map { ($0.sourceRef, $0.sourceVersion) }
+        guard !TaskOutputReference.tasks(in: references).isEmpty else { return interpretation }
+        let candidate = try await memory.perform { try await $0.procedures.candidate(interpretation.candidateID) }
+        let declared = Set(interpretation.parameters.filter { $0.direction != .input }.map(\.name))
+        let targets = try await TaskChannel.targets(of: references, producer: producer, memory: memory,
+                                                    current: candidate.map { ($0.taskID, declared) })
+        let parameters = try TaskOutputReference.admitting(interpretation.parameters, targets: targets)
+        guard parameters != interpretation.parameters else { return interpretation }
+        return try ProcedureInterpretation(candidateID: interpretation.candidateID, revision: interpretation.revision,
+                                           parts: interpretation.parts, parameters: parameters, uses: interpretation.uses,
+                                           variantOf: interpretation.variantOf, divergencePosition: interpretation.divergencePosition)
     }
 
     private static func summary(of candidate: ProcedureCandidate, isNew: Bool, memory: MemoryService) async throws -> CandidateSummary {

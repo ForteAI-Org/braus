@@ -8,6 +8,7 @@
 import AppKit
 import AutomationRuntime
 import Foundation
+import LocalEmbedding
 import Memory
 import PerceptionCore
 import SQLiteMemory
@@ -15,7 +16,8 @@ import SQLiteMemory
 /// MemoryCommand prints what the living memory holds for an application: the Brain's size and clock,
 /// its most established anchors with what they do, and its groups. With `--import-json <dir>` it
 /// copies the Brains of an earlier JSON Knowledge directory into the memory instead; with
-/// `--task <id>` it prints what the procedures and the Brain hold of one task, read only.
+/// `--task <id>` it prints what the procedures and the Brain hold of one task, read only; with
+/// `--recall-status`, `--recall-rebuild` and `--recall-explain <text>` it shows and maintains the Recall's index.
 enum MemoryCommand {
 
     static func run(_ invocation: Invocation) async throws {
@@ -29,6 +31,11 @@ enum MemoryCommand {
             return
         }
         let runtime = Runtime(invocation: invocation)
+        if invocation.flags.contains("recall-status") || invocation.flags.contains("recall-rebuild")
+            || invocation.options["recall-explain"] != nil {
+            try await recall(invocation, in: runtime)
+            return
+        }
         if invocation.flags.contains("apply-relations") {
             try await applyRelations(in: runtime)
             return
@@ -192,6 +199,61 @@ enum MemoryCommand {
         print("relations of \(runtime.service.url.path): \(total.recovered) operations evaluated for the first time, "
               + "\(total.reconsidered) evaluated again with new evidence, \(total.reevaluated) under the current policy, "
               + "\(total.associated) samples placed in a state")
+        await runtime.finish()
+    }
+
+    /// Shows and maintains the Recall's index with the configuration this process resolves (`MECUM_RECALL`,
+    /// `MECUM_RECALL_MODELS`): `--recall-status` prints the generations, the entries, the vectors still to compute and
+    /// the index work pending, without running any; `--recall-rebuild` queues a rebuild of the whole catalogue and runs
+    /// the index work until it is done or `--within <seconds>` passes; `--recall-explain <text>` scores every part of
+    /// the current generation against a text and prints the most relevant (`--limit`), recording no query and
+    /// selecting nothing.
+    private static func recall(_ invocation: Invocation, in runtime: Runtime) async throws {
+        let recall = RecallService.shared(for: runtime.service)
+        let configuration = recall.configuration
+        if invocation.flags.contains("recall-rebuild") {
+            let now = runtime.service.clock.calendarMS()
+            try await runtime.service.perform { try await $0.recall.queueRebuild(at: now) }
+            let budget = Double(invocation.options["within"] ?? "") ?? 600
+            print("rebuild of the whole catalogue queued; building for at most \(Int(budget)) s…")
+            await recall.schedule()
+            if !(await recall.waitUntilIdle(within: .seconds(budget))) {
+                print("the index work did not finish in time; Mecum's memory goes on with it whenever it runs")
+            }
+        }
+        if invocation.flags.contains("recall-status") || invocation.flags.contains("recall-rebuild") {
+            let status = try await recall.status()
+            let model = configuration.model.map { "\($0.modelID)@\($0.revision.prefix(12))" } ?? "none"
+            print("recall of \(runtime.service.url.path)")
+            print("configuration: channel \(configuration.channel.rawValue), model \(model), format \(configuration.format.rawValue)")
+            if configuration.channel != .lexical {
+                print("models folder: \(configuration.modelsDirectory?.path ?? "none")")
+            }
+            if let failure = status.modelFailure { print("semantic model unavailable: \(failure); the lexical index answers") }
+            if status.index.generations.isEmpty { print("no index generation yet") }
+            for generation in status.index.generations {
+                print("generation \(generation.generationID): \(generation.status.rawValue), format \(generation.format.rawValue), "
+                      + "space \(generation.spaceID ?? "lexical only"), revision \(generation.revision)"
+                      + (generation.isEnumerated ? "" : ", catalogue being enumerated"))
+            }
+            print("entries in the current generation: \(status.index.entries); vectors still to compute: \(status.index.vectorBacklog)")
+            let work = try await runtime.service.perform { try await $0.recall.pendingWork(limit: 20) }
+            print("index work pending: \(status.index.pendingWork)")
+            for item in work {
+                print("  \(item.reason) \(item.routeID ?? "whole catalogue")" + (item.attempts > 0 ? ", \(item.attempts) failed attempts" : ""))
+            }
+            if let failure = status.workerFailure { print("index work stopped: \(failure)") }
+        }
+        if let text = invocation.options["recall-explain"] {
+            let limit = Int(invocation.options["limit"] ?? "") ?? 15
+            let (channel, parts) = try await recall.explain(text, limit: limit)
+            print("scored on the \(channel.rawValue) channel; no query recorded, nothing selected")
+            for part in parts {
+                let semantic = part.semantic.map { String(format: "%.3f", $0) } ?? "  -  "
+                print(String(format: "%.3f  semantic %@  lexical %.3f  %@  ", part.combined, semantic, part.lexical, part.kind.rawValue)
+                      + "\(part.partID)\n       \(part.text)")
+            }
+        }
         await runtime.finish()
     }
 

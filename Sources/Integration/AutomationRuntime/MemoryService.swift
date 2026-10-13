@@ -82,6 +82,7 @@ nonisolated public struct MemoryRepositories: Sendable {
     public let verifications: SQLiteVerificationRepository
     public let procedures  : SQLiteProcedureRepository
     public let relations   : SQLiteBrainRelationRepository
+    public let recall      : SQLiteRecallRepository
 
     /// The store under the roles, for the package's tests: a write that holds it, as a long
     /// transaction of a producer would.
@@ -102,6 +103,7 @@ nonisolated public struct MemoryRepositories: Sendable {
         verifications = SQLiteVerificationRepository(store: store)
         procedures   = SQLiteProcedureRepository(store: store)
         relations    = SQLiteBrainRelationRepository(store: store)
+        recall       = SQLiteRecallRepository(store: store)
     }
 }
 
@@ -322,6 +324,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
 
     private var essentialWritten = 0
     private var essentialFailed  = 0
+    private var essentialProbe: (@Sendable (EssentialTiming) -> Void)?
     /// Facts confirmed after an effect that the archive did not save, oldest first: retried with their
     /// identity before any new effect may start, kept until they are saved or the service closes.
     private var pendingEssential: [Essential] = []
@@ -479,6 +482,31 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         fallback    : (@Sendable (MemoryRepositories, EssentialWriteFailure) async throws -> Void)? = nil,
         _ body      : @escaping @Sendable (MemoryRepositories) async throws -> Void
     ) async throws -> Confirmation {
+        guard let probe = essentialProbe else {
+            return try await SQLiteMemoryStore.$operationLabel.withValue("essential: \(label)") {
+                try await confirmed(label, beforeEffect: beforeEffect, afterEffect: afterEffect, fallback: fallback, body)
+            }
+        }
+        let timing = SQLiteMemoryStore.WriteTiming()
+        let started = ContinuousClock.now
+        defer {
+            probe(EssentialTiming(label: label, tag: Self.probeTag, total: started.duration(to: .now), inside: timing.inside,
+                                  transactions: timing.transactions))
+        }
+        return try await SQLiteMemoryStore.$timing.withValue(timing) {
+            try await SQLiteMemoryStore.$operationLabel.withValue("essential: \(label)") {
+                try await confirmed(label, beforeEffect: beforeEffect, afterEffect: afterEffect, fallback: fallback, body)
+            }
+        }
+    }
+
+    private func confirmed(
+        _ label     : String,
+        beforeEffect: Bool,
+        afterEffect : Bool,
+        fallback    : (@Sendable (MemoryRepositories, EssentialWriteFailure) async throws -> Void)?,
+        _ body      : @escaping @Sendable (MemoryRepositories) async throws -> Void
+    ) async throws -> Confirmation {
         if beforeEffect {
             try Task.checkCancellation()
             try await retryPending()
@@ -503,6 +531,35 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
                 }
                 throw failure
         }
+    }
+
+    /// EssentialTiming is one essential write as a measure sees it: its label, the tag of the task that made it, how
+    /// long the caller waited for its answer, and of that how long its transactions took inside the store; the rest is
+    /// the wait to reach the store (another write holding it) and the hops between tasks.
+    package struct EssentialTiming: Sendable {
+        package let label: String
+        package let tag: String?
+        package let total: Duration
+        package let inside: Duration
+        package let transactions: Int
+    }
+
+    /// The tag the essential writes of the current task are reported with, for a measure that tells its own calls apart.
+    @TaskLocal package static var probeTag: String?
+
+    /// Reports every essential write to `probe`, or stops when nil: for the measures only.
+    package func probeEssentials(_ probe: (@Sendable (EssentialTiming) -> Void)?) { essentialProbe = probe }
+
+    /// Reports the store's transactions that take at least `threshold`, with the label of the work that ran them, or
+    /// stops when nil: for the measures only.
+    package func observeSlowStoreOperations(threshold: Duration, _ report: (@Sendable (SQLiteMemoryStore.SlowOperation) -> Void)?) async throws {
+        _ = try await ready()
+        await store?.observeSlowOperations(threshold: threshold, report)
+    }
+
+    /// Runs `body` with its store operations reported under `label` when slow.
+    package static func labelled<T: Sendable>(_ label: String, _ body: () async throws -> T) async rethrows -> T {
+        try await SQLiteMemoryStore.$operationLabel.withValue(label, operation: body)
     }
 
     /// Confirmation is what an essential write saved: the whole body, or its fallback's least, with the
@@ -609,7 +666,9 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             running = (write.label, tally)
             do {
                 try await SQLiteMemoryStore.$tally.withValue(tally) {
-                    try await write.body(try await self.open())
+                    try await SQLiteMemoryStore.$operationLabel.withValue("derived: \(write.label)") {
+                        try await write.body(try await self.open())
+                    }
                 }
                 settle(write, tally: tally, error: nil)
             } catch {
@@ -662,8 +721,10 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     private func recoverRelations(with repositories: MemoryRepositories) async {
         let now = clock.brainMS()
         do {
-            let report = try await repositories.relations.catchUp(at: now, limit: Self.relationRecoveryBatch) { key in
-                _ = try await repositories.scenes.associate(key, at: now)
+            let report = try await SQLiteMemoryStore.$operationLabel.withValue("relation recovery") {
+                try await repositories.relations.catchUp(at: now, limit: Self.relationRecoveryBatch) { key in
+                    _ = try await repositories.scenes.associate(key, at: now)
+                }
             }
             relationRecovery.recovered    += report.recovered
             relationRecovery.reconsidered += report.reconsidered

@@ -40,6 +40,7 @@ nonisolated public enum TaskChannel {
     /// Opens a task with its first revision and first attempt.
     public static func begin(_ content: TaskRevisionContent, producer: TaskProducer, traceID: String?,
                              memory: MemoryService) async throws -> OpenTask {
+        let content = try await admitting(content, producer: producer, memory: memory)
         let now     = memory.clock.calendarMS()
         let taskID  = UUID().uuidString
         let attempt = UUID().uuidString
@@ -77,6 +78,7 @@ nonisolated public enum TaskChannel {
     /// `staleRevision` and changes nothing.
     public static func revise(_ open: OpenTask, expecting: Int, content: TaskRevisionContent, reason: String?,
                               producer: TaskProducer, memory: MemoryService) async throws -> OpenTask {
+        let content = try await admitting(content, producer: producer, memory: memory, current: (open.taskID, []))
         let revision = try TaskRevision(
             taskID      : open.taskID,
             revision    : try TaskContextContract.successor(of: expecting, field: "revision"),
@@ -96,10 +98,54 @@ nonisolated public enum TaskChannel {
         producer: TaskProducer,
         memory  : MemoryService
     ) async throws -> (receipt: MemoryReceipt, checkpoint: TaskCheckpoint) {
+        let targets = try await targets(of: draft.outputs.map { ($0.sourceRef, $0.sourceVersion) }, producer: producer, memory: memory,
+                                        current: (open.taskID, Set(draft.outputs.map(\.name))))
+        let draft = try TaskCheckpointDraft(kind: draft.kind, declared: draft.declared, note: draft.note,
+                                            outputs: try TaskOutputReference.admitting(draft.outputs, targets: targets))
         let at = memory.clock.calendarMS()
         return try await memory.perform {
             try await $0.tasks.checkpoint(draft, attempt: open.attemptID, at: at, by: producer)
         }
+    }
+
+    // MARK: References
+
+    /// The revision's content with each structural reference of its inputs kept only when it resolves (`targets`).
+    static func admitting(_ content: TaskRevisionContent, producer: TaskProducer, memory: MemoryService,
+                          current: (taskID: String, outputs: Set<String>)? = nil) async throws -> TaskRevisionContent {
+        let targets = try await targets(of: content.inputs.map { ($0.sourceRef, $0.sourceVersion) }, producer: producer, memory: memory,
+                                        current: current)
+        let inputs = try TaskOutputReference.admitting(content.inputs, targets: targets)
+        guard inputs != content.inputs else { return content }
+        return try TaskRevisionContent(goal: content.goal, requestedResult: content.requestedResult, constraints: content.constraints,
+                                       inputs: inputs, messageRefs: content.messageRefs)
+    }
+
+    /// What each task a structural reference names can vouch for, read through the producer: the outputs its checkpoints and
+    /// ends declared, its attempts and its revisions. A task of another producer, or none, vouches for nothing, so a reference
+    /// to it is minimized as any text: the task contract lets a producer read only its own tasks. `current` is the task being
+    /// written and the outputs the statement itself declares (a checkpoint's outputs, an interpretation's).
+    public static func targets(of references: [(String?, String?)], producer: TaskProducer, memory: MemoryService,
+                               current: (taskID: String, outputs: Set<String>)? = nil) async throws -> [String: TaskOutputReference.Target] {
+        var targets: [String: TaskOutputReference.Target] = [:]
+        for taskID in TaskOutputReference.tasks(in: references) {
+            let task: TaskRecord?
+            do {
+                task = try await memory.perform { try await $0.tasks.task(taskID, for: producer) }
+            } catch TaskContextError.foreignTask {
+                continue
+            }
+            guard let task else { continue }
+            let attempts = try await memory.perform { try await $0.tasks.attempts(of: taskID, for: producer) }
+            var outputs: Set<String> = current?.taskID == taskID ? current?.outputs ?? [] : []
+            for attempt in attempts {
+                let checkpoints = try await memory.perform { try await $0.tasks.checkpoints(of: attempt.attempt.attemptID, for: producer) }
+                for checkpoint in checkpoints { outputs.formUnion(checkpoint.outputs.map(\.name)) }
+            }
+            targets[taskID] = TaskOutputReference.Target(outputs: outputs, attempts: Set(attempts.map(\.attempt.attemptID)),
+                                                         revisions: task.currentRevision)
+        }
+        return targets
     }
 
     /// Opens a new attempt of an open task of the producer, which resumes its last attempt: that one,
