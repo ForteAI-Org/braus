@@ -60,14 +60,16 @@ package enum SQLiteArchiveTransfer {
         package let detail: String?
     }
 
-    /// The tables of facts this transfer does not carry: a source with rows in any of them is refused.
+    /// The tables of facts this transfer does not carry: a source with rows in any of them is refused. The Recall's
+    /// index work is not a fact: a staging copy migrated to schema 6 queues its rebuild there, and the destination
+    /// keeps its own index.
     static let untransferred = [
         "memory_input_events", "memory_action_correlations", "memory_verifications", "memory_task_occurrences",
         "memory_task_events", "memory_task_labels", "memory_routes", "memory_step_occurrences", "memory_experiences",
         "brain_menu_commands", "memory_tasks", "memory_call_effects", "memory_value_redactions",
         "memory_call_recording_gaps", "memory_origin_brain_contributions", "memory_procedure_candidates",
         "brain_relations", "brain_relation_applications", "brain_relation_evaluations", "memory_variant_prefixes",
-        "memory_variant_prefix_checks",
+        "memory_variant_prefix_checks", "memory_recall_queries",
     ]
 
     /// The statuses an origin keeps once its transfer ended: it is not offered again unless its archive

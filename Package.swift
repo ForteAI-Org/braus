@@ -364,7 +364,9 @@ let package = Package(
                resources: [.copy("Resources/brain-living-memory-schema.sql"),
                            .copy("Resources/brain-living-memory-schema-2.sql"),
                            .copy("Resources/brain-living-memory-schema-3.sql"), .copy("Resources/brain-living-memory-schema-4.sql"),
-                           .copy("Resources/brain-living-memory-schema-5.sql")]),
+                           .copy("Resources/brain-living-memory-schema-5.sql"),
+                           .copy("Resources/brain-living-memory-schema-6.sql"),
+                           .copy("Resources/brain-living-memory-schema-7.sql")]),
 
         // `TextEmbedding` over a pinned local model: the XLM-RoBERTa tokenizer and a BERT-family encoder on
         // Accelerate, reading the model's files from disk. Imports Memory, Foundation and Accelerate; no network.

@@ -3,8 +3,8 @@
 They prove the shape of the schema (constraints, triggers, round trips) on the resources included
 in the module, through Python's sqlite3: not the Swift store, not the Brain's retention, not the
 desktop. Schema 1's checks run first; schema 2's additions then run on that populated file, as the
-migration does, with checks of their own, and schema 3's after them. `make test` runs them; pass other
-DDL paths (schema 1, then schema 2, then schema 3) as arguments to check copies.
+migration does, with checks of their own, and each later schema's after them, up to schema 7. `make test`
+runs them; pass other DDL paths (schema 1, then schema 2, and so on) as arguments to check copies.
 The library used is Python's, and it says nothing about the one the Swift binary links.
 """
 import sqlite3
@@ -27,6 +27,12 @@ DDL4 = Path(sys.argv[4]) if len(sys.argv) > 4 else \
 # Schema 5's additions (D2 after its second review), run after schema 4's checks on the same populated file.
 DDL5 = Path(sys.argv[5]) if len(sys.argv) > 5 else \
     ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-5.sql"
+# Schema 6's additions (D3, the Recall), run after schema 5's checks on the same populated file.
+DDL6 = Path(sys.argv[6]) if len(sys.argv) > 6 else \
+    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-6.sql"
+# Schema 7's additions (D3, the experiment of the agent's choice), run after schema 6's checks on the same populated file.
+DDL7 = Path(sys.argv[7]) if len(sys.argv) > 7 else \
+    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-7.sql"
 db = sqlite3.connect(":memory:")
 # The resource carries no PRAGMA of its own: foreign keys are enabled per connection, as the store does.
 db.executescript("PRAGMA foreign_keys = ON;\n" + DDL.read_text())
@@ -1212,9 +1218,387 @@ insert("memory_schema_migrations", to_version=5, from_version=4, migrated_at_ms=
 assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 ok("schema 5: a verified prefix and the migration record")
 
+# ================================================================== schema 6 (D3): the Recall's index and facts
+# The text runs on the populated schema 5 file and writes nothing: the rebuild a migrated archive needs is queued by
+# the store in the migrating transaction, since a text cannot read the time.
+db.executescript(DDL6.read_text())
+assert db.execute("SELECT count(*) FROM memory_recall_work").fetchone()[0] == 0
+ok("schema 6: runs on the populated schema 5 file; the text itself queues no index work")
+
+D64 = "a" * 64
+insert("memory_recall_spaces", space_id="e5@r1", model_id="intfloat/multilingual-e5-small", model_revision="r1",
+       weights_digest=D64, tokenizer_digest="b" * 64, dimensions=4, pooling="mean", normalization="l2", precision="float32",
+       query_prefix="query: ", document_prefix="passage: ", maximum_tokens=512, recorded_at_ms=300)
+rejects("schema 6: a space whose weights digest is not a sha256", lambda: insert("memory_recall_spaces", space_id="x",
+        model_id="m", model_revision="r", weights_digest="abc", tokenizer_digest=D64, dimensions=4, pooling="mean",
+        normalization="l2", precision="float32", query_prefix="", document_prefix="", maximum_tokens=512, recorded_at_ms=1))
+rejects("schema 6: an unknown pooling", lambda: insert("memory_recall_spaces", space_id="x", model_id="m", model_revision="r",
+        weights_digest=D64, tokenizer_digest=D64, dimensions=4, pooling="max", normalization="l2", precision="float32",
+        query_prefix="", document_prefix="", maximum_tokens=512, recorded_at_ms=1))
+rejects("schema 6: a space is immutable", lambda: db.execute("UPDATE memory_recall_spaces SET dimensions=8"))
+rejects("schema 6: a space is kept", lambda: db.execute("DELETE FROM memory_recall_spaces"))
+
+insert("memory_recall_generations", generation_id=1, document_format="recall-document-1", space_id="e5@r1", status="building",
+       started_at_ms=300)
+rejects("schema 6: a generation born ready", lambda: insert("memory_recall_generations", generation_id=2,
+        document_format="recall-document-1", status="ready", enumerated=1, started_at_ms=300, ready_at_ms=300))
+rejects("schema 6: two generations building", lambda: insert("memory_recall_generations", generation_id=2,
+        document_format="recall-document-1", status="building", started_at_ms=300))
+rejects("schema 6: a generation ready before it is enumerated", lambda: db.execute(
+        "UPDATE memory_recall_generations SET status='ready', ready_at_ms=301 WHERE generation_id=1"))
+rejects("schema 6: a generation changes its format", lambda: db.execute(
+        "UPDATE memory_recall_generations SET document_format='recall-document-1c' WHERE generation_id=1"))
+rejects("schema 6: a generation that failed without its reason", lambda: db.execute(
+        "UPDATE memory_recall_generations SET status='failed', ended_at_ms=301 WHERE generation_id=1"))
+
+text = "Esportare <documento>. In Editor."
+insert("memory_recall_documents", document_digest=D64, document_format="recall-document-1", text=text, recorded_at_ms=300)
+insert("memory_recall_documents", document_digest="c" * 64, document_format="recall-document-1c", text=text, recorded_at_ms=300)
+insert("memory_recall_vectors", space_id="e5@r1", document_digest=D64, token_count=9, truncated=0, vector=bytes(16),
+       recorded_at_ms=300)
+rejects("schema 6: a vector of another length than its space's dimensions", lambda: insert("memory_recall_vectors",
+        space_id="e5@r1", document_digest="c" * 64, token_count=9, truncated=0, vector=bytes(12), recorded_at_ms=300))
+rejects("schema 6: one vector per document and space", lambda: insert("memory_recall_vectors", space_id="e5@r1",
+        document_digest=D64, token_count=9, truncated=0, vector=bytes(16), recorded_at_ms=300))
+rejects("schema 6: a vector is immutable", lambda: db.execute("UPDATE memory_recall_vectors SET truncated=1"))
+rejects("schema 6: a document is immutable", lambda: db.execute("UPDATE memory_recall_documents SET text='x'"))
+
+insert("memory_recall_entries", generation_id=1, part_id="v1/procedure", route_id="v1", part_kind="procedure",
+       document_digest=D64, qualification_sequence=1, state_sequence=0, entered_at_ms=300)
+assert db.execute("SELECT revision FROM memory_recall_generations WHERE generation_id=1").fetchone()[0] == 1
+ok("schema 6: a space, a generation being built, a document with its vector, an entry counted in the generation's revision")
+rejects("schema 6: an entry of another kind than its part's", lambda: insert("memory_recall_entries", generation_id=1,
+        part_id="v1/step-0", route_id="v1", part_kind="procedure", document_digest=D64, qualification_sequence=1,
+        state_sequence=0, entered_at_ms=300))
+rejects("schema 6: an entry whose document is in another format", lambda: insert("memory_recall_entries", generation_id=1,
+        part_id="v1/step-0", route_id="v1", part_kind="step", document_digest="c" * 64, qualification_sequence=1,
+        state_sequence=0, entered_at_ms=300))
+rejects("schema 6: an entry is replaced, never changed", lambda: db.execute("UPDATE memory_recall_entries SET state_sequence=1"))
+db.execute("UPDATE memory_recall_generations SET enumerated=1, cursor_route_id='v1' WHERE generation_id=1")
+db.execute("UPDATE memory_recall_generations SET status='ready', ready_at_ms=301 WHERE generation_id=1")
+rejects("schema 6: a ready generation goes back to building", lambda: db.execute(
+        "UPDATE memory_recall_generations SET status='building', ready_at_ms=NULL WHERE generation_id=1"))
+rejects("schema 6: an enumerated generation forgets it", lambda: db.execute(
+        "UPDATE memory_recall_generations SET enumerated=0 WHERE generation_id=1"))
+rejects("schema 6: a generation's revision goes back", lambda: db.execute(
+        "UPDATE memory_recall_generations SET revision=0 WHERE generation_id=1"))
+rejects("schema 6: a generation is kept", lambda: db.execute("DELETE FROM memory_recall_generations"))
+insert("memory_recall_generations", generation_id=2, document_format="recall-document-1c", status="building", started_at_ms=302)
+rejects("schema 6: two generations ready", lambda: db.execute(
+        "UPDATE memory_recall_generations SET status='ready', enumerated=1, ready_at_ms=303 WHERE generation_id=2"))
+db.execute("UPDATE memory_recall_generations SET status='failed', ended_at_ms=303, reason='stopped' WHERE generation_id=2")
+rejects("schema 6: a failed generation is final", lambda: db.execute(
+        "UPDATE memory_recall_generations SET status='retired' WHERE generation_id=2"))
+rejects("schema 6: an entry in a generation that failed", lambda: insert("memory_recall_entries", generation_id=2,
+        part_id="v1/procedure", route_id="v1", part_kind="procedure", document_digest="c" * 64, qualification_sequence=1,
+        state_sequence=0, entered_at_ms=303))
+db.execute("DELETE FROM memory_recall_entries WHERE generation_id=1 AND part_id='v1/procedure'")
+assert db.execute("SELECT revision FROM memory_recall_generations WHERE generation_id=1").fetchone()[0] == 2
+ok("schema 6: a generation made ready once enumerated, another that failed is final, a removed entry counts in the revision")
+
+# Index work recorded with the writes that change what the catalogue may offer, one pending row per route.
+insert("memory_part_qualifications", part_id="v1/step-0", sequence=2, policy_version="qualification-a-1", verdict="admitted",
+       evaluated_at_ms=310)
+insert("memory_part_qualification_evidence", part_id="v1/step-0", sequence=2, step_position=0, call_event_id="v2_call",
+       verification_event_id="v2_check")
+insert("memory_part_states", part_id="v1/step-0", sequence=1, state="usable", reason="evaluated again", recorded_at_ms=311,
+       recorded_by="test")
+assert db.execute("SELECT route_id, reason FROM memory_recall_work WHERE done_at_ms IS NULL").fetchall() == [("v1", "qualification")]
+db.execute("UPDATE memory_recall_work SET done_at_ms=312, attempts=1 WHERE route_id='v1'")
+insert("memory_part_states", part_id="v1/step-0", sequence=2, state="retired", reason="smentita", recorded_at_ms=313,
+       recorded_by="test")
+insert("memory_routes", route_id="v10", name="Esportare <documento> di nuovo", status="draft", created_at_ms=320,
+       supersedes_route_id="v1")
+insert("memory_procedure_interpretations", interpretation_id="i10", candidate_id="c1", revision=5, contract_version=1,
+       payload_digest="v10", source="app", source_stream_id="worker", task_revision=1, attempt_state="ended", recorded_at_ms=320)
+insert("memory_procedure_versions", route_id="v10", interpretation_id="i10", candidate_id="c1", task_id="t1",
+       task_occurrence_id="o1", contract_version=1, built_at_ms=320)
+db.execute("INSERT INTO memory_qualification_policies (policy_version, status, changed_at_ms, reason) "
+           "VALUES ('qualification-a-2', 'quarantined', 321, 'wrong rule')")
+db.execute("INSERT INTO memory_qualification_policies (policy_version, status, changed_at_ms) VALUES ('qualification-a-3', 'active', 322)")
+db.execute("UPDATE memory_qualification_policies SET status='quarantined', reason='also wrong', changed_at_ms=323 "
+           "WHERE policy_version='qualification-a-3'")
+assert db.execute("SELECT ifnull(route_id, '*'), reason FROM memory_recall_work WHERE done_at_ms IS NULL ORDER BY work_id").fetchall() == \
+    [("v1", "state"), ("v10", "publication"), ("*", "policy")]
+ok("schema 6: a qualification, a state, a publication that supersedes and a quarantine each record index work; "
+   "a pending row covers the next of its route or of the catalogue")
+rejects("schema 6: work on a route for a whole rebuild", lambda: insert("memory_recall_work", route_id="v1", reason="rebuild",
+        enqueued_at_ms=1))
+rejects("schema 6: work on no route for a publication", lambda: insert("memory_recall_work", reason="publication",
+        enqueued_at_ms=1))
+rejects("schema 6: work done twice", lambda: db.execute("UPDATE memory_recall_work SET done_at_ms=400 WHERE done_at_ms=312"))
+rejects("schema 6: work attempts go back", lambda: db.execute("UPDATE memory_recall_work SET attempts=0 WHERE done_at_ms=312"))
+rejects("schema 6: work keeps its reason", lambda: db.execute("UPDATE memory_recall_work SET reason='rebuild' WHERE route_id='v10'"))
+rejects("schema 6: work is kept", lambda: db.execute("DELETE FROM memory_recall_work"))
+insert("memory_recall_work", reason="migration", enqueued_at_ms=330)
+ok("schema 6: a migration's rebuild is work on the whole catalogue")
+
+# A query, its need, the selection delivered, what it requires, a call linked to its step and the declared use.
+def query(qid, **extra):
+    row = dict(query_id=qid, task_id="t1", task_occurrence_id="o1", task_revision=1, source="app", source_stream_id="worker",
+               reason="initial", remaining_work="Esportare il documento", generation_id=1, channel="lexical",
+               search_status="completed", candidate_limit=48, candidates_considered=2, coverage="complete",
+               delivery="delivered", delivery_bytes=900, selector_version="recall-selector-2", recorded_at_ms=340,
+               duration_us=1200)
+    row.update(extra)
+    insert("memory_recall_queries", **row)
+
+query("q1")
+insert("memory_recall_needs", query_id="q1", position=0, text="Esportare il documento", coverage="complete")
+insert("memory_recall_selections", query_id="q1", need_position=0, position=0, role="selected", route_id="v1",
+       first_position=0, last_position=0, whole_part_id="v1/procedure", relevance=0.72, preparations=0)
+insert("memory_recall_requirements", query_id="q1", need_position=0, selection_position=0, position=0, kind="entry_state",
+       step_position=0, scene_id="scene1", bundle_id="com.example.Editor")
+insert("memory_recall_requirements", query_id="q1", need_position=0, selection_position=0, position=1, kind="parameter_bound",
+       parameter_id="v1p0", task_value_name="file", binding_match="name")
+insert("memory_recall_links", query_id="q1", need_position=0, call_event_id="v2_call", step_position=0, confirmed=1,
+       linked_at_ms=350)
+insert("memory_recall_links", query_id="q1", need_position=0, call_event_id="v2_open", confirmed=0, linked_at_ms=350)
+insert("memory_recall_reports", query_id="q1", need_position=0, sequence=1, declared="adapted", cause="driver", recorded_at_ms=351)
+insert("memory_recall_reports", query_id="q1", need_position=0, sequence=2, declared="followed", recorded_at_ms=352)
+ok("schema 6: a query with its need, its selection as a whole part, an entry state and a binding by name, two linked calls "
+   "(one of the agent's own) and two declared uses")
+query("q2", search_status="unavailable", search_note="no index exists yet", generation_id=None, channel="none",
+      coverage="unknown", delivery="nothing", candidates_considered=0)
+insert("memory_recall_needs", query_id="q2", position=0, text="Esportare il documento", coverage="unknown")
+ok("schema 6: a search the index could not answer is unknown, not absent, and delivers nothing")
+rejects("schema 6: an unavailable search that covers", lambda: query("x", search_status="unavailable", search_note="n"))
+rejects("schema 6: a limited search without its note", lambda: query("x", search_status="limited"))
+rejects("schema 6: a channel without its generation", lambda: query("x", generation_id=None))
+rejects("schema 6: a coverage delivered as nothing", lambda: query("x", delivery="nothing"))
+rejects("schema 6: an absence with a delivery", lambda: query("x", coverage="absent"))
+rejects("schema 6: a query of another task's attempt", lambda: query("x", task_id="t2"))
+rejects("schema 6: an unknown reason", lambda: query("x", reason="brain_updated"))
+rejects("schema 6: a query is immutable", lambda: db.execute("UPDATE memory_recall_queries SET coverage='partial'"))
+rejects("schema 6: a query is kept", lambda: db.execute("DELETE FROM memory_recall_queries"))
+rejects("schema 6: a partial need for alternatives", lambda: insert("memory_recall_needs", query_id="q1", position=1, text="n",
+        coverage="partial", reason="alternatives"))
+rejects("schema 6: an ambiguous need for gaps", lambda: insert("memory_recall_needs", query_id="q1", position=1, text="n",
+        coverage="ambiguous", reason="gaps"))
+rejects("schema 6: a complete need with a reason", lambda: insert("memory_recall_needs", query_id="q1", position=1, text="n",
+        coverage="complete", reason="gaps"))
+rejects("schema 6: a need is immutable", lambda: db.execute("UPDATE memory_recall_needs SET coverage='absent'"))
+rejects("schema 6: a selection past its version's steps", lambda: insert("memory_recall_selections", query_id="q1",
+        need_position=0, position=1, role="alternative", route_id="v1", first_position=0, last_position=3, relevance=0.5,
+        preparations=0))
+rejects("schema 6: a whole part with another interval", lambda: insert("memory_recall_selections", query_id="q1",
+        need_position=0, position=1, role="alternative", route_id="v10", first_position=0, last_position=0,
+        whole_part_id="v1/procedure", relevance=0.5, preparations=0))
+rejects("schema 6: a selection for a need with no coverage", lambda: insert("memory_recall_selections", query_id="q2",
+        need_position=0, position=0, role="selected", route_id="v1", first_position=0, last_position=0, relevance=0.5,
+        preparations=0))
+rejects("schema 6: a selection is immutable", lambda: db.execute("UPDATE memory_recall_selections SET relevance=1"))
+rejects("schema 6: a requirement on a step outside its selection", lambda: insert("memory_recall_requirements", query_id="q1",
+        need_position=0, selection_position=0, position=2, kind="unknown_entry_state", step_position=1))
+rejects("schema 6: a parameter of another version", lambda: insert("memory_recall_requirements", query_id="q1",
+        need_position=0, selection_position=0, position=2, kind="parameter_missing", parameter_id="param1"))
+rejects("schema 6: a binding without how it matched", lambda: insert("memory_recall_requirements", query_id="q1",
+        need_position=0, selection_position=0, position=2, kind="parameter_bound", parameter_id="v1p0", task_value_name="file"))
+rejects("schema 6: a binding without the task value it took", lambda: insert("memory_recall_requirements", query_id="q1",
+        need_position=0, selection_position=0, position=2, kind="parameter_bound", parameter_id="v1p0", binding_match="role"))
+rejects("schema 6: a prerequisite out of the catalogue that is no step of the version", lambda: insert("memory_recall_requirements",
+        query_id="q1", need_position=0, selection_position=0, position=2, kind="prerequisite_out_of_catalogue", step_position=5))
+rejects("schema 6: a prerequisite out of the catalogue without its step", lambda: insert("memory_recall_requirements",
+        query_id="q1", need_position=0, selection_position=0, position=2, kind="prerequisite_out_of_catalogue"))
+rejects("schema 6: a requirement is immutable", lambda: db.execute("UPDATE memory_recall_requirements SET bundle_id='x'"))
+rejects("schema 6: a linked call of another attempt", lambda: insert("memory_recall_links", query_id="q1", need_position=0,
+        call_event_id="v2_y", step_position=0, confirmed=0, linked_at_ms=350))
+rejects("schema 6: a link confirmed without its step", lambda: insert("memory_recall_links", query_id="q1", need_position=0,
+        call_event_id="v3_batch", confirmed=1, linked_at_ms=350))
+rejects("schema 6: a link is immutable", lambda: db.execute("UPDATE memory_recall_links SET confirmed=0"))
+rejects("schema 6: a call linked to a step and undetermined", lambda: insert("memory_recall_links", query_id="q1", need_position=0,
+        call_event_id="v3_batch", step_position=0, confirmed=0, undetermined=1, linked_at_ms=350))
+rejects("schema 6: a report out of order", lambda: insert("memory_recall_reports", query_id="q1", need_position=0, sequence=4,
+        declared="abandoned", recorded_at_ms=353))
+rejects("schema 6: an unknown cause", lambda: insert("memory_recall_reports", query_id="q1", need_position=0, sequence=3,
+        declared="abandoned", cause="bad_luck", recorded_at_ms=353))
+rejects("schema 6: a report is immutable", lambda: db.execute("UPDATE memory_recall_reports SET declared='abandoned'"))
+rejects("schema 6: a report is kept", lambda: db.execute("DELETE FROM memory_recall_reports"))
+# An absence because the relevant steps were excluded with a certain reason; the conditions a selection states.
+query("q3", coverage="absent", delivery="nothing")
+insert("memory_recall_needs", query_id="q3", position=0, text="Esportare in PNG", coverage="absent", reason="excluded")
+insert("memory_recall_selections", query_id="q3", need_position=0, position=0, role="excluded", route_id="v1",
+       first_position=0, last_position=0, relevance=0.8, preparations=0)
+insert("memory_recall_requirements", query_id="q3", need_position=0, selection_position=0, position=0, kind="certain_conflict",
+       step_position=0, task_value_name="output_format")
+insert("memory_recall_requirements", query_id="q3", need_position=0, selection_position=0, position=1, kind="constraint_excluded",
+       step_position=0, constraint_position=0)
+insert("memory_recall_requirements", query_id="q1", need_position=0, selection_position=0, position=2, kind="constraint_unchecked",
+       constraint_position=1)
+insert("memory_recall_requirements", query_id="q1", need_position=0, selection_position=0, position=3, kind="observed_state",
+       step_position=0, scene_id="scene1", bundle_id="com.example.Editor")
+ok("schema 6: an absence whose relevant episode was excluded by a conflict and a constraint; an unchecked constraint and an "
+   "observed state on a selection")
+rejects("schema 6: a complete need said excluded", lambda: insert("memory_recall_needs", query_id="q1", position=1, text="n",
+        coverage="complete", reason="excluded"))
+rejects("schema 6: a partial need said excluded", lambda: insert("memory_recall_needs", query_id="q1", position=1, text="n",
+        coverage="partial", reason="excluded"))
+rejects("schema 6: an exclusion on a selected interval", lambda: insert("memory_recall_requirements", query_id="q1",
+        need_position=0, selection_position=0, position=4, kind="certain_conflict", step_position=0, task_value_name="f"))
+rejects("schema 6: an excluded episode stating a condition", lambda: insert("memory_recall_requirements", query_id="q3",
+        need_position=0, selection_position=0, position=2, kind="entry_state", step_position=0, scene_id="scene1"))
+rejects("schema 6: a conflict without the task value it contradicts", lambda: insert("memory_recall_requirements", query_id="q3",
+        need_position=0, selection_position=0, position=2, kind="certain_conflict", step_position=0))
+rejects("schema 6: a constraint requirement without its constraint", lambda: insert("memory_recall_requirements", query_id="q1",
+        need_position=0, selection_position=0, position=4, kind="constraint_unchecked"))
+rejects("schema 6: an observed state without its scene", lambda: insert("memory_recall_requirements", query_id="q1",
+        need_position=0, selection_position=0, position=4, kind="observed_state", step_position=0, bundle_id="com.example.Editor"))
+rejects("schema 6: a step done before the selection that is not before it", lambda: insert("memory_recall_requirements",
+        query_id="q1", need_position=0, selection_position=0, position=4, kind="prepared_before", step_position=0))
+rejects("schema 6: an output ready without how the task's value matched", lambda: insert("memory_recall_requirements",
+        query_id="q1", need_position=0, selection_position=0, position=4, kind="output_ready", step_position=0,
+        parameter_id="v1p0", task_value_name="file"))
+rejects("schema 6: an exclusion for a search that could not answer", lambda: insert("memory_recall_selections", query_id="q2",
+        need_position=0, position=0, role="excluded", route_id="v1", first_position=0, last_position=0, relevance=0.5,
+        preparations=0))
+insert("memory_schema_migrations", to_version=6, from_version=5, migrated_at_ms=4, copy_name="memory.sqlite.schema-5-x")
+assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+ok("schema 6: the migration record")
+
+# ================================================================== schema 7 (D3, the experiment of the agent's choice)
+db.executescript(DDL7.read_text())
+
+def proposal(pid, **extra):
+    row = dict(proposal_id=pid, task_id="t1", task_occurrence_id="o1", task_revision=1, source="app", source_stream_id="worker",
+               reason="initial", remaining_work="Esportare il documento", generation_id=1, channel="lexical",
+               search_status="completed", candidates_considered=4, proposal_bytes=2400, format_version="recall-proposal-1",
+               recorded_at_ms=360, duration_us=900)
+    row.update(extra)
+    insert("memory_recall_proposals", **row)
+
+proposal("p1")
+insert("memory_recall_proposal_needs", proposal_id="p1", position=0, text="Esportare il documento")
+insert("memory_recall_proposal_sources", proposal_id="p1", need_position=0, position=0, source_key="s1", route_id="v1",
+       relevance=0.7, suggested_first=0, suggested_last=0)
+insert("memory_recall_proposal_sources", proposal_id="p1", need_position=0, position=1, source_key="s2", route_id="v10",
+       relevance=0.4)
+ok("schema 7: a proposal with its need and two versions shortlisted, one with the automatic suggestion")
+rejects("schema 7: one name for two versions", lambda: insert("memory_recall_proposal_sources", proposal_id="p1", need_position=0,
+        position=2, source_key="s1", route_id="v10", relevance=0.1))
+rejects("schema 7: two names for one version", lambda: insert("memory_recall_proposal_sources", proposal_id="p1", need_position=0,
+        position=2, source_key="s3", route_id="v1", relevance=0.1))
+rejects("schema 7: a suggestion with one end", lambda: insert("memory_recall_proposal_sources", proposal_id="p1", need_position=0,
+        position=2, source_key="s3", route_id="v2", relevance=0.1, suggested_first=0))
+rejects("schema 7: a source for a need the proposal lacks", lambda: insert("memory_recall_proposal_sources", proposal_id="p1",
+        need_position=1, position=0, source_key="s3", route_id="v2", relevance=0.1))
+rejects("schema 7: a proposal of another task's attempt", lambda: proposal("x", task_id="t2"))
+rejects("schema 7: a limited proposal without its note", lambda: proposal("x", search_status="limited"))
+rejects("schema 7: a proposal is immutable", lambda: db.execute("UPDATE memory_recall_proposals SET proposal_bytes=1"))
+rejects("schema 7: a proposal is kept", lambda: db.execute("DELETE FROM memory_recall_proposal_sources"))
+query("q4", selector_version="recall-agent-choice-1", recorded_at_ms=370)
+insert("memory_recall_needs", query_id="q4", position=0, text="Esportare il documento", coverage="complete")
+insert("memory_recall_selections", query_id="q4", need_position=0, position=0, role="selected", route_id="v1",
+       first_position=0, last_position=0, relevance=0.7, preparations=0)
+insert("memory_recall_selections", query_id="q4", need_position=0, position=1, role="selected", route_id="v10",
+       first_position=0, last_position=0, relevance=0.4, preparations=0)
+insert("memory_recall_choices", query_id="q4", proposal_id="p1", recorded_at_ms=370)
+insert("memory_recall_choice_needs", query_id="q4", need_position=0, declared="all")
+insert("memory_recall_choice_links", query_id="q4", need_position=0, selection_position=1, call_event_id="v2_call",
+       step_position=0, confirmed=1, linked_at_ms=380)
+insert("memory_recall_choice_links", query_id="q4", need_position=0, call_event_id="v2_open", confirmed=0, linked_at_ms=380)
+ok("schema 7: a choice of two tracts of two versions for one need, the agent's declaration, a call linked to the second tract "
+   "and one of the agent's own")
+rejects("schema 7: a second choice of one proposal", lambda: (query("q5", selector_version="recall-agent-choice-1"),
+        insert("memory_recall_choices", query_id="q5", proposal_id="p1", recorded_at_ms=371)))
+proposal("p2", source_stream_id="other")
+rejects("schema 7: a choice of another producer's proposal", lambda: (query("q6", selector_version="recall-agent-choice-1"),
+        insert("memory_recall_choices", query_id="q6", proposal_id="p2", recorded_at_ms=371)))
+rejects("schema 7: a choice of a proposal of another revision", lambda: (query("q7", task_revision=2),
+        insert("memory_recall_choices", query_id="q7", proposal_id="p2", recorded_at_ms=371)))
+rejects("schema 7: all covered with something uncovered", lambda: insert("memory_recall_choice_needs", query_id="q4",
+        need_position=0, declared="all", uncovered="the rotation"))
+rejects("schema 7: a declaration for a need the query lacks", lambda: insert("memory_recall_choice_needs", query_id="q4",
+        need_position=1, declared="none"))
+rejects("schema 7: a declaration of a query that answers no proposal", lambda: insert("memory_recall_choice_needs", query_id="q1",
+        need_position=0, declared="part", uncovered="x"))
+rejects("schema 7: an unknown declaration", lambda: insert("memory_recall_choice_needs", query_id="q4", need_position=0,
+        declared="most"))
+rejects("schema 7: a linked step outside the tract it names", lambda: insert("memory_recall_choice_links", query_id="q4",
+        need_position=0, selection_position=0, call_event_id="v3_batch", step_position=1, confirmed=0, linked_at_ms=380))
+rejects("schema 7: a linked step without its tract", lambda: insert("memory_recall_choice_links", query_id="q4",
+        need_position=0, call_event_id="v3_batch", step_position=0, confirmed=0, linked_at_ms=380))
+rejects("schema 7: a tract with no step", lambda: insert("memory_recall_choice_links", query_id="q4",
+        need_position=0, selection_position=0, call_event_id="v3_batch", confirmed=0, linked_at_ms=380))
+rejects("schema 7: a call linked twice", lambda: insert("memory_recall_choice_links", query_id="q4", need_position=0,
+        selection_position=0, call_event_id="v2_call", step_position=0, confirmed=1, linked_at_ms=381))
+rejects("schema 7: a linked call of another attempt", lambda: insert("memory_recall_choice_links", query_id="q4",
+        need_position=0, selection_position=0, call_event_id="v2_y", step_position=0, confirmed=0, linked_at_ms=380))
+rejects("schema 7: a choice's call linked without its tract", lambda: insert("memory_recall_links", query_id="q4",
+        need_position=0, call_event_id="v3_batch", step_position=0, confirmed=0, linked_at_ms=380))
+rejects("schema 7: a choice is immutable", lambda: db.execute("UPDATE memory_recall_choices SET recorded_at_ms=1"))
+rejects("schema 7: a declaration is kept", lambda: db.execute("DELETE FROM memory_recall_choice_needs"))
+rejects("schema 7: a choice link is immutable", lambda: db.execute("UPDATE memory_recall_choice_links SET confirmed=0"))
+db.execute("INSERT INTO memory_route_parameters (parameter_id, route_id, name, direction, value_type, is_required) "
+           "VALUES ('v10p0', 'v10', 'allegato', 'input', 'text', 1)")
+query("q8", selector_version="recall-agent-choice-1", recorded_at_ms=372)
+insert("memory_recall_needs", query_id="q8", position=0, text="Esportare il documento e inviarlo", coverage="complete")
+for position, (route, first, last) in enumerate([("v10", 0, 3), ("v10", 7, 9), ("v1", 0, 0)]):
+    insert("memory_recall_selections", query_id="q8", need_position=0, position=position, role="selected", route_id=route,
+           first_position=first, last_position=last, relevance=0.6, preparations=0)
+insert("memory_recall_requirements", query_id="q8", need_position=0, selection_position=1, position=0, kind="input_produced",
+       step_position=3, parameter_id="v10p0")
+ok("schema 7: a tract's input produced by a step of an earlier tract of the same version")
+rejects("schema 7: an input produced by a step of a later tract", lambda: insert("memory_recall_requirements", query_id="q8",
+        need_position=0, selection_position=0, position=0, kind="input_produced", step_position=8, parameter_id="v10p0"))
+rejects("schema 7: an input produced by a step between the tracts", lambda: insert("memory_recall_requirements", query_id="q8",
+        need_position=0, selection_position=1, position=1, kind="input_produced", step_position=5, parameter_id="v10p0"))
+rejects("schema 7: an input produced in an earlier tract of another version", lambda: insert("memory_recall_requirements",
+        query_id="q8", need_position=0, selection_position=2, position=0, kind="input_produced", step_position=3,
+        parameter_id="v1p0"))
+rejects("schema 7: another requirement on a step of an earlier tract", lambda: insert("memory_recall_requirements",
+        query_id="q8", need_position=0, selection_position=1, position=1, kind="unknown_entry_state", step_position=2))
+rejects("schema 7: still, a requirement on a step outside its selection", lambda: insert("memory_recall_requirements", query_id="q1",
+        need_position=0, selection_position=0, position=2, kind="unknown_entry_state", step_position=1))
+# An ambiguous answer (review of experiment A, R5): no tract runs, the options are alternatives, the question is kept.
+proposal("p3")
+insert("memory_recall_proposal_needs", proposal_id="p3", position=0, text="Stampare il PDF")
+insert("memory_recall_proposal_sources", proposal_id="p3", need_position=0, position=0, source_key="s1", route_id="v1", relevance=0.7)
+insert("memory_recall_proposal_sources", proposal_id="p3", need_position=0, position=1, source_key="s2", route_id="v10", relevance=0.6)
+query("q9", selector_version="recall-agent-choice-2", recorded_at_ms=373, coverage="ambiguous")
+insert("memory_recall_needs", query_id="q9", position=0, text="Stampare il PDF", coverage="ambiguous", reason="alternatives")
+for position, route in enumerate(["v1", "v10"]):
+    insert("memory_recall_selections", query_id="q9", need_position=0, position=position, role="alternative", route_id=route,
+           first_position=0, last_position=0, relevance=0.6, preparations=0)
+insert("memory_recall_choices", query_id="q9", proposal_id="p3", recorded_at_ms=373)
+insert("memory_recall_choice_needs", query_id="q9", need_position=0, declared="ambiguous", uncovered="Tutte le pagine o solo quella corrente?")
+ok("schema 7: an ambiguous need of a choice, its two alternatives and the question for the person")
+rejects("schema 7: an ambiguous declaration without the question", lambda: (proposal("p4"),
+        query("q10", selector_version="recall-agent-choice-2", recorded_at_ms=374, coverage="ambiguous"),
+        insert("memory_recall_needs", query_id="q10", position=0, text="x", coverage="ambiguous", reason="alternatives"),
+        insert("memory_recall_choices", query_id="q10", proposal_id="p4", recorded_at_ms=374),
+        insert("memory_recall_choice_needs", query_id="q10", need_position=0, declared="ambiguous")))
+rejects("schema 7: an ambiguous declaration of a need with a tract to run", lambda: (proposal("p7"),
+        query("q13", selector_version="recall-agent-choice-2", recorded_at_ms=377, coverage="ambiguous"),
+        insert("memory_recall_needs", query_id="q13", position=0, text="x", coverage="ambiguous", reason="alternatives"),
+        [insert("memory_recall_selections", query_id="q13", need_position=0, position=position, role=role, route_id="v1",
+                first_position=0, last_position=0, relevance=0.6, preparations=0)
+         for position, role in enumerate(["selected", "alternative", "alternative"])],
+        insert("memory_recall_choices", query_id="q13", proposal_id="p7", recorded_at_ms=377),
+        insert("memory_recall_choice_needs", query_id="q13", need_position=0, declared="ambiguous", uncovered="quale?")))
+rejects("schema 7: an ambiguous declaration with one alternative", lambda: (proposal("p5"),
+        query("q11", selector_version="recall-agent-choice-2", recorded_at_ms=375, coverage="ambiguous"),
+        insert("memory_recall_needs", query_id="q11", position=0, text="x", coverage="ambiguous", reason="alternatives"),
+        insert("memory_recall_selections", query_id="q11", need_position=0, position=0, role="alternative", route_id="v1",
+               first_position=0, last_position=0, relevance=0.6, preparations=0),
+        insert("memory_recall_choices", query_id="q11", proposal_id="p5", recorded_at_ms=375),
+        insert("memory_recall_choice_needs", query_id="q11", need_position=0, declared="ambiguous", uncovered="quale?")))
+rejects("schema 7: a choice settled for a need that runs nothing", lambda: (proposal("p6"),
+        query("q12", selector_version="recall-agent-choice-2", recorded_at_ms=376, coverage="absent"),
+        insert("memory_recall_needs", query_id="q12", position=0, text="x", coverage="absent"),
+        insert("memory_recall_choices", query_id="q12", proposal_id="p6", recorded_at_ms=376),
+        insert("memory_recall_choice_needs", query_id="q12", need_position=0, declared="none", settled_by="le parole")))
+rejects("schema 7: an empty quotation", lambda: (proposal("p8"),
+        query("q14", selector_version="recall-agent-choice-2", recorded_at_ms=378, coverage="complete"),
+        insert("memory_recall_needs", query_id="q14", position=0, text="x", coverage="complete"),
+        insert("memory_recall_choices", query_id="q14", proposal_id="p8", recorded_at_ms=378),
+        insert("memory_recall_choice_needs", query_id="q14", need_position=0, declared="all", settled_by="")))
+insert("memory_schema_migrations", to_version=7, from_version=6, migrated_at_ms=5, copy_name="memory.sqlite.schema-6-x")
+assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+ok("schema 7: the migration record")
+
 # ================================================================== integrity, file reopen
 tables = db.execute("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()
-assert len(tables) == 91, len(tables)
+assert len(tables) == 109, len(tables)
 triggers = db.execute("SELECT count(*) FROM sqlite_schema WHERE type='trigger'").fetchone()[0]
 indexes = db.execute("SELECT count(*) FROM sqlite_schema WHERE type='index' AND sql IS NOT NULL").fetchone()[0]
 for (name,) in tables:
@@ -1222,10 +1606,10 @@ for (name,) in tables:
     assert all("json" not in column[1].lower() for column in db.execute(f"PRAGMA table_info({name})"))
 assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 assert db.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
-ok(f"91 tables, {triggers} triggers, {indexes} explicit indexes, all foreign keys prepared, no JSON columns, integrity checks")
+ok(f"109 tables, {triggers} triggers, {indexes} explicit indexes, all foreign keys prepared, no JSON columns, integrity checks")
 
 db.commit()
-with tempfile.TemporaryDirectory(prefix="mecum-ddl-v5-") as folder:
+with tempfile.TemporaryDirectory(prefix="mecum-ddl-v7-") as folder:
     path = Path(folder) / "memory.sqlite"
     with sqlite3.connect(path) as saved:
         db.backup(saved)
@@ -1248,6 +1632,6 @@ ok("orders, app scope, triggers, retired identities and evidence persist after f
 
 rejected = sum(1 for p in passed if p.startswith("rejects: "))
 print(f"PASS: {len(passed)} DDL checks ({rejected} negative) on SQLite {LIB[0]} [{LIB[1]}] via Python {sys.version.split()[0]} sqlite3 module {sqlite3.sqlite_version}")
-print("91 tables (schema 5); triggers:", triggers, "; explicit indexes:", indexes)
+print("109 tables (schema 7); triggers:", triggers, "; explicit indexes:", indexes)
 for p in passed:
     print(" -", p)

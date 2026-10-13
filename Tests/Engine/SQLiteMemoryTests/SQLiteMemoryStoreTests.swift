@@ -67,7 +67,7 @@ struct SQLiteMemoryStoreTests {
         let names = SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text())
         #expect(names.count == SchemaShape.current.tables)
         #expect(names.first == "brain_apps")
-        #expect(names.last == "memory_variant_prefix_checks")
+        #expect(names.last == "memory_recall_choice_links")
         #expect(Set(names).count == SchemaShape.current.tables)
         let first = SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text(of: 1))
         #expect(first.count == 48 && first.last == "memory_experience_uses" && Array(names.prefix(48)) == first)
@@ -128,13 +128,13 @@ struct SQLiteMemoryStoreTests {
         let store = try await SQLiteMemoryStore.open(at: url)
         await store.close()
         let raw = try SQLiteConnection(path: url.path)
-        try raw.execute("PRAGMA user_version = 7")
+        try raw.execute("PRAGMA user_version = 8")
         raw.close()
 
         let error = await storeError { _ = try await SQLiteMemoryStore.open(at: url) }
-        #expect(error == .schema(.future(found: 7, supported: SQLiteMemorySchema.version)))
+        #expect(error == .schema(.future(found: 8, supported: SQLiteMemorySchema.version)))
         let check = try SQLiteConnection(path: url.path)
-        #expect(try check.query("PRAGMA user_version") { $0.integer(0) }.first == 7)
+        #expect(try check.query("PRAGMA user_version") { $0.integer(0) }.first == 8)
         #expect(try check.query(
             "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
         ) { $0.integer(0) }.first == Int64(SchemaShape.current.tables))

@@ -16,12 +16,13 @@ import Memory
 /// migration, so all end at one shape. The texts carry no `PRAGMA`, `BEGIN` or `COMMIT` of their own;
 /// the store owns those boundaries. Documentation/Engine/MemorySchema.md says what the resources are
 /// and how they differ from the candidate they were copied from; Documentation/Engine/MemoryFacts.md
-/// what schema 2 adds; Documentation/Engine/MemoryProcedures.md what schemas 3, 4 and 5 add.
+/// what schema 2 adds; Documentation/Engine/MemoryProcedures.md what schemas 3, 4 and 5 add;
+/// Documentation/Engine/MemoryRecall.md what schema 6 adds; Documentation/Engine/RecallAgentChoice.md what schema 7 adds.
 enum SQLiteMemorySchema {
 
     /// The schema version this build bootstraps and opens. A file at version 0 with no tables is empty
     /// and is bootstrapped; a file at a version of `migrations` is migrated; any other is refused.
-    static let version: Int32 = 5
+    static let version: Int32 = 7
 
     /// The resource of schema 1, the base every later schema adds to.
     static let resourceName      = "brain-living-memory-schema"
@@ -29,10 +30,12 @@ enum SQLiteMemorySchema {
 
     /// The resources each migration runs, by the version it migrates from: version 1 to 2 adds the
     /// tables of schema 2 (D1), version 2 to 3 those of schema 3 (D2), version 3 to 4 those of schema 4
-    /// (D2 after its review), version 4 to 5 those of schema 5 (D2 after its second review). An archive at
-    /// an earlier version runs every one it lacks.
+    /// (D2 after its review), version 4 to 5 those of schema 5 (D2 after its second review), version 5 to 6
+    /// those of schema 6 (D3, the Recall), version 6 to 7 those of schema 7 (D3, the experiment of the agent's choice).
+    /// An archive at an earlier version runs every one it lacks.
     static let migrations: [Int32: String] = [1: "brain-living-memory-schema-2", 2: "brain-living-memory-schema-3",
-                                              3: "brain-living-memory-schema-4", 4: "brain-living-memory-schema-5"]
+                                              3: "brain-living-memory-schema-4", 4: "brain-living-memory-schema-5",
+                                              5: "brain-living-memory-schema-6", 6: "brain-living-memory-schema-7"]
 
     /// The text that creates the current schema in an empty file: every resource, in order.
     static func text() throws -> String {
@@ -142,6 +145,16 @@ enum SQLiteMemorySchema {
             if a.type == "table" { return (tables.firstIndex(of: a.name) ?? 0) > (tables.firstIndex(of: b.name) ?? 0) }
             return a.name < b.name
         }
+    }
+
+    /// What schema `version` holds that a later schema writes differently: the earlier definition of each object the
+    /// current schema replaced (schema 7 replaces schema 6's check of a recall requirement's step). A test that leaves a
+    /// file at `version` creates these again after removing `objectsAdded(since:)`, which holds their later definitions.
+    static func objectsReplaced(since version: Int32) throws -> [SchemaObject] {
+        let current = Dictionary(uniqueKeysWithValues: try objects(of: try text()).map { ($0.label, $0) })
+        return try objects(of: try text(of: version))
+            .filter { earlier in current[earlier.label].map { $0.sql != earlier.sql } ?? false }
+            .sorted { $0.name < $1.name }
     }
 
     /// Every table the text creates, in creation order, read from its `CREATE TABLE` lines.

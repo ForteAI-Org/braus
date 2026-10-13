@@ -132,6 +132,42 @@ struct SQLiteSnapshotTests {
         #expect(try strayFiles(beside: url) == [])
     }
 
+    @Test("while the finished copy is checked, the store answers reads and writes; a close then still ends the copy with no file left")
+    func storeFreeDuringVerification() async throws {
+        let url   = try temporaryDatabase()
+        let store = try await filled(url, events: 5)
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        await store.holdVerifications {
+            entered.continuation.yield()
+            for await _ in release.stream { break }
+        }
+        let destination = url.deletingLastPathComponent().appendingPathComponent("copy.sqlite")
+        let copying = Task { try await store.snapshot(to: destination) }
+        for await _ in entered.stream { break }
+        // The copy is being checked: a write and a read are answered now, not after it.
+        _ = try await record(EventRow(id: "during", key: "k"), in: store)
+        #expect(try await count("SELECT count(*) FROM memory_events", in: store) == 6)
+        release.continuation.yield()
+        let report = try await copying.value
+        #expect(try rawCount("SELECT count(*) FROM memory_events", at: report.destination) == 5, "the copy is as of its read transaction")
+        #expect(await store.liveHandles == 2)
+
+        let second = url.deletingLastPathComponent().appendingPathComponent("second.sqlite")
+        let held = AsyncStream<Void>.makeStream()
+        await store.holdVerifications {
+            held.continuation.yield()
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        let closing = Task { await storeError { _ = try await store.snapshot(to: second) } }
+        for await _ in held.stream { break }
+        await store.close()
+        #expect(await closing.value == .unavailable(.closed))
+        #expect(await store.liveHandles == 0)
+        #expect(!FileManager.default.fileExists(atPath: second.path))
+        #expect(try strayFiles(beside: url) == ["copy.sqlite"])
+    }
+
     @Test("a writer active in another process, holding the lock, neither blocks the copy nor gets into it")
     func activeWriterInAnotherProcess() async throws {
         let url   = try temporaryDatabase()

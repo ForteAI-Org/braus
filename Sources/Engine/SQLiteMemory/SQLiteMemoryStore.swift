@@ -217,8 +217,10 @@ public actor SQLiteMemoryStore {
     private var lastCheckpoint  : Checkpoint?
     private var snapshots       = 0
     private var waitObserver    : (@Sendable (WaitEvent) -> Void)?
+    private var slowObserver    : (threshold: Duration, report: @Sendable (SlowOperation) -> Void)?
     private var refusedRollback : SQLiteConnection.Failure?
     private var stepGate        : (@Sendable () async throws -> Void)?
+    private var verificationGate: (@Sendable () async -> Void)?
     private var migrationFault  : (@Sendable () throws -> Void)?
     private var presence        : SQLiteMemoryPresence?
     private let clock           = ContinuousClock()
@@ -239,6 +241,48 @@ public actor SQLiteMemoryStore {
 
     /// The tally the commits of the current task count into, when its owner bound one.
     @TaskLocal package static var tally: CommitTally?
+
+    /// WriteTiming adds up, for an owner that measures where a write path's time goes, how long the current task's write
+    /// transactions took inside the store, from their begin to their commit, apart from the time they waited to reach it.
+    package final class WriteTiming: Sendable {
+
+        private let state = Mutex((transactions: 0, inside: Duration.zero))
+
+        package init() {}
+
+        package var transactions: Int { state.withLock { $0.transactions } }
+        package var inside: Duration { state.withLock { $0.inside } }
+
+        fileprivate func add(_ duration: Duration) { state.withLock { $0.transactions += 1; $0.inside += duration } }
+    }
+
+    /// The timing the write transactions of the current task add to, when its owner bound one.
+    @TaskLocal package static var timing: WriteTiming?
+
+    /// The label the store's operations of the current task are reported with when they are slow: what the measures use
+    /// to tell which work held the store while another waited.
+    @TaskLocal package static var operationLabel: String?
+
+    /// SlowOperation is one read or write transaction that took at least the observer's threshold inside the store:
+    /// every other operation of the store waited for it.
+    package struct SlowOperation: Sendable {
+        package let kind: String
+        package let label: String?
+        package let duration: Duration
+        package let endedAt: ContinuousClock.Instant
+    }
+
+    /// Reports the transactions that take at least `threshold` inside the store, or stops when nil: for the measures only.
+    package func observeSlowOperations(threshold: Duration, _ report: (@Sendable (SlowOperation) -> Void)?) {
+        slowObserver = report.map { (threshold, $0) }
+    }
+
+    private func reportIfSlow(_ kind: String, since started: ContinuousClock.Instant) {
+        guard let (threshold, report) = slowObserver else { return }
+        let ended = clock.now
+        let duration = started.duration(to: ended)
+        if duration >= threshold { report(SlowOperation(kind: kind, label: Self.operationLabel, duration: duration, endedAt: ended)) }
+    }
 
     /// Lifecycle is the store's state: `opening` while an open is in flight, so a second open
     /// joins it and a close ends it; `failed` once a connection could not be trusted, until close.
@@ -445,6 +489,19 @@ public actor SQLiteMemoryStore {
         stepGate = gate
     }
 
+    /// A test's seam into a snapshot, for the package's tests only: awaited off the store before the finished copy is
+    /// checked, while the copy holds its connection and its partial file.
+    package func holdVerifications(_ gate: (@Sendable () async -> Void)?) {
+        verificationGate = gate
+    }
+
+    /// A value one task owns and hands to another while it waits for it: the copy's connection, which only the
+    /// snapshot that opened it uses.
+    private struct Unshared<T>: @unchecked Sendable {
+        let value: T
+        init(_ value: T) { self.value = value }
+    }
+
     // MARK: Transactions
 
     /// Runs the body inside one write transaction and answers after its commit, holding the work
@@ -483,12 +540,15 @@ public actor SQLiteMemoryStore {
     /// The body runs again on each attempt of the cycle. For a caller that classifies the spent
     /// budget itself; the ordinary path is `write`.
     package func attemptWrite<T: Sendable>(_ body: @Sendable (SQLiteTransaction) throws -> T) async throws -> T {
-        let writer = try connection(.writer)
-        let value  = try await transaction(on: writer, begin: "BEGIN IMMEDIATE", phase: .statement) {
+        let writer  = try connection(.writer)
+        let started = clock.now
+        let value   = try await transaction(on: writer, begin: "BEGIN IMMEDIATE", phase: .statement) {
             try body(SQLiteTransaction(connection: writer))
         }
         commits += 1
         Self.tally?.committed()
+        Self.timing?.add(started.duration(to: clock.now))
+        reportIfSlow("write", since: started)
         return value
     }
 
@@ -497,7 +557,9 @@ public actor SQLiteMemoryStore {
     /// another connection is neither seen nor waited for; a busy answer, rare in WAL, is waited
     /// for within one budget.
     package func read<T: Sendable>(_ body: @Sendable (SQLiteSnapshot) throws -> T) async throws -> T {
-        let reader = try connection(.reader)
+        let reader  = try connection(.reader)
+        let started = clock.now
+        defer { reportIfSlow("read", since: started) }
         return try await transaction(on: reader, begin: "BEGIN", phase: .statement) {
             try body(SQLiteSnapshot(connection: reader))
         }
@@ -608,8 +670,17 @@ public actor SQLiteMemoryStore {
             release(source)
             copying.source = nil
             try stillOpen()
-            let pageSize = try Self.verify(copy: copy)
-            try Self.settle(copy: copy)
+            // The checks read the whole copy: on an archive of gigabytes they take tens of seconds. They run off the store,
+            // on the copy's own connection, which nothing else uses while this call waits, so every other read and write
+            // (an action's essential facts among them) goes on meanwhile.
+            let owned = Unshared(copy)
+            let gate = verificationGate
+            let pageSize = try await Task.detached {
+                if let gate { try? await gate() }
+                let pageSize = try Self.verify(copy: owned.value)
+                try Self.settle(copy: owned.value)
+                return pageSize
+            }.value
             release(copy)
             copying.copy = nil
             // A cancellation or a close that arrived while the copy was verified still prevails: a copy
@@ -762,6 +833,11 @@ public actor SQLiteMemoryStore {
             // the prefixes schema 4 verified without their parameters' correspondence, checked again.
             if version < 4 { try SQLiteBrainRows.fillLabelKeys(writer) }
             if version < 5 { try SQLiteProcedureRows.checkVerifiedPrefixesAgain(writer, at: nowMS) }
+            // The Recall's index starts from the catalogue the archive already holds: one rebuild queued.
+            if version < 6 {
+                try writer.run("INSERT INTO memory_recall_work (route_id, reason, enqueued_at_ms) VALUES (NULL, 'migration', ?)",
+                               [.integer(nowMS)])
+            }
             try fault?()
             // A pragma cannot take a bound value; the version is this module's own constant.
             try writer.execute("PRAGMA user_version = \(SQLiteMemorySchema.version)")
