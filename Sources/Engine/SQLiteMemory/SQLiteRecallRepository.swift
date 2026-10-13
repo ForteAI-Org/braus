@@ -1,6 +1,6 @@
 //
 //  SQLiteRecallRepository.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -165,7 +165,7 @@ public struct SQLiteRecallRepository: Sendable {
         }
     }
 
-    /// Queues a whole rebuild, as `mecum memory --recall-rebuild` asks.
+    /// Queues a whole rebuild, as `braus memory --recall-rebuild` asks.
     public func queueRebuild(at nowMS: Int64) async throws {
         try await store.write { transaction in
             _ = try transaction.execute(

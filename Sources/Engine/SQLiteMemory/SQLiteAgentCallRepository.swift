@@ -1,6 +1,6 @@
 //
 //  SQLiteAgentCallRepository.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 02/10/2026.
 //
@@ -331,7 +331,7 @@ enum SQLiteAgentCallRows {
         let verified: Int
     }
 
-    /// The summary the producers (`AutomationTools.call`'s batch, `mecum batch`) write for the batch's
+    /// The summary the producers (`AutomationTools.call`'s batch, `braus batch`) write for the batch's
     /// stored steps, or nil when no run of them could have left them so. In position order: a step is
     /// accepted when it completed with `found_acted`, or with `acted_noop` for `act` with
     /// `set_toggle`; the first step that completed with any other outcome, or failed, stops the

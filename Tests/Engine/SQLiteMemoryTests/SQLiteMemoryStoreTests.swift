@@ -1,6 +1,6 @@
 //
 //  SQLiteMemoryStoreTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 02/10/2026.
 //
@@ -96,7 +96,7 @@ struct SQLiteMemoryStoreTests {
     @Test("a directory that does not exist or cannot be written is an open error, and no file appears")
     func unwritablePath() async throws {
         let missing = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mecum-missing-\(UUID().uuidString)/memory.sqlite")
+            .appendingPathComponent("braus-missing-\(UUID().uuidString)/memory.sqlite")
         let error = await storeError { _ = try await SQLiteMemoryStore.open(at: missing) }
         guard case .open(let fault)? = error else {
             Issue.record("expected .open, got \(String(describing: error))")
@@ -107,7 +107,7 @@ struct SQLiteMemoryStoreTests {
         #expect(!FileManager.default.fileExists(atPath: missing.path))
 
         let sealed = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mecum-sealed-\(UUID().uuidString)")
+            .appendingPathComponent("braus-sealed-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: sealed, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: sealed.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sealed.path) }

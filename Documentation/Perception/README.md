@@ -22,7 +22,7 @@ an action is taken, never a coordinate of their own.
 | `Perception` | `ScenePipeline`: roles in, a scene out |
 | `ScreenCapture` | `StillCapturer`: one still of a window, or of a screen region holding a window and its pop-up, through ScreenCaptureKit; the foreground eye, where the Seat's capture is the background one |
 
-There is no umbrella module. Link the `MecumPerception` library product; every consumer writes the
+There is no umbrella module. Link the `BrausPerception` library product; every consumer writes the
 imports it uses. `PerceptionCore` imports Foundation and CoreGraphics only, reads no environment
 and keeps no global; the adapters import `PerceptionCore` and their one framework.
 
@@ -220,7 +220,7 @@ capture's quality beside the scene. `IncrementalTextTests` adds 15: the plan's t
 with their measured reasons, the tile grid, and a recording recognizer that proves an unchanged
 frame is never read again and a changed tile costs one line's rect.
 
-Boundary: `PerceptionBoundaryTests`, gated by `MECUM_LIVE_TESTS=1`, against a running Adobe
+Boundary: `PerceptionBoundaryTests`, gated by `BRAUS_LIVE_TESTS=1`, against a running Adobe
 Premiere with Screen Recording and Accessibility granted. Measured 2026-09-17 on Premiere 26.3.2,
 main window 1512×869 pt: 170 harvested elements in 0.07 to 0.20 s, a 189-element merged scene in
 0.43 to 0.91 s including Vision at 2×. The suite is named apart from the Driver Live tier on

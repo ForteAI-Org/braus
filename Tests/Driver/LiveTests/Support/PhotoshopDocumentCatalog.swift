@@ -31,9 +31,9 @@ nonisolated struct PhotoshopDocumentCatalog {
     init(parsing source: String, token: String) throws {
         let lines = source.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
         guard let header = lines.first?.split(separator: "\t", omittingEmptySubsequences: false),
-              header.count == 4, header[0] == "MECUM_DOCUMENTS", header[1] == token,
+              header.count == 4, header[0] == "BRAUS_DOCUMENTS", header[1] == token,
               let count = Int(header[3]), (0...2).contains(count), lines.count == count + 2,
-              lines.last == "MECUM_DONE\t\(token)"
+              lines.last == "BRAUS_DONE\t\(token)"
         else { throw Failure.invalidSnapshot }
         let active = header[2] == "none" ? nil : Int(header[2])
         guard header[2] == "none" || active.map({ $0 > 0 }) == true else { throw Failure.invalidSnapshot }

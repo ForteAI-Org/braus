@@ -1,6 +1,6 @@
 //
 //  ProviderWebSearchTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 25/09/2026.
 //
@@ -32,8 +32,8 @@ struct ProviderWebSearchTests {
     /// The arguments before web search existed, word for word.
     private static let claudeToday = [
         "-p", "--output-format", "stream-json", "--verbose", "--strict-mcp-config", "--mcp-config",
-        #"{"mcpServers":{"mecum":{"args":["mcp-bridge","--connection","\/c"],"command":"\/b"}}}"#,
-        "--tools", "", "--allowedTools", "mcp__mecum__*", "--permission-mode", "dontAsk", "--setting-sources", "",
+        #"{"mcpServers":{"braus":{"args":["mcp-bridge","--connection","\/c"],"command":"\/b"}}}"#,
+        "--tools", "", "--allowedTools", "mcp__braus__*", "--permission-mode", "dontAsk", "--setting-sources", "",
         "--disable-slash-commands", "--no-chrome", "--append-system-prompt", "i", "--resume", "s",
         "--model", "m", "--effort", "high",
     ]
@@ -46,7 +46,7 @@ struct ProviderWebSearchTests {
         "-c", "features.computer_use=false", "-c", "features.browser_use=false",
         "-c", "features.view_image=false", "-c", "features.image_generation=false",
         "-c", #"web_search="disabled""#, "-c", #"developer_instructions="i""#,
-        "-c", #"mcp_servers.mecum={command="/b",args=["mcp-bridge","--connection","/c"],required=true,"#
+        "-c", #"mcp_servers.braus={command="/b",args=["mcp-bridge","--connection","/c"],required=true,"#
             + #"tool_timeout_sec=120,default_tools_approval_mode="approve"}"#,
         "--model", "m", "-c", #"model_reasoning_effort="high""#, "resume", "s", "-",
     ]
@@ -59,13 +59,13 @@ struct ProviderWebSearchTests {
         #expect(try ProviderInvocation(turn(.codex, allowsWebSearch: false)).arguments == Self.codexToday)
     }
 
-    /// Only the two built-in web tools are switched on and allowed, beside Mecum's MCP tools.
+    /// Only the two built-in web tools are switched on and allowed, beside Braus's MCP tools.
     @Test
     func claudeWithWebSearchAddsOnlySearchAndFetch() throws {
         let arguments = try ProviderInvocation(turn(.claude, allowsWebSearch: true)).arguments
         var expected = Self.claudeToday
         expected[try #require(expected.firstIndex(of: "--tools")) + 1] = "WebSearch,WebFetch"
-        expected[try #require(expected.firstIndex(of: "--allowedTools")) + 1] = "mcp__mecum__*,WebSearch,WebFetch"
+        expected[try #require(expected.firstIndex(of: "--allowedTools")) + 1] = "mcp__braus__*,WebSearch,WebFetch"
         #expect(arguments == expected)
         #expect(arguments.filter { $0 == "--tools" || $0 == "--allowedTools" }.count == 2)
     }
@@ -149,7 +149,7 @@ struct ProviderWebSearchTests {
         ])
     }
 
-    /// Recorded live with every flag Mecum passes: searches carry `action.type == "search"`, an
+    /// Recorded live with every flag Braus passes: searches carry `action.type == "search"`, an
     /// address opens a page, and the steps inside that page (an empty query, a phrase looked
     /// for) are no search and no read of their own.
     @Test
@@ -176,12 +176,12 @@ struct ProviderWebSearchTests {
                 == [.web(id: "ws_1", kind: .fetch, detail: page, phase: .finished(failed: false))])
     }
 
-    /// A failed web result is marked failed, and a result for any other tool (Mecum's own) is not web activity.
+    /// A failed web result is marked failed, and a result for any other tool (Braus's own) is not web activity.
     @Test
     func aFailedClaudeResultFailsAndOtherToolsResultsAreIgnored() throws {
         var claude = ProviderEventDecoder(provider: .claude)
         let call = #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"WebSearch","#
-            + #""input":{"query":"q"}},{"type":"tool_use","id":"t2","name":"mcp__mecum__observe","input":{}}]}}"#
+            + #""input":{"query":"q"}},{"type":"tool_use","id":"t2","name":"mcp__braus__observe","input":{}}]}}"#
         #expect(try claude.decode(Data(call.utf8)) == [.web(id: "t1", kind: .search, detail: "q", phase: .started)])
         let results = #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"ok"},"#
             + #"{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"blocked"}]}}"#

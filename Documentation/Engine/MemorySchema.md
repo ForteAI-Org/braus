@@ -205,7 +205,7 @@ those boundaries.
 
 Shape: 48 tables, all `STRICT`; 48 triggers; 31 explicit indexes; no JSON column. The JSON files
 `FileKnowledge` wrote are never read at run time; their Brains are copied once, when an open creates
-the archive beside them, and `mecum memory --import-json <dir>` copies any directory's by hand
+the archive beside them, and `braus memory --import-json <dir>` copies any directory's by hand
 ([The brain's projection](#the-brains-projection). The resource has no version of
 its own: the bootstrap sets `user_version = 7` in the same transaction that creates the tables. No
 `application_id` is set or checked: a file is recognized by its version and its shape.
@@ -626,7 +626,7 @@ commit; no brain is cached across calls; every read is one snapshot (`store.read
 | `setName(name, anchorKey:, in:, now:)` | `BrainUpdater.setName`: source `llm`, the old label appended as an alias. |
 | `decay(in:, now:, maxObjects:, retention:)` | `BrainUpdater.decay` with the same retention; explicit for tests, since an ingest that ticks the clock decays on its own. |
 | `record(record, now:)` | `BrainMemory.record`'s rules on the raw projection: no effect teaches nothing, an element with no unique anchor teaches nothing except a menu reveal, which first ingests the element alone. It moves the counters on every call: a retry of the same action counts twice. For tests and low-level tools only. |
-| `importProjection(brain, into:, now:)` | no algorithm: writes a whole `UIBrain` read from an earlier JSON file as the application's projection, for `JSONBrainImport` (the service's import at creation and `mecum memory --import-json`), and answers false, changing nothing, when the application already has an anchor, a group or a transition. The mutation runs at the Brain's own last instant (`now` only for a Brain that saw nothing), so no row is stamped later than the file saw it. No application or evidence row is written: the imported counts are the file's. |
+| `importProjection(brain, into:, now:)` | no algorithm: writes a whole `UIBrain` read from an earlier JSON file as the application's projection, for `JSONBrainImport` (the service's import at creation and `braus memory --import-json`), and answers false, changing nothing, when the application already has an anchor, a group or a transition. The mutation runs at the Brain's own last instant (`now` only for a Brain that saw nothing), so no row is stamped later than the file saw it. No application or evidence row is written: the imported counts are the file's. |
 
 A producer never calls these: an action's record reaches the projection through the applications
 register (`BrainApplicationStoring.apply`), keyed by the call's event, which applies one action once
@@ -889,7 +889,7 @@ service for the same Knowledge directory (the path standardized with its symboli
 one `memory.sqlite`, opened on first use as a producer, so the process has one writer per archive.
 No session and no command closes it. A session's close waits, within 3 s, for what is queued
 (`EngineRuntime.finish()`, `flush(within:)`); the process closes every service once at its end: the app
-at quit (`SeatReleasingDelegate`, `MemoryService.closeAll()`, the step bounded at 4 s) and `mecum` after
+at quit (`SeatReleasingDelegate`, `MemoryService.closeAll()`, the step bounded at 4 s) and `braus` after
 its command (`main.swift`). Two processes on one directory are two services and two writers on one
 file, which the store's lock keeps apart.
 
@@ -941,13 +941,13 @@ holds writes not committed or a copy in progress, even with no worker, draft or 
 does not wait for the actor, so Quit decides without blocking.
 
 The app's workers and its Brain page share the app's Knowledge directory (`Knowledge` under
-`WorkspaceLaunch.directory`, by default `~/Library/Application Support/Mecum`). Each external MCP client
+`WorkspaceLaunch.directory`, by default `~/Library/Application Support/Braus`). Each external MCP client
 has a directory of its own, as on main: `MCP/Knowledge/<profile>` under the same support directory
 (`AppModel.knowledgeDirectory(of:under:)`), so each client writes and learns into its own
 `memory.sqlite`, apart from the workers' and the other clients'
-(`MemoryWiringTests.privateArchivesPerClient`). `mecum` and `mecum chat` default to the workers'
-`~/Library/Application Support/Mecum/Knowledge` and take `--knowledge <dir>`, so a running app and a
-`mecum` process are, by default, two writers on one file.
+(`MemoryWiringTests.privateArchivesPerClient`). `braus` and `braus chat` default to the workers'
+`~/Library/Application Support/Braus/Knowledge` and take `--knowledge <dir>`, so a running app and a
+`braus` process are, by default, two writers on one file.
 
 ### The queue
 
@@ -967,7 +967,7 @@ it held, with nothing in the archive to say so.
 the linked library's version and source id, and the writes pending, in flight, written, failed,
 partial, dropped and unsettled since the service was made ([Closing](#closing)), with the last failure,
 the newest copy, the last recovery and the last close. These counts live in the process: another
-process, `mecum memory --status` among them, cannot read them ([Diagnosis](#diagnosis)).
+process, `braus memory --status` among them, cannot read them ([Diagnosis](#diagnosis)).
 
 ### Degraded
 
@@ -1070,7 +1070,7 @@ coordinated, and `flock` is not reliable on a network volume. The lock file hold
 
 ### Diagnosis
 
-`mecum memory --status [--knowledge <dir>]` (`SQLiteMemoryInspection`) says what the archive file is
+`braus memory --status [--knowledge <dir>]` (`SQLiteMemoryInspection`) says what the archive file is
 without opening a memory service: whether it is there, its size and its log's, its `user_version`,
 what this build's open would make of it, and, when the open would take it, a few row counts; then the
 copies and the files a recovery moved aside. It reads with a read-only connection and the library's
@@ -1081,8 +1081,8 @@ files, and says so instead.
 
 | What it finds | What it prints |
 |---|---|
-| no file | no archive at this path; Mecum's memory would create it. No lock file is made. |
-| a database with no schema | Mecum's memory would create its schema in it; a reader refuses it |
+| no file | no archive at this path; Braus's memory would create it. No lock file is made. |
+| a database with no schema | Braus's memory would create its schema in it; a reader refuses it |
 | this build's version and exactly its shape | it opens it, with the counts |
 | a newer version | refused and left as it is: schema N is newer than this build's; its shape is not compared |
 | another shape, tables missing, columns missing, somebody else's tables | refused and left as it is, with the objects named |
@@ -1120,8 +1120,8 @@ The Brain's applications are asked for at the instant the recorder was made
 |---|---|---|---|---|
 | The app's worker (`TeamModel`, `WorkerAgentHost`) | `app` | `worker-<worker id>` | the message the turn answers | yes, through `AutomationTools` |
 | An external MCP client served by the app (`ExternalMCPSession`) | `mcp` | `mcp-<profile id>` | none | yes, through `AutomationTools` |
-| `mecum chat` (`ChatCommand`) | `cli` | `chat-<conversation id>` | the conversation | yes, through `AutomationTools` |
-| `mecum scene`, `act`, and a `batch`'s `act` steps (`commandLineRecorder`) | `cli` | `mecum-<pid>` | one per process | no: an `action` event, its samples and the Brain's learning |
+| `braus chat` (`ChatCommand`) | `cli` | `chat-<conversation id>` | the conversation | yes, through `AutomationTools` |
+| `braus scene`, `act`, and a `batch`'s `act` steps (`commandLineRecorder`) | `cli` | `braus-<pid>` | one per process | no: an `action` event, its samples and the Brain's learning |
 | A session's call outside a recorded tool call | `system` | `session-<session id>` | none | no: an `action` event, its samples and the Brain's learning |
 
 The last row is the fallback `AutomationSession` and `BrokeredAutomationSession` use when no
@@ -1345,7 +1345,7 @@ no producer in production: `SQLiteObservedInputRepository` (`ObservedInputStorin
 and correlations), `SQLiteVerificationRepository` (`VerificationStoring`) and `SQLiteTaskRepository`
 (`TaskAttributionStoring`: episodes, memberships, labels). They observe, correlate, judge, segment
 and label nothing on their own. **The Watcher is not connected to the memory**: main's passive
-listener (`InteractionListener`, `mecum watch`) reports a person's input and writes nothing here, so
+listener (`InteractionListener`, `braus watch`) reports a person's input and writes nothing here, so
 every vocabulary below is this contract's proposal, proven by fixtures, not a parity with a live
 report.
 The schema has no contract-version column on these tables: version 1 is this build's, stated here,
@@ -1638,7 +1638,7 @@ schema, which these figures do not include. They were not run again here.
 
 The two slow reads of S4, measured on 2026-10-04 on `tommaso/memory-model`, same machine, debug
 build, on copies of a seeded synthetic corpus, the median of 30 warm reads through that branch's
-`MemoryService`. The harness (`StoreCostMeasures`, `MECUM_COST_*`) did not come over; the code it
+`MemoryService`. The harness (`StoreCostMeasures`, `BRAUS_COST_*`) did not come over; the code it
 measured, `SQLiteTraceRepository` and `SQLiteBrainGraphRepository.overview()`, is the same here.
 
 | Read, 100,000 events (2.17 GB, 1,557 traces) | Before | After |
@@ -1828,7 +1828,7 @@ Counts from `swift test list` and the scripts on 2026-10-07, this branch.
 
 Not on this branch: `memory-model`'s producer suites (`MemoryServiceTests`,
 `MemoryServiceFailureTests`, `CallRecorderTests`, `FinalizationScopeTests`, `ReaderOpeningTests`, the
-cost and stop measures, `ChatTests.AutomationToolsMemoryTests`, `MecumCLITests.ChatHostTests`), which
+cost and stop measures, `ChatTests.AutomationToolsMemoryTests`, `BrausCLITests.ChatHostTests`), which
 tested its own wiring.
 
 ## Contract items carried into S2

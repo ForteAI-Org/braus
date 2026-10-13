@@ -7,7 +7,7 @@ ordinary `ChromiumPlatform` policy. Their separate application checks below
 provide partial effects on named targets, rather than full family qualification.
 
 The [application flow checks](../reports/ApplicationFlowChecks.md) separately exercise
-Chrome, a GitHub Desktop Electron dialog and the official CEF client through Mecum. Successful checkbox,
+Chrome, a GitHub Desktop Electron dialog and the official CEF client through Braus. Successful checkbox,
 drag and picker effects coexist with dropdown failures and unreadable context-menu
 recipients. Initial short-text Unicode loss is fixed in the Engine; exact-value
 repeats pass for all three apps, with a real LF also verified in Chrome and CEF.

@@ -1,14 +1,14 @@
 # CLI chat
 
-Mecum can use the installed, signed-in Claude Code or Codex CLI as its reasoning
-provider. The provider calls Mecum through MCP; perception and input stay in the
-Mecum process. This does not connect to or import conversations from the ChatGPT
+Braus can use the installed, signed-in Claude Code or Codex CLI as its reasoning
+provider. The provider calls Braus through MCP; perception and input stay in the
+Braus process. This does not connect to or import conversations from the ChatGPT
 website.
 
 ## Use
 
 ```sh
-.build/debug/mecum --chat --allow-unvalidated-build
+.build/debug/braus --chat --allow-unvalidated-build
 ```
 
 Choose a saved conversation or a new one, then choose the provider and model.
@@ -19,23 +19,23 @@ model names. The provider validates availability; a cache entry is not a guarant
 A quoted prompt starts the conversation immediately:
 
 ```sh
-.build/debug/mecum --chat "Inspect Pro Tools and tell me which window is open" \
+.build/debug/braus --chat "Inspect Pro Tools and tell me which window is open" \
   --provider claude --model sonnet --allow-unvalidated-build
 ```
 
 In an interactive terminal this continues as a chat. For one turn and exit:
 
 ```sh
-.build/debug/mecum --chat "Inspect Pro Tools without changing anything" \
+.build/debug/braus --chat "Inspect Pro Tools without changing anything" \
   --provider codex --once --allow-unvalidated-build
 ```
 
 Saved conversations:
 
 ```sh
-.build/debug/mecum --chat --list
-.build/debug/mecum --chat --resume last --allow-unvalidated-build
-.build/debug/mecum --chat --resume <conversation-UUID> --allow-unvalidated-build
+.build/debug/braus --chat --list
+.build/debug/braus --chat --resume last --allow-unvalidated-build
+.build/debug/braus --chat --resume <conversation-UUID> --allow-unvalidated-build
 ```
 
 Inside chat: `/model`, `/status`, `/release`, `/help`, `/quit`.
@@ -63,9 +63,9 @@ Likewise, `--allow-destructive` belongs to this invocation, not the saved model 
   wiring between modules.
 
 The chat process owns one host. Each provider turn may launch a fresh
-`mecum mcp-bridge` process, which only forwards MCP messages to that existing host.
+`braus mcp-bridge` process, which only forwards MCP messages to that existing host.
 It never starts another capture pipeline or Seat. The app launches the same bridge
-from `mecum-bridge`, a helper that holds only the bridge and depends on LocalMCP
+from `braus-bridge`, a helper that holds only the bridge and depends on LocalMCP
 alone, so the app does not carry the whole command line.
 
 The internal bridge uses authenticated newline-framed JSON on an ephemeral
@@ -82,7 +82,7 @@ A provider process disconnect between turns does not release the Seat.
 
 `status`, `windows`, `apps`, `open_session`, `observe`, `act`, `select`,
 `type_text`, `insert_text`, `press_key`, `scroll`, `drag`, `context_menu`,
-`menu`, `press`, `batch`, `close_session`. CLI chat and the signed Mecum app
+`menu`, `press`, `batch`, `close_session`. CLI chat and the signed Braus app
 share these definitions and their validation.
 
 Action tools require the ephemeral session ID returned by open_session.
@@ -112,7 +112,7 @@ the window. An element now in another section is reported while its old section
 name still exists, since `section:` targets by it; a section name that is gone is
 reported once, in the new section lines.
 
-Replayed over one recorded Codex session on Resolve and Slack (89 Mecum tool
+Replayed over one recorded Codex session on Resolve and Slack (89 Braus tool
 results, 72 of them scenes, with no window numbers), the results come to 279
 thousand characters against the 820 thousand that session printed; dropping the
 duplicate alone gives 412 thousand. Half the scene stays the cut: two thirds turned
@@ -145,20 +145,20 @@ checks Screen Recording, Accessibility and posting access without prompting.
 Missing access is reported; the model cannot grant it.
 
 Claude runs with built-in tools disabled, strict MCP configuration and only
-Mecum tools allowed. Codex ignores user MCP configuration, disables shell, browser,
+Braus tools allowed. Codex ignores user MCP configuration, disables shell, browser,
 computer-use and image tools,
-uses a read-only sandbox, and explicitly authorizes the Mecum server's tools.
+uses a read-only sandbox, and explicitly authorizes the Braus server's tools.
 Neither adapter uses a global permission/sandbox bypass. Managed provider policies
 can still refuse a request.
 
-Normal chat sends the user's prompts and Mecum's textual tool results to the
+Normal chat sends the user's prompts and Braus's textual tool results to the
 selected provider. Screenshots are not sent by this interface. Provider sign-in
 credentials remain with the provider CLI.
 
 ## Persistence
 
 Default transcripts:
-`~/Library/Application Support/Mecum/Conversations/<UUID>.json`
+`~/Library/Application Support/Braus/Conversations/<UUID>.json`
 
 Use `--history-dir` to override transcript storage. A transcript includes provider,
 model, native provider session ID, user messages, assistant text, tool requests and
@@ -168,7 +168,7 @@ private (0600) under a private directory (0700), and updates replace files atomi
 Provider-native conversation history supplies actual continuation context.
 The local transcript is an inspectable record, not a fabricated replacement for a
 missing provider session. A failed resume is reported; there is no silent fresh
-conversation or automatic replay. After restarting Mecum, old Seat IDs are invalid.
+conversation or automatic replay. After restarting Braus, old Seat IDs are invalid.
 
 ## Verification
 
@@ -180,8 +180,8 @@ Real signed-in provider tests are opt-in and return only invented MCP data.
 They do not enumerate or capture real apps:
 
 ```sh
-MECUM_SYNTHETIC_PROVIDER_TESTS=1 \
-MECUM_TEST_BRIDGE="$PWD/.build/debug/mecum" \
+BRAUS_SYNTHETIC_PROVIDER_TESTS=1 \
+BRAUS_TEST_BRIDGE="$PWD/.build/debug/braus" \
 swift test --filter SyntheticProviderTests
 ```
 

@@ -1,6 +1,6 @@
 //
 //  OpenedWindowClosingTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 07/10/2026.
 //

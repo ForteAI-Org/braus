@@ -1,6 +1,6 @@
 //
 //  FailedSeatRestartTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 29/09/2026.
 //
@@ -23,7 +23,7 @@ import Testing
 /// Gated by `AGENTSEAT_LIVE_TESTS=1` like the Driver's Live tier, and named apart from it so that
 /// `make live-tests`, which filters on `LiveTests` and asserts a count, does not pick it up. It
 /// needs Screen Recording, Accessibility and Post Event for the process running the tests, an awake
-/// display and nobody driving the machine. It opens `MECUM_RESTART_APP`, TextEdit unless set, which
+/// display and nobody driving the machine. It opens `BRAUS_RESTART_APP`, TextEdit unless set, which
 /// must not be running already: the broker quits only what it opened, and acts on nothing else.
 @MainActor
 @Suite(
@@ -39,9 +39,9 @@ struct FailedSeatRestartTests {
     @Test("a failed seat is replaced by a ready one on the next open of a warm session")
     func aFailedSeatIsReplacedOnTheNextOpen() async throws {
 
-        let appName = ProcessInfo.processInfo.environment["MECUM_RESTART_APP"] ?? "TextEdit"
+        let appName = ProcessInfo.processInfo.environment["BRAUS_RESTART_APP"] ?? "TextEdit"
         let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mecum-restart-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("braus-restart-\(UUID().uuidString)", isDirectory: true)
         // A test process has no event loop of its own, and a virtual display appears only while one turns.
         NSApplication.shared.setActivationPolicy(.accessory)
         NSApplication.shared.finishLaunching()
@@ -102,9 +102,9 @@ struct FailedSeatRestartTests {
 
     @Test("clean worker leases reuse the queue session with a new ready seat each time")
     func cleanLeasesRetireTheirSeat() async throws {
-        let appName = ProcessInfo.processInfo.environment["MECUM_RESTART_APP"] ?? "TextEdit"
+        let appName = ProcessInfo.processInfo.environment["BRAUS_RESTART_APP"] ?? "TextEdit"
         let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mecum-clean-lease-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("braus-clean-lease-\(UUID().uuidString)", isDirectory: true)
         NSApplication.shared.setActivationPolicy(.accessory)
         NSApplication.shared.finishLaunching()
 

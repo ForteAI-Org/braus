@@ -1,6 +1,6 @@
 // swift-tools-version: 6.4
 //
-// Mecum: an agent environment for the Mac. The repository is the library, and
+// Braus: an agent environment for the Mac. The repository is the library, and
 // the folders under Sources/ are its layers. Each layer is a set of targets,
 // so the compiler enforces the boundaries between them.
 //
@@ -178,34 +178,34 @@ func brokerTests(
 }
 
 let package = Package(
-    name     : "Mecum",
+    name     : "Braus",
     platforms: [deployment],
     products : [
-        .library(name: "MecumChat",
+        .library(name: "BrausChat",
                  targets: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                            "AutomationRuntime", "AutomationMCP"]),
         .library(
-            name: "MecumDriver",
+            name: "BrausDriver",
             targets: ["SeatCore", "PrivateSymbols", "VirtualScreens", "WindowPlacement",
                       "SeatInput", "CursorGuard", "SeatCapture", "SeatSession", "TargetReader"]
         ),
         .library(
-            name: "MecumPerception",
+            name: "BrausPerception",
             targets: ["PerceptionCore", "VisionText", "IncrementalText", "PixelSections", "PixelRegions",
                       "PixelControlState", "WindowServerListing", "Perception", "AccessibilityFacts",
                       "ScreenCapture", "SceneOverlay"]
         ),
         .library(
-            name: "MecumEngine",
+            name: "BrausEngine",
             targets: ["EngineCore", "Engine", "HIDActuation", "AccessibilityActions", "WorkspaceActivation",
                       "Memory", "FileKnowledge", "LiveScenes", "LocalEmbedding"]
         ),
         .library(name: "UserInteractions", targets: ["InteractionListener", "InteractionObservation"]),
         .library(name: "SeatBroker", targets: ["SeatBroker"]),
         .library(name: "ModelTransports", targets: ["ModelTransports"]),
-        .executable(name: "mecum", targets: ["mecum"]),
+        .executable(name: "braus", targets: ["braus"]),
         // The tool bridge a worker's agent launches, which the app bundles in place of the whole command line.
-        .executable(name: "mecum-bridge", targets: ["mecum-bridge"]),
+        .executable(name: "braus-bridge", targets: ["braus-bridge"]),
     ],
     targets: [
         
@@ -242,7 +242,7 @@ let package = Package(
         driver("TargetReader", ["SeatCore", "WindowPlacement"]),
 
         // MARK: PhaseSignposts
-        // The `os_signpost` intervals of a phase measurement build. Empty unless `MECUM_PHASES` is set,
+        // The `os_signpost` intervals of a phase measurement build. Empty unless `BRAUS_PHASES` is set,
         // which no default build does; see Documentation/Driver/README.md, "Measuring the phases".
         broker("PhaseSignposts", []),
 
@@ -415,21 +415,21 @@ let package = Package(
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts"]),
         // The foreground command line: windows, scene, act, memory. What a model host does, by hand.
         .executableTarget(
-            name: "mecum",
+            name: "braus",
             dependencies: ["Perception", "PerceptionCore", "VisionText", "WindowServerListing", "AccessibilityFacts",
                            "ScreenCapture", "Engine", "EngineCore", "HIDActuation", "AccessibilityActions",
                            "WorkspaceActivation", "Memory", "FileKnowledge", "SQLiteMemory", "LiveScenes",
                            "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "AutomationRuntime",
                            "ChatCore", "CLIProviders", "FileConversations", "LocalMCP", "AutomationMCP", "SceneOverlay", "InteractionListener", "InteractionObservation",
                            "LocalEmbedding"].map { .target(name: $0) },
-            path: "Tools/Engine/mecum",
+            path: "Tools/Engine/braus",
             swiftSettings: facility
         ),
-        // `mecum mcp-bridge` alone, for the app: it forwards an agent's MCP messages to the app's host.
+        // `braus mcp-bridge` alone, for the app: it forwards an agent's MCP messages to the app's host.
         .executableTarget(
-            name: "mecum-bridge",
+            name: "braus-bridge",
             dependencies: [.target(name: "LocalMCP")],
-            path: "Tools/Engine/mecum-bridge",
+            path: "Tools/Engine/braus-bridge",
             swiftSettings: facility
         ),
         // The living memory's process helper: a second real process on one store file, driven by lines on its
@@ -452,7 +452,7 @@ let package = Package(
         perceptionTests("PixelControlState", ["PixelControlState", "PerceptionCore"]),
         perceptionTests("SceneOverlay", ["SceneOverlay", "PerceptionCore"]),
 
-        // Boundary checks against a running application, gated by MECUM_LIVE_TESTS=1. Named apart from
+        // Boundary checks against a running application, gated by BRAUS_LIVE_TESTS=1. Named apart from
         // the Driver Live tier on purpose: `make live-tests` filters on `LiveTests` and asserts a count.
         perceptionTests("PerceptionBoundary",
                         ["Perception", "PerceptionCore", "VisionText", "AccessibilityFacts", "WindowServerListing"],
@@ -463,10 +463,10 @@ let package = Package(
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
-            name: "MecumCLITests",
-            dependencies: ["mecum", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
+            name: "BrausCLITests",
+            dependencies: ["braus", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
                            "Memory", "SQLiteMemory"],
-            path: "Tests/Engine/MecumCLITests",
+            path: "Tests/Engine/BrausCLITests",
             swiftSettings: facility
         ),
         engineTests("EngineCore", ["EngineCore", "PerceptionCore"]),
@@ -476,7 +476,7 @@ let package = Package(
                                 .copy("Fixtures/misfire-corpus.md")]),
         engineTests("FileKnowledge", ["FileKnowledge", "Memory", "PerceptionCore"]),
         // The local model's tokenizer and encoder against Hugging Face's own outputs; the model files come from
-        // MECUM_RECALL_MODELS and the suites that need them are skipped, saying so, without it.
+        // BRAUS_RECALL_MODELS and the suites that need them are skipped, saying so, without it.
         engineTests("LocalEmbedding", ["LocalEmbedding", "Memory"],
                     resources: [.copy("Fixtures/recall-embedding-reference.json")]),
         // The capture and scene fixtures walk a fake accessibility tree through the producer, the merge and

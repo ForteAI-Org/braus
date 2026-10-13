@@ -1,4 +1,4 @@
-"""One command for the whole Mecum vs Cua Driver benchmark (see `./bench.sh --help`).
+"""One command for the whole Braus vs Cua Driver benchmark (see `./bench.sh --help`).
 
 Order: small helper builds, then the blockers only a person can clear (listed at once in Italian, rechecked every
 5 s until gone), then nothing needs a person: preflight, build both drivers, open every selected app in the
@@ -43,7 +43,7 @@ class Run:
         self.date = time.strftime("%Y%m%d")
         self.dir = os.path.expanduser(options.run_dir) if options.run_dir else os.path.join(RUNS, time.strftime("%Y%m%d-%H%M"))
         # The task phase opens its Chrome pages in the profile prepare.py launched, never in the person's own Chrome.
-        self.env = dict(os.environ, MECUM_APP_SUPPORT_DIR=self.dir, BENCH_CHROME_PROFILE=os.path.join(self.dir, "chrome-profile"))
+        self.env = dict(os.environ, BRAUS_APP_SUPPORT_DIR=self.dir, BENCH_CHROME_PROFILE=os.path.join(self.dir, "chrome-profile"))
 
     def path(self, name):
         return os.path.join(self.dir, name)
@@ -142,7 +142,7 @@ def gate(o):
 
 def build(run):
     o = run.o
-    run.sh("build-mecum", [SWIFT, "build", "-c", "release"], check=True)
+    run.sh("build-braus", [SWIFT, "build", "-c", "release"], check=True)
     cua = os.environ.get("CUA_DRIVER", os.path.expanduser("~/Forte_Projects/_bench/cua/libs/cua-driver/rust/target/release/cua-driver"))
     root = os.path.abspath(os.path.join(os.path.dirname(cua), "../.."))  # libs/cua-driver/rust
     if os.path.exists(os.path.join(root, "Cargo.toml")):
@@ -152,7 +152,7 @@ def build(run):
     else:
         print(f"    no Cua checkout at {root}: using the binary as it is", flush=True)
     if o.phases:
-        run.sh("build-phases", [SWIFT, "build", "-c", "release", "-Xswiftc", "-DMECUM_PHASES", "--scratch-path", PHASES_BUILD], check=True)
+        run.sh("build-phases", [SWIFT, "build", "-c", "release", "-Xswiftc", "-DBRAUS_PHASES", "--scratch-path", PHASES_BUILD], check=True)
 
 
 def compare(run, name, apps, extra, out):
@@ -193,8 +193,8 @@ def main():
     p.add_argument("--apps", help="apps to measure (default: every app of compare.py, Photoshop included)")
     p.add_argument("--reps", type=int, default=8, help="measured repetitions per driver and operation")
     p.add_argument("--quick", action="store_true", help="smoke test: 2 reps, chain pauses 0 and 3 s, soak 20 steps, one task rep, short idle and cooldown")
-    p.add_argument("--phases", action="store_true", help="also the Mecum phase breakdown (builds a MECUM_PHASES binary)")
-    p.add_argument("--drivers", default="mecum,cua,cua-overlay")
+    p.add_argument("--phases", action="store_true", help="also the Braus phase breakdown (builds a BRAUS_PHASES binary)")
+    p.add_argument("--drivers", default="braus,cua,cua-overlay")
     p.add_argument("--chain-apps", default=CHAIN_APPS, help="apps for chain mode (default %(default)s; the app list is intersected)")
     p.add_argument("--pauses", default="0,1,3,5")
     p.add_argument("--chain-steps", type=int, default=10)
@@ -258,8 +258,8 @@ def main():
         if soak_apps:
             compare(run, "soak", soak_apps, ["--mode", "soak", "--soak-steps", str(o.soak_steps)], "soak.jsonl")
         if o.phases:
-            env = dict(run.env, MECUM_PHASES_BIN=os.path.join(PHASES_BUILD, "release/mecum-mcp-stdio"))
-            run.sh("phases", [PY, "compare.py", "--phases", "--drivers", "mecum", "--apps", "Calculator", "--reps", "4", "--cooldown", str(o.cooldown),
+            env = dict(run.env, BRAUS_PHASES_BIN=os.path.join(PHASES_BUILD, "release/braus-mcp-stdio"))
+            run.sh("phases", [PY, "compare.py", "--phases", "--drivers", "braus", "--apps", "Calculator", "--reps", "4", "--cooldown", str(o.cooldown),
                               "--out", run.path("phases.jsonl"), "--scratch", run.dir], env=env)
         if tasks:
             claude = prepare.CLAUDE
@@ -281,7 +281,7 @@ def main():
 def where(run):
     """The last lines of a run: the two reports and the run folder."""
     out = os.path.expanduser(run.o.out_dir)
-    files = [os.path.join(out, f"MecumVsCua-{kind}-{run.date}.md") for kind in ("Team", "Report")]
+    files = [os.path.join(out, f"BrausVsCua-{kind}-{run.date}.md") for kind in ("Team", "Report")]
     if run.o.dry_run:
         print("A fine corsa stamperei dove sono i due report e la cartella della corsa:", flush=True)
     for path in files:

@@ -1,6 +1,6 @@
 //
 //  SQLiteMemoryStore.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 03/10/2026.
 //
@@ -348,7 +348,7 @@ public actor SQLiteMemoryStore {
     /// Opening is what an open may do to the file it finds. `producer` is the open of whoever
     /// writes the memory: it creates a missing file and bootstraps the current schema in an empty one, as S1
     /// decided. `existingArchive` is the open of a reader: it takes only a file that is already a
-    /// Mecum archive at the schema this build knows, and never creates the file, bootstraps a
+    /// Braus archive at the schema this build knows, and never creates the file, bootstraps a
     /// schema or sets the journal of a file it refuses (`uninitialized` for a file with no schema
     /// yet, and every refusal `producer` makes). Both decide on the file as it is when they open it
     /// (the producer under its write lock, the reader in a read transaction, which writes nothing),

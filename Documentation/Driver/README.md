@@ -37,17 +37,17 @@ The [Qt driver guide](platforms/Qt.md) records the command policy and the live
 qualification of DaVinci Resolve's Project Manager, including the commands
 whose target-side effect still needs a witness.
 
-The [Mecum application flow checks](reports/ApplicationFlowChecks.md) record effects,
+The [Braus application flow checks](reports/ApplicationFlowChecks.md) record effects,
 failures and corrections from the full app path across AppKit, UXP, Qt,
 Chromium, Electron and an unqualified hybrid CEF candidate.
 
 There is no umbrella module: every consumer writes the imports it uses, so the
 boundaries are visible at the top of the file rather than hidden behind one
-name. Link the `MecumDriver` library product to use these modules, including
-`TargetReader`. A local consumer adds `.package(path: "../mecum")` to its
-package dependencies and `.product(name: "MecumDriver", package: "mecum")` to
+name. Link the `BrausDriver` library product to use these modules, including
+`TargetReader`. A local consumer adds `.package(path: "../braus")` to its
+package dependencies and `.product(name: "BrausDriver", package: "braus")` to
 the targets that use the driver. Adjust the relative path to the checkout;
-sources and the resource ledger are compiled directly from Mecum.
+sources and the resource ledger are compiled directly from Braus.
 
 ## Using it
 
@@ -357,27 +357,27 @@ a run that happens to be fast never saves its own numbers over one.
 ## Measuring the phases
 
 A measurement build splits the time of one tool call into phases with `os_signpost`
-intervals. Everything is behind the compilation condition `MECUM_PHASES`, which no default
+intervals. Everything is behind the compilation condition `BRAUS_PHASES`, which no default
 configuration sets: a normal build contains no signpost, no helper type and no phase name, and
 the target `PhaseSignposts` that holds the helper is empty without it. A measurement build must
 also be optimized, since Swift in Debug is slower and would skew every number.
 
 ```
-swift build -c release --product mecum -Xswiftc -DMECUM_PHASES
-xcodebuild -workspace AgentEnvironment.xcworkspace -scheme Mecum \
+swift build -c release --product braus -Xswiftc -DBRAUS_PHASES
+xcodebuild -workspace AgentEnvironment.xcworkspace -scheme Braus \
     -destination 'platform=macOS,arch=arm64' -derivedDataPath <dir> build-for-testing \
-    OTHER_SWIFT_FLAGS='$(inherited) -DMECUM_PHASES' SWIFT_OPTIMIZATION_LEVEL=-O
+    OTHER_SWIFT_FLAGS='$(inherited) -DBRAUS_PHASES' SWIFT_OPTIMIZATION_LEVEL=-O
 ```
 
 The flags are passed on the command line and are never committed into the project. To see
 the table, record while the measured build works, then stop with Ctrl-C:
 
 ```
-python3 Tools/Driver/Phases/phase-table.py record [--process Mecum] [out.ndjson]
+python3 Tools/Driver/Phases/phase-table.py record [--process Braus] [out.ndjson]
 python3 Tools/Driver/Phases/phase-table.py table out.ndjson
 ```
 
-`record` runs `log stream --signpost` for the subsystem `dev.forte.Mecum.phases` (no sudo)
+`record` runs `log stream --signpost` for the subsystem `dev.forte.Braus.phases` (no sudo)
 and prints the count, median, p95 and maximum in milliseconds of every phase. An interval whose
 operation threw is never ended and is left out. The phases, outermost first:
 
@@ -446,7 +446,7 @@ undocumented system interfaces, so it is not a basis for the Mac App Store.
 | [adr/](adr/) | why the load-bearing decisions are what they are |
 | [specs/](specs/) | the [hand-off specification](specs/HandoffSpec.md), the [keyboard](specs/KeyboardSpec.md) and [launch focus](specs/LaunchFocusSpec.md) designs |
 | [platforms/](platforms/) | per-family policy and qualification: [Chromium](platforms/Chromium.md), [Qt](platforms/Qt.md), [Adobe UXP](platforms/UXP.md) |
-| [reports/](reports/) | dated campaigns through the Mecum app: application flows, stabilization rounds, release readiness, Photoshop runs, the TryCUA comparison and the Cua Driver benchmark |
+| [reports/](reports/) | dated campaigns through the Braus app: application flows, stabilization rounds, release readiness, Photoshop runs, the TryCUA comparison and the Cua Driver benchmark |
 | [compatibility/](compatibility/) | `Build<build>.{md,json}`, the report of one validated build, and named campaigns |
 | [measurements/](measurements/) | raw rows behind the live campaigns and benchmarks |
 

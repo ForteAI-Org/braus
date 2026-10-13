@@ -1,6 +1,6 @@
 //
 //  RecallOwnershipTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 12/10/2026.
 //
@@ -15,7 +15,7 @@ import Memory
 import Testing
 
 /// RecallOwnershipTests prove who decides the index of an archive two processes share: the product's configuration owns
-/// it; a configuration chosen for one process by `MECUM_RECALL` is a guest that keeps the owner's generations in line
+/// it; a configuration chosen for one process by `BRAUS_RECALL` is a guest that keeps the owner's generations in line
 /// with the catalogue, never starts, abandons or promotes one, and says it answered over the owner's index. Without that
 /// rule, two owners of different configurations retire each other's generations, which the control case shows.
 @MainActor
@@ -70,9 +70,9 @@ struct RecallOwnershipTests {
     @Test("an override equal to the product's configuration owns the index; a different one is a guest")
     func ownershipFromTheEnvironment() {
         #expect(RecallConfiguration.resolved(environment: [:]).ownsIndex)
-        #expect(RecallConfiguration.resolved(environment: ["MECUM_RECALL": RecallConfiguration.chosen.channel.rawValue]).ownsIndex)
+        #expect(RecallConfiguration.resolved(environment: ["BRAUS_RECALL": RecallConfiguration.chosen.channel.rawValue]).ownsIndex)
         let other: RecallConfiguration.Channel = RecallConfiguration.chosen.channel == .lexical ? .hybrid : .lexical
-        #expect(!RecallConfiguration.resolved(environment: ["MECUM_RECALL": "\(other.rawValue):e5-small"]).ownsIndex)
+        #expect(!RecallConfiguration.resolved(environment: ["BRAUS_RECALL": "\(other.rawValue):e5-small"]).ownsIndex)
     }
 
     @Test("the control: two owners of different configurations on one archive abandon or retire each other's generations")

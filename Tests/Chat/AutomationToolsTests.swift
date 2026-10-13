@@ -258,17 +258,17 @@ struct AutomationToolsTests {
         let tools = AutomationTools(session: session)
         let id = try #require(session.id).uuidString
         let result = try await tools.call("insert_text", .object([
-            "session": .string(id), "text": .string("Mecum-à-中-🙂")
+            "session": .string(id), "text": .string("Braus-à-中-🙂")
         ]))
         #expect(result.payload["status"].string == "found_acted")
         #expect(session.inputs.count == 1)
-        #expect(session.inputs == [.insertText("Mecum-à-中-🙂")])
+        #expect(session.inputs == [.insertText("Braus-à-中-🙂")])
         #expect(session.sections == [nil])
         _ = try await tools.call("insert_text", .object([
-            "session": .string(id), "text": .string("Mecum"),
-            "expected_value": .string("prefix Mecum suffix")
+            "session": .string(id), "text": .string("Braus"),
+            "expected_value": .string("prefix Braus suffix")
         ]))
-        #expect(session.inputs.last == .insertText("Mecum", expecting: "prefix Mecum suffix"))
+        #expect(session.inputs.last == .insertText("Braus", expecting: "prefix Braus suffix"))
     }
 
     @Test
@@ -340,11 +340,11 @@ struct AutomationToolsTests {
         session.results = [.actedUnverified, .foundActed]
         let result = try await AutomationTools(session: session).call("batch", .object([
             "session": .string(try #require(session.id).uuidString), "steps": .array([
-                .object(["operation": .string("insert_text"), "text": .string("Mecum")]),
+                .object(["operation": .string("insert_text"), "text": .string("Braus")]),
                 .object(["operation": .string("press_key"), "key": .string("return")])
             ])
         ]))
-        #expect(session.inputs == [.insertText("Mecum")])
+        #expect(session.inputs == [.insertText("Braus")])
         #expect(result.payload["status"].string == "stopped")
         #expect(result.payload["attemptedSteps"] == .number(1))
         #expect(result.payload["verifiedSteps"] == .number(0))

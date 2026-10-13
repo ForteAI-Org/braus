@@ -4,7 +4,7 @@ Status: implemented, 2026-10-05. Offline seam tests only; no live run.
 
 ## Evidence
 
-A worker run on DaVinci Resolve through Mecum, 2026-10-05. The kit log of
+A worker run on DaVinci Resolve through Braus, 2026-10-05. The kit log of
 that run was not kept, so the paths below are read from the code against the
 exact sentences the worker received.
 

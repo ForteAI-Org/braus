@@ -1,6 +1,6 @@
 //
 //  WorkerModelChoiceTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 23/09/2026.
 //
@@ -67,7 +67,7 @@ struct WorkerModelChoiceTests {
         }
     }
 
-    @Test("the command lines answer as agents and every model provider through Mecum's loop",
+    @Test("the command lines answer as agents and every model provider through Braus's loop",
           arguments: ModelProvider.allCases)
     func whoAnswersIsOneAuthority(provider: ModelProvider) {
         let answer = WorkerAnswer(provider: provider)

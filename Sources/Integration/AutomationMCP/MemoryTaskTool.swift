@@ -1,6 +1,6 @@
 //
 //  MemoryTaskTool.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 09/10/2026.
 //
@@ -190,7 +190,7 @@ nonisolated enum MemoryTaskTool {
         return .object([
             "name": .string(name),
             "description": .string(
-                "Tell Mecum's memory what task you are working on, so the app actions that serve it are recorded under it "
+                "Tell Braus's memory what task you are working on, so the app actions that serve it are recorded under it "
                 + "and can later be learned and reused. begin: before acting on apps for a new request, with goal (what the "
                 + "person wants, resolved from the conversation), result, constraints, and inputs (each with name, value or "
                 + "none when still missing, kind, role, source and source_ref; secret true for passwords, tokens and codes, "
@@ -198,7 +198,7 @@ nonisolated enum MemoryTaskTool {
                 + "revision you last read. checkpoint: when a meaningful part is done, with its note and outputs. end: with "
                 + "outcome completed, failed or abandoned, a note and the outputs. resume: an unfinished task of yours, by its "
                 + "task id, after a restart; never begin it again. status: the open task. A checkpoint and an end answer the "
-                + "candidate procedure Mecum segmented from your actions (its steps and blocks, one step per UI action); then "
+                + "candidate procedure Braus segmented from your actions (its steps and blocks, one step per UI action); then "
                 + "interpret it: candidate, procedure {label, outcome}, parts [{part b1.., label, outcome}], steps [{step 1.., "
                 + "label, outcome}], parameters [{name, role, kind, direction, value or none to take the task input of that "
                 + "name, source, secret}], uses [{step, argument, position, template such as {name}.{extension}}]. Only stated "
@@ -277,7 +277,7 @@ nonisolated enum MemoryTaskTool {
 
     static let choiceDescription = "Experiment: begin or recall with recall_mode propose answers recall_proposal instead of a selection: per "
         + "need a few learned sources, each with every step (number, app, operation, label). Then choose: proposal, plan [{need, "
-        + "tracts [{source, from, to}], covered all, part, none or ambiguous, uncovered, alternatives, settled_by}]; Mecum checks "
+        + "tracts [{source, from, to}], covered all, part, none or ambiguous, uncovered, alternatives, settled_by}]; Braus checks "
         + "the plan and answers recall with the tracts' details."
 
     /// The instructions of `memory_task`, with the experiment's when it is enabled.
@@ -302,31 +302,31 @@ nonisolated enum MemoryTaskTool {
     words do settle it, quote in settled_by only the words that state the choice itself (which pages, which format), never
     the request as a whole. Then call memory_task choose with the proposal and, for every
     need, its tracts in your order (source, from, to, as numbered), covered all, part, none or ambiguous, and uncovered for
-    what remains. Mecum checks the plan against the facts and answers recall with each tract's details and the coverage it
+    what remains. Braus checks the plan against the facts and answers recall with each tract's details and the coverage it
     derives; a refusal lists why and runs nothing: choose again, or propose again when it is stale.
     """
 
     static let baseInstructions = """
     Before acting on apps for a new request, call memory_task begin with the goal resolved from the conversation,
     the result asked for, constraints and the known inputs, with each input's source; list a needed input you do not
-    have yet without a value. Mark passwords, tokens and codes secret: Mecum keeps their role, never their value.
+    have yet without a value. Mark passwords, tokens and codes secret: Braus keeps their role, never their value.
     Call memory_task update when the request changes, checkpoint when a meaningful part is done, with its outputs, and
     end with completed, failed or abandoned once the task is over. A new request after an end is a new task; after a
     restart, resume your unfinished task by its id. Actions taken without an open task are recorded but cannot be
     learned as a procedure. memory_task performs no app action and needs no session.
-    begin also searches what Mecum learned for the remaining work and answers recall: per need, a coverage and at
+    begin also searches what Braus learned for the remaining work and answers recall: per need, a coverage and at
     most one selection of learned steps with the task's values bound, its conditions and evidence, or alternatives to
     choose between. State as remaining only the work still to do, and name needs when it has several results.
     Resolve every element live and verify as usual. Search again with memory_task recall only when the request or an
     input changes, a new important need appears or the path cannot be used, giving that reason. At a checkpoint or
     the end, report with use whether you followed, adapted, abandoned or did not execute each need's selection.
-    A checkpoint or an end answers the candidate procedure Mecum segmented from your actions: one step per UI action,
+    A checkpoint or an end answers the candidate procedure Braus segmented from your actions: one step per UI action,
     grouped in blocks of one app. Interpret it in your next call with memory_task interpret: a short label of what the
     procedure, each block and each step does, written for reuse without the rest; the outcome of each part as you know
     it; the parameters, each with its role, kind and value in this task (omit the value to take the task input of the
     same name); and every use of a parameter in a step's argument as a template over the argument's text, such as
     {output_name}.{output_extension} for "photo_web.jpg". Leave fixed controls, commands and menu items as they are;
-    a text equal to a value is not a use unless you state it. Mecum checks every reference and use against the
+    a text equal to a value is not a use unless you state it. Braus checks every reference and use against the
     recorded actions and qualifies each part from its verified operations; it does not change the steps.
     """
 

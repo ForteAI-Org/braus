@@ -1,6 +1,6 @@
 #
 #  Makefile
-#  Mecum, Driver layer
+#  Braus, Driver layer
 #
 #  Created by Eliomar Alejandro Rodriguez Ferrer on 09/09/2026.
 #
@@ -39,7 +39,7 @@ REPORTS   := Documentation/Driver/compatibility
 # through the synchronous native entry point, for 29 required summaries:
 # AppKit RunLoop pumping can also end this otherwise pure bundle before its
 # async main reports completion.
-# The app's own tests remain in MecumTests. This is a run count, not a test count.
+# The app's own tests remain in BrausTests. This is a run count, not a test count.
 UNIT_BUNDLES := 29
 
 # The seat cycle, alone in its own process.

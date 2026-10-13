@@ -1,6 +1,6 @@
 //
 //  BorrowedSeatSpikeTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 23/09/2026.
 //
@@ -22,7 +22,7 @@ import Testing
 /// Gated by `AGENTSEAT_LIVE_TESTS=1` like the Driver's Live tier, and named apart from it so that
 /// `make live-tests`, which filters on `LiveTests` and asserts a count, does not pick it up. It
 /// needs Screen Recording, Accessibility and Post Event for the process running the tests, an awake
-/// display and nobody driving the machine. It opens `MECUM_BORROW_APP`, TextEdit unless set, which
+/// display and nobody driving the machine. It opens `BRAUS_BORROW_APP`, TextEdit unless set, which
 /// must not be running already: the broker quits only what it opened, and acts on nothing else.
 ///
 /// Its lines are tagged so two failures stay apart. `BORROW` is the seat refusing what the borrow
@@ -45,16 +45,16 @@ struct BorrowedSeatSpikeTests {
     private static let clickableRoles: Set<String> = ["AXButton", "AXCheckBox", "AXRadioButton"]
 
     /// Labels that close or replace the adopted window, which would fail the broker's observation
-    /// afterwards for a reason that is not the borrow. `MECUM_BORROW_CONTROL` overrides the pick.
+    /// afterwards for a reason that is not the borrow. `BRAUS_BORROW_CONTROL` overrides the pick.
     private static let dismissing: Set<String> = ["cancel", "close", "done", "ok", "open", "new document", "save"]
 
     @Test("the engine sees and acts through the broker's seat, and the broker observes afterwards")
     func theEngineDrivesTheBrokersSeat() async throws {
 
         let environment = ProcessInfo.processInfo.environment
-        let appName = environment["MECUM_BORROW_APP"] ?? "TextEdit"
+        let appName = environment["BRAUS_BORROW_APP"] ?? "TextEdit"
         let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mecum-borrow-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("braus-borrow-\(UUID().uuidString)", isDirectory: true)
         // A test process has no event loop of its own, and a virtual display appears only while one turns.
         NSApplication.shared.setActivationPolicy(.accessory)
         NSApplication.shared.finishLaunching()
@@ -107,7 +107,7 @@ struct BorrowedSeatSpikeTests {
         print("SPIKE labelled by accessibility: "
             + controls.map { "\($0.role ?? "") '\($0.label)' #\($0.id)" }.joined(separator: ", "))
 
-        let requested = ProcessInfo.processInfo.environment["MECUM_BORROW_CONTROL"]
+        let requested = ProcessInfo.processInfo.environment["BRAUS_BORROW_CONTROL"]
         let control = controls.first { element in
             if let requested { return element.label == requested || element.id == requested }
             return element.isEnabled != false

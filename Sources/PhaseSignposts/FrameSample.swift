@@ -1,11 +1,11 @@
 //
 //  FrameSample.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 07/10/2026.
 //
 
-#if MECUM_PHASES
+#if BRAUS_PHASES
 
 /// FrameSample is what one ScreenCaptureKit callback carried, as plain values, so the module that
 /// counts frames needs no capture framework.

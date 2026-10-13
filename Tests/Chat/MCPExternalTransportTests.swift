@@ -59,7 +59,7 @@ struct MCPExternalTransportTests {
         #expect(created == 0)
         let first = try await connect(endpoint)
         try await first.write(.object(["token": .string(endpoint.token), "message": request("initialize")]))
-        #expect(try await first.read()?["result"]["serverInfo"]["name"] == .string("mecum"))
+        #expect(try await first.read()?["result"]["serverInfo"]["name"] == .string("braus"))
         let second = try await connect(endpoint)
         do {
             try await second.write(.object(["token": .string(endpoint.token), "message": request("initialize")]))

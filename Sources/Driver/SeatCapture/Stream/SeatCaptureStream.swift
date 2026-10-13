@@ -10,7 +10,7 @@ import CoreMedia
 import Darwin
 import Foundation
 import os
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import PhaseSignposts
 #endif
 import SeatCore
@@ -77,7 +77,7 @@ nonisolated final class FrameReceiver:
     /// The identity and geometry answers reused between frames; see `WindowServerReadingCache`.
     let readings = WindowServerReadingCache()
 
-    #if MECUM_PHASES
+    #if BRAUS_PHASES
     /// Counts this receiver's callbacks for a measurement build; see `FrameStatistics`.
     let statistics = FrameStatistics()
     #endif
@@ -205,7 +205,7 @@ nonisolated final class FrameReceiver:
         of outputType   : SCStreamOutputType
     ) {
         let receivedAt = mach_absolute_time()
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         statistics.record(
             FrameProbeSampling.sample(sampleBuffer, hashing: FrameProbe.hashesFrames),
             at: receivedAt
@@ -221,7 +221,7 @@ nonisolated final class FrameReceiver:
             slot.withLock { $0.stale += 1 }
             return
         }
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let sourceStarted = mach_absolute_time()
         #endif
         let now = DispatchTime.now().uptimeNanoseconds
@@ -237,7 +237,7 @@ nonisolated final class FrameReceiver:
             sourceInvalidated(captureGeneration, ObjectIdentifier(stream), failure)
             return
         }
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let sourceChecked = mach_absolute_time()
         #endif
         let observedRevision = slot.withLock { state -> UInt64 in
@@ -266,16 +266,16 @@ nonisolated final class FrameReceiver:
                 )
             }
         ) else {
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             statistics.noteInitFailure()
             #endif
             return
         }
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let frameBuilt = mach_absolute_time()
         #endif
         deliver(frame)
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         statistics.addCosts(
             callback : mach_absolute_time() - receivedAt,
             source   : sourceChecked - sourceStarted,
@@ -789,7 +789,7 @@ public final class SeatCaptureStream {
                 }
             }
         )
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         receiver.statistics.begin(
             description: "source=\(target.windowNumber == nil ? "display" : "window") "
                 + "framing=\(target.framing == nil ? 0 : 1) fps=\(configuration.framesPerSecond) "
@@ -1499,7 +1499,7 @@ public final class SeatCaptureStream {
 
         // Resolved before the owner exists, so a target that cannot be sized
         // fails without a stream to stop.
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let sizing = PhaseInterval.begin("capture.stream.size")
         #endif
         let size: CGSize
@@ -1508,7 +1508,7 @@ public final class SeatCaptureStream {
         } else {
             size = try await naturalPixelSize(of: target, deadline: deadline)
         }
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         sizing.end()
         #endif
 
@@ -1519,7 +1519,7 @@ public final class SeatCaptureStream {
         var capturedFrame: SeatFrame?
         var captureError : (any Error)?
         do {
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             let starting = PhaseInterval.begin("capture.stream.start")
             #endif
             try await owner.start(
@@ -1529,7 +1529,7 @@ public final class SeatCaptureStream {
                 ),
                 deadline: deadline
             )
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             starting.end()
             let firstFrame = PhaseInterval.begin("capture.stream.firstFrame")
             #endif
@@ -1537,7 +1537,7 @@ public final class SeatCaptureStream {
                 in      : owner.frames,
                 deadline: deadline
             )
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             firstFrame.end()
             #endif
             capturedFrame = frame
@@ -1545,11 +1545,11 @@ public final class SeatCaptureStream {
             captureError = error
         }
 
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let stopping = PhaseInterval.begin("capture.stream.stop")
         #endif
         await owner.stop(deadline: CaptureDeadline(timeout: .seconds(5)))
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         stopping.end()
         #endif
         guard case .stopped = owner.state, !owner.hasUnconfirmedResource else {

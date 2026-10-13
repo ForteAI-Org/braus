@@ -7,7 +7,7 @@ it rests on; the derived index that search reads; and the linking of the calls a
 afterwards to the steps they carried out. Status on 2026-10-12, after the correction rounds of three independent reviews
 (findings F01–F06, F07–F09, F10–F12) and the third comparison, which failed (no configuration validated), with the
 experiment of the agent's choice implemented beside the automatic selection ([RecallAgentChoice](RecallAgentChoice.md),
-enabled only by `MECUM_RECALL_AGENT_CHOICE=1`), branch
+enabled only by `BRAUS_RECALL_AGENT_CHOICE=1`), branch
 `tommaso/brain-memory-recall` on D2 `6a3c01f`, uncommitted until reviewed. How the selector decides, on which data,
 and what it cannot decide is in [RecallSelection](RecallSelection.md).
 
@@ -36,7 +36,7 @@ catalogue writes ──triggers──▶ memory_recall_work ──worker after t
 ## The contract
 
 `RecallContract` (version 1, selector `recall-selector-4`) is reached through `memory_task`, the same tool
-for the app's workers, external MCP clients and `mecum chat` ([MemoryFacts](MemoryFacts.md)). In a process with the
+for the app's workers, external MCP clients and `braus chat` ([MemoryFacts](MemoryFacts.md)). In a process with the
 experiment of the agent's choice enabled, `begin` and `recall` also take `recall_mode: "propose"`, and `choose`
 answers a proposal ([RecallAgentChoice](RecallAgentChoice.md)); nothing of it exists in any other process.
 
@@ -108,7 +108,7 @@ rebuilt from it; SQLite stays authoritative.
   and the declared uses. All immutable and kept.
 - **Ownership**: the product's configuration owns the archive's index, in the app, the MCP server and the command
   line alike, so their workers build one generation together. A configuration chosen for one process by
-  `MECUM_RECALL` (a comparison, a diagnosis) is a guest: its worker keeps the live generations in line with the
+  `BRAUS_RECALL` (a comparison, a diagnosis) is a guest: its worker keeps the live generations in line with the
   catalogue and never starts, abandons or promotes one, and its answers say they came from the owner's index
   (`limited`). Two owners of different configurations would retire each other's generations
   (`RecallOwnershipTests` shows both).
@@ -135,7 +135,7 @@ by memory mapping, the XLM-RoBERTa Unigram tokenizer as Hugging Face's `tokenize
 `EmbeddingModelManifest` pins each model's revision, license, prefixes and the sha256 of its weights,
 tokenizer and configuration; a directory with another file is refused at load, and the Recall answers on
 the lexical channel, saying why. Nothing downloads at run time: `Tools/Engine/Scripts/fetch-recall-model.sh`
-installs a model into `~/Library/Application Support/Mecum/Models` (or `MECUM_RECALL_MODELS`) as an explicit
+installs a model into `~/Library/Application Support/Braus/Models` (or `BRAUS_RECALL_MODELS`) as an explicit
 setup step, and `--verify-only` checks an installed one without the network.
 
 | Model | Revision | License | Weights | Pooling, prefixes |
@@ -288,13 +288,13 @@ Material only proposed, or a plan refused, delivers nothing and credits nothing.
 
 ## Diagnosis
 
-- `mecum memory --recall-status`: the configuration this process resolves, the generations, entries,
+- `braus memory --recall-status`: the configuration this process resolves, the generations, entries,
   vectors still to compute, index work pending with its failed attempts, without running any.
-- `mecum memory --recall-rebuild [--within <seconds>]`: queues a rebuild of the whole catalogue and runs the
+- `braus memory --recall-rebuild [--within <seconds>]`: queues a rebuild of the whole catalogue and runs the
   index work until it is done.
-- `mecum memory --recall-explain <text> [--limit <n>]`: every indexed part scored against a text, the most
+- `braus memory --recall-explain <text> [--limit <n>]`: every indexed part scored against a text, the most
   relevant first, with each channel's score; no query is recorded and nothing is selected.
-- `MECUM_RECALL=<channel>[:<model>]` and `MECUM_RECALL_MODELS=<folder>` override the configuration of a
+- `BRAUS_RECALL=<channel>[:<model>]` and `BRAUS_RECALL_MODELS=<folder>` override the configuration of a
   process, for the comparison and for diagnosis; a configuration other than the product's is a guest of the
   archive's index (see [the index](#the-index)).
 
@@ -304,12 +304,12 @@ The configuration is chosen by a comparison that could refute it, on the release
 two are kept as history, results and preregistration unchanged (the third is
 [below](#the-third-comparison)).
 
-- **First comparison** (`RecallEvaluationTests`, `MECUM_RECALL_EVAL=dev|final`, corpus `recall-corpus-v1`, calibration
+- **First comparison** (`RecallEvaluationTests`, `BRAUS_RECALL_EVAL=dev|final`, corpus `recall-corpus-v1`, calibration
   `recall-calibration-v1.json`): 19 knowledge items, 46 queries (26 development, 20 final, split by family), 22
   configurations. It chose the lexical channel; the review found its criteria too weak to close the semantic
   requirement (C4 met in form only, one false complete allowed) and its scale dependent on the collection (F01, F05).
   See [the first comparison](#the-first-comparison-history).
-- **Second comparison** (`RecallEvaluationV2Tests`, `MECUM_RECALL_EVAL=dev2|final2`, corpus `recall-corpus-v2`,
+- **Second comparison** (`RecallEvaluationV2Tests`, `BRAUS_RECALL_EVAL=dev2|final2`, corpus `recall-corpus-v2`,
   calibration `recall-calibration-v2.json`), after the selector's corrections:
   - **Corpus**: v1's 19 procedures and four more learned through the tools (an invoice downloaded in Safari and
     emailed, whose interpretation declares the download's output; Contacts; Music; a Numbers chart exported and
@@ -564,7 +564,7 @@ every configuration.
 **Chosen: `lexical/recall-document-1`.** Five configurations met C1 to C5 with one unsafe answer and 13 or 12
 correct; the lexical channel and the hybrid ones over E5 (w = 0.5 and 0.65) tied at 13/20 with one false
 complete, and the preregistered rule takes the simpler channel. It needs no model file, so the Recall works on a
-fresh install; the semantic runtime, both models and their indexes stay available behind `MECUM_RECALL`.
+fresh install; the semantic runtime, both models and their indexes stay available behind `BRAUS_RECALL`.
 
 What the result does and does not say:
 
@@ -683,7 +683,7 @@ object), four steps over two hundred applications, with the Granite hybrid confi
 provisional lexical configuration measured as its guest. The run was stopped after its third stage: learning slowed with
 the archive's size (59 ms a procedure up to 5,000, 163 to 10,000, 378 to 20,000; a sample of the process at 10,000 showed
 mostly SQLite reads and the Brain's per-application work, which does not separate the causes), and the fourth stage
-(40,000) would have taken about four more hours. The same archive was then measured again with the two corrections below (`MECUM_RECALL_SCALE=reuse`).
+(40,000) would have taken about four more hours. The same archive was then measured again with the two corrections below (`BRAUS_RECALL_SCALE=reuse`).
 
 | Stage | Procedures (versions) | Parts (entries) | Steps | Distinct documents = vectors | Events | Brain scenes / relations | Archive |
 |---|---|---|---|---|---|---|---|
@@ -728,7 +728,7 @@ Warm searches through the service (`RecallService.prepare` and the selection, 10
   times faster), then an approximate index past a few hundred thousand vectors. None is built: no semantic configuration is
   validated, and the exact search keeps the perimeter declared.
 
-**The index's cost on learning** (`MECUM_RECALL_SCALE=ablation:3000`): the same 3,000 procedures learned in three fresh
+**The index's cost on learning** (`BRAUS_RECALL_SCALE=ablation:3000`): the same 3,000 procedures learned in three fresh
 archives, with no index (a guest of an archive no owner indexes), with the lexical owner and with the Granite hybrid owner;
 essential commits sampled on 30 calls, Brain lookups on 6.
 
@@ -781,7 +781,7 @@ task (turns, tokens, retries, connectors) with and without the Recall, which nee
 
 | Suite | What it proves |
 |---|---|
-| `LocalEmbeddingReferenceTests` (needs `MECUM_RECALL_MODELS`) | token ids and vectors equal to Hugging Face's on 18 texts, both models, both roles; a model with a missing or different file is refused |
+| `LocalEmbeddingReferenceTests` (needs `BRAUS_RECALL_MODELS`) | token ids and vectors equal to Hugging Face's on 18 texts, both models, both roles; a model with a missing or different file is refused |
 | `RecallSelectionTests` | episodes, intervals, wholes, absence, gaps, missing parameters, application binding, variants and their ambiguity, a fixed choice the task contradicts excluded, binding rules, masking, on versions built by hand |
 | `RecallScopeSelectionTests` | certain conflict, unknown compatibility and missing input kept apart; constraints read clause by clause; episodes the need names and the work before and after them; the observed state cutting a dialog's episode; producers included and ready outputs not repeated; a truly missing input |
 | `RecallScopeGuideTests` | the second review's guide cases: a contact created without sharing it, a song added to a playlist that exists, rename, delete and open not taken for create, an observation behind the work the need names, values that name an episode only when one reads them; and the third final's: an exclusion over uncertain episodes, short numbers as mentions, a move not taken for a creation, a label's words recognizing the work, equal proposals ordered by content |

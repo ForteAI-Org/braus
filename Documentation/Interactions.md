@@ -1,6 +1,6 @@
 # Passive interaction listener
 
-`mecum watch` prints the events a person produces while using applications and diagnoses
+`braus watch` prints the events a person produces while using applications and diagnoses
 which element the production perception pipeline resolves at each pointer position.
 It is read-only: no Seat, actuation, provider calls, Brain ingestion or persistence.
 The application does not start this listener yet.
@@ -10,10 +10,10 @@ The application does not start this listener yet.
 Build with the repository's Swift 6.4 toolchain, then run from a terminal with macOS grants:
 
 ```sh
-swift build --product mecum
-.build/debug/mecum watch "Pro Tools" --raw --duration 30
-.build/debug/mecum watch "Pro Tools"
-.build/debug/mecum watch "Adobe Premiere" --json --duration 60
+swift build --product braus
+.build/debug/braus watch "Pro Tools" --raw --duration 30
+.build/debug/braus watch "Pro Tools"
+.build/debug/braus watch "Adobe Premiere" --json --duration 60
 ```
 
 The optional app argument accepts the CLI's existing running-app name or bundle-id lookup.
@@ -156,7 +156,7 @@ must correlate its own actuation before classifying those observations as human 
 
 ## Why one process
 
-The tap, its queue and the consumer run in the `mecum watch` process. A two-process variant (the tap
+The tap, its queue and the consumer run in the `braus watch` process. A two-process variant (the tap
 in a separate observer process behind a shared-memory ring) was built and measured live against this
 one on 29 Sep 2026: at human pace it had the same callback latency and the same CPU, and cost 8 MiB
 more memory and 6 more threads. The in-process queue already isolates the callback from the consumer:
@@ -170,7 +170,7 @@ log2-bucket histograms (count, buckets, exact maximum) that only it writes: no l
 `input` holds the callbacks that can produce an event (left and right mouse down, scroll), `pointer`
 every other callback (moves, drags, keys), and `timer` the body of the scroll/hover timer, which runs
 on the same thread and delays callbacks queued behind it. They measure work inside the callback, not
-how late the event reached it. SIGUSR1 to `mecum watch` prints one line per histogram and resets
+how late the event reached it. SIGUSR1 to `braus watch` prints one line per histogram and resets
 them; the same three lines are printed once at stop:
 
 ```
@@ -183,11 +183,11 @@ callback[inprocess] timer: n 0 (since last dump)
 thread takes and resets the histograms, so they keep one writer. Percentiles are interpolated inside
 their octave, so two p99s in the same bucket compare only approximately.
 
-SIGUSR2 to `mecum watch --raw` pauses or resumes the loop that reads `events`; the listener keeps
+SIGUSR2 to `braus watch --raw` pauses or resumes the loop that reads `events`; the listener keeps
 running. The consumer thread keeps draining the queue into the unbounded stream, so the pause stalls
 the stream's reader only and puts no pressure on the queue.
 
-The same work is visible in Instruments as signpost intervals, subsystem `com.forte.mecum`, category
+The same work is visible in Instruments as signpost intervals, subsystem `com.forte.braus`, category
 `InteractionTap`: `receive` for the callback, `wakeFired` for the scroll/hover timer and `focus` for an
 application activation. They are begun only while signposts are enabled.
 
@@ -222,9 +222,9 @@ A read-only AX adapter check is opt-in and requires a known, currently visible c
 specified app's tree. Fill the coordinates and expected name/source from that live fixture:
 
 ```sh
-MECUM_INTERACTION_LIVE_AX=1 MECUM_INTERACTION_AX_PID=<pid> \
-MECUM_INTERACTION_AX_X=<x> MECUM_INTERACTION_AX_Y=<y> \
-MECUM_INTERACTION_AX_LABEL="<visible name>" MECUM_INTERACTION_AX_SOURCE=filename \
+BRAUS_INTERACTION_LIVE_AX=1 BRAUS_INTERACTION_AX_PID=<pid> \
+BRAUS_INTERACTION_AX_X=<x> BRAUS_INTERACTION_AX_Y=<y> \
+BRAUS_INTERACTION_AX_LABEL="<visible name>" BRAUS_INTERACTION_AX_SOURCE=filename \
 swift test --filter InteractionObservationLiveTests
 ```
 

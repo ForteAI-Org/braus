@@ -1,6 +1,6 @@
 //
 //  MemoryService.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 07/10/2026.
 //
@@ -359,7 +359,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// A test's seam into the copy, for the package's tests only: run before the snapshot starts.
     private var beforeBackup: (@Sendable () async throws -> Void)?
 
-    private static let log = Logger(subsystem: "dev.forte.Mecum", category: "Memory")
+    private static let log = Logger(subsystem: "dev.forte.Braus", category: "Memory")
 
     public init(directory: URL, configuration: Configuration = Configuration(), clock: MemoryClock = MemoryClock()) {
         self.directory     = directory

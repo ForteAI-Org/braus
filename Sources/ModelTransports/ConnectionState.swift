@@ -1,6 +1,6 @@
 //
 //  ConnectionState.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 22/09/2026.
 //
@@ -78,7 +78,7 @@ public enum ConnectionState: Sendable, Hashable {
             "The API key or sign-in was rejected. Update your credentials, then check again."
 
         case .unreachable(let destination, _):
-            "Mecum couldn’t reach \(destination). Check the address and make sure the service is running, then try again."
+            "Braus couldn’t reach \(destination). Check the address and make sure the service is running, then try again."
 
         case .usageLimited:
             "This account has reached its usage limit. Wait for it to reset or use another provider."

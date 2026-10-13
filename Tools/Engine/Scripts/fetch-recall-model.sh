@@ -2,7 +2,7 @@
 #
 # Installs one local embedding model of the Recall at the exact revision its manifest pins
 # (Sources/Engine/LocalEmbedding/EmbeddingModelManifest.swift), and refuses it unless every file the runtime
-# reads has the pinned sha256. This is the explicit setup step: Mecum never downloads at run time, and a
+# reads has the pinned sha256. This is the explicit setup step: Braus never downloads at run time, and a
 # missing or refused model leaves the lexical index answering, saying so.
 #
 # Downloading is a setup action someone decides to take: it reaches huggingface.co and writes a few hundred
@@ -10,8 +10,8 @@
 #
 # Usage: fetch-recall-model.sh <e5-small|granite-107m> [models-folder]
 #        fetch-recall-model.sh --verify-only <e5-small|granite-107m> [models-folder]
-#        The folder defaults to ~/Library/Application Support/Mecum/Models, where the app and mecum look
-#        when MECUM_RECALL_MODELS does not name another.
+#        The folder defaults to ~/Library/Application Support/Braus/Models, where the app and braus look
+#        when BRAUS_RECALL_MODELS does not name another.
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ if [[ "${1:-}" == "--verify-only" ]]; then
     shift
 fi
 name=${1:?"usage: fetch-recall-model.sh [--verify-only] <e5-small|granite-107m> [models-folder]"}
-folder=${2:-"$HOME/Library/Application Support/Mecum/Models"}
+folder=${2:-"$HOME/Library/Application Support/Braus/Models"}
 
 case "$name" in
     e5-small)
@@ -82,7 +82,7 @@ check model.safetensors "$weights" || status=1
 check tokenizer.json "$tokenizer" || status=1
 check config.json "$configuration" || status=1
 if [[ $status != 0 ]]; then
-    echo "the model is refused: Mecum will not load it, and its lexical index answers" >&2
+    echo "the model is refused: Braus will not load it, and its lexical index answers" >&2
     exit 1
 fi
 echo "verified: every pinned file has its sha256"

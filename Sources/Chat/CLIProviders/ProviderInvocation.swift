@@ -1,7 +1,7 @@
 import ChatCore
 import Foundation
 
-/// ProviderInvocation builds argv without a shell. Only Mecum's MCP tools are authorized for Claude;
+/// ProviderInvocation builds argv without a shell. Only Braus's MCP tools are authorized for Claude;
 /// Codex runs read-only with shell tools disabled and only the explicitly supplied MCP configuration.
 /// A turn that allows web search adds each command line's own web search and page reading, nothing else.
 public struct ProviderInvocation: Sendable {
@@ -16,14 +16,14 @@ public struct ProviderInvocation: Sendable {
         var arguments: [String]
         switch turn.provider {
         case .claude:
-            let config: [String: Any] = ["mcpServers": ["mecum": [
+            let config: [String: Any] = ["mcpServers": ["braus": [
                 "command": turn.bridgeExecutable, "args": bridgeArguments
             ]]]
             let encoded = try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
             arguments = ["-p", "--output-format", "stream-json", "--verbose",
                          "--strict-mcp-config", "--mcp-config", String(decoding: encoded, as: UTF8.self),
                          "--tools", searchesWeb ? "WebSearch,WebFetch" : "",
-                         "--allowedTools", searchesWeb ? "mcp__mecum__*,WebSearch,WebFetch" : "mcp__mecum__*",
+                         "--allowedTools", searchesWeb ? "mcp__braus__*,WebSearch,WebFetch" : "mcp__braus__*",
                          "--permission-mode", "dontAsk", "--setting-sources", ""]
                 + (turn.isCompaction ? [] : ["--disable-slash-commands"])
                 + ["--no-chrome", "--append-system-prompt", turn.instructions]
@@ -43,7 +43,7 @@ public struct ProviderInvocation: Sendable {
                          "-c", "features.view_image=false", "-c", "features.image_generation=false",
                          "-c", "web_search=\(try Self.quote(searchesWeb ? "live" : "disabled"))",
                          "-c", "developer_instructions=\(try Self.quote(turn.instructions))",
-                         "-c", "mcp_servers.mecum=\(server)"]
+                         "-c", "mcp_servers.braus=\(server)"]
             if let model = turn.model { arguments += ["--model", model] }
             if let effort = turn.effort { arguments += ["-c", "model_reasoning_effort=\(try Self.quote(effort))"] }
             // Codex exec has no /compact: a limit below any session's size makes it compact before answering.

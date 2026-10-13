@@ -1,6 +1,6 @@
 //
 //  EmbeddingModelManifest.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -12,7 +12,7 @@ import Memory
 /// of a document, the pooling, the context). A model directory is accepted only when every pinned file has
 /// its digest: another revision, a damaged download or a different tokenizer is refused at load, so a vector
 /// never silently comes from artifacts other than the ones its space names. The files are installed by an
-/// explicit setup step (`Tools/Engine/Scripts/fetch-recall-model.sh`); Mecum never downloads at run time.
+/// explicit setup step (`Tools/Engine/Scripts/fetch-recall-model.sh`); Braus never downloads at run time.
 public struct EmbeddingModelManifest: Sendable, Equatable {
 
     public let modelID: String

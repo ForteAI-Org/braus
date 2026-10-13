@@ -55,14 +55,14 @@ public final class MCPRouter {
                 result = .object([
                     "protocolVersion": .string(supported.contains(requested) ? requested : "2025-11-25"),
                     "capabilities": .object(["tools": .object([:])]),
-                    "serverInfo": .object(["name": .string("mecum"), "version": .string("0.1.0")]),
+                    "serverInfo": .object(["name": .string("braus"), "version": .string("0.1.0")]),
                     "instructions": .string(instructions)
                 ])
             case "ping": result = .object([:])
             case "tools/list": result = .object(["tools": .array(tools)])
             case "tools/call":
-                guard isAcceptingTools else { return error(id, -32000, "Mecum is stopping. No further actions accepted.") }
-                guard !isBusy else { return error(id, -32000, "Another Mecum operation is still running. Observe when it finishes.") }
+                guard isAcceptingTools else { return error(id, -32000, "Braus is stopping. No further actions accepted.") }
+                guard !isBusy else { return error(id, -32000, "Another Braus operation is still running. Observe when it finishes.") }
                 guard let name = request["params"]["name"].string,
                       tools.contains(where: { $0["name"].string == name }) else {
                     return error(id, -32602, "Unknown tool.")

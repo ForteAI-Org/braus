@@ -1,6 +1,6 @@
 //
 //  SQLiteMemoryInspection.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 07/10/2026.
 //
@@ -28,12 +28,12 @@ public enum SQLiteMemoryInspection {
     public enum Shape: Sendable, Equatable {
         /// No file at the path.
         case missing
-        /// A database with no schema yet: Mecum's memory would create its schema in it, and a
+        /// A database with no schema yet: Braus's memory would create its schema in it, and a
         /// reader of an existing archive refuses it.
         case empty
         /// The schema this build opens: its version and exactly its shape.
         case current
-        /// Exactly the shape of an earlier schema this build migrates from: Mecum's memory migrates it
+        /// Exactly the shape of an earlier schema this build migrates from: Braus's memory migrates it
         /// on its next open, after a verified copy, and a reader refuses it until then.
         case migratable(from: Int32)
         /// A file this build refuses and leaves as it is, and why: a newer version, another shape,
@@ -126,7 +126,7 @@ public enum SQLiteMemoryInspection {
                    !manager.fileExists(atPath: url.path + "-shm") {
                     return report(.unavailable(
                         "a WAL archive whose log files are not beside it: a reader cannot make them without "
-                        + "changing the directory; open it with Mecum, or inspect it with its -wal and -shm"
+                        + "changing the directory; open it with Braus, or inspect it with its -wal and -shm"
                     ))
                 }
                 return report(.unreadable("\(failure)"))
@@ -195,7 +195,7 @@ public enum SQLiteMemoryInspection {
 
     /// Reads one task by its id as `inspect` reads the file: read only, under the shared presence lock,
     /// in one read transaction, and only from an archive of exactly this build's shape. It creates,
-    /// migrates and recovers nothing, so an archive of an earlier schema is read by Mecum's next open
+    /// migrates and recovers nothing, so an archive of an earlier schema is read by Braus's next open
     /// first.
     public static func task(_ taskID: String, in url: URL) -> TaskReading {
         let manager = FileManager.default
@@ -219,7 +219,7 @@ public enum SQLiteMemoryInspection {
                 try connection.execute("BEGIN")
                 defer { _ = try? connection.execute("COMMIT") }
                 guard case .current = try SQLiteMemoryStore.inspect(connection, expected: expected) else {
-                    return .unavailable("the archive is not of schema \(supportedVersion); `mecum memory --status` says what it is")
+                    return .unavailable("the archive is not of schema \(supportedVersion); `braus memory --status` says what it is")
                 }
                 guard let found = try SQLiteProcedureRows.inspection(connection, taskID: taskID) else { return .notFound }
                 return .found(found)

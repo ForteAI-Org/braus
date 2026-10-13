@@ -1,6 +1,6 @@
 //
 //  RecallScaleTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -18,17 +18,17 @@ import PerceptionCore
 @testable import SQLiteMemory
 import Testing
 
-/// RecallScaleTests measure the Recall's cost with sizes stated, gated by `MECUM_RECALL_SCALE` and written to
-/// `MECUM_RECALL_EVAL_OUT`. They are measures, not proofs of quality: the procedures are load data, generated and
+/// RecallScaleTests measure the Recall's cost with sizes stated, gated by `BRAUS_RECALL_SCALE` and written to
+/// `BRAUS_RECALL_EVAL_OUT`. They are measures, not proofs of quality: the procedures are load data, generated and
 /// learned through the tools (D2's producers, qualification and index work), never the quality corpus.
 ///
-/// - `MECUM_RECALL_SCALE=catalogue:N` learns N generated procedures of four steps over forty applications, builds
-///   the lexical index and, with `MECUM_RECALL_MODELS`, the E5 one, and measures: the learning and the index build,
+/// - `BRAUS_RECALL_SCALE=catalogue:N` learns N generated procedures of four steps over forty applications, builds
+///   the lexical index and, with `BRAUS_RECALL_MODELS`, the E5 one, and measures: the learning and the index build,
 ///   the archive's size, the first search after opening (cold: the index read into memory) and repeated searches
-///   (warm) by phase, and the process's resident memory. With `MECUM_RECALL_EXPORT=1` it writes the E5 vectors and
+///   (warm) by phase, and the process's resident memory. With `BRAUS_RECALL_EXPORT=1` it writes the E5 vectors and
 ///   the queries' vectors for the comparison of an approximate index with the exact search (usearch, in the
 ///   evaluation environment only).
-/// - `MECUM_RECALL_SCALE=kernel` measures the exact scoring alone over 10 000 to 1 000 000 random normalized vectors of
+/// - `BRAUS_RECALL_SCALE=kernel` measures the exact scoring alone over 10 000 to 1 000 000 random normalized vectors of
 ///   384 dimensions: the per-entry dot products the service runs, and one matrix-vector product over the same
 ///   vectors stored contiguously, with the memory each needs.
 @MainActor
@@ -36,7 +36,7 @@ import Testing
 struct RecallScaleTests {
 
     nonisolated static let environment = ProcessInfo.processInfo.environment
-    nonisolated static var scale: String? { environment["MECUM_RECALL_SCALE"] }
+    nonisolated static var scale: String? { environment["BRAUS_RECALL_SCALE"] }
 
     nonisolated static func milliseconds(_ duration: Duration) -> Double {
         Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
@@ -62,7 +62,7 @@ struct RecallScaleTests {
     }
 
     static func write(_ object: [String: Any], name: String) throws {
-        guard let path = environment["MECUM_RECALL_EVAL_OUT"] else { return }
+        guard let path = environment["BRAUS_RECALL_EVAL_OUT"] else { return }
         let folder = URL(fileURLWithPath: path, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
@@ -161,7 +161,7 @@ struct RecallScaleTests {
     }
 
     @Test("a generated catalogue learned through the tools: learning, index build, size, cold and warm searches, memory",
-          .enabled(if: scale?.hasPrefix("catalogue:") == true, "MECUM_RECALL_SCALE=catalogue:N asks for it"))
+          .enabled(if: scale?.hasPrefix("catalogue:") == true, "BRAUS_RECALL_SCALE=catalogue:N asks for it"))
     func catalogue() async throws {
         let count = Int(Self.scale?.split(separator: ":").last ?? "") ?? 200
         let directory = try W.directory()
@@ -209,7 +209,7 @@ struct RecallScaleTests {
             _ = try await Self.measure(service, queries: queries, repetitions: 1)
             report["hybrid warm ms"] = try await Self.measure(service, queries: queries, repetitions: 5).mapValues { Self.summary($0) }
             report["footprint after e5 MB"] = Self.footprintMB()
-            if Self.environment["MECUM_RECALL_EXPORT"] == "1", let out = Self.environment["MECUM_RECALL_EVAL_OUT"] {
+            if Self.environment["BRAUS_RECALL_EXPORT"] == "1", let out = Self.environment["BRAUS_RECALL_EVAL_OUT"] {
                 try await Self.export(service, queries: queries, to: URL(fileURLWithPath: out, isDirectory: true))
             }
         }
@@ -274,7 +274,7 @@ struct RecallScaleTests {
     // MARK: Models
 
     @Test("each pinned model: load with and without hashing its weights, memory, a query's embedding, documents' throughput, truncation",
-          .enabled(if: scale == "models" && RecallCycleTests.models != nil, "MECUM_RECALL_SCALE=models and MECUM_RECALL_MODELS ask for it"))
+          .enabled(if: scale == "models" && RecallCycleTests.models != nil, "BRAUS_RECALL_SCALE=models and BRAUS_RECALL_MODELS ask for it"))
     func models() throws {
         let folder = try #require(RecallCycleTests.models)
         let corpus = try RecallCorpus.load()
@@ -317,7 +317,7 @@ struct RecallScaleTests {
     // MARK: Kernel
 
     @Test("the exact scoring alone, from ten thousand to a million vectors of 384 dimensions",
-          .enabled(if: scale == "kernel", "MECUM_RECALL_SCALE=kernel asks for it"))
+          .enabled(if: scale == "kernel", "BRAUS_RECALL_SCALE=kernel asks for it"))
     func kernel() throws {
         let dimensions = 384
         var report: [String: Any] = ["hardware": Self.hardware(), "dimensions": dimensions]

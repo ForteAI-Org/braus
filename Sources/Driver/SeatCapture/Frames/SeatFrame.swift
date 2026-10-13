@@ -10,7 +10,7 @@ import CoreMedia
 import CoreVideo
 import Darwin
 import IOSurface
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import PhaseSignposts
 #endif
 import SeatCore
@@ -296,7 +296,7 @@ nonisolated public struct SeatFrame: @unchecked Sendable {
     /// Asks the window server where `source` is now. It is the per-frame query a running
     /// receiver answers from `WindowServerReadingCache` instead.
     static func windowServerRect(of source: FrameSourceIdentity) -> CGRect? {
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let queryStarted = mach_absolute_time()
         #endif
         let screenRect: CGRect? = switch source {
@@ -307,7 +307,7 @@ nonisolated public struct SeatFrame: @unchecked Sendable {
         case .unverifiedWindow(let windowNumber):
             WindowServerProbe.geometry(of: windowNumber)?.frame
         }
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         FrameProbe.noteGeometryQuery(
             ticks    : mach_absolute_time() - queryStarted,
             screenRect: screenRect

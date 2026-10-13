@@ -1,29 +1,29 @@
 # Local MCP connections
 
-Keep Mecum open, then choose **MCP → MCP Connections…** in the menu bar. This lets
+Keep Braus open, then choose **MCP → MCP Connections…** in the menu bar. This lets
 Claude Desktop, Claude Code and Codex use the desktop tools of the current engine.
-Provider settings choose the models used inside Mecum; MCP connections authorize
-an external client to use Mecum's tools.
+Provider settings choose the models used inside Braus; MCP connections authorize
+an external client to use Braus's tools.
 
 ## Setup
 
-1. Install Mecum in a stable location, such as `/Applications/Mecum.app`.
+1. Install Braus in a stable location, such as `/Applications/Braus.app`.
 2. Open **MCP Connections**, name a client and select **Desktop apps**.
 3. Click **Add Client**. New grants are disabled. Turn **Enabled** on and wait for **Ready**.
 4. Expand **Client configuration** and copy the JSON for Claude Desktop, or the
    registration command for Claude Code or Codex. Paths are generated for this app.
 5. Add the JSON entry to the client's existing `mcpServers` object, preserving its
    other servers, or run the copied CLI command. Reconnect the client.
-6. Start with: “Use Mecum to list the open windows. Do not change anything.”
+6. Start with: “Use Braus to list the open windows. Do not change anything.”
 
 A separate grant is needed for each simultaneous client process. One grant admits
-one connection at a time. If the app moves, copy its configuration again. Mecum
+one connection at a time. If the app moves, copy its configuration again. Braus
 must stay running; the helper never launches it or silently retries an action.
 
 ## Scope and lifecycle
 
 This connection exposes `AutomationTools` from the current engine, through the
-same Seat broker as Mecum's workers. It adds no browser engine or Watcher. Its calls
+same Seat broker as Braus's workers. It adds no browser engine or Watcher. Its calls
 are recorded with the `mcp` source and the grant as their stream in the user's one
 living memory, `Knowledge` under the app's support directory, shared with the workers
 and the command line (G76, [MemoryFacts](MemoryFacts.md#one-archive-per-user)): what a
@@ -32,9 +32,9 @@ archive, `MCP/Knowledge/<grant>`, is unified into it once and kept. The `memory_
 tool lets a client declare the task its calls serve; a task stays private to the grant's
 stream. A call that may change an application is refused when the memory cannot confirm
 it first. Desktop access allows both reading and acting; macOS permissions still
-belong to Mecum and are not bypassed by the client grant.
+belong to Braus and are not bypassed by the client grant.
 
-The bundled `mecum-bridge` forwards standard MCP JSON lines to an authenticated
+The bundled `braus-bridge` forwards standard MCP JSON lines to an authenticated
 loopback socket. No remote listener, HTTP endpoint or tunnel is opened. Local
 connection files are private (0600 in a 0700 directory); copied configurations
 contain paths, not credentials. Another process under the same macOS account can

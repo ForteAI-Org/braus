@@ -7,7 +7,7 @@ Engine checks the choice against the facts and delivers the details. The automat
 
 ## Activation
 
-The path exists only in a process started with `MECUM_RECALL_AGENT_CHOICE=1`. In that process `memory_task` accepts
+The path exists only in a process started with `BRAUS_RECALL_AGENT_CHOICE=1`. In that process `memory_task` accepts
 `recall_mode: "propose"` on `begin` and `recall`, and the operation `choose`; its description and instructions say
 so. Without the variable those arguments are unknown and refused, and nothing changes for any client. Even when the
 path is enabled, a `begin` without `recall_mode` answers the automatic selection.
@@ -192,9 +192,9 @@ final.
 - Corpus v4 (`70b7e096…`): 27 versions and 119 queries, judged on the full archive, plus 27 cases on minimal archives.
 - One index: hybrid, Granite 107m, weight 0.2.
 - Control: the automatic selector 4 on the same search.
-- Agent: the Claude CLI as Mecum invokes it, tools off. `claude-sonnet-5-5` with effort `max` is the primary arm;
+- Agent: the Claude CLI as Braus invokes it, tools off. `claude-sonnet-5-5` with effort `max` is the primary arm;
   `claude-haiku-5-5` is informative.
-- The agent receives Mecum's instructions, its begin call and the proposal, nothing of the expectations. `RecallJudge`
+- The agent receives Braus's instructions, its begin call and the proposal, nothing of the expectations. `RecallJudge`
   judges; the model never does.
 
 | | A, Sonnet | A, Haiku | Control |
@@ -247,6 +247,6 @@ final.
   (recreating it), complete. Sonnet chose the two right steps. No Engine check covers a tract too wide within a
   compatible version.
 
-**Status.** A stays an experiment behind `MECUM_RECALL_AGENT_CHOICE=1`; the automatic selector is the default. The two
+**Status.** A stays an experiment behind `BRAUS_RECALL_AGENT_CHOICE=1`; the automatic selector is the default. The two
 proposed corrections are not applied. Whether A is corrected, adopted or postponed is a decision for review, and an
 independent holdout must follow any correction.

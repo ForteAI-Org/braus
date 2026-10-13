@@ -1,7 +1,7 @@
 # Engine
 
 For the provider/model picker, saved conversations and persistent background tool sessions,
-see [CLI chat](Chat.md). Start with `mecum --chat`.
+see [CLI chat](Chat.md). Start with `braus --chat`.
 
 How the agent acts on what it sees: perceive this instant, resolve a target by name, refuse what
 policy refuses, deliver a gesture through a role, perceive again, and judge the effect by what
@@ -43,16 +43,16 @@ and is never a reason to send the gesture again.
 | `AccessibilityActions` | `ControlPressing` over the live accessibility tree: open a dropdown by its own press, read a combo box's value, read a toggle under a point |
 | `WorkspaceActivation` | `ApplicationActivating` over AppKit's workspace |
 | `Memory` | what the agent remembers, pure: `AppKnowledge` (observed objects per window state, menu commands, the brain, routes), `UIBrain` with `ObjectAnchor`, `SiblingGroup`, `LearnedTransition`, `BrainMatcher`, `BrainUpdater` and `BrainRetention`, `Route`, `RouteEarning`, `Recall` with `RecallEvidence` and `SightingGraph`, `Allowlist`, `KnowledgeCoding`, the role `KnowledgeStoring` with `InMemoryKnowledgeStore`, and `BrainMemory`, which fills `EffectExpecting` and enriches scenes from the stored brain (`BrainReading`); and the contracts of the living memory, pure: the observation contract (`ObservationKind`, `CaptureSample` with `CaptureElement`, `MemoryEventRecord`, `SceneSkeleton` and `SceneStructureMatcher`, `SceneDefinition`), the brain's storage and applications (`BrainStoring`, `BrainApplicationStoring` with `BrainApplicationCommand` and `BrainApplicationKey`, `BrainKeys`, `DecayReport`, `BrainClock`, `TransitionEffectRecord`), the agent calls (`AgentCallStoring` with `AgentTool`, `AgentCallRequest`, `AgentCallRecord`, `AgentCallProgress`, `AgentCallResult`, `ObservedEffect`), the menu commands as data (`MenuCommandStoring`), the observed inputs and explicit attributions (`ObservedInputStoring`, `VerificationStoring`, `TaskAttributionStoring`), the procedures and experiences (`RouteStoring`, `StepOccurrenceStoring`, `ExperienceStoring`), since D2 the procedures built from a task (`ProcedureSegmentation` and `ProcedureCandidate`, `ProcedureInterpretation`, `ProcedureAssembly` and `ProcedureVersion`, `QualificationPolicy` and `PartQualification`, `ProcedureInspection`) and the functional Brain's relations (`BrainRelationPolicy`, `BrainRelation`, `SceneElementKey`, `BrainRelationReading`), the brain's general graph (`BrainGraphStoring`, `MemoryOverview`) and the read of traces (`MemoryTraceReading`); the store's answers (`MemoryStoreError`, `MemoryReceipt`, `MemorySchemaMismatch`, `MemoryTextFault`, `MemorySnapshotRefusal`) |
-| `FileKnowledge` | `KnowledgeStoring` over one JSON file per application: write-behind, a directory lock, daily backups, quarantine and restore; and `FileAllowlistStore`. No source imports it since the Brain moved to SQLite; `mecum` still lists it as a dependency and the `MecumEngine` library vends it. The JSON files it wrote are not read at run time |
+| `FileKnowledge` | `KnowledgeStoring` over one JSON file per application: write-behind, a directory lock, daily backups, quarantine and restore; and `FileAllowlistStore`. No source imports it since the Brain moved to SQLite; `braus` still lists it as a dependency and the `BrausEngine` library vends it. The JSON files it wrote are not read at run time |
 | `SQLiteMemory` | the living memory's SQLite store, composed by `AutomationRuntime`'s `MemoryService`: `SQLiteMemoryStore` opens one file, bootstraps the current schema from the module's one schema text (its part 1 is schema 1, the version an archive migrates from) and refuses any other shape, runs typed write and read transactions over a serial writer and a separate reader, checkpoints passively, copies the file through the backup API (`snapshot(to:)`) and reports the reader's `data_version`; the `SQLite*Repository` types fill the `Memory` roles above, one transaction per write. 46 of the 48 tables are contract data with a typed writer and reader; `brain_scene_roles` and `brain_scene_labels` are projections written and not read. Schemas 2 to 5 add the facts of D1 and the procedures and relations of D2 with their history of evaluations (`SQLiteProcedureRepository`, `SQLiteBrainRelationRepository`); schema 6 adds the Recall's derived index and its facts (`SQLiteRecallRepository`). See [the memory schema](MemorySchema.md), [the memory contracts](MemoryContracts.md), [the memory procedures](MemoryProcedures.md) and [the memory recall](MemoryRecall.md) |
 | `LocalEmbedding` | `TextEmbedding` over a pinned local model (`LocalEmbeddingModel`, `EmbeddingModelManifest`): safetensors by memory mapping, the XLM-RoBERTa Unigram tokenizer, a BERT-family encoder on Accelerate, pooling and normalization, every file checked against its sha256. Imports `Memory`, Foundation and Accelerate; no network. The models are installed by `Tools/Engine/Scripts/fetch-recall-model.sh` ([MemoryRecall](MemoryRecall.md#local-embedding)) |
 | `LocalEmbeddingKernels` | the encoder's matrix product over Accelerate's current CBLAS interface, a C target because it needs a define |
 | `memory-probe` (tool, `Tools/Engine/memory-probe`) | a second real process on one store file for the module's tests and `measure-memory-store.sh`: driven by lines on its standard input, one answer per line; a package executable, bundled nowhere |
 | `LiveScenes` | `LiveSceneProvider`, the `SceneProviding` for a window on the real screen: census, capture (the union with an open pop-up), pipeline |
 | `SeatDriving` (`Sources/Integration`) | the Driver's seat filling the Engine's roles: `SeatTarget` owns the host, the seat and the adopted window; `SeatSceneProvider` is `SceneProviding` over the seat's stills; `SeatActuator` is `Actuating` over routed Commands inside a Turn, answering every receipt with what the engine saw; `SeatControls` is `ControlPressing` without the geometric read; `SeatSettler` is `Settling` over the window stream the seat's owner runs ([ADR 0035](../Driver/adr/Adr0035SettleOnTheRunningWindowStream.md)) |
-| `AutomationRuntime` (`Sources/Integration`) | the composition root: `EngineRuntime` wires the foreground adapters or the Seat's, the expectations from `BrainMemory` over the directory's `MemoryService`, and the call's `CallRecorder` as the engine's observer. `MemoryService` is the one living memory of a Knowledge directory in the process (`shared(for:)`): `memory.sqlite`, opened on first use, written through one ordered queue no action waits for, read with a Brain cache, copied once a day; `CallRecorder` records one call (its request, start and end, its samples and what it taught the Brain); `ActionContext` is who acts under which trace; `MemoryClock` keeps the facts' calendar, the Brain's clock and durations apart; `ProcedureProducer` builds an attempt's candidate at a checkpoint or an end and records the agent's interpretation of it ([MemoryProcedures](MemoryProcedures.md)); `RecallService` keeps the Recall's index in line with the catalogue and answers a task's query with one selection per need, `RecallConfiguration` says how it searches, `RecallDelivery` is what the agent receives ([MemoryRecall](MemoryRecall.md); how the selector decides, on which data, and what it cannot decide: [RecallSelection](RecallSelection.md); the experiment in which the agent chooses the tracts and Engine validates them, `RecallService.propose`/`choose`, enabled only by `MECUM_RECALL_AGENT_CHOICE=1`: [RecallAgentChoice](RecallAgentChoice.md)). `AutomationSession` is the foreground application session, `AutomationSessionOperating` the role the tools drive |
+| `AutomationRuntime` (`Sources/Integration`) | the composition root: `EngineRuntime` wires the foreground adapters or the Seat's, the expectations from `BrainMemory` over the directory's `MemoryService`, and the call's `CallRecorder` as the engine's observer. `MemoryService` is the one living memory of a Knowledge directory in the process (`shared(for:)`): `memory.sqlite`, opened on first use, written through one ordered queue no action waits for, read with a Brain cache, copied once a day; `CallRecorder` records one call (its request, start and end, its samples and what it taught the Brain); `ActionContext` is who acts under which trace; `MemoryClock` keeps the facts' calendar, the Brain's clock and durations apart; `ProcedureProducer` builds an attempt's candidate at a checkpoint or an end and records the agent's interpretation of it ([MemoryProcedures](MemoryProcedures.md)); `RecallService` keeps the Recall's index in line with the catalogue and answers a task's query with one selection per need, `RecallConfiguration` says how it searches, `RecallDelivery` is what the agent receives ([MemoryRecall](MemoryRecall.md); how the selector decides, on which data, and what it cannot decide: [RecallSelection](RecallSelection.md); the experiment in which the agent chooses the tracts and Engine validates them, `RecallService.propose`/`choose`, enabled only by `BRAUS_RECALL_AGENT_CHOICE=1`: [RecallAgentChoice](RecallAgentChoice.md)). `AutomationSession` is the foreground application session, `AutomationSessionOperating` the role the tools drive |
 | `AutomationMCP` (`Sources/Integration`) | `AutomationTools`, the seventeen tools over `AutomationSessionOperating` and `memory_task` (`MemoryTaskTool`), with which the agent declares the task its calls serve, interprets the candidate procedure segmented from them, receives the Recall's selections at `begin`, searches again for a stated reason (`recall`) and reports their use (`use`); each call it answers is recorded under its `CallProducer` (the app's worker, an external MCP client, the CLI chat) when the session names a memory: a call that may change the application is refused when the memory cannot confirm its start, and its end, with the check its path made, is confirmed after it ([MemoryFacts](MemoryFacts.md)) |
-| `mecum` (tool, `Tools/Engine/mecum`) | the command line: `windows`, `scene`, `act`, `select`, `batch`, `memory` (an application's Brain, `--status`, `--import-json <dir>` to copy earlier JSON Brains into the archive by hand, `--task <id> [--graph]` to read one task's procedures and relations, the non-destructive `--part`, `--requalify`, `--quarantine-policy` and `--apply-relations`, and the Recall's `--recall-status`, `--recall-rebuild` and `--recall-explain <text>`); the composition root that wires the foreground adapters, or the Seat's with `--seat` |
+| `braus` (tool, `Tools/Engine/braus`) | the command line: `windows`, `scene`, `act`, `select`, `batch`, `memory` (an application's Brain, `--status`, `--import-json <dir>` to copy earlier JSON Brains into the archive by hand, `--task <id> [--graph]` to read one task's procedures and relations, the non-destructive `--part`, `--requalify`, `--quarantine-policy` and `--apply-relations`, and the Recall's `--recall-status`, `--recall-rebuild` and `--recall-explain <text>`); the composition root that wires the foreground adapters, or the Seat's with `--seat` |
 
 Before the first SeatDriving observation reaches the Engine, `SeatTarget`
 requires the full attested identity of the adopted window, including its process
@@ -61,11 +61,11 @@ scene; after the first match, ordinary window following remains available.
 The borrowed target receives the broker's adopted identity explicitly so a
 selection change before borrowing cannot redefine the opening target.
 
-Link the `MecumEngine` library product. `EngineCore` imports `PerceptionCore`, Foundation and
+Link the `BrausEngine` library product. `EngineCore` imports `PerceptionCore`, Foundation and
 CoreGraphics; `Memory` imports `EngineCore` and `PerceptionCore`; the adapters import their core
 module and one framework, `FileKnowledge` imports `Memory` and Foundation only, and `SQLiteMemory`
 imports `Memory`, Foundation and the SDK's `SQLite3`. In production it is imported by
-`AutomationRuntime` (`MemoryService`, `CallRecorder`) and by `mecum`'s `memory` command; no library
+`AutomationRuntime` (`MemoryService`, `CallRecorder`) and by `braus`'s `memory` command; no library
 product vends it. A background seat fills
 `Actuating` with its own delivery and leaves `ApplicationActivating` unfilled: its windows are never
 in front and its gestures need no raising, which is why the engine treats that role as optional.
@@ -108,16 +108,16 @@ end) is written when a producer calls `CallRecorder.begin` and `end`, as `Automa
 every tool call; the command line's `scene` and `act` write the event, its samples and the Brain's
 learning, with no call row.
 
-From the terminal, the same composition is the `mecum` tool. Screen Recording and Accessibility must
+From the terminal, the same composition is the `braus` tool. Screen Recording and Accessibility must
 be granted to the terminal that runs it.
 
 ```bash
-swift build --product mecum
-.build/debug/mecum windows "Pro Tools"                      # the census: what is driven, what is a pop-up
-.build/debug/mecum scene "Pro Tools"                        # the text map a model reads; also teaches the brain
-.build/debug/mecum act "Pro Tools" "EditModeSpot"           # resolve, click, verify: found_acted or an honest miss
-.build/debug/mecum act "Pro Tools" "Solo" --verb set_toggle --value on --section "Audio 1"
-.build/debug/mecum memory "Pro Tools"                       # the archive's Brain: anchors, groups, worth naming
+swift build --product braus
+.build/debug/braus windows "Pro Tools"                      # the census: what is driven, what is a pop-up
+.build/debug/braus scene "Pro Tools"                        # the text map a model reads; also teaches the brain
+.build/debug/braus act "Pro Tools" "EditModeSpot"           # resolve, click, verify: found_acted or an honest miss
+.build/debug/braus act "Pro Tools" "Solo" --verb set_toggle --value on --section "Audio 1"
+.build/debug/braus memory "Pro Tools"                       # the archive's Brain: anchors, groups, worth naming
 ```
 
 Measured on this Mac against Pro Tools on the first run: a 589-element scene in 1.5 s, an act in 1.4 s
@@ -133,7 +133,7 @@ preserved it. Field selection and exact readback still decide the result; no
 unconfirmed edit is automatically replayed. See the
 [application flow checks](../Driver/reports/ApplicationFlowChecks.md).
 
-`insert_text` exposes the same single payload through the CLI chat and Mecum
+`insert_text` exposes the same single payload through the CLI chat and Braus
 app tools, at a focus and selection the caller has already established. It
 sends no focusing click or selection keys, which preserves a modal's initially
 selected name. `expected_value` is the complete resulting value; only matching
@@ -154,22 +154,22 @@ command ends. `--allow-unvalidated-build` is the Driver's research opt-in for a 
 ledger has not validated, said out loud on stderr.
 
 ```bash
-.build/debug/mecum scene "Pro Tools" --seat --allow-unvalidated-build
-.build/debug/mecum act "Pro Tools" "EditModeSpot" --seat --allow-unvalidated-build
+.build/debug/braus scene "Pro Tools" --seat --allow-unvalidated-build
+.build/debug/braus act "Pro Tools" "EditModeSpot" --seat --allow-unvalidated-build
 ```
 
 For a native dropdown, opening and selection must share one Seat lifetime. With Pro Tools'
 I/O Setup already open on the Bus tab:
 
 ```bash
-.build/debug/mecum select "Pro Tools" "All Busses" "Output Busses" \
+.build/debug/braus select "Pro Tools" "All Busses" "Output Busses" \
   --window "I/O Setup" --seat --allow-unvalidated-build
 ```
 
 To chain operations in an already-open window without returning it between commands, use `batch`:
 
 ```bash
-.build/debug/mecum batch "Pro Tools" --window "New Paths" --seat --allow-unvalidated-build -- \
+.build/debug/braus batch "Pro Tools" --window "New Paths" --seat --allow-unvalidated-build -- \
   select "Mono" "Stereo" --then \
   act "Auto-create sub paths" --verb set_toggle --value on --then \
   act "Create"
@@ -207,7 +207,7 @@ request is never retried on an AX timeout: Pro Tools can leave its menu open whi
 and errors. No global click or foreground fallback is used.
 
 Success requires the requested value to appear at the original dropdown in a fresh capture after
-the menu closes. `--evidence /tmp/mecum-dropdown` saves local `before.png`, `menu.png` and `after.png`.
+the menu closes. `--evidence /tmp/braus-dropdown` saves local `before.png`, `menu.png` and `after.png`.
 Full-window scenes and native opener lookup use the captured process, window number and geometry.
 An AX title need not equal the WindowServer title. Missing identity or stale geometry refuses;
 titles and focus do not provide another candidate. Native popup/combo values drive arrow routing
@@ -259,8 +259,8 @@ establish that new-window following settles before the first verification captur
 
 The final build selected Output Busses with exit 0 and retained foreground focus. A nonexistent
 item returned `honest_miss` with exit 1, closed through the Driver's preparation cleanup, and left
-the dropdown unchanged. Local evidence: `/tmp/mecum-dropdown-final`,
-`/tmp/mecum-dropdown-missing-final`, and their adjacent `.log` files. Regression coverage includes
+the dropdown unchanged. Local evidence: `/tmp/braus-dropdown-final`,
+`/tmp/braus-dropdown-missing-final`, and their adjacent `.log` files. Regression coverage includes
 native selection, missing/ambiguous items, opening failure/timeout, reader cancellation, existing
 menus, and cleanup failure in `NativePopupMenuTests`.
 
@@ -365,7 +365,7 @@ Driver offers is not yet turned on here.
   another command under the key is a conflict, and the application's clock never runs backwards.
   The one other writer is `JSONBrainImport`, which writes a whole Brain only for an application the
   archive holds none of: once when an open creates the archive beside main's JSON files, and by hand
-  through `mecum memory --import-json`.
+  through `braus memory --import-json`.
 - A recorded call is a fact, not a success (`AgentCallStoring`): `completed` means the call
   concluded, its outcome keeps its own meaning, a skipped batch step is never shown as run, and the
   arguments are the ones the tool decoded, with its defaults written once. `AutomationTools`
@@ -398,7 +398,7 @@ Driver offers is not yet turned on here.
   nothing observes, correlates, judges or labels on its own. Since D2 the system segments an attempt's
   started operations into a candidate procedure (`app-blocks-1`); labels, parameters and outcomes come only
   from the agent's interpretation. The Watcher
-  (`InteractionListener`, `mecum watch`) is not connected to the memory.
+  (`InteractionListener`, `braus watch`) is not connected to the memory.
 - A procedure is a definition, not a script (`RouteStoring`): publication checks its structure,
   never its reliability, and authorizes no replay; changing a published Route is a new version.
   The brain's projection owns only the transitions `LearnedTransition` represents; every other arc
@@ -502,11 +502,11 @@ pending singletons, replaced by the store actor's own state.
 | `LocatorCore/KnowledgeStore.swift` (+ `KnowledgeMemo`, `KnowledgePending`, `AllowlistStore`) | `Memory/Storage/KnowledgeStoring.swift` (the role), `FileKnowledge/{FileKnowledgeStore,FileAllowlistStore}.swift` |
 | `LocatorCore/DescriptorStore.make{Encoder,Decoder}` | `Memory/Knowledge/KnowledgeCoding.swift` |
 | `locator-mcp/Server.swift` transition recording after an act | `Memory/Seams/BrainMemory.swift` |
-| Mecum `SeatInputBackend`, `AgentSession.captureForLocator` (the Lab's join) | `Integration/SeatDriving/*` |
+| Braus `SeatInputBackend`, `AgentSession.captureForLocator` (the Lab's join) | `Integration/SeatDriving/*` |
 
 ## Passive user interaction diagnostics
 
-The independent [interaction listener](../Interactions.md) exposes `mecum watch` for inspecting
+The independent [interaction listener](../Interactions.md) exposes `braus watch` for inspecting
 manual input, window attribution and production perception. It does not feed the Brain or memory.
 
 For external Claude and Codex clients using the running macOS app, see

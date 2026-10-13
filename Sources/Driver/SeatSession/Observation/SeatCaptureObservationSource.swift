@@ -7,7 +7,7 @@
 
 import CoreGraphics
 import Dispatch
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import PhaseSignposts
 #endif
 import SeatCapture
@@ -113,7 +113,7 @@ nonisolated public struct SeatCaptureObservationSource: ObservedSurfaceSourcing 
                 readings           : { LiveFrameHandover.readings(of: $0, on: displayID) }
             )
             if case .success(let frame) = answer { return frame }
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             if case .failure(let fallback) = answer {
                 PhaseInterval.event("capture.liveFallback", String(describing: fallback))
             }
@@ -155,7 +155,7 @@ nonisolated public struct SeatCaptureObservationSource: ObservedSurfaceSourcing 
         readings                : (WindowIdentity) -> LiveFrameHandover.Readings
     ) async -> Result<SeatFrame, LiveFrameFallback> {
 
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let phase = PhaseInterval.begin("capture.liveFrame")
         defer { phase.end() }
         #endif
@@ -221,7 +221,7 @@ nonisolated public struct SeatCaptureObservationSource: ObservedSurfaceSourcing 
         try await timestamps.timestamped(
             generation: displayGeneration,
             oneShot   : {
-                #if MECUM_PHASES
+                #if BRAUS_PHASES
                 let phase = PhaseInterval.begin("capture.oneShotStill")
                 defer { phase.end() }
                 #endif
@@ -237,7 +237,7 @@ nonisolated public struct SeatCaptureObservationSource: ObservedSurfaceSourcing 
                 guard deadlineNanoseconds > afterStill else {
                     throw ObservationUnavailable.captureDeadlineExpired(attemptsSpent: attemptsSpent)
                 }
-                #if MECUM_PHASES
+                #if BRAUS_PHASES
                 let phase = PhaseInterval.begin("capture.streamStill")
                 defer { phase.end() }
                 #endif

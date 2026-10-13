@@ -1,4 +1,4 @@
-# Mecum vs Cua Driver comparison harness
+# Braus vs Cua Driver comparison harness
 
 Runs the same operations on the same windows through one MCP stdio client and writes one JSONL
 row per call: latency, reply size and tokens (text and image apart), CPU/energy/footprint of the
@@ -9,12 +9,12 @@ titles). `summarize.py` turns the rows into tables and a `summary.json`. Method 
 
 | File | Role |
 | --- | --- |
-| `Server/main.swift` | Mecum's `AutomationTools` over MCP stdio (`mecum-mcp-stdio`), a benchmark tool only |
-| `prepare.py` | Preflight (Stage Manager, other Mecum, power, Low Power, thermal, displays), fixtures, the meta row |
+| `Server/main.swift` | Braus's `AutomationTools` over MCP stdio (`braus-mcp-stdio`), a benchmark tool only |
+| `prepare.py` | Preflight (Stage Manager, other Braus, power, Low Power, thermal, displays), fixtures, the meta row |
 | `compare.py`, `mcpclient.py`, `rusage.py` | Scenarios, runner (ops, chain, soak, phases) and MCP client |
 | `probe.swift`, `ocr.swift` | Independent observers, built to `.build/probe` and `.build/ocr` |
 | `desk.swift` | `desk permissions` (Accessibility and Screen Recording of the terminal chain) and `desk press <pid> <menu> <item>` (AXPress on a menu bar item, no activation); built to `.build/desk` |
-| `summarize.py`, `headline.py` | Tables and `summary.json` (`headline.py` still knows only `mecum` and `cua`) |
+| `summarize.py`, `headline.py` | Tables and `summary.json` (`headline.py` still knows only `braus` and `cua`) |
 | `fixtures/` | `bench.html` (Chrome/Safari "Bench Page"), `bench.txt` (TextEdit) |
 
 ## Build
@@ -46,15 +46,15 @@ the target window is stashed as a thumbnail and neither driver can adopt or bind
 changes it. Take the shared live lock first if other runs share the desktop.
 
 ```sh
-S="$(mktemp -d /tmp/mecum-cua-bench.XXXXXX)"
+S="$(mktemp -d /tmp/braus-cua-bench.XXXXXX)"
 python3 prepare.py --scratch "$S" --open Calculator,TextEdit --apps Calculator,TextEdit   # exit 3 = blockers
-MECUM_APP_SUPPORT_DIR="$S" python3 compare.py --apps Calculator,TextEdit \
-  --drivers mecum,cua,cua-overlay --reps 8 --out "$S/results.jsonl" --scratch "$S"
+BRAUS_APP_SUPPORT_DIR="$S" python3 compare.py --apps Calculator,TextEdit \
+  --drivers braus,cua,cua-overlay --reps 8 --out "$S/results.jsonl" --scratch "$S"
 python3 summarize.py "$S/results.jsonl" --json "$S/summary.json"
 ```
 
 `prepare.py` reports (never fixes, never kills) its findings under `blockers` (Stage Manager on,
-another Mecum running, Accessibility or Screen Recording missing, a binary missing) and `warnings`
+another Braus running, Accessibility or Screen Recording missing, a binary missing) and `warnings`
 (battery, Low Power mode, thermal state). With `--open` it opens each requested app in the background
 (`open -g`) on its fixture and waits until the app has a usable window (`--plan` prints this and opens
 nothing): Calculator, Stocks, kitty and Prism Launcher as they are; TextEdit on a fresh copy of
@@ -66,8 +66,8 @@ Project Manager and Photoshop on its Home screen, with no document (it cannot sa
 7 minutes. `fixtures.json` (pid, window title, `launched`, `note`, seconds waited, read by
 `compare.py`) and `meta.json` go into the scratch directory. `compare.py` writes the same preflight, the Mac model,
 chip, RAM, macOS build and both driver commits and versions into a `kind: "meta"` first row.
-Always set `MECUM_APP_SUPPORT_DIR` for Mecum. Mecum runs with its research opt-in for an unvalidated
-macOS build (`MECUM_BENCH_UNVALIDATED=1`, set by the harness). Never run `sample` or another profiler
+Always set `BRAUS_APP_SUPPORT_DIR` for Braus. Braus runs with its research opt-in for an unvalidated
+macOS build (`BRAUS_BENCH_UNVALIDATED=1`, set by the harness). Never run `sample` or another profiler
 during a measured window.
 
 ### Modes
@@ -75,12 +75,12 @@ during a measured window.
 | `--mode` | What it does |
 | --- | --- |
 | `ops` (default) | One warm-up and `--reps` measured repetitions per driver of each operation; idle CPU in 3 consecutive 10 s windows after the last call; WindowServer baseline before and after |
-| `chain` | 10 consecutive steps per app with `--pauses 0,1,3,5` seconds between them, each group after a 6 s rest. Per step: wall time, the gap since the previous call, and for Mecum whether the stream was resting |
+| `chain` | 10 consecutive steps per app with `--pauses 0,1,3,5` seconds between them, each group after a 6 s rest. Per step: wall time, the gap since the previous call, and for Braus whether the stream was resting |
 | `soak` | `--soak-steps 200` neutral steps (TextEdit by default) per driver, driver and target footprint every 10 steps; the summary gives the slope in MB per 100 steps and any error or stall |
-| `--phases` | Mecum alone, from a `MECUM_PHASES` build (see below). Rows are marked `phases: true` and `summarize.py` leaves them out of every timing aggregate |
+| `--phases` | Braus alone, from a `BRAUS_PHASES` build (see below). Rows are marked `phases: true` and `summarize.py` leaves them out of every timing aggregate |
 
-Order and fairness: drivers alternate per app in ABBA order, for example mecum, cua, cua-overlay,
-cua-overlay, cua, mecum (`--order forward` for one pass). `--reps` is per driver and splits over the two
+Order and fairness: drivers alternate per app in ABBA order, for example braus, cua, cua-overlay,
+cua-overlay, cua, braus (`--order forward` for one pass). `--reps` is per driver and splits over the two
 passes, the odd one going to the first. A cooldown (`--cooldown`, 15 s) separates blocks; every block
 starts a fresh driver process. TextEdit's `undo` step takes the insert back and Chrome and Safari type
 `hello{rep}`, so a repetition starts from the same text; the digest before each repetition's first call
@@ -97,8 +97,8 @@ for an operation, the probe is blind to it or nothing happened: read it as such.
 
 Framework "Adobe (proprietary toolkit)", process found by name prefix. Never saves: New Document
 (menu, then Return), Image Rotation 180 degrees twice, a key, scrolls, File > Close and Don't Save
-(Mecum `press`, Cua `click` by name). Known hazards are recorded as failures, not worked around: a
-"Start Bar" window can make Mecum's adoption refuse (`moveRefused`), and right after a new document
+(Braus `press`, Cua `click` by name). Known hazards are recorded as failures, not worked around: a
+"Start Bar" window can make Braus's adoption refuse (`moveRefused`), and right after a new document
 Photoshop can be "not ready" for about 2 s. Cua rebinds to the top window before each step, since the
 dialog and the document are separate windows.
 
@@ -106,7 +106,7 @@ dialog and the document are separate windows.
 
 | `--drivers` | Launched as | Notes |
 | --- | --- | --- |
-| `mecum` | `.build/release/mecum-mcp-stdio <knowledge dir>` (`MECUM_BIN` overrides) | One Seat session per app block |
+| `braus` | `.build/release/braus-mcp-stdio <knowledge dir>` (`BRAUS_BIN` overrides) | One Seat session per app block |
 | `cua` | `cua-driver mcp --direct` | The MCP process owns the runtime; no agent cursor overlay |
 | `cua-overlay` | Daemon-backed Cua, overlay on (its default) | See below |
 | `cua-legacy` | As `cua`, acting the 6 October way | Secondary series `step_legacy` |
@@ -140,13 +140,13 @@ Parity means Cua is used the way its docs tell users to use it at c1c2b5f
 - **Full read** (`observe`): plain `get_window_state`, the 250-node markdown tree and a screenshot
   (WORKFLOW.md "Observe"; MACOS.md, the 250-node cap).
 - **Diff read** (`observe_unchanged`): `get_window_state` with `since:"latest"` and
-  `include_screenshot:false`, the counterpart of Mecum's unchanged read (WORKFLOW.md "Observe",
+  `include_screenshot:false`, the counterpart of Braus's unchanged read (WORKFLOW.md "Observe",
   `since`; MACOS.md "pass `since:"latest"` and `include_screenshot:false`").
 - **Legacy step** (`cua-legacy`, `series: "step_legacy"`): the action by `element_token`, then
   `get_window_state` with `full_output:true` (the previous full payload). Kept only to compare with
   6 October.
 
-The equivalent step of Mecum is its action call alone: the reply already has the scene.
+The equivalent step of Braus is its action call alone: the reply already has the scene.
 
 ## Row schema
 
@@ -165,7 +165,7 @@ Call rows keep the 6 October fields (`driver`, `app`, `framework`, `op`, `rep`, 
 | `proxy_cpu_ms`, `proxy_footprint_mb`, `app_footprint_mb` | Cua stdio proxy beside the daemon; the target's footprint |
 | `expect`, `verified`, `success` | Probe parts that must change; whether they did; true/false/null (unverified) |
 | `frontmost_changed`, `cursor_moved`, `cursor_moved_call`, `user_windows_before/after`, `window_on_user_display` | Intrusion: another app became frontmost, the cursor moved (probe window and the call alone), a window of the target newly onscreen on a display that is not the Seat's (vendor `0xF0A7`) |
-| `gap_s`, `stream_resting` | Seconds since the previous call ended; for Mecum, `gap_s > 2.5` (ADR 0036), inferred and not observed |
+| `gap_s`, `stream_resting` | Seconds since the previous call ended; for Braus, `gap_s > 2.5` (ADR 0036), inferred and not observed |
 | `pause_s`, `chain_step`, `soak_step` | Chain and soak position |
 | `window`, `since_last_call_s` | Idle windows (`op: "idle"`), CPU also in `proxy_cpu_ms`, `app_cpu_ms` |
 | `digest_before`, `digest_after` | Probe digest around the call |
@@ -186,12 +186,12 @@ it. `python3 summarize.py --selftest` checks the statistics helpers.
 ## Phase breakdown
 
 A separate run, never mixed with the timed one (a signpost build is slower, and `compare.py` refuses
-`--phases` with any driver but `mecum`):
+`--phases` with any driver but `braus`):
 
 ```sh
-/usr/bin/swift build -c release -Xswiftc -DMECUM_PHASES --scratch-path ~/Forte_Projects/_bench/phases-build
-MECUM_PHASES_BIN=~/Forte_Projects/_bench/phases-build/release/mecum-mcp-stdio \
-  python3 compare.py --phases --drivers mecum --apps Calculator --reps 4 --out "$S/phases.jsonl" --scratch "$S"
+/usr/bin/swift build -c release -Xswiftc -DBRAUS_PHASES --scratch-path ~/Forte_Projects/_bench/phases-build
+BRAUS_PHASES_BIN=~/Forte_Projects/_bench/phases-build/release/braus-mcp-stdio \
+  python3 compare.py --phases --drivers braus --apps Calculator --reps 4 --out "$S/phases.jsonl" --scratch "$S"
 ```
 
 The harness records `Tools/Driver/Phases/phase-table.py record` for the run; its table is written
@@ -199,7 +199,7 @@ to `<out>.phases.txt` and the raw signposts to `<out>.signposts.ndjson`.
 
 ## Limits
 
-- The Mecum stream's rest is inferred from the gap; the phases run shows the real `preview.rest` events.
+- The Braus stream's rest is inferred from the gap; the phases run shows the real `preview.rest` events.
 - WindowServer CPU is read through `ps` at 10 ms resolution: per-call values are coarse, idle windows are fine.
 - The probe sees AX values, not pixels: kitty, Obsidian and Photoshop pixel effects stay unverified.
 - The physical cursor moves when the person uses the Mac; idle and baseline rows carry the same check as a control.
@@ -213,8 +213,8 @@ app list is every app of `compare.py`: Calculator, TextEdit, Chrome, Safari, Obs
 Prism Launcher and Photoshop.
 
 **What it asks.** Before any long step it checks what only a person can change and lists it all at once, in Italian,
-with the exact fix: Stage Manager on (turn it off in Control Center), another Mecum running (quit it: it holds the virtual
-display), Accessibility or Screen Recording missing for the terminal that runs `bench.sh` (the probe, Mecum and Cua
+with the exact fix: Stage Manager on (turn it off in Control Center), another Braus running (quit it: it holds the virtual
+display), Accessibility or Screen Recording missing for the terminal that runs `bench.sh` (the probe, Braus and Cua
 inherit it), the `claude` CLI missing or not logged in (skipped with `--skip-tasks`). It rechecks every 5 s and goes on by
 itself as soon as the list is empty. On battery it only asks "Continuare a batteria? [s/N]" (no answer is N). It changes no
 setting and ends no process. Then it prints the estimated end time and nothing else needs a person: a window that does
@@ -230,13 +230,13 @@ documents itself.
 | --- | --- |
 | Helpers | Builds `probe`, `ocr`, `desk` and `axread` when their source is newer (seconds) |
 | Gate | The blockers above, then the end-time line |
-| Preflight | `prepare.py`; a blocker that appears after the gate (another Mecum started meanwhile) aborts before anything runs |
+| Preflight | `prepare.py`; a blocker that appears after the gate (another Braus started meanwhile) aborts before anything runs |
 | Builds | `swift build -c release`, `cargo build --release -p cua-driver` when the Cua checkout is there, the phases build with `--phases` |
 | Opening | `prepare.py --open` all selected apps and waits for their windows (about 5 min, mostly Resolve and Photoshop) |
 | Per-call run | `compare.py --mode ops` over `--apps` |
 | Chain | `--mode chain`, pauses `--pauses 0,1,3,5`, only `--chain-apps` (default Calculator, TextEdit, Chrome: the full set takes about three times as long) |
 | Soak | `--mode soak`, 200 steps, TextEdit |
-| Phases | Only with `--phases`: Mecum alone from a `MECUM_PHASES` build, Calculator |
+| Phases | Only with `--phases`: Braus alone from a `BRAUS_PHASES` build, Calculator |
 | Model tasks | `tasks.py` for the tasks of the chosen apps, 3 reps, capped at 60 minutes (`--skip-tasks`, `--task-reps`, `--task-max-minutes`) |
 | Summaries and report | `summarize.py` (`summary.json`, `tables.md`), `tasks.py --summary`, then `report.py` |
 
@@ -244,13 +244,13 @@ documents itself.
 0.25 h, tasks up to 1 h, opening 5 min). `--quick` is a smoke test of about 80 minutes: 2 reps, chain pauses 0 and 3 s on
 the first chain app, soak 20 steps, one task rep, one 5 s idle window, 5 s cooldown. The elapsed time is printed at the end.
 
-**At the end** it prints the two Markdown files (`~/Downloads/MecumVsCua-Team-<date>.md`, Italian, and
-`~/Downloads/MecumVsCua-Report-<date>.md`, English) and the run folder.
+**At the end** it prints the two Markdown files (`~/Downloads/BrausVsCua-Team-<date>.md`, Italian, and
+`~/Downloads/BrausVsCua-Report-<date>.md`, English) and the run folder.
 
 Everything of one run lives in `~/Forte_Projects/_bench/runs/<YYYYMMDD-HHMM>/` (`--run-dir` overrides): `ops.jsonl`,
 `chain.jsonl`, `soak.jsonl`, optional `phases.jsonl`, `tasks.jsonl`, `summary.json`, `tasks-summary.json`, `tables.md`,
 `run.json` (start, finish, steps and their exit codes), `meta.json`, `fixtures.json` and `logs/<step>.log`. Every
-child process gets `MECUM_APP_SUPPORT_DIR` set to that directory. Nothing here changes Stage Manager or any other
+child process gets `BRAUS_APP_SUPPORT_DIR` set to that directory. Nothing here changes Stage Manager or any other
 setting; it still needs the Mac free and the shared live lock.
 
 ### `report.py` and `tickets.json`
@@ -258,12 +258,12 @@ setting; it still needs the Mac free and the shared live lock.
 `report.py --summary summary.json [--tasks tasks-summary.json] [--baseline base.json] [--run run.json]` writes two
 files to `~/Downloads/` (`--out-dir`), never into the repository:
 
-- `MecumVsCua-Team-<YYYYMMDD>.md`: Italian, short. Every table is a `###` title, 2-4 lines of context, the table and one
+- `BrausVsCua-Team-<YYYYMMDD>.md`: Italian, short. Every table is a `###` title, 2-4 lines of context, the table and one
   `**Conclusione:**` line. Every compared value carries its own marker: 🟢 the best, 🔴 the worst, 🟡 even with the best
   (within 10% or overlapping 95% intervals; all even: all 🟡); a metric with one value has none, and a value no row
-  recorded (a probe verdict missing from the 6 October rows) is `n/d`. `vs 6/10` with ▲ / ▼ / = is Mecum's own change,
-  and "Cua cambiato versione" Cua's, never counted as a Mecum gain.
-- `MecumVsCua-Report-<YYYYMMDD>.md`: English, full technical report (method, component parity, p50/p90/p99 with
+  recorded (a probe verdict missing from the 6 October rows) is `n/d`. `vs 6/10` with ▲ / ▼ / = is Braus's own change,
+  and "Cua cambiato versione" Cua's, never counted as a Braus gain.
+- `BrausVsCua-Report-<YYYYMMDD>.md`: English, full technical report (method, component parity, p50/p90/p99 with
   intervals, per-operation tables, support matrix with source links, deltas against 6 October, limits, reproduction).
 
 Inputs are the run's `summary.json`, the tasks summary, `support.json`, `tickets.json` and the 6 October summary (by

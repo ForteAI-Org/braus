@@ -1,6 +1,6 @@
 //
 //  FileKnowledgeStoreTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 18/09/2026.
 //
@@ -18,7 +18,7 @@ struct FileKnowledgeStoreTests {
     private let t0 = Date(timeIntervalSince1970: 1_700_000_000)
 
     private func directory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("mecum-knowledge-\(UUID().uuidString)")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("braus-knowledge-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

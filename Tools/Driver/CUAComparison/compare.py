@@ -1,16 +1,16 @@
-"""Mecum vs Cua Driver: the same operations on the same windows, through the same MCP stdio client.
+"""Braus vs Cua Driver: the same operations on the same windows, through the same MCP stdio client.
 
     python3 compare.py --apps Calculator,TextEdit --reps 8 --out results.jsonl --scratch DIR
     python3 compare.py --mode chain --apps TextEdit ...    # steps with 0, 1, 3 and 5 s pauses between them
     python3 compare.py --mode soak --apps TextEdit ...     # 200 steps per driver, footprint every 10
-    python3 compare.py --phases --drivers mecum ...        # a MECUM_PHASES build, never mixed with timed runs
+    python3 compare.py --phases --drivers braus ...        # a BRAUS_PHASES build, never mixed with timed runs
 
 Every call is one JSONL row: wall time at the client, reply size and tokens (text and image), CPU,
 instructions and energy of the driver and of the target application, WindowServer CPU, and what an
 independent probe saw around the call (frontmost app, physical cursor, windows and the display each is
 on, hashes of the AX values, selection, focus, scroll position and window titles). The first row of a
 run is its `kind: "meta"` row: preflight, machine, driver commits. Drivers alternate per app in ABBA
-order (mecum, cua, cua-overlay, then reversed) with a cooldown between blocks.
+order (braus, cua, cua-overlay, then reversed) with a cooldown between blocks.
 
 Cua is used the way its own docs say (see README, "How Cua is driven"): an action is one
 `run_actions` call with `observe:true`, a re-read is a `since:"latest"` diff. `cua-legacy` keeps the
@@ -22,9 +22,9 @@ import prepare, rusage
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CUA = prepare.CUA
-MECUM = prepare.MECUM
+BRAUS = prepare.BRAUS
 PROBE = prepare.PROBE
-PHASES_BIN = os.environ.get("MECUM_PHASES_BIN", os.path.join(HERE, ".build-phases/release/mecum-mcp-stdio"))
+PHASES_BIN = os.environ.get("BRAUS_PHASES_BIN", os.path.join(HERE, ".build-phases/release/braus-mcp-stdio"))
 PHASE_TABLE = os.path.join(HERE, "../Phases/phase-table.py")
 REST_DELAY_S = 2.5          # ADR 0036: the window stream rests after this long without a use
 TEXT_CHARS_PER_TOKEN = 4
@@ -113,7 +113,7 @@ SCENARIOS = {
         scroll("down"), scroll("up"),
     ]),
     # Works in the background and never saves: the document is closed with Don't Save. Known hazards, recorded
-    # and not worked around: a "Start Bar" window can make Mecum's adoption refuse (moveRefused), and right
+    # and not worked around: a "Start Bar" window can make Braus's adoption refuse (moveRefused), and right
     # after a new document Photoshop can be "not ready" for about 2 s.
     "Photoshop": dict(framework="Adobe (proprietary toolkit)", process_prefix="Adobe Photoshop", rebind="front", ops=[
         menu("new_doc", ["File", "New..."], ["windows"]),
@@ -141,7 +141,7 @@ class Dead(Exception):
 
 
 def target_for(app, scenario, fixtures):
-    """(pid, window title or None, app name Mecum opens) of the running target; RuntimeError if absent."""
+    """(pid, window title or None, app name Braus opens) of the running target; RuntimeError if absent."""
     fixture = fixtures.get(app) or {}
     if "process_prefix" in scenario:
         name = prepare.process_name(scenario["process_prefix"])
@@ -201,7 +201,7 @@ def reply_body(reply):
 
 
 def self_verdict(reply):
-    """What the driver itself claims about the effect: Cua's `effect`, Mecum's outcome status."""
+    """What the driver itself claims about the effect: Cua's `effect`, Braus's outcome status."""
     structured = (reply.get("result") or {}).get("structuredContent") or {}
     if "effect" in structured:
         return structured["effect"] if isinstance(structured["effect"], str) else json.dumps(structured["effect"])[:60]
@@ -331,7 +331,7 @@ class Recorder:
                        app_footprint_mb=a1["footprint"] / 2**20 if a1 else None,
                        windowserver_cpu_ms=(w1 - w0) / 1e6 if w0 is not None and w1 is not None else None,
                        gap_s=gap,
-                       stream_resting=(gap is not None and gap > REST_DELAY_S) if driver == "mecum" else None,
+                       stream_resting=(gap is not None and gap > REST_DELAY_S) if driver == "braus" else None,
                        expect=expect or None, verified=verified, success=success,
                        frontmost_before=before.get("frontmost"), frontmost_after=after.get("frontmost"),
                        frontmost_changed=(before.get("frontmost") != after.get("frontmost")) if before and after else None,
@@ -595,37 +595,37 @@ class Cua:
         pass
 
 
-class Mecum:
-    name = "mecum"
+class Braus:
+    name = "braus"
 
     def __init__(self, recorder, log, knowledge, binary=None):
         self.recorder = recorder
-        env = dict(os.environ, MECUM_BENCH_UNVALIDATED="1")
+        env = dict(os.environ, BRAUS_BENCH_UNVALIDATED="1")
         started = time.perf_counter()
-        self.client = MCPClient([binary or MECUM, knowledge], stderr=log, env=env)
+        self.client = MCPClient([binary or BRAUS, knowledge], stderr=log, env=env)
         self.startup_ms = (time.perf_counter() - started) * 1000
         self.session = None
         self.launch = "phases" if binary else "release"
 
     def startup_row(self):
-        return dict(driver="mecum", op="startup", ms=self.startup_ms, ok=True, launch=self.launch)
+        return dict(driver="braus", op="startup", ms=self.startup_ms, ok=True, launch=self.launch)
 
     def open(self, app, framework, rep, target, scenario):
         pid, window, name = target
         arguments = {"app": name} | ({"window": window} if window else {})
-        reply = self.recorder.measure(self.client, "mecum", app, framework, "open_session", rep,
+        reply = self.recorder.measure(self.client, "braus", app, framework, "open_session", rep,
                                       "open_session", arguments, pid, settle=0.5)
         self.session = (reply_body(reply) or {}).get("session")
         return bool(self.session)
 
     def release(self, app, framework, rep, pid):
         if self.session:
-            self.recorder.measure(self.client, "mecum", app, framework, "close_session", rep,
+            self.recorder.measure(self.client, "braus", app, framework, "close_session", rep,
                                   "close_session", {"session": self.session}, pid, settle=0.5)
         self.session = None
 
     def read(self, app, framework, op, rep, pid, full, light=False, **extra):
-        return self.recorder.measure(self.client, "mecum", app, framework, op, rep, "observe",
+        return self.recorder.measure(self.client, "braus", app, framework, op, rep, "observe",
                                      {"session": self.session} | ({"full": True} if full else {}), pid,
                                      light=light, **extra)
 
@@ -634,13 +634,13 @@ class Mecum:
         self.read(app, framework, "observe_unchanged", rep, pid, full=False)
 
     def act(self, app, framework, op, rep, spec, target, expect, rebind=None, light=False, **extra):
-        self.recorder.measure(self.client, "mecum", app, framework, op, rep, spec[0],
+        self.recorder.measure(self.client, "braus", app, framework, op, rep, spec[0],
                               dict(fill(spec[1], rep), session=self.session), target[0],
                               light=light, expect=expect, **extra)
         return self.recorder.last
 
     def after(self, *args, **kwargs):
-        """Mecum's action reply already carries the scene after it."""
+        """Braus's action reply already carries the scene after it."""
         return None
 
     def close(self):
@@ -652,7 +652,7 @@ def new_driver(name, recorder, log, scratch, phases):
         return Cua(recorder, log, name, scratch)
     knowledge = os.path.join(scratch, f"knowledge-{int(time.time() * 1000)}")
     os.makedirs(knowledge)
-    return Mecum(recorder, log, knowledge, PHASES_BIN if phases else None)
+    return Braus(recorder, log, knowledge, PHASES_BIN if phases else None)
 
 
 def oracle(op, entry):
@@ -662,7 +662,7 @@ def oracle(op, entry):
 
 
 def spec_for(driver, entry):
-    return entry[1] if driver.name == "mecum" else entry[2]
+    return entry[1] if driver.name == "braus" else entry[2]
 
 
 def chain_entries(scenario):
@@ -731,7 +731,7 @@ def chain_block(driver, app, scenario, target, options):
     if not driver.open(app, framework, 0, target, scenario):
         return
     for pause in options.pauses:
-        # A rest longer than Mecum's 2.5 s, so every group starts from a resting stream.
+        # A rest longer than Braus's 2.5 s, so every group starts from a resting stream.
         time.sleep(options.group_rest)
         for index in range(options.chain_steps):
             entry = entries[index % len(entries)]
@@ -813,7 +813,7 @@ def run_app(app, drivers, options, recorder, log, fixtures):
         try:
             driver = new_driver(name, recorder, log, options.scratch, options.phases)
             recorder.write(recorder.row(**driver.startup_row()))
-            options.extra_sessions = name == "mecum" and name not in seen
+            options.extra_sessions = name == "braus" and name not in seen
             seen.add(name)
             target = target_for(app, scenario, fixtures)
             {"ops": lambda: ops_block(driver, app, scenario, target, reps, options),
@@ -834,13 +834,13 @@ def run_app(app, drivers, options, recorder, log, fixtures):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--apps", default=",".join(s for s in SCENARIOS if s != "Photoshop"))
-    parser.add_argument("--drivers", default="mecum,cua,cua-overlay",
-                        help="mecum, cua, cua-overlay, cua-legacy (6 Oct action + full read), cua-fast")
+    parser.add_argument("--drivers", default="braus,cua,cua-overlay",
+                        help="braus, cua, cua-overlay, cua-legacy (6 Oct action + full read), cua-fast")
     parser.add_argument("--mode", choices=["ops", "chain", "soak"], default="ops")
     parser.add_argument("--reps", type=int, default=8, help="measured repetitions per driver, split over ABBA passes")
     parser.add_argument("--order", choices=["abba", "forward"], default="abba")
     parser.add_argument("--cooldown", type=float, default=15, help="seconds between blocks")
-    parser.add_argument("--sessions", type=int, default=3, help="extra Mecum open/close cycles per app")
+    parser.add_argument("--sessions", type=int, default=3, help="extra Braus open/close cycles per app")
     parser.add_argument("--idle-windows", type=int, default=3)
     parser.add_argument("--idle-seconds", type=float, default=10)
     parser.add_argument("--pauses", default="0,1,3,5", help="chain mode: seconds between steps")
@@ -849,14 +849,14 @@ def main():
     parser.add_argument("--soak-steps", type=int, default=200)
     parser.add_argument("--soak-every", type=int, default=10)
     parser.add_argument("--call-timeout", type=float, default=60, help="a call with no reply by then kills its driver")
-    parser.add_argument("--phases", action="store_true", help="Mecum from a MECUM_PHASES build, with signposts")
+    parser.add_argument("--phases", action="store_true", help="Braus from a BRAUS_PHASES build, with signposts")
     parser.add_argument("--out", required=True)
     parser.add_argument("--scratch", required=True)
     options = parser.parse_args()
     options.pauses = [float(p) for p in options.pauses.split(",")]
     apps, drivers = options.apps.split(","), options.drivers.split(",")
-    if options.phases and drivers != ["mecum"]:
-        sys.exit("--phases runs mecum alone: a phases build is slower and must never be mixed with timed drivers")
+    if options.phases and drivers != ["braus"]:
+        sys.exit("--phases runs braus alone: a phases build is slower and must never be mixed with timed drivers")
     if options.mode == "soak" and options.apps == parser.get_default("apps"):
         apps = ["TextEdit"]
     os.makedirs(options.scratch, exist_ok=True)
@@ -874,7 +874,7 @@ def main():
     log = open(os.path.join(options.scratch, "drivers-stderr.log"), "a")
     phase_log = None
     if options.phases:
-        phase_log = subprocess.Popen([sys.executable, PHASE_TABLE, "record", "--process", "mecum-mcp-stdio",
+        phase_log = subprocess.Popen([sys.executable, PHASE_TABLE, "record", "--process", "braus-mcp-stdio",
                                       options.out + ".signposts.ndjson"],
                                      stdout=open(options.out + ".phases.txt", "w"), stderr=log)
         time.sleep(2)

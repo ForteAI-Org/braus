@@ -1,6 +1,6 @@
 //
 //  RecallCycleTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -21,7 +21,7 @@ import Testing
 /// the tools (D2's producers, qualification and archive), the archive closed and opened again, a new request with
 /// other values whose `memory_task begin` searches the index and selects the export tract of the learned photo
 /// export without the search and the rotation already done, the operations carried out through the tools, and the
-/// calls linked to the delivered steps. Nothing is inserted by hand. With `MECUM_RECALL_MODELS` the hybrid channel runs
+/// calls linked to the delivered steps. Nothing is inserted by hand. With `BRAUS_RECALL_MODELS` the hybrid channel runs
 /// on the real local model too; without it that case is skipped, saying so. These are integration proofs, not a live
 /// run. The first learned procedure is recalled on an archive of one procedure (review F01): the review's request with the
 /// product's configuration, the original wording and paraphrases with the semantic model, the original wording found
@@ -34,7 +34,7 @@ struct RecallCycleTests {
     typealias P = ProcedureLearningTests
 
     nonisolated static var models: URL? {
-        ProcessInfo.processInfo.environment["MECUM_RECALL_MODELS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        ProcessInfo.processInfo.environment["BRAUS_RECALL_MODELS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
     /// A JSON number as an integer.
@@ -176,7 +176,7 @@ struct RecallCycleTests {
     }
 
     @Test("the hybrid channel on the real local model, tied with the chosen one: the same cycle",
-          .enabled(if: models != nil, "MECUM_RECALL_MODELS names no folder of the pinned models"))
+          .enabled(if: models != nil, "BRAUS_RECALL_MODELS names no folder of the pinned models"))
     func hybridExportCycle() async throws {
         try await Self.exportCycle(channel: .hybrid)
     }
@@ -212,7 +212,7 @@ struct RecallCycleTests {
     }
 
     @Test("the original wording and paraphrases of the first learned case, on the semantic model (Granite, hybrid at its frozen thresholds)",
-          .enabled(if: models != nil, "MECUM_RECALL_MODELS names no folder of the pinned models"),
+          .enabled(if: models != nil, "BRAUS_RECALL_MODELS names no folder of the pinned models"),
           arguments: ["Export the document already open and edited in Preview as a PNG file named foto_mail",
                       "Save the picture I just edited in Preview as a PNG called foto_mail",
                       "esporta l'immagine edited in PNG, name foto_mail"])
@@ -286,12 +286,12 @@ struct RecallCycleTests {
 }
 
 /// RecallScoresProbe prints the scores of the learned photo export's parts for a few texts. A diagnostic of the
-/// channels' scales, run with `MECUM_RECALL_PROBE=1`; it asserts nothing about relevance.
+/// channels' scales, run with `BRAUS_RECALL_PROBE=1`; it asserts nothing about relevance.
 @MainActor
 @Suite("Recall scores of a learned procedure, printed for diagnosis", .serialized)
 struct RecallScoresProbe {
 
-    @Test("scores per channel", .enabled(if: ProcessInfo.processInfo.environment["MECUM_RECALL_PROBE"] == "1", "MECUM_RECALL_PROBE=1 asks for it"))
+    @Test("scores per channel", .enabled(if: ProcessInfo.processInfo.environment["BRAUS_RECALL_PROBE"] == "1", "BRAUS_RECALL_PROBE=1 asks for it"))
     func scores() async throws {
         for channel in [RecallConfiguration.Channel.lexical, .semantic, .hybrid] where channel == .lexical || RecallCycleTests.models != nil {
             let session = ProcedureLearningTests.photoSession(try W.directory())

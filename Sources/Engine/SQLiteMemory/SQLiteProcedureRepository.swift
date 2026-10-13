@@ -1,6 +1,6 @@
 //
 //  SQLiteProcedureRepository.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -23,7 +23,7 @@ public struct SQLiteProcedureRepository: Sendable {
     private let store: SQLiteMemoryStore
 
     /// The author an occurrence's assignment to its attempt names: the segmentation, not an agent.
-    public static let segmentationAuthor = "mecum-segmentation"
+    public static let segmentationAuthor = "braus-segmentation"
 
     public init(store: SQLiteMemoryStore) {
         self.store = store

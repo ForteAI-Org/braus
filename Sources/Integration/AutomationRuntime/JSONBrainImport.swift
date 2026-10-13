@@ -1,6 +1,6 @@
 //
 //  JSONBrainImport.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 08/10/2026.
 //
@@ -19,7 +19,7 @@ import SQLiteMemory
 /// (`SQLiteBrainRepository.importAdmitted`); the report counts them.
 ///
 /// `MemoryService` runs it once, on the JSON files beside an archive its open has just created, and
-/// `mecum memory --import-json <dir>` runs it by hand on any directory. The JSON files of an earlier
+/// `braus memory --import-json <dir>` runs it by hand on any directory. The JSON files of an earlier
 /// origin (an MCP client's directory) are merged instead (`merge`), element by element, into the Brain
 /// the shared archive may already hold.
 nonisolated public enum JSONBrainImport {

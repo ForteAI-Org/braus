@@ -1,6 +1,6 @@
 //
 //  SeatSceneProvider.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 18/09/2026.
 //
@@ -10,7 +10,7 @@ import EngineCore
 import Foundation
 import Perception
 import PerceptionCore
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import PhaseSignposts
 #endif
 import SeatCapture
@@ -54,7 +54,7 @@ public struct SeatSceneProvider: SceneProviding {
     }
 
     public func currentScene(of processID: pid_t) async throws -> PerceivedWindow {
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let perception = PhaseInterval.begin("perception")
         defer { perception.end() }
         // Ended only when the kept scene is answered, so the table counts and times the reuses alone.
@@ -71,18 +71,18 @@ public struct SeatSceneProvider: SceneProviding {
         let observedWindow: AdoptedWindow
         var comparable: SeatFrame?
         if popups.isEmpty {
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             let windowStill = PhaseInterval.begin("capture.windowStill")
             #endif
             let still = try await target.windowStill()
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             windowStill.end()
             let conversion = PhaseInterval.begin("capture.makeCGImage")
             #endif
             guard still.geometry.isValid, let pixels = still.makeCGImage() else {
                 throw SeatDrivingFailure.frameUnusable
             }
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             conversion.end()
             #endif
             image = pixels
@@ -91,11 +91,11 @@ public struct SeatSceneProvider: SceneProviding {
             guard let captured = await target.lastCapturedWindow else { throw SeatDrivingFailure.frameUnusable }
             observedWindow = captured
         } else {
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             let displayStill = PhaseInterval.begin("capture.displayStill")
             #endif
             let still = try await target.displayStill()
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             displayStill.end()
             #endif
             guard still.geometry.isValid, let pixels = still.makeCGImage() else {
@@ -137,17 +137,17 @@ public struct SeatSceneProvider: SceneProviding {
         // ADR 0034: the same window and census over byte-identical pixels is the scene already read.
         if let comparable, let kept = await lastScene.kept, kept.window == window,
            kept.frame.showsSameContent(as: comparable) {
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             reusing.end()
             #endif
             await MainActor.run { target.lastSceneImage = image }
             return perceived(kept.capture)
         }
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let perceiving = PhaseInterval.begin("pipeline")
         #endif
         let capture = try await pipeline.capture(image, of: window)
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         perceiving.end()
         #endif
         await MainActor.run {

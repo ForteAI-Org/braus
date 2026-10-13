@@ -1,4 +1,4 @@
-# Mecum documentation
+# Braus documentation
 
 Start with the app setup below, or choose a guide:
 
@@ -11,16 +11,16 @@ Start with the app setup below, or choose a guide:
 
 ## Get started
 
-Mecum runs on macOS 15+ on Apple silicon and Intel.
+Braus runs on macOS 15+ on Apple silicon and Intel.
 
-1. Install and open `Mecum.app`.
+1. Install and open `Braus.app`.
 2. Create a worker and connect a supported model. If you use Codex or Claude Code, keep their CLIs up to date to access the latest models available to your account.
 3. Grant the [Mac access](#permissions-and-data) needed for the features you use.
 4. Give the worker a small task in a disposable document. Name the app, the intended result and where it should stop. Follow the activity and inspect the result.
 
 For a first task, ask the agent to read an open TextEdit test document and summarize it without editing or saving.
 
-To use an external assistant, keep Mecum open on the same Mac and follow the [MCP setup guide](MCPSetup.md). To build from source, follow the [developer Quickstart](../QUICKSTART.md).
+To use an external assistant, keep Braus open on the same Mac and follow the [MCP setup guide](MCPSetup.md). To build from source, follow the [developer Quickstart](../QUICKSTART.md).
 
 ## Brain
 
@@ -49,4 +49,4 @@ The desktop window-to-text pipeline runs on your Mac. A remote model can receive
 
 The local MCP bridge does not make model inference local. Choose the capabilities for each client and use [MCP access controls](MCPSetup.md#multiple-clients-and-stopping-access) to stop or revoke a connection.
 
-You can follow activity and stop a worker in Mecum. Stopping does not undo actions already delivered; inspect the app before continuing. Read [background work](LaunchCompatibility.md#background-work) for session limits.
+You can follow activity and stop a worker in Braus. Stopping does not undo actions already delivered; inspect the app before continuing. Read [background work](LaunchCompatibility.md#background-work) for session limits.

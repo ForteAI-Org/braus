@@ -361,9 +361,9 @@ passing trial is not a qualification.
 - **Chrome running with no window** (the reopen path of 3.1). The same
   assertions as the Chrome launch.
 
-### 4.5 Manual check in Mecum
+### 4.5 Manual check in Braus
 
-With Mecum built with the change, type in another application while a worker is
+With Braus built with the change, type in another application while a worker is
 asked to open Chrome. The person's application must come back to the front by
 itself, the worker must go on without a `waiting` sentence, and the run's line
 must show one `launch` episode, `restored`.

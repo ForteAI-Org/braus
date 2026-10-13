@@ -1,6 +1,6 @@
 //
 //  ActionEngine.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 18/09/2026.
 //
@@ -9,7 +9,7 @@ import CoreGraphics
 import EngineCore
 import Foundation
 import PerceptionCore
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import PhaseSignposts
 #endif
 
@@ -73,7 +73,7 @@ public struct ActionEngine: Sendable {
         self.dependencies = dependencies
         self.permissions  = permissions
         self.timing       = timing
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         self.pause = { duration in
             let phase = PhaseInterval.begin("pause")
             defer { phase.end() }

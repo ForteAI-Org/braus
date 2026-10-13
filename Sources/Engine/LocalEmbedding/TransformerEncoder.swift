@@ -1,6 +1,6 @@
 //
 //  TransformerEncoder.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -170,10 +170,10 @@ final class TransformerEncoder: @unchecked Sendable {
                         scores.withUnsafeMutableBufferPointer { scores in
                             for head in 0..<heads {
                                 let offset = head * d
-                                mecum_sgemm(false, true, Int32(n), Int32(n), Int32(d), scale, q.baseAddress! + offset, Int32(h),
+                                braus_sgemm(false, true, Int32(n), Int32(n), Int32(d), scale, q.baseAddress! + offset, Int32(h),
                                             k.baseAddress! + offset, Int32(h), 0, scores.baseAddress!, Int32(n))
                                 for row in 0..<n { Self.softmax(scores.baseAddress! + row * n, count: n) }
-                                mecum_sgemm(false, false, Int32(n), Int32(d), Int32(n), 1, scores.baseAddress!, Int32(n),
+                                braus_sgemm(false, false, Int32(n), Int32(d), Int32(n), 1, scores.baseAddress!, Int32(n),
                                             v.baseAddress! + offset, Int32(h), 0, context.baseAddress! + offset, Int32(h))
                             }
                         }
@@ -203,7 +203,7 @@ final class TransformerEncoder: @unchecked Sendable {
         weight.withPointer { weight in
             input.withUnsafeBufferPointer { input in
                 output.withUnsafeMutableBufferPointer { output in
-                    mecum_sgemm(false, true, Int32(n), Int32(outputs), Int32(inputs), 1, input.baseAddress!, Int32(inputs), weight,
+                    braus_sgemm(false, true, Int32(n), Int32(outputs), Int32(inputs), 1, input.baseAddress!, Int32(inputs), weight,
                                 Int32(inputs), 1, output.baseAddress!, Int32(outputs))
                 }
             }

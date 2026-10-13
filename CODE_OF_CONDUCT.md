@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Everyone participating in Mecum, including maintainers, must treat others with
+Everyone participating in Braus, including maintainers, must treat others with
 respect. This applies in project-managed spaces and when representing the project.
 
 - Critique ideas and implementations; explain disagreements constructively.

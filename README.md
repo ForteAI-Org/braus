@@ -1,20 +1,20 @@
 <h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="readme-assets/mecum-wordmark-dark.svg" />
-    <source media="(prefers-color-scheme: light)" srcset="readme-assets/mecum-wordmark-light.svg" />
-    <img src="readme-assets/mecum-wordmark-light.svg" alt="Mecum" width="320" height="51" />
+    <source media="(prefers-color-scheme: dark)" srcset="readme-assets/braus-wordmark-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="readme-assets/braus-wordmark-light.svg" />
+    <img src="readme-assets/braus-wordmark-light.svg" alt="Braus" width="320" height="51" />
   </picture>
 </h1>
 
 <p align="center"><strong>Let agents work in your apps while you keep using your Mac.</strong></p>
 
-<p align="center">Mecum gives agents a desktop workspace on your Mac. Give a worker a task in the Mecum app, or connect Claude Code or Codex through MCP to work in desktop apps, even when they expose neither an API nor an AX tree.</p>
+<p align="center">Braus gives agents a desktop workspace on your Mac. Give a worker a task in the Braus app, or connect Claude Code or Codex through MCP to work in desktop apps, even when they expose neither an API nor an AX tree.</p>
 
 <p align="center">
   <img src="readme-assets/badge-download.svg" alt="Download for macOS" width="213" height="30" />
   <a href="Documentation/README.md"><img src="readme-assets/badge-docs.svg" alt="Docs" width="94" height="30" /></a>
   <a href="https://discord.gg/SBqrAN9wDg"><img src="readme-assets/badge-discord.svg" alt="Discord" width="125" height="30" /></a>
-  <a href="https://x.com/wearemecum"><img src="readme-assets/badge-x.svg" alt="Follow Mecum on X" width="158" height="30" /></a>
+  <a href="https://x.com/wearebraus"><img src="readme-assets/badge-x.svg" alt="Follow Braus on X" width="158" height="30" /></a>
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@
   <a href="Package.swift"><img src="readme-assets/badge-swift.svg" alt="Swift 6.4" width="116" height="30" /></a>
 </p>
 
-## See Mecum in action
+## See Braus in action
 
 <div align="center">
 
@@ -32,9 +32,9 @@ https://github.com/user-attachments/assets/83ced839-9b8d-47fe-8e27-f64f53a0d1f7
 
 ## Get started
 
-Mecum runs on **macOS 15+**, on **Apple silicon and Intel**. Follow the [installation guide](Documentation/README.md#get-started) to get set up.
+Braus runs on **macOS 15+**, on **Apple silicon and Intel**. Follow the [installation guide](Documentation/README.md#get-started) to get set up.
 
-1. Install and open Mecum.
+1. Install and open Braus.
 2. Create a worker, connect a supported model and grant the Mac access needed for desktop work.
 3. Start with a small task in a disposable document. Name the app, the result you want and where the agent should stop.
 4. Follow the activity and inspect the result in the app.
@@ -50,33 +50,33 @@ To build from source with **Swift 6.4**, follow the [developer Quickstart](QUICK
 
 <br>
 
-Mecum and your client must run on the same Mac. The app includes the STDIO bridge; no Node.js or Python installation is needed.
+Braus and your client must run on the same Mac. The app includes the STDIO bridge; no Node.js or Python installation is needed.
 
-1. Keep Mecum open. In **MCP → MCP Connections…**, name your client, choose its capabilities and click **Add Client**.
+1. Keep Braus open. In **MCP → MCP Connections…**, name your client, choose its capabilities and click **Add Client**.
 2. Turn **Enabled** on and wait for **Ready**.
 3. Expand **Client configuration** and use **Copy Claude Code command**, **Copy Codex command** or **Copy JSON**. Prefer these generated values over the templates below.
 
 **Claude Code**
 
 ```sh
-claude mcp add --scope user --transport stdio mecum -- \
-  "/Applications/Mecum.app/Contents/Helpers/mecum-bridge" \
+claude mcp add --scope user --transport stdio braus -- \
+  "/Applications/Braus.app/Contents/Helpers/braus-bridge" \
   mcp-bridge --connection \
-  "/Users/YOUR_USERNAME/Library/Application Support/Mecum/MCP/CLIENT_UUID.connection.json"
+  "/Users/YOUR_USERNAME/Library/Application Support/Braus/MCP/CLIENT_UUID.connection.json"
 ```
 
 **Codex**
 
 ```sh
-codex mcp add mecum -- \
-  "/Applications/Mecum.app/Contents/Helpers/mecum-bridge" \
+codex mcp add braus -- \
+  "/Applications/Braus.app/Contents/Helpers/braus-bridge" \
   mcp-bridge --connection \
-  "/Users/YOUR_USERNAME/Library/Application Support/Mecum/MCP/CLIENT_UUID.connection.json"
+  "/Users/YOUR_USERNAME/Library/Application Support/Braus/MCP/CLIENT_UUID.connection.json"
 ```
 
-These are templates. Replace `YOUR_USERNAME` and `CLIENT_UUID` with the values from Mecum, and use the generated helper path if the app is elsewhere. Keep paths quoted. Save configurations in personal settings.
+These are templates. Replace `YOUR_USERNAME` and `CLIENT_UUID` with the values from Braus, and use the generated helper path if the app is elsewhere. Keep paths quoted. Save configurations in personal settings.
 
-Check registration with `claude mcp get mecum` or `codex mcp list`. Start a new client session and use `/mcp` to inspect the live connection, then run the [read-only connection check](Documentation/MCPSetup.md#test-the-connection).
+Check registration with `claude mcp get braus` or `codex mcp list`. Start a new client session and use `/mcp` to inspect the live connection, then run the [read-only connection check](Documentation/MCPSetup.md#test-the-connection).
 
 Each connection entry accepts one active client. Create separate entries for independently running clients. Never share the contents of `*.connection.json`.
 
@@ -101,13 +101,13 @@ Read the [compatibility and limitations guide](Documentation/LaunchCompatibility
 
 Driver, Perception and Engine are [Swift package libraries](Package.swift) you can use in your own macOS apps.
 
-Mecum checks what changed after each action. You can follow the activity, review the result and stop the worker from the app.
+Braus checks what changed after each action. You can follow the activity, review the result and stop the worker from the app.
 
 The desktop window-to-text pipeline runs locally. A remote model can receive window text, task context and relevant app knowledge. Read [Permissions & data](Documentation/README.md#permissions-and-data).
 
 ## Benchmarks
 
-Mecum's full-scene responses used **85–97% fewer estimated tokens** than Cua's screenshot + AX tree responses.
+Braus's full-scene responses used **85–97% fewer estimated tokens** than Cua's screenshot + AX tree responses.
 
 ### Driver comparison
 
@@ -115,7 +115,7 @@ Mecum's full-scene responses used **85–97% fewer estimated tokens** than Cua's
 
 <table border="1" cellspacing="0" cellpadding="8">
   <thead>
-    <tr><th scope="col" align="left">Application / framework</th><th scope="col">Mecum support</th><th scope="col">Cua support</th><th scope="col">Mecum step (ms)</th><th scope="col">Cua step (ms)</th></tr>
+    <tr><th scope="col" align="left">Application / framework</th><th scope="col">Braus support</th><th scope="col">Cua support</th><th scope="col">Braus step (ms)</th><th scope="col">Cua step (ms)</th></tr>
   </thead>
   <tbody>
     <tr><th scope="row" align="left">TextEdit (AppKit)</th><td>Partial</td><td>Supported</td><td>1,069</td><td>1,489</td></tr>
@@ -138,7 +138,7 @@ Estimated tokens in the tool response, rather than total tokens for a task with 
 
 <table border="1" cellspacing="0" cellpadding="8">
   <thead>
-    <tr><th scope="col" align="left">Application / framework</th><th scope="col">Mecum full read</th><th scope="col">Mecum unchanged</th><th scope="col">Cua full read</th></tr>
+    <tr><th scope="col" align="left">Application / framework</th><th scope="col">Braus full read</th><th scope="col">Braus unchanged</th><th scope="col">Cua full read</th></tr>
   </thead>
   <tbody>
     <tr><th scope="row" align="left">TextEdit (AppKit)</th><td><img src="readme-assets/benchmark-values/value-385.svg" alt="385" width="26" height="20" /></td><td><img src="readme-assets/benchmark-values/value-100.svg" alt="100" width="26" height="20" /></td><td>6,185</td></tr>
@@ -152,9 +152,9 @@ Estimated tokens in the tool response, rather than total tokens for a task with 
   </tbody>
 </table>
 
-**Full read:** the complete view, as structured text for Mecum or screenshot + AX tree for Cua.
+**Full read:** the complete view, as structured text for Braus or screenshot + AX tree for Cua.
 
-**Unchanged:** no changes since the previous step. Mecum sends a short confirmation; Cua sends the full view again.
+**Unchanged:** no changes since the previous step. Braus sends a short confirmation; Cua sends the full view again.
 
 Test hardware: MacBook Pro with M4 (base model), 16 GB RAM, macOS 27.0.1 (26A434).
 

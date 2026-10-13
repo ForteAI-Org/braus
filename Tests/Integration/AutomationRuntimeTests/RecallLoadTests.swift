@@ -1,6 +1,6 @@
 //
 //  RecallLoadTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 12/10/2026.
 //
@@ -18,10 +18,10 @@ import Synchronization
 import Testing
 
 /// RecallLoadTests measure the Recall on a catalogue grown in stages to hundreds of thousands of queryable parts, gated
-/// by `MECUM_RECALL_SCALE=load:N1,N2,…` (procedures at each stage) and written to `MECUM_RECALL_EVAL_OUT`. The load is
+/// by `BRAUS_RECALL_SCALE=load:N1,N2,…` (procedures at each stage) and written to `BRAUS_RECALL_EVAL_OUT`. The load is
 /// generated and learned through the real producers (the tools over the session double: D1's facts, D2's candidates,
 /// interpretations, qualification and states), each procedure with its own words so its documents and vectors are its
-/// own; it is load data, never quality data. `MECUM_RECALL_LOAD_CONFIG` names the configuration measured
+/// own; it is load data, never quality data. `BRAUS_RECALL_LOAD_CONFIG` names the configuration measured
 /// (`lexical:uniform`, `hybrid:granite-107m:uniform:0.2`, …), the product's when absent.
 ///
 /// At each stage: the entities (procedures, versions, parts, offered entries, documents, vectors, part states and
@@ -43,40 +43,40 @@ struct RecallLoadTests {
         return value.dropFirst(5).split(separator: ",").compactMap { Int($0) }
     }
 
-    /// An archive a staged load left, measured again without learning it (`MECUM_RECALL_SCALE=reuse`).
+    /// An archive a staged load left, measured again without learning it (`BRAUS_RECALL_SCALE=reuse`).
     nonisolated static var reused: URL? {
-        guard G.scale == "reuse", let path = G.environment["MECUM_RECALL_LOAD_ARCHIVE"] else { return nil }
+        guard G.scale == "reuse", let path = G.environment["BRAUS_RECALL_LOAD_ARCHIVE"] else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)
     }
 
-    /// The arms and rounds of the refresh comparison (`MECUM_RECALL_SCALE=refresh:whole|changed:R[:scan|tracked]`): how the
+    /// The arms and rounds of the refresh comparison (`BRAUS_RECALL_SCALE=refresh:whole|changed:R[:scan|tracked]`): how the
     /// index in memory follows a moved revision, and how the worker finds documents without a vector.
     nonisolated static var refresh: (incremental: Bool, rounds: Int, tracked: Bool)? {
-        guard let value = G.scale, value.hasPrefix("refresh:"), G.environment["MECUM_RECALL_LOAD_ARCHIVE"] != nil else { return nil }
+        guard let value = G.scale, value.hasPrefix("refresh:"), G.environment["BRAUS_RECALL_LOAD_ARCHIVE"] != nil else { return nil }
         let parts = value.split(separator: ":").map(String.init)
         guard parts.count >= 3, ["whole", "changed"].contains(parts[1]), let rounds = Int(parts[2]) else { return nil }
         let tracked = parts.count < 4 || parts[3] == "tracked"
         return (parts[1] == "changed", rounds, tracked)
     }
 
-    /// The rounds of the isolated contention (`MECUM_RECALL_SCALE=contention:R`): another producer learning with the index
+    /// The rounds of the isolated contention (`BRAUS_RECALL_SCALE=contention:R`): another producer learning with the index
     /// worker held or working, alternated paused, active, active, paused, and so on.
     nonisolated static var contention: Int? {
-        guard let value = G.scale, value.hasPrefix("contention:"), G.environment["MECUM_RECALL_LOAD_ARCHIVE"] != nil else { return nil }
+        guard let value = G.scale, value.hasPrefix("contention:"), G.environment["BRAUS_RECALL_LOAD_ARCHIVE"] != nil else { return nil }
         return Int(value.dropFirst("contention:".count))
     }
 
-    /// The procedures of each arm of the ablation (`MECUM_RECALL_SCALE=ablation:N`).
+    /// The procedures of each arm of the ablation (`BRAUS_RECALL_SCALE=ablation:N`).
     nonisolated static var ablation: Int? {
         guard let value = G.scale, value.hasPrefix("ablation:") else { return nil }
         return Int(value.dropFirst(9))
     }
 
-    /// The configuration measured: the product's, or the one `MECUM_RECALL_LOAD_CONFIG` names.
+    /// The configuration measured: the product's, or the one `BRAUS_RECALL_LOAD_CONFIG` names.
     static func configuration() -> RecallConfiguration {
         var configuration = RecallConfiguration.chosen
         configuration.modelsDirectory = RecallCycleTests.models
-        guard let word = G.environment["MECUM_RECALL_LOAD_CONFIG"] else { return configuration }
+        guard let word = G.environment["BRAUS_RECALL_LOAD_CONFIG"] else { return configuration }
         let parts = word.split(separator: ":").map(String.init)
         configuration.channel = RecallConfiguration.Channel(rawValue: parts[0]) ?? .lexical
         switch configuration.channel {
@@ -348,7 +348,7 @@ struct RecallLoadTests {
     }
 
     @Test("an archive a staged load left, measured again without learning it: searches, filters, concurrency, reopening, rebuild",
-          .enabled(if: reused != nil, "MECUM_RECALL_SCALE=reuse and MECUM_RECALL_LOAD_ARCHIVE ask for it"))
+          .enabled(if: reused != nil, "BRAUS_RECALL_SCALE=reuse and BRAUS_RECALL_LOAD_ARCHIVE ask for it"))
     func reuse() async throws {
         let directory = try #require(Self.reused)
         let memory = MemoryService.shared(for: directory)
@@ -388,10 +388,10 @@ struct RecallLoadTests {
     }
 
     @Test("the index worker's contention apart from another producer's, on a copy of the staged load: act calls while a producer learns, the worker held or working, in alternated rounds",
-          .enabled(if: contention != nil, "MECUM_RECALL_SCALE=contention:R and MECUM_RECALL_LOAD_ARCHIVE ask for it"))
+          .enabled(if: contention != nil, "BRAUS_RECALL_SCALE=contention:R and BRAUS_RECALL_LOAD_ARCHIVE ask for it"))
     func isolatedContention() async throws {
         let rounds = try #require(Self.contention)
-        let original = URL(fileURLWithPath: try #require(G.environment["MECUM_RECALL_LOAD_ARCHIVE"]), isDirectory: true)
+        let original = URL(fileURLWithPath: try #require(G.environment["BRAUS_RECALL_LOAD_ARCHIVE"]), isDirectory: true)
         let directory = try Self.copy(of: original)
         // Named at once, so the runner removes this run's copy even when the run stops before its report.
         print("RECALL-LOAD contention copy: \(directory.path)")
@@ -464,10 +464,10 @@ struct RecallLoadTests {
     }
 
     @Test("keeping the index in memory current, by its whole or by what changed, on a copy of the staged load: searches while another producer learns, the refreshes, and act calls while the index works and while it is idle",
-          .enabled(if: refresh != nil, "MECUM_RECALL_SCALE=refresh:whole|changed:R and MECUM_RECALL_LOAD_ARCHIVE ask for it"))
+          .enabled(if: refresh != nil, "BRAUS_RECALL_SCALE=refresh:whole|changed:R and BRAUS_RECALL_LOAD_ARCHIVE ask for it"))
     func refreshComparison() async throws {
         let (incremental, rounds, tracked) = try #require(Self.refresh)
-        let original = URL(fileURLWithPath: try #require(G.environment["MECUM_RECALL_LOAD_ARCHIVE"]), isDirectory: true)
+        let original = URL(fileURLWithPath: try #require(G.environment["BRAUS_RECALL_LOAD_ARCHIVE"]), isDirectory: true)
         let directory = try Self.copy(of: original)
         let memory = MemoryService.shared(for: directory)
         let configuration = Self.configuration()
@@ -554,7 +554,7 @@ struct RecallLoadTests {
     }
 
     @Test("the index's cost on learning: the same procedures learned with no index, with the lexical owner and with the semantic owner",
-          .enabled(if: ablation != nil, "MECUM_RECALL_SCALE=ablation:N asks for it"))
+          .enabled(if: ablation != nil, "BRAUS_RECALL_SCALE=ablation:N asks for it"))
     func indexAblation() async throws {
         let count = try #require(Self.ablation)
         var report: [String: Any] = ["hardware": G.hardware(), "procedures per arm": count]
@@ -595,7 +595,7 @@ struct RecallLoadTests {
     }
 
     @Test("a staged load learned through the producers: entities, bytes, learning, index, searches, filters, concurrency, reopening, rebuild",
-          .enabled(if: stages != nil, "MECUM_RECALL_SCALE=load:N1,N2,… asks for it"))
+          .enabled(if: stages != nil, "BRAUS_RECALL_SCALE=load:N1,N2,… asks for it"))
     func load() async throws {
         let stages = try #require(Self.stages)
         let directory = try W.directory()

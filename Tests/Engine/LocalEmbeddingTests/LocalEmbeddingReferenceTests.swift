@@ -1,6 +1,6 @@
 //
 //  LocalEmbeddingReferenceTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -14,7 +14,7 @@ import Testing
 /// same pinned files: the ids of `transformers`' XLM-RoBERTa tokenizer, token for token, and each model's normalized embedding of the
 /// same texts as query and as document, with the pooling and prefixes of its card. The reference comes from
 /// `Tools/Engine/Scripts/recall-embedding-reference.py` (torch 2.14.0, transformers 5.17.0, tokenizers 0.23.2,
-/// float32). The model files are read from `MECUM_RECALL_MODELS`, a folder holding one directory per pinned
+/// float32). The model files are read from `BRAUS_RECALL_MODELS`, a folder holding one directory per pinned
 /// model; without it the suites are skipped and say why. These are checks of the runtime, not of retrieval.
 @Suite("The local embedding runtime reproduces the reference tokenizer and models")
 struct LocalEmbeddingReferenceTests {
@@ -37,7 +37,7 @@ struct LocalEmbeddingReferenceTests {
     }()
 
     static var modelsDirectory: URL? {
-        ProcessInfo.processInfo.environment["MECUM_RECALL_MODELS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        ProcessInfo.processInfo.environment["BRAUS_RECALL_MODELS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
     static let hasModels = modelsDirectory != nil
@@ -64,7 +64,7 @@ struct LocalEmbeddingReferenceTests {
     }
 
     @Test("token ids equal transformers' tokenizer's, for every text and both models",
-          .enabled(if: hasModels, "MECUM_RECALL_MODELS names no folder of the pinned models"),
+          .enabled(if: hasModels, "BRAUS_RECALL_MODELS names no folder of the pinned models"),
           arguments: [0, 1])
     func tokens(_ index: Int) throws {
         let reference = try #require(Self.reference)
@@ -77,7 +77,7 @@ struct LocalEmbeddingReferenceTests {
     }
 
     @Test("embeddings match the reference as query and as document, cosine above 0.99999",
-          .enabled(if: hasModels, "MECUM_RECALL_MODELS names no folder of the pinned models"),
+          .enabled(if: hasModels, "BRAUS_RECALL_MODELS names no folder of the pinned models"),
           arguments: [0, 1])
     func vectors(_ index: Int) throws {
         let reference = try #require(Self.reference)
@@ -96,7 +96,7 @@ struct LocalEmbeddingReferenceTests {
     }
 
     @Test("a file that is not the pinned one is refused, and a missing one is said missing",
-          .enabled(if: hasModels, "MECUM_RECALL_MODELS names no folder of the pinned models"))
+          .enabled(if: hasModels, "BRAUS_RECALL_MODELS names no folder of the pinned models"))
     func refusals() throws {
         let source = try #require(Self.modelsDirectory).appendingPathComponent(EmbeddingModelManifest.multilingualE5Small.directoryName)
         let copy = FileManager.default.temporaryDirectory.appendingPathComponent("recall-model-\(UUID().uuidString)")

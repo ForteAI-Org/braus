@@ -1,6 +1,6 @@
 //
 //  RecallService.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -227,7 +227,7 @@ public actor RecallService {
     /// A test's seam that makes the index read fail, for the package's tests only.
     private var indexFault: (any Error)?
 
-    private static let log = Logger(subsystem: "dev.forte.Mecum", category: "Recall")
+    private static let log = Logger(subsystem: "dev.forte.Braus", category: "Recall")
 
     /// The most versions one need's search reads from the authoritative tables.
     static let versionLimit = 12

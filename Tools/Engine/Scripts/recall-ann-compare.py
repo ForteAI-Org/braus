@@ -1,8 +1,8 @@
 """Compares an approximate nearest-neighbour index (usearch HNSW) with the exact search on the same vectors.
 
-Evaluation only, never a dependency of Mecum: run it with the temporary evaluation environment described in
+Evaluation only, never a dependency of Braus: run it with the temporary evaluation environment described in
 Documentation/Engine/MemoryRecall.md (usearch 2.26.4, numpy), on the float32 files `RecallScaleTests` writes with
-MECUM_RECALL_EXPORT=1. The exact search is the inner product over every vector, which is what the Recall runs;
+BRAUS_RECALL_EXPORT=1. The exact search is the inner product over every vector, which is what the Recall runs;
 the loss measured is the index's alone, since both read the same vectors.
 
 Usage: python3 -I recall-ann-compare.py <vectors.f32> <queries.f32> <out.json> [dimensions]

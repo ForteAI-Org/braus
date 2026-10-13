@@ -1,12 +1,12 @@
 # Compatibility and limitations
 
-Mecum runs on macOS 15+ on Apple silicon and Intel. Supported frameworks are
+Braus runs on macOS 15+ on Apple silicon and Intel. Supported frameworks are
 AppKit, Chromium, Electron and Qt. UXP support is in development (Adobe apps).
 Flutter is an area for contributions, not a claim of launch support.
 
 ## Check the workflow you need
 
-Record the Mecum version and source revision, macOS version and build, Mac model,
+Record the Braus version and source revision, macOS version and build, Mac model,
 application version, starting window state, requested actions and observed result.
 Separate a complete result from a partial result, a refusal and an uncertain effect.
 

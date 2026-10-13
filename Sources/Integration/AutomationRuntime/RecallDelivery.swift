@@ -1,6 +1,6 @@
 //
 //  RecallDelivery.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -196,7 +196,7 @@ nonisolated public struct RecallProposalDelivery: Encodable, Sendable {
         alternatives and the question for the person in uncovered; when the person's words do settle it, quote in settled_by \
         only the words that state the choice. Leave out what the person did not ask or what is already done; choose nothing \
         when no source fits. Steps \
-        keep their source's numbers and are never merged. Mecum checks the choice and delivers the details.
+        keep their source's numbers and are never merged. Braus checks the choice and delivers the details.
         """
 }
 

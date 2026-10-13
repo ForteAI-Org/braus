@@ -1,6 +1,6 @@
 //
 //  SettlingTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 07/10/2026.
 //
@@ -122,14 +122,14 @@ struct SettlingTests {
         let scenes   = ScriptedScenes([scene([field(value: "")])])
         let actuator = RecordingActuator()
         let controls = FakeControls()
-        controls.focused = "Mecum"
+        controls.focused = "Braus"
         let settling = RecordingSettling()
         let pauses   = Pauses()
         let outcome = await engine(
             scenes: scenes, actuator: actuator, controls: controls, settling: settling, pauses: pauses
         ).deliver(InputRequest(
             processID: pid, bundleID: "com.x", appName: "X",
-            input: .typeText("Mecum", into: "Project Name", replacing: true)
+            input: .typeText("Braus", into: "Project Name", replacing: true)
         ))
 
         #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))

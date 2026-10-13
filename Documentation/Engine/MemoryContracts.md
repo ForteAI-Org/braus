@@ -23,7 +23,7 @@ indexes), followed by `brain-living-memory-schema-2.sql`, `-3.sql`, `-4.sql` and
 that exact shape; an archive at exactly schema 1, 2, 3 or 4 is migrated by a producer's open after a verified copy
 ([MemoryFacts](MemoryFacts.md#schema-2-and-its-migration),
 [MemoryProcedures](MemoryProcedures.md#schema-5-and-its-migration)). Old JSON knowledge is never read at run time. Its Brains are imported once, when an open creates the
-archive beside them, before anything is learned into it; `mecum memory --import-json <dir>` imports any other
+archive beside them, before anything is learned into it; `braus memory --import-json <dir>` imports any other
 directory by hand. Both go through `JSONBrainImport` and fill only Brains the archive does not hold.
 
 ## Entry points
@@ -33,7 +33,7 @@ service per Knowledge directory, `MemoryService`, and since D1 they all use the 
 (`KnowledgeLocation`) (`Sources/Integration/AutomationRuntime/MemoryService.swift`):
 one `memory.sqlite` under the directory, opened on first use, shared by every caller of the process through
 `MemoryService.shared(for:)`, never closed by a session; the process closes it once at its end, the app at quit
-and `mecum` after its command, within one bounded close ([Closing](MemorySchema.md#closing)). The repositories are protocols of the `Memory`
+and `braus` after its command, within one bounded close ([Closing](MemorySchema.md#closing)). The repositories are protocols of the `Memory`
 module (`Sources/Engine/Memory/Storage`), all implemented over SQLite by `SQLiteMemoryStore` and the
 `SQLite*Repository` types:
 
@@ -75,9 +75,9 @@ elements, arcs and evidence it is given; nothing in production calls its writers
 
 Every row below is written through `MemoryService`'s queue by a `CallRecorder`. Its producers: the app's
 workers (`TeamModel`, source `app`, stream `worker-<id>`, the message as the trace), the app's external MCP
-clients (`ExternalMCPSession`, source `mcp`, stream `mcp-<profile>`, no trace), `mecum chat` (`ChatCommand`,
+clients (`ExternalMCPSession`, source `mcp`, stream `mcp-<profile>`, no trace), `braus chat` (`ChatCommand`,
 source `cli`, stream `chat-<conversation>`, the conversation as the trace), and the command line's `scene`
-and `act` (source `cli`, stream `mecum-<pid>`, one trace per process). Since D1 every producer of the user
+and `act` (source `cli`, stream `braus-<pid>`, one trace per process). Since D1 every producer of the user
 writes into the one Knowledge directory: what a client learns the workers read and the other way round, each
 call keeping its source and stream, each task private to its producer; the clients' earlier
 `MCP/Knowledge/<profile>` archives are unified into it once ([MemoryFacts](MemoryFacts.md#one-archive-per-user)).
@@ -87,8 +87,8 @@ call keeping its source and stream, each task private to its producer; the clien
 | `AutomationTools`, for every call it can represent, through `CallRecorder.begin`, `end`, `begin(batch:)`, `startStep`, `skip` | `AgentCallStoring.record`, `record(batch:steps:)`, `advance` | `memory_events` (kind `action`), `memory_agent_actions`, `memory_operation_arguments`, `memory_agent_action_effect_labels` and the five result tables (`status`, listings, applications, windows, observations) | tests (`MemoryService.call`, `calls(inTrace:)`); no screen or command shows them |
 | `CallRecorder`, as the engine's observer and the session's observation | `CaptureStoring.record(sample)` for the `current`, `before`, `menu` and `after` samples; `record(event)` for the event of a call that wrote none (the command line, a session's own call) and for a session's own observation, with `origin_event_id` | `memory_event_observations`; `memory_events` (kinds `action` and `observation`); `brain_apps`, `brain_app_contexts` | tests |
 | `CallRecorder` | `SceneStoring.associate` for every sample but `menu` | `brain_scenes`, `brain_scene_elements`, `brain_scene_roles`, `brain_scene_labels`, `memory_event_scenes` | structure-v3 inside the next association; tests |
-| `CallRecorder` | `BrainApplicationStoring.apply`, once per observed sample and once per action with an effect | `brain_applications` with its arguments, the projection (`brain_app_window_epochs`, `brain_anchors` and its aliases and states, `brain_groups` and members, `brain_transitions` and menu items), `brain_evidence` | `BrainMemory.expectedEffect` and `.enrich` (`BrainReading`) during the next calls; the app's Brain page (`BrainLibrary`, through `overview()` and `brain(of:)`); `mecum memory <app>` |
-| `MemoryService`, once, when its open created the archive beside JSON Brains; `mecum memory --import-json <dir>` by hand (`JSONBrainImport`) | `SQLiteBrainRepository.importAdmitted` (credential shapes withheld first) | the projection tables only: no application, no evidence | the same readers |
+| `CallRecorder` | `BrainApplicationStoring.apply`, once per observed sample and once per action with an effect | `brain_applications` with its arguments, the projection (`brain_app_window_epochs`, `brain_anchors` and its aliases and states, `brain_groups` and members, `brain_transitions` and menu items), `brain_evidence` | `BrainMemory.expectedEffect` and `.enrich` (`BrainReading`) during the next calls; the app's Brain page (`BrainLibrary`, through `overview()` and `brain(of:)`); `braus memory <app>` |
+| `MemoryService`, once, when its open created the archive beside JSON Brains; `braus memory --import-json <dir>` by hand (`JSONBrainImport`) | `SQLiteBrainRepository.importAdmitted` (credential shapes withheld first) | the projection tables only: no application, no evidence | the same readers |
 | `MemoryService`'s unification, for an earlier client directory's JSON Brains (`JSONBrainImport.merge`) | `SQLiteBrainRepository.merge` (`BrainMerge`) | the projection tables, by identity, with no evidence; `memory_origin_brain_contributions` | the same readers; [MemoryFacts](MemoryFacts.md#one-archive-per-user) |
 
 Since D1 production also writes the call verifications (scope `call`), the task occurrences as attempts with
@@ -102,12 +102,12 @@ The first open of a directory creates `memory.sqlite` at schema 1 and, in the sa
 the queue runs, imports the Brains of the JSON files the earlier build kept there (`FileKnowledge`, one per
 application); `status().lastImport` and the Brain page say what came in. The files are left where they are,
 unchanged, and never read at run time. Only an open that created the archive where none was imports: not an
-archive that already existed, and not one a recovery left empty. `mecum memory --import-json <dir>` does the
+archive that already existed, and not one a recovery left empty. `braus memory --import-json <dir>` does the
 same by hand for any directory. Both read every application file, skip `allowlist`, quarantined files and the
 copies under `.backup`, and import a Brain only for an application with no anchor, group or transition in the
 archive.
 An imported Brain has no `brain_applications` and no evidence rows: its counts are the file's, and its rows
-are stamped at the Brain's own last instant. No source imports `FileKnowledge` any more (the `MecumEngine`
+are stamped at the Brain's own last instant. No source imports `FileKnowledge` any more (the `BrausEngine`
 library still vends it). A file of schema 1 bootstrapped by an earlier development form, `memory-model`'s
 included, is refused untouched, never migrated: see [The resource](MemorySchema.md#the-resource).
 
@@ -198,7 +198,7 @@ included, is refused untouched, never migrated: see [The resource](MemorySchema.
   holds the archive. A recovery that stopped half way is completed from its record or refused with every file
   kept; no open makes an empty archive in its place. See [Copies and recovery](MemorySchema.md#copies-and-recovery) and
   [The presence lock](MemorySchema.md#the-presence-lock).
-- **Diagnosis.** `mecum memory --status` reads the file in one read transaction under the presence lock and
+- **Diagnosis.** `braus memory --status` reads the file in one read transaction under the presence lock and
   changes nothing of it; it cannot see another process's write counters. See
   [Diagnosis](MemorySchema.md#diagnosis).
 
@@ -263,7 +263,7 @@ Readers never write: a read leaves the ledger and the commit count unchanged.
   [Recovery](MemorySchema.md#copies-and-recovery).
 - The 2.17 GB corpus measured on `memory-model` is agent calls with their samples over synthetic applications,
   not Watcher events; nothing here promises the volume of a continuous Watcher.
-- The Watcher (`InteractionListener`, `mecum watch`) is not connected to the memory.
+- The Watcher (`InteractionListener`, `braus watch`) is not connected to the memory.
 
 ## Merge into main
 
@@ -279,7 +279,7 @@ transplant, not merge: the data layer was cherry-picked and the wiring written a
 | The schema check | `1a3e22b` | an archive opens only at the exact shape of the shipped DDL (`differentShape`) |
 | The engine's reports | `1c4a537` | `ActionRecord` and `InputRecord` carry the perceptions the engine used (`InputTrail`) |
 | The MCP lifecycle test | `2c186af` | `memory-model`'s test, on main's guards |
-| The wiring | `0f31c0f` | `MemoryService` per directory with an ordered queue, `CallRecorder`, `ActionContext`, `CallProducer`; the tools, the app, the chat and the command line; the Brain page and `mecum memory` reading SQLite; `--import-json` |
+| The wiring | `0f31c0f` | `MemoryService` per directory with an ordered queue, `CallRecorder`, `ActionContext`, `CallProducer`; the tools, the app, the chat and the command line; the Brain page and `braus memory` reading SQLite; `--import-json` |
 | Copies | `52523ae` | a daily verified copy and the recovery of a corrupt archive |
 
 Adapted rather than carried: the producers write through one queue no action waits for, where `memory-model`
@@ -292,7 +292,7 @@ record events, samples and Brain learning without call rows; terminal chat recor
 
 Stayed on `memory-model`: its shared agent turn (`AgentTurn`, `AgentTurnHost`, `ModelToolLoop`) and the chat
 through the broker (`ChatHost`); the command line's recorded calls and stops (`CLICall`, `StepRunner`,
-`VerticalInvocation`) and its `mecum memory` diagnosis (`status`, `traces`, `trace`, `event`,
+`VerticalInvocation`) and its `braus memory` diagnosis (`status`, `traces`, `trace`, `event`,
 `MemoryDiagnosis`); the reader's open in the service (`MemoryService.openForReading`, `MemoryReading`,
 `BrainCatalog`); the finalization scopes and their trace (`MemoryFinalizationScope`, `FinalizationTrace`); the
 shared decoder `ToolRequestDecoder` and its schema changes; and the test suites of that wiring
@@ -327,7 +327,7 @@ either writes its own.
 - The indexes measured on copies on `memory-model` (`brain_evidence(app_id)`, `memory_events(origin_event_id)`)
   are left to later work on performance: schema 1 is unchanged for them. A trace page can read every event
   below its cursor.
-- Settings → Brain shows the app process's memory status and counters. `mecum memory --status` reports
+- Settings → Brain shows the app process's memory status and counters. `braus memory --status` reports
   the linked SQLite version, archive and schema compatibility in its own process without opening the
   writing service; its counters must not be presented as the app's. Older macOS releases and their
   SQLite libraries were not checked.

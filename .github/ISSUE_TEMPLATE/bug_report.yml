@@ -37,7 +37,7 @@ body:
         Share what you know; write "unknown" for details you cannot obtain.
         Add launcher/permissions for capture or input failures, or provider version/model for chat failures.
       placeholder: |
-        Mecum commit (git rev-parse HEAD):
+        Braus commit (git rev-parse HEAD):
         macOS version and build (sw_vers):
         Mac model (sysctl -n hw.model):
         Target application and version:

@@ -5,7 +5,7 @@ import Foundation
 import LocalMCP
 import Memory
 import PerceptionCore
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import PhaseSignposts
 #endif
 import PrivateSymbols
@@ -63,7 +63,7 @@ public final class AutomationTools {
     public static var instructions: String { baseInstructions + "\n" + MemoryTaskTool.instructions }
 
     static let baseInstructions = """
-    You are Mecum's desktop automation assistant. Use only the mecum MCP tools to inspect and control apps.
+    You are Braus's desktop automation assistant. Use only the braus MCP tools to inspect and control apps.
     All app actions happen on a background Seat. Never use a shell, AppleScript, computer-use fallback,
     or foreground actions. Never claim completion without the tool's evidence.
     Before the first action on an app in a turn, call status and observe any existing session.
@@ -73,10 +73,10 @@ public final class AutomationTools {
     open_session on a running browser opens a new window of it to work in, but while the seat holds the browser
     its other visible windows move to the seat's display too: if the person may be using it, ask first.
     Pass one of their window titles only when they ask for that window.
-    Session IDs refer only to this running Mecum host. Saved chats may contain stale IDs and old screen state.
+    Session IDs refer only to this running Braus host. Saved chats may contain stale IDs and old screen state.
     If an observation ends the session, use status and discover current windows before explicitly opening
     the intended window. Never observe the ended ID or replay the input that preceded its disappearance.
-    Never call close_session because a task is done: Mecum releases the Seat by itself when it is no longer
+    Never call close_session because a task is done: Braus releases the Seat by itself when it is no longer
     needed. Call it only when the person asks you to release the Seat, or before calling open_session again.
     An action result's observation is the scene taken just after the action settled: read it, do not observe again.
     Observe only when a result has none, when a dialog or window may still be opening, or before repeating an
@@ -197,7 +197,7 @@ public final class AutomationTools {
                    ["operation"] + (required[name] ?? []))
         }
         return [
-            tool("status", "Read Mecum's permission and session status. Never prompts.", [:], [], readOnly: true),
+            tool("status", "Read Braus's permission and session status. Never prompts.", [:], [], readOnly: true),
             tool("windows", "Discover exact running application names, bundle IDs and window titles. Optional app filter.",
                  ["app": text], [], readOnly: true),
             tool("apps", "List the applications open_session can open, best match first, with name, bundleID, version "
@@ -268,7 +268,7 @@ public final class AutomationTools {
                  + "refused.",
                  session.merging(["button": text], uniquingKeysWith: { $1 }), ["session", "button"]),
             tool("close_session", "Return the application's windows and release its Seat. Only when the person "
-                 + "asks, or before calling open_session again; never to finish a task, since Mecum releases the "
+                 + "asks, or before calling open_session again; never to finish a task, since Braus releases the "
                  + "Seat by itself.",
                  session, ["session"]),
             MemoryTaskTool.definition
@@ -276,7 +276,7 @@ public final class AutomationTools {
     }
 
     public func call(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let tool = PhaseInterval.begin("tool", name)
         defer { tool.end() }
         #endif
@@ -318,10 +318,10 @@ public final class AutomationTools {
             if AgentTool(rawValue: name)?.requiresConfirmedStart == true {
                 // The call itself refuses such a request before any effect: let it say why, unrecorded.
                 _ = try await answer(name, arguments, recorder: nil)
-                throw AutomationFailure("Mecum's memory cannot represent this call, so it was not run.")
+                throw AutomationFailure("Braus's memory cannot represent this call, so it was not run.")
             }
             return try finish(name, try await answer(name, arguments, recorder: nil),
-                          notice: "This call was not recorded: Mecum's memory cannot represent its arguments.")
+                          notice: "This call was not recorded: Braus's memory cannot represent its arguments.")
         }
         let attribution = request.tool == .batch ? nil : openTask?.attribution
         if case .batch = request {} else {
@@ -372,7 +372,7 @@ public final class AutomationTools {
 
     /// The answer of a call, with the memory's notice when part of it was not recorded, as the model reads it.
     private func finish(_ name: String, _ value: JSONValue, notice: String?) throws -> JSONValue {
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let rendering = PhaseInterval.begin("render.result")
         defer { rendering.end() }
         #endif
@@ -388,15 +388,15 @@ public final class AutomationTools {
     /// The refusal of a call whose start the memory did not confirm: nothing was done.
     private static func unconfirmed(_ error: any Error) -> AutomationFailure {
         AutomationFailure(
-            "Mecum's memory did not confirm this call before it could act (\(error)), so nothing was done. "
-                + "Mecum records every action before taking it; use status, and try again once the memory is available."
+            "Braus's memory did not confirm this call before it could act (\(error)), so nothing was done. "
+                + "Braus records every action before taking it; use status, and try again once the memory is available."
         )
     }
 
     /// What the answer says when the end of a call that may have acted could not be saved.
     private static func suspended(_ error: any Error) -> String {
-        "The action ran, but Mecum's memory could not save its record (\(error)). Do not repeat the action: observe instead. "
-            + "Mecum takes no further action until the record is saved."
+        "The action ran, but Braus's memory could not save its record (\(error)). Do not repeat the action: observe instead. "
+            + "Braus takes no further action until the record is saved."
     }
 
     /// Hands a line to the transcript with every value the memory withholds withheld here too: the
@@ -437,7 +437,7 @@ public final class AutomationTools {
             isError  = true
         } catch {
             answered = Self.taskFailure(MemoryTaskTool.Failure(code: "memory_unavailable",
-                message: "Mecum's memory did not record the task (\(MemoryService.describe(error))). App actions still "
+                message: "Braus's memory did not record the task (\(MemoryService.describe(error))). App actions still "
                     + "require the memory; use status."))
             isError  = true
         }
@@ -601,7 +601,7 @@ public final class AutomationTools {
                     // The archive refused the choice's own record: an internal error of the experiment, not the memory's
                     // unavailability. The task's facts are untouched and the memory is not suspended.
                     throw MemoryTaskTool.Failure(code: "choice_not_recorded",
-                                                 message: "Mecum could not record this choice (\(MemoryService.describe(error))): nothing was "
+                                                 message: "Braus could not record this choice (\(MemoryService.describe(error))): nothing was "
                                                     + "recorded or delivered, and this call ran no app action. Plan with the current scene "
                                                     + "and tools, or propose again.")
                 }
@@ -1187,7 +1187,7 @@ public final class AutomationTools {
     /// `nested` is for an observation inside an action result, which already names the session and
     /// is the scene just after the action: it repeats neither the session nor the time.
     private func observation(_ scene: SceneSnapshot, changesOnly: Bool = false, nested: Bool = false) -> JSONValue {
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let rendering = PhaseInterval.begin("render.scene")
         defer { rendering.end() }
         #endif

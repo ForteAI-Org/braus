@@ -1,6 +1,6 @@
 //
 //  RecallSharingTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -33,7 +33,7 @@ struct RecallSharingTests {
         let router = MCPRouter(tools: AutomationTools.definitions) { name, arguments in try await tools.call(name, arguments) }
         let initialized = await router.handle(.object(["jsonrpc": .string("2.0"), "id": .number(0), "method": .string("initialize"),
                                                         "params": .object(["protocolVersion": .string("2025-11-25")])]))
-        #expect(initialized?["result"]["serverInfo"]["name"].string == "mecum")
+        #expect(initialized?["result"]["serverInfo"]["name"].string == "braus")
         return router
     }
 

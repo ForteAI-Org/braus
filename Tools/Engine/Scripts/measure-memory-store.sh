@@ -25,7 +25,7 @@ if [ ! -x "$probe" ]; then
     (cd "$root" && swift build --product memory-probe >/dev/null)
 fi
 
-work=$(mktemp -d "${TMPDIR:-/tmp}/mecum-measure.XXXXXX")
+work=$(mktemp -d "${TMPDIR:-/tmp}/braus-measure.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
 echo "== environment"

@@ -1,6 +1,6 @@
 //
 //  RecallConfiguration.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -12,7 +12,7 @@ import Memory
 /// RecallConfiguration is how the Recall searches: the channel, the local model of the semantic channel and the
 /// folder its files are installed in, the document format, the thresholds of each channel and the weight of the
 /// lexical score in the combined one. The defaults are the configuration the D3 comparison chose
-/// (Documentation/Engine/MemoryRecall.md); `MECUM_RECALL` and `MECUM_RECALL_MODELS` override them for a process,
+/// (Documentation/Engine/MemoryRecall.md); `BRAUS_RECALL` and `BRAUS_RECALL_MODELS` override them for a process,
 /// for the comparison itself and for diagnosis. The model's files are installed by an explicit setup step; when
 /// they are missing the semantic channel is unavailable and the lexical one answers, the answer saying so.
 nonisolated public struct RecallConfiguration: Sendable, Equatable {
@@ -34,7 +34,7 @@ nonisolated public struct RecallConfiguration: Sendable, Equatable {
     public var lexicalWeighting: LexicalIndex.Weighting
     /// Whether this configuration owns the archive's index. The product's configuration does, in the app, the MCP
     /// server and the command line alike, so their workers build the same generation together. A configuration chosen
-    /// for one process by `MECUM_RECALL` (a comparison, a diagnosis) is a guest: its worker keeps the live generations in
+    /// for one process by `BRAUS_RECALL` (a comparison, a diagnosis) is a guest: its worker keeps the live generations in
     /// line with the catalogue and never starts, abandons or promotes one, and its queries answer over the owner's index,
     /// saying so. Two owners of different configurations on one archive would retire each other's generations.
     public var ownsIndex: Bool = true
@@ -70,9 +70,9 @@ nonisolated public struct RecallConfiguration: Sendable, Equatable {
     /// The configuration of this process: the chosen default, with what the environment overrides.
     public static func resolved(environment: [String: String] = ProcessInfo.processInfo.environment) -> RecallConfiguration {
         var configuration = Self.chosen
-        configuration.modelsDirectory = environment["MECUM_RECALL_MODELS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        configuration.modelsDirectory = environment["BRAUS_RECALL_MODELS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? Self.defaultModelsDirectory(environment: environment)
-        if let word = environment["MECUM_RECALL"] {
+        if let word = environment["BRAUS_RECALL"] {
             let parts = word.split(separator: ":").map(String.init)
             if let channel = parts.first.flatMap(Channel.init(rawValue:)) { configuration.channel = channel }
             if parts.count > 1 { configuration.model = EmbeddingModelManifest.known[parts[1]] }
@@ -96,7 +96,7 @@ nonisolated public struct RecallConfiguration: Sendable, Equatable {
     /// the lexical channel over the labelled documents (it needs no model file, so the Recall works on a fresh install)
     /// with the uniform weighting (a part's score does not depend on the rest of the archive, review F01), at the
     /// thresholds frozen for it on the second development split in `recall-calibration-v2.json`. The semantic and
-    /// hybrid channels a process may ask for (`MECUM_RECALL`) use Granite, the best of the development split, at its
+    /// hybrid channels a process may ask for (`BRAUS_RECALL`) use Granite, the best of the development split, at its
     /// frozen thresholds; such a process is a guest of the archive's index.
     public static let chosen = RecallConfiguration(
         channel           : .lexical,

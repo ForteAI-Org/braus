@@ -1,6 +1,6 @@
 //
 //  SeatActivityTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 20/09/2026.
 //

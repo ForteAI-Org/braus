@@ -1,6 +1,6 @@
 //
 //  ProviderConnection.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 22/09/2026.
 //
@@ -71,7 +71,7 @@ public struct ProviderConnection: Sendable, Hashable, Identifiable {
         case (.localServer, .signedInCommandLine):
             return "Messages and worker instructions will be sent to \(destination) and will count toward that subscription."
         case (_, .localServer):
-            return "New messages and worker instructions will run locally through \(destination). Mecum will stop sending them to \(previous.destination)."
+            return "New messages and worker instructions will run locally through \(destination). Braus will stop sending them to \(previous.destination)."
         case (.signedInCommandLine, .apiKey):
             return "Messages and worker instructions will be sent to \(destination). New turns may be billed to the API key stored in Keychain."
         default:

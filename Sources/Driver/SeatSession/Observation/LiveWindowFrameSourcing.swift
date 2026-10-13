@@ -13,7 +13,7 @@ import SeatCore
 ///
 /// ## Why it is injected
 ///
-/// The running stream belongs to whoever shows the window to the person (in Mecum, the Broker's
+/// The running stream belongs to whoever shows the window to the person (in Braus, the Broker's
 /// window preview), and observation belongs to the seat. The seat never reaches into that owner:
 /// a consumer that has such a stream composes it here through `SeatHost.makeSeat(liveFrames:)`,
 /// and a seat without one keeps starting a stream per Still.

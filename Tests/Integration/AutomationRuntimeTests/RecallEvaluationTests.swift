@@ -1,6 +1,6 @@
 //
 //  RecallEvaluationTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -15,8 +15,8 @@ import Memory
 @testable import SQLiteMemory
 import Testing
 
-/// RecallEvaluationTests run the D3 comparison on the quality corpus, gated by `MECUM_RECALL_EVAL`, and write their
-/// reports to `MECUM_RECALL_EVAL_OUT`; the semantic configurations need `MECUM_RECALL_MODELS`, and are reported as
+/// RecallEvaluationTests run the D3 comparison on the quality corpus, gated by `BRAUS_RECALL_EVAL`, and write their
+/// reports to `BRAUS_RECALL_EVAL_OUT`; the semantic configurations need `BRAUS_RECALL_MODELS`, and are reported as
 /// skipped without it.
 ///
 /// - `dev`: the corpus is learned once through the tools; each configuration's index is built on its own copy of
@@ -34,9 +34,9 @@ import Testing
 struct RecallEvaluationTests {
 
     nonisolated static let environment = ProcessInfo.processInfo.environment
-    nonisolated static var mode: String? { environment["MECUM_RECALL_EVAL"] }
-    nonisolated static var models: URL? { environment["MECUM_RECALL_MODELS"].map { URL(fileURLWithPath: $0, isDirectory: true) } }
-    nonisolated static var output: URL? { environment["MECUM_RECALL_EVAL_OUT"].map { URL(fileURLWithPath: $0, isDirectory: true) } }
+    nonisolated static var mode: String? { environment["BRAUS_RECALL_EVAL"] }
+    nonisolated static var models: URL? { environment["BRAUS_RECALL_MODELS"].map { URL(fileURLWithPath: $0, isDirectory: true) } }
+    nonisolated static var output: URL? { environment["BRAUS_RECALL_EVAL_OUT"].map { URL(fileURLWithPath: $0, isDirectory: true) } }
 
     // MARK: Configurations
 
@@ -434,7 +434,7 @@ struct RecallEvaluationTests {
     // MARK: Development
 
     @Test("development split: calibrate each configuration's thresholds on the grid",
-          .enabled(if: mode == "dev", "MECUM_RECALL_EVAL=dev asks for the calibration"))
+          .enabled(if: mode == "dev", "BRAUS_RECALL_EVAL=dev asks for the calibration"))
     func development() async throws {
         let corpus = try RecallCorpus.load()
         let queries = corpus.queries(split: "dev")
@@ -445,7 +445,7 @@ struct RecallEvaluationTests {
         for configuration in Self.configurations {
             var item = ConfigurationReport(configuration: configuration, name: configuration.name)
             if configuration.model != nil, Self.models == nil {
-                item.skipped = "MECUM_RECALL_MODELS names no folder of the pinned models"
+                item.skipped = "BRAUS_RECALL_MODELS names no folder of the pinned models"
                 report.configurations.append(item)
                 continue
             }
@@ -497,7 +497,7 @@ struct RecallEvaluationTests {
     /// standard score against every entry of the generation, the lexical score of the best entry, and the best score
     /// of an accepted version's parts, to compare how each scale separates present needs from absent ones. A
     /// diagnosis of the development split only: it asserts nothing.
-    @Test("development split: the scales of the channels, printed", .enabled(if: mode == "scales", "MECUM_RECALL_EVAL=scales asks for it"))
+    @Test("development split: the scales of the channels, printed", .enabled(if: mode == "scales", "BRAUS_RECALL_EVAL=scales asks for it"))
     func scales() async throws {
         let corpus = try RecallCorpus.load()
         let queries = corpus.queries(split: "dev")
@@ -530,15 +530,15 @@ struct RecallEvaluationTests {
         }
     }
 
-    /// Prints, for the configurations `MECUM_RECALL_EVAL_CONFIGS` names (comma separated, all when absent), each
-    /// development query's selection under the thresholds `MECUM_RECALL_EVAL_POINT` gives (`absolute,step,part,
+    /// Prints, for the configurations `BRAUS_RECALL_EVAL_CONFIGS` names (comma separated, all when absent), each
+    /// development query's selection under the thresholds `BRAUS_RECALL_EVAL_POINT` gives (`absolute,step,part,
     /// adequacy,tie`), with the relevance of every step and whole part of the accepted versions. A diagnosis of the
     /// development split only: it asserts nothing.
-    @Test("development split: selections at one point, printed", .enabled(if: mode == "point", "MECUM_RECALL_EVAL=point asks for it"))
+    @Test("development split: selections at one point, printed", .enabled(if: mode == "point", "BRAUS_RECALL_EVAL=point asks for it"))
     func point() async throws {
-        let values = (Self.environment["MECUM_RECALL_EVAL_POINT"] ?? "0.5,0.05,-0.15,0.05,0.01").split(separator: ",").compactMap { Double($0) }
+        let values = (Self.environment["BRAUS_RECALL_EVAL_POINT"] ?? "0.5,0.05,-0.15,0.05,0.01").split(separator: ",").compactMap { Double($0) }
         let thresholds = SelectionThresholds(absolute: values[0], stepMargin: values[1], partMargin: values[2], adequacy: values[3], tie: values[4])
-        let wanted = Self.environment["MECUM_RECALL_EVAL_CONFIGS"].map { Set($0.split(separator: ",").map(String.init)) }
+        let wanted = Self.environment["BRAUS_RECALL_EVAL_CONFIGS"].map { Set($0.split(separator: ",").map(String.init)) }
         let corpus = try RecallCorpus.load()
         let queries = corpus.queries(split: "dev")
         let (base, learned) = try await Self.learnBase(corpus)
@@ -611,7 +611,7 @@ struct RecallEvaluationTests {
     }
 
     @Test("final split: every configuration with its frozen thresholds, through the service and through the tool",
-          .enabled(if: mode == "final", "MECUM_RECALL_EVAL=final asks for the final measure"))
+          .enabled(if: mode == "final", "BRAUS_RECALL_EVAL=final asks for the final measure"))
     func final() async throws {
         let corpus = try RecallCorpus.load()
         let url = try #require(Bundle.module.url(forResource: "recall-calibration-v1", withExtension: "json"),
@@ -632,7 +632,7 @@ struct RecallEvaluationTests {
                 continue
             }
             if configuration.model != nil, Self.models == nil {
-                item.skipped = "MECUM_RECALL_MODELS names no folder of the pinned models"
+                item.skipped = "BRAUS_RECALL_MODELS names no folder of the pinned models"
                 report.configurations.append(item)
                 continue
             }

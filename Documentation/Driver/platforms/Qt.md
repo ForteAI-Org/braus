@@ -332,14 +332,14 @@ Qt control: [QFileDialog](https://doc.qt.io/qt-6/qfiledialog.html),
 [PySide6 setup guide](https://doc.qt.io/qtforpython-6/quickstart.html) describes
 the virtual-environment installation used for the owned fixture.
 
-## Mecum application flow
+## Braus application flow
 
-On 3 October 2026, the signed Mecum app opened DaVinci Resolve 21.1.0's
+On 3 October 2026, the signed Braus app opened DaVinci Resolve 21.1.0's
 Project Manager on the host above. Search/filter, contextual Select All followed
 by a single Delete, restoration of the empty search, and Import Project panel
 cancellation had observed effects. No project was opened or changed.
-Initial ordinary typing of `Mecum Qt é 🧪` failed the exact-value oracle: AX read
-`Mecum Qt é ` without the supplementary character. The Engine now sends short
+Initial ordinary typing of `Braus Qt é 🧪` failed the exact-value oracle: AX read
+`Braus Qt é ` without the supplementary character. The Engine now sends short
 text containing supplementary Unicode as one intact insertion. A repeat through
 the rebuilt app reads the exact value, then clears Search and restores the list.
 This verifies the application path separately from the Qt 6 fixture and

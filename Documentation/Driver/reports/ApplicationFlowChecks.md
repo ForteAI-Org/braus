@@ -1,6 +1,6 @@
-# Flows through the Mecum application
+# Flows through the Braus application
 
-These checks were initiated from the signed Mecum app's conversation on
+These checks were initiated from the signed Braus app's conversation on
 2026-10-03, on macOS 27.0.1, build 26A434, Mac16,1. They exercise the app's
 discovery, broker, perception, Engine tools, Driver and handback together.
 They do not extend qualification to other OS builds or applications.
@@ -14,12 +14,12 @@ observed before any further decision and was not automatically replayed.
 
 | Surface | Observed effects | Remaining failures or limits |
 | --- | --- | --- |
-| AppKit, TextEdit | Exact three-line replacement including `é` and `🧪`, confirmed in a fresh Mecum observation and independent AX read; native Open panel opened and withdrawn through AX Cancel; final discovery lists the offscreen owned window | Ordinary Cancel click returned `subtreeUnreadable`. Independent AX selection range supports the navigation effect, but Mecum does not expose that range and cannot verify the keys itself. |
+| AppKit, TextEdit | Exact three-line replacement including `é` and `🧪`, confirmed in a fresh Braus observation and independent AX read; native Open panel opened and withdrawn through AX Cancel; final discovery lists the offscreen owned window | Ordinary Cancel click returned `subtreeUnreadable`. Independent AX selection range supports the navigation effect, but Braus does not expose that range and cannot verify the keys itself. |
 | Adobe UXP, Photoshop 2026 | New Layer dialog and layer creation; New Document surface opened | First name replacement retained an old prefix. Exact supplementary Unicode is unqualified from OCR. Undo/Redo were refused as disabled. The claimed New Document cancellation was incorrect: independent WindowServer title and Window menu show an additional `Untitled-1` beside the owned seed. |
-| Qt, Resolve 21.1.0 Project Manager | Search/filter, context-menu Select All followed by one Delete, native Import panel cancellation, restored search controls; final repeat reads exact `Mecum Qt é 🧪` | Cancel's learned effect prediction differed despite observed panel withdrawal. Resolve exceeded the one-second quit wait, then exited later; the app reports the pending cleanup. |
+| Qt, Resolve 21.1.0 Project Manager | Search/filter, context-menu Select All followed by one Delete, native Import panel cancellation, restored search controls; final repeat reads exact `Braus Qt é 🧪` | Cancel's learned effect prediction differed despite observed panel withdrawal. Resolve exceeded the one-second quit wait, then exited later; the app reports the pending cleanup. |
 | Chromium, Chrome 154.0.8037.58 | Checkbox on/off, counter, scroll region offset, one successful HTML drag/drop, file picker opened/cancelled with zero selected files; final repeat reads exact short `é`/`🧪` text and a real LF | Web select resolution intermittently loses AX controls. Context menu opens, but type-ahead and Escape return `subtreeUnreadable`; a click outside does not reliably withdraw it. |
-| Electron, GitHub Desktop | Exact synthetic repository name, README checkbox on/off, Create dialog withdrawn with Cancel; final repeat reads exact Description `Mecum Electron é 🧪` | Git Ignore selection returns `contextMenuNeverOpened` without changing the value. Create Repository was never invoked. |
-| CEF, official `cefclient` 154.0.33.0 | Exact `Mecum CEF é 🧪` and multiline text with a real LF; checkbox on/off, counter 0 → 1, scroll offset 0 → 120, file panel opened/cancelled with zero selected files | One drag was dispatched but `Drops: 0` remained; `found_acted` did not establish a drop. Select returned missing/ambiguous with a text-only scene; `Alpha` remained. Initial geometry interruption caused no input effect. A checkbox clipped at the viewport edge initially stayed off, then worked after explicit scrolling. |
+| Electron, GitHub Desktop | Exact synthetic repository name, README checkbox on/off, Create dialog withdrawn with Cancel; final repeat reads exact Description `Braus Electron é 🧪` | Git Ignore selection returns `contextMenuNeverOpened` without changing the value. Create Repository was never invoked. |
+| CEF, official `cefclient` 154.0.33.0 | Exact `Braus CEF é 🧪` and multiline text with a real LF; checkbox on/off, counter 0 → 1, scroll offset 0 → 120, file panel opened/cancelled with zero selected files | One drag was dispatched but `Drops: 0` remained; `found_acted` did not establish a drop. Select returned missing/ambiguous with a text-only scene; `Alpha` remained. Initial geometry interruption caused no input effect. A checkbox clipped at the viewport edge initially stayed off, then worked after explicit scrolling. |
 | Resolve Cloud, hybrid candidate | Cloud adopted, observed and returned to Local | Email/Password appear only as pixel labels, with no editable AX controls or value. One synthetic Email insertion is unverified. A CEF framework in the bundle does not prove this surface uses CEF. |
 
 An app's visible label, a delivered event and an observed effect are different

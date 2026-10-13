@@ -5,7 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 07/10/2026.
 //
 
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import CoreGraphics
 import CoreMedia
 import CoreVideo
@@ -18,7 +18,7 @@ import ScreenCaptureKit
 /// when asked, a hash of its pixels.
 ///
 /// Read only: it never changes the sample and never decides whether a frame is used. Compiled
-/// only under `MECUM_PHASES`.
+/// only under `BRAUS_PHASES`.
 nonisolated enum FrameProbeSampling {
 
     static func sample(_ sampleBuffer: CMSampleBuffer, hashing: Bool) -> FrameSample {

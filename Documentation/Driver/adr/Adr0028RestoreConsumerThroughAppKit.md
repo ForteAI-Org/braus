@@ -4,7 +4,7 @@ Status: implemented; controlled checks and three native cancellation cycles pass
 
 ## Observed problem
 
-Two Chrome file-picker cancellations through signed Mecum withdraw the
+Two Chrome file-picker cancellations through signed Braus withdraw the
 panel and expose the parent with zero selected files. After the second,
 Chrome is foreground and the next adoption refuses because the Seat is
 waiting, although the worker has no session. No drag is delivered.
@@ -48,7 +48,7 @@ Required baseline, host and native results follow in
 Release `4c59af9c` completes three file-picker open/Cancel/parent/close cycles
 and a fourth input-free adoption/observe/close. Native tool observations show
 zero selected files and no remaining picker. The independent 0.5-second
-foreground watcher records Mecum active in all 600 samples; the Session log
+foreground watcher records Braus active in all 600 samples; the Session log
 shows all Cancel-triggered recoveries returning to ready at the same local
 window. Sub-cadence foreground transients are not excluded. This qualifies
 the reproduced continuation behavior on the current Mac, not all recovery

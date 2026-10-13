@@ -1,6 +1,6 @@
 //
 //  KnowledgeLocation.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 09/10/2026.
 //
@@ -8,9 +8,9 @@
 import Foundation
 
 /// KnowledgeLocation is the one place that says where the user's knowledge lives: the application
-/// support folder of Mecum (`MECUM_APP_SUPPORT_DIR` when set, the user's Application Support otherwise)
+/// support folder of Braus (`BRAUS_APP_SUPPORT_DIR` when set, the user's Application Support otherwise)
 /// and, under it, the one Knowledge directory every producer of the user shares, the app's workers, its
-/// external MCP clients, `mecum` and `mecum chat` alike. An explicit directory a caller passes (a test's,
+/// external MCP clients, `braus` and `braus chat` alike. An explicit directory a caller passes (a test's,
 /// `--knowledge`) is used as it is and never resolved here.
 ///
 /// Before G76 each external MCP client kept a private archive in `MCP/Knowledge/<profile>`. Those
@@ -19,15 +19,15 @@ import Foundation
 nonisolated public enum KnowledgeLocation {
 
     /// The environment variable that moves the whole support folder, for a check run or a test.
-    public static let supportOverride = "MECUM_APP_SUPPORT_DIR"
+    public static let supportOverride = "BRAUS_APP_SUPPORT_DIR"
 
-    /// The support folder: the override when it is set and not empty, else `<Application Support>/Mecum`.
+    /// The support folder: the override when it is set and not empty, else `<Application Support>/Braus`.
     public static func support(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         if let override = environment[supportOverride], !override.isEmpty {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath, isDirectory: true)
         }
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Mecum", isDirectory: true)
+            .appendingPathComponent("Braus", isDirectory: true)
     }
 
     /// The user's one Knowledge directory under a support folder.

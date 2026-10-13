@@ -1,6 +1,6 @@
 //
 //  BrokeredAutomationSession.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 23/09/2026.
 //
@@ -218,7 +218,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         return lease.session.windowFrame
     }
 
-    /// The seat as a worker's turn begins, which Mecum puts ahead of the turn's prompt so the agent
+    /// The seat as a worker's turn begins, which Braus puts ahead of the turn's prompt so the agent
     /// needs no status call: the live session to observe by its ID, or the application the last one had.
     ///
     /// Read inside `turn`, so no idle release is pending and a close already under way reads as no
@@ -228,9 +228,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             "\(app.name) (\(app.bundleID))" + (app.window.isEmpty ? "" : ", window \"\(app.window)\"")
         }
         guard let id else {
-            return "Mecum seat: no session is open." + (last.map { " The last one was on \($0)." } ?? "")
+            return "Braus seat: no session is open." + (last.map { " The last one was on \($0)." } ?? "")
         }
-        return "Mecum seat: session \(id.uuidString) is open" + (last.map { " on \($0)" } ?? "")
+        return "Braus seat: session \(id.uuidString) is open" + (last.map { " on \($0)" } ?? "")
             + ". Observe it with this session ID before acting."
     }
 
@@ -769,10 +769,10 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             case .accessibility  : ("Accessibility", "Accessibility")
             case .postEvent      : ("Keyboard and Mouse Control", "Accessibility")
         }
-        return "Mecum is missing the macOS \(name) permission, so this worker cannot use the computer, "
-            + "and nothing was opened. macOS was asked to show its prompt; if none appears, allow Mecum in "
+        return "Braus is missing the macOS \(name) permission, so this worker cannot use the computer, "
+            + "and nothing was opened. macOS was asked to show its prompt; if none appears, allow Braus in "
             + "System Settings > Privacy & Security > \(pane)"
-            + (kind == .screenRecording ? ", then quit and reopen Mecum" : "")
+            + (kind == .screenRecording ? ", then quit and reopen Braus" : "")
             + ". Do not retry until it is granted."
     }
 

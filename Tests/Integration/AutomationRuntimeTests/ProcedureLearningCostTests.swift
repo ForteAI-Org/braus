@@ -1,6 +1,6 @@
 //
 //  ProcedureLearningCostTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -17,7 +17,7 @@ import Testing
 
 /// ProcedureLearningCostTests measure what learning costs on a declared load, through the same entry as
 /// the procedure tests (`AutomationTools` over `LearningSession`, the real SQLite archive). They run only
-/// with `MECUM_MEMORY_MEASURE=1` and print one `measure:` line per quantity; they assert the load was
+/// with `BRAUS_MEMORY_MEASURE=1` and print one `measure:` line per quantity; they assert the load was
 /// learned, never a duration, so a slow machine fails nothing. Bootstrap and migration are measured
 /// apart from the learning they precede.
 ///
@@ -34,7 +34,7 @@ import Testing
 @Suite("The cost of learning on a declared load", .serialized)
 struct ProcedureLearningCostTests {
 
-    nonisolated static let enabled = ProcessInfo.processInfo.environment["MECUM_MEMORY_MEASURE"] == "1"
+    nonisolated static let enabled = ProcessInfo.processInfo.environment["BRAUS_MEMORY_MEASURE"] == "1"
     static let bundle  = "com.example.Load"
     static let states = 20, tools = 22, tasks = 4, steps = 100, probes = 1_000, screens = 400
 

@@ -48,7 +48,7 @@ public struct KeyModifiers: OptionSet, Sendable, Hashable, Codable, CustomString
 /// An action on an element of the latest observation, by 1-based index, or a
 /// key press into the adopted window.
 public enum SemanticAction: Sendable, Hashable {
-    /// One or more complete primary-button clicks, bounded by Mecum's input
+    /// One or more complete primary-button clicks, bounded by Braus's input
     /// command limit.
     case click(element: Int, count: Int = 1)
     case type(element: Int, text: String)

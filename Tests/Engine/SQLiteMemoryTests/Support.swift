@@ -1,6 +1,6 @@
 //
 //  Support.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 30/09/2026.
 //
@@ -13,7 +13,7 @@ import Testing
 /// A fresh database path in a directory of its own, so no test shares a file with another.
 func temporaryDatabase(_ name: String = "memory") throws -> URL {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("mecum-sqlite-\(UUID().uuidString)")
+        .appendingPathComponent("braus-sqlite-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     return directory.appendingPathComponent("\(name).sqlite")
 }

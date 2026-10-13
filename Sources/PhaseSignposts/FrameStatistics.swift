@@ -1,11 +1,11 @@
 //
 //  FrameStatistics.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 07/10/2026.
 //
 
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import Darwin
 import os
 

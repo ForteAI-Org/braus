@@ -1,13 +1,13 @@
 //
 //  SeatSettler.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 07/10/2026.
 //
 
 import EngineCore
 import Foundation
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import PhaseSignposts
 #endif
 import SeatCapture
@@ -124,7 +124,7 @@ public struct SeatSettler: Settling {
 
     /// Copies the target window's newest frame as the baseline of the wait that follows the gesture.
     public func prepare(in processID: pid_t) async {
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let phase = PhaseInterval.begin("settle.prepare")
         defer { phase.end() }
         #endif
@@ -158,7 +158,7 @@ public struct SeatSettler: Settling {
 
     /// `processID` is not read: the seat drives one window, the one it targets.
     public func settle(in processID: pid_t, cap: Duration) async {
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let phase = PhaseInterval.begin("settle")
         let ending = await settled(cap: cap)
         phase.end(ending.detail)
@@ -277,7 +277,7 @@ public struct SeatSettler: Settling {
     }
 }
 
-#if MECUM_PHASES
+#if BRAUS_PHASES
 extension SeatSettler.Ending {
 
     /// The detail the `settle` phase is named with.

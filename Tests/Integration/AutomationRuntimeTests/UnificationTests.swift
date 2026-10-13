@@ -1,6 +1,6 @@
 //
 //  UnificationTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 09/10/2026.
 //
@@ -583,7 +583,7 @@ struct UnificationTests {
         await memory.close()
     }
 
-    static let token = "sk-mecumReviewSynthetic0000123456789"
+    static let token = "sk-brausReviewSynthetic0000123456789"
 
     @Test("review F02c: an earlier archive's credential in an argument, a sample's label, a result's message and an effect's labels comes into the shared archive withheld, each gap declared; the earlier file is only read")
     func transferAdmitsAsLive() async throws {

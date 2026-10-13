@@ -1,6 +1,6 @@
 //
 //  TargetPlatformTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 18/09/2026.
 //
@@ -96,7 +96,7 @@ struct TargetPlatformTests {
         let leaf = try #require((platform as? UXPPlatform)?.preparingKeys)
         #expect(leaf.preparation(for: .click(point, count: 1)) == .none)
         #expect(leaf.preparation(for: key) == .internalAppKitState)
-        #expect(leaf.preparation(for: .text("mecum")) == .internalAppKitState)
+        #expect(leaf.preparation(for: .text("braus")) == .internalAppKitState)
     }
 
     @Test("Photoshop's measured document clicks are enabled only on an attested UXP host")

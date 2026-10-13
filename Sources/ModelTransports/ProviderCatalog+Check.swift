@@ -1,6 +1,6 @@
 //
 //  ProviderCatalog+Check.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 23/09/2026.
 //

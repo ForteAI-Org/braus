@@ -16,7 +16,7 @@ public enum CodexClientError: LocalizedError {
             case .signInRequired: "Codex isn’t signed in with ChatGPT. Run “codex login” in Terminal and choose ChatGPT."
                 
             case .timedOut          : "Codex took too long to respond. Try again."
-            case .outputLimit       : "The Codex response is too large for Mecum."
+            case .outputLimit       : "The Codex response is too large for Braus."
             case .inputLimit        : "This request is too large to send to Codex."
             case .failed(let reason): "Codex couldn’t complete the response. \(reason)"
         }
@@ -204,7 +204,7 @@ public actor CodexCLIClient: ModelTransport {
             .default
             .temporaryDirectory
             .appendingPathComponent(
-                "Mecum-Codex-" + UUID().uuidString,
+                "Braus-Codex-" + UUID().uuidString,
                 isDirectory: true
             )
         

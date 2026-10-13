@@ -3,7 +3,7 @@ import AutomationRuntime
 import CoreGraphics
 import Foundation
 import OSLog
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import PhaseSignposts
 #endif
 import PrivateSymbols
@@ -151,7 +151,7 @@ final class SeatDriver {
     /// there is none yet: the display is created with the host, on the first
     /// adoption, and before that there is nothing to watch.
     func setPreviewShowsDisplay(_ showsDisplay: Bool) -> Bool {
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         PhaseInterval.event("preview.showsDisplay", "asked=\(showsDisplay)")
         #endif
         guard showsDisplay, let displayID = host.displayID,
@@ -273,7 +273,7 @@ final class SeatDriver {
     /// that. macOS shows each prompt once per app, so a request after the first would show nothing,
     /// and the pane is where the person can still turn it on.
     static func request(_ kind: PermissionKind) {
-        let key = "mecum.permission.prompted.\(kind.rawValue)"
+        let key = "braus.permission.prompted.\(kind.rawValue)"
         guard !UserDefaults.standard.bool(forKey: key) else {
             openSettings(for: kind)
             return
@@ -583,7 +583,7 @@ final class SeatDriver {
     }
 
     /// One frame and the authority that binds a decision to that exact surface,
-    /// geometry and observation barrier. Mecum owns retries and qualification.
+    /// geometry and observation barrier. Braus owns retries and qualification.
     func observe() async throws -> SeatObservationDelivery {
         guard let seat, window != nil else { throw SeatBrokerError.sessionClosed }
         switch await seat.observe() {

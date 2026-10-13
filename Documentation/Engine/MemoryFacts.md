@@ -33,7 +33,7 @@ attributes it later by time or order.
 ### The task an agent communicates
 
 `memory_task` is one more tool of `AutomationTools`, so the app's workers, its external MCP clients and
-`mecum chat` share it; its description and `MemoryTaskTool.instructions` tell an agent when to call it.
+`braus chat` share it; its description and `MemoryTaskTool.instructions` tell an agent when to call it.
 
 | Operation | Effect | Refusals (a tool error with a code, never a failed action) |
 | --- | --- | --- |
@@ -191,10 +191,10 @@ declared or recognized secret could be kept. A row with no proof named is shown 
 | `memory_call_recording_gaps.detail` | the archive's answer | minimized | `FactWiringTests.refusedEndIsDeclared` |
 | `memory_origin_brain_contributions.element_key` | a merge or a transfer | identities only: anchor and group ids, a transition's minimized effect, an application's event | `UnificationTests.jsonMergeAdmitsAsLive` |
 | `memory_value_redactions` | every filter | where and why, never the value, its length or a digest | all of the above |
-| `memory_events` identities, `memory_archive_origins.location`, `detail` | Mecum's producers and the transfer | identifiers Mecum draws (UUIDs, stream names, message ids, client folders) and counts | by reading |
-| The tools' transcript (the app's events, `mecum chat`) | requests and answers | `AutomationTools.transcribe`: the producer's secrets and credential shapes | `FactWiringTests.canariesAreWithheld`, `.declaredSecretCopiesAreWithheld` |
+| `memory_events` identities, `memory_archive_origins.location`, `detail` | Braus's producers and the transfer | identifiers Braus draws (UUIDs, stream names, message ids, client folders) and counts | by reading |
+| The tools' transcript (the app's events, `braus chat`) | requests and answers | `AutomationTools.transcribe`: the producer's secrets and credential shapes | `FactWiringTests.canariesAreWithheld`, `.declaredSecretCopiesAreWithheld` |
 | Copies (daily backups, migration copy, unification staging) | the archive | copies of what was already minimized; the staging is removed | `FactWiringTests.canariesAreWithheld` (scans the copy) |
-| The service's log | write labels and failure kinds | no value: write labels are Mecum's, failures name their kind | by reading |
+| The service's log | write labels and failure kinds | no value: write labels are Braus's, failures name their kind | by reading |
 
 ## Schema 2 and its migration
 
@@ -215,7 +215,7 @@ bootstrap (`from_version` 0) or the migration with the copy's name.
   version, records it and checks the result is exactly schema 2. Any failure rolls the whole migration
   back: the archive stays at schema 1 and the copy stays. Two openers migrate once; the second removes
   its own copy.
-- A reader's open (`mecum memory --status`, `existingArchive`) never migrates: `migrationRequired`, and
+- A reader's open (`braus memory --status`, `existingArchive`) never migrates: `migrationRequired`, and
   the inspection reports `migratable(from: 1)`.
 - An earlier development form, an unknown version, a newer one, or another shape are refused untouched,
   as before. A schema 2 archive is refused by a schema 1 build (`future`): going back to such a build
@@ -224,10 +224,10 @@ bootstrap (`from_version` 0) or the migration with the copy's name.
 
 ## One archive per user
 
-`KnowledgeLocation` resolves the support folder (`MECUM_APP_SUPPORT_DIR` when set, else
-`~/Library/Application Support/Mecum`) and the one Knowledge directory under it, `Knowledge`. The app's
-workers, its external MCP clients (no longer `MCP/Knowledge/<profile>`), `mecum` and `mecum chat` use it;
-an explicit `--knowledge` or a test's directory is used as given. `mecum` now honours the support override
+`KnowledgeLocation` resolves the support folder (`BRAUS_APP_SUPPORT_DIR` when set, else
+`~/Library/Application Support/Braus`) and the one Knowledge directory under it, `Knowledge`. The app's
+workers, its external MCP clients (no longer `MCP/Knowledge/<profile>`), `braus` and `braus chat` use it;
+an explicit `--knowledge` or a test's directory is used as given. `braus` now honours the support override
 as the app does. The product decision G57 (knowledge shared by the app and its MCP clients, requirement
 R10) supersedes the merge's earlier choice C07 (one private archive per client, see
 [MemoryMerge](MemoryMerge.md)): one knowledge per user, with every call's source, stream and task kept, and
@@ -247,7 +247,7 @@ the shared archive when its service opens (`MemoryService.unify`, run beside the
 2. An origin holding facts the transfer does not carry (Watcher inputs, correlations, verifications,
    tasks, procedures, experiences, menu commands) is refused whole: nothing is half merged. The
    inventory of `f44fb67` (review F04) found no production writer of any of those ten tables (the only
-   writers are their repositories, which no app, MCP, `mecum`, Watcher or Recall path creates), so an
+   writers are their repositories, which no app, MCP, `braus`, Watcher or Recall path creates), so an
    MCP client's archive written by a build before G76 cannot hold them; the refusal guards against an
    archive written outside the product, and leaves it where it is.
 3. Every event in the origin's order, with its call planned and started and its samples, one transaction
@@ -326,12 +326,12 @@ application: the live behaviour of these paths is not certified here.
 | `close_session` | same | none | none | closed | best effort, never refused |
 | `memory_task` | same producer | none | none | task state | task tables; never a call |
 | Cancellation of a call | as the call | as far as it got | as far as it got | error | end `cancelled`, no result |
-| `mecum act`, `mecum select` | cli `mecum-<pid>` / one trace and one session per process (`CommandLineTrace`) | as the tools | as the tools | printed outcome | start confirmed (refused otherwise), end with check; an unsaved end exits non-zero; a gap is printed |
-| `mecum batch` | as `act` / `select`; each step a child call of the batch (`CommandLineBatch`) | per step | per step; the batch proves nothing | printed | as the tools' `batch`: batch and planned steps confirmed before the first gesture, each step started before it runs and ended by its command, the steps never run skipped, the batch's end with its summary |
-| `mecum scene` | cli | `current` sample | none | scene | event and sample, best effort |
+| `braus act`, `braus select` | cli `braus-<pid>` / one trace and one session per process (`CommandLineTrace`) | as the tools | as the tools | printed outcome | start confirmed (refused otherwise), end with check; an unsaved end exits non-zero; a gap is printed |
+| `braus batch` | as `act` / `select`; each step a child call of the batch (`CommandLineBatch`) | per step | per step; the batch proves nothing | printed | as the tools' `batch`: batch and planned steps confirmed before the first gesture, each step started before it runs and ended by its command, the steps never run skipped, the batch's end with its summary |
+| `braus scene` | cli | `current` sample | none | scene | event and sample, best effort |
 | The app's `/observe` | system `session-none` | `current` sample | none | image and scene | event and sample, best effort |
 
-The Watcher (`mecum watch`) and the SeatBroker planner (`AgentSession.run`) record nothing and have no
+The Watcher (`braus watch`) and the SeatBroker planner (`AgentSession.run`) record nothing and have no
 production caller of the memory; they are outside D1.
 
 | Operation | The oracle's check (engine) | The record through the tools, read back |
@@ -365,7 +365,7 @@ be read (`malformedCall`, result kind `found_acted`). The reader now admits an o
 | R10, R64 | `KnowledgeLocation`, unification with the JSON Brains merged by identity, one transfer of an origin at a time across processes, tasks private to their producer, no attribution by time | `UnificationTests` (`jsonMergeByIdentity`, `jsonExclusionIsPartial`, `jsonMergeResumes`, `twoOpenersUnifyOnce`), `ArchiveTransferCoordinationTests`, `ConsumerReadBackTests.adaptersReadEachOther`, `FactWiringTests.sharedKnowledgeSeparateTasks` |
 | R12, R16, R59, R60 | Essential start and end, retry with identity, one retry of the kept facts for every producer, suspension, least fallback with its durable gap | `FactWiringTests.unconfirmedStartActsOnNothing`, `.failedEndSuspends`, `.refusedEndIsDeclared`, `.unwritableEndSuspends`, `PendingRetryTests`, `MemoryWiringTests.busyArchiveHoldsTheStart` |
 | R17, R20, R21, R22, R23 | `OperationCheck` on every path, `OperationVerification`, `OperationEffect` | `OperationCheckTests`, `FactWiringTests.everyOperationIsRecorded`, `.twoNoOps`, `.unrelatedChange` |
-| R18 | Batch parent as container, steps started and ended one by one, unrun steps skipped, for the tools and `mecum batch` alike | `FactWiringTests.partialBatch`, `UncertainInputTests`, `CommandLineBatchTests` |
+| R18 | Batch parent as container, steps started and ended one by one, unrun steps skipped, for the tools and `braus batch` alike | `FactWiringTests.partialBatch`, `UncertainInputTests`, `CommandLineBatchTests` |
 | R58 | `resume`: a new attempt linked, the last interrupted, nothing replayed; a started call stays incomplete | `FactWiringTests.ownershipAndResumption`, `.crashLeavesIncomplete`, `AgentCallProcessTests.diedBetweenStartAndEnd` |
 | R61 | Identity and content compared on every write; a unification duplicate written once | `OperationFactRepositoryTests.conflictsWriteNothing`, `UnificationTests.duplicatesAndConflicts` |
 | R63 | Schema 2 by addition, verified copy, one-transaction migration, readers refuse, recovery accepts schema 1; an earlier archive's copy migrated only as the existing file it is; since 2026-10-13 one text and one migration, from schema 1 | `SchemaMigrationTests`, `ArchiveTransferCoordinationTests.lostCopyNeverCompletes`, `ProcedureRepositoryTests.developmentVersionsRefused` |

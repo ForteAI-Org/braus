@@ -904,7 +904,7 @@ rejects("schema 3: the app scope has no shape", lambda: insert("brain_scene_shap
 rejects("schema 3: a shape is immutable", lambda: db.execute("UPDATE brain_scene_shapes SET role_key='x' WHERE scene_id='scene1'"))
 
 insert("memory_step_occurrences", step_occurrence_id="occ_v2", task_occurrence_id="o1", started_at_ms=100, status="completed",
-       assigned_by="mecum-segmentation")
+       assigned_by="braus-segmentation")
 insert("memory_step_events", step_occurrence_id="occ_v2", event_id="v2_call", position=0, role="action")
 insert("memory_procedure_candidates", candidate_id="c1", task_id="t1", task_occurrence_id="o1", policy_version="app-blocks-1",
        structure_digest="d1", checkpoint_sequence=1, built_at_ms=100, step_count=1, block_count=1)
@@ -912,7 +912,7 @@ insert("memory_candidate_steps", candidate_id="c1", position=0, step_occurrence_
        block_index=0, app_id=1)
 ok("schema 3: a candidate of an attempt with one step, the occurrence of a started operation of that attempt")
 insert("memory_step_occurrences", step_occurrence_id="occ_open", task_occurrence_id="o1", started_at_ms=100, status="in_progress",
-       assigned_by="mecum-segmentation")
+       assigned_by="braus-segmentation")
 insert("memory_step_events", step_occurrence_id="occ_open", event_id="v2_open", position=0, role="action")
 rejects("schema 3: a step of a call the attempt was never attributed", lambda: insert("memory_candidate_steps", candidate_id="c1",
         position=1, step_occurrence_id="occ_open", call_event_id="v2_open", block_index=0, app_id=1))
@@ -1644,7 +1644,7 @@ assert db.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
 ok(f"109 tables, {triggers} triggers, {indexes} explicit indexes, all foreign keys prepared, no JSON columns, integrity checks")
 
 db.commit()
-with tempfile.TemporaryDirectory(prefix="mecum-ddl-v7-") as folder:
+with tempfile.TemporaryDirectory(prefix="braus-ddl-v7-") as folder:
     path = Path(folder) / "memory.sqlite"
     with sqlite3.connect(path) as saved:
         db.backup(saved)

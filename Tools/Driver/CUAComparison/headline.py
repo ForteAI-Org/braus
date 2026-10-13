@@ -15,38 +15,38 @@ def main(paths):
     for r in data:
         by[(r["app"], r["driver"], r["op"])].append(r)
     apps = sorted({(r["app"], r["framework"]) for r in data}, key=lambda a: a[1])
-    print("| framework (app) | Mecum ok | cua ok | step ms Mecum | step ms cua "
-          "| tokens/observe Mecum (unchanged) | tokens/observe cua | driver CPU ms/action Mecum | cua |")
+    print("| framework (app) | Braus ok | cua ok | step ms Braus | step ms cua "
+          "| tokens/observe Braus (unchanged) | tokens/observe cua | driver CPU ms/action Braus | cua |")
     print("|" + "---|" * 9)
     for app, framework in apps:
         cells = [f"{framework} ({app})"]
-        for driver in ("mecum", "cua"):
+        for driver in ("braus", "cua"):
             acts = [r for (a, d, op), rs in by.items() if a == app and d == driver and op in ACTIONS for r in rs]
             opened = [r for r in by.get((app, driver, "open_session"), [])]
-            if driver == "mecum" and opened and not any(r["ok"] for r in opened):
+            if driver == "braus" and opened and not any(r["ok"] for r in opened):
                 cells.append("session refused")
             else:
                 cells.append(f"{sum(r['ok'] for r in acts)}/{len(acts)}" if acts else "—")
-        for driver in ("mecum", "cua"):
+        for driver in ("braus", "cua"):
             per_op = []
             for op in ACTIONS:
                 good = [r["ms"] for r in by.get((app, driver, op), []) if r["ok"]]
                 if not good:
                     continue
                 step = pct(good, .5)
-                if driver != "mecum":
+                if driver != "braus":
                     after = [r["ms"] for r in by.get((app, driver, "observe_after"), []) if r["ok"]]
                     if not after:
                         continue
                     step += pct(after, .5)
                 per_op.append(step)
             cells.append(f"{statistics.median(per_op):,.0f}" if per_op else "—")
-        full = [tokens(r) for r in by.get((app, "mecum", "observe"), [])]
-        same = [tokens(r) for r in by.get((app, "mecum", "observe_unchanged"), [])]
+        full = [tokens(r) for r in by.get((app, "braus", "observe"), [])]
+        same = [tokens(r) for r in by.get((app, "braus", "observe_unchanged"), [])]
         cua = [tokens(r) for r in by.get((app, "cua", "observe"), [])]
         cells.append(f"{pct(full, .5):,.0f} ({pct(same, .5):,.0f})" if full else "—")
         cells.append(f"{pct(cua, .5):,.0f}" if cua else "—")
-        for driver in ("mecum", "cua"):
+        for driver in ("braus", "cua"):
             cpu = [r["driver_cpu_ms"] for (a, d, op), rs in by.items() if a == app and d == driver and op in ACTIONS
                    for r in rs if r.get("driver_cpu_ms") is not None]
             cells.append(f"{pct(cpu, .5):,.0f}" if cpu else "—")

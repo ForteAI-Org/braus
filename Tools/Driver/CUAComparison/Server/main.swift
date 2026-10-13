@@ -5,20 +5,20 @@ import Foundation
 import LocalMCP
 import PrivateSymbols
 
-// mecum-mcp-stdio <knowledge directory>: one JSON-RPC message per line on stdin and stdout, answered by
-// the same MCPRouter and AutomationTools the app's worker host uses. MECUM_BENCH_UNVALIDATED=1 is the
+// braus-mcp-stdio <knowledge directory>: one JSON-RPC message per line on stdin and stdout, answered by
+// the same MCPRouter and AutomationTools the app's worker host uses. BRAUS_BENCH_UNVALIDATED=1 is the
 // Driver's research opt-in for a macOS build its ledger has not validated, as --allow-unvalidated-build.
 
 guard CommandLine.arguments.count == 2 else {
-    FileHandle.standardError.write(Data("usage: mecum-mcp-stdio <knowledge directory>\n".utf8))
+    FileHandle.standardError.write(Data("usage: braus-mcp-stdio <knowledge directory>\n".utf8))
     exit(2)
 }
 
-// Driver ADR 0007: a caller-owned AppKit loop across asynchronous Seat work, as the mecum CLI does.
+// Driver ADR 0007: a caller-owned AppKit loop across asynchronous Seat work, as the braus CLI does.
 let application = NSApplication.shared
 application.setActivationPolicy(.prohibited)
 Task { @MainActor in
-    FacilityGate.researchOptInForUnvalidatedBuilds = ProcessInfo.processInfo.environment["MECUM_BENCH_UNVALIDATED"] == "1"
+    FacilityGate.researchOptInForUnvalidatedBuilds = ProcessInfo.processInfo.environment["BRAUS_BENCH_UNVALIDATED"] == "1"
     let knowledge = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
     let tools = AutomationTools(session: AutomationSession(knowledgeDirectory: knowledge))
     let router = MCPRouter(tools: AutomationTools.definitions) { name, arguments in
@@ -32,7 +32,7 @@ Task { @MainActor in
             }
         }
     } catch {
-        FileHandle.standardError.write(Data("mecum-mcp-stdio: \(error)\n".utf8))
+        FileHandle.standardError.write(Data("braus-mcp-stdio: \(error)\n".utf8))
     }
     // The client closed stdin: return the windows and release the Seat before exiting.
     await tools.session.close()

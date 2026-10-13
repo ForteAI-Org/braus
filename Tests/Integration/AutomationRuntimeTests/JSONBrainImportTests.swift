@@ -1,6 +1,6 @@
 //
 //  JSONBrainImportTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 08/10/2026.
 //
@@ -141,7 +141,7 @@ struct JSONBrainImportTests {
         #expect(await scratch.flush(within: .seconds(10)))
         var legacy = try #require(try await scratch.brain(of: W.bundle))
         await scratch.close()
-        let secret = "sk-mecumReviewSynthetic0000123456789"
+        let secret = "sk-brausReviewSynthetic0000123456789"
         #expect(ValueMinimization.hasCredentialShape(secret))
         legacy.objects[0].label = "Saved key \(secret)"
         let data = try KnowledgeCoding.makeEncoder().encode(AppKnowledge(bundleID: W.bundle, brain: legacy))

@@ -1,6 +1,6 @@
 //
 //  RecallChoiceEvaluationTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 12/10/2026.
 //
@@ -17,21 +17,21 @@ import Testing
 /// RecallChoiceEvaluationTests measure experiment A against the automatic selector on the development corpus v4, by the
 /// protocol fixed before any result (`.scratch/brain-memory-recall/experiment-a/protocol.md`). For each query and condition:
 /// the proposal through `memory_task begin` (experiment enabled); a real agent's choice, a fresh ephemeral session of the
-/// provider configured on this Mac (the Claude or Codex CLI as Mecum invokes it, tools off), which receives Mecum's instructions, the
+/// provider configured on this Mac (the Claude or Codex CLI as Braus invokes it, tools off), which receives Braus's instructions, the
 /// task as it resolved it, its begin call and the tool's answer, and nothing of the corpus's expectations; the choice through
 /// `memory_task choose`, one retry after a refusal; the automatic selector on the same search, as the control. The corpus's
-/// expectations judge both (`RecallJudge`); the model never judges. Gated: `MECUM_RECALL_EVAL=choice4` and the models.
+/// expectations judge both (`RecallJudge`); the model never judges. Gated: `BRAUS_RECALL_EVAL=choice4` and the models.
 ///
-/// - `MECUM_RECALL_CHOICE_AGENT`: `claude` (default: the Claude CLI as Mecum invokes it), `codex`, or `none` (no model call:
+/// - `BRAUS_RECALL_CHOICE_AGENT`: `claude` (default: the Claude CLI as Braus invokes it), `codex`, or `none` (no model call:
 ///   the plumbing only, every case an agent failure).
-/// - `MECUM_RECALL_CHOICE_MODEL`, `MECUM_RECALL_CHOICE_EFFORT`: default `claude-sonnet-5-5`, `max` for Claude (Haiku takes no
-///   effort, as Mecum leaves it out); `gpt-6-astra`, `ultra` for Codex.
-/// - `MECUM_RECALL_CHOICE_ONLY`: query ids, comma-separated, for a smoke run.
-/// - `MECUM_RECALL_CHOICE_CORPUS`, `MECUM_RECALL_CHOICE_SPLIT`: another corpus by absolute path and its split (default v4,
+/// - `BRAUS_RECALL_CHOICE_MODEL`, `BRAUS_RECALL_CHOICE_EFFORT`: default `claude-sonnet-5-5`, `max` for Claude (Haiku takes no
+///   effort, as Braus leaves it out); `gpt-6-astra`, `ultra` for Codex.
+/// - `BRAUS_RECALL_CHOICE_ONLY`: query ids, comma-separated, for a smoke run.
+/// - `BRAUS_RECALL_CHOICE_CORPUS`, `BRAUS_RECALL_CHOICE_SPLIT`: another corpus by absolute path and its split (default v4,
 ///   `dev`). Outside v4 a query is judged on the minimal archive too when it names a `bootstrap`.
-/// - `MECUM_RECALL_CHOICE_CHECK_ONLY=1`: the corpus check alone (the archives and their unknown entry states), no agent and
+/// - `BRAUS_RECALL_CHOICE_CHECK_ONLY=1`: the corpus check alone (the archives and their unknown entry states), no agent and
 ///   no query.
-/// - `MECUM_RECALL_CHOICE_STOP_ON_DEFECT=1`: a structural defect (a choice not recorded, the memory unavailable, a provider
+/// - `BRAUS_RECALL_CHOICE_STOP_ON_DEFECT=1`: a structural defect (a choice not recorded, the memory unavailable, a provider
 ///   failure) stops the run.
 @MainActor
 @Suite("Experiment A measured: the agent's choice against the automatic selector", .serialized)
@@ -40,10 +40,10 @@ struct RecallChoiceEvaluationTests {
     typealias V = RecallEvaluationV2Tests
     typealias P = ProcedureLearningTests
 
-    nonisolated static var mode: String? { E.environment["MECUM_RECALL_EVAL"] }
-    nonisolated static var agent: String { E.environment["MECUM_RECALL_CHOICE_AGENT"] ?? "claude" }
-    nonisolated static var model: String { E.environment["MECUM_RECALL_CHOICE_MODEL"] ?? (agent == "codex" ? "gpt-6-astra" : "claude-sonnet-5-5") }
-    nonisolated static var effort: String { E.environment["MECUM_RECALL_CHOICE_EFFORT"] ?? (agent == "codex" ? "ultra" : "max") }
+    nonisolated static var mode: String? { E.environment["BRAUS_RECALL_EVAL"] }
+    nonisolated static var agent: String { E.environment["BRAUS_RECALL_CHOICE_AGENT"] ?? "claude" }
+    nonisolated static var model: String { E.environment["BRAUS_RECALL_CHOICE_MODEL"] ?? (agent == "codex" ? "gpt-6-astra" : "claude-sonnet-5-5") }
+    nonisolated static var effort: String { E.environment["BRAUS_RECALL_CHOICE_EFFORT"] ?? (agent == "codex" ? "ultra" : "max") }
     static let configurationName = "hybrid0.2/granite-107m/recall-document-1/uniform"
 
     /// AgentCall is one model call: what was sent, what came back, what it cost, how long it took.
@@ -94,13 +94,13 @@ struct RecallChoiceEvaluationTests {
     }
 
     @Test("experiment A against the automatic selector on corpus v4, by the protocol fixed before the run",
-          .enabled(if: mode == "choice4", "MECUM_RECALL_EVAL=choice4 asks for the measure of experiment A"))
+          .enabled(if: mode == "choice4", "BRAUS_RECALL_EVAL=choice4 asks for the measure of experiment A"))
     func measure() async throws {
-        let models = try #require(E.models, "MECUM_RECALL_MODELS names the pinned models")
-        let corpus = try RecallCorpus.load(E.environment["MECUM_RECALL_CHOICE_CORPUS"] ?? "recall-corpus-v4")
-        let only = Set((E.environment["MECUM_RECALL_CHOICE_ONLY"] ?? "").split(separator: ",").map(String.init))
-        let checkOnly = E.environment["MECUM_RECALL_CHOICE_CHECK_ONLY"] == "1"
-        let all = corpus.queries(split: E.environment["MECUM_RECALL_CHOICE_SPLIT"] ?? "dev")
+        let models = try #require(E.models, "BRAUS_RECALL_MODELS names the pinned models")
+        let corpus = try RecallCorpus.load(E.environment["BRAUS_RECALL_CHOICE_CORPUS"] ?? "recall-corpus-v4")
+        let only = Set((E.environment["BRAUS_RECALL_CHOICE_ONLY"] ?? "").split(separator: ",").map(String.init))
+        let checkOnly = E.environment["BRAUS_RECALL_CHOICE_CHECK_ONLY"] == "1"
+        let all = corpus.queries(split: E.environment["BRAUS_RECALL_CHOICE_SPLIT"] ?? "dev")
             .filter { only.isEmpty || only.contains($0["id"].string ?? "") }
         // v4 and its development successor v5 judge on minimal archives only their newer families; another corpus (a
         // holdout) every query with a bootstrap.
@@ -152,7 +152,7 @@ struct RecallChoiceEvaluationTests {
                 print("RECALL-CHOICE \(condition.name) \(record.id): A \(record.verdictA.correct ? "ok" : "wrong") [\(record.answerA)] | control "
                       + "\(record.verdictControl.correct ? "ok" : "wrong") [\(record.answerControl)]")
                 // A structural defect stops the run (protocol v5): it is recorded, never scored, and fixed first.
-                if E.environment["MECUM_RECALL_CHOICE_STOP_ON_DEFECT"] == "1",
+                if E.environment["BRAUS_RECALL_CHOICE_STOP_ON_DEFECT"] == "1",
                    let defect = record.providerFailure ?? record.refusals.first(where: { $0.contains("choice_not_recorded") || $0.contains("memory_unavailable") }) {
                     Issue.record("structural defect, run stopped at \(record.id) (\(condition.name)): \(defect)")
                     return
@@ -337,7 +337,7 @@ struct RecallChoiceEvaluationTests {
         return value
     }
 
-    /// One fresh Claude CLI session as Mecum invokes it (`--append-system-prompt` with Mecum's instructions, the model and
+    /// One fresh Claude CLI session as Braus invokes it (`--append-system-prompt` with Braus's instructions, the model and
     /// effort), without the MCP server, with every tool off, no settings or session kept.
     nonisolated static func invokeClaude(prompt: String, instructions: String) async -> AgentCall {
         await Task.detached { () -> AgentCall in
@@ -359,7 +359,7 @@ struct RecallChoiceEvaluationTests {
                 process.arguments = ["claude", "-p", "--output-format", "json", "--tools", "", "--setting-sources", "",
                                      "--no-session-persistence", "--disable-slash-commands", "--no-chrome", "--permission-mode", "dontAsk",
                                      "--append-system-prompt", instructions, "--model", RecallChoiceEvaluationTests.model]
-                    // Haiku has no effort levels: Mecum leaves the flag out for it.
+                    // Haiku has no effort levels: Braus leaves the flag out for it.
                     + (RecallChoiceEvaluationTests.model.contains("haiku") ? [] : ["--effort", RecallChoiceEvaluationTests.effort])
                 let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
                 process.environment = ["HOME": home, "USER": ProcessInfo.processInfo.environment["USER"] ?? "",
@@ -400,7 +400,7 @@ struct RecallChoiceEvaluationTests {
         }.value
     }
 
-    /// One fresh, ephemeral Codex session as Mecum invokes it, without the MCP server and with every tool off.
+    /// One fresh, ephemeral Codex session as Braus invokes it, without the MCP server and with every tool off.
     nonisolated static func invoke(prompt: String, instructions: String) async -> AgentCall {
         await Task.detached { () -> AgentCall in
             var call = AgentCall()

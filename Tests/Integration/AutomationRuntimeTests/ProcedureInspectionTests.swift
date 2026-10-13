@@ -1,6 +1,6 @@
 //
 //  ProcedureInspectionTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -15,7 +15,7 @@ import PerceptionCore
 @testable import SQLiteMemory
 import Testing
 
-/// ProcedureInspectionTests prove the diagnosis by id a developer reads with `mecum memory --task`:
+/// ProcedureInspectionTests prove the diagnosis by id a developer reads with `braus memory --task`:
 /// read only, from an archive the producers wrote through the tools, it describes the same objects as
 /// the rows. The graph's containment, order and relation edges are the parts, the consecutive steps and
 /// the relations the task's calls proved, counted by SQL; a batch and a skipped step are no step; a

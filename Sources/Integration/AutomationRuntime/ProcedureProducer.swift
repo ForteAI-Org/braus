@@ -1,6 +1,6 @@
 //
 //  ProcedureProducer.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -14,7 +14,7 @@ import SQLiteMemory
 /// of the task's own cycle: after a checkpoint or the end the agent declared, the candidate of the
 /// attempt is built from the facts the archive confirmed (never from the agent's account), and handed
 /// back to the agent with what it needs to interpret it; the agent's interpretation then builds a
-/// version, qualified part by part. The app's workers, its external MCP clients and `mecum chat` reach it
+/// version, qualified part by part. The app's workers, its external MCP clients and `braus chat` reach it
 /// through `memory_task`, so the same contract serves them all. Every write is a transaction of the
 /// archive; nothing here waits for a model or acts on an application.
 nonisolated public enum ProcedureProducer {

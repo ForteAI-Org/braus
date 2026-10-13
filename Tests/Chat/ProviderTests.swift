@@ -8,22 +8,22 @@ struct ProviderTests {
     private func turn(_ provider: ChatProvider, session: String? = nil, prompt: String? = nil) -> ProviderTurn {
         ProviderTurn(provider: provider, model: "selected-model", sessionID: session,
                      prompt: prompt ?? "literal \"quotes\"; $(touch /tmp/never-run)\nsecond line",
-                     instructions: "Only Mecum.\nNo shell.",
-                     bridgeExecutable: "/a path/mecum", connectionFile: "/private/connection.json",
+                     instructions: "Only Braus.\nNo shell.",
+                     bridgeExecutable: "/a path/braus", connectionFile: "/private/connection.json",
                      workingDirectory: "/tmp")
     }
 
     @Test
-    func claudeUsesExactResumeAndOnlyMecumTools() throws {
+    func claudeUsesExactResumeAndOnlyBrausTools() throws {
         let value = try ProviderInvocation(turn(.claude, session: "session-123"))
         #expect(value.arguments.contains("--strict-mcp-config"))
-        #expect(value.arguments.contains("mcp__mecum__*"))
+        #expect(value.arguments.contains("mcp__braus__*"))
         let resume = try #require(value.arguments.firstIndex(of: "--resume"))
         #expect(value.arguments[resume + 1] == "session-123")
         let config = try #require(value.arguments.firstIndex(of: "--mcp-config"))
         let object = try JSONSerialization.jsonObject(with: Data(value.arguments[config + 1].utf8)) as? [String: Any]
         let servers = object?["mcpServers"] as? [String: Any]
-        #expect(servers?.keys.map { $0 } == ["mecum"])
+        #expect(servers?.keys.map { $0 } == ["braus"])
         #expect(!value.arguments.contains(value.standardInput))
         #expect(!value.arguments.contains("--dangerously-skip-permissions"))
     }
@@ -36,7 +36,7 @@ struct ProviderTests {
         #expect(value.arguments.contains("read-only"))
         #expect(value.arguments.contains("features.shell_tool=false"))
         #expect(value.arguments.contains("selected-model"))
-        #expect(value.arguments.contains(where: { $0.contains("command=\"/a path/mecum\"") }))
+        #expect(value.arguments.contains(where: { $0.contains("command=\"/a path/braus\"") }))
         #expect(value.standardInput.contains("$(touch"))
         #expect(!value.arguments.contains(value.standardInput))
     }
@@ -218,7 +218,7 @@ struct ProviderTests {
     }
 
     private func script(_ body: String) throws -> URL {
-        let path = FileManager.default.temporaryDirectory.appendingPathComponent("mecum-provider-test-\(UUID().uuidString)")
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("braus-provider-test-\(UUID().uuidString)")
         try Data(("#!/bin/sh\n" + body + "\n").utf8).write(to: path)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path.path)
         return path

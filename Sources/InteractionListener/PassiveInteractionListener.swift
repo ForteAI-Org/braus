@@ -115,7 +115,7 @@ final class TapContext: @unchecked Sendable {
     private var wakeAt: Double?
     private(set) var latency = CallbackLatency()
     // Instruments intervals, begun only while signposts are enabled: no allocation or formatting otherwise.
-    private static let signposter = OSSignposter(subsystem: "com.forte.mecum", category: "InteractionTap")
+    private static let signposter = OSSignposter(subsystem: "com.forte.braus", category: "InteractionTap")
 
     init(continuation: AsyncThrowingStream<InteractionEvent, any Error>.Continuation, hover: Bool, excludedPID: Int32) {
         self.continuation = continuation

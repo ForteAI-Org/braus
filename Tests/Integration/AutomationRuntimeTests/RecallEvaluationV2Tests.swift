@@ -1,6 +1,6 @@
 //
 //  RecallEvaluationV2Tests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 12/10/2026.
 //
@@ -15,8 +15,8 @@ import Memory
 @testable import SQLiteMemory
 import Testing
 
-/// RecallEvaluationV2Tests run the second comparison (review F05) on `recall-corpus-v2`, gated by `MECUM_RECALL_EVAL`,
-/// with the reports written to `MECUM_RECALL_EVAL_OUT`. The first comparison, its corpus and its calibration stay as they
+/// RecallEvaluationV2Tests run the second comparison (review F05) on `recall-corpus-v2`, gated by `BRAUS_RECALL_EVAL`,
+/// with the reports written to `BRAUS_RECALL_EVAL_OUT`. The first comparison, its corpus and its calibration stay as they
 /// were, as history.
 ///
 /// - `dev2`: every configuration is calibrated on the development and regression splits (all seen), in two conditions:
@@ -37,7 +37,7 @@ struct RecallEvaluationV2Tests {
 
     typealias E = RecallEvaluationTests
 
-    nonisolated static var mode: String? { E.environment["MECUM_RECALL_EVAL"] }
+    nonisolated static var mode: String? { E.environment["BRAUS_RECALL_EVAL"] }
     /// Whether the mode is the third comparison's (second review: selector 3 on `recall-corpus-v3`).
     nonisolated static var third: Bool { mode?.hasSuffix("3") == true }
     nonisolated static var corpusName: String { third ? "recall-corpus-v3" : "recall-corpus-v2" }
@@ -54,10 +54,10 @@ struct RecallEvaluationV2Tests {
     // MARK: Configurations
 
     /// The compared configurations: the first comparison's, the lexical and hybrid ones under each lexical weighting.
-    /// `MECUM_RECALL_EVAL_ONLY` keeps those whose name contains it, for a smoke run; a measure runs them all.
+    /// `BRAUS_RECALL_EVAL_ONLY` keeps those whose name contains it, for a smoke run; a measure runs them all.
     nonisolated static var configurations: [E.EvalConfiguration] {
         let pool = third ? allConfigurations.filter { thirdConfigurations.contains($0.name) } : allConfigurations
-        guard let only = E.environment["MECUM_RECALL_EVAL_ONLY"] else { return pool }
+        guard let only = E.environment["BRAUS_RECALL_EVAL_ONLY"] else { return pool }
         return pool.filter { $0.name.contains(only) }
     }
 
@@ -471,7 +471,7 @@ struct RecallEvaluationV2Tests {
     // MARK: Development
 
     @Test("second corpus, development: calibrate every configuration on development and regression, full and minimal archives",
-          .enabled(if: mode == "dev2" || mode == "dev3", "MECUM_RECALL_EVAL=dev2 or dev3 asks for the calibration"))
+          .enabled(if: mode == "dev2" || mode == "dev3", "BRAUS_RECALL_EVAL=dev2 or dev3 asks for the calibration"))
     func development() async throws {
         let corpus = try RecallCorpus.load(Self.corpusName)
         let development = corpus.queries(split: "dev")
@@ -485,7 +485,7 @@ struct RecallEvaluationV2Tests {
         for configuration in Self.configurations {
             var item = ConfigurationReport(configuration: configuration, name: configuration.name)
             if configuration.model != nil, E.models == nil {
-                item.skipped = "MECUM_RECALL_MODELS names no folder of the pinned models"
+                item.skipped = "BRAUS_RECALL_MODELS names no folder of the pinned models"
                 report.configurations.append(item)
                 continue
             }
@@ -506,7 +506,7 @@ struct RecallEvaluationV2Tests {
             item.score = scores[best]
             item.conditions = Self.report(searched, thresholds: thresholds)
             // A diagnosis of development only: the details at another point, given as absolute,step,part,adequacy,tie.
-            if let point = E.environment["MECUM_RECALL_EVAL_POINT"]?.split(separator: ",").compactMap({ Double($0) }), point.count == 5 {
+            if let point = E.environment["BRAUS_RECALL_EVAL_POINT"]?.split(separator: ",").compactMap({ Double($0) }), point.count == 5 {
                 let other = SelectionThresholds(absolute: point[0], stepMargin: point[1], partMargin: point[2], adequacy: point[3], tie: point[4])
                 var diagnosis = ConfigurationReport(configuration: configuration, name: configuration.name + " at " + point.map { String($0) }.joined(separator: ","))
                 diagnosis.thresholds = other
@@ -525,12 +525,12 @@ struct RecallEvaluationV2Tests {
 
     // MARK: Diagnosis
 
-    /// A diagnosis of the selector's phases, never a measure: for the configurations `MECUM_RECALL_EVAL_ONLY` names, at
-    /// their frozen thresholds (or `MECUM_RECALL_EVAL_POINT`), every query of every split on the full and the minimal
+    /// A diagnosis of the selector's phases, never a measure: for the configurations `BRAUS_RECALL_EVAL_ONLY` names, at
+    /// their frozen thresholds (or `BRAUS_RECALL_EVAL_POINT`), every query of every split on the full and the minimal
     /// archives, with the candidates, each step's and part's relevance in the versions concerned, the episodes, the
     /// selection and its requirements. The second final is development since its result: reading it here is allowed.
     @Test("second corpus, diagnosis: every split's queries with their candidates, relevances, episodes and requirements",
-          .enabled(if: mode == "diagnose2" || mode == "diagnose3", "MECUM_RECALL_EVAL=diagnose2 or diagnose3 asks for it"))
+          .enabled(if: mode == "diagnose2" || mode == "diagnose3", "BRAUS_RECALL_EVAL=diagnose2 or diagnose3 asks for it"))
     func diagnosis() async throws {
         let corpus = try RecallCorpus.load(Self.corpusName)
         let url = try #require(Bundle.module.url(forResource: Self.calibrationName, withExtension: "json"))
@@ -541,7 +541,7 @@ struct RecallEvaluationV2Tests {
         for configuration in Self.configurations {
             guard configuration.model == nil || E.models != nil else { continue }
             var thresholds = try #require(calibration.thresholds[configuration.name])
-            if let point = E.environment["MECUM_RECALL_EVAL_POINT"]?.split(separator: ",").compactMap({ Double($0) }), point.count == 5 {
+            if let point = E.environment["BRAUS_RECALL_EVAL_POINT"]?.split(separator: ",").compactMap({ Double($0) }), point.count == 5 {
                 thresholds = SelectionThresholds(absolute: point[0], stepMargin: point[1], partMargin: point[2], adequacy: point[3], tie: point[4])
             }
             let searched = try await Self.search(configuration, conditions: conditions, archives: &archives, frozen: thresholds)
@@ -655,7 +655,7 @@ struct RecallEvaluationV2Tests {
     }
 
     @Test("second corpus, final: every configuration with its frozen thresholds, full and minimal archives, service and tool",
-          .enabled(if: mode == "final2" || mode == "final3", "MECUM_RECALL_EVAL=final2 or final3 asks for the final measure"))
+          .enabled(if: mode == "final2" || mode == "final3", "BRAUS_RECALL_EVAL=final2 or final3 asks for the final measure"))
     func final() async throws {
         let corpus = try RecallCorpus.load(Self.corpusName)
         let url = try #require(Bundle.module.url(forResource: Self.calibrationName, withExtension: "json"),
@@ -678,7 +678,7 @@ struct RecallEvaluationV2Tests {
                 continue
             }
             if configuration.model != nil, E.models == nil {
-                item.skipped = "MECUM_RECALL_MODELS names no folder of the pinned models"
+                item.skipped = "BRAUS_RECALL_MODELS names no folder of the pinned models"
                 report.configurations.append(item)
                 continue
             }

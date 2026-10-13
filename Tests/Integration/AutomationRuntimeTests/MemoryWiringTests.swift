@@ -1,6 +1,6 @@
 //
 //  MemoryWiringTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 07/10/2026.
 //
@@ -317,7 +317,7 @@ struct MemoryWiringTests {
     func callWithoutTools() async throws {
         let service  = try W.service()
         let recorder = CallRecorder(memory: service, brain: W.brain(service),
-                                    context: ActionContext(source: .cli, streamID: "mecum-1", traceID: "cli-trace"))
+                                    context: ActionContext(source: .cli, streamID: "braus-1", traceID: "cli-trace"))
         _ = await recorder.observe(W.window([W.open, W.format]))
         #expect(await service.flush(within: .seconds(10)))
         #expect(await service.status().failed == 0)

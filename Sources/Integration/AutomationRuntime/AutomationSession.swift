@@ -41,7 +41,7 @@ public final class AutomationSession: AutomationSessionOperating {
         }
         let application = try RunningApplicationLookup.running(word)
         if let missing = Permissions.firstMissing(of: [.screenRecording, .accessibility, .postEvent]) {
-            throw AutomationFailure("Missing macOS permission: \(missing). Grant access to the terminal launching Mecum, "
+            throw AutomationFailure("Missing macOS permission: \(missing). Grant access to the terminal launching Braus, "
                                     + "then relaunch it if needed. MCP does not bypass macOS permissions.")
         }
         let rows = try WindowServerWindowListing().windows(ownedBy: application.processIdentifier)

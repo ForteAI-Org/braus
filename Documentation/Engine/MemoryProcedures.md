@@ -249,7 +249,7 @@ place (a template of the same shape). New values of a parameter leave a prefix t
 that differs refuses the interpretation with nothing written (`contradicted_prefix`, with the step and
 why). A step that cannot be decided (a value withheld on either side, a literal against a parameter, a
 step that cannot be read) leaves the prefix `suggested` with its reason; otherwise it is `verified`.
-`memory_variant_prefix_checks` keeps the result; `mecum memory --task` prints it on the version line
+`memory_variant_prefix_checks` keeps the result; `braus memory --task` prints it on the version line
 (`prefix verified over 3 steps`, `prefix suggested over 3 steps (unreadable_step)`). A variant's own
 qualification never rests on its origin's, whatever its prefix.
 
@@ -394,7 +394,7 @@ at every open and whenever a call waits for its state, it runs in the derived qu
 the queue is empty, one pass of at most 25 calls of each kind, with the queue looked at again between
 passes, so new acquisitions go first and an open, an action or a close never waits for it. It reads facts
 and writes evaluations: no action is repeated. Its counts are in `MemoryService.Status.relationRecovery`;
-`mecum memory --apply-relations` runs it to its end at once.
+`braus memory --apply-relations` runs it to its end at once.
 
 **Thresholds.** A relation is offered (`exposed`) at one proof for a menu that opened and two for anything
 else, and only as a possibility (`limited`) once contradicted; below its threshold it is kept
@@ -429,7 +429,7 @@ for the ordinal rescue the unlabeled members of groups near a labeled detection 
 groups of an unlabeled detection's kind near it, and the groups all of those belong to, by membership. The
 matcher finds in that part what it finds in the whole projection for those detections; transitions, states
 and the clock are left out, since naming reads none of them. It is not cached. The whole projection is
-still read, cached, by `mecum memory <app>` and by the Brain's own updates.
+still read, cached, by `braus memory <app>` and by the Brain's own updates.
 
 **Learning point.** `CallRecorder` queues the relation of every operation after its end is saved, behind
 the scene associations it reads, and asks for the recovery when the call waits for its state. `menu` and
@@ -470,7 +470,7 @@ are indistinct and teach nothing. Contexts (version, locale) are mostly unknown.
 | `candidate` | The candidate of the producer's task again, for an agent that lost it or an interrupted attempt | the same |
 | `interpret` | Prefix check, interpretation, version, parts, contracts, bindings and qualification in one transaction | `SQLiteProcedureRepository.interpret` |
 
-The app's workers, its external MCP clients and `mecum chat` reach all of it through `memory_task`, under
+The app's workers, its external MCP clients and `braus chat` reach all of it through `memory_task`, under
 their own `CallProducer`; another producer's candidate is refused (`foreign_task`). Every write
 is one transaction that reads the facts it decides on inside it; none is held across a gesture or a
 model's turn. Two openers of one archive serialize on the store's writer; a candidate or an
@@ -481,7 +481,7 @@ nothing.
 
 ## Diagnosis and the non-destructive procedures
 
-`mecum memory --task <id>` reads one task by its id, read only (as `--status`: shared presence lock, one
+`braus memory --task <id>` reads one task by its id, read only (as `--status`: shared presence lock, one
 read transaction, an archive of exactly this build's shape): each attempt's calls with what each is to the
 procedures (`step` with its occurrence, `container`, `skipped`, `context`), its check and what it taught
 the relations (the latest evaluation, its cause and sequence, or the first policy's word for a call
@@ -498,27 +498,27 @@ the graph's edges are the rows SQL counts.
 To take knowledge out of use without deleting it, and to evaluate it again:
 
 ```bash
-mecum memory --task <task id>
+braus memory --task <task id>
 ```
 
 ```bash
-mecum memory --part <part id> --state to_reevaluate --reason "<why>"
+braus memory --part <part id> --state to_reevaluate --reason "<why>"
 ```
 
 ```bash
-mecum memory --requalify <route id>
+braus memory --requalify <route id>
 ```
 
 ```bash
-mecum memory --part <part id> --state usable --reason "<why>"
+braus memory --part <part id> --state usable --reason "<why>"
 ```
 
 ```bash
-mecum memory --quarantine-policy qualification-a-1 --reason "<why>"
+braus memory --quarantine-policy qualification-a-1 --reason "<why>"
 ```
 
 ```bash
-mecum memory --apply-relations
+braus memory --apply-relations
 ```
 
 A part to evaluate again also keeps the parts containing it out of the catalogue. `retired` instead of
@@ -535,7 +535,7 @@ verified copies (`memory.sqlite.schema-<n>-…`, the backups) are kept beside it
 
 ## Measures
 
-`ProcedureLearningCostTests` (run with `MECUM_MEMORY_MEASURE=1`; skipped otherwise) on 2026-10-11, Apple
+`ProcedureLearningCostTests` (run with `BRAUS_MEMORY_MEASURE=1`; skipped otherwise) on 2026-10-11, Apple
 M4, 16 GiB, macOS 27.0 (26A428), Swift 6.4, SQLite 3.54.0, debug build, temporary archives. The load: one
 application of 20 structural states (22 toolbar buttons, a panel of the state's own roles, a field, a
 button to the next state), 4 tasks of 100 clicks each through the tools (alternately a toolbar button, a
@@ -621,7 +621,7 @@ relation coverage is claimed.
 | Evaluations, recovery, late entry states | `SQLiteBrainRelationRepository.apply`, `.catchUp`, `MemoryService` recovery | `RelationRecoveryTests`, `ReviewCorrectionTests.lostDerivedWritesRecovered`, `BrainRelationLearningTests.migratedHistoryOnRequest`, `D2StorageIndependentReviewTests` |
 | Delivery to the model, visible degradation, part of the projection | `BrainMemory.enrich`, `SceneKnowledge`, `SQLiteBrainRows.slice` | `BrainMemoryDeliveryTests`, `BrainMemoryDegradationTests`, `D2CorrectionsIndependentReviewTests`, `ReviewCorrectionTests.windowKnowledgeAndDegradation`, `ProjectionSliceTests` |
 | Native `menu` and `press` samples, on success, refusal, cancellation before the command or after its gesture, and a failure before or after it | `PerceivedCommand`, `DialogButtonPress.observed`, `AutomationSession`, `BrokeredAutomationSession` | `ReviewCorrectionTests.nativeCommandsArePerceived`, `.refusedCommandRecordsNothing`, `NativeCommandEvidenceTests`, `D2NativeCommandIndependentReviewTests`, `D2BeforePerceptionCancellationReviewTests` |
-| Diagnosis by id, graph = SQL | `ProcedureInspection`, `SQLiteMemoryInspection.task`, `mecum memory --task` | `ProcedureInspectionTests`, `RelationRecoveryTests.lateEntryState` |
+| Diagnosis by id, graph = SQL | `ProcedureInspection`, `SQLiteMemoryInspection.task`, `braus memory --task` | `ProcedureInspectionTests`, `RelationRecoveryTests.lateEntryState` |
 
 All of these are unit or integration proofs over doubles of the operating system; no live desktop run was
 made for D2. The Seat's `menu` and `press` share `PerceivedCommand` and the same commands with the app's
