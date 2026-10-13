@@ -54,6 +54,12 @@ public enum SceneElementKey {
         case resolved(Identity)
     }
 
+    /// Whether a key is an item template: what every row of a collection offers, not one row. Two elements
+    /// with that key are the same kind of row, and only their labels tell which row each is.
+    public static func isItemTemplate(_ key: String) -> Bool {
+        key.hasPrefix("item_template|")
+    }
+
     /// The template key of an element, or nil when the element is content.
     public static func key(of element: CaptureElement) -> String? {
         if element.isUnderCollection { return "item_template|\(element.containerPath)|\(element.role)|\(caption(of: element))" }

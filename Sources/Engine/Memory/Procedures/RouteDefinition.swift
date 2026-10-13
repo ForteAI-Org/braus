@@ -34,6 +34,21 @@ public enum ParameterValueType: String, Sendable, Equatable, Hashable, CaseItera
     }
 }
 
+extension BrainArgument.Value {
+    /// Whether a number or a flag recorded for an argument is what a whole parameter's textual binding spells: the
+    /// binding read as the argument's type (an integer, a real, `true` or `false`) is equal to it. A binding that does
+    /// not read as that type spells nothing. A text is never compared here: how a text compares is the caller's rule,
+    /// and a text of digits stays a text.
+    public func isSpelled(by binding: String) -> Bool {
+        switch self {
+            case .text                : false
+            case .integer(let number) : Int64(binding) == number
+            case .real(let number)    : Double(binding) == number
+            case .boolean(let flag)   : (binding == "true" ? true : binding == "false" ? false : nil) == flag
+        }
+    }
+}
+
 /// RouteParameter is one parameter of a Route: an id (never its name), the name a caller reads,
 /// its direction, its value's type and whether a caller must supply it.
 public struct RouteParameter: Sendable {

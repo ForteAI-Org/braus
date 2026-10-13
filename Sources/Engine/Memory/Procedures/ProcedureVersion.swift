@@ -411,9 +411,7 @@ public enum ProcedureAssembly {
                 }
                 let matches: Bool = switch recorded.value {
                     case .text(let text): rendered.utf8.elementsEqual(text.utf8)
-                    case .integer(let number): whole && Int64(rendered) == number
-                    case .real(let number): whole && Double(rendered) == number
-                    case .boolean(let flag): whole && (rendered == "true" ? true : rendered == "false" ? false : nil) == flag
+                    default: whole && recorded.value.isSpelled(by: rendered)
                 }
                 guard matches else { finding(.useMismatch); continue }
             }
