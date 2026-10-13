@@ -2,12 +2,12 @@
 
 Start with the app setup below, or choose a guide:
 
-- [MCP setup](MCPSetup.md): connect Claude Code, Codex or another local client.
+- [MCP setup](Engine/LocalMCP.md): connect Claude Code, Codex or another local client.
 - [Compatibility and limitations](LaunchCompatibility.md): supported frameworks and workflow checks.
 - [Driver](Driver/README.md): virtual displays, window placement and input routing.
 - [Perception](Perception/README.md): turn the current interface into structured text.
 - [Engine](Engine/README.md): resolve actions, check effects and use app knowledge.
-- [Benchmarks](Driver/reports/CUADriverBenchmark20261006.md): measured results, method and per-operation data.
+- [Benchmarks](Driver/reports/CUADriverBenchmark20261013.md): 13 October results, method and per-operation data; [6 October report](Driver/reports/CUADriverBenchmark20261006.md).
 
 ## Get started
 
@@ -30,9 +30,9 @@ The map adds context to a fresh observation. The engine still finds targets in t
 
 ## Memory
 
-Memory stores past interactions and their outcomes, so agents can draw on that experience in later tasks. Recall is still in development and can be inconsistent, with improvements on the way.
+Memory records interactions, outcomes and learned procedures in a local SQLite archive. Recall can suggest steps from earlier work for a new task; the agent still resolves controls in the live interface and checks the result. Recall is still in development and can be inconsistent. See the [recall contract and limits](Engine/MemoryRecall.md).
 
-App knowledge, living memory and workspace history are separate stores. External MCP clients need the **Shared Brain and living memory** capability to access shared knowledge and living memory. Without it, the client uses its own Brain. See [MCP capabilities](MCPSetup.md#choose-the-capabilities-to-expose) and the [Engine's recall contracts](Engine/README.md#contracts).
+Braus workers, local MCP clients and the CLI share the user's local app knowledge and living memory. Each MCP client's task stream remains private to its grant. This is local sharing on the same Mac, not cross-device or team sync. Workspace history remains separate. See [local MCP scope](Engine/LocalMCP.md#scope-and-lifecycle) and the [shared archive contract](Engine/MemoryFacts.md#one-archive-per-user).
 
 ## Permissions and data
 
