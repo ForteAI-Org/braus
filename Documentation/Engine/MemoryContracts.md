@@ -329,8 +329,9 @@ either writes its own.
   below its cursor.
 - Settings → Brain shows the app process's memory status and counters. `braus memory --status` reports
   the linked SQLite version, archive and schema compatibility in its own process without opening the
-  writing service; its counters must not be presented as the app's. Older macOS releases and their
-  SQLite libraries were not checked.
+  writing service; its counters must not be presented as the app's. The SQLite is compiled in
+  (`SQLiteAmalgamation`, 3.54.0), so it no longer depends on the macOS release; no run on a macOS before
+  27 yet.
 - Before Action Memory and Action Recall write anything of their own, four contracts need one shared answer, so the
   two do not produce incompatible formats: how a stored argument names the slot or the earlier output it came from
   (binding and provenance; see [Shared fixtures](#shared-fixtures)); what a verification proves and who may write

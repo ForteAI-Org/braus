@@ -7,7 +7,7 @@
 
 import Foundation
 import Memory
-import SQLite3
+import SQLiteAmalgamation
 
 /// SQLiteArchiveTransfer moves the knowledge of an earlier archive (an external client's private archive
 /// of schema 1) into the user's one archive, without changing the earlier archive and without copying its

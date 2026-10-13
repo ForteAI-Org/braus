@@ -229,11 +229,18 @@ differ from this resource's, so they are refused by that comparison, untouched. 
 whose constraints differ is refused untouched"). Nothing migrates, resets or imports them; a person
 moves them aside by hand.
 
+The library is not the system's. `SQLiteAmalgamation` compiles SQLite 3.54.0 from sqlite.org into every
+binary that links `SQLiteMemory`, so macOS 15 and later run the same version as macOS 27. Before macOS 27
+the system library can be older than the requirements below, and the store refused to open there. The
+schema's `group_concat(... ORDER BY ...)` also needs 3.44.0. The source, the options and how to update
+it are in [its README](../../Sources/Engine/SQLiteAmalgamation/README.md).
+
 Requirements the store checks on the linked library before opening anything: 3.37.0 for `STRICT`,
 and 3.51.3 (or the backports 3.44.6 and 3.50.7) for the concurrent-WAL correction. A library below
-either answers `unavailable(.library)`. The `sqlite3` command and Python's module prove nothing
-about the library the binary links; `SQLiteLibrary.version` and `.sourceID` do, and
-`MemoryService.status()` reports them while the archive is open.
+either answers `unavailable(.library)`; with the compiled-in library this guards an update of it. The
+`sqlite3` command and Python's module prove nothing about the library the binary links;
+`SQLiteLibrary.version` and `.sourceID` do, and `MemoryService.status()` reports them while the archive
+is open.
 
 ## How the store treats a file
 
@@ -1811,7 +1818,8 @@ Counts from `swift test list` and the scripts on 2026-10-07, this branch.
     one fixture through every repository of plan 2, reopened and retried).
 
   The first test prints the linked library's version and source id; on the machine of 2026-09-30 it
-  was 3.54.0, `2026-04-09 12:25:13 8fa8248e…aapl`, from `/usr/lib/libsqlite3.dylib`.
+  was 3.54.0, `2026-04-09 12:25:13 8fa8248e…aapl`, from `/usr/lib/libsqlite3.dylib`. Since 2026-10-13 it is
+  the compiled-in 3.54.0, `2026-10-09 15:46:58 be8d059e…`.
 - `MemoryTests` (162 tests in 19 suites) proves the pure contracts on their own:
   `AgentCallContractTests`, `AgentCallResultContractTests`, `CaptureSampleKeyTests`,
   `CaptureSampleContentTests`, `MenuCommandRecordTests`, `EventAttributionContractTests`,

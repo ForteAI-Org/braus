@@ -7,7 +7,7 @@
 
 import Foundation
 import Memory
-import SQLite3
+import SQLiteAmalgamation
 import Synchronization
 
 /// SQLiteMemoryStore is the living memory's one SQLite file, opened explicitly at a path the

@@ -7,7 +7,7 @@
 
 import Foundation
 import Memory
-import SQLite3
+import SQLiteAmalgamation
 
 /// SQLiteMemoryInspection says what an archive file is, for a diagnosis, without changing it: whether
 /// it is there, its size and its log's, its schema version and what this build's open would make of

@@ -64,7 +64,8 @@ selection change before borrowing cannot redefine the opening target.
 Link the `BrausEngine` library product. `EngineCore` imports `PerceptionCore`, Foundation and
 CoreGraphics; `Memory` imports `EngineCore` and `PerceptionCore`; the adapters import their core
 module and one framework, `FileKnowledge` imports `Memory` and Foundation only, and `SQLiteMemory`
-imports `Memory`, Foundation and the SDK's `SQLite3`. In production it is imported by
+imports `Memory`, Foundation and `SQLiteAmalgamation`, the SQLite 3.54.0 the package compiles in so every
+supported macOS runs the same library. In production it is imported by
 `AutomationRuntime` (`MemoryService`, `CallRecorder`) and by `braus`'s `memory` command; no library
 product vends it. A background seat fills
 `Actuating` with its own delivery and leaves `ApplicationActivating` unfilled: its windows are never

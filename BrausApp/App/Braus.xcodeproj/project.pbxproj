@@ -396,6 +396,10 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-Wl,-unexported_symbol,_sqlite3_*",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.forte.Braus;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -427,6 +431,10 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-Wl,-unexported_symbol,_sqlite3_*",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.forte.Braus;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;

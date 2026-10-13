@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import SQLite3
+import SQLiteAmalgamation
 
 /// SQLiteConnection is one `sqlite3*` handle with one owner, used from one isolation domain at a
 /// time and closed when the owner closes it or lets it go. Its methods answer the library's own

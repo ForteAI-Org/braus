@@ -6,7 +6,7 @@
 //
 
 import Memory
-import SQLite3
+import SQLiteAmalgamation
 
 extension MemoryStoreError {
 

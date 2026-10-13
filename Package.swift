@@ -368,10 +368,26 @@ let package = Package(
         engine("FileKnowledge", ["Memory"], settings: pure),
 
         // The SQLite foundation of the living memory: one file at a chosen path, one schema, a serial writer
-        // and a separate reader, typed errors. Imports Memory and the SDK's SQLite3 only; AutomationRuntime's
+        // and a separate reader, typed errors. Imports Memory and SQLiteAmalgamation only; AutomationRuntime's
         // MemoryService composes it.
-        engine("SQLiteMemory", ["Memory"], settings: pure,
+        engine("SQLiteMemory", ["Memory", "SQLiteAmalgamation"], settings: pure,
                resources: [.copy("Resources/brain-living-memory-schema.sql")]),
+        // SQLite 3.54.0 from sqlite.org, compiled in so every supported macOS runs the library the schema and the
+        // store need, not the system's, which is older before macOS 27. The options keep the system library's
+        // trigger, durability and limit defaults. Source, options and update steps in the folder's README.
+        .target(name: "SQLiteAmalgamation", path: "Sources/Engine/SQLiteAmalgamation", exclude: ["README.md"],
+                cSettings: [.define("SQLITE_DEFAULT_RECURSIVE_TRIGGERS", to: "1"),
+                            .define("SQLITE_DEFAULT_CKPTFULLFSYNC", to: "1"),
+                            .define("SQLITE_DEFAULT_JOURNAL_SIZE_LIMIT", to: "32768"),
+                            .define("SQLITE_DEFAULT_WAL_SYNCHRONOUS", to: "1"),
+                            .define("SQLITE_DEFAULT_CACHE_SIZE", to: "2000"),
+                            .define("SQLITE_DEFAULT_MEMSTATUS", to: "0"),
+                            .define("SQLITE_MAX_LENGTH", to: "2147483645"),
+                            .define("SQLITE_MAX_VARIABLE_NUMBER", to: "500000"),
+                            .define("SQLITE_USE_URI", to: "1"),
+                            .define("SQLITE_ENABLE_API_ARMOR"),
+                            .define("SQLITE_ENABLE_MATH_FUNCTIONS"),
+                            .define("SQLITE_OMIT_LOAD_EXTENSION")]),
 
         // `TextEmbedding` over a pinned local model: the XLM-RoBERTa tokenizer and a BERT-family encoder on
         // Accelerate, reading the model's files from disk. Imports Memory, Foundation and Accelerate; no network.
@@ -481,6 +497,6 @@ let package = Package(
                     resources: [.copy("Fixtures/recall-embedding-reference.json")]),
         // The capture and scene fixtures walk a fake accessibility tree through the producer, the merge and
         // the pure pipeline before they reach the store, so the suite imports the perception modules too.
-        engineTests("SQLiteMemory", ["SQLiteMemory", "Memory", "EngineCore", "PerceptionCore", "Perception"]),
+        engineTests("SQLiteMemory", ["SQLiteMemory", "SQLiteAmalgamation", "Memory", "EngineCore", "PerceptionCore", "Perception"]),
     ]
 )

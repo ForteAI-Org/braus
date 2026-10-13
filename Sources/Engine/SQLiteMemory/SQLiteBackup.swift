@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import SQLite3
+import SQLiteAmalgamation
 
 /// SQLiteBackup is one online copy of a database through the library's backup API, page by page,
 /// from a source connection to a destination connection. The owner steps it, checking for

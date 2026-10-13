@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import SQLite3
+import SQLiteAmalgamation
 
 /// SQLiteStatement is one prepared statement: bound by position, stepped to its rows, finalized by
 /// its owner. A statement left with a pending row holds a read cursor on its table, and the next

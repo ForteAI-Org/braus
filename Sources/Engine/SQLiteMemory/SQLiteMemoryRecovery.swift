@@ -7,7 +7,7 @@
 
 import Foundation
 import Memory
-import SQLite3
+import SQLiteAmalgamation
 
 /// SQLiteMemoryRecovery replaces an archive the library calls corrupt or not a database: it moves the
 /// file aside with its journal, as `<archive>.corrupt-<stamp>`, never deleting anything, and puts the

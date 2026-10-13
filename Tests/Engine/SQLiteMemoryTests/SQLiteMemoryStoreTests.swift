@@ -7,6 +7,7 @@
 
 import Foundation
 import Memory
+import SQLiteAmalgamation
 @testable import SQLiteMemory
 import Synchronization
 import Testing
@@ -27,6 +28,23 @@ struct SQLiteMemoryStoreTests {
         #expect(SQLiteLibrary.unmetRequirement(of: 3_044_006) == nil)
         #expect(SQLiteLibrary.unmetRequirement(of: 3_045_000) == .concurrentWAL)
         #expect(SQLiteLibrary.unmetRequirement(of: 3_050_007) == nil)
+    }
+
+    /// The system library has another source id (Apple's ends in `aapl`), so a binary that reached it
+    /// instead of `SQLiteAmalgamation` fails here on every macOS, the ones with an older library included.
+    @Test("the linked library is the one compiled in, with the system library's trigger, checkpoint and limit defaults")
+    func compiledInLibrary() throws {
+        #expect(SQLiteLibrary.sourceID      == SQLITE_SOURCE_ID)
+        #expect(SQLiteLibrary.versionNumber == SQLITE_VERSION_NUMBER)
+        let connection = try SQLiteConnection(path: ":memory:")
+        defer { connection.close() }
+        let defaults: [(pragma: String, value: Int64)] = [
+            ("recursive_triggers", 1), ("checkpoint_fullfsync", 1), ("journal_size_limit", 32_768), ("cache_size", 2_000),
+        ]
+        for (pragma, value) in defaults {
+            #expect(try connection.query("PRAGMA \(pragma)") { $0.integer(0) }.first == value, "\(pragma)")
+        }
+        #expect(connection.limit(.length) == 2_147_483_645)
     }
 
     @Test("an empty file is bootstrapped to schema 1 in WAL with full sync and foreign keys, and reopens as found")
