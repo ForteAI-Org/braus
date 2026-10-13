@@ -1,6 +1,6 @@
 //
 //  BrainProjectionError.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 01/10/2026.
 //
@@ -15,7 +15,7 @@ public enum BrainProjectionError: Error, Sendable, Equatable {
     /// An effect string the vocabulary cannot store and rebuild exactly.
     case unrepresentableEffect(String, EffectProblem)
 
-    /// A stored `effect_kind` outside the six families.
+    /// A stored `effect_kind` outside the seven families.
     case unknownEffectKind(String)
 
     /// A stored effect whose columns do not have its family's shape.
@@ -54,9 +54,10 @@ public enum BrainProjectionError: Error, Sendable, Equatable {
         case notCanonical
     }
 
-    /// EffectShape says which column rule a stored effect breaks.
+    /// EffectShape says which column rule a stored effect breaks. `missingValue` and `forbiddenValue`
+    /// name the label and value pair of a value change.
     public enum EffectShape: Sendable, Equatable {
-        case missingText, forbiddenText, missingState, forbiddenState, forbiddenItems, notCanonical
+        case missingText, forbiddenText, missingState, forbiddenState, missingValue, forbiddenValue, forbiddenItems, notCanonical
     }
 
     /// Malformation says which shape rule a stored row breaks.

@@ -3,9 +3,12 @@
 The SQLite schema of the living memory: what the `SQLiteMemory` module ships, how its store treats a
 file, the observation contract its repositories write and read, the stored projection of the brain,
 the agent calls, how production writes all of it, and how the shipped resource differs from the
-candidate it was copied from. Status on 2026-10-07, branch `tommaso/merge-memory`: schema 1, 48
-tables, 48 triggers, 31 explicit indexes, resource sha256
-`9df535abc689f7f2610a023ed6be483d408896f7356e88b015b72c2b4324b9e4`.
+candidate it was copied from. Status on 2026-10-13, branch `rename-app` with G76 D1 to D3 merged: one
+schema text at version 7, 109 tables, 187 triggers, 73 explicit indexes, resource sha256
+`8ad0d5571d1b28e13b222560ce2c7e962302d4ec984eb99039e3d7b045ecbac6`. Its part 1 is schema 1 (48 tables, 48 triggers, 31 explicit indexes) with
+the value change ([below](#the-value-change)), whose resource had sha256
+`b93622990ea5ec285c53aed98af4ffac956c3bf2ddd7c65aa11de99e68452141` ([One schema text](#one-schema-text)).
+Everything below about schema 1 still holds for the tables of the base.
 
 The store and its repositories were built on `tommaso/memory-model` and documented there at
 `f163651`. This branch transplanted that data layer onto main, extended the contract to main's
@@ -24,34 +27,197 @@ The resource's history, as `tommaso/memory-model` recorded it and as this branch
 | S3-d correction (`memory-model`, `f163651`) | `b99be960b3247d8bf2aa23d0622102686b73ad8d95a85a31eb11c8762c528ae4` | monotone `duration_ms`, typed observed effects, the structured results of the listing and scene tools, `memory_events.origin_event_id` |
 | merge into main (`4f6f075`) | `4c39eed0c6729673eb077b9a2450b63aa2814e3f9e7d7720c4baf60641cd533b` | the `identifier` label origin, the `mcp` source, the `textSelectionChanged` effect, `is_default_browser` |
 | merge into main, docs | `9df535abc689f7f2610a023ed6be483d408896f7356e88b015b72c2b4324b9e4` | the correlation triggers' error message names `mcp` too |
+| the value change | `b93622990ea5ec285c53aed98af4ffac956c3bf2ddd7c65aa11de99e68452141` | `effect_label`, `effect_value` and the `observed_effect_*` pair, the `valueChanged` family |
 
-Only the last two hashes were recomputed for this page; the others are as `memory-model` recorded
+Only the last three hashes were recomputed for this page; the others are as `memory-model` recorded
 them. Every step stayed at schema 1. Which tables production writes, and which have only an API and
 fixtures, is in [the memory contracts](MemoryContracts.md#what-production-writes-today). The
 contract items listed at the end were carried into S2 as they stand.
 
+## One schema text
+
+Since 2026-10-13 the module ships one text, `brain-living-memory-schema.sql`, that creates the whole
+schema at version 7, and edits it in place: a change of shape before a release adds no file. Its part 1 is
+schema 1 with the value change, statement for statement; the store reads the shape of version 1 from that
+part (`SQLiteMemorySchema.part(_:of:)`), to recognize an archive of version 1 before migrating it.
+
+- **New archive.** The bootstrap runs the one text and sets `user_version = 7` in the same transaction.
+- **Archive of version 1** at exactly part 1's shape, the one `rename-app`'s builds create. A producer's open
+  migrates it after a verified copy, in one transaction (`SQLiteMemorySchema.migrationText(from: 1)`):
+  - every table of the one text that schema 1 lacks, each statement as the one text writes it, in its order;
+  - the shapes of the structural scenes it holds, derived from its own rows (`SQLiteMemorySchema.derivedRows`);
+  - the indexes, then the triggers;
+  - the anchors' label keys, filled by the store, and one rebuild of the Recall's index queued;
+  - the record `7:1` in `memory_schema_migrations`.
+
+  The migration only adds: no later part alters a table of part 1 (`SchemaMigrationTests.oneText`). A reader
+  refuses the archive until then (`migrationRequired`).
+- **Archive of main before the value change.** Its version-1 tables lack the value change's columns: refused
+  untouched by name (`missingColumns`), as `rename-app` already decided, never migrated or reset. Editing part 1
+  again moves this line: an archive bootstrapped before the edit is refused untouched, and
+  `SchemaMigrationTests.partOneShape` names the shape part 1 must keep for the archives it recognizes.
+- **Versions 2 to 6.** They were the development steps of the G76 plans, one text each, never released. An
+  archive at one of them, which only a development build of D1, D2 or D3 could create, is refused untouched,
+  with no copy beside it (`schema(.unsupported)`, `ProcedureRepositoryTests.developmentVersionsRefused`).
+  An archive at version 7 of a development build of D3 lacks the value change's columns and is refused untouched
+  too (`missingColumns`).
+
+**Why.** The six development texts each added to the one before, so the shape of version 7 was spread
+over seven files and a migration existed for every step, though only version 1 was ever released. R63
+asks that the archives of a released version keep their facts, so the migration from version 1 stays;
+the others served only development machines. Schema 1 is read from the one text, not from a copy of it,
+so there is one SQL file; the archives of main before the value change are refused as `rename-app`
+already refused them.
+
+**Proof that nothing changed.** Before the merge, the one text created the same 369 objects as the chain
+of seven, each with the same statement (checked with SQLite). After it, the only objects that differ are the
+two tables the value change altered, `brain_transitions` and `memory_agent_actions`. Three archives of version 1 with rows
+(calls and captures; a projection of 413 anchors; structural scenes with their roles) were migrated by
+the chain's build and by this one: every object and every row is the same, the instants of the
+migration aside. `RecallLifecycleTests.schemaOneArchive`, `ProjectionSliceTests.migrationFillsTheKeys`
+and `SchemaMigrationTests.sceneShapes` cover the derived rows; `verify-memory-schema.py` runs schema 1's
+checks on part 1 and the parts 2 to 7 in order on that populated file, and checks that the parts are the
+whole text.
+
+The one text keeps three tables no build writes any more: `brain_relation_applications` and
+`brain_relation_proofs`, the register of the first relation policy, and `memory_variant_prefixes`, the
+first check of a variant's prefix. They are empty in every archive this schema opens; removing them is a
+change of shape left to a later edit of the one text.
+
+The sections below record each part as it was added, when each was a version of its own, with the counts
+and checks of that day; the files they name were merged into the one text, and the migrations from
+versions 2 to 6 removed.
+
+## Schema 2 (G76 D1)
+
+Since 2026-10-09 the store bootstraps and opens schema 2: this page's schema 1 resource, unchanged, followed by
+`brain-living-memory-schema-2.sql`, which adds 18 tables, 27 triggers and 10 indexes (66, 75 and 41 in all) for
+tasks, operation effects and verifications, withheld values, the parts of a call's end saved without them
+(`memory_call_recording_gaps`), the unified archives' origins with what their JSON Brains contributed
+(`memory_origin_brain_contributions`), and the migration record. An archive at exactly schema 1 is migrated by a producer's open after a verified copy; a reader refuses
+it (`migrationRequired`). Everything below about schema 1 still holds for its tables. The contracts, the
+migration and the tests are in [MemoryFacts](MemoryFacts.md); `verify-memory-schema.py` runs schema 2's text on
+its populated schema 1 file and checks it (292 checks, 239 negative, on 2026-10-09).
+
+## Schema 3 (G76 D2)
+
+`brain-living-memory-schema-3.sql`, the first D2 delivery's (2026-10-11), follows schemas 1 and 2 unchanged and
+adds 20 tables, 47 triggers and 11 indexes (86, 122 and 52 in all) for procedure candidates, interpretations,
+versions and parts, parameters' details, templates and bindings, the qualification of parts with its policies,
+reasons, evidence and states, and the Brain's relations with their proofs, their register and the role keys of
+structural scenes. Archives of schema 3 exist, so its text is unchanged and schema 4 follows it.
+
+## Schema 4 (G76 D2, after its independent review)
+
+From the first corrections of 2026-10-11 until schema 5 the store bootstrapped and opened schema 4: schemas 1, 2 and 3 unchanged,
+followed by `brain-living-memory-schema-4.sql`, which adds 4 tables, 10 triggers and 8 indexes (90, 132 and 60
+in all) for the append-only history of what each call teaches the relations and the evidence of each
+evaluation, the anchors' label keys a scene's part of the projection is read by, and the check of a variant's
+common prefix. Schema 3's register of the first relation policy stays as written. A producer's open migrates
+an archive at exactly schema 3, 2 or 1 after a verified copy, in one transaction, and fills the label keys of
+the anchors it holds; readers refuse it until then. The contracts, the migration and the tests are in
+[MemoryProcedures](MemoryProcedures.md#schema-4-and-its-migration); `verify-memory-schema.py` runs schema 4's
+text after schema 3's on its populated file (390 checks, 324 negative, on 2026-10-11).
+
+## Schema 5 (G76 D2, after its second independent review)
+
+Since the second corrections of 2026-10-11 the store bootstraps and opens schema 5: schemas 1 to 4 unchanged,
+followed by `brain-living-memory-schema-5.sql`, which adds 1 table and 3 triggers (91, 135 and 60 in all):
+`memory_variant_prefix_checks`, the check of a variant's common prefix with the reason a prefix whose
+parameters do not correspond is only suggested. Schema 4's `memory_variant_prefixes` stays as written and is
+written no more. A producer's open migrates an archive at exactly schema 4, 3, 2 or 1 after a verified copy,
+in one transaction, copies schema 4's suggested prefixes and checks its verified ones again from the stored
+definitions; readers refuse it until then. The contracts, the migration and the tests are in
+[MemoryProcedures](MemoryProcedures.md#schema-5-and-its-migration); `verify-memory-schema.py` runs schema 5's
+text after schema 4's on its populated file (401 checks, 332 negative, on 2026-10-11).
+
+## Schema 6 (G76 D3, the Recall)
+
+Since D3 (2026-10-11) the store bootstraps and opens schema 6: schemas 1 to 5 unchanged, followed by
+`brain-living-memory-schema-6.sql`, which adds 12 tables, 35 triggers and 12 indexes (103, 170 and 72 in all):
+the Recall's derived index (`memory_recall_spaces`, `_generations`, `_documents`, `_vectors`, `_entries`, and
+the durable queue `_work`) and its facts (`memory_recall_queries`, `_needs`, `_selections`, `_requirements`,
+`_links`, `_reports`). Five of its triggers sit on schema 3's tables (versions, part qualifications, part states,
+qualification policies) and record index work in the same transaction as every write that changes what the
+catalogue may offer, and four of its indexes give schema 3's lookups by version (bindings, parameter details,
+contract items, the version that supersedes another) the index they lacked; no table of an earlier schema is
+altered. A producer's open migrates an archive at exactly
+schema 5 to 1 after a verified copy, in one transaction, and queues one rebuild of the index there, since the
+text cannot read the time; readers refuse it until then. The index is derived and rebuildable; its contract,
+lifecycle and tests are in [MemoryRecall](MemoryRecall.md). `verify-memory-schema.py` runs schema 6's text after
+schema 5's on its populated file (481 checks, 403 negative, on 2026-10-12): spaces, generations and their
+transitions, vectors of the space's length, entries of a live generation in its format, the work triggers and
+their coalescing, queries whose search status, coverage, channel and delivery agree, needs whose reason fits
+their coverage (`excluded` only for an absence), selections within their version (an excluded episode allowed
+for an absence, never for a search that could not answer), requirements on their selection's steps (a
+prerequisite out of the catalogue, a step done before the selection or an output's producer on a step of its
+version before it), exclusions only on excluded selections and excluded selections stating only exclusions, a
+constraint named by its position, an observed state with its scene, links of calls of the query's attempt to
+its selected interval, reports in order, and every fact immutable and kept. The correction round of the
+independent review (2026-10-12) changed schema 6's text before any release: the requirement kinds
+(`observed_state`, `prepared_before`, `input_produced`, `output_ready`, `constraint_unchecked`,
+`certain_conflict`, `constraint_excluded`), the `constraint_position` column, the `produced` binding match, the
+`excluded` selection role and need reason, a link's `undetermined` flag; the counts are unchanged.
+
+## Schema 7 (G76 D3, the experiment of the agent's choice)
+
+Since the experiment A round (2026-10-12) the store bootstraps and opens schema 7: schemas 1 to 6 unchanged, followed by
+`brain-living-memory-schema-7.sql`, which adds 6 tables, 17 triggers and 1 index (109, 187 and 73 in all):
+
+- a proposal (`memory_recall_proposals`), its needs (`memory_recall_proposal_needs`) and the versions it shortlisted
+  per need with their names and the automatic suggestion (`memory_recall_proposal_sources`);
+- the choice that answers a proposal, one per proposal (`memory_recall_choices`);
+- the agent's declaration of coverage per need (`memory_recall_choice_needs`): `all`, `part`, `none` or `ambiguous`,
+  what remains or the question for the person, and the request's words it quoted to settle a choice (`settled_by`); an
+  ambiguous need has no selected row and two `alternative` rows at least;
+- the links of a choice's calls to the tract they carried out (`memory_recall_choice_links`).
+
+One trigger sits on schema 6's `memory_recall_links`: a choice's calls are never linked there, since those links name
+no tract. Schema 6's check of a requirement's step (`memory_recall_requirements_valid`) is dropped and written again with
+the same checks and one case admitted: an `input_produced` of a chosen tract may name the producer's step in an earlier
+selected tract of the same version and need. The measure with a real agent found that case refused. No table of an
+earlier schema is altered. Why the experiment needs these, and why schema 6's columns would
+have changed meaning to hold them, is in [RecallAgentChoice](RecallAgentChoice.md#persistence-schema-7).
+
+A producer's open migrates an archive at exactly schema 6 to 7 after a verified copy, in one transaction, with no data
+statement and no rebuild; an archive at schema 5 or earlier runs every text it lacks. `RecallLifecycleTests` migrated
+an archive of schema 6 that held a query, its selection and its index, and read every row back; that test went with
+the migrations from versions 2 to 6.
+`verify-memory-schema.py` runs schema 7's text after schema 6's on its populated file (520 checks, 437 negative, on
+2026-10-12). The checks cover:
+- one name per version in a proposal;
+- a suggestion with both ends;
+- a source of a need the proposal has;
+- a choice of a proposal of the same attempt, revision and producer, at most one per proposal;
+- a declaration of all covered with nothing uncovered;
+- a link to a step of the tract it names, a call linked once per query;
+- no schema 6 link for a choice's call;
+- every row immutable and kept.
+
 ## The resource
 
 `Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema.sql`, copied into the module's
-resource bundle and read by `SQLiteMemorySchema` at every open. Its base is the S0 closing candidate
-v5, whose logical model was approved at v3. The resource differs from that base in the changes
+resource bundle and read by `SQLiteMemorySchema` at every open ([One schema text](#one-schema-text)). What follows describes the base, part 1 of the one text. Its base is
+the S0 closing candidate v5, whose logical model was approved at v3. The resource differs from that base in the changes
 listed in [Differences from the archived v5 candidate](#differences-from-the-archived-v5-candidate),
 in its comments (English) and in carrying no `PRAGMA`, `BEGIN` or `COMMIT` of its own: the store owns
 those boundaries.
 
 Shape: 48 tables, all `STRICT`; 48 triggers; 31 explicit indexes; no JSON column. The JSON files
 `FileKnowledge` wrote are never read at run time; their Brains are copied once, when an open creates
-the archive beside them, and `mecum memory --import-json <dir>` copies any directory's by hand
+the archive beside them, and `braus memory --import-json <dir>` copies any directory's by hand
 ([The brain's projection](#the-brains-projection). The resource has no version of
-its own: the bootstrap sets `user_version = 1` in the same transaction that creates the tables. No
+its own: the bootstrap sets `user_version = 7` in the same transaction that creates the tables. No
 `application_id` is set or checked: a file is recognized by its version and its shape.
 
-A file at version 1 must carry every table of the resource; every column this build writes that an
+A file at version 1 must carry every table of schema 1 before it migrates; every column this build writes that an
 earlier development form lacked (`SQLiteMemorySchema.requiredColumns`: `brain_anchors.current_group_id`,
 `memory_operation_arguments.brain_application_id`, `memory_agent_actions.started_at_ms`,
-`memory_agent_actions.duration_ms`, `memory_agent_actions.observed_state_before` and
-`memory_events.origin_event_id`); and exactly the tables, indexes and triggers the resource creates,
-compared with a scratch bootstrap of the shipped DDL in memory. A difference is
+`memory_agent_actions.duration_ms`, `memory_agent_actions.observed_state_before`,
+`memory_events.origin_event_id`, `brain_transitions.effect_label` and
+`memory_agent_actions.observed_effect_label`); and exactly the tables, indexes and triggers the resource creates,
+compared with a scratch bootstrap of part 1 in memory. A file at version 7 is compared, the same way,
+with the whole text. A difference is
 `schema(.differentShape)`, naming each object as `type name`. The archives `tommaso/memory-model`'s
 builds created are at version 1 with every table and required column, and their CHECKs and triggers
 differ from this resource's, so they are refused by that comparison, untouched. Against the resource of
@@ -63,25 +229,34 @@ differ from this resource's, so they are refused by that comparison, untouched. 
 whose constraints differ is refused untouched"). Nothing migrates, resets or imports them; a person
 moves them aside by hand.
 
+The library is not the system's. `SQLiteAmalgamation` compiles SQLite 3.54.0 from sqlite.org into every
+binary that links `SQLiteMemory`, so macOS 15 and later run the same version as macOS 27. Before macOS 27
+the system library can be older than the requirements below, and the store refused to open there. The
+schema's `group_concat(... ORDER BY ...)` also needs 3.44.0. The source, the options and how to update
+it are in [its README](../../Sources/Engine/SQLiteAmalgamation/README.md).
+
 Requirements the store checks on the linked library before opening anything: 3.37.0 for `STRICT`,
 and 3.51.3 (or the backports 3.44.6 and 3.50.7) for the concurrent-WAL correction. A library below
-either answers `unavailable(.library)`. The `sqlite3` command and Python's module prove nothing
-about the library the binary links; `SQLiteLibrary.version` and `.sourceID` do, and
-`MemoryService.status()` reports them while the archive is open.
+either answers `unavailable(.library)`; with the compiled-in library this guards an update of it. The
+`sqlite3` command and Python's module prove nothing about the library the binary links;
+`SQLiteLibrary.version` and `.sourceID` do, and `MemoryService.status()` reports them while the archive
+is open.
 
 ## How the store treats a file
 
 | The file at `open` | What the store does |
 |---|---|
-| Does not exist, directory writable | Creates it, puts it in WAL, creates schema 1 under the write lock, sets `user_version = 1` |
+| Does not exist, directory writable | Creates it, puts it in WAL, runs the one text under the write lock, sets `user_version = 7` |
 | `user_version` 0, no tables (a file `sqlite3` created and left empty) | Same as above |
-| `user_version` 1, all 48 tables, every required column, and every table, index and trigger written exactly as the resource writes it | Verifies and opens; `bootstrappedNow` is false |
+| `user_version` 7, every table, index and trigger written exactly as the one text writes it | Verifies and opens; `bootstrappedNow` is false |
+| `user_version` 1, all 48 tables, every required column, and every table, index and trigger written exactly as schema 1 writes it | A producer migrates it to 7 after a verified copy, in one transaction ([One schema text](#one-schema-text)); a reader refuses it with `schema(.migrationRequired)` |
+| `user_version` 2 to 6, a development step of the G76 plans never released | Refuses with `schema(.unsupported)`, file untouched, no copy |
 | `user_version` 1, the 42 tables of the S3-d build | Refuses with `schema(.missingTables)`, file untouched: the person moves it aside, nothing migrates |
 | `user_version` 0 with tables of its own | Refuses with `schema(.unknownTables)`, file untouched (journal mode included) |
 | `user_version` 1 with a table missing, the form before `brain_applications` included | Refuses with `schema(.missingTables)`, file untouched |
 | `user_version` 1, every table, a required column missing (the form before `current_group_id`) | Refuses with `schema(.missingColumns(["brain_anchors.current_group_id"]))`, file untouched (journal mode included); never migrated or reset |
 | `user_version` 1, every table and required column, but a table, index or trigger missing, extra or written differently (an archive `tommaso/memory-model`'s builds created, whose CHECKs and triggers differ) | Refuses with `schema(.differentShape(["table memory_events", …]))`, the objects named `type name`, file untouched; never migrated or reset |
-| `user_version` above 1 | Refuses with `schema(.future)`: no downgrade, no reset, and no reading either, since a typed reader of an unknown layout would be a guess |
+| `user_version` above 7 | Refuses with `schema(.future)`: no downgrade, no reset, and no reading either, since a typed reader of an unknown layout would be a guess |
 | Not a database, or corrupt | `open` error with the library's code (`SQLITE_NOTADB` 26, `SQLITE_CORRUPT` 11), file untouched by the store; `MemoryService` then moves it aside ([Copies and recovery](#copies-and-recovery)) |
 | Directory missing or unwritable | `open` error (`SQLITE_CANTOPEN` 14 or `SQLITE_READONLY` 8), nothing created |
 
@@ -458,7 +633,7 @@ commit; no brain is cached across calls; every read is one snapshot (`store.read
 | `setName(name, anchorKey:, in:, now:)` | `BrainUpdater.setName`: source `llm`, the old label appended as an alias. |
 | `decay(in:, now:, maxObjects:, retention:)` | `BrainUpdater.decay` with the same retention; explicit for tests, since an ingest that ticks the clock decays on its own. |
 | `record(record, now:)` | `BrainMemory.record`'s rules on the raw projection: no effect teaches nothing, an element with no unique anchor teaches nothing except a menu reveal, which first ingests the element alone. It moves the counters on every call: a retry of the same action counts twice. For tests and low-level tools only. |
-| `importProjection(brain, into:, now:)` | no algorithm: writes a whole `UIBrain` read from an earlier JSON file as the application's projection, for `JSONBrainImport` (the service's import at creation and `mecum memory --import-json`), and answers false, changing nothing, when the application already has an anchor, a group or a transition. The mutation runs at the Brain's own last instant (`now` only for a Brain that saw nothing), so no row is stamped later than the file saw it. No application or evidence row is written: the imported counts are the file's. |
+| `importProjection(brain, into:, now:)` | no algorithm: writes a whole `UIBrain` read from an earlier JSON file as the application's projection, for `JSONBrainImport` (the service's import at creation and `braus memory --import-json`), and answers false, changing nothing, when the application already has an anchor, a group or a transition. The mutation runs at the Brain's own last instant (`now` only for a Brain that saw nothing), so no row is stamped later than the file saw it. No application or evidence row is written: the imported counts are the file's. |
 
 A producer never calls these: an action's record reaches the projection through the applications
 register (`BrainApplicationStoring.apply`), keyed by the call's event, which applies one action once
@@ -538,17 +713,19 @@ the import, and shares its read, `brain(of:)`.
 | `.memberAnchors` | `brain_group_members(anchor_id, position)` | `position` 0, 1, ...; only active anchors of an active group are read |
 | `.seenCount`, `.lastSeen`, `.lastSeenEpoch` | `seen_count`, `last_seen_ms`, `last_seen_epoch` | |
 | `LearnedTransition.anchorKey`, `.trigger` | `anchor_id`, `trigger_kind` | `scene_element_id` and `menu_command_id` NULL |
-| `.effect` | `effect_kind` and `effect_text`, `required_target_state`, `resulting_target_state`, `brain_transition_menu_items(position, title)` | see below; the string is never stored |
+| `.effect` | `effect_kind` and `effect_text`, `required_target_state`, `resulting_target_state`, `effect_label`, `effect_value`, `brain_transition_menu_items(position, title)` | see below; the string is never stored |
 | `.evidence` | `evidence_count` | |
 | `.lastObserved`, `.lastObservedEpoch` | `last_seen_ms`, `last_observed_epoch` | epoch NULL is nil |
 | (none) | `transition_id`, `first_seen_ms`, `status` | technical id; the instant the row was created, never moved; cache of trust |
 | (none) | `from_scene_id`, `to_scene_id` | the application's scope (`scene_kind = 'app'`, created with the first transition); destination NULL, unknown |
 
-Effects (`TransitionEffectRecord`, six families): `windowTitleChanged` keeps the title in
+Effects (`TransitionEffectRecord`, seven families): `windowTitleChanged` keeps the title in
 `effect_text`; `stateFlip` keeps the direction in `required_target_state` and
 `resulting_target_state`; `menuOpened`, `elementsAppeared` and `elementsDisappeared` keep their
 labels as ordered item rows, none for an empty list; `textSelectionChanged` is its family alone, with
-no text, state or item. `brain_transitions.effect_kind` has no CHECK of its own: the vocabulary is
+no text, state or item; `valueChanged` keeps the field's label in `effect_label` and the text it now
+reads in `effect_value`, both required, with no text, state or item. Every other family leaves the
+two NULL. `brain_transitions.effect_kind` has no CHECK of its own: the vocabulary is
 `TransitionEffectRecord.kinds`, checked on the way in and out. The string `LearnedTransition.effect` holds is rebuilt in memory with
 `SceneEffect.encoded`. An effect string the vocabulary cannot decode, or one that would not rebuild
 to itself (an empty label beside others, which the separator loses), is
@@ -661,7 +838,7 @@ out:
 | | `target_kind`, `target_label`, `target_x` … `target_height` | text, real | one each |
 | | `target_state` | text | at most one |
 | | `effect_kind` | text | at most one; absent is no effect |
-| | `effect_text`, `effect_required_state`, `effect_resulting_state` | text | at most one each, only with a kind |
+| | `effect_text`, `effect_required_state`, `effect_resulting_state`, `effect_label`, `effect_value` | text | at most one each, only with a kind |
 | | `effect_item` | text | a list at positions 0, 1, ...; only with a kind |
 | set_name | `anchor_key` | text | one; a literal, which need not name a stored anchor |
 | | `name` | text | one, as given |
@@ -719,7 +896,7 @@ service for the same Knowledge directory (the path standardized with its symboli
 one `memory.sqlite`, opened on first use as a producer, so the process has one writer per archive.
 No session and no command closes it. A session's close waits, within 3 s, for what is queued
 (`EngineRuntime.finish()`, `flush(within:)`); the process closes every service once at its end: the app
-at quit (`SeatReleasingDelegate`, `MemoryService.closeAll()`, the step bounded at 4 s) and `mecum` after
+at quit (`SeatReleasingDelegate`, `MemoryService.closeAll()`, the step bounded at 4 s) and `braus` after
 its command (`main.swift`). Two processes on one directory are two services and two writers on one
 file, which the store's lock keeps apart.
 
@@ -771,13 +948,13 @@ holds writes not committed or a copy in progress, even with no worker, draft or 
 does not wait for the actor, so Quit decides without blocking.
 
 The app's workers and its Brain page share the app's Knowledge directory (`Knowledge` under
-`WorkspaceLaunch.directory`, by default `~/Library/Application Support/Mecum`). Each external MCP client
+`WorkspaceLaunch.directory`, by default `~/Library/Application Support/Braus`). Each external MCP client
 has a directory of its own, as on main: `MCP/Knowledge/<profile>` under the same support directory
 (`AppModel.knowledgeDirectory(of:under:)`), so each client writes and learns into its own
 `memory.sqlite`, apart from the workers' and the other clients'
-(`MemoryWiringTests.privateArchivesPerClient`). `mecum` and `mecum chat` default to the workers'
-`~/Library/Application Support/Mecum/Knowledge` and take `--knowledge <dir>`, so a running app and a
-`mecum` process are, by default, two writers on one file.
+(`MemoryWiringTests.privateArchivesPerClient`). `braus` and `braus chat` default to the workers'
+`~/Library/Application Support/Braus/Knowledge` and take `--knowledge <dir>`, so a running app and a
+`braus` process are, by default, two writers on one file.
 
 ### The queue
 
@@ -797,7 +974,7 @@ it held, with nothing in the archive to say so.
 the linked library's version and source id, and the writes pending, in flight, written, failed,
 partial, dropped and unsettled since the service was made ([Closing](#closing)), with the last failure,
 the newest copy, the last recovery and the last close. These counts live in the process: another
-process, `mecum memory --status` among them, cannot read them ([Diagnosis](#diagnosis)).
+process, `braus memory --status` among them, cannot read them ([Diagnosis](#diagnosis)).
 
 ### Degraded
 
@@ -900,7 +1077,7 @@ coordinated, and `flock` is not reliable on a network volume. The lock file hold
 
 ### Diagnosis
 
-`mecum memory --status [--knowledge <dir>]` (`SQLiteMemoryInspection`) says what the archive file is
+`braus memory --status [--knowledge <dir>]` (`SQLiteMemoryInspection`) says what the archive file is
 without opening a memory service: whether it is there, its size and its log's, its `user_version`,
 what this build's open would make of it, and, when the open would take it, a few row counts; then the
 copies and the files a recovery moved aside. It reads with a read-only connection and the library's
@@ -911,19 +1088,21 @@ files, and says so instead.
 
 | What it finds | What it prints |
 |---|---|
-| no file | no archive at this path; Mecum's memory would create it. No lock file is made. |
-| a database with no schema | Mecum's memory would create its schema in it; a reader refuses it |
+| no file | no archive at this path; Braus's memory would create it. No lock file is made. |
+| a database with no schema | Braus's memory would create its schema in it; a reader refuses it |
 | this build's version and exactly its shape | it opens it, with the counts |
 | a newer version | refused and left as it is: schema N is newer than this build's; its shape is not compared |
 | another shape, tables missing, columns missing, somebody else's tables | refused and left as it is, with the objects named |
 | not a database | not readable, with the library's reason |
 | a recovery holding the archive | not read: a recovery holds it |
-| a WAL file whose `-wal` and `-shm` are not beside it | not read: a read-only reader cannot make them without changing the directory |
+| a WAL file whose `-wal` or `-shm` is not beside it | not read: a read-only reader cannot make them without changing the directory; checked before opening, since a reader of stock SQLite would make them |
 | the record of a recovery that stopped | not read: what the record holds; the memory opens nothing until a recovery completes it |
 
 It never creates the archive, bootstraps, migrates, recovers or copies. The only file it may make is the
 empty lock file beside an archive that a build with the lock never opened. The library may update the
-`-shm` index while reading, as for any reader; it holds no data. The counters of writes live in each
+`-shm` index while reading, as for any reader; it holds no data. Every connection of the store keeps
+`-wal` (emptied) and `-shm` after its close (`SQLITE_FCNTL_PERSIST_WAL`), as Apple's library does by
+default, so a closed archive is read without making them. The counters of writes live in each
 process: this command has its own and shows none; the app shows its own on Settings > Brain.
 
 ### Recorders
@@ -950,8 +1129,8 @@ The Brain's applications are asked for at the instant the recorder was made
 |---|---|---|---|---|
 | The app's worker (`TeamModel`, `WorkerAgentHost`) | `app` | `worker-<worker id>` | the message the turn answers | yes, through `AutomationTools` |
 | An external MCP client served by the app (`ExternalMCPSession`) | `mcp` | `mcp-<profile id>` | none | yes, through `AutomationTools` |
-| `mecum chat` (`ChatCommand`) | `cli` | `chat-<conversation id>` | the conversation | yes, through `AutomationTools` |
-| `mecum scene`, `act`, and a `batch`'s `act` steps (`commandLineRecorder`) | `cli` | `mecum-<pid>` | one per process | no: an `action` event, its samples and the Brain's learning |
+| `braus chat` (`ChatCommand`) | `cli` | `chat-<conversation id>` | the conversation | yes, through `AutomationTools` |
+| `braus scene`, `act`, and a `batch`'s `act` steps (`commandLineRecorder`) | `cli` | `braus-<pid>` | one per process | no: an `action` event, its samples and the Brain's learning |
 | A session's call outside a recorded tool call | `system` | `session-<session id>` | none | no: an `action` event, its samples and the Brain's learning |
 
 The last row is the fallback `AutomationSession` and `BrokeredAutomationSession` use when no
@@ -1062,11 +1241,12 @@ for at the Brain's clock, read once per call (`MemoryClock`), which is neither o
 
 `observed_effect_kind` is the family of the effect the engine attributed to a `completed` action or
 input (`ObservedEffect`, built from the engine's `SceneEffect` without passing through its text), one
-of six: `observed_effect_text` is the title of `windowTitleChanged`, `observed_state_before` and
+of seven: `observed_effect_text` is the title of `windowTitleChanged`, `observed_state_before` and
 `observed_state_after` the two states of `stateFlip`, the labels of `menuOpened`,
 `elementsAppeared` and `elementsDisappeared` are rows of `memory_agent_action_effect_labels`, in the
-engine's order, an empty label a row, zero rows an empty list, and `textSelectionChanged` is its
-family alone, with no title, state or label. Two menus whose labels differ only in where a separator
+engine's order, an empty label a row, zero rows an empty list, `textSelectionChanged` is its
+family alone, with no title, state or label, and `observed_effect_label` and `observed_effect_value`
+are the field and the text of `valueChanged`, both required by a CHECK and NULL for every other family. Two menus whose labels differ only in where a separator
 falls are two effects, as they are in Perception, and labels keep their bytes. NULL when the engine
 attributed none, and always for `select` and `context_menu`, whose selectors report nothing to the
 recorder, and for `menu` and `press`, which act outside the engine and are no batch step
@@ -1174,7 +1354,7 @@ no producer in production: `SQLiteObservedInputRepository` (`ObservedInputStorin
 and correlations), `SQLiteVerificationRepository` (`VerificationStoring`) and `SQLiteTaskRepository`
 (`TaskAttributionStoring`: episodes, memberships, labels). They observe, correlate, judge, segment
 and label nothing on their own. **The Watcher is not connected to the memory**: main's passive
-listener (`InteractionListener`, `mecum watch`) reports a person's input and writes nothing here, so
+listener (`InteractionListener`, `braus watch`) reports a person's input and writes nothing here, so
 every vocabulary below is this contract's proposal, proven by fixtures, not a parity with a live
 report.
 The schema has no contract-version column on these tables: version 1 is this build's, stated here,
@@ -1467,7 +1647,7 @@ schema, which these figures do not include. They were not run again here.
 
 The two slow reads of S4, measured on 2026-10-04 on `tommaso/memory-model`, same machine, debug
 build, on copies of a seeded synthetic corpus, the median of 30 warm reads through that branch's
-`MemoryService`. The harness (`StoreCostMeasures`, `MECUM_COST_*`) did not come over; the code it
+`MemoryService`. The harness (`StoreCostMeasures`, `BRAUS_COST_*`) did not come over; the code it
 measured, `SQLiteTraceRepository` and `SQLiteBrainGraphRepository.overview()`, is the same here.
 
 | Read, 100,000 events (2.17 GB, 1,557 traces) | Before | After |
@@ -1571,6 +1751,22 @@ of `1a3e22b` is what refuses the archives `memory-model`'s builds created ([The 
 The resource's SHA-256 moved from `b99be960…` to `4c39eed0…`, then to `9df535ab…` when the correlation
 triggers' error message came to read "an app, cli or mcp action event".
 
+### The value change
+
+Perception reports `SceneEffect.valueChanged(label:value:)`, a uniquely identified text field that now
+reads another value. The memory keeps it as a seventh family, typed like the others: no table, index or
+trigger was added.
+
+| Change | Producer → column → reader | Why | Proof |
+|---|---|---|---|
+| `brain_transitions.effect_label TEXT`, `effect_value TEXT`; the application arguments `effect_label`, `effect_value` | the Brain's `LearnedTransition.effect` → `TransitionEffectRecord` → the columns → the exact string | a learned value change must rebuild the string it was learned under; a label holding the encoding's separator is refused as unrepresentable | `AgentCallResultContractTests.brainEffectRecords`, `BrainProjectionTests.valueChangeEffect`, `BrainApplicationContractTests` |
+| `memory_agent_actions.observed_effect_kind` admits `valueChanged`; `observed_effect_label TEXT`, `observed_effect_value TEXT` with two CHECKs: both present exactly for `valueChanged` | the engine's `SceneEffect` → `ObservedEffect` → the columns → `ObservedEffect.sceneEffect` | the call keeps the field and the text, bytes kept, the empty text a text | `AgentCallResultContractTests`, `AgentCallTimingTests.effectsRoundTripThroughTheFile`, 8 SQL checks |
+
+`SQLiteMemorySchema.requiredColumns` gains `brain_transitions.effect_label` and
+`memory_agent_actions.observed_effect_label`, and `user_version` stays 1: a file bootstrapped before
+this change is refused untouched by name (`missingColumns`), never migrated, reset or imported
+(`SQLiteMemoryStoreTests.formBeforeTheValueChangeRefused`).
+
 Every other difference from the archived v5 is textual, as `memory-model` recorded it: the header, the
 comments translated to English, and the removed `PRAGMA foreign_keys = ON;`, `BEGIN;` and `COMMIT;`
 lines. The v5 file is not in this repository, so that comparison was not repeated here.
@@ -1622,7 +1818,8 @@ Counts from `swift test list` and the scripts on 2026-10-07, this branch.
     one fixture through every repository of plan 2, reopened and retried).
 
   The first test prints the linked library's version and source id; on the machine of 2026-09-30 it
-  was 3.54.0, `2026-04-09 12:25:13 8fa8248e…aapl`, from `/usr/lib/libsqlite3.dylib`.
+  was 3.54.0, `2026-04-09 12:25:13 8fa8248e…aapl`, from `/usr/lib/libsqlite3.dylib`. Since 2026-10-13 it is
+  the compiled-in 3.54.0, `2026-10-09 15:46:58 be8d059e…`.
 - `MemoryTests` (162 tests in 19 suites) proves the pure contracts on their own:
   `AgentCallContractTests`, `AgentCallResultContractTests`, `CaptureSampleKeyTests`,
   `CaptureSampleContentTests`, `MenuCommandRecordTests`, `EventAttributionContractTests`,
@@ -1641,7 +1838,7 @@ Counts from `swift test list` and the scripts on 2026-10-07, this branch.
 
 Not on this branch: `memory-model`'s producer suites (`MemoryServiceTests`,
 `MemoryServiceFailureTests`, `CallRecorderTests`, `FinalizationScopeTests`, `ReaderOpeningTests`, the
-cost and stop measures, `ChatTests.AutomationToolsMemoryTests`, `MecumCLITests.ChatHostTests`), which
+cost and stop measures, `ChatTests.AutomationToolsMemoryTests`, `BrausCLITests.ChatHostTests`), which
 tested its own wiring.
 
 ## Contract items carried into S2

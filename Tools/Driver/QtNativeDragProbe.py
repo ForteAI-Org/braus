@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QWidget
 
 
 state_path = Path(sys.argv[1])
-payload = "mecum-native-drag-" + str(uuid.uuid4())
+payload = "braus-native-drag-" + str(uuid.uuid4())
 state = {
     "fixture": "qt-native-drag",
     "payload": payload,
@@ -101,9 +101,9 @@ class Destination(QLabel):
 
 
 app = QApplication(sys.argv)
-app.setApplicationName("Mecum Qt Probe")
+app.setApplicationName("Braus Qt Probe")
 window = QWidget()
-window.setWindowTitle("Mecum Qt Probe")
+window.setWindowTitle("Braus Qt Probe")
 window.resize(700, 300)
 layout = QHBoxLayout(window)
 source = Source()

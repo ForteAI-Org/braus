@@ -1,6 +1,6 @@
 //
 //  BrokeredAutomationSession.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 23/09/2026.
 //
@@ -218,7 +218,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         return lease.session.windowFrame
     }
 
-    /// The seat as a worker's turn begins, which Mecum puts ahead of the turn's prompt so the agent
+    /// The seat as a worker's turn begins, which Braus puts ahead of the turn's prompt so the agent
     /// needs no status call: the live session to observe by its ID, or the application the last one had.
     ///
     /// Read inside `turn`, so no idle release is pending and a close already under way reads as no
@@ -228,9 +228,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             "\(app.name) (\(app.bundleID))" + (app.window.isEmpty ? "" : ", window \"\(app.window)\"")
         }
         guard let id else {
-            return "Mecum seat: no session is open." + (last.map { " The last one was on \($0)." } ?? "")
+            return "Braus seat: no session is open." + (last.map { " The last one was on \($0)." } ?? "")
         }
-        return "Mecum seat: session \(id.uuidString) is open" + (last.map { " on \($0)" } ?? "")
+        return "Braus seat: session \(id.uuidString) is open" + (last.map { " on \($0)" } ?? "")
             + ". Observe it with this session ID before acting."
     }
 
@@ -377,7 +377,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             allowsDestructive           : allowsDestructive,
             contextMenusOnTextFieldsOnly: Self.drawsMenusUnderThePointer(application),
             selectsFieldsByTripleClick  : remotePanel,
-            refusesMenuOpeningClicks    : remotePanel
+            refusesMenuOpeningClicks    : remotePanel,
+            windowClosure               : windowClosure(of: seat)
         ).act(request), by: runtime)
     }
 
@@ -401,6 +402,10 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 permissions: ActionPermissions(
                     allowsDestructive: allowsDestructive,
                     contextMenusOnTextFieldsOnly: Self.drawsMenusUnderThePointer(application)
+                ),
+                report: SelectorReporting.reporting(
+                    to: CallRecorder.current,
+                    bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)"
                 )
             )
             return await enriched(chosen, by: runtime)
@@ -412,16 +417,20 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             input    : input,
             section  : section
         )
+        // Of these inputs only Escape closes a window: the engine refuses text that carries one.
+        var closesTheWindow = false
+        if case .pressKey(let chord, _) = input { closesTheWindow = chord.key == .escape }
         return await enriched(runtime.engine(
             recorder                    : Self.recorder(runtime, sessionID: id),
             allowsDestructive           : allowsDestructive,
             contextMenusOnTextFieldsOnly: Self.drawsMenusUnderThePointer(application),
-            selectsFieldsByTripleClick  : try seat.agentSeat().holdsRemoteFilePanel
+            selectsFieldsByTripleClick  : try seat.agentSeat().holdsRemoteFilePanel,
+            windowClosure               : closesTheWindow ? windowClosure(of: seat) : WindowClosureGuard()
         ).deliver(request), by: runtime)
     }
 
     public func menu(path: String) async throws -> ActOutcome {
-        let (application, _, seat) = try current()
+        let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
             agentSeat,
@@ -430,36 +439,88 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             throw AutomationFailure(sentence)
         }
         let processID = application.processIdentifier
+        let closingRefusal = closingRefusal(application, agentSeat)
         let platform = TargetPlatform.chosen(
             bundleURL       : application.bundleURL,
             bundleIdentifier: application.bundleIdentifier
         )
-        // TextEdit leaves its editing menu disabled while its text view accepts
-        // background input. Read and dispatch its menu during verified activation,
-        // just as for Adobe; other native hosts remain separately qualified.
-        let preparesMenu = platform == .adobeUXP || application.bundleIdentifier == "com.apple.TextEdit"
-        if preparesMenu {
-            return try await MenuBarCommand.performInFront(
+        let allowsDestructive = self.allowsDestructive
+        let inFront = Self.preparesMenuInFront(platform, bundleIdentifier: application.bundleIdentifier)
+        return try await PerceivedCommand.perform(
+            bundleID: application.bundleIdentifier ?? "pid.\(processID)",
+            recorder: Self.recorder(runtime, sessionID: id),
+            perceive: { try await runtime.scenes.currentScene(of: processID) }
+        ) { observe in
+            if inFront {
+                return try await MenuBarCommand.performInFront(
+                    path,
+                    processID: processID,
+                    allowsDestructive: allowsDestructive,
+                    closingRefusal: closingRefusal,
+                    withFront: { command in
+                        let outcome = await agentSeat.performMenuCommandBrieflyInFront(
+                            when: { MenuBarCommand.isEnabled(path, processID: processID) },
+                            performOnce: command
+                        )
+                        if case .ready = outcome { return nil }
+                        return Self.briefMenuFailure(outcome)
+                    },
+                    frontReturned: { agentSeat.frontIsBackAfterCommand },
+                    settling: runtime.settling,
+                    observe: observe
+                )
+            }
+            return try await MenuBarCommand.perform(
                 path,
-                processID: processID,
+                processID        : processID,
                 allowsDestructive: allowsDestructive,
-                withFront: { command in
-                    let outcome = await agentSeat.performMenuCommandBrieflyInFront(
-                        when: { MenuBarCommand.isEnabled(path, processID: processID) },
-                        performOnce: command
-                    )
-                    if case .ready = outcome { return nil }
-                    return Self.briefMenuFailure(outcome)
-                },
-                observe: { try await self.observe() }
+                closingRefusal   : closingRefusal,
+                settling         : runtime.settling,
+                observe          : observe
             )
         }
-        return try await MenuBarCommand.perform(
-            path,
-            processID        : processID,
-            allowsDestructive: allowsDestructive,
-            observe          : { try await self.observe() }
+    }
+
+    /// What closing the window `seat` targets would do to its application, read now. Nothing is read
+    /// when the person allowed destructive actions, because nothing would be refused.
+    private func windowClosure(of seat: SeatTarget) -> WindowClosureGuard {
+        guard !allowsDestructive, let seat = try? seat.agentSeat(), let facts = seat.windowClosureFacts
+        else { return WindowClosureGuard() }
+        return WindowClosureGuard(
+            mayEndTheApplication: facts.mayEndTheApplication,
+            controlFrames       : facts.controlFrames
         )
+    }
+
+    /// The sentence a command that closes the target window is refused with, given what it is, or
+    /// nil when it may be sent. The facts are read only when a closing command is asked for.
+    private func closingRefusal(
+        _ application: NSRunningApplication,
+        _ seat       : AgentSeat
+    ) -> (String) -> String? {
+        let allowsDestructive = allowsDestructive
+        let name = application.localizedName ?? "the application"
+        return { what in
+            guard !allowsDestructive, seat.windowClosureFacts?.mayEndTheApplication == true else { return nil }
+            let window = seat.currentTarget.flatMap { CGWindowID(exactly: $0.id) }.flatMap {
+                (CGWindowListCopyWindowInfo(.optionIncludingWindow, $0) as? [[String: Any]])?
+                    .first?[kCGWindowName as String] as? String
+            } ?? ""
+            return ActionPolicy.windowClosureRefusal(
+                what,
+                window      : window,
+                application : name,
+                alternatives: []
+            )
+        }
+    }
+
+    /// Whether a menu command of this application is read and pressed during a verified brief
+    /// activation. Adobe's UXP hosts and TextEdit leave menus disabled while driven in the
+    /// background (ADR 0013, 0029); Safari opens no window from File > New Window until it is
+    /// active (ADR 0038). Other native hosts remain separately qualified.
+    nonisolated static func preparesMenuInFront(_ platform: TargetPlatform, bundleIdentifier: String?) -> Bool {
+        platform == .adobeUXP || platform == .webKitBrowser || bundleIdentifier == "com.apple.TextEdit"
     }
 
     private static func briefMenuFailure(_ outcome: BriefActivationOutcome) -> String {
@@ -482,7 +543,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 return .stillDisabled(reason: nil)
             case .handbackNotVerified:
                 return .stillDisabled(reason: "It was brought forward for a moment, but the return to "
-                    + "the person's own window was not verified. Observe before more input.")
+                    + "the person's own window was not verified.")
             case .refused(let refusal):
                 let because: String
                 switch refusal {
@@ -498,7 +559,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func press(button: String) async throws -> ActOutcome {
-        let (application, _, seat) = try current()
+        let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
             agentSeat,
@@ -506,13 +567,19 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         ) {
             throw AutomationFailure(sentence)
         }
-        return try await DialogButtonPress.perform(
-            button,
-            processID        : application.processIdentifier,
-            dialogs          : agentSeat.openDialogs.map(\.windowNumber),
-            allowsDestructive: allowsDestructive,
-            observe          : { try await self.observe() }
-        )
+        let processID = application.processIdentifier
+        let dialogs   = agentSeat.openDialogs.map(\.windowNumber)
+        let allowsDestructive = self.allowsDestructive
+        let closingRefusal = closingRefusal(application, agentSeat)
+        return try await PerceivedCommand.perform(
+            bundleID: application.bundleIdentifier ?? "pid.\(processID)",
+            recorder: Self.recorder(runtime, sessionID: id),
+            perceive: { try await runtime.scenes.currentScene(of: processID) }
+        ) { observe in
+            try await DialogButtonPress.perform(button, processID: processID, dialogs: dialogs,
+                                                allowsDestructive: allowsDestructive, closingRefusal: closingRefusal,
+                                                observe: observe)
+        }
     }
 
     public func select(control: String, item: String) async throws -> ActOutcome {
@@ -525,7 +592,11 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 name: application.localizedName ?? "application"
             ),
             permissions: ActionPermissions(allowsDestructive: allowsDestructive),
-            dryRun: false
+            dryRun: false,
+            report: SelectorReporting.reporting(
+                to: CallRecorder.current,
+                bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)"
+            )
         )
         return await enriched(result.outcome, by: runtime)
     }
@@ -644,7 +715,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The engine already recorded the transition, so the scene is not observed again.
     private func enriched(_ outcome: ActOutcome, by runtime: EngineRuntime) async -> ActOutcome {
         guard let scene = outcome.scene else { return outcome }
-        return ActOutcome(outcome.kind, outcome.message, scene: await runtime.memory.enrich(scene))
+        return outcome.with(scene: await Self.recorder(runtime, sessionID: id).enrich(scene))
     }
 
     private func current() throws -> (NSRunningApplication, EngineRuntime, SeatTarget) {
@@ -698,10 +769,10 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             case .accessibility  : ("Accessibility", "Accessibility")
             case .postEvent      : ("Keyboard and Mouse Control", "Accessibility")
         }
-        return "Mecum is missing the macOS \(name) permission, so this worker cannot use the computer, "
-            + "and nothing was opened. macOS was asked to show its prompt; if none appears, allow Mecum in "
+        return "Braus is missing the macOS \(name) permission, so this worker cannot use the computer, "
+            + "and nothing was opened. macOS was asked to show its prompt; if none appears, allow Braus in "
             + "System Settings > Privacy & Security > \(pane)"
-            + (kind == .screenRecording ? ", then quit and reopen Mecum" : "")
+            + (kind == .screenRecording ? ", then quit and reopen Braus" : "")
             + ". Do not retry until it is granted."
     }
 
@@ -720,6 +791,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         // case and payload: the sentence is the one the seat's mapper writes for a person.
         if error is ObservationUnavailable {
             return AutomationFailure(SeatErrorMapper.message(for: error))
+        }
+        if let refused = error as? SeatBrokerError, case .windowOnAnotherDesktop = refused {
+            return AutomationFailure(refused.localizedDescription)
         }
         guard case .noWindowShown(let name, let seconds, let wasLaunched, let wasQuit)? = error as? SeatBrokerError
         else { return error }

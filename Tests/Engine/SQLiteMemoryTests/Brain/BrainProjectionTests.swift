@@ -1,6 +1,6 @@
 //
 //  BrainProjectionTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 01/10/2026.
 //
@@ -385,6 +385,38 @@ struct BrainProjectionTests {
         let scope = try await reopened.texts("SELECT scene_id FROM brain_scenes WHERE scene_kind = 'app'")
         #expect(try await reopened.texts("SELECT DISTINCT from_scene_id FROM brain_transitions") == scope)
         #expect(try await reopened.integers("SELECT count(*) FROM brain_transitions WHERE to_scene_id IS NOT NULL") == [0])
+        await reopened.store.close()
+    }
+
+    @Test("a value change keeps its label and value in their own columns, no text, state or item, and rebuilds the exact string")
+    func valueChangeEffect() async throws {
+        let twin = try await F.Twin()
+        try await twin.ingest(F.scene(["Name", "B", "C"]), at: F.t0)
+        let target = F.element("c|name", "Name", x: 0.5, y: 0.1)
+        try await twin.record(target, effect: .valueChanged(label: "Name", value: "Ada|Lovelace > \n"), at: F.t0)
+        try await twin.record(target, effect: .valueChanged(label: "", value: ""), at: F.t0)
+        let rows = try await twin.memory.query(
+            """
+            SELECT effect_kind, coalesce(effect_label, '<null>'), coalesce(effect_value, '<null>'),
+                   coalesce(effect_text, required_target_state, resulting_target_state, '<null>'),
+                   (SELECT count(*) FROM brain_transition_menu_items i WHERE i.transition_id = t.transition_id)
+            FROM brain_transitions t ORDER BY insertion_order
+            """
+        ) { row in
+            [try row.text(0) ?? "", try row.text(1) ?? "", try row.text(2) ?? "", try row.text(3) ?? "", String(row.integer(4) ?? -1)]
+        }
+        #expect(rows == [
+            ["valueChanged", "Name", "Ada|Lovelace > \n", "<null>", "0"],
+            ["valueChanged", "", "", "<null>", "0"],
+        ])
+        let reference = twin.reference
+        await twin.close()
+        let reopened = try await F.open(at: twin.memory.url)
+        let loaded = try #require(try await reopened.load())
+        #expect(loaded == reference)
+        #expect(loaded.transitions.map(\.sceneEffect) == [
+            .valueChanged(label: "Name", value: "Ada|Lovelace > \n"), .valueChanged(label: "", value: ""),
+        ])
         await reopened.store.close()
     }
 

@@ -142,6 +142,12 @@ whether moved there or already contained there. It is distinct from the Assigned
 Application and need not be the current input or observation target.
 _Avoid_: hosted window, captured window, managed window
 
+**Desktop**:
+One of the desktops (Spaces) of a physical display. The kit reads which desktop
+a window is on and which one a display shows, to verify a return and to find a
+window on another desktop; it never writes one.
+_Avoid_: Space, virtual desktop (a Virtual Display is another thing)
+
 **Window Recency**:
 The relative order of verified appearances, reappearances and returns to the
 front within an Assigned Application, excluding raises caused by the kit.
@@ -189,6 +195,14 @@ _Avoid_: retry, healing
 The component that watches the User Seat while a Command is in flight, so that a
 voluntary change by the person is told apart from an anomaly of the target.
 _Avoid_: transient observer, watcher (the Orchestrator's learning pipeline)
+
+**Command Provenance**:
+The record of one Command pressed inside a brief activation: the target's
+attested process, its on-screen window numbers read right before the press, the
+press and the handback. It stays valid until the handback plus a short margin
+and says only what the Command can explain: an activation of that process and a
+window of it first seen in that interval. It adopts nothing and moves nothing.
+_Avoid_: origin (`bornDuringAssignment` is per assignment), trace, cause
 
 **Watchdog**:
 The eight checks that re-verify the seat invariants (main display, physical

@@ -10,6 +10,9 @@ import AppKit
 import CoreGraphics
 import Dispatch
 import os
+#if BRAUS_PHASES
+import PhaseSignposts
+#endif
 import SeatCapture
 import SeatCore
 import SeatInput
@@ -97,6 +100,14 @@ struct EndpointDiscovery {
     /// retires a keyboard context whose focus moved.
     var focusedWindowNumber: (Int32) -> Int?
 
+    /// The same focus at the posting boundary of an ordinary window's keys,
+    /// read within a deadline, which tells an application that did not answer
+    /// in time from one that answered no window or another one.
+    var focusedWindowReading: (
+        _ assignedProcessID  : Int32,
+        _ deadlineNanoseconds: UInt64
+    ) -> FocusedWindowReading
+
     /// A remote WindowServer owner may use the AppKit panel recipe only when it
     /// identifies as the platform panel service. A distinct PID establishes a
     /// transport relation, not a backend or an input capability.
@@ -173,6 +184,17 @@ struct EndpointDiscovery {
         .failure(.subtreeUnreadable(surface: chain.surface))
     }
 
+    /// Keys for an ordinary window whose page names no focused control at all: the
+    /// application's focused window is the surface and the page's web area, under
+    /// a point of it, has the surface as its nearest ancestor naming a window.
+    /// Asked only without a modal relation and with nothing of the process
+    /// above the surface (ADR 0014).
+    var webAreaKeyboardContext: (
+        Int32, CGPoint?, DialogEndpointResolver<AXUIElement>.SurfaceChain, UInt64
+    ) -> Result<ResolvedInputEndpoint, InputEndpointRefusal> = { _, _, chain, _ in
+        .failure(.subtreeUnreadable(surface: chain.surface))
+    }
+
     /// The applications whose ordinary windows take their clicks through
     /// accessibility, as a remote panel's content does (ADR 0031). The one
     /// place this scope is decided; add a bundle identifier to widen it.
@@ -206,6 +228,11 @@ struct EndpointDiscovery {
             DialogEndpointResolver<AXUIElement>
                 .accessibility(assignedProcessID: $0)
                 .focusedNodeWindowNumber()
+        },
+        focusedWindowReading: { processID, deadline in
+            DialogEndpointResolver<AXUIElement>
+                .accessibility(assignedProcessID: processID)
+                .focusedNodeWindowReading(deadlineNanoseconds: deadline)
         },
         qualifiedAppKitPanelService: { identity in
             NSRunningApplication(processIdentifier: pid_t(identity.processID))?.bundleIdentifier
@@ -255,6 +282,11 @@ struct EndpointDiscovery {
             DialogEndpointResolver<AXUIElement>
                 .accessibility(assignedProcessID: processID)
                 .windowlessContentEndpoint(at: point, within: chain, selectionGeneration: generation)
+        },
+        webAreaKeyboardContext: { processID, point, chain, generation in
+            DialogEndpointResolver<AXUIElement>
+                .accessibility(assignedProcessID: processID)
+                .webAreaKeyboardContext(at: point, within: chain, selectionGeneration: generation)
         },
         clicksThroughAccessibility: { window in
             NSRunningApplication(processIdentifier: pid_t(window.processID))?.bundleIdentifier
@@ -343,6 +375,10 @@ extension AgentSeat {
     /// long after it without telling anybody.
     func foldCurrentReading(at now: UInt64 = DispatchTime.now().uptimeNanoseconds) {
 
+        #if BRAUS_PHASES
+        let phase = PhaseInterval.begin("seat.foldReading")
+        defer { phase.end() }
+        #endif
         guard assignmentKit.lifecycle.isAssigned else { return }
         let snapshot = readSurfaces()
         var reading  = snapshot.inventory
@@ -395,6 +431,7 @@ extension AgentSeat {
             reading,
             within  : sensing.virtualDisplayBounds,
             displays: [:],
+            spaceOf : { [unowned self] in singleSpace(of: $0) },
             at      : now
         )
         for claim in claims.roles        { selectionKit.declareRole(claim) }
@@ -800,6 +837,20 @@ extension AgentSeat {
                         instance.processID, chain, observation.selectionGeneration
                     )
             }
+            if !hasAttestedModalRelation,
+               case .failure(.subtreeUnreadable) = outcome,
+               let content = webAreaKeyboardContext(
+                   processID : instance.processID,
+                   chain     : chain,
+                   generation: observation.selectionGeneration
+               ) {
+                AgentSeat.observationLog.notice("""
+                    window \(sheet.windowNumber, privacy: .public) reports no focused control and its \
+                    web area is drawn inside it with nothing of the process above, so its keys go to \
+                    it: the discovery had answered \(String(describing: outcome), privacy: .public)
+                    """)
+                outcome = .success(content)
+            }
         }
         // Containment alone can admit a blocked document's Stage Manager
         // thumbnail. Modal eligibility remains authoritative for its recipient.
@@ -907,6 +958,71 @@ extension AgentSeat {
         }
     }
 
+    /// The web page's keyboard recipient when accessibility names no focused
+    /// control (ADR 0014): the resolver's proof about the page, and the window
+    /// server's about the order, which is the seat's to read. A process with
+    /// another visible window above the surface, or a reading that failed, answers
+    /// nothing, since that window may hold the keys instead.
+    private func webAreaKeyboardContext(
+        processID : Int32,
+        chain     : DialogEndpointResolver<AXUIElement>.SurfaceChain,
+        generation: UInt64
+    ) -> ResolvedInputEndpoint? {
+        guard surfaceIsTopmost(chain.surface),
+              case .success(let content) = endpoints.webAreaKeyboardContext(
+                  processID, nil, chain, generation
+              ),
+              // The order is read again after the page's proof: a window that
+              // opened during it is above the surface now.
+              surfaceIsTopmost(chain.surface)
+        else { return nil }
+        return content
+    }
+
+    /// Whether no window of the surface's process that someone could operate is
+    /// above it, by the window server's order now. The 66 by 20 traffic light
+    /// overlay macOS draws over every window it raises is above the surface for
+    /// the whole session, and the seat reads it as a decoration, so a decoration
+    /// or a tooltip never counts (ADR 0014).
+    private func surfaceIsTopmost(_ surface: WindowIdentity) -> Bool {
+        Self.isTopmost(
+            surface,
+            among   : sensing.windowSurfaces(ownedBy: [surface.processID]),
+            ignoring: { [self] window in
+                guard let role = selectionKit.core.facts[window]?.role else { return false }
+                return role == .decoration || role == .tooltip
+            }
+        )
+    }
+
+    /// Whether `surface` is listed, visible, and no other visible window of its
+    /// process is listed before it, not counting those `ignoring` names. The
+    /// list runs front to back, so an entry before the surface is above it. An
+    /// absent list or surface is not an answer, and a window whose identity
+    /// cannot be attested is never ignored.
+    static func isTopmost(
+        _ surface     : WindowIdentity,
+        among surfaces: [WindowSurface]?,
+        ignoring      : (WindowIdentity) -> Bool = { _ in false }
+    ) -> Bool {
+        guard let surfaces,
+              let index = surfaces.firstIndex(where: { $0.reference.identity == surface }),
+              surfaces[index].isVisible
+        else { return false }
+        return !surfaces[..<index].contains { above in
+            above.isVisible && !(above.reference.identity.map(ignoring) ?? false)
+        }
+    }
+
+    /// Whether `surface` is an attested modal at this instant: named as a
+    /// modal's host or its own application modal, or blocked by a modal.
+    private func attestedModalWindow(_ surface: WindowIdentity) -> Bool {
+        selectionKit.namedModalHost(of: surface) != nil
+            || selectionKit.isApplicationModal(surface)
+            || !selectionKit.modals(blocking: surface).isEmpty
+            || selectionKit.attachedHost(of: surface) != nil
+    }
+
     /// How long `platform` waits on purpose before the first event of `command`.
     static func preparationWait(of platform: any InputPlatform, for command: InputCommand) -> Duration {
         let settle = platform.preparation(for: command) == .internalAppKitState
@@ -1001,6 +1117,12 @@ extension AgentSeat {
     /// 30/09/2026, a UXP key resolved at .988 was refused as expired at .548,
     /// 60 ms past its 500 ms, with nothing in the world changed. Every other
     /// reading is still taken now.
+    ///
+    /// An ordinary window's own keyboard context reads the focus once, bounded
+    /// by the endpoint's deadline and the grace, and an application that did
+    /// not answer in time retires it with `focusNotReadable`, never as a focus
+    /// that moved (ADR 0039, follow-up). Expiry is still decided first, on the
+    /// time taken after that reading.
 
     func endpointInvalidation(
         of endpoint    : ResolvedInputEndpoint,
@@ -1010,7 +1132,10 @@ extension AgentSeat {
            selectionKit.modals(blocking: endpoint.identity).contains(endpoint.logicalSurface) {
             return .relationNoLongerValid
         }
+        let graceNanoseconds = UInt64(max(0, grace.components.seconds)) * 1_000_000_000
+            + UInt64(max(0, grace.components.attoseconds / 1_000_000_000))
         let focused: Int?
+        var focusNotRead = false
         if endpoint.evidence == .focusedSurfaceDescendant
             || endpoint.kind == .keyboardContext && endpoint.evidence == .remoteContentOfSurface {
             guard let instance = assignmentKit.lifecycle.current?.instance,
@@ -1169,6 +1294,48 @@ extension AgentSeat {
                 else { return .focusedNodeChanged }
                 focused = current.focusedNodeWindowNumber
             }
+        } else if endpoint.kind == .keyboardContext, endpoint.evidence == .windowlessContentWithoutFocus {
+            // No control was focused at resolution: the absence is proved again, or the focus a
+            // preparation exposed must resolve back to this surface. Anything else retires it.
+            guard let instance = assignmentKit.lifecycle.current?.instance,
+                  !attestedModalWindow(endpoint.logicalSurface),
+                  surfaceIsTopmost(endpoint.logicalSurface)
+            else { return .focusedNodeChanged }
+            let chain = DialogEndpointResolver<AXUIElement>.SurfaceChain(
+                host        : endpoint.logicalSurface,
+                surface     : endpoint.logicalSurface,
+                surfaceFrame: endpoint.geometry.window.frame
+            )
+            let generation = selectionKit.selected?.generation ?? .max
+            func isThisEndpoint(_ current: ResolvedInputEndpoint) -> Bool {
+                current.kind == .keyboardContext
+                    && current.relation == .logicalSurface
+                    && current.identity == endpoint.identity
+                    && current.geometry.window.frame == endpoint.geometry.window.frame
+                    && current.geometry.scaleFactor == endpoint.geometry.scaleFactor
+                    && current.selectionGeneration == endpoint.selectionGeneration
+            }
+            let absent = webAreaKeyboardContext(
+                processID : instance.processID,
+                chain     : chain,
+                generation: generation
+            )
+            if let absent, absent.evidence == .windowlessContentWithoutFocus, isThisEndpoint(absent) {
+                // Still no focused control, and the page still proves it.
+            } else if case .success(let current) = endpoints.windowlessContent(
+                instance.processID, nil, chain, generation
+            ), current.evidence == .windowlessContentOfSurface, isThisEndpoint(current),
+               current.focusedNodeWindowNumber == endpoint.identity.windowNumber {
+                // A focused control of the page, windowless, with the surface as its nearest window.
+            } else if case .success(let current) = endpoints.keyboardContext(
+                instance.processID, chain, generation
+            ), current.evidence == .attestedSurfaceItself, isThisEndpoint(current),
+               current.focusedNodeWindowNumber == endpoint.identity.windowNumber {
+                // A focused control that names the surface window itself, such as the toolbar's.
+            } else {
+                return .focusedNodeChanged
+            }
+            focused = nil
         } else if endpoint.kind == .keyboardContext, endpoint.evidence == .windowlessContentOfSurface {
             // The focused control names no window, so the plain focus reading
             // would answer nil: the same proof is taken again instead.
@@ -1192,21 +1359,40 @@ extension AgentSeat {
                   current.focusedNodeWindowNumber == endpoint.identity.windowNumber
             else { return .focusedNodeChanged }
             focused = current.focusedNodeWindowNumber
+        } else if isOrdinaryKeyboardEndpoint(endpoint) {
+            let reading = assignmentKit.lifecycle.current.map {
+                endpoints.focusedWindowReading(
+                    $0.instance.processID,
+                    endpoint.expiresAtNanoseconds &+ graceNanoseconds
+                )
+            }
+            if case .window(let number)? = reading { focused = number } else { focused = nil }
+            focusNotRead = reading == .notResponding
         } else {
             focused = endpoint.kind == .keyboardContext
                 ? assignmentKit.lifecycle.current
                     .flatMap { endpoints.focusedWindowNumber($0.instance.processID) }
                 : nil
         }
-        let graceNanoseconds = UInt64(max(0, grace.components.seconds)) * 1_000_000_000
-            + UInt64(max(0, grace.components.attoseconds / 1_000_000_000))
-        return endpoint.invalidation(
+        let retired = endpoint.invalidation(
             at                     : DispatchTime.now().uptimeNanoseconds &- graceNanoseconds,
             selectionGeneration    : selectionKit.selected?.generation ?? .max,
             logicalSurface         : selectionKit.selected?.surface,
             currentIdentity        : endpoints.identity(endpoint.identity.windowNumber),
             focusedNodeWindowNumber: focused
         )
+        return focusNotRead && retired == .focusedNodeChanged ? .focusNotReadable : retired
+    }
+
+    /// Whether `endpoint` is an ordinary window's own keyboard context: the
+    /// focused control named the surface itself, and the surface has no attested
+    /// modal relation of any kind. Remote content and every modal keep their
+    /// own boundary proofs (ADR 0014, ADR 0031).
+    func isOrdinaryKeyboardEndpoint(_ endpoint: ResolvedInputEndpoint) -> Bool {
+        endpoint.kind == .keyboardContext
+            && endpoint.evidence == .attestedSurfaceItself
+            && endpoint.relation == .logicalSurface
+            && !attestedModalWindow(endpoint.logicalSurface)
     }
 
     /// Folds one more reading through both nuclei on request.
@@ -1358,6 +1544,7 @@ extension AgentSeat {
         logicalClosureEvidence.removeAll()
         reconciledLogicalClosures.removeAll()
         pendingDestruction.removeAll()
+        physicalOrigins.removeAll()
         guard assignmentKit.lifecycle.isAssigned else {
             observationIssuer.invalidate(reason)
             outstandingGeometry = nil
@@ -1407,6 +1594,9 @@ extension AgentSeat {
         if let context = menuContext {
             return .failure(.menuInteractionActive(parent: context.parent))
         }
+        #if BRAUS_PHASES
+        let preCapture = PhaseInterval.begin("seat.preCapture")
+        #endif
         let deadlineNanoseconds = DispatchTime.now().uptimeNanoseconds
             &+ observationProfile.captureDeadlineNanoseconds
         foldCurrentReading()
@@ -1523,6 +1713,9 @@ extension AgentSeat {
         } else {
             region = nil
         }
+        #if BRAUS_PHASES
+        preCapture.end()
+        #endif
         let delivered = await captureAndIssue(
             surface            : picture.surface,
             role               : picture.role,
@@ -1745,6 +1938,10 @@ extension AgentSeat {
         isMenu             : Bool
     ) async -> Result<SeatObservationDelivery, ObservationUnavailable> {
 
+        #if BRAUS_PHASES
+        let captureLoop = PhaseInterval.begin("seat.captureLoop")
+        defer { captureLoop.end() }
+        #endif
         let barrier = observationIssuer.barrier
         let captureTarget = region.map {
             SeatCaptureTarget.attestedWindowRegion(
@@ -1764,6 +1961,9 @@ extension AgentSeat {
             }
             attempts += 1
 
+            #if BRAUS_PHASES
+            let captureSource = PhaseInterval.begin("seat.captureSource")
+            #endif
             let frame: SeatFrame
             do {
                 if isMenu {
@@ -1800,6 +2000,9 @@ extension AgentSeat {
                 lastFailure = .captureFailed(reason: String(describing: error))
                 continue
             }
+            #if BRAUS_PHASES
+            captureSource.end()
+            #endif
 
             let arrivedAt = DispatchTime.now().uptimeNanoseconds
 
@@ -1873,6 +2076,10 @@ extension AgentSeat {
         isMenu             : Bool
     ) -> ObservationUnavailable? {
 
+        #if BRAUS_PHASES
+        let phase = PhaseInterval.begin("seat.stillCurrent")
+        defer { phase.end() }
+        #endif
         guard !isTearingDown, state != .failed else { return .notAssigned }
         guard let assignment = assignmentKit.lifecycle.current,
               assignment.instance == instance

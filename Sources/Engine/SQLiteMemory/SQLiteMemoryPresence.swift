@@ -1,13 +1,13 @@
 //
 //  SQLiteMemoryPresence.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 07/10/2026.
 //
 
 import Foundation
 import Memory
-import SQLite3
+import SQLiteAmalgamation
 
 /// SQLiteMemoryPresence is an archive's presence lock: `flock(2)` on a file beside the archive,
 /// `<archive>.lock`, made on first use and never moved or deleted. Whoever holds the archive's

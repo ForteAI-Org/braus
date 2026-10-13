@@ -43,7 +43,7 @@ Decisions were taken by Tommaso Mazzarini on 7 October 2026.
 | # | Question | Decision |
 |---|---|---|
 | D1 | Merge or transplant | Transplant |
-| D2 | Earlier JSON Brains | First imported by hand only; changed on 8 October: imported once, automatically, when an open creates the archive beside them; `mecum memory --import-json <dir>` stays for any other directory |
+| D2 | Earlier JSON Brains | First imported by hand only; changed on 8 October: imported once, automatically, when an open creates the archive beside them; `braus memory --import-json <dir>` stays for any other directory |
 | D3 | External MCP clients | First one archive shared with the app's workers; reversed after the live checks (C07): each client keeps a private archive, as on main, source `mcp` |
 | D4 | Concurrent access | Common practice without needless complexity: one writer, an ordered queue, actions never wait |
 | D5 | Latency budget | 50 ms added per action at most, to be lowered later if needed |
@@ -82,7 +82,7 @@ Status: **resolved** (done and verified), **limit** (documented, not needed by t
 | 2 Effects | resolved | `textSelectionChanged` is a sixth family in the Brain, the calls and the DDL, decoded by name. Tests in `AgentCallResultContractTests`, `AgentCallTimingTests` and the schema verifier. |
 | 3 Outcomes and perception | resolved | Main's engine outcomes are untouched: the engine only reports more to its observer. Perception keeps main's window identity, native text and selections, and adds quality, label origin and collection path. The `==` of `SceneElement` includes the selection. |
 | 9 Scope | resolved | Main's worker host, team model, queued messages, replies and slash commands are unchanged. The two app tests that failed on main as here were fixed as tests (PM-02); the app suite's result is in [Before the merge into main](#before-the-merge-into-main). |
-| 10 Package and resource | resolved | Main's dependencies kept; the DDL resource is inside the built `Mecum.app`. Only an unsigned Debug build was checked. |
+| 10 Package and resource | resolved | Main's dependencies kept; the DDL resource is inside the built `Braus.app`. Only an unsigned Debug build was checked. |
 | 12 Public API | resolved | `EngineRuntime(knowledgeDirectory:seat:)` is kept. `engine(recorder:…)` needs the call's recorder; every consumer passes one. The session protocol gained two members with defaults, so test doubles are unchanged. |
 | 13 MCP | resolved | Main already guarded the connection's start; memory-model's test was ported. |
 | 14 Runner | resolved | Main's runner plus the schema verifier, 28 runs. Codex ran the post-fix protocol PF-01 on the desktop on `b71bf55`; what it left open is in [Before the merge into main](#before-the-merge-into-main). |
@@ -93,7 +93,7 @@ Status: **resolved** (done and verified), **limit** (documented, not needed by t
 |---|---|---|
 | 4 Shared service | resolved | One `MemoryService` per Knowledge directory per process. No session closes it; the process closes all at its end, within one bound. Each external client has its own directory and archive, as on main, and writes as `mcp`. |
 | 5 Versions and data | resolved | A file at version 1 must match the shipped DDL exactly (`differentShape` otherwise), untouched. JSON import tested on copies of six real Brains: counts equal, originals unchanged. |
-| 11 SQLite library | open | The store refuses a library below its requirements. On this Mac: 3.54.0. The current candidate exposes the linked version in Settings → Brain and through `mecum memory --status`; older macOS releases remain untested. The original no-UI limitation has been corrected. |
+| 11 SQLite library | open | The store refuses a library below its requirements. On this Mac: 3.54.0. The current candidate exposes the linked version in Settings → Brain and through `braus memory --status`; since 2026-10-13 the library is compiled in (`SQLiteAmalgamation`, 3.54.0), so macOS 15 and later get the same version; no run on a macOS before 27 yet. The original no-UI limitation has been corrected. |
 | 28 Writers | resolved | Every production write goes through the repositories, in the queue; the import goes through the Brain repository, never raw SQL. Foreign keys are on for every connection. |
 | 29 Retention | limit | Nothing deletes history; decay retires projection rows. A policy is a later decision (D8). |
 | 30 Copies and restore | resolved | A verified copy a day, three kept; a corrupt archive moved aside and the newest sound copy restored, or an empty start, only while no other cooperating process holds it; a recovery that stops half way is completed from its record or refused, never replaced by an empty archive. Tested with real processes. Restoring the whole app (workspace, conversations) is outside the memory. |
@@ -141,7 +141,7 @@ Status: **resolved** (done and verified), **limit** (documented, not needed by t
 - Two of main's app tests failed on this Mac before and after the merge: one read the installed
   Claude Code model list, the other closed the bridge's input before its answer, which the bridge
   takes as the client leaving since `7346f8b`. Both were fixed as tests (PM-02).
-- Mecum finds no window of an application whose windows are on another desktop (Space) of their
+- Braus finds no window of an application whose windows are on another desktop (Space) of their
   display than the one it shows: main and this branch alike (PM-01).
 - A batch cancelled between two steps left its unrun steps planned in the memory; they are now
   recorded skipped (PM-05).
@@ -160,7 +160,7 @@ Environment: macOS 27.0 (26A428), Swift 6.4, SQLite 3.54.0, Debug builds.
 
 | Check | Result |
 |---|---|
-| `swift build --product mecum` | passed |
+| `swift build --product braus` | passed |
 | `make test SWIFT=swift` on the final code, after `swift package clean` | passed: 2791 executed, 94 skipped, 28 runs, no problems |
 | Main's baseline, same command at `eff301c` | passed: 2458 executed, 94 skipped, 26 runs |
 | App tests, unsigned (`CODE_SIGNING_ALLOWED=NO`) | 325 tests, the same two environment failures as main |
@@ -189,7 +189,7 @@ that needed no desktop; the rest wait for a decision on data or for a desktop ru
 | Point | Status | What |
 |---|---|---|
 | C05 Closing | fixed, `8bf80d2`, completed after R2–R3 | `closingBudget` bounds the whole close: admission ends at the first call, the copy is cancelled and never published after it, the queue drains until the last fifth of the bound, and the archive closes in a task the close does not wait on past the bound. Each write is counted by what it committed: written, failed (nothing), partial (a part), dropped (never ran) or unsettled (still running at the bound, counted again when it ends). The copy is held between two steps by a test gate and cancelled there. Before the fix, `f7d31bd` counted as failed a write whose row was in the archive. See [Closing](MemorySchema.md#closing). |
-| C08 Diagnosis | fixed, `f55a0bc`, corrected after R1 and R6 | `mecum memory --status` no longer opens a file as `immutable` because no `-wal` or `-shm` is beside it: it reads with the library's locks, in one read transaction, under the presence lock, and says when it cannot read the file as it lies. It reports the version apart from what this build's open would do, so a newer version is refused as newer. See [Diagnosis](MemorySchema.md#diagnosis). |
+| C08 Diagnosis | fixed, `f55a0bc`, corrected after R1 and R6 | `braus memory --status` no longer opens a file as `immutable` because no `-wal` or `-shm` is beside it: it reads with the library's locks, in one read transaction, under the presence lock, and says when it cannot read the file as it lies. It reports the version apart from what this build's open would do, so a newer version is refused as newer. See [Diagnosis](MemorySchema.md#diagnosis). |
 | C07 Raw `record` | fixed, `1233097` | The documentation says what the raw record is for; a test proves a retried learning applies once. |
 | C07 MCP isolation | fixed | As on main, each external client's memory is `MCP/Knowledge/<profile>`, now an SQL archive of its own. Nothing was moved: no archive inventoried holds `mcp` events. A test has two clients and a worker write and learn apart. |
 | C09 Recovery with several processes | fixed | A presence lock beside the archive, taken shared by every store, its copies and the diagnosis, and exclusive by a recovery, which is refused while anybody holds it and reads the archive again once it holds it. Proved with real processes. See [Copies and recovery](MemorySchema.md#copies-and-recovery). |
@@ -213,7 +213,7 @@ nothing new to integrate.
 
 | Point | Status | What |
 |---|---|---|
-| PM-01 Windows not found | cause found, pre-existing, left out of this merge (decided) | Mecum looks for an application's windows in the window server's on-screen list, the command line and the app alike; the app's fallback adds fullscreen windows and those Stage Manager hides, nothing else. A window on another desktop (Space) of its display than the one it shows is in neither, so Mecum lists no window. Reproduced without touching the desktop: a Finder window on the built-in display, in Space 1376 while the display showed Space 253, gave `no interaction window among 0 rows` from this branch's binary and from main's alike. The merge changes none of this code. Fixing it changes window discovery, so it is a proposal, not a fix here. |
+| PM-01 Windows not found | cause found, pre-existing, left out of this merge (decided) | Braus looks for an application's windows in the window server's on-screen list, the command line and the app alike; the app's fallback adds fullscreen windows and those Stage Manager hides, nothing else. A window on another desktop (Space) of its display than the one it shows is in neither, so Braus lists no window. Reproduced without touching the desktop: a Finder window on the built-in display, in Space 1376 while the display showed Space 253, gave `no interaction window among 0 rows` from this branch's binary and from main's alike. The merge changes none of this code. Fixing it changes window discovery, so it is a proposal, not a fix here. |
 | PM-02 Two app tests | fixed as tests | `/model` read the installed Claude Code's catalogue (here `claude-opus-5-5`, `claude-fable-5-1`, `claude-sonnet-5`, `claude-haiku-4-5`); it now uses the composer tests' fixed catalogue. The bridge test closed the bridge's input before its answer: closed at once, 0 bytes, exit 0; kept open, the 64-byte answer. It now reads the answer first, and a second test checks the early close ends the bridge cleanly. Both fail on main and pass with the fixed tests on main's code and here. |
 | PM-03 Contract passages | fixed | Codex's five corrections, checked against the code and applied. |
 | PM-04 Calculator compared with main | open, blocked | The paired live run needs consent to send the Calculator's synthetic data to the provider, and the desktop. Not run here. |
@@ -226,7 +226,7 @@ Decisions taken by Tommaso Mazzarini on 8 October 2026:
 
 | Question | Decision |
 |---|---|
-| PM-01 | Left out of this merge. Condition: the target window must be on the desktop its display shows. Impact: otherwise Mecum lists no window and `open_session` waits, then refuses, as on main. Later work on main: say where the window is instead of "no window", then measure adoption across desktops. No regression: the discovery code is main's, unchanged, and main gives the same answer on the same state. |
+| PM-01 | Left out of this merge. Condition: the target window must be on the desktop its display shows. Impact: otherwise Braus lists no window and `open_session` waits, then refuses, as on main. Later work on main: say where the window is instead of "no window", then measure adoption across desktops. No regression: the discovery code is main's, unchanged, and main gives the same answer on the same state. |
 | PM-07 | No `memory-model` archive is converted: the memory starts from a new SQL archive, which takes main's JSON Brains when it is created, every original kept. |
 | PM-05 | No behaviour change in this merge for the three rules; any change is a separate proposal on main. |
 | PF-01 perimeter | Live comparisons between main and the final candidate only; the first merge (`0c8c831`) is superseded by the fixes and is not marked as passed. |
@@ -240,19 +240,19 @@ The binary and the archive are compatible in different ways, and the two must no
 | main (`eff301c`) | the JSON Brains (`Knowledge/<bundle>.json`) | the JSON Brains | `memory.sqlite`, its copies, its lock and recovery record |
 | this branch | `memory.sqlite` only | `memory.sqlite` and its daily copies | the JSON Brains, which it never reads at run time and never changes |
 
-**Adopting.** Nothing to do by hand. The first open of a Knowledge directory, by the app or by `mecum`,
+**Adopting.** Nothing to do by hand. The first open of a Knowledge directory, by the app or by `braus`,
 creates `memory.sqlite` beside the JSON files and imports their Brains in the same open, before anything is
 learned into it; Settings > Brain says what came in. It carries the projection exactly, not main's routes,
 window states or menu commands, and no history; the JSON files are not changed. It happens once: an archive
 that already exists is never imported into, so a Brain learned in SQLite is never replaced. An external
 client's directory, `MCP/Knowledge/<profile>`, takes its own JSON Brains the same way. To import another
 directory, or what main learned after the switch for an application the archive does not hold yet:
-`mecum memory --import-json <dir> --knowledge <Knowledge dir>`. To start with an empty Brain, move the JSON
+`braus memory --import-json <dir> --knowledge <Knowledge dir>`. To start with an empty Brain, move the JSON
 files out of the directory before the first open.
 Archives made by `memory-model` builds are not converted: this build refuses them untouched, and none
 exists in the app's own folder (C06).
 
-**Going back to main.** Quit Mecum and every `mecum` process first, so no connection holds the archive.
+**Going back to main.** Quit Braus and every `braus` process first, so no connection holds the archive.
 Main then reads the JSON Brains as they were before the switch: what was learned in SQLite since is
 not visible to it, and nothing converts it back. `memory.sqlite`, its copies and its lock stay where
 they are, unread by main, and a later return to this branch finds them as they were left. What main
@@ -266,6 +266,6 @@ Checked on a copy of a real Finder Brain (8 October, `.scratch/merge-memory/pm07
 it (110 anchors) and read it from SQLite; main's binary read the same 110 anchors from the JSON file;
 the JSON file and `memory.sqlite` kept their hashes across both binaries, and the original in the app's
 folder was untouched. On a copy of the app's whole Knowledge directory, six JSON Brains (398 anchors, 38
-groups), the first `mecum memory Finder` created the archive and imported all six; each Brain read back
+groups), the first `braus memory Finder` created the archive and imported all six; each Brain read back
 from SQLite equals its JSON file exactly, the files kept their hashes, and a second import kept all six
 (`.scratch/merge-memory/verify-import`).

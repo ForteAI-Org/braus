@@ -17,7 +17,7 @@ nonisolated final class MCPInputLines: @unchecked Sendable {
         values = pair.stream
         continuation = pair.continuation
         source = DispatchSource.makeReadSource(fileDescriptor: descriptor,
-                                               queue: DispatchQueue(label: "dev.forte.mecum.mcp.stdin"))
+                                               queue: DispatchQueue(label: "dev.forte.braus.mcp.stdin"))
         source.setEventHandler { [weak self] in self?.receive() }
         source.setCancelHandler { pair.continuation.finish() }
         pair.continuation.onTermination = { [weak self] _ in self?.stop() }

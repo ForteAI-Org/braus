@@ -42,7 +42,7 @@ still retain a host; focus and modal adoption remain separate obligations.
 
 Release8f22792c completes three independent QuickTime launches, panel Cancel,
 scoped empty-window readings, clean session closes and actual process exits,
-without restarting Mecum. Prism also completes three Unicode/control/Cancel
+without restarting Braus. Prism also completes three Unicode/control/Cancel
 cycles with its actual raw values; standalone-observation repeats remain
 separately tracked. Earlier failures are preserved.
 

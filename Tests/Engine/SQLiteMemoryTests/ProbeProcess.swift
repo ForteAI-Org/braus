@@ -1,6 +1,6 @@
 //
 //  ProbeProcess.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 30/09/2026.
 //
@@ -21,11 +21,11 @@ import Testing
 final class ProbeProcess {
 
     /// The helper's binary, built into the products directory beside this test bundle (`swift test`
-    /// builds it; so does `swift build --product memory-probe`); `MECUM_MEMORY_PROBE` names another.
+    /// builds it; so does `swift build --product memory-probe`); `BRAUS_MEMORY_PROBE` names another.
     /// Nil when neither is an executable file. The runner's own `Bundle.main` is in the toolchain,
     /// so the search starts from the bundle that holds these tests.
     static let executable: URL? = {
-        if let named = ProcessInfo.processInfo.environment["MECUM_MEMORY_PROBE"], !named.isEmpty {
+        if let named = ProcessInfo.processInfo.environment["BRAUS_MEMORY_PROBE"], !named.isEmpty {
             return URL(fileURLWithPath: named)
         }
         var candidates: [URL] = []

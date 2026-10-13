@@ -1,6 +1,6 @@
 //
 //  ProviderCatalog+Check.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 23/09/2026.
 //
@@ -213,8 +213,8 @@ extension ProviderCatalog {
         }
     }
 
-    /// Runs a command line's status check. A missing executable and a run
-    /// that failed, timed out or was cancelled are all "nothing answered".
+    /// Runs a command line's status check. A missing executable is `notInstalled`;
+    /// a run that failed, timed out or was cancelled is "nothing answered".
     private static func checkCommandLine(
         destination: String,
         locate     : () throws -> URL,
@@ -225,7 +225,7 @@ extension ProviderCatalog {
         do {
             executable = try locate()
         } catch {
-            return .unreachable(destination: destination, detail: "it is not installed where this app looks for it")
+            return .notInstalled
         }
         do {
             return try await status(executable)

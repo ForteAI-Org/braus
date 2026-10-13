@@ -1,6 +1,6 @@
 #
 #  Makefile
-#  Mecum, Driver layer
+#  Braus, Driver layer
 #
 #  Created by Eliomar Alejandro Rodriguez Ferrer on 09/09/2026.
 #
@@ -33,14 +33,14 @@ BASELINES := Tests/Driver/Benchmarks/Baselines
 BENCH_OUT := .build/bench
 REPORTS   := Documentation/Driver/compatibility
 
-# SwiftPM filters out SeatSession and reports 27 Swift Testing summaries.
+# SwiftPM filters out SeatSession and reports 28 Swift Testing summaries.
 # Filtering also omits the empty Swift Testing companions of the two XCTest-only
 # targets; their XCTest tests still run. SeatSession's 674 tests run separately
-# through the synchronous native entry point, for 28 required summaries:
+# through the synchronous native entry point, for 29 required summaries:
 # AppKit RunLoop pumping can also end this otherwise pure bundle before its
 # async main reports completion.
-# The app's own tests remain in MecumTests. This is a run count, not a test count.
-UNIT_BUNDLES := 28
+# The app's own tests remain in BrausTests. This is a run count, not a test count.
+UNIT_BUNDLES := 29
 
 # The seat cycle, alone in its own process.
 HOST_CYCLE_TESTS := 1
@@ -119,6 +119,7 @@ test: native-test-runner
 	@$(PYTHON) Tools/Driver/Scripts/test-compat-report.py
 	@bash Tools/Driver/Scripts/test-seatbench-contract.sh
 	@$(PYTHON) Tools/Engine/Scripts/verify-memory-schema.py
+	@$(PYTHON) Tools/Driver/Phases/test-phase-table.py
 	@TIER_BUNDLES=$(UNIT_BUNDLES) $(TIER) unit - bash Tools/Driver/Scripts/unit-test-command.sh $(SWIFT)
 
 # The synchronous entry point survives native RunLoop returns during capture.

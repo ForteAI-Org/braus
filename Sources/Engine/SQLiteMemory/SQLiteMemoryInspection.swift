@@ -1,13 +1,13 @@
 //
 //  SQLiteMemoryInspection.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 07/10/2026.
 //
 
 import Foundation
 import Memory
-import SQLite3
+import SQLiteAmalgamation
 
 /// SQLiteMemoryInspection says what an archive file is, for a diagnosis, without changing it: whether
 /// it is there, its size and its log's, its schema version and what this build's open would make of
@@ -28,11 +28,14 @@ public enum SQLiteMemoryInspection {
     public enum Shape: Sendable, Equatable {
         /// No file at the path.
         case missing
-        /// A database with no schema yet: Mecum's memory would create its schema in it, and a
+        /// A database with no schema yet: Braus's memory would create its schema in it, and a
         /// reader of an existing archive refuses it.
         case empty
         /// The schema this build opens: its version and exactly its shape.
         case current
+        /// Exactly the shape of an earlier schema this build migrates from: Braus's memory migrates it
+        /// on its next open, after a verified copy, and a reader refuses it until then.
+        case migratable(from: Int32)
         /// A file this build refuses and leaves as it is, and why: a newer version, another shape,
         /// tables of somebody else's.
         case refused(MemorySchemaMismatch)
@@ -52,7 +55,7 @@ public enum SQLiteMemoryInspection {
         /// The file's `user_version`, when it could be read.
         public let schemaVersion: Int64?
         public let shape: Shape
-        /// Row counts, by table, when the shape is current.
+        /// Row counts, by table, when the shape is current or migratable.
         public let counts: [String: Int]
         /// Copies beside the file, newest first.
         public let backups: [String]
@@ -108,6 +111,7 @@ public enum SQLiteMemoryInspection {
         defer { presence.release() }
         if let pending = SQLiteMemoryRecovery.pending(of: url) { return report(.interruptedRecovery(pending)) }
         guard manager.fileExists(atPath: url.path) else { return report(.missing) }
+        if lacksLogFiles(url) { return report(.unavailable(missingLogFiles)) }
         var attempt = 0
         while true {
             attempt += 1
@@ -119,13 +123,6 @@ public enum SQLiteMemoryInspection {
             case .busy:
                 return report(.unavailable("the library answered busy \(busyAttempts) times; nothing was read"))
             case .failed(let failure):
-                if failure.primary == SQLITE_CANTOPEN, isWriteAheadLogged(url),
-                   !manager.fileExists(atPath: url.path + "-shm") {
-                    return report(.unavailable(
-                        "a WAL archive whose log files are not beside it: a reader cannot make them without "
-                        + "changing the directory; open it with Mecum, or inspect it with its -wal and -shm"
-                    ))
-                }
                 return report(.unreadable("\(failure)"))
             }
         }
@@ -138,7 +135,7 @@ public enum SQLiteMemoryInspection {
     }
 
     /// One read of the file in one read transaction: the version, what the store's open would decide
-    /// (the same inspection), and the counts when the schema is current.
+    /// (the same inspection), and the counts when the schema is current or migratable.
     private static func read(_ url: URL, betweenReads: (() -> Void)?) -> Reading {
         let connection: SQLiteConnection
         do {
@@ -151,19 +148,23 @@ public enum SQLiteMemoryInspection {
         defer { connection.close() }
         var version: Int64?
         do {
-            let expected = try SQLiteMemoryStore.Expected(ddl: try SQLiteMemorySchema.text())
+            let expected = try SQLiteMemoryStore.Expected()
             try connection.execute("BEGIN")
             defer { _ = try? connection.execute("COMMIT") }
             version = try connection.query("PRAGMA user_version") { $0.integer(0) ?? 0 }.first ?? 0
             betweenReads?()
-            switch try SQLiteMemoryStore.inspect(connection, expected: expected) {
+            let inspection = try SQLiteMemoryStore.inspect(connection, expected: expected)
+            switch inspection {
             case .empty:
                 return .read(.empty, version: version, counts: [:])
-            case .current:
+            case .current, .previous:
                 var counts: [String: Int] = [:]
                 for table in countedTables {
                     // Table names are this module's own literals; nothing from a caller is spliced in.
                     counts[table] = Int(try connection.query("SELECT count(*) FROM \(table)") { $0.integer(0) ?? 0 }.first ?? 0)
+                }
+                if case .previous(let earlier) = inspection {
+                    return .read(.migratable(from: earlier), version: version, counts: counts)
                 }
                 return .read(.current, version: version, counts: counts)
             }
@@ -174,6 +175,72 @@ public enum SQLiteMemoryInspection {
         } catch {
             return .read(.unreadable("\(error)"), version: version, counts: [:])
         }
+    }
+
+    /// TaskReading is what a read of one task by its id found.
+    public enum TaskReading: Sendable {
+        /// The task and everything the procedures and the Brain hold of it (`ProcedureInspection`).
+        case found(ProcedureInspection)
+        /// The archive is current and holds no task with that id.
+        case notFound
+        /// Nothing was read, and why: the archive is missing, not current, held by a recovery or busy.
+        case unavailable(String)
+    }
+
+    /// Reads one task by its id as `inspect` reads the file: read only, under the shared presence lock,
+    /// in one read transaction, and only from an archive of exactly this build's shape. It creates,
+    /// migrates and recovers nothing, so an archive of an earlier schema is read by Braus's next open
+    /// first.
+    public static func task(_ taskID: String, in url: URL) -> TaskReading {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: url.path) else { return .unavailable("no archive at \(url.path)") }
+        let presence: SQLiteMemoryPresence
+        do {
+            guard let taken = try SQLiteMemoryPresence.take(.shared, of: url) else {
+                return .unavailable("a recovery holds the archive; nothing was read")
+            }
+            presence = taken
+        } catch {
+            return .unavailable("the archive's presence lock could not be taken: \(error)")
+        }
+        defer { presence.release() }
+        if let pending = SQLiteMemoryRecovery.pending(of: url) { return .unavailable(pending) }
+        if lacksLogFiles(url) { return .unavailable(missingLogFiles) }
+        for attempt in 1...busyAttempts {
+            do {
+                let connection = try SQLiteConnection(path: url.path, readOnly: true, mayCreate: false)
+                defer { connection.close() }
+                let expected = try SQLiteMemoryStore.Expected()
+                try connection.execute("BEGIN")
+                defer { _ = try? connection.execute("COMMIT") }
+                guard case .current = try SQLiteMemoryStore.inspect(connection, expected: expected) else {
+                    return .unavailable("the archive is not of schema \(supportedVersion); `braus memory --status` says what it is")
+                }
+                guard let found = try SQLiteProcedureRows.inspection(connection, taskID: taskID) else { return .notFound }
+                return .found(found)
+            } catch let failure as SQLiteConnection.Failure where failure.isBusy && attempt < busyAttempts {
+                usleep(busyPauseMicroseconds)
+            } catch MemoryStoreError.schema(let mismatch) {
+                return .unavailable("this build refuses the archive: \(mismatch)")
+            } catch {
+                return .unavailable("\(error)")
+            }
+        }
+        return .unavailable("the library answered busy \(busyAttempts) times; nothing was read")
+    }
+
+    /// Why a WAL archive without its log files is not read.
+    private static let missingLogFiles = "a WAL archive whose log files are not beside it: a reader cannot make "
+        + "them without changing the directory; open it with Braus, or inspect it with its -wal and -shm"
+
+    /// Whether the file is a WAL archive without its `-wal` or its `-shm`. A read-only connection of stock
+    /// SQLite makes them when the directory is writable, where Apple's refuses, so the diagnosis looks
+    /// before it opens. Every connection of this module keeps them after its close (`SQLiteConnection`),
+    /// so a closed archive has them; one another tool closed last, or a person moved, may not.
+    private static func lacksLogFiles(_ url: URL) -> Bool {
+        let manager = FileManager.default
+        return isWriteAheadLogged(url)
+            && !(manager.fileExists(atPath: url.path + "-wal") && manager.fileExists(atPath: url.path + "-shm"))
     }
 
     /// Whether the file's header says it is in WAL mode: read and write versions 2, bytes 18 and 19.

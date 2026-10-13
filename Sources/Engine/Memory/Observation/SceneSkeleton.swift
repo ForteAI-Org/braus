@@ -1,6 +1,6 @@
 //
 //  SceneSkeleton.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 01/10/2026.
 //
@@ -116,4 +116,11 @@ public struct SceneSkeleton: Sendable, Equatable, Hashable {
     /// A deterministic digest of the canonical rendering: a search hint for candidate scenes,
     /// never a unique key and never an identity.
     public var structuralKey: String { StructuralDigest.fnv1a(canonical) }
+
+    /// The set of roles as one text, sorted by their bytes and joined by the unit separator: the key
+    /// the matcher's first test needs, since a complete capture is the same as, or uncertain against,
+    /// only a scene of the same roles. The archive keeps it per scene (`brain_scene_shapes`).
+    public var roleKey: String {
+        roles.sorted { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) }.joined(separator: "\u{1F}")
+    }
 }

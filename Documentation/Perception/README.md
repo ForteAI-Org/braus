@@ -22,7 +22,7 @@ an action is taken, never a coordinate of their own.
 | `Perception` | `ScenePipeline`: roles in, a scene out |
 | `ScreenCapture` | `StillCapturer`: one still of a window, or of a screen region holding a window and its pop-up, through ScreenCaptureKit; the foreground eye, where the Seat's capture is the background one |
 
-There is no umbrella module. Link the `MecumPerception` library product; every consumer writes the
+There is no umbrella module. Link the `BrausPerception` library product; every consumer writes the
 imports it uses. `PerceptionCore` imports Foundation and CoreGraphics only, reads no environment
 and keeps no global; the adapters import `PerceptionCore` and their one framework.
 
@@ -65,9 +65,23 @@ scene.resolve(target: "Export")               // .found, .ambiguous(n) or .none
   eight captured pixels, then left to right, an exact tie broken by the line itself. One screen renders
   one text whatever order composition and augmentation gathered it in. An open menu keeps its own
   order, and the map tier keeps its ranking.
+- The text is compact and lossless for target resolution; `mapText()` keeps its own, older lines.
+  One header line (`App (bundle) "title" WxH, N elements`), a `## name @x,y wxh` line per section,
+  one line per element without indentation, and positions in whole percent of the window (the
+  hundredth the line used to print). Plain text lines carry no tag; `[control]`, `[field]`, `[icon?]`
+  stay. A `{container}` is printed where it changes within a section (`{}` for none) and on every
+  line whose label more than one container owns, so a line copied alone still names its owner.
+  A plain unlabeled icon (no state, value, effect or container) joins the section's `icons:` line:
+  `id@x,y` when its id is its own, `id×n` when n icons share it, since the id alone cannot target
+  any of them. Group ordinals `(row#n)` are not printed; the data stays in the element and
+  `LabelText.strippingDisplayAnnotations` still tolerates them in an old copy. The legend the model
+  reads is in the `open_session` and `observe` tool descriptions (`AutomationTools.sceneLegend`), not
+  in the instructions, which a bare MCP client never sends. Pinned by `CompactSceneTextTests`, which
+  reads the printed text back and checks that every element resolves as it did.
 - `SceneChanges` is the reader's update between two scenes of one window, in `text()`'s own lines:
   added elements whole, removed ones short, changed ones with their earlier values, under the section
-  each is in now, plus a changed title, viewport, section list or commands. Elements match by id
+  each is in now, plus a changed window line, viewport, section list or commands. Its lines carry no
+  preamble: what `+`, `-` and `~` mean is in the `observe` tool description. Elements match by id
   (kind and normalized label), duplicates by role and then distance, a caption regrouped into a
   control in place by label, and an unlabeled element, whose id is a grid cell, by kind within 0.02
   of the window. A new order, smaller moves, group tags and sections redrawn around an unchanged
@@ -206,7 +220,7 @@ capture's quality beside the scene. `IncrementalTextTests` adds 15: the plan's t
 with their measured reasons, the tile grid, and a recording recognizer that proves an unchanged
 frame is never read again and a changed tile costs one line's rect.
 
-Boundary: `PerceptionBoundaryTests`, gated by `MECUM_LIVE_TESTS=1`, against a running Adobe
+Boundary: `PerceptionBoundaryTests`, gated by `BRAUS_LIVE_TESTS=1`, against a running Adobe
 Premiere with Screen Recording and Accessibility granted. Measured 2026-09-17 on Premiere 26.3.2,
 main window 1512×869 pt: 170 harvested elements in 0.07 to 0.20 s, a 189-element merged scene in
 0.43 to 0.91 s including Vision at 2×. The suite is named apart from the Driver Live tier on

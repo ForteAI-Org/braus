@@ -46,7 +46,7 @@ public final class ConversationLease {
         guard descriptor >= 0 else { throw POSIXError(.EACCES) }
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
             close(descriptor)
-            throw NSError(domain: "MecumChat", code: 1,
+            throw NSError(domain: "BrausChat", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "This conversation is already open in another terminal."])
         }
         self.descriptor = descriptor

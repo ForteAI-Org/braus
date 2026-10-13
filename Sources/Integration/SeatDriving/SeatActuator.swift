@@ -1,6 +1,6 @@
 //
 //  SeatActuator.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 18/09/2026.
 //
@@ -8,6 +8,9 @@
 import CoreGraphics
 import EngineCore
 import Foundation
+#if BRAUS_PHASES
+import PhaseSignposts
+#endif
 import SeatCapture
 import SeatCore
 import SeatInput
@@ -39,9 +42,20 @@ public actor SeatActuator: Actuating {
     }
 
     public func perform(_ gesture: Gesture, in processID: pid_t) async throws {
+        #if BRAUS_PHASES
+        let preparing = PhaseInterval.begin("delivery.prepare")
+        #endif
         let seat = try await target.agentSeat()
         let turn = try await heldTurn(on: seat)
         let observation = try await target.currentObservation()
+        #if BRAUS_PHASES
+        preparing.end()
+        let delivery = PhaseInterval.begin("delivery")
+        defer {
+            delivery.end()
+            FrameProbe.markInput()
+        }
+        #endif
         switch gesture {
             case .click(let point, let button, let count):
                 guard (1...InputCommand.maximumClickCount).contains(count) else {
@@ -88,6 +102,10 @@ public actor SeatActuator: Actuating {
     /// A seat that refuses a confirmation or a release has already failed its Turn and reports that
     /// on its own event stream; there is nothing more to do from here, so those errors are dropped.
     public func confirm(_ effect: DeliveryEffect, in processID: pid_t) async {
+        #if BRAUS_PHASES
+        let confirming = PhaseInterval.begin("delivery.confirm")
+        defer { confirming.end() }
+        #endif
         guard let turn else { return }
         let confirmation: EffectConfirmation = switch effect {
             case .observed: .observed

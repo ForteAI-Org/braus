@@ -14,12 +14,13 @@ public enum ModelProvider: String, Sendable, CaseIterable, Codable, Identifiable
         }
     }
 
-    /// Models offered before the person edits the favorites. Ollama's come
-    /// from the local server instead.
+    /// The fixed list for a provider whose live listing failed, and what the API providers start
+    /// from. Codex and Claude Code start on the first model of their own catalogue instead. Ollama's
+    /// come from the local server and have no fixed list.
     public var defaultModels: [String] {
         switch self {
-        case .codex: ["gpt-5.6-luna", "gpt-5.4-mini"]
-        case .claudeCode, .anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
+        case .codex: ["gpt-5.6-luna"]
+        case .claudeCode, .anthropic: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"]
         case .gemini: ["gemini-3-pro-preview", "gemini-3-flash-preview"]
         case .ollama: []
         }
@@ -28,10 +29,10 @@ public enum ModelProvider: String, Sendable, CaseIterable, Codable, Identifiable
     /// Where the person gets access, shown next to the key field.
     public var accessHint: String {
         switch self {
-        case .codex: "Uses the Codex command-line tool with your ChatGPT subscription. Sign in from Terminal with “codex login”. Mecum does not store an API key."
-        case .claudeCode: "Uses the Claude command-line tool with your Claude subscription. Sign in from Terminal with “claude auth login”. Mecum does not store an API key."
-        case .anthropic: "Add an API key from console.anthropic.com. Mecum stores it in Keychain and sends it only to api.anthropic.com."
-        case .gemini: "Add an API key from aistudio.google.com. Mecum stores it in Keychain and sends it only to Google’s Generative Language API."
+        case .codex: "Uses the Codex command-line tool with your ChatGPT subscription. Sign in from Terminal with “codex login”. Braus does not store an API key."
+        case .claudeCode: "Uses the Claude command-line tool with your Claude subscription. Sign in from Terminal with “claude auth login”. Braus does not store an API key."
+        case .anthropic: "Add an API key from console.anthropic.com. Braus stores it in Keychain and sends it only to api.anthropic.com."
+        case .gemini: "Add an API key from aistudio.google.com. Braus stores it in Keychain and sends it only to Google’s Generative Language API."
         case .ollama: "Runs models locally through Ollama. Install a model from Terminal with “ollama pull <name>”."
         }
     }

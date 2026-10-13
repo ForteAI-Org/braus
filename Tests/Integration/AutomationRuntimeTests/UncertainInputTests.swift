@@ -1,6 +1,6 @@
 //
 //  UncertainInputTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 08/10/2026.
 //
@@ -91,7 +91,7 @@ struct UncertainInputTests {
 
         let observed = try await tools.call("observe", .object(["session": .string(session.id!.uuidString),
                                                                  "full"   : .bool(true)])).payload
-        #expect(observed["scene"].string?.contains("[text] 12 ") == true,
+        #expect(observed["scene"].string?.contains("\n12 @") == true,
                 "the fresh observation shows what the uncertain key did")
         let answer = try await tools.call("batch", batch(["+", "3", "0", "="], in: session)).payload
 
@@ -144,7 +144,8 @@ struct UncertainInputTests {
         await #expect(throws: CancellationError.self) { _ = try await call.value }
         #expect(session.inputs == ["1", "2", "+"], "no key after the cancellation")
         let recorded = try #require(try await batches(session).first)
-        #expect(recorded.batch.progress.status == .failed)
+        // G76 D1: a cancellation is recorded as cancelled, no longer as failed with its error (R21, R23).
+        #expect(recorded.batch.progress.status == .cancelled)
         #expect(recorded.steps.map(\.progress.status) == [.completed, .completed, .completed, .skipped, .skipped, .skipped])
         try await nothingUnfinished(session)
     }
@@ -158,7 +159,7 @@ struct UncertainInputTests {
         #expect(session.display == "41")
         #expect(answer["status"].string == "completed" && answer["verifiedSteps"] == .number(6))
         let last = String(decoding: try JSONEncoder().encode(answer["steps"].array?.last ?? .null), as: UTF8.self)
-        #expect(last.contains("[text] 41 "), "the last step's observation carries the display the caller must judge: \(last)")
+        #expect(last.contains("~ 41 @"), "the last step's observation carries the display the caller must judge: \(last)")
         #expect(Set(answer.object.map { Array($0.keys) } ?? []) == ["status", "steps", "attemptedSteps", "verifiedSteps", "requested"],
                 "a batch reports its steps, not a task's outcome")
         let recorded = try #require(try await batches(session).first)

@@ -208,11 +208,14 @@ nonisolated package struct DialogEndpointResolver<Node> {
 
     let mainWindow: () -> Node?
     let inertFocusProxy: (Node) -> Bool
+    let isWebArea: (Node) -> Bool
 
     let inertWindowlessLeaf: (Node) -> Bool
     let descendantFocus: (Node) -> DescendantFocusReading
     let parent       : (Node) -> Node?
     let windowReading: (Node) -> WindowReading
+    let focusAttempt : (Float) -> (AXError, Node?)
+    let windowAttempt: (Node, Float) -> (AXError, Int?)
 
     package init(
         nodeAtPoint : @escaping (CGPoint) -> Node?,
@@ -232,7 +235,10 @@ nonisolated package struct DialogEndpointResolver<Node> {
         parent       : @escaping (Node) -> Node? = { _ in nil },
         windowReading: @escaping (Node) -> WindowReading = { _ in .unreadable },
         mainWindow   : @escaping () -> Node? = { nil },
-        inertFocusProxy: @escaping (Node) -> Bool = { _ in false }
+        inertFocusProxy: @escaping (Node) -> Bool = { _ in false },
+        isWebArea    : @escaping (Node) -> Bool = { _ in false },
+        focusAttempt : ((Float) -> (AXError, Node?))? = nil,
+        windowAttempt: ((Node, Float) -> (AXError, Int?))? = nil
     ) {
         self.nodeAtPoint = nodeAtPoint
         self.focusedNode = focusedNode
@@ -254,6 +260,12 @@ nonisolated package struct DialogEndpointResolver<Node> {
         self.windowReading = windowReading
         self.mainWindow = mainWindow
         self.inertFocusProxy = inertFocusProxy
+        self.isWebArea = isWebArea
+        // A fake with no messaging timeout answers at once, whatever the attempt allows.
+        self.focusAttempt = focusAttempt ?? { _ in
+            focusedNode().map { (.success, $0) } ?? (.noValue, nil)
+        }
+        self.windowAttempt = windowAttempt ?? { node, _ in (.success, nodeWindow(node) ?? 0) }
     }
 
     package static func isInertFocusProxy(_ facts: FocusProxyFacts) -> Bool {
@@ -649,6 +661,93 @@ nonisolated package struct DialogEndpointResolver<Node> {
         return answer
     }
 
+    /// The surface itself, for keys, when accessibility reports no focused
+    /// control at all and the surface draws a web page (ADR 0014).
+    ///
+    /// Measured on 09/10/2026 with Safari in the background on macOS 27:
+    /// `AXFocusedUIElement` answered `-25212` in every reading, even right after
+    /// a click the seat posted, so no route above has a control to start from.
+    /// The recipient is then proved by the page instead of by a focus: all of
+    /// these hold, and the first that does not refuses.
+    ///
+    /// - The application reports no focused control (`absent`, not unreadable).
+    /// - Its focused window is the surface, with the frame that framed this
+    ///   Command.
+    /// - An `AXWebArea` is found climbing from the node under `point`, the
+    ///   centre of the surface when none is given (inside the web area of an
+    ///   ordinary page), and it names no window itself.
+    /// - From the web area to the first node naming a window, every node is of
+    ///   the surface's process and names no window or the surface, and that
+    ///   first node names the surface.
+    /// - The two focus readings bracket the walk, so a focus that appeared
+    ///   meanwhile refuses.
+    ///
+    /// The caller asks this only of a surface with no attested modal relation
+    /// and with no other window of its process above it, which are window
+    /// server facts this resolver does not read. A hosted surface, more than 64
+    /// steps, 300 ms and any failed read refuse. Nothing here activates or
+    /// writes anything.
+    package func webAreaKeyboardContext(
+        at point           : CGPoint? = nil,
+        within chain       : SurfaceChain,
+        selectionGeneration: UInt64
+    ) -> Result<ResolvedInputEndpoint, InputEndpointRefusal> {
+
+        let refusal = InputEndpointRefusal.subtreeUnreadable(surface: chain.surface)
+        let (deadline, overflow) = now().addingReportingOverflow(300_000_000)
+        guard !overflow, chain.host == chain.surface,
+              case .absent = focusedControl(),
+              let window = focusedWindow(),
+              focusedWindow(window, matches: chain)
+        else { return .failure(refusal) }
+
+        let probe = point ?? CGPoint(x: chain.surfaceFrame.midX, y: chain.surfaceFrame.midY)
+        guard chain.surfaceFrame.contains(probe) else { return .failure(.pointOutsideSurface) }
+        guard let seed = nodeAtPoint(probe) ?? nodeAtPoint(probe) else {
+            return .failure(.noNodeAtPoint)
+        }
+
+        var steps = 0
+        var node  = seed
+        while !isWebArea(node) {
+            guard now() < deadline, steps <= 64,
+                  nodeProcess(node) == chain.surface.processID,
+                  let above = parent(node)
+            else { return .failure(refusal) }
+            node   = above
+            steps += 1
+        }
+        guard namesSurface(node, within: chain) == false else { return .failure(refusal) }
+        while true {
+            guard now() < deadline, steps <= 64,
+                  let reachedSurface = namesSurface(node, within: chain)
+            else { return .failure(refusal) }
+            if reachedSurface { break }
+            guard let above = parent(node) else { return .failure(refusal) }
+            node   = above
+            steps += 1
+        }
+        guard now() < deadline,
+              case .absent = focusedControl(),
+              let finalWindow = focusedWindow(),
+              focusedWindow(finalWindow, matches: chain)
+        else { return .failure(refusal) }
+
+        let answer = endpoint(
+            kind                   : .keyboardContext,
+            windowNumber           : chain.surface.windowNumber,
+            accessibilityProcessID : chain.surface.processID,
+            within                 : chain,
+            selectionGeneration    : selectionGeneration,
+            focusedNodeWindowNumber: nil,
+            evidence               : .windowlessContentWithoutFocus
+        )
+        if case .success(let resolved) = answer, resolved.identity != chain.surface {
+            return .failure(.identityChangedDuringDiscovery(windowNumber: chain.surface.windowNumber))
+        }
+        return answer
+    }
+
     /// The nodes under one point, innermost first, up to and without the first
     /// one naming the surface, when they prove the point is in the remote
     /// content `endpoint` names. A remote actuation acts on one of them and on
@@ -911,10 +1010,45 @@ nonisolated package struct DialogEndpointResolver<Node> {
     /// unchanged while the focus has moved to another one, and keys sent then
     /// would arrive somewhere nobody looked. An unreadable focus is not the
     /// same answer as an unchanged one, which is why `nil` retires the context
-    /// instead of leaving it standing.
+    /// instead of leaving it standing. An ordinary window's own keys are read
+    /// with `focusedNodeWindowReading(deadlineNanoseconds:)` instead.
     package func focusedNodeWindowNumber() -> Int? {
         guard let focused = focusedNode() ?? focusedNode() else { return nil }
         return nodeWindow(focused) ?? nodeWindow(focused)
+    }
+
+    /// The window the internal focus is in at the posting boundary of an
+    /// ordinary window's keys, read within `deadlineNanoseconds`.
+    ///
+    /// `kAXFocusedUIElement` and `_AXUIElementGetWindow` on the element it names
+    /// each get `BoundedAccessibilityRead`'s fast attempt and, only after
+    /// `.cannotComplete`, one recovery attempt inside the same deadline. Measured
+    /// in October 2026, a busy DaVinci Resolve answered `-25204` after 100 to
+    /// 196 ms, so two fast reads of 0.1 s said nothing about where the focus was
+    /// and still retired the key as a moved focus. Only that error, or the
+    /// deadline running out, is `notResponding`; every other answer is a reading.
+    package func focusedNodeWindowReading(deadlineNanoseconds: UInt64) -> FocusedWindowReading {
+
+        func reading(of failure: BoundedAccessibilityRead.Failure) -> FocusedWindowReading {
+            failure.error == .cannotComplete ? .notResponding : .noWindow
+        }
+        let focused: Node
+        switch BoundedAccessibilityRead.value(
+            deadlineNanoseconds: deadlineNanoseconds,
+            now                : now,
+            attempt            : focusAttempt
+        ) {
+            case .success(let node)   : focused = node
+            case .failure(let failure): return reading(of: failure)
+        }
+        switch BoundedAccessibilityRead.value(
+            deadlineNanoseconds: deadlineNanoseconds,
+            now                : now,
+            attempt            : { windowAttempt(focused, $0) }
+        ) {
+            case .success(let number) : return number > 0 ? .window(number) : .noWindow
+            case .failure(let failure): return reading(of: failure)
+        }
     }
 
     /// The attestation both kinds share, from a Window ID a node named.
@@ -1176,9 +1310,9 @@ nonisolated package struct DialogEndpointResolver<Node> {
         for _ in 0..<Self.maximumDepth {
             let childNodes: [Node]
             switch children(node) {
-            case .children(let values): childNodes = values
-            case .leaf: return .success((node, windowNumber))
-            case .unreadable: return .failure(.unreadable)
+                case .children(let values): childNodes = values
+                case .leaf                : return .success((node, windowNumber))
+                case .unreadable          : return .failure(.unreadable)
             }
             guard let innermost = smallestChild(of: childNodes, containing: point) else { break }
             node = innermost
@@ -1316,7 +1450,33 @@ extension DialogEndpointResolver where Node == AXUIElement {
                 }
             },
             mainWindow: { Self.elementAttribute(application, kAXMainWindowAttribute) },
-            inertFocusProxy: Self.inertFocusProxy
+            inertFocusProxy: Self.inertFocusProxy,
+            isWebArea: { node in
+                var role: CFTypeRef?
+                return AXUIElementCopyAttributeValue(node, kAXRoleAttribute as CFString, &role) == .success
+                    && (role as? String) == "AXWebArea"
+            },
+            focusAttempt: { timeout in
+                AXUIElementSetMessagingTimeout(application, timeout)
+                var value: CFTypeRef?
+                let error = AXUIElementCopyAttributeValue(
+                    application,
+                    kAXFocusedUIElementAttribute as CFString,
+                    &value
+                )
+                guard error == .success else { return (error, nil) }
+                guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return (.failure, nil) }
+                return (.success, unsafeDowncast(value, to: AXUIElement.self))
+            },
+            windowAttempt: { node, timeout in
+                AXUIElementSetMessagingTimeout(node, timeout)
+                switch WindowRelocator.windowNumberReading(of: node, table: table) {
+                    case .number(let number)   : return (.success, number)
+                    case .noWindow             : return (.success, 0)
+                    case .symbolUnavailable    : return (.failure, nil)
+                    case .readFailed(let error): return (error, nil)
+                }
+            }
         )
     }
 

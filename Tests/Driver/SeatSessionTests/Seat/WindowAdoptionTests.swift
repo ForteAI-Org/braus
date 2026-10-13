@@ -13,6 +13,7 @@ import SeatInput
 @testable import SeatSession
 import Testing
 import VirtualScreens
+import WindowPlacement
 
 @Suite("Window adoption rollback")
 @MainActor
@@ -40,6 +41,49 @@ struct WindowAdoptionTests {
         let adopted = try await seat.adopt(original)
         #expect(adopted.reference.frame == settled.frame)
         #expect(placing.stages == 1)
+        #expect(placing.moves.count == 1)
+    }
+
+    @Test("a window that holds an intermediate step on its way is not taken for placed")
+    func intermediateStepDoesNotCompleteAdoption() async throws {
+        // Safari moves in steps after an accessibility write and held steps of 300 to
+        // 450 ms: two agreeing readings 20 ms apart took one for the target (ADR 0038).
+        let sensing  = FakeSensing()
+        let placing  = FakePlacing()
+        let original = FakeGeometry.userSeatWindow
+        let settled  = FakeGeometry.adoptedWindow
+        let step     = settled.replacingFrame(settled.frame.offsetBy(dx: -218, dy: -124))
+        var readings = 0
+        sensing.windowGeometryOverride = { number in
+            guard number == original.windowNumber else { return nil }
+            guard !placing.moves.isEmpty else { return original }
+            readings += 1
+            return readings <= 8 ? step : settled
+        }
+        let seat    = makeSeat(sensing: sensing, placing: placing)
+        let adopted = try await seat.adopt(original)
+        #expect(readings > 8)
+        #expect(adopted.reference.frame == settled.frame)
+        #expect(placing.moves.count == 1)
+    }
+
+    @Test("a window its application holds short of the requested origin is taken where it stays")
+    func heldElsewhereIsTakenAfterTheSettle() async throws {
+        let sensing  = FakeSensing()
+        let placing  = FakePlacing()
+        let original = FakeGeometry.userSeatWindow
+        let held     = FakeGeometry.adoptedWindow.replacingFrame(
+            FakeGeometry.adoptedWindow.frame.offsetBy(dx: 0, dy: 40)
+        )
+        sensing.windowGeometryOverride = { number in
+            guard number == original.windowNumber else { return nil }
+            return placing.moves.isEmpty ? original : held
+        }
+        let seat  = makeSeat(sensing: sensing, placing: placing)
+        let start = ContinuousClock.now
+        let adopted = try await seat.adopt(original)
+        #expect(adopted.reference.frame == held.frame)
+        #expect(start.duration(to: .now) >= .seconds(1), "it waited to see whether the window moved on")
         #expect(placing.moves.count == 1)
     }
 
@@ -360,4 +404,63 @@ struct WindowAdoptionTests {
         #expect(placing.moves.filter { $0 == original.frame.origin }.count == 1)
     }
 
+    // MARK: A window taken in place is not read for fullscreen (ADR 0041)
+
+    /// A seat holding one window, and a second window of the application born
+    /// inside the Virtual Display at its own frame, readable by both sources.
+    private static func bornInSeat(
+        _ sensing: FakeSensing,
+        _ placing: FakePlacing
+    ) async throws -> (seat: AgentSeat, born: WindowReference) {
+        let (seat, _) = try await MultiWindowTests.seat(sensing: sensing, placing: placing)
+        let born = MultiWindowTests.reference(MultiWindowTests.secondWindowNumber)
+        sensing.additionalWindows[born.windowNumber] = born
+        placing.bodyFrames[born.windowNumber]        = born.frame
+        // Its desktop is the Virtual Display's, which says nothing about a return.
+        sensing.windowDesktops[born.windowNumber]    = [WindowOriginTests.virtualSpace]
+        return (seat, born)
+    }
+
+    @Test("a palette or a panel born in the seat is taken in place without a fullscreen read",
+          arguments: [3, 8])
+    func bornInSeatReadsNoFullScreen(level: Int) async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, born) = try await Self.bornInSeat(sensing, placing)
+        let readsBefore  = placing.fullScreenReads
+        let movesBefore  = placing.moves.count
+
+        await seat.ownWindowBornInSeat(born, level: level)
+
+        #expect(placing.fullScreenReads == readsBefore,
+                "an adoption that writes nothing read AXFullScreen")
+        let adopted = try #require(seat.adoptedWindows.first { $0.id == born.windowNumber })
+        #expect(adopted.originalFrame == born.frame)
+        #expect(adopted.originalServerFrame == born.frame)
+        #expect(adopted.originalSpaceID == nil)
+        #expect(!adopted.owesNoReturn)
+        #expect(!adopted.wasFullScreen)
+        #expect(placing.moves.count == movesBefore)
+    }
+
+    @Test("a window born in fullscreen in the seat is taken in place, and its release leaves fullscreen first")
+    func bornInSeatInFullScreenLeavesItOnRelease() async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, born) = try await Self.bornInSeat(sensing, placing)
+        // The app's configuration: transferred, never restored (SeatDriver).
+        seat.transfersFullScreenWindows = true
+        placing.fullScreenStates[born.windowNumber] = .writable(true)
+
+        await seat.ownWindowBornInSeat(born, level: 0)
+
+        #expect(placing.fullScreenRequests.isEmpty, "the adoption asked a window in place to leave fullscreen")
+        let adopted = try #require(seat.adoptedWindows.first { $0.id == born.windowNumber })
+        #expect(!adopted.wasFullScreen)
+
+        let outcome = await seat.release(adopted)
+        #expect(outcome == .returned)
+        #expect(placing.fullScreenRequests.map(\.window) == [born.windowNumber])
+        #expect(placing.fullScreenRequests.map(\.wanted) == [false])
+    }
 }

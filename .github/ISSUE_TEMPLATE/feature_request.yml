@@ -1,11 +1,11 @@
 name: Feature or improvement
-description: Explain a task Mecum should support or make easier.
+description: Explain a task Braus should support or make easier.
 title: "Feature: "
 body:
   - type: markdown
     attributes:
       value: |
-        Search [existing issues](https://github.com/ForteAI-Org/mecum/issues?q=is%3Aissue) first.
+        Search [existing issues](https://github.com/ForteAI-Org/braus/issues?q=is%3Aissue) first.
         Describe the task and desired result. You do not need to propose code or commit to implementing it.
   - type: textarea
     id: task

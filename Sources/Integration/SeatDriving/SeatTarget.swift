@@ -1,12 +1,15 @@
 //
 //  SeatTarget.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 18/09/2026.
 //
 
 import CoreGraphics
 import Foundation
+#if BRAUS_PHASES
+import PhaseSignposts
+#endif
 import SeatCapture
 import SeatCore
 import SeatInput
@@ -31,6 +34,8 @@ public final class SeatTarget {
     private let isBorrowed: Bool
     /// Told of every observation taken through a borrow, so the owner can follow the window read here.
     private let observed: (@MainActor (SeatObservationDelivery) -> Void)?
+    /// The owner's running stream of the window, which `SeatSettler` watches; nil when nobody runs one.
+    package let liveFrames: (any LiveWindowFrameSourcing)?
 
     /// The observation the last Frame was delivered with, and whether a Command already consumed it.
     private var delivery: SeatObservationDelivery?
@@ -49,6 +54,7 @@ public final class SeatTarget {
         host = SeatHost(configuration: configuration)
         isBorrowed = false
         observed   = nil
+        liveFrames = nil
     }
 
     /// Wraps a host and a seat another owner started, so the Engine's roles act on that owner's seat.
@@ -64,15 +70,18 @@ public final class SeatTarget {
     /// here, so the owner's live picture shows the window the engine reads and not the one it adopted.
     /// The first observation must match `initialWindow`, or the selected window at the borrow when
     /// it is omitted. Later window following remains available after that first identity is verified.
+    /// `liveFrames` is the owner's running stream of the window, borrowed like the seat.
     package init(
         borrowing host: SeatHost,
         seat          : AgentSeat,
         initialWindow : WindowIdentity? = nil,
+        liveFrames    : (any LiveWindowFrameSourcing)? = nil,
         observed      : (@MainActor (SeatObservationDelivery) -> Void)? = nil
     ) {
-        self.host     = host
-        self.seat     = seat
-        self.observed = observed
+        self.host       = host
+        self.seat       = seat
+        self.observed   = observed
+        self.liveFrames = liveFrames
         isBorrowed    = true
         self.initialWindow = initialWindow ?? seat.currentTarget?.reference.identity
     }
@@ -138,10 +147,22 @@ public final class SeatTarget {
     /// application's window again, which is what closing and reopening the session used to do.
     @discardableResult
     public func observe() async throws -> SeatObservationDelivery {
+        #if BRAUS_PHASES
+        let observing = PhaseInterval.begin("target.observe")
+        defer { observing.end() }
+        let verifying = PhaseInterval.begin("target.verify")
+        #endif
         let seat = try agentSeat()
         try verifyCurrentWindow(of: seat)
+        #if BRAUS_PHASES
+        verifying.end()
+        #endif
         let delivered = try await Self.retrying {
             try self.verifyCurrentWindow(of: seat)
+            #if BRAUS_PHASES
+            let seatObserving = PhaseInterval.begin("seat.observe")
+            defer { seatObserving.end() }
+            #endif
             switch await seat.observe() {
                 case .success(let delivery): return delivery
                 case .failure(let reason)  : throw reason

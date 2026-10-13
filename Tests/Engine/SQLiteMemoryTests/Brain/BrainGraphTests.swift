@@ -1,6 +1,6 @@
 //
 //  BrainGraphTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 02/10/2026.
 //
@@ -61,7 +61,15 @@ struct BrainGraphTests {
 
     private func arcs(_ w: World) throws -> [BrainArc] {
         let opened = try TransitionEffectRecord(effect: "menuOpened:Nuovo|Rispondi")
-        let titled = try TransitionEffectRecord(kind: "windowTitleChanged", text: "Nuovo messaggio", requiredState: nil, resultingState: nil, items: [])
+        let titled = try TransitionEffectRecord(
+            kind          : "windowTitleChanged",
+            text          : "Nuovo messaggio",
+            requiredState : nil,
+            resultingState: nil,
+            label         : nil,
+            value         : nil,
+            items         : []
+        )
         return [
             try BrainArc(transitionID: "arc-menu", bundleID: w.bundle, fromSceneID: w.scope, trigger: .menu(menuCommandID: "m-new"), toSceneID: nil,
                          effect: titled, status: .candidate, evidenceCount: 0, firstSeenMS: Self.t0MS, lastSeenMS: Self.t0MS),

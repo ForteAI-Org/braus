@@ -5,16 +5,16 @@ This is the ordered list of remaining failures and qualification gaps from
 [expanded campaign](ExpandedApplicationChecks.md). It records observed
 problems and closure evidence, not an estimated reliability percentage.
 Changes remain uncommitted. Each round uses an owned fixture, a regression
-where the real contract is testable, and a repeat through the signed Mecum app.
+where the real contract is testable, and a repeat through the signed Braus app.
 
 | Round | Problem to resolve | Evidence required to close it | Current state |
 | --- | --- | --- | --- |
 | 1 | Opening a named window can return a different window's scene, seen in Safari. | Bind the first observation to the attested adopted identity; refuse a different identity before its scene or input is exposed. Test same-ID retitles and later deliberate window changes. Repeat opening both owned Safari windows in alternating order. | Resolved for the owned Safari A/B regression: initial identity is guarded; containment recency is excluded from selection. Six alternating initial opens and fresh observations pass, with clean session closure. Input remains a separate qualification. |
 | 2 | Full-size native windows become thumbnails during adoption or return; geometry interruption can leave a session ID with no assigned app. | Reproduce Finder, QuickTime and Dictionary on owned windows with Stage Manager enabled. Verify fresh identity, real body, placement, assignment and handback together. An unrecovered failure must release the session and explain any remaining return obligation. | Partly corrected in controlled regressions: a stable thumbnail cannot confirm adoption; staged windows must reach the requested position; a lost assignment closes the worker session and retains cleanup warnings. Native app repetitions remain pending. |
-| 3 | An owned modal takes foreground and leaves the Seat waiting, seen in Preview and Photoshop. | Open, edit and cancel an owned modal repeatedly through Mecum, with an observed effect and a verified return to its parent. No outside desktop recovery and no replay of unconfirmed input. | Partly corrected: positively identified native modal dialogs now join discovery beside an onscreen document. The real Photoshop Open panel is listed with its attested body; app cancellation and Preview repetitions remain pending. |
-| 4 | Photoshop flow results remain uncertain: New Document cancellation created a document, name replacement retained a prefix, editing and undo/redo are unqualified. | Independently count owned documents before/after cancel and Return; verify exact name replacement, changed pixels, undo/redo, scroll/drag and switching between owned documents. Repeat from Mecum's UI. | Open. Driver-tier passes do not qualify the full application path or other UXP hosts. |
+| 3 | An owned modal takes foreground and leaves the Seat waiting, seen in Preview and Photoshop. | Open, edit and cancel an owned modal repeatedly through Braus, with an observed effect and a verified return to its parent. No outside desktop recovery and no replay of unconfirmed input. | Partly corrected: positively identified native modal dialogs now join discovery beside an onscreen document. The real Photoshop Open panel is listed with its attested body; app cancellation and Preview repetitions remain pending. |
+| 4 | Photoshop flow results remain uncertain: New Document cancellation created a document, name replacement retained a prefix, editing and undo/redo are unqualified. | Independently count owned documents before/after cancel and Return; verify exact name replacement, changed pixels, undo/redo, scroll/drag and switching between owned documents. Repeat from Braus's UI. | Open. Driver-tier passes do not qualify the full application path or other UXP hosts. |
 | 5 | Exact text and selection cannot always be established, including MarkEdit's terminal LF and TextEdit's missing selection range. | Distinguish insertion from save normalization with controlled Unicode/LF/CRLF fixtures; verify raw values or bytes and actual selection ranges. Make the tool's verdict match the evidence. | Open. Find and modal withdrawal work in MarkEdit; exact replacement remains inconclusive. |
-| 6 | Menus and dropdowns intermittently refuse or retain their previous value in Chrome, GitHub Desktop and CEF. | Open, choose and dismiss each owned menu, verify its resulting control value and withdrawal, then repeat from Mecum. A delivered event alone is insufficient. | Open. `subtreeUnreadable`, `contextMenuNeverOpened`, missing/ambiguous controls and unchanged values observed. |
+| 6 | Menus and dropdowns intermittently refuse or retain their previous value in Chrome, GitHub Desktop and CEF. | Open, choose and dismiss each owned menu, verify its resulting control value and withdrawal, then repeat from Braus. A delivered event alone is insufficient. | Open. `subtreeUnreadable`, `contextMenuNeverOpened`, missing/ambiguous controls and unchanged values observed. |
 | 7 | Drag can be delivered without the intended drop; some native operations still depend on the physical mouse location. | Verify the target's received payload, count and state for HTML, Qt and native controls. Keep unsupported native drag explicitly unqualified until its actual effect is proven. | Open. CEF retained `Drops: 0`; Chrome has one observed HTML drop. |
 | 8 | Selected-flow checks on one Debug build do not establish release or OS reliability. | Run Release repeats and mixed-app open/operate/close cycles; record every requested case, observed effect, interruption and cleanup. Repeat the supported OS/hardware matrix and qualify IME and multidocument cases separately. | Open. Current complete-path evidence is macOS 27.0.1 on Mac16,1. |
 
@@ -26,7 +26,7 @@ replay. This closed correction does not close the remaining rounds above.
 ## Local release acceptance matrix
 
 The requested 70–80% target means completed owned workflows on the rebuilt
-signed Mecum app, not the percentage of passing unit tests. This matrix is
+signed Braus app, not the percentage of passing unit tests. This matrix is
 declared before the release repeats. It has 25 workflows, each repeated three
 times: 75 planned attempts. At least 60/75 attempts must complete for the 80%
 local target; 53/75 meets 70%. A failed, refused, blocked or independently
@@ -97,7 +97,7 @@ installed-app result.
 
 A separate Calculator session on the same rebuilt app completed `7+8 = 15`,
 confirmed by a fresh observation, then cleared and closed. Independent native
-AX reported `0`; final Mecum status was `session: null`. There were no input
+AX reported `0`; final Braus status was `session: null`. There were no input
 interruptions or identity refusals in that control check. It does not qualify
 Safari input or repair the six refused openings.
 
@@ -105,11 +105,11 @@ Verification on 2026-10-03:
 
 | Command | Result |
 | --- | --- |
-| `swift build --product mecum` | Pass. |
+| `swift build --product braus` | Pass. |
 | `swift test --no-parallel --filter 'BorrowedSeatTargetTests\|SeatSceneProviderTests\|BrokeredAutomationSessionTests'` | Pass: 37 tests in three suites. |
 | `make test SWIFT=swift` | Pass: 2230 executed, 93 skipped, 2323 reported, 28 runs; `problems: []`. Host/live opt-ins remain skipped here. |
-| `xcodebuild -project MecumApp/App/Mecum.xcodeproj -scheme Mecum -configuration Debug -destination 'platform=macOS' -derivedDataPath /private/tmp/mecum-app-uxp-20261003/AppFlowDerivedData build-for-testing` | Pass: signed app and test build. |
-| `xcodebuild -project MecumApp/App/Mecum.xcodeproj -scheme Mecum -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath /private/tmp/mecum-app-uxp-20261003/AppFlowDerivedData test-without-building` | Pass: 320 tests in 59 suites, 56.818 seconds. |
+| `xcodebuild -project BrausApp/App/Braus.xcodeproj -scheme Braus -configuration Debug -destination 'platform=macOS' -derivedDataPath /private/tmp/braus-app-uxp-20261003/AppFlowDerivedData build-for-testing` | Pass: signed app and test build. |
+| `xcodebuild -project BrausApp/App/Braus.xcodeproj -scheme Braus -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath /private/tmp/braus-app-uxp-20261003/AppFlowDerivedData test-without-building` | Pass: 320 tests in 59 suites, 56.818 seconds. |
 | `git diff --check` | Pass. |
 
 An earlier focused run without `--no-parallel` failed two timing assertions in
@@ -119,7 +119,7 @@ for temporary test stores, including the passing unreadable-metadata case;
 the final result was `TEST EXECUTE SUCCEEDED`.
 
 Local logs and sanitized records are in
-`/private/tmp/mecum-stabilization-round1-20261003`. The signed app executable's
+`/private/tmp/braus-stabilization-round1-20261003`. The signed app executable's
 SHA-256 is `14b28de8edb265e6915cb337cda202c56e2d78b37528c339694283c6e8dfd0cc`.
 The tool evidence is scoped to the dedicated test worker, with personal
 window census responses omitted.
@@ -140,7 +140,7 @@ regression continues to require the old target.
 
 The new controlled regression failed before the correction on both opening
 identity and the later registered target. After correction, 111 focused tests
-pass. Through the rebuilt signed Mecum app, all six A/B/A/B/A/B openings return
+pass. Through the rebuilt signed Braus app, all six A/B/A/B/A/B openings return
 the requested fixture heading and Seed A/B. A fresh observation of each returns
 the same fixture, and every close leaves `session: null`. No input was requested
 in these six checks. This closes opening identity for this reproduction, not
@@ -152,16 +152,16 @@ SeatSession bundle then passes 629 tests in 43 suites. A repeat of
 `make test SWIFT=swift` passes 2231 executed, 93 skipped, 2324 reported, 28 runs,
 with `problems: []`. The premature runner termination is recorded separately
 from application outcomes and remains an intermittent harness limitation.
-`swift build --product mecum` and the signed Debug build-for-testing pass.
+`swift build --product braus` and the signed Debug build-for-testing pass.
 All temporary diagnostic logging added for this investigation was removed.
 
 Evidence for this follow-up, including sanitized tool records, scene checks,
 the failing regression and passing reruns, is in
-`/private/tmp/mecum-stabilization-round2-20261003`.
+`/private/tmp/braus-stabilization-round2-20261003`.
 
 The follow-up host checks pass in isolation: one seat-cycle test and 29 display/
-capture/facility tests. The first invocation while Mecum remained open refused
-display creation; closing Mecum removed that competing display owner. App
+capture/facility tests. The first invocation while Braus remained open refused
+display creation; closing Braus removed that competing display owner. App
 `test-without-building` passes 320 tests in 59 suites (56.071 seconds). These
 checks are separate from the six functional app openings above.
 
@@ -182,16 +182,16 @@ cover the staging refusal and the unchanged endpoint routing guards.
 `make test SWIFT=swift` passes 2232 executed, 93 skipped, 2325 reported, 28 runs,
 with `problems: []`.
 
-Through signed Mecum, clicking `Button A` now changes it to `Pressed A`, with a
+Through signed Braus, clicking `Button A` now changes it to `Pressed A`, with a
 fresh scene and independent native AX agreeing. In that same attempt, field
 replacement selected `Seed A` but stopped at an unclassified foreign endpoint
 (number 89933; a separate capture listing recorded a hidden 14×14 frame). That
 failed operation remains recorded. A fresh diagnostic session then replaced
-the field and verified exact `Mecum-à-中-🙂`; the unknown classification did
+the field and verified exact `Braus-à-中-🙂`; the unknown classification did
 not repeat, and no classification change was retained. The combined workflow
 is not closed on this isolated later success. Three registered repeats on the
 clean build follow. Evidence is in
-`/private/tmp/mecum-stabilization-round3-20261003`; temporary logs are removed.
+`/private/tmp/braus-stabilization-round3-20261003`; temporary logs are removed.
 
 The retained staging build also passes 30 isolated host checks and the app's
 320 tests in 59 suites. Its executable SHA-256 is
@@ -223,9 +223,9 @@ proof is repeated before posting and a changed proof posts nothing.
 
 The compiled regression failed before correction with the same unclassified
 family refusal. After correction, 81 focused tests in six suites pass. On
-candidate `92f86789`, all three registered Safari workflows in one Mecum
+candidate `92f86789`, all three registered Safari workflows in one Braus
 process pass: reload establishes Seed A/Button A; replacement reports the exact
-native field value `Mecum-à-中-🙂`; the click changes the button to Pressed A;
+native field value `Braus-à-中-🙂`; the click changes the button to Pressed A;
 fresh observations retain the owned window and changed button; every session
 closes and final status is null. Independent native AX after all three confirms
 the exact final field value and Pressed A. OCR in the scene does not reliably
@@ -282,19 +282,19 @@ Verification on 2026-10-04, after both session identity guards:
 
 | Command | Result |
 | --- | --- |
-| `swift build --product mecum` | Pass. |
+| `swift build --product braus` | Pass. |
 | `make test SWIFT=swift` | Pass: 2252 executed, 93 skipped, 2345 reported, 28 runs; `problems: []`. |
 | `make host-tests SWIFT=swift` | Pass: 1 seat-cycle and 29 facility/display/capture tests, in separate native processes. |
-| `xcodebuild -project MecumApp/App/Mecum.xcodeproj -scheme Mecum -configuration Debug -destination 'platform=macOS' -derivedDataPath /private/tmp/mecum-app-uxp-20261003/AppFlowDerivedData build-for-testing` | Pass: signed Debug app and test build. |
-| `xcodebuild -project MecumApp/App/Mecum.xcodeproj -scheme Mecum -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath /private/tmp/mecum-app-uxp-20261003/AppFlowDerivedData test-without-building` | Pass: 320 tests in 59 suites, 56.190 seconds. |
-| `xcodebuild -project MecumApp/App/Mecum.xcodeproj -scheme Mecum -configuration Release -destination 'platform=macOS,arch=arm64' -derivedDataPath /private/tmp/mecum-release-stability-20261004/DerivedData build` | Pass: signed Release app. |
+| `xcodebuild -project BrausApp/App/Braus.xcodeproj -scheme Braus -configuration Debug -destination 'platform=macOS' -derivedDataPath /private/tmp/braus-app-uxp-20261003/AppFlowDerivedData build-for-testing` | Pass: signed Debug app and test build. |
+| `xcodebuild -project BrausApp/App/Braus.xcodeproj -scheme Braus -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath /private/tmp/braus-app-uxp-20261003/AppFlowDerivedData test-without-building` | Pass: 320 tests in 59 suites, 56.190 seconds. |
+| `xcodebuild -project BrausApp/App/Braus.xcodeproj -scheme Braus -configuration Release -destination 'platform=macOS,arch=arm64' -derivedDataPath /private/tmp/braus-release-stability-20261004/DerivedData build` | Pass: signed Release app. |
 | `codesign --verify --deep --strict` for both temporary Debug and Release bundles | Pass with normal trust-service access. The first sandboxed Debug verification returned `CSSMERR_TP_NOT_TRUSTED`; no certificate or trust setting was changed. |
-| `make qt-geometry-live-tests SWIFT=swift QT_PYTHON=/private/tmp/mecum-qt-stability-20261003/bin/python` | Pass: one live Qt 6 geometry regression, 13.220 seconds; `problems: []`. |
+| `make qt-geometry-live-tests SWIFT=swift QT_PYTHON=/private/tmp/braus-qt-stability-20261003/bin/python` | Pass: one live Qt 6 geometry regression, 13.220 seconds; `problems: []`. |
 
 The Qt fixture confirms the fresh 700×652 body before adoption, 12 actual
 command effects, no physical-display input events, a verified return, three
 consistent later body readings and released assignment. This is Driver-tier
-evidence, not a Resolve or Mecum UI workflow pass. The Qt fixture was stopped.
+evidence, not a Resolve or Braus UI workflow pass. The Qt fixture was stopped.
 
 The signed Debug executable SHA-256 is
 `e8bd62dac40c9321b6d104f084f0cc7bd7984626d2fabdf79c37ee4c005009ba`;
@@ -305,7 +305,7 @@ The signed Release executable is
 Build and test success alone do not close any pending acceptance workflow.
 
 Local logs are under
-`/private/tmp/mecum-stabilization-round4-20261004`, with prefixes
+`/private/tmp/braus-stabilization-round4-20261004`, with prefixes
 `thumbnail-confirmation`, `lost-assignment`, `late-observation` and
 `geometry-assignment`. The original failed runs remain retained.
 
@@ -313,21 +313,21 @@ The temporary Photoshop model reader did not qualify editing: its initial
 launch was blocked by AppKit's crash-restoration alert, then the new test
 bundle identity lacked the Driver's Accessibility prerequisite. No model
 snapshot or Return action ran. The desktop controller also refused capture
-of the stashed Mecum window with ScreenCaptureKit errors -3811/-3812; one
+of the stashed Braus window with ScreenCaptureKit errors -3811/-3812; one
 launch lost the controller connection. The last dedicated-worker status was
 `session: null` at order 3732. Only the attested temporary reader and idle test
-Mecum process were stopped to free the host display. These are incomplete
+Braus process were stopped to free the host display. These are incomplete
 setup attempts, not additional application passes.
 
 Running the already approved fixture in the native test context subsequently
 established its own foreground with the existing prerequisites. Its one
 Photoshop read still produced no model file, and the controller refused its
-post-return capture. A separate attested request for the Release Mecum window
+post-return capture. A separate attested request for the Release Braus window
 returned success but left a thumbnail and a Siri-orb AX dialog. Success from
 that request was therefore not accepted as a restored full body. Through the
-controller, Mecum's own File > New Mecum Window command opened a complete,
+controller, Braus's own File > New Braus Window command opened a complete,
 readable window. Release workflow checks use that new window. This is a test
-setup limitation; it does not establish a Mecum launch defect under ordinary
+setup limitation; it does not establish a Braus launch defect under ordinary
 user activation or qualify a rescued workflow.
 
 ## Round 4: neighboring Photoshop button labels
@@ -347,19 +347,19 @@ Close and Create now have distinct normalized widths of 0.072 and separate cente
 Private captures and temporary diagnostic source remain outside the repository
 or were removed.
 
-On signed Debug candidate `6443dc84`, three complete Mecum UI attempts open New
+On signed Debug candidate `6443dc84`, three complete Braus UI attempts open New
 Document and click Close once, return to Untitled-3, and release the session.
 Each fresh observation confirms the parent; all final statuses are null. An
 independent native Window menu lists Probe.png and Untitled-1/2/3 before and
 after, with no extra document. This closes that cancellation reproduction;
 it does not establish layer-name editing, Return creation or other UXP hosts.
-Evidence is in `/private/tmp/mecum-stabilization-round4-20261004`.
+Evidence is in `/private/tmp/braus-stabilization-round4-20261004`.
 
 ## Round 4 follow-up: preserve the initial text selection
 
 `insert_text` now delivers one bulk insertion at the existing focus and
 selection, without a field click, selection gesture or activation. It uses the
-same Engine and broker in Mecum and the CLI. An exact resulting value is
+same Engine and broker in Braus and the CLI. An exact resulting value is
 confirmed only by the focused native field and an explicit complete expected
 value. An opaque field, a missing expectation, or a different value returns an
 unknown effect. A batch stops there before Return; delivery is never replayed.
@@ -368,7 +368,7 @@ The compiled MCP regression first failed because the tool was missing. Engine
 tests cover Unicode and newline payloads, partial selections, unavailable native
 values, dry runs, empty text and delivery failure. The complete retained-source
 baseline passes 2246 executed, 93 skipped, 2339 reported across 28 runs, with
-`problems: []`. `swift build --product mecum`, 30 isolated host checks and the
+`problems: []`. `swift build --product braus`, 30 isolated host checks and the
 signed app's 320 tests in 59 suites also pass. Those checks do not establish
 Photoshop editing effects.
 
@@ -417,7 +417,7 @@ actual Calculator window returns `text|0`, kind `text`, role `AXStaticText`,
 label and native value `0`, with normalized bounds
 `(0.873913, 0.218137, 0.082609, 0.088235)`.
 
-`swift build --product mecum` passes. The complete `make test SWIFT=swift`
+`swift build --product braus` passes. The complete `make test SWIFT=swift`
 baseline passes 2256 executed, 93 skipped, 2349 reported, 28 runs and
 `problems: []`. The 30 isolated host checks pass. The signed Debug
 build-for-testing and app tests pass: 320 tests in 59 suites, 54.878 seconds.
@@ -433,7 +433,7 @@ the independently inspected augmentation output; a bare `[text]` scene label
 does not itself distinguish native text from OCR.
 
 Logs, candidate hashes, the native read and scoped worker records remain in
-`/private/tmp/mecum-stabilization-round4-20261004` under `native-display` and
+`/private/tmp/braus-stabilization-round4-20261004` under `native-display` and
 `release-native-display-calculator` prefixes. This correction does not close
 MarkEdit save normalization, TextEdit selection reporting or Adobe editing.
 
@@ -444,7 +444,7 @@ input: the requested document was 49839, but observation selected 93277. A scope
 native reading identified 93277 as the preexisting Open panel, `AXDialog`,
 `AXModal` true and `AXMinimized` false, with a complete owned identity and an
 891×448 native body. Its server rectangle was an offscreen 124×104 thumbnail at
-layer zero. After Mecum closed, the same panel was onscreen at AppKit's modal
+layer zero. After Braus closed, the same panel was onscreen at AppKit's modal
 panel level. Neither condition means the modal has withdrawn. The worker's
 claim that no modal was open was contradicted by this native evidence.
 
@@ -479,7 +479,7 @@ A fresh full app-suite repetition passes 320 tests in 59 suites (55.413
 seconds), with `TEST EXECUTE SUCCEEDED`. The initial crash remains an open
 reliability finding; the passing repetition is not a claimed crash correction.
 
-Through Release Mecum, explicit Open adoption returns the expected 891×448
+Through Release Braus, explicit Open adoption returns the expected 891×448
 panel. One Cancel withdraws it. The action cannot read a following scene;
 the next observation reports no assigned application and ends the session.
 Fresh app discovery and an independent native reading both confirm that 93277
@@ -487,7 +487,7 @@ is absent and document 49839 remains. Final status is null. This qualifies the
 discovery correction and one diagnostic cancellation, not a complete modal
 workflow: the parent is not observed in that session, Photoshop becomes the
 foreground app, and the test controller needs the approved foreground fixture
-to make Mecum visible again. Terminal-session guidance still asks for another
+to make Braus visible again. Terminal-session guidance still asks for another
 observation despite the ended assignment and remains a separate correction.
 
 Three fresh named-Return attempts on `6f6c08ac` all adopt the requested document
@@ -499,7 +499,7 @@ identity refusals. The menu command reads enabled, so the existing refresh for
 disabled Adobe menus never runs. An enabled item's AX acknowledgement alone
 cannot establish vendor dispatch readiness.
 
-Evidence is in `/private/tmp/mecum-stabilization-round4-20261004` under
+Evidence is in `/private/tmp/braus-stabilization-round4-20261004` under
 `modal-discovery` and `transcript-selection-repeat` prefixes. The Release
 executable's SHA-256 is
 `6f6c08acfc188c9c8f3b0af2b87170308cd418d03374035654a14267d08ca9d1`.
@@ -524,7 +524,7 @@ are preserved and no input is replayed. The first terminal test invocation was
 a compile failure caused by the test's recorder initializer, not behavior
 evidence; the later compiled red result is retained separately.
 
-`swift build --product mecum` passes. The final baseline passes 2265 executed,
+`swift build --product braus` passes. The final baseline passes 2265 executed,
 93 skipped, 2358 reported, 28 runs and `problems: []`. Signed Debug and Release
 builds pass; Release signature verification passes. The first app-suite run
 fails five comparisons in the existing CLI/app instruction test because its
@@ -540,7 +540,7 @@ was changed by this candidate.
 
 The new Release executable's SHA-256 is
 `76dda26df5ad8cb4c10ef6e4b9ddb971bde3ad86aa35e8c921d940b6a9e994e9`.
-Evidence is in `/private/tmp/mecum-stabilization-round4-20261004` under
+Evidence is in `/private/tmp/braus-stabilization-round4-20261004` under
 `adobe-menu` and `terminal-guidance` prefixes.
 
 One separate Release `76dda26d` diagnostic still has no observed File > New...
@@ -552,7 +552,7 @@ distinguish menu preparation from invocation while preserving one dispatch and
 verified foreground handback.
 
 The native log for that diagnostic reports readiness after 100.1 ms despite
-Mecum retaining foreground. Brief activation now evaluates readiness only
+Braus retaining foreground. Brief activation now evaluates readiness only
 while the attested target is observed foreground, and rechecks the deadline
 after waiting. Destination key preparation is confined to the brief target
 request and its handback; ordinary recovery retains its configured route.
@@ -560,7 +560,7 @@ Three compiled regressions fail before these corrections, then the focused
 run passes 99 tests in four suites. The rebuilt-app command repeat remains
 outstanding and the original failed diagnostic remains in the evidence.
 
-Candidate `3aa20a1c` passes `swift build --product mecum`, the complete baseline
+Candidate `3aa20a1c` passes `swift build --product braus`, the complete baseline
 (2268 executed, 93 skipped, 2361 reported, 28 runs, no tier problems), all 30
 host checks, signed Debug/Release builds and the app suite's 320 tests in 59
 suites (54.986 seconds). Release signature verification passes with system
@@ -569,9 +569,9 @@ Its full executable SHA-256 is
 `3aa20a1c5539894a099496acb32fa48154b29ef6e3cd501acbba070fbd9dfe32`.
 
 One fresh app diagnostic still has no New Document effect, unchanged four
-owned documents, and null status after close. Mecum stays visible without a
+owned documents, and null status after close. Braus stays visible without a
 foreground rescue. The native log reports target readiness after 115.9 ms,
-but only Mecum's process returns, without verification of expected window
+but only Braus's process returns, without verification of expected window
 97473. That unverified return was incorrectly accepted as readiness. A new
 compiled regression fails on this case, then passes after the correction;
 100 focused tests pass. If the target retains foreground, ordinary recovery
@@ -592,7 +592,7 @@ invalidates readiness before any handback: `notReady`, with no new restoration
 request. The assertion is corrected to require that exact outcome for both
 predicate values. The failed intermediate run is retained.
 
-Candidate `f73b09bd` passes `swift build --product mecum`, the complete baseline
+Candidate `f73b09bd` passes `swift build --product braus`, the complete baseline
 (2271 executed, 93 skipped, 2364 reported, 28 runs, no tier problems), signed
 Debug/Release builds and the app suite's 320 tests in 59 suites (55.932 seconds).
 Release signature verification passes. Its executable SHA-256 is
@@ -600,7 +600,7 @@ Release signature verification passes. Its executable SHA-256 is
 Host and fresh app-effect qualification are recorded separately as they finish.
 
 The 30 host checks also pass. One fresh app diagnostic now refuses File > New...
-before dispatch: its handback to Mecum's window is not verified. The native
+before dispatch: its handback to Braus's window is not verified. The native
 log reports readiness after 97.5 ms and a 250 ms verification limit; fresh
 observation retains the parent, the same four owned documents remain, and
 close leaves null status. This qualifies the removal of the false ready
@@ -630,7 +630,7 @@ be withdrawn if the rebuilt app cannot attest the dialog's effect.
 
 The focus route's controlled run passes 95 tests in four suites. The combined
 UXP calibration/focus/platform run passes 97 tests in six suites. Candidate
-`ead47edb` passes `swift build --product mecum`, the complete baseline (2275
+`ead47edb` passes `swift build --product braus`, the complete baseline (2275
 executed, 93 skipped, 2368 reported, 28 runs, no tier problems), signed
 Debug/Release builds, signature verification and the app suite's 320 tests in
 59 suites (57.191 seconds). Its executable SHA-256 is
@@ -658,7 +658,7 @@ signature verification, and all 320 app tests in 59 suites (56.056 seconds).
 Its fresh native diagnostic reaches readiness after 126.0 ms, but the final
 handback reading is no focused window and no workspace foreground process.
 File > New... refuses before dispatch; the four documents remain unchanged
-and final status is null. A later independent reading finds Mecum active and
+and final status is null. A later independent reading finds Braus active and
 Photoshop inactive. This is not a completed workflow.
 
 [ADR 0022](../adr/Adr0022RequestConsumerHandbackLocally.md) selects AppKit for a
@@ -674,11 +674,11 @@ Candidate `5a1204ec` passes the CLI build, complete baseline (2278 executed,
 signature verification, Debug test build and 320 app tests in 59 suites
 (56.752 seconds). Its native diagnostic still refuses before dispatch.
 The final reading now names the expected window, its owner, physical body,
-eligible state and Mecum workspace foreground. The same four documents remain
+eligible state and Braus workspace foreground. The same four documents remain
 and final status is null. A complete identity match and two timely agreeing
 readings have not yet been established.
 
-A separate read-only probe measures five reads of that exact Mecum window.
+A separate read-only probe measures five reads of that exact Braus window.
 The first geometry costs 86.726 ms in its new probe process. The following
 four two-geometry/order readings cost 0.656–0.755 ms and retain the same
 identity. This is scoped diagnostic timing, not a production performance
@@ -725,7 +725,7 @@ Escape withdraws it, with the same four documents afterwards. Its creation
 time and cause are unknown, so this is cleanup evidence, not a successful
 new-document opening or proof about a previous invocation.
 
-The following File > New... invocation verifies handback to the expected Mecum
+The following File > New... invocation verifies handback to the expected Braus
 window in 369.7 ms, after menu readiness at 1051.2 ms. This establishes one
 native handback effect for the new request and limit. The menu's AX press
 returns `acted_unverified`: fresh scene and discovery do not show a new modal,
@@ -779,11 +779,11 @@ entered from NSMenuItem's accessibility action. Samples after native Escape,
 AX menu cancellation and normal deactivation retain that stack. Cancellation
 can collapse the AX menu without ending the sampled loop. No sample predates
 these independent controls, so this does not establish the cause or onset of
-the earlier Mecum failures.
+the earlier Braus failures.
 
 An approved temporary fixture requests normal Photoshop termination once.
 The request is accepted, but the process remains and no Save Changes prompt
-appears. A subsequent independent Mecum diagnostic clicks the observed zoom
+appears. A subsequent independent Braus diagnostic clicks the observed zoom
 field once without typing or changing its value, then presses New Layer once.
 Fresh observations again show no modal, the same four documents, and null
 status after close. The directed mouse precondition does not repair the menu
@@ -791,10 +791,10 @@ effect. The pending quit request, menu tracking and Adobe workflow failures
 remain open; no document was saved, discarded or force-closed.
 
 Scoped evidence is retained locally under
-`/private/tmp/mecum-stabilization-round4-20261004`, with `scoped-adobe-command`,
+`/private/tmp/braus-stabilization-round4-20261004`, with `scoped-adobe-command`,
 `release-scoped-adobe-menu`, `adobe-native-control` and
 `release-adobe-zoom-prime` prefixes. Independent desktop controls are assisted
-diagnostics and do not count as Mecum workflow passes.
+diagnostics and do not count as Braus workflow passes.
 
 ### Qt installed-app repeats and field targeting
 
@@ -802,7 +802,7 @@ On the same Release, three Resolve cycles stop before adoption: scoped
 discovery lists a running process without windows, and opening waits 20 seconds
 then refuses without retaining a Seat. A separate read-only native controller
 reports Project Manager. The mismatch is open; the native reading is not a
-successful Mecum adoption and does not justify relaxing identity or geometry
+successful Braus adoption and does not justify relaxing identity or geometry
 requirements. No project was opened or edited.
 
 Three Prism cycles launch the app, open New Instance, change one reversible
@@ -839,10 +839,10 @@ builds, signature verification, and the app suite's 320 tests in 59 suites
 checks. Its executable SHA-256 is
 `cbee7cbb709f28a187cc223eb33bcc98dfc8ce9e1006908e8a6b4dc7354fb14e`.
 
-All three fresh Prism workflows now pass through Mecum. The observed native
+All three fresh Prism workflows now pass through Braus. The observed native
 field at 0.23,0.11 is marked `[field] 26.3`; typing its current label selects it
 instead of the version row. Each single insertion returns the exact native
-value Mecum Qt é 🧪, and a fresh observation retains that value. Snapshots,
+value Braus Qt é 🧪, and a fresh observation retains that value. Snapshots,
 Betas and Alphas respectively change to on; Cancel returns the parent and
 each close leaves null status. This closes the reproduced Prism field-target
 failure. It does not close Resolve discovery, every Qt editor, IME, or the
@@ -865,7 +865,7 @@ Manager, AXWindow/AXUnknown, nonminimized and nonmodal. The server's 100×105
 Stage Manager thumbnail corresponds to a complete same-owner identity and
 910×640 AX body. It is also present in the onscreen enumeration, and the
 production WindowRelocator frame read succeeds in this separate client.
-Thus neither the subrole nor the thumbnail alone establishes why Mecum
+Thus neither the subrole nor the thumbnail alone establishes why Braus
 excludes it. No discovery relaxation is retained on that incomplete diagnosis;
 the temporary in-process trace is removed after its scoped reading.
 
@@ -918,7 +918,7 @@ passes 162 tests in ten suites (136 SeatSession tests in nine suites and
 26 SeatCore tests). Evidence: `placement-origin-green-scoped.log`.
 
 
-The final placement candidate passes `swift build --product mecum`,
+The final placement candidate passes `swift build --product braus`,
 `make test SWIFT=swift` (2293 executed, 93 skipped, 2386 reported,
 28 runs, status passed and no tier problems), `make host-tests SWIFT=swift`
 (1 + 29 executed, no skips or tier problems), Debug `build-for-testing`,
@@ -981,14 +981,14 @@ a completed picker workflow. Evidence: `release-chrome-file-setup` and
 `release-chrome-panel-cleanup`.
 
 Independent native UI then selects the owned New Tab window and presses its
-observed Cancel button, withdrawing Open. This rescue does not qualify Mecum.
+observed Cancel button, withdrawing Open. This rescue does not qualify Braus.
 The empty owned tab is used to prepare an exact copy of ChromiumAppFlow.html
 in the existing temporary campaign folder, opened with the native file panel.
 No omnibox Return or network navigation follows the unsuccessful URL setup.
 The native Go to Folder shortcut instead navigates to iCloud Drive under
 Dvorak; no shortcut replay follows, and the temporary folder is selected
 from the observed Where menu. This independent setup behavior is not a
-Mecum keyboard-layout result.
+Braus keyboard-layout result.
 
 On Release `51666898`, all three Chrome core workflow repeats adopt the exact
 Chromium fixture but stop at the first Probe Text insertion with
@@ -1006,7 +1006,7 @@ A read-only production augmenter finds 20 native elements for the owned Rich
 Text Chrome window and 45 for the Chromium window before assignment. During
 an exact Chromium adoption without input, both equal-sized windows occupy
 2192,1288,1200,828. Frame-only lookup then rejects the tie and yields zero
-native elements for both. All three Mecum observations lack fields; the
+native elements for both. All three Braus observations lack fields; the
 session closes with null status. Evidence: `chrome-owned-augmentation.txt`,
 `chrome-augmentation-during-adoption.txt` and
 `release-chrome-augmentation-readonly`.
@@ -1056,7 +1056,7 @@ flows. The older intermittent attributed-font crash remains open.
 
 
 The first signed Release `3e3936fb` native-identity probe exposes both fields
-with their native IDs and performs exact replacements through Mecum: Probe
+with their native IDs and performs exact replacements through Braus: Probe
 Text reads Capturedé🧪 and Multiline Editor reads alphaé\nbeta🧪 in fresh
 observations 5185 and 5190. The session closes and status is null at 5194.
 No activation or geometry interruption occurs in this partial probe. It
@@ -1093,7 +1093,7 @@ partial evidence from Release `3e3936fb`.
 
 The viewport candidate passes `make test SWIFT=swift`: 2298 executed,
 93 skipped, 2391 reported across 28 runs, status passed and problems empty.
-`swift build --product mecum`, the Release app build and
+`swift build --product braus`, the Release app build and
 `codesign --verify --deep --strict` pass. The signature check has access to
 the system trust store. Release executable SHA-256:
 `1418e2ef93aeb029d4345bc002f02c1fd203e14ca634c3c5f5286e06ca3df3a2`.
@@ -1180,10 +1180,10 @@ succeed without outside recovery, followed by a fourth input-free adoption,
 observation and closure (5561–5567). No file is chosen or uploaded.
 
 The independent foreground watcher records 600 samples at a 0.5-second
-cadence across this campaign: the exact Release Mecum application is active
+cadence across this campaign: the exact Release Braus application is active
 and NSWorkspace agrees at every sample; owned Chrome is inactive. This does
 not exclude sub-cadence transients. The Session stream records all three
-Cancel-triggered recoveries restoring the same exact Mecum destination and
+Cancel-triggered recoveries restoring the same exact Braus destination and
 returning to ready. This closes the reproduced continuation failure for this
 campaign, not every external activation or the separate menu-created host
 failure. Evidence: `release-picker-own-appkit-tools.json`,
@@ -1198,7 +1198,7 @@ reaches `contextMenuNeverOpened`, keeps Alpha and opens no dropdown. The
 independent context-menu step opens a real menu, but choosing Select All and
 then Escape both return `subtreeUnreadable` for the parent. A subsequent
 read-only adoption still observes the menu. Native cleanup selects Select All
-on the owned fixture after both Mecum sessions close; it is outside recovery,
+on the owned fixture after both Braus sessions close; it is outside recovery,
 not qualification. Evidence: `release-chrome-dropdown-own-identity`.
 
 A separate single diagnostic select passes exactly `Probe Choice`, requests
@@ -1223,7 +1223,7 @@ assembly correction is connected, but dropdown selection is still failed.
 Evidence: `release-dropdown-native-pipeline`, especially result 5646.
 A separate native primary-action check opens the actual Alpha/Beta/Gamma menu
 and chooses Alpha to leave the fixture unchanged; this is diagnostic evidence,
-not a Mecum workflow pass.
+not a Braus workflow pass.
 
 The opening code always selects AXShowMenu when that action is exposed.
 It now prefers AXPress for the already uniquely identified popup/combo, retaining
@@ -1249,7 +1249,7 @@ and strict signature verification pass for `5a68db8d`. These results precede
 the primary-action correction; its final baseline follows separately.
 
 
-Release `9e5e4f34` completes the dropdown subpath in three separate Mecum
+Release `9e5e4f34` completes the dropdown subpath in three separate Braus
 sessions: Alpha → Beta, Beta → Gamma and Gamma → Alpha. All three selects
 report the exact native value at the original control, fresh observations
 agree, and each popup withdraws before close/null (5677, 5691 and 5705).
@@ -1290,12 +1290,12 @@ by position.
 The parameterized regression failed with six assertions before the correction
 (one resolution and one retained-ambiguity failure per native field role).
 Afterwards, 40 focused target-resolution/action tests pass. `swift build
---product mecum`, the signed Release build and strict signature verification
+--product braus`, the signed Release build and strict signature verification
 pass. `make test SWIFT=swift` reports 2306 executed, 93 skipped, 2399 reported,
 28 runs, `status: passed`, `problems: []`.
 
 Release `fca8132475073bf7d8d3f6a5f301dde8f86d0da6a8fdb60d03c8b329d9a86b87`
-then completes the original three Prism workflows from Mecum's UI. Requests
+then completes the original three Prism workflows from Braus's UI. Requests
 5792/5814/5834 use the actual field ID; fresh observations 5796/5817/5837
 independently read exactly Qt1é🧪 / Qt2é🧪 / Qt3é🧪. Snapshots, Betas and Alphas
 respectively change from off to on; each Cancel withdraws New Instance and
@@ -1305,7 +1305,7 @@ No outside recovery or alternate target route is used.
 
 Local logs are `shared-field-id-{red,green,cli,release,baseline}.log`;
 `release-prism-shared-id-tools.json` retains scoped application evidence in
-`/private/tmp/mecum-stabilization-round4-20261004`. These repetitions qualify
+`/private/tmp/braus-stabilization-round4-20261004`. These repetitions qualify
 this Prism workflow, not Qt Quick, IME, cross-control drag or all Qt applications.
 
 ## Round 6 follow-up: scoped contextual menu composition
@@ -1369,8 +1369,8 @@ For the native repeat, the disposable HTML fixture gains a visible selection
 range oracle fed by the real input's select/input/selectionchange events. The
 original HTML is retained locally; no network, uploaded content or personal
 document is involved. Root desktop setup reloads this fixture before the
-Mecum attempt. A stale menu index was rejected by automatic approval while
-Mecum exposed a Siri orb; fresh AX proved its actual Window menu and selected
+Braus attempt. A stale menu index was rejected by automatic approval while
+Braus exposed a Siri orb; fresh AX proved its actual Window menu and selected
 the named worker through that menu. No Siri input occurred. This is setup,
 not a test recovery.
 
@@ -1384,7 +1384,7 @@ No dependent dropdown request runs and no input is replayed. Every session
 closes with null status. **0/3 complete workflows**; one menu selection effect
 is proven. Scoped records are `release-scoped-context-menu-tools.json`.
 
-A fresh native Mecum AX read after the campaign exposes Menu3é🧪 in its test
+A fresh native Braus AX read after the campaign exposes Menu3é🧪 in its test
 worker composer, although the composer was empty after submitting the test
 prompt. Chrome still reads Menu1é🧪. This is an input-recipient isolation
 failure requiring investigation; an input-method explanation is unproven.
@@ -1397,12 +1397,12 @@ without character payloads, and are to be removed before final handoff.
 
 Diagnostic Release `1765409b`, with the previously approved AppKit anchor
 verified as the foreground app, completes three distinct single diagnostic
-sequences through Mecum. ASCII replacement, Select All, Delete and insertion
+sequences through Braus. ASCII replacement, Select All, Delete and insertion
 read DgBeforeA, selection 0-9 of 9, an empty field and DgAfterB. The equivalent
 Unicode sequence reads DgPrimaé🧪, 0-10 of 10, empty and DgDopoé🧪. A direct
 Unicode replacement of the live menu selection, without Delete, reads
 DgSelé🧪, 0-8 of 8 and DgSosté🧪. Independent observations confirm the values,
-every session closes with null status, and native Mecum AX reads an empty
+every session closes with null status, and native Braus AX reads an empty
 composer after each sequence. These are comparative diagnostics, not three
 repetitions of the acceptance workflow. Records are
 `release-input-recipient-diagnostic-tools.json`,
@@ -1410,22 +1410,22 @@ repetitions of the acceptance workflow. Records are
 `release-input-selected-unicode-anchor-tools.json`.
 
 After normal Quit flushes the diagnostic log, it contains 68 submitted event
-records and no received keyboard event in Mecum's local monitor. Submitted
+records and no received keyboard event in Braus's local monitor. Submitted
 events name the owned Chrome PID; their target-PID metadata is zero even in
 successful sends. This alone does not identify the failing route or justify
 changing that metadata. The earlier isolation failure is still open.
 
 A separate public-activation anchor could not be bound: automatic approval
-rejected Computer Use for Mecum Native Foreground Anchor. Its owned process
+rejected Computer Use for Braus Native Foreground Anchor. Its owned process
 was stopped without UI interaction. No other method controls that rejected
-app. The already approved anchor is subsequently closed normally. Mecum's
+app. The already approved anchor is subsequently closed normally. Braus's
 own temporary native startup activation is being checked before the next
 comparison; a cutoff without a prompt is not an attempted workflow.
 
 Diagnostic Release `fb00894a`, with native startup activation of its own
-Mecum window independently verified, also completes the direct Unicode
+Braus window independently verified, also completes the direct Unicode
 selection replacement: FgPrimaé🧪, selection 0-10 of 10, FgDopoé🧪,
-caret 9-9 of 9 and null session status. Mecum's installed local event monitor
+caret 9-9 of 9 and null session status. Braus's installed local event monitor
 receives no keyboard event and its native composer is empty. This comparison
 does not establish the cause of the previous failure.
 
@@ -1435,7 +1435,7 @@ the actual Select All range 0-8 of 8, direct replacement Picked1é🧪 /
 Picked2é🧪 / Picked3é🧪 with caret 10-10 of 10, and dropdown Beta / Gamma /
 Alpha. Independent observations confirm every value, menus withdraw and
 all sessions close with null status. **3/3 complete diagnostic-candidate
-workflows**, no replay or outside recovery. The native Mecum composer is
+workflows**, no replay or outside recovery. The native Braus composer is
 empty afterwards. Records are `release-menu-combined-native-foreground-tools.json`.
 The old 0/3 and recipient failure remain in history; a repeat on a candidate
 without diagnostic code is still required. Temporary code has now been removed
@@ -1443,7 +1443,7 @@ from both InputEngine and SeatReleasingDelegate, and final checks are running.
 
 Final candidate without diagnostics:
 `8d99683410213996759ba7d3be926b86a8be898bad337b67b0293d9d31adc10d`.
-`swift build --product mecum`, the signed Release build and strict signature
+`swift build --product braus`, the signed Release build and strict signature
 verification pass. `make test SWIFT=swift` passes: 2315 executed, 93 skipped,
 2408 reported, 28 runs, `problems: []`. The Debug `build-for-testing` and
 `test-without-building` pass: 320 tests in 59 suites, 57.359 seconds. Test
@@ -1455,10 +1455,10 @@ these checks and are recorded separately from the diagnostic candidate.
 
 ## Pause and handoff on 2026-10-04
 
-The user requested a pause. Verified changes remain on `elio/mecum-app`,
+The user requested a pause. Verified changes remain on `elio/braus-app`,
 uncommitted, with unrelated existing changes preserved. No commit, staging,
 push or branch switch occurred. The test worker is stopped and the owned
-Mecum candidate is quit. The approved foreground anchor is closed; the idle
+Braus candidate is quit. The approved foreground anchor is closed; the idle
 owned Qt fixture is terminated, with its launching session ending at exit 143.
 Fresh native Chrome observation shows no tracking context menu. Cleanup is
 not an acceptance pass. No background test or scheduled continuation is set.
@@ -1477,7 +1477,7 @@ selection replacement, dropdown selection and clean-close sequences on that
 same final Release. The user stops the third sequence during `context_menu`.
 That interrupted request records `contextMenuNotClosed` for menu 107251,
 PID 99818, and a subsequent `turnNotHeld` release error, generation 23. It is
-neither a complete pass nor an ordinary completed failure. The owned Mecum
+neither a complete pass nor an ordinary completed failure. The owned Braus
 candidate is quit normally; fresh independent Chrome AX shows Menu3é🧪,
 caret 8-8 of 8, Gamma and no context menu. No input is replayed. Records are
 `release-final-menu-combined-tools.json`.
@@ -1492,7 +1492,7 @@ family/OS matrix are still open.
 
 The latest native exact-value and selection-range experiment is parked outside
 production source at
-`/private/tmp/mecum-stabilization-round4-20261004/PausedNativeSelection.patch`.
+`/private/tmp/braus-stabilization-round4-20261004/PausedNativeSelection.patch`.
 The compiled exact-value regression fails with nine issues before its fix;
 the compiled selection regression fails with ten before its fix. After setup
 import repairs and corrections, 74 focused tests pass. There is no complete
@@ -1502,7 +1502,7 @@ implementation remains. The final checks above apply to the retained
 candidate, not to this parked experiment.
 
 Automatic approval previously rejected Computer Use for Activity Monitor,
-Python and Mecum Native Foreground Anchor because those apps were not approved
+Python and Braus Native Foreground Anchor because those apps were not approved
 for Computer Use. No alternate UI route bypasses these rejections. Photoshop
 remains running with its owned test documents; it has not been forcibly quit,
 saved or discarded during cleanup. Work resumes only when the user requests it.

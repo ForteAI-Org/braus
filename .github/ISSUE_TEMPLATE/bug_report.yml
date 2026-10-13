@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Search [existing issues](https://github.com/ForteAI-Org/mecum/issues?q=is%3Aissue) first.
+        Search [existing issues](https://github.com/ForteAI-Org/braus/issues?q=is%3Aissue) first.
         Do not include suspected vulnerabilities in public issues. Private reporting instructions will be added on GitHub.
         Use test content and remove secrets from anything you share.
   - type: textarea
@@ -37,7 +37,7 @@ body:
         Share what you know; write "unknown" for details you cannot obtain.
         Add launcher/permissions for capture or input failures, or provider version/model for chat failures.
       placeholder: |
-        Mecum commit (git rev-parse HEAD):
+        Braus commit (git rev-parse HEAD):
         macOS version and build (sw_vers):
         Mac model (sysctl -n hw.model):
         Target application and version:

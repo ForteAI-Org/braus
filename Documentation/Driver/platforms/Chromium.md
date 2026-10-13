@@ -7,7 +7,7 @@ ordinary `ChromiumPlatform` policy. Their separate application checks below
 provide partial effects on named targets, rather than full family qualification.
 
 The [application flow checks](../reports/ApplicationFlowChecks.md) separately exercise
-Chrome, a GitHub Desktop Electron dialog and the official CEF client through Mecum. Successful checkbox,
+Chrome, a GitHub Desktop Electron dialog and the official CEF client through Braus. Successful checkbox,
 drag and picker effects coexist with dropdown failures and unreadable context-menu
 recipients. Initial short-text Unicode loss is fixed in the Engine; exact-value
 repeats pass for all three apps, with a real LF also verified in Chrome and CEF.
@@ -35,6 +35,16 @@ alone does not enable it for another shell or another Chrome distribution.
 The composition operation still requires an explicit bounded
 `AgentSeat.withNativeTextInput` scope. Individual key tools do not implicitly
 start a composition lifetime.
+
+## Safari reuses this policy
+
+Safari draws its pages in WebKit, not in a Chromium renderer, and on the app path it
+dropped an unprepared click, drag and bulk insertion exactly as a renderer does, so
+`TargetPlatform` selects `ChromiumPlatform` for the exact bundle identifier
+`com.apple.Safari`. No renderer helper is looked for and the native composition
+qualification stays off. The evidence, the placement and new window findings and the
+keyboard route are in [ADR 0038](../adr/Adr0038SafariPreparationAndBriefNewWindow.md)
+and [ADR 0014](../adr/Adr0014WindowlessContentOfAnOrdinaryWindow.md).
 
 ## Repeatable local tier
 

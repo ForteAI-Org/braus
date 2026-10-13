@@ -9,10 +9,10 @@ import Testing
 /// The MCP host returns fixed invented data and has no dependency on AppKit, perception or Driver.
 @Suite("Signed-in providers with synthetic MCP data")
 struct SyntheticProviderTests {
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["MECUM_SYNTHETIC_PROVIDER_TESTS"] == "1"),
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["BRAUS_SYNTHETIC_PROVIDER_TESTS"] == "1"),
           arguments: ChatProvider.allCases)
     func signedInTurnAndResume(_ provider: ChatProvider) async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("mecum-synthetic-\(provider.rawValue)-\(UUID().uuidString)")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("braus-synthetic-\(provider.rawValue)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: root) }
@@ -35,14 +35,14 @@ struct SyntheticProviderTests {
         try JSONEncoder().encode(endpoint).write(to: connection)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: connection.path)
         let cli = try #require(executable(provider.rawValue))
-        let bridge = try #require(ProcessInfo.processInfo.environment["MECUM_TEST_BRIDGE"])
+        let bridge = try #require(ProcessInfo.processInfo.environment["BRAUS_TEST_BRIDGE"])
         let runner = CLIProvider()
         var sessionID: String?
         var replies: [String] = []
         let instructions = """
-        This is a synthetic MCP integration test. Only use the supplied mecum status and windows tools.
+        This is a synthetic MCP integration test. Only use the supplied braus status and windows tools.
         Never inspect real apps, files, environment, or the computer. No other tool is needed or permitted.
-        Call both mecum tools on each user turn and answer briefly from their synthetic results.
+        Call both braus tools on each user turn and answer briefly from their synthetic results.
         """
         let first = ProviderTurn(
             provider: provider, model: provider == .claude ? "sonnet" : nil, sessionID: nil,

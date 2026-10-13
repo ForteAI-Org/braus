@@ -99,6 +99,7 @@ struct UXPModalRoutingTests {
                 },
                 identity: { [self] in identities[$0] },
                 focusedWindowNumber: { [self] _ in absentFocus ? nil : blockedNumber },
+                focusedWindowReading: { [self] _, _ in absentFocus ? .noWindow : .window(blockedNumber) },
                 mainWindowUnderFocusProxyKeyboardContext: { [self] _, chain, generation in
                     guard proxyProof, complete, let modal else {
                         return .failure(.subtreeUnreadable(surface: chain.surface))

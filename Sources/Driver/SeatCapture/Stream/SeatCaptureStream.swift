@@ -10,6 +10,9 @@ import CoreMedia
 import Darwin
 import Foundation
 import os
+#if BRAUS_PHASES
+import PhaseSignposts
+#endif
 import SeatCore
 import ScreenCaptureKit
 import Synchronization
@@ -71,6 +74,14 @@ nonisolated final class FrameReceiver:
 
     private let slot: Mutex<Slot>
 
+    /// The identity and geometry answers reused between frames; see `WindowServerReadingCache`.
+    let readings = WindowServerReadingCache()
+
+    #if BRAUS_PHASES
+    /// Counts this receiver's callbacks for a measurement build; see `FrameStatistics`.
+    let statistics = FrameStatistics()
+    #endif
+
     /// What runs on the main actor for each frame that made it through. The
     /// stream sets it, weakly, so the receiver never keeps the stream alive.
     private let present: @MainActor @Sendable (SeatFrame, UInt64) -> Void
@@ -82,7 +93,7 @@ nonisolated final class FrameReceiver:
     /// Revalidates an identity-bound window before its identity is stamped on
     /// a sample. Display and raw-window captures need no identity query. This
     /// performs bounded WindowServer ownership calls under a gate cached at
-    /// stream start; its 60 fps cost has not yet been measured.
+    /// stream start, at most once per `WindowServerReadingCache` bound.
     private let sourceFailure: @Sendable () -> CaptureFailure?
 
     /// Tells the owning actor once that this receiver's configured Window
@@ -194,6 +205,12 @@ nonisolated final class FrameReceiver:
         of outputType   : SCStreamOutputType
     ) {
         let receivedAt = mach_absolute_time()
+        #if BRAUS_PHASES
+        statistics.record(
+            FrameProbeSampling.sample(sampleBuffer, hashing: FrameProbe.hashesFrames),
+            at: receivedAt
+        )
+        #endif
         guard outputType == .screen,
               sampleBuffer.isValid,
               Self.isComplete(sampleBuffer)
@@ -204,7 +221,11 @@ nonisolated final class FrameReceiver:
             slot.withLock { $0.stale += 1 }
             return
         }
-        if let failure = sourceFailure() {
+        #if BRAUS_PHASES
+        let sourceStarted = mach_absolute_time()
+        #endif
+        let now = DispatchTime.now().uptimeNanoseconds
+        if let failure = readings.identityFailure(at: now, check: sourceFailure) {
             let shouldReport = slot.withLock { state -> Bool in
                 guard !state.sourceWasInvalidated else { return false }
                 state.sourceWasInvalidated = true
@@ -216,6 +237,9 @@ nonisolated final class FrameReceiver:
             sourceInvalidated(captureGeneration, ObjectIdentifier(stream), failure)
             return
         }
+        #if BRAUS_PHASES
+        let sourceChecked = mach_absolute_time()
+        #endif
         let observedRevision = slot.withLock { state -> UInt64 in
             state.nextObservedRevision &+= 1
             return state.nextObservedRevision
@@ -228,9 +252,36 @@ nonisolated final class FrameReceiver:
             observedRevision : observedRevision,
             capturesFullWindow: capturesFullWindow,
             framing           : framing,
-            receivedAt       : receivedAt
-        ) else { return }
+            receivedAt       : receivedAt,
+            sourceRect       : { [readings, source] pixelSize, attachment in
+                let scales = SeatFrame.scales(in: attachment)
+                return readings.screenRect(
+                    at  : now,
+                    for : WindowServerReadingCache.FrameShape(
+                        pixelSize   : pixelSize,
+                        scaleFactor : scales.factor,
+                        contentScale: scales.content
+                    ),
+                    read: { SeatFrame.windowServerRect(of: source) }
+                )
+            }
+        ) else {
+            #if BRAUS_PHASES
+            statistics.noteInitFailure()
+            #endif
+            return
+        }
+        #if BRAUS_PHASES
+        let frameBuilt = mach_absolute_time()
+        #endif
         deliver(frame)
+        #if BRAUS_PHASES
+        statistics.addCosts(
+            callback : mach_absolute_time() - receivedAt,
+            source   : sourceChecked - sourceStarted,
+            frameInit: frameBuilt - sourceChecked
+        )
+        #endif
     }
 
     /// Only `complete` is a frame. `idle`, `blank` and `suspended` are
@@ -310,6 +361,10 @@ public final class SeatCaptureStream {
     public private(set) var lastContentPixelSize: CGSize?
 
     private let continuation: AsyncStream<SeatFrame>.Continuation
+
+    /// The waits for a frame of this running stream; see `FrameWaiters`. Finished with `frames`.
+    private let frameWaiters = FrameWaiters()
+
     private var receiver          : FrameReceiver?
     private var stream            : SCStream?
     private var layers            : [MonitorLayer] = []
@@ -344,6 +399,7 @@ public final class SeatCaptureStream {
     isolated deinit {
         receiver?.refuseFurtherFrames()
         continuation.finish()
+        frameWaiters.finish()
         for observer in stateObservers.values { observer.finish() }
     }
 
@@ -733,6 +789,14 @@ public final class SeatCaptureStream {
                 }
             }
         )
+        #if BRAUS_PHASES
+        receiver.statistics.begin(
+            description: "source=\(target.windowNumber == nil ? "display" : "window") "
+                + "framing=\(target.framing == nil ? 0 : 1) fps=\(configuration.framesPerSecond) "
+                + "size=\(Int(configuration.pixelSize.width))x\(Int(configuration.pixelSize.height))",
+            counters: { [weak receiver] in receiver?.counts ?? (produced: 0, coalesced: 0, stale: 0) }
+        )
+        #endif
         let capture = SCStream(
             filter       : filter,
             configuration: configuration.makeStreamConfiguration(for: target),
@@ -1281,6 +1345,7 @@ public final class SeatCaptureStream {
         configuration = nil
         layers.removeAll()
         continuation.finish()
+        frameWaiters.finish()
     }
 
     private func finishStateConsumers() {
@@ -1297,6 +1362,32 @@ public final class SeatCaptureStream {
         case .idle, .starting, .running, .stopping, .failed:
             false
         }
+    }
+
+    // MARK: Frames of a running stream
+
+    /// The first complete frame this running stream presents that WindowServer displayed after
+    /// `notBefore`, an uptime instant in nanoseconds, waiting at most `bound`.
+    ///
+    /// It is the rule the stream Still applies to the stream it starts, applied to this one: the
+    /// same timestamp conversion, the same wait for a frame delivered before its display instant.
+    /// It does not read `frames`: it waits in `FrameWaiters`, so a wait that times out or is
+    /// cancelled leaves the stream and every other wait as they were, and waits may overlap. Throws
+    /// `timedOut(.still)` when the bound passes and `frameUnavailable` once the stream has ended.
+    nonisolated public func firstFrame(
+        displayedAfter notBefore: UInt64,
+        within bound            : Duration
+    ) async throws -> SeatFrame {
+        try await frameWaiters.first(
+            displayedAfter: notBefore,
+            deadline      : CaptureDeadline(timeout: bound)
+        )
+    }
+
+    /// Makes the receiver read the window's identity and rectangle again on its next frame,
+    /// for an owner that knows the window moved, was resized or was observed elsewhere.
+    public func invalidateWindowServerReadings() {
+        receiver?.readings.invalidate()
     }
 
     // MARK: Stills
@@ -1408,12 +1499,18 @@ public final class SeatCaptureStream {
 
         // Resolved before the owner exists, so a target that cannot be sized
         // fails without a stream to stop.
+        #if BRAUS_PHASES
+        let sizing = PhaseInterval.begin("capture.stream.size")
+        #endif
         let size: CGSize
         if let pixelSize {
             size = pixelSize
         } else {
             size = try await naturalPixelSize(of: target, deadline: deadline)
         }
+        #if BRAUS_PHASES
+        sizing.end()
+        #endif
 
         let owner = SeatCaptureStream(
             target           : target,
@@ -1422,6 +1519,9 @@ public final class SeatCaptureStream {
         var capturedFrame: SeatFrame?
         var captureError : (any Error)?
         do {
+            #if BRAUS_PHASES
+            let starting = PhaseInterval.begin("capture.stream.start")
+            #endif
             try await owner.start(
                 configuration: SeatCaptureConfiguration(
                     pixelSize      : size,
@@ -1429,16 +1529,29 @@ public final class SeatCaptureStream {
                 ),
                 deadline: deadline
             )
+            #if BRAUS_PHASES
+            starting.end()
+            let firstFrame = PhaseInterval.begin("capture.stream.firstFrame")
+            #endif
             let frame = try await firstTimestampedFrame(
                 in      : owner.frames,
                 deadline: deadline
             )
+            #if BRAUS_PHASES
+            firstFrame.end()
+            #endif
             capturedFrame = frame
         } catch {
             captureError = error
         }
 
+        #if BRAUS_PHASES
+        let stopping = PhaseInterval.begin("capture.stream.stop")
+        #endif
         await owner.stop(deadline: CaptureDeadline(timeout: .seconds(5)))
+        #if BRAUS_PHASES
+        stopping.end()
+        #endif
         guard case .stopped = owner.state, !owner.hasUnconfirmedResource else {
             if case .failed(_, let failure) = owner.state { throw failure }
             throw CaptureFailure.timedOut(.streamStop)
@@ -1449,9 +1562,16 @@ public final class SeatCaptureStream {
         return capturedFrame
     }
 
+    /// The first frame of `frames` WindowServer displayed after `notBefore`, on the uptime clock
+    /// `DispatchTime` reads, converted by `MachAbsoluteContentClock`. Zero accepts any valid time.
+    ///
+    /// A timeout cancels the iteration, and cancelling the task that iterates an `AsyncStream`
+    /// terminates it. It is therefore for a stream the caller stops right after, as
+    /// `timestampedStill` does; waits on a running stream go through `firstFrame`.
     static func firstTimestampedFrame(
-        in frames       : AsyncStream<SeatFrame>,
-        deadline        : CaptureDeadline
+        in frames             : AsyncStream<SeatFrame>,
+        displayedAfter notBefore: UInt64 = 0,
+        deadline              : CaptureDeadline
     ) async throws -> SeatFrame {
 
         try deadline.check(.still)
@@ -1463,19 +1583,10 @@ public final class SeatCaptureStream {
                     try deadline.check(.still)
                     guard let ticks = frame.displayTime,
                           let displayedAt = clock.displayTimeNanoseconds(fromMachTicks: ticks),
+                          displayedAt > notBefore,
                           displayedAt < deadline.expiresAt
                     else { continue }
-
-                    // ScreenCaptureKit can deliver a frame before its scheduled display instant.
-                    // Wait against the original deadline without changing the frame's timestamp.
-                    var now = DispatchTime.now().uptimeNanoseconds
-                    while displayedAt > now {
-                        try await Task.sleep(nanoseconds: displayedAt - now)
-                        try Task.checkCancellation()
-                        try deadline.check(.still)
-                        now = DispatchTime.now().uptimeNanoseconds
-                    }
-                    try deadline.check(.still)
+                    try await FrameWaiters.awaitDisplay(at: displayedAt, deadline: deadline)
                     return frame
                 }
                 try Task.checkCancellation()
@@ -1609,6 +1720,7 @@ public final class SeatCaptureStream {
         // the reading is taken here because only a frame carries the geometry.
         lastContentPixelSize = frame.geometry.contentPixelSize
         continuation.yield(frame)
+        frameWaiters.offer(frame)
     }
 
     /// The pixel size the target has now, read from a filter built for it here.

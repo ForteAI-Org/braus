@@ -1,6 +1,6 @@
 //
 //  InputDeliveryTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 24/09/2026.
 //
@@ -105,12 +105,12 @@ struct InputDeliveryTests {
                                    bounds: NormalizedRect(x: 0.27, y: 0.7, width: 0.1, height: 0.03))
         let actuator = RecordingActuator()
         let controls = FakeControls()
-        controls.focused = "Mecum Qt é 🧪"
+        controls.focused = "Braus Qt é 🧪"
         let outcome = await engine(scenes: ScriptedScenes([scene([version, name])]),
                                    actuator: actuator, controls: controls)
-            .deliver(request(.typeText("Mecum Qt é 🧪", into: "26.3", replacing: true)))
+            .deliver(request(.typeText("Braus Qt é 🧪", into: "26.3", replacing: true)))
         #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
-        #expect(actuator.gestures == [.click(at: fieldPoint)] + selectAll + [.insert("Mecum Qt é 🧪")])
+        #expect(actuator.gestures == [.click(at: fieldPoint)] + selectAll + [.insert("Braus Qt é 🧪")])
         #expect(actuator.confirmations == [.observed])
 
         var other = name
@@ -118,7 +118,7 @@ struct InputDeliveryTests {
         other.bounds.x = 0.7
         let ambiguous = RecordingActuator()
         let refusal = await engine(scenes: ScriptedScenes([scene([version, name, other])]), actuator: ambiguous)
-            .deliver(request(.typeText("Mecum Qt é 🧪", into: "26.3", replacing: true)))
+            .deliver(request(.typeText("Braus Qt é 🧪", into: "26.3", replacing: true)))
         #expect(refusal.kind == .ambiguous)
         #expect(ambiguous.gestures.isEmpty)
     }
@@ -152,12 +152,12 @@ struct InputDeliveryTests {
     func replaceInARemoteFilePanelSendsNoKey() async {
         let panel    = ActionPermissions(selectsFieldsByTripleClick: true)
         let actuator = RecordingActuator()
-        let controls = FakeControls(); controls.focused = "mecum-probe-a"
+        let controls = FakeControls(); controls.focused = "braus-probe-a"
         let outcome = await engine(scenes: ScriptedScenes([scene([field(value: "Untitled-1")])]),
                                    actuator: actuator, controls: controls, permissions: panel)
-            .deliver(request(.typeText("mecum-probe-a", into: "Project Name", replacing: true)))
+            .deliver(request(.typeText("braus-probe-a", into: "Project Name", replacing: true)))
         #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
-        #expect(actuator.gestures == [.click(at: fieldPoint, count: 3), .type("mecum-probe-a")])
+        #expect(actuator.gestures == [.click(at: fieldPoint, count: 3), .type("braus-probe-a")])
 
         // Appending there still clicks and moves to the end, as everywhere else.
         let appending = RecordingActuator()
@@ -171,20 +171,20 @@ struct InputDeliveryTests {
     @Test("in a file panel the system draws, a name replaced without an extension keeps the one it had")
     func replaceInARemoteFilePanelKeepsTheExtension() async {
         let actuator = RecordingActuator()
-        let controls = FakeControls(); controls.focused = "mecum-ps-test.psd"
+        let controls = FakeControls(); controls.focused = "braus-ps-test.psd"
         let outcome = await engine(scenes: ScriptedScenes([scene([field(value: "Untitled-1.psd")])]),
                                    actuator: actuator, controls: controls,
                                    permissions: ActionPermissions(selectsFieldsByTripleClick: true))
-            .deliver(request(.typeText("mecum-ps-test", into: "Project Name", replacing: true)))
+            .deliver(request(.typeText("braus-ps-test", into: "Project Name", replacing: true)))
         #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
         #expect(outcome.message
-            == "typed into 'Project Name' (kept the extension .psd): the field reads 'mecum-ps-test.psd'")
-        #expect(actuator.gestures == [.click(at: fieldPoint, count: 3), .type("mecum-ps-test.psd")])
+            == "typed into 'Project Name' (kept the extension .psd): the field reads 'braus-ps-test.psd'")
+        #expect(actuator.gestures == [.click(at: fieldPoint, count: 3), .type("braus-ps-test.psd")])
 
         // Anything else is typed as given, and nothing is added without the panel's rule.
         for (value, text, rule) in [("Untitled-1.psd", "report.pdf", true), ("Untitled-1.psd", "~/Desktop", true),
-                                    ("Untitled-1.psd", "/tmp/x", true), ("Untitled-1", "mecum-ps-test", true),
-                                    ("Untitled-1.psd", "mecum-ps-test", false)] {
+                                    ("Untitled-1.psd", "/tmp/x", true), ("Untitled-1", "braus-ps-test", true),
+                                    ("Untitled-1.psd", "braus-ps-test", false)] {
             let plain = RecordingActuator()
             _ = await engine(scenes: ScriptedScenes([scene([field(value: value)])]), actuator: plain,
                              permissions: ActionPermissions(selectsFieldsByTripleClick: rule))
@@ -228,7 +228,7 @@ struct InputDeliveryTests {
         }
     }
 
-    @Test("supplementary Unicode and line breaks use one intact text payload", arguments: ["🧪", "Mecum é 🧪", "Prima\nSeconda", "Prima\r\nSeconda"])
+    @Test("supplementary Unicode and line breaks use one intact text payload", arguments: ["🧪", "Braus é 🧪", "Prima\nSeconda", "Prima\r\nSeconda"])
     func richTextInserts(text: String) async {
         let actuator = RecordingActuator()
         _ = await engine(scenes: ScriptedScenes([scene([field(value: "")])]), actuator: actuator)
@@ -266,7 +266,7 @@ struct InputDeliveryTests {
 
     @Test("inserting preserves focus and selection, and exact native readback verifies the complete value")
     func insertionKeepsTheExistingSelection() async {
-        let text = "Mecum-à-中-🙂\nSeconda\r\nTerza"
+        let text = "Braus-à-中-🙂\nSeconda\r\nTerza"
         let actuator = RecordingActuator()
         let controls = FakeControls(); controls.focused = text
         let activation = FakeActivation(frontmost: 9999)
@@ -281,15 +281,15 @@ struct InputDeliveryTests {
     }
 
     @Test("an unreadable focused value or a missing expectation cannot verify insertion",
-          arguments: [nil, "different", "Mecum"] as [String?])
+          arguments: [nil, "different", "Braus"] as [String?])
     func insertionNeedsNativeReadback(value: String?) async {
         let actuator = RecordingActuator()
         let controls = FakeControls(); controls.focused = value
         let result = await engine(
-            scenes: ScriptedScenes([scene([field(value: "Mecum")])]), actuator: actuator, controls: controls
-        ).deliver(request(.insertText("Mecum", expecting: value == "Mecum" ? nil : "Mecum")))
+            scenes: ScriptedScenes([scene([field(value: "Braus")])]), actuator: actuator, controls: controls
+        ).deliver(request(.insertText("Braus", expecting: value == "Braus" ? nil : "Braus")))
         #expect(result.kind == .actedUnverified)
-        #expect(actuator.gestures == [.insert("Mecum")])
+        #expect(actuator.gestures == [.insert("Braus")])
         #expect(actuator.confirmations == [.unknown])
         #expect(result.message.contains("never insert again blindly"))
     }
@@ -297,25 +297,25 @@ struct InputDeliveryTests {
     @Test("a complete value expectation can verify insertion into a partially selected field")
     func insertionVerifiesTheWholeValue() async {
         let actuator = RecordingActuator()
-        let controls = FakeControls(); controls.focused = "prefix Mecum suffix"
+        let controls = FakeControls(); controls.focused = "prefix Braus suffix"
         let result = await engine(
             scenes: ScriptedScenes([scene([])]), actuator: actuator, controls: controls
-        ).deliver(request(.insertText("Mecum", expecting: "prefix Mecum suffix")))
+        ).deliver(request(.insertText("Braus", expecting: "prefix Braus suffix")))
         #expect(result.kind == .foundActed)
-        #expect(actuator.gestures == [.insert("Mecum")])
+        #expect(actuator.gestures == [.insert("Braus")])
     }
 
     @Test("dry run, empty text and missing initial scene never insert")
     func insertionRequiresAnObservedSession() async {
         let actuator = RecordingActuator()
         let rehearsal = await engine(scenes: ScriptedScenes([scene([])]), actuator: actuator)
-            .deliver(request(.insertText("Mecum"), dryRun: true))
+            .deliver(request(.insertText("Braus"), dryRun: true))
         #expect(rehearsal.kind == .dryRun)
         let empty = await engine(scenes: ScriptedScenes([scene([])]), actuator: actuator)
             .deliver(request(.insertText("")))
         #expect(empty.kind == .refused)
         let missing = await engine(scenes: ScriptedScenes([]), actuator: actuator)
-            .deliver(request(.insertText("Mecum")))
+            .deliver(request(.insertText("Braus")))
         #expect(missing.kind == .honestMiss)
         #expect(actuator.gestures.isEmpty)
         #expect(actuator.confirmations.isEmpty)
@@ -326,7 +326,7 @@ struct InputDeliveryTests {
         let actuator = RecordingActuator()
         actuator.failure = CocoaError(.userCancelled)
         let result = await engine(scenes: ScriptedScenes([scene([])]), actuator: actuator)
-            .deliver(request(.insertText("Mecum", expecting: "Mecum")))
+            .deliver(request(.insertText("Braus", expecting: "Braus")))
         #expect(result.kind == .actedUnverified)
         #expect(result.message.contains("delivery failed"))
         #expect(actuator.gestures.isEmpty)
@@ -379,7 +379,7 @@ struct InputDeliveryTests {
     }
 
     @Test("unknown, invalid or ambiguous selection cannot verify a key", arguments: [
-        "unknown before", "unknown after", "different value", "different identity",
+        "unknown before", "unknown after", "different identity",
         "different role", "duplicate ID", "invalid range"
     ])
     func uncertainSelectionCannotVerifyAKey(_ issue: String) async {
@@ -390,7 +390,6 @@ struct InputDeliveryTests {
         switch issue {
             case "unknown before"   : before.selectedRange = nil
             case "unknown after"    : after.selectedRange = nil
-            case "different value"  : after.value = "Bé🧪"
             case "different identity": after.id = "another-field"
             case "different role"   : after.role = "AXStaticText"
             case "invalid range"    : after.selectedRange = NSRange(location: Int.max, length: 1)
@@ -405,6 +404,45 @@ struct InputDeliveryTests {
         #expect(outcome.kind == .actedUnverified)
         #expect(actuator.confirmations == [.unknown])
         #expect(actuator.gestures.count == 1)
+    }
+
+    @Test("a key that changes a field's value is verified by the new value, caret included or not")
+    func keyChangesFieldValue() async {
+        var before = field(value: "")
+        before.selectedRange = NSRange(location: 0, length: 0)
+        var after = field(value: "a")
+        after.selectedRange = NSRange(location: 1, length: 0)
+        for (was, now) in [(before, after), (field(value: ""), field(value: "a"))] {
+            let actuator = RecordingActuator()
+            let outcome = await engine(
+                scenes: ScriptedScenes([scene([was]), scene([now])]), actuator: actuator
+            ).deliver(request(.pressKey(KeyChord(.character("a")), times: 1)))
+            #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
+            #expect(outcome.message == "pressed a: 'Project Name' now reads 'a'")
+            #expect(actuator.confirmations == [.observed])
+        }
+    }
+
+    @Test("a value unreadable on either side is no change for a key", arguments: ["before", "after"])
+    func unreadableValueIsNoChange(_ side: String) async {
+        let before = field(value: side == "before" ? nil : "")
+        let after = field(value: side == "after" ? nil : "a")
+        let actuator = RecordingActuator()
+        let outcome = await engine(
+            scenes: ScriptedScenes([scene([before], token: "t1"), scene([after], token: "t2")]), actuator: actuator
+        ).deliver(request(.pressKey(KeyChord(.character("a")), times: 1)))
+        #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
+        #expect(actuator.confirmations == [.unknown])
+    }
+
+    @Test("a caret move that the scene cannot read stays unverified when the value is the same")
+    func caretMoveWithoutReadableRangeStaysUnverified() async {
+        var after = field(value: "abc")
+        after.role = "AXTextField"
+        let outcome = await engine(
+            scenes: ScriptedScenes([scene([field(value: "abc")], token: "t1"), scene([after], token: "t2")])
+        ).deliver(request(.pressKey(KeyChord(.left), times: 1)))
+        #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
     }
 
     @Test("a key is found_acted only when the scene changed, and repeats go out as separate presses")

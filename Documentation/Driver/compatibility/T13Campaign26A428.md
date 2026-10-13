@@ -5,7 +5,7 @@ Written by hand from the tiers and the live runs of 20/09/2026, not by
 promotion: promotion is a human act, `make promote-build`, and the one row this
 campaign could argue for is stated at the end as a proposal and left unapplied.
 
-The audit baseline quoted in `MecumFixTasks.md` is **not** reproduced here as
+The audit baseline quoted in `BrausFixTasks.md` is **not** reproduced here as
 validation. Every number below was measured in this campaign, and a proof that
 was not run says so.
 
@@ -142,12 +142,12 @@ the Chromium rows and `save`.
 ## The live campaign
 
 Everything below was driven by a harness written for this campaign at
-`/Users/mac/Forte_Projects/mecum/.scratch/t13-live` (gitignored, outside both
+`/Users/mac/Forte_Projects/braus/.scratch/t13-live` (gitignored, outside both
 source trees). It brings up the kit's own `SeatHost` and `AgentSeat`, sends
 every command through `AgentSeat.send`, and judges each one with accessibility
 and the window server. No message was sent, no file was uploaded, no dialog was
 confirmed: the only closures attempted were Cancel and Escape, and the only
-text was `mecum` typed into a file panel's own search field.
+text was `braus` typed into a file panel's own search field.
 
 ### Slack, two runs of three independent openings
 
@@ -238,7 +238,7 @@ Every row: front process `Claude[85451]` before and after, no modifiers, seat
 | adopt the stashed panel | `expectedEffectVerified`, 229 ms | window server frame `(2346,1478,891,448)`, full size on the virtual display | — |
 | remote endpoint | `expectedEffectVerified` | the table above | — |
 | Cancel click | **`posted`** | the panel was still there after 4.07 s; `SLSGetWindowOwner(51437)` still rc 0 owner 595363 | 2 events, **2 routed to window 51436 connection 5402747**, poster `publicProcess`, preparation **`none`**, settle **0 ms** |
-| type `mecum` into the search field | **`posted`** | AX value `""` → `""` after 2.00 s | 10 events, 0 routed, preparation `none`, settle 0 ms |
+| type `braus` into the search field | **`posted`** | AX value `""` → `""` after 2.00 s | 10 events, 0 routed, preparation `none`, settle 0 ms |
 | `⌘A` in the field | **`posted`** | AX selected text `""` → `""` | 2 events, preparation `none`, settle 0 ms |
 | Backspace | reported `expectedEffectVerified` — **vacuous**, the field was already empty and the predicate held at 0.12 ms | — | 2 events, preparation `none` |
 | Tab | **`posted`** | focused element unchanged: `AXList/AXCollectionList "icon view" w51437` before and after | 2 events, preparation `none` |

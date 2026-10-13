@@ -66,7 +66,7 @@ Rectangle {
         DropArea {
             id: destination
             anchors.fill: parent
-            keys: ["mecum-quick-probe"]
+            keys: ["braus-quick-probe"]
             onEntered: root.dragEnters += 1
             onPositionChanged: root.dragMoves += 1
             onDropped: function(drop) {
@@ -85,7 +85,7 @@ Rectangle {
         z: 1
         color: "#e0ac8a"
         Drag.active: dragMouse.drag.active
-        Drag.keys: ["mecum-quick-probe"]
+        Drag.keys: ["braus-quick-probe"]
         Drag.source: source
         Drag.hotSpot.x: width / 2
         Drag.hotSpot.y: height / 2

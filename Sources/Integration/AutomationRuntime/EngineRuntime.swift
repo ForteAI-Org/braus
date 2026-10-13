@@ -1,6 +1,6 @@
 //
 //  Runtime.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 18/09/2026.
 //
@@ -33,6 +33,8 @@ public struct EngineRuntime {
     public let actuator: any Actuating
     public let controls: any ControlPressing
     public let activation: (any ApplicationActivating)?
+    /// The seat's adaptive wait after a gesture; nil in the foreground, which sleeps the fixed pause.
+    public let settling: (any Settling)?
     public let service: MemoryService
     public let memory: BrainMemory
 
@@ -43,15 +45,17 @@ public struct EngineRuntime {
             actuator   = SeatActuator(target: seat)
             controls   = SeatControls()
             activation = nil
+            settling   = SeatSettler(target: seat)
         } else {
             scenes = ProductionPerception.foregroundScenes()
             actuator   = HIDActuator()
             controls   = AccessibilityController()
             activation = WorkspaceActivator()
+            settling   = nil
         }
         let service = MemoryService.shared(for: knowledgeDirectory)
         self.service = service
-        memory = BrainMemory(brains: service, applications: service, clock: { service.clock.brainNow() })
+        memory = BrainMemory(brains: service, applications: service, relations: service, clock: { service.clock.brainNow() })
     }
 
     /// The recorder of a call made outside the tools, for the engine and the session to report to: a
@@ -67,7 +71,8 @@ public struct EngineRuntime {
         allowsDestructive           : Bool,
         contextMenusOnTextFieldsOnly: Bool = false,
         selectsFieldsByTripleClick  : Bool = false,
-        refusesMenuOpeningClicks    : Bool = false
+        refusesMenuOpeningClicks    : Bool = false,
+        windowClosure               : WindowClosureGuard = WindowClosureGuard()
     ) -> ActionEngine {
         ActionEngine(
             ActionEngine.Dependencies(
@@ -77,13 +82,15 @@ public struct EngineRuntime {
                 controls    : controls,
                 activation  : activation,
                 expectations: memory,
-                observer    : recorder
+                observer    : recorder,
+                settling    : settling
             ),
             permissions: ActionPermissions(
                 allowsDestructive           : allowsDestructive,
                 contextMenusOnTextFieldsOnly: contextMenusOnTextFieldsOnly,
                 selectsFieldsByTripleClick  : selectsFieldsByTripleClick,
-                refusesMenuOpeningClicks    : refusesMenuOpeningClicks
+                refusesMenuOpeningClicks    : refusesMenuOpeningClicks,
+                windowClosure               : windowClosure
             )
         )
     }

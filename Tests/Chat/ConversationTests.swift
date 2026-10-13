@@ -7,7 +7,7 @@ import Testing
 struct ConversationTests {
     @Test
     func roundTripAndExclusiveLease() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("mecum-history-test-\(UUID().uuidString)")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("braus-history-test-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try ConversationStore(directory: directory)
         var original = Conversation(provider: .claude, model: "sonnet")
@@ -29,7 +29,7 @@ struct ConversationTests {
 
     @Test
     func corruptHistoryIsReportedRatherThanSilentlyDiscarded() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("mecum-corrupt-test-\(UUID().uuidString)")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("braus-corrupt-test-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try ConversationStore(directory: directory)
         try Data("broken".utf8).write(to: directory.appendingPathComponent("\(UUID().uuidString).json"))

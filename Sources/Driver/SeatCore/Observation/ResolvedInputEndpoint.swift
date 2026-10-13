@@ -82,6 +82,17 @@ nonisolated public enum InputEndpointEvidence: Sendable, Equatable {
     /// does every node between it and the nearest one naming a window, which is
     /// the surface. Only for a surface with no attested modal relation (ADR 0014).
     case windowlessContentOfSurface
+
+    /// The surface the seat already holds, for keys, when accessibility reports
+    /// no focused control at all, as Safari does in the background. The
+    /// application's focused window is the surface, and the `AXWebArea` under a
+    /// point of it has the surface as its nearest ancestor naming a window, with
+    /// every node on that path of the surface's process. Nothing was focused, so
+    /// `focusedNodeWindowNumber` is nil and the whole proof is taken again at
+    /// the boundary, where a focus a preparation exposed is accepted only if it
+    /// resolves back to this surface. Only for a surface with no attested modal
+    /// relation and no other window of its process above it (ADR 0014).
+    case windowlessContentWithoutFocus
 }
 
 /// InputEndpointRelation is the endpoint's relation to the logical surface the
@@ -121,6 +132,11 @@ nonisolated public enum InputEndpointInvalidation: Error, Sendable, Equatable {
     /// The focused node moved to another window, which retires a keyboard
     /// context and says nothing about a pointer endpoint.
     case focusedNodeChanged
+
+    /// The application did not answer in time which control has the focus, so
+    /// nobody knows where the keys would arrive. Nothing moved as far as anyone
+    /// read; observing again and retrying is the answer.
+    case focusNotReadable
 
     /// A newer selection generation replaced the one it was resolved under.
     case selectionSuperseded

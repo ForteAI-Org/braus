@@ -1,6 +1,6 @@
 //
 //  SceneSnapshot.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 15/09/2026.
 //
@@ -25,6 +25,9 @@ public struct SceneSnapshot: Sendable, Equatable, Hashable {
     /// Known menu paths, such as "File > Export...".
     public var commands: [String]
     public var token: SceneToken
+    /// What the living memory said about the scene when it annotated it; nil for a scene it did not
+    /// read. No part of the token.
+    public var knowledge: SceneKnowledge?
 
     /// Builds a scene, computing the token from the content when none is supplied.
     public init(
@@ -35,7 +38,8 @@ public struct SceneSnapshot: Sendable, Equatable, Hashable {
         elements         : [SceneElement],
         sections         : [SceneSection] = [],
         commands         : [String] = [],
-        token            : SceneToken? = nil
+        token            : SceneToken? = nil,
+        knowledge        : SceneKnowledge? = nil
     ) {
         self.bundleID          = bundleID
         self.appName           = appName
@@ -45,6 +49,7 @@ public struct SceneSnapshot: Sendable, Equatable, Hashable {
         self.sections          = sections
         self.commands          = commands
         self.token             = token ?? SceneToken(bundleID: bundleID, windowTitle: windowTitle, elements: elements)
+        self.knowledge         = knowledge
     }
 
     /// The smallest section containing a normalized point, or nil when the point is in no panel.
@@ -97,6 +102,7 @@ extension SceneSnapshot: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case bundleID, windowTitle, elements, sections, commands, token
+        case knowledge         = "memory"
         case appName           = "app"
         case viewportPixelSize = "viewportPx"
     }

@@ -153,7 +153,8 @@ struct ObservationAdmissionTests {
             },
             keyboardContext: { _, chain, _ in .failure(.subtreeUnreadable(surface: chain.surface)) },
             identity: { sensing.windowGeometry(of: $0)?.identity },
-            focusedWindowNumber: { _ in nil }
+            focusedWindowNumber: { _ in nil },
+            focusedWindowReading: { _, _ in .noWindow }
         )
         let sender  = FakeSender()
         let source  = ControlledObservationSource(sensing: sensing)

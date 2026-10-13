@@ -1,6 +1,6 @@
 //
 //  AgentCall.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 02/10/2026.
 //
@@ -40,6 +40,23 @@ public enum AgentTool: String, Sendable, Equatable, Hashable, CaseIterable {
             case .status, .windows, .apps, .openSession: false
             default                                    : true
         }
+    }
+
+    /// Whether a call of the tool must have its start confirmed in the archive before it runs: every
+    /// tool that may change the application or the Seat (the operations, a batch, `menu`, `press`,
+    /// `open_session`). The read-only tools, and `close_session`, which gives the person's windows back,
+    /// run whatever the memory answers, with their record's gap said.
+    public var requiresConfirmedStart: Bool {
+        switch self {
+            case .status, .windows, .apps, .observe, .closeSession: false
+            default                                              : true
+        }
+    }
+
+    /// Whether a call of the tool is an operation on the application, with a gesture whose effect a
+    /// check may judge: `act`, `select`, the six inputs, `menu` and `press`.
+    public var isOperation: Bool {
+        isBatchStep || self == .menu || self == .press
     }
 
     /// Whether the tool may be a step of a batch: `act`, `select` and the six inputs.

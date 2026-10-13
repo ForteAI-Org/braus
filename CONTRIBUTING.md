@@ -1,4 +1,4 @@
-# Contributing to Mecum
+# Contributing to Braus
 
 Every change follows **one issue → one branch → one pull request**:
 
@@ -22,15 +22,15 @@ instructions will be added on GitHub.
 
 ## Report a problem or request
 
-Search [existing issues](https://github.com/ForteAI-Org/mecum/issues) first, then use:
+Search [existing issues](https://github.com/ForteAI-Org/braus/issues) first, then use:
 
-- [Bug report](https://github.com/ForteAI-Org/mecum/issues/new?template=bug_report.yml):
+- [Bug report](https://github.com/ForteAI-Org/braus/issues/new?template=bug_report.yml):
   incorrect command, tool or library behavior.
-- [Feature or improvement](https://github.com/ForteAI-Org/mecum/issues/new?template=feature_request.yml):
+- [Feature or improvement](https://github.com/ForteAI-Org/braus/issues/new?template=feature_request.yml):
   the user's task, current limitation and desired result.
-- [Seat compatibility](https://github.com/ForteAI-Org/mecum/issues/new?template=seat_validation.yml):
+- [Seat compatibility](https://github.com/ForteAI-Org/braus/issues/new?template=seat_validation.yml):
   an unvalidated macOS build or hardware model, including refusals before adoption.
-- [Documentation](https://github.com/ForteAI-Org/mecum/issues/new?template=documentation.yml):
+- [Documentation](https://github.com/ForteAI-Org/braus/issues/new?template=documentation.yml):
   an unclear, incorrect or missing explanation. No code contribution is required.
 
 New reports enter `Inbox`; reporters need not know the responsible module or reviewer.
@@ -55,7 +55,7 @@ do not isolate apps, permissions, ports or the desktop; coordinate GUI tests.
   Reviewed, sanitized compatibility evidence follows the Driver validation procedure.
 - Do not add automatic coauthor trailers or invented attribution.
 - Fetch the original repository before synchronizing: use `origin/main` for a
-  direct clone, or an `upstream` remote pointing to Mecum for a fork. Merge that
+  direct clone, or an `upstream` remote pointing to Braus for a fork. Merge that
   remote's `main` into a published branch; rebase unpublished branches freely.
   Never use `--force`. Use `--force-with-lease` on a published feature branch only
   after notifying everyone using it; never on `main`.
@@ -83,7 +83,7 @@ For code changes, complete the local baseline below plus every additional tier
 required by the issue before final review. Use Swift 6.4, Python 3 and Make:
 
 ```sh
-swift build --product mecum
+swift build --product braus
 make test SWIFT=swift
 git diff --check
 ```
@@ -109,7 +109,7 @@ Select additional tiers by the changed behavior:
 | Driver host | `make host-tests SWIFT=swift`; permissions and an awake physical display. |
 | Driver live | `AGENTSEAT_FIXTURE_APP=/path/to/fixture make live-tests SWIFT=swift`; consumer-supplied fixture and exclusive desktop use. |
 | Performance | `make bench SWIFT=swift`; awake display and required permissions; `stage` also needs the fixture. |
-| Perception boundary | `MECUM_LIVE_TESTS=1 swift test --filter PerceptionBoundaryTests`; test-specific app state and permissions. |
+| Perception boundary | `BRAUS_LIVE_TESTS=1 swift test --filter PerceptionBoundaryTests`; test-specific app state and permissions. |
 | Provider integration | Follow [chat verification](Documentation/Engine/Chat.md#verification); uses signed-in CLIs with synthetic tool data. |
 
 Use the Makefile for Driver host/live tiers: it separates processes and checks

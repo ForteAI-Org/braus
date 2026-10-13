@@ -1,12 +1,13 @@
 //
 //  SQLiteMemoryStoreTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 02/10/2026.
 //
 
 import Foundation
 import Memory
+import SQLiteAmalgamation
 @testable import SQLiteMemory
 import Synchronization
 import Testing
@@ -29,12 +30,29 @@ struct SQLiteMemoryStoreTests {
         #expect(SQLiteLibrary.unmetRequirement(of: 3_050_007) == nil)
     }
 
+    /// The system library has another source id (Apple's ends in `aapl`), so a binary that reached it
+    /// instead of `SQLiteAmalgamation` fails here on every macOS, the ones with an older library included.
+    @Test("the linked library is the one compiled in, with the system library's trigger, checkpoint and limit defaults")
+    func compiledInLibrary() throws {
+        #expect(SQLiteLibrary.sourceID      == SQLITE_SOURCE_ID)
+        #expect(SQLiteLibrary.versionNumber == SQLITE_VERSION_NUMBER)
+        let connection = try SQLiteConnection(path: ":memory:")
+        defer { connection.close() }
+        let defaults: [(pragma: String, value: Int64)] = [
+            ("recursive_triggers", 1), ("checkpoint_fullfsync", 1), ("journal_size_limit", 32_768), ("cache_size", 2_000),
+        ]
+        for (pragma, value) in defaults {
+            #expect(try connection.query("PRAGMA \(pragma)") { $0.integer(0) }.first == value, "\(pragma)")
+        }
+        #expect(connection.limit(.length) == 2_147_483_645)
+    }
+
     @Test("an empty file is bootstrapped to schema 1 in WAL with full sync and foreign keys, and reopens as found")
     func bootstrap() async throws {
         let url   = try temporaryDatabase()
         let store = try await SQLiteMemoryStore.open(at: url)
         let first = try await store.diagnostics()
-        #expect(first.schemaVersion == 1)
+        #expect(first.schemaVersion == SQLiteMemorySchema.version)
         #expect(first.journalMode == "wal")
         #expect(first.synchronous == 2)
         #expect(first.foreignKeysEnabled)
@@ -42,7 +60,7 @@ struct SQLiteMemoryStoreTests {
         #expect(first.libraryVersion == SQLiteLibrary.version)
         #expect(first.commits == 0)
         let shape = try await store.read { snapshot in try SchemaShape(snapshot) }
-        #expect(shape == SchemaShape(tables: 48, triggers: 48, indexes: 31))
+        #expect(shape == SchemaShape.current)
         let foreignKeyCheck = try await store.read { snapshot in
             try snapshot.query("PRAGMA foreign_key_check") { try $0.text(0) ?? "" }
         }
@@ -55,7 +73,7 @@ struct SQLiteMemoryStoreTests {
 
         let again  = try await SQLiteMemoryStore.open(at: url)
         let second = try await again.diagnostics()
-        #expect(second.schemaVersion == 1)
+        #expect(second.schemaVersion == SQLiteMemorySchema.version)
         #expect(second.journalMode == "wal")
         #expect(!second.bootstrappedNow)
         #expect(try await again.read { snapshot in try SchemaShape(snapshot) } == shape)
@@ -65,10 +83,12 @@ struct SQLiteMemoryStoreTests {
     @Test("every table of the resource is named by its parser")
     func tableNames() throws {
         let names = SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text())
-        #expect(names.count == 48)
+        #expect(names.count == SchemaShape.current.tables)
         #expect(names.first == "brain_apps")
-        #expect(names.last == "memory_experience_uses")
-        #expect(Set(names).count == 48)
+        #expect(names.last == "memory_recall_choice_links")
+        #expect(Set(names).count == SchemaShape.current.tables)
+        let first = SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text(of: 1))
+        #expect(first.count == 48 && first.last == "memory_experience_uses" && Array(names.prefix(48)) == first)
     }
 
     @Test("an empty archive answers zero rows; a file that is not a database is an open error and stays as it was")
@@ -94,7 +114,7 @@ struct SQLiteMemoryStoreTests {
     @Test("a directory that does not exist or cannot be written is an open error, and no file appears")
     func unwritablePath() async throws {
         let missing = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mecum-missing-\(UUID().uuidString)/memory.sqlite")
+            .appendingPathComponent("braus-missing-\(UUID().uuidString)/memory.sqlite")
         let error = await storeError { _ = try await SQLiteMemoryStore.open(at: missing) }
         guard case .open(let fault)? = error else {
             Issue.record("expected .open, got \(String(describing: error))")
@@ -105,7 +125,7 @@ struct SQLiteMemoryStoreTests {
         #expect(!FileManager.default.fileExists(atPath: missing.path))
 
         let sealed = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mecum-sealed-\(UUID().uuidString)")
+            .appendingPathComponent("braus-sealed-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: sealed, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: sealed.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sealed.path) }
@@ -126,23 +146,23 @@ struct SQLiteMemoryStoreTests {
         let store = try await SQLiteMemoryStore.open(at: url)
         await store.close()
         let raw = try SQLiteConnection(path: url.path)
-        try raw.execute("PRAGMA user_version = 7")
+        try raw.execute("PRAGMA user_version = 8")
         raw.close()
 
         let error = await storeError { _ = try await SQLiteMemoryStore.open(at: url) }
-        #expect(error == .schema(.future(found: 7, supported: 1)))
+        #expect(error == .schema(.future(found: 8, supported: SQLiteMemorySchema.version)))
         let check = try SQLiteConnection(path: url.path)
-        #expect(try check.query("PRAGMA user_version") { $0.integer(0) }.first == 7)
+        #expect(try check.query("PRAGMA user_version") { $0.integer(0) }.first == 8)
         #expect(try check.query(
             "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-        ) { $0.integer(0) }.first == 48)
+        ) { $0.integer(0) }.first == Int64(SchemaShape.current.tables))
     }
 
     @Test("a version 1 file of an earlier development form whose columns match but whose constraints differ is refused untouched")
     func differentShapeRefused() async throws {
         let url = try temporaryDatabase()
-        let ddl = try SQLiteMemorySchema.text()
-        let earlier = ddl.replacingOccurrences(of: ",\n         'textSelectionChanged')),", with: ")),")
+        let ddl = try SQLiteMemorySchema.text(of: 1)
+        let earlier = ddl.replacingOccurrences(of: ", 'valueChanged')),", with: ")),")
         #expect(earlier != ddl)
         let raw = try SQLiteConnection(path: url.path)
         try raw.execute(earlier)
@@ -156,6 +176,32 @@ struct SQLiteMemoryStoreTests {
 
         let fresh = try await SQLiteMemoryStore.open(at: try temporaryDatabase())
         await fresh.close()
+    }
+
+    @Test("a version 1 file bootstrapped before the value change, without its columns, is refused by name and left untouched")
+    func formBeforeTheValueChangeRefused() async throws {
+        let url = try temporaryDatabase()
+        let ddl = try SQLiteMemorySchema.text()
+        let earlier = ddl
+            .replacingOccurrences(of: "    effect_label TEXT,\n    effect_value TEXT,\n", with: "")
+            .replacingOccurrences(of: "    observed_effect_label TEXT,\n    observed_effect_value TEXT,\n", with: "")
+            .replacingOccurrences(of: ", 'valueChanged')),", with: ")),")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.contains("observed_effect_label IS") }
+            .joined(separator: "\n")
+        #expect(earlier != ddl && !earlier.contains("effect_label TEXT") && !earlier.contains("observed_effect_label IS"))
+        let raw = try SQLiteConnection(path: url.path)
+        try raw.execute(earlier)
+        try raw.execute("PRAGMA user_version = 1")
+        raw.close()
+        let before = try Data(contentsOf: url)
+
+        let error = await storeError { _ = try await SQLiteMemoryStore.open(at: url) }
+        #expect(error == .schema(.missingColumns([
+            "brain_transitions.effect_label",
+            "memory_agent_actions.observed_effect_label",
+        ])))
+        #expect(try Data(contentsOf: url) == before)
     }
 
     @Test("a version 0 file with somebody else's tables is refused and left exactly as found")
@@ -196,8 +242,8 @@ struct SQLiteMemoryStoreTests {
         let da = try await a.diagnostics()
         let db = try await b.diagnostics()
         #expect([da.bootstrappedNow, db.bootstrappedNow].filter { $0 }.count == 1)
-        #expect(da.schemaVersion == 1 && db.schemaVersion == 1)
-        #expect(try await a.read { snapshot in try SchemaShape(snapshot) } == SchemaShape(tables: 48, triggers: 48, indexes: 31))
+        #expect(da.schemaVersion == SQLiteMemorySchema.version && db.schemaVersion == SQLiteMemorySchema.version)
+        #expect(try await a.read { snapshot in try SchemaShape(snapshot) } == SchemaShape.current)
         await a.close()
         await b.close()
     }

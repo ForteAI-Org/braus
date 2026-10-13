@@ -148,6 +148,6 @@ public final class CLIProvider {
     }
 
     private func failure(_ text: String) -> NSError {
-        NSError(domain: "MecumProvider", code: 1, userInfo: [NSLocalizedDescriptionKey: text])
+        NSError(domain: "BrausProvider", code: 1, userInfo: [NSLocalizedDescriptionKey: text])
     }
 }

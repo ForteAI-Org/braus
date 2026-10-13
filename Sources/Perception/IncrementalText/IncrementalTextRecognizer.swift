@@ -1,6 +1,6 @@
 //
 //  IncrementalTextRecognizer.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 21/09/2026.
 //

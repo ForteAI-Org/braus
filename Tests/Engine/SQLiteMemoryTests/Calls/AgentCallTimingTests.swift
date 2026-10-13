@@ -1,6 +1,6 @@
 //
 //  AgentCallTimingTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 02/10/2026.
 //
@@ -68,6 +68,7 @@ struct AgentCallTimingTests {
             ("one", .menuOpened(labels: ["A|B", "C"])),
             ("two", .menuOpened(labels: ["A", "B|C"])),
             ("selection", .textSelectionChanged),
+            ("value", .valueChanged(label: "", value: "A|B\u{1F}e\u{301}\n")),
         ]
         for (id, effect) in effects {
             _ = try await memory.calls.record(try F.call(id, .act(target: "Menu", verb: .click, value: nil, section: nil)))

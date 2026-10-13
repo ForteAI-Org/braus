@@ -1,6 +1,6 @@
 //
 //  RouteValidation.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 02/10/2026.
 //
@@ -171,6 +171,24 @@ extension RouteDefinition {
                     guard spec.kind == .text, anchorArguments.contains(spec.name), !id.isEmpty else { throw refuse("\(spec.name) cannot name an anchor") }
                 case .menu(let id):
                     guard spec.kind == .text, menuArguments.contains(spec.name), !id.isEmpty else { throw refuse("\(spec.name) cannot name a menu command") }
+                case .template(let segments):
+                    guard spec.kind == .text else { throw refuse("\(spec.name) is \(spec.kind.rawValue), not a text template") }
+                    guard segments.contains(where: { if case .parameter = $0 { true } else { false } }) else {
+                        throw refuse("a template of \(spec.name) without a parameter is a literal")
+                    }
+                    var previousLiteral = false
+                    for segment in segments {
+                        switch segment {
+                            case .literal(let text):
+                                guard !text.isEmpty, !previousLiteral else { throw refuse("a template of \(spec.name) is not canonical") }
+                                previousLiteral = true
+                            case .parameter(let id):
+                                let found = try parameter(id)
+                                guard found.valueType == .text else { throw RouteError.invalidDefinition(.parameterType(parameterID: id)) }
+                                guard found.direction != .output else { throw RouteError.invalidDefinition(.parameterDirection(parameterID: id)) }
+                                previousLiteral = false
+                        }
+                    }
             }
         }
         for spec in specs.values {
@@ -253,6 +271,7 @@ extension RouteDefinition {
                     switch (x.value, y.value) {
                         case (.literal(let p), .literal(let q)): return sameValue(p, q)
                         case (.parameter(let p), .parameter(let q)), (.anchor(let p), .anchor(let q)), (.menu(let p), .menu(let q)): return same(p, q)
+                        case (.template(let p), .template(let q)): return p == q
                         default: return false
                     }
                 }

@@ -1,15 +1,15 @@
-# Expanded installed-app checks through Mecum
+# Expanded installed-app checks through Braus
 
-On 2026-10-03 the signed Debug Mecum app was exercised on Mac16,1,
+On 2026-10-03 the signed Debug Braus app was exercised on Mac16,1,
 macOS 27.0.1 (26A434), with exclusive desktop use authorized by the operator.
 Stage Manager was enabled; its setting was not changed. These nine additional
 installed apps extend the [initial application flows](ApplicationFlowChecks.md)
 to fourteen installed apps plus the separate official CEF sample.
 
-The checks use Mecum's conversation, discovery, Seat broker, perception,
+The checks use Braus's conversation, discovery, Seat broker, perception,
 Engine actions and Driver together. Setup and assisted cleanup use an
 independent desktop controller. Such intervention does not turn a failed
-Mecum flow into a pass. Synthetic documents and reversible controls keep the
+Braus flow into a pass. Synthetic documents and reversible controls keep the
 requested effects independently inspectable.
 
 The remaining failures and their closure criteria are tracked in
@@ -22,9 +22,9 @@ closure. Safari input remains unresolved.
 
 | App and surface | Requested flow and observed effect | Verdict and limits |
 | --- | --- | --- |
-| Calculator 12.0, native | Four separate sessions calculate `7+8 = 15` and `9×6 = 54`, then clear to `0`. Raw Mecum observations contain both results; independent desktop AX reads confirm the final zero. | First cycle needed recovery after `geometryChanged`, before the clear took effect. The following two cycles and the repeat in the rebuilt app completed cleanly. Arithmetic passes; an app-wide reliability rate is not measured. |
+| Calculator 12.0, native | Four separate sessions calculate `7+8 = 15` and `9×6 = 54`, then clear to `0`. Raw Braus observations contain both results; independent desktop AX reads confirm the final zero. | First cycle needed recovery after `geometryChanged`, before the clear took effect. The following two cycles and the repeat in the rebuilt app completed cleanly. Arithmetic passes; an app-wide reliability rate is not measured. |
 | Safari 27.0.1, WebKit | Owned new window with local HTML probes for text, multiline text, checkbox, counter, scrolling, dropdown, file panel and drag/drop. | Text, counter click and scroll fail with `subtreeUnreadable`; the other five checks are blocked or not attempted. The first exact-title `open_session` returns another existing window's scene. That Seat was closed without input; a later exact-title call returns the correct fixture. Cause remains unestablished. |
-| MarkEdit 1.35.0, native shell and WebKit editor | Replace with `Mecum MarkEdit é 🧪` plus LF and `Seconda riga`; Find `Seconda`; close Find; native Open/Cancel. | Unicode and both lines are observed, as are Find's one result, its withdrawal and the Open panel's withdrawal. Exact replacement remains inconclusive: native AX shows trailing blank lines, and the subsequently saved file contains one extra terminal LF. Save normalization is not distinguished from insertion. Autocomplete popups were explicitly dismissed. |
+| MarkEdit 1.35.0, native shell and WebKit editor | Replace with `Braus MarkEdit é 🧪` plus LF and `Seconda riga`; Find `Seconda`; close Find; native Open/Cancel. | Unicode and both lines are observed, as are Find's one result, its withdrawal and the Open panel's withdrawal. Exact replacement remains inconclusive: native AX shows trailing blank lines, and the subsequently saved file contains one extra terminal LF. Save normalization is not distinguished from insertion. Autocomplete popups were explicitly dismissed. |
 | Dictionary 2.3.0, native | Search `automation`, then inspect a definition, replace with accented text and clear. | The first search fails with `geometryChanged`. A reopen confirms an empty field, and a deliberate second attempt reproduces the failure. Observation then reports no assigned application while status retains a session ID. Definition, accented replacement and clear are unqualified. Both Seats close. |
 | Clock 1.1, native | World Clock → Stopwatch → Timers → World Clock. | Pass for this navigation: distinct stopwatch and timer controls and the restored World Clock tab are observed. No stopwatch, timer or alarm was started, and no item was created. |
 | Prism Launcher 11.0.2, Qt | Add Instance → New Instance dialog → Cancel → main window. | Pass for the dialog round trip. No instance, download or account change. This supplies a second installed Qt application's selected-flow evidence alongside Resolve; it is not a full Qt qualification. |
@@ -67,15 +67,15 @@ window-selection, focus or subtree failures.
 
 ## Validation and retained evidence
 
-- `swift build --product mecum`: passed.
+- `swift build --product braus`: passed.
 - `make test SWIFT=swift`: passed, 2,224 executed, 93 skipped, 2,317 reported,
   28 bundles, `problems: []`.
 - Focused ActionEngine, ElsewhereGuide and ActVerification suites: passed,
   33 tests across three suites; the new regression was first observed failing.
 - Signed app build and `build-for-testing`: passed.
-- `xcodebuild -project MecumApp/App/Mecum.xcodeproj -scheme Mecum
+- `xcodebuild -project BrausApp/App/Braus.xcodeproj -scheme Braus
   -configuration Debug -destination 'platform=macOS' -derivedDataPath
-  /private/tmp/mecum-app-uxp-20261003/AppFlowDerivedData test-without-building`:
+  /private/tmp/braus-app-uxp-20261003/AppFlowDerivedData test-without-building`:
   passed, 320 tests in 59 suites. The first sandboxed attempt could not write
   Xcode's caches; the authorized run with normal cache access passed.
 - `git diff --check`: passed.
@@ -84,11 +84,11 @@ The rebuilt Debug executable's SHA-256 is
 `d92259f776693c2709cdb1a8992232ad4cb9ace1ee35460a9d31e8546a2be369`.
 The app's version is 1.0. Detailed test logs, scoped tool records, app metadata,
 synthetic fixtures and the byte comparison are retained locally under
-`/private/tmp/mecum-broad-campaign-20261003`. Tool records were read only for
+`/private/tmp/braus-broad-campaign-20261003`. Tool records were read only for
 the dedicated test worker and the campaign interval. Personal window titles,
 account names and document contents are omitted from this report.
 
-Final Mecum status is idle with no Seat. Dictionary, Clock, Prism and QuickTime
+Final Braus status is idle with no Seat. Dictionary, Clock, Prism and QuickTime
 test-launched processes have exited. The owned Safari window, PDF, Markdown
 document and Finder window are closed. MarkEdit's saved synthetic file was
 moved from the initially selected iCloud location to the local evidence

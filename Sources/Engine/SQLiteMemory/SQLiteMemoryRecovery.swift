@@ -1,13 +1,13 @@
 //
 //  SQLiteMemoryRecovery.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 07/10/2026.
 //
 
 import Foundation
 import Memory
-import SQLite3
+import SQLiteAmalgamation
 
 /// SQLiteMemoryRecovery replaces an archive the library calls corrupt or not a database: it moves the
 /// file aside with its journal, as `<archive>.corrupt-<stamp>`, never deleting anything, and puts the
@@ -100,7 +100,7 @@ package enum SQLiteMemoryRecovery {
         guard let lock = try SQLiteMemoryPresence.take(.exclusive, of: archive) else { return .inUse }
         defer { lock.release() }
         let stage = stage ?? { _ in }
-        let expected = try SQLiteMemoryStore.Expected(ddl: try SQLiteMemorySchema.text())
+        let expected = try SQLiteMemoryStore.Expected()
         if FileManager.default.fileExists(atPath: recordPath(of: archive)) {
             let record = try readRecord(of: archive)
             try resume(archive, record, expected: expected, at: stage)
@@ -213,8 +213,8 @@ package enum SQLiteMemoryRecovery {
         failure.primary == SQLITE_CORRUPT || failure.primary == SQLITE_NOTADB
     }
 
-    /// Whether a file reads as an archive of this build's schema; `thorough` adds the library's
-    /// `quick_check` of every page. Read only, in one read transaction.
+    /// Whether a file reads as an archive of this build's schema or of one it migrates from; `thorough`
+    /// adds the library's `quick_check` of every page. Read only, in one read transaction.
     private static func isSound(_ file: URL, expected: SQLiteMemoryStore.Expected, thorough: Bool = true) -> Bool {
         guard let connection = try? SQLiteConnection(path: file.path, readOnly: true, mayCreate: false) else { return false }
         defer { connection.close() }
@@ -222,7 +222,11 @@ package enum SQLiteMemoryRecovery {
             try connection.execute("BEGIN")
             defer { _ = try? connection.execute("COMMIT") }
             if thorough, try connection.query("PRAGMA quick_check", [], { try $0.text(0) ?? "" }) != ["ok"] { return false }
-            return try SQLiteMemoryStore.inspect(connection, expected: expected) == .current
+            // A copy of an earlier schema is sound too: the next open migrates it, after its own copy.
+            switch try SQLiteMemoryStore.inspect(connection, expected: expected) {
+                case .current, .previous: return true
+                case .empty             : return false
+            }
         } catch {
             return false
         }

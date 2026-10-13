@@ -1,6 +1,6 @@
 // swift-tools-version: 6.4
 //
-// Mecum: an agent environment for the Mac. The repository is the library, and
+// Braus: an agent environment for the Mac. The repository is the library, and
 // the folders under Sources/ are its layers. Each layer is a set of targets,
 // so the compiler enforces the boundaries between them.
 //
@@ -178,34 +178,34 @@ func brokerTests(
 }
 
 let package = Package(
-    name     : "Mecum",
+    name     : "Braus",
     platforms: [deployment],
     products : [
-        .library(name: "MecumChat",
+        .library(name: "BrausChat",
                  targets: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                            "AutomationRuntime", "AutomationMCP"]),
         .library(
-            name: "MecumDriver",
+            name: "BrausDriver",
             targets: ["SeatCore", "PrivateSymbols", "VirtualScreens", "WindowPlacement",
                       "SeatInput", "CursorGuard", "SeatCapture", "SeatSession", "TargetReader"]
         ),
         .library(
-            name: "MecumPerception",
+            name: "BrausPerception",
             targets: ["PerceptionCore", "VisionText", "IncrementalText", "PixelSections", "PixelRegions",
                       "PixelControlState", "WindowServerListing", "Perception", "AccessibilityFacts",
                       "ScreenCapture", "SceneOverlay"]
         ),
         .library(
-            name: "MecumEngine",
+            name: "BrausEngine",
             targets: ["EngineCore", "Engine", "HIDActuation", "AccessibilityActions", "WorkspaceActivation",
-                      "Memory", "FileKnowledge", "LiveScenes"]
+                      "Memory", "FileKnowledge", "LiveScenes", "LocalEmbedding"]
         ),
         .library(name: "UserInteractions", targets: ["InteractionListener", "InteractionObservation"]),
         .library(name: "SeatBroker", targets: ["SeatBroker"]),
         .library(name: "ModelTransports", targets: ["ModelTransports"]),
-        .executable(name: "mecum", targets: ["mecum"]),
+        .executable(name: "braus", targets: ["braus"]),
         // The tool bridge a worker's agent launches, which the app bundles in place of the whole command line.
-        .executable(name: "mecum-bridge", targets: ["mecum-bridge"]),
+        .executable(name: "braus-bridge", targets: ["braus-bridge"]),
     ],
     targets: [
         
@@ -233,13 +233,18 @@ let package = Package(
         driver("CursorGuard", ["SeatCore", "PrivateSymbols"]),
         
         // Window and display capture, frames and the monitor layer.
-        driver("SeatCapture", ["SeatCore", "WindowPlacement"]),
+        driver("SeatCapture", ["SeatCore", "WindowPlacement", "PhaseSignposts"]),
         
         // The host and the seat: turns, adoption, recovery, watchdog.
-        driver("SeatSession", ["SeatCore", "PrivateSymbols", "VirtualScreens", "WindowPlacement", "SeatInput", "CursorGuard", "SeatCapture"]),
+        driver("SeatSession", ["SeatCore", "PrivateSymbols", "VirtualScreens", "WindowPlacement", "SeatInput", "CursorGuard", "SeatCapture", "PhaseSignposts"]),
         
         // Read-only reader of another application's window.
         driver("TargetReader", ["SeatCore", "WindowPlacement"]),
+
+        // MARK: PhaseSignposts
+        // The `os_signpost` intervals of a phase measurement build. Empty unless `BRAUS_PHASES` is set,
+        // which no default build does; see Documentation/Driver/README.md, "Measuring the phases".
+        broker("PhaseSignposts", []),
 
         // MARK: ModelTransports
         // How a model is talked to: one structured request, one streamed
@@ -254,7 +259,7 @@ let package = Package(
              "Perception", "VisionText", "PixelRegions", "PixelSections", "PixelControlState",
              "AccessibilityFacts", "EngineCore", "IncrementalText", "ModelTransports", "SeatDriving",
              // A worker's tools reach the desktop through the broker's own conformer of their session role.
-             "AutomationRuntime", "Engine", "Memory"]
+             "AutomationRuntime", "Engine", "Memory", "PhaseSignposts"]
         ),
 
         // MARK: Driver tools
@@ -294,8 +299,13 @@ let package = Package(
         .testTarget(
             name         : "AutomationRuntimeTests",
             dependencies : ["AutomationRuntime", "AutomationMCP", "Memory", "SQLiteMemory", "EngineCore",
-                            "PerceptionCore", "LocalMCP"].map { .target(name: $0) },
+                            "PerceptionCore", "LocalMCP", "LocalEmbedding"].map { .target(name: $0) },
             path         : "Tests/Integration/AutomationRuntimeTests",
+            // The Recall's quality corpus: knowledge learned through the tools and queries split by family.
+            resources    : [.copy("Fixtures/recall-corpus-v1.json"), .copy("Fixtures/recall-calibration-v1.json"),
+                            .copy("Fixtures/recall-corpus-v2.json"), .copy("Fixtures/recall-calibration-v2.json"),
+                            .copy("Fixtures/recall-corpus-v3.json"), .copy("Fixtures/recall-calibration-v3.json"),
+                            .copy("Fixtures/recall-corpus-v4.json")],
             swiftSettings: suite
         ),
 
@@ -329,7 +339,7 @@ let package = Package(
         perception("AccessibilityFacts", ["PerceptionCore"], settings: pure),
 
         // The pipeline: roles in, a scene out. Nonisolated on purpose: recognition must not block the UI.
-        perception("Perception", ["PerceptionCore"], settings: pure),
+        perception("Perception", ["PerceptionCore", "PhaseSignposts"], settings: pure),
 
         // One still of a window, or of a region with its pop-up, through ScreenCaptureKit: the foreground eye.
         perception("ScreenCapture", ["PerceptionCore"], settings: pure),
@@ -340,7 +350,7 @@ let package = Package(
         engine("EngineCore", ["PerceptionCore"], settings: pure),
 
         // The act and observe cycle over the roles: resolve, gesture, verify, outcome. Nonisolated on purpose.
-        engine("Engine", ["EngineCore", "PerceptionCore"], settings: pure),
+        engine("Engine", ["EngineCore", "PerceptionCore", "PhaseSignposts"], settings: pure),
 
         // The foreground `Actuating`: synthetic events at the HID system tap.
         engine("HIDActuation", ["EngineCore"], settings: pure),
@@ -357,11 +367,34 @@ let package = Package(
         // `KnowledgeStoring` over one JSON file per application, with backups and write-behind.
         engine("FileKnowledge", ["Memory"], settings: pure),
 
-        // The SQLite foundation of the living memory: one file at a chosen path, schema 1, a serial writer
-        // and a separate reader, typed errors. Imports Memory and the SDK's SQLite3 only; AutomationRuntime's
+        // The SQLite foundation of the living memory: one file at a chosen path, one schema, a serial writer
+        // and a separate reader, typed errors. Imports Memory and SQLiteAmalgamation only; AutomationRuntime's
         // MemoryService composes it.
-        engine("SQLiteMemory", ["Memory"], settings: pure,
+        engine("SQLiteMemory", ["Memory", "SQLiteAmalgamation"], settings: pure,
                resources: [.copy("Resources/brain-living-memory-schema.sql")]),
+        // SQLite 3.54.0 from sqlite.org, compiled in so every supported macOS runs the library the schema and the
+        // store need, not the system's, which is older before macOS 27. The options keep the system library's
+        // trigger, durability and limit defaults. Source, options and update steps in the folder's README.
+        .target(name: "SQLiteAmalgamation", path: "Sources/Engine/SQLiteAmalgamation", exclude: ["README.md"],
+                cSettings: [.define("SQLITE_DEFAULT_RECURSIVE_TRIGGERS", to: "1"),
+                            .define("SQLITE_DEFAULT_CKPTFULLFSYNC", to: "1"),
+                            .define("SQLITE_DEFAULT_JOURNAL_SIZE_LIMIT", to: "32768"),
+                            .define("SQLITE_DEFAULT_WAL_SYNCHRONOUS", to: "1"),
+                            .define("SQLITE_DEFAULT_CACHE_SIZE", to: "2000"),
+                            .define("SQLITE_DEFAULT_MEMSTATUS", to: "0"),
+                            .define("SQLITE_MAX_LENGTH", to: "2147483645"),
+                            .define("SQLITE_MAX_VARIABLE_NUMBER", to: "500000"),
+                            .define("SQLITE_USE_URI", to: "1"),
+                            .define("SQLITE_ENABLE_API_ARMOR"),
+                            .define("SQLITE_ENABLE_MATH_FUNCTIONS"),
+                            .define("SQLITE_OMIT_LOAD_EXTENSION")]),
+
+        // `TextEmbedding` over a pinned local model: the XLM-RoBERTa tokenizer and a BERT-family encoder on
+        // Accelerate, reading the model's files from disk. Imports Memory, Foundation and Accelerate; no network.
+        engine("LocalEmbedding", ["Memory", "LocalEmbeddingKernels"], settings: pure),
+        // The matrix product of the local model over Accelerate's current CBLAS interface, which needs a C define.
+        .target(name: "LocalEmbeddingKernels", path: "Sources/Engine/LocalEmbeddingKernels",
+                cSettings: [.define("ACCELERATE_NEW_LAPACK")], linkerSettings: [.linkedFramework("Accelerate")]),
 
         // `SceneProviding` for a window on the real screen: census, capture, pipeline.
         engine("LiveScenes", ["EngineCore", "PerceptionCore", "Perception", "ScreenCapture"], settings: pure),
@@ -378,7 +411,8 @@ let package = Package(
         // Where two layers meet. SeatDriving fills the Engine's roles from the Driver's seat: stills of the
         // adopted window, routed commands inside a Turn, no activation.
         integration("SeatDriving", ["SeatCore", "SeatSession", "SeatCapture", "SeatInput", "WindowPlacement",
-                                    "EngineCore", "PerceptionCore", "Perception", "AccessibilityActions"],
+                                    "EngineCore", "PerceptionCore", "Perception", "AccessibilityActions",
+                                    "PhaseSignposts"],
                     settings: pure),
 
         // MARK: Engine tools
@@ -392,25 +426,26 @@ let package = Package(
         integration("AutomationRuntime", ["Perception", "VisionText", "PixelSections", "PixelRegions", "WindowServerListing", "AccessibilityFacts",
                     "ScreenCapture", "Engine", "EngineCore", "HIDActuation", "AccessibilityActions",
                     "WorkspaceActivation", "Memory", "SQLiteMemory", "LiveScenes", "PerceptionCore",
-                    "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement"]),
+                    "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding"]),
         integration("AutomationMCP", ["AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
-                                     "PrivateSymbols", "SeatCore", "WindowServerListing"]),
+                                     "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts"]),
         // The foreground command line: windows, scene, act, memory. What a model host does, by hand.
         .executableTarget(
-            name: "mecum",
+            name: "braus",
             dependencies: ["Perception", "PerceptionCore", "VisionText", "WindowServerListing", "AccessibilityFacts",
                            "ScreenCapture", "Engine", "EngineCore", "HIDActuation", "AccessibilityActions",
                            "WorkspaceActivation", "Memory", "FileKnowledge", "SQLiteMemory", "LiveScenes",
                            "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "AutomationRuntime",
-                           "ChatCore", "CLIProviders", "FileConversations", "LocalMCP", "AutomationMCP", "SceneOverlay", "InteractionListener", "InteractionObservation"].map { .target(name: $0) },
-            path: "Tools/Engine/mecum",
+                           "ChatCore", "CLIProviders", "FileConversations", "LocalMCP", "AutomationMCP", "SceneOverlay", "InteractionListener", "InteractionObservation",
+                           "LocalEmbedding"].map { .target(name: $0) },
+            path: "Tools/Engine/braus",
             swiftSettings: facility
         ),
-        // `mecum mcp-bridge` alone, for the app: it forwards an agent's MCP messages to the app's host.
+        // `braus mcp-bridge` alone, for the app: it forwards an agent's MCP messages to the app's host.
         .executableTarget(
-            name: "mecum-bridge",
+            name: "braus-bridge",
             dependencies: [.target(name: "LocalMCP")],
-            path: "Tools/Engine/mecum-bridge",
+            path: "Tools/Engine/braus-bridge",
             swiftSettings: facility
         ),
         // The living memory's process helper: a second real process on one store file, driven by lines on its
@@ -433,7 +468,7 @@ let package = Package(
         perceptionTests("PixelControlState", ["PixelControlState", "PerceptionCore"]),
         perceptionTests("SceneOverlay", ["SceneOverlay", "PerceptionCore"]),
 
-        // Boundary checks against a running application, gated by MECUM_LIVE_TESTS=1. Named apart from
+        // Boundary checks against a running application, gated by BRAUS_LIVE_TESTS=1. Named apart from
         // the Driver Live tier on purpose: `make live-tests` filters on `LiveTests` and asserts a count.
         perceptionTests("PerceptionBoundary",
                         ["Perception", "PerceptionCore", "VisionText", "AccessibilityFacts", "WindowServerListing"],
@@ -444,9 +479,10 @@ let package = Package(
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
-            name: "MecumCLITests",
-            dependencies: ["mecum", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception"],
-            path: "Tests/Engine/MecumCLITests",
+            name: "BrausCLITests",
+            dependencies: ["braus", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
+                           "Memory", "SQLiteMemory"],
+            path: "Tests/Engine/BrausCLITests",
             swiftSettings: facility
         ),
         engineTests("EngineCore", ["EngineCore", "PerceptionCore"]),
@@ -455,8 +491,12 @@ let package = Package(
                     resources: [.copy("Fixtures/route-corpus.json"), .copy("Fixtures/misfire-corpus.json"),
                                 .copy("Fixtures/misfire-corpus.md")]),
         engineTests("FileKnowledge", ["FileKnowledge", "Memory", "PerceptionCore"]),
+        // The local model's tokenizer and encoder against Hugging Face's own outputs; the model files come from
+        // BRAUS_RECALL_MODELS and the suites that need them are skipped, saying so, without it.
+        engineTests("LocalEmbedding", ["LocalEmbedding", "Memory"],
+                    resources: [.copy("Fixtures/recall-embedding-reference.json")]),
         // The capture and scene fixtures walk a fake accessibility tree through the producer, the merge and
         // the pure pipeline before they reach the store, so the suite imports the perception modules too.
-        engineTests("SQLiteMemory", ["SQLiteMemory", "Memory", "EngineCore", "PerceptionCore", "Perception"]),
+        engineTests("SQLiteMemory", ["SQLiteMemory", "SQLiteAmalgamation", "Memory", "EngineCore", "PerceptionCore", "Perception"]),
     ]
 )

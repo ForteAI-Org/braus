@@ -1,6 +1,6 @@
 //
 //  BrokeredAutomationSessionTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 23/09/2026.
 //
@@ -73,7 +73,7 @@ struct BrokeredAutomationSessionTests {
             broker            : broker,
             workerID          : workerID,
             knowledgeDirectory: FileManager.default.temporaryDirectory
-                .appendingPathComponent("mecum-brokered-\(UUID().uuidString)", isDirectory: true),
+                .appendingPathComponent("braus-brokered-\(UUID().uuidString)", isDirectory: true),
             allowsDestructive : false,
             missingGrant      : { missing },
             requestGrants     : requests,
@@ -243,7 +243,7 @@ struct BrokeredAutomationSessionTests {
             broker            : broker,
             workerID          : UUID(),
             knowledgeDirectory: FileManager.default.temporaryDirectory
-                .appendingPathComponent("mecum-brokered-\(UUID().uuidString)", isDirectory: true),
+                .appendingPathComponent("braus-brokered-\(UUID().uuidString)", isDirectory: true),
             allowsDestructive : false,
             missingGrant      : { nil },
             requestGrants     : {},
@@ -496,12 +496,12 @@ struct BrokeredAutomationSessionTests {
         try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
         #expect(desktop.activity == "Using Test")
 
-        let waiter = Task { try await broker.queue.acquire("Mecum") }
+        let waiter = Task { try await broker.queue.acquire("Braus") }
         let lease  = try await waiter.value
 
         #expect(desktop.activity == nil)
         #expect(desktop.id == nil)
-        #expect(broker.queue.entries.map(\.label) == ["Mecum"])
+        #expect(broker.queue.entries.map(\.label) == ["Braus"])
         // The next turn's tools find no session, and the sentence leads the agent to open_session again.
         let refusal = await #expect(throws: AutomationFailure.self) { try await desktop.observe() }
         #expect(refusal?.description == "No live application session. Use windows and open_session, then observe.")
@@ -516,7 +516,7 @@ struct BrokeredAutomationSessionTests {
         var waiter: Task<SeatLease, any Error>?
         try await desktop.turn {
             _ = try await desktop.open(application: "Test", window: nil)
-            waiter = Task { try await broker.queue.acquire("Mecum") }
+            waiter = Task { try await broker.queue.acquire("Braus") }
             await Self.letTheWaitBegin()
             #expect(broker.queue.entries.map(\.state) == [.acting, .waiting])
             #expect(desktop.activity == "Using Test")
@@ -524,7 +524,7 @@ struct BrokeredAutomationSessionTests {
         }
         #expect(desktop.activity == nil)
         let lease = try #require(try await waiter?.value)
-        #expect(broker.queue.entries.map(\.label) == ["Mecum"])
+        #expect(broker.queue.entries.map(\.label) == ["Braus"])
         lease.giveBack()
     }
 
@@ -580,13 +580,13 @@ struct BrokeredAutomationSessionTests {
         let broker  = SeatBroker()
         let idle    = IdleClock()
         let desktop = try Self.seated(broker, idle: idle)
-        #expect(desktop.turnStatus == "Mecum seat: no session is open.")
+        #expect(desktop.turnStatus == "Braus seat: no session is open.")
 
         try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
         let id   = try #require(desktop.id)
         var live = ""
         try await desktop.turn { live = desktop.turnStatus }
-        #expect(live == "Mecum seat: session \(id.uuidString) is open on Test (test.process), window \"Test\". "
+        #expect(live == "Braus seat: session \(id.uuidString) is open on Test (test.process), window \"Test\". "
             + "Observe it with this session ID before acting.")
 
         // The first turn's wait was cancelled by the second, whose wait then releases the seat.
@@ -594,7 +594,7 @@ struct BrokeredAutomationSessionTests {
         await idle.elapseOldest()
         await Self.until { !desktop.holdsComputer }
         #expect(desktop.id == nil)
-        #expect(desktop.turnStatus == "Mecum seat: no session is open. "
+        #expect(desktop.turnStatus == "Braus seat: no session is open. "
             + "The last one was on Test (test.process), window \"Test\".")
     }
 
@@ -617,7 +617,7 @@ struct BrokeredAutomationSessionTests {
     @Test("the queue entry carries the worker's id, so two workers with one name each read their own place")
     func theQueueLabelIsTheWorkersIDAndTheRowReadsItsOwnPosition() async throws {
         let broker = SeatBroker()
-        let holder = try await broker.queue.acquire("Mecum")
+        let holder = try await broker.queue.acquire("Braus")
         let first  = UUID()
         let second = UUID()
         let one = Self.session(broker, workerID: first) { _, _, _ in throw Opened() }
@@ -627,7 +627,7 @@ struct BrokeredAutomationSessionTests {
         let later = Task { try await two.open(application: "Calculator", window: nil) }
         await Self.letTheWaitBegin()
 
-        #expect(broker.queue.entries.map(\.label) == ["Mecum", first.uuidString, second.uuidString])
+        #expect(broker.queue.entries.map(\.label) == ["Braus", first.uuidString, second.uuidString])
         #expect(one.activity == "Waiting for the computer (1 ahead)")
         #expect(two.activity == "Waiting for the computer (2 ahead)")
 
@@ -712,17 +712,17 @@ struct BrokeredAutomationSessionTests {
         let desktop = try Self.seated(broker, idle: idle)
         try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
 
-        let lease = try await Task { try await broker.queue.acquire("Mecum") }.value
+        let lease = try await Task { try await broker.queue.acquire("Braus") }.value
 
         #expect(!desktop.holdsComputer)
         await Self.until { idle.pendingCount == 1 }
         #expect(idle.pendingCount == 1)
-        #expect(broker.queue.entries.map(\.label) == ["Mecum"])
+        #expect(broker.queue.entries.map(\.label) == ["Braus"])
 
         // The window elapsing after the queue's release closes nothing: the other entry keeps the seat.
         await idle.elapseOldest()
         await Self.letTheWaitBegin()
-        #expect(broker.queue.entries.map(\.label) == ["Mecum"])
+        #expect(broker.queue.entries.map(\.label) == ["Braus"])
         #expect(broker.queue.entries.map(\.state) == [.acting])
         #expect(lease.session.isOpen)
         lease.giveBack()

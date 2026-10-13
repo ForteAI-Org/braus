@@ -1,6 +1,6 @@
 //
 //  DialogButtonPress.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 30/09/2026.
 //
@@ -35,10 +35,19 @@ public enum DialogButtonPress {
         public let isEnabled: Bool
         public let element  : Element
 
-        public init(title: String, isEnabled: Bool, element: Element) {
-            self.title     = title
-            self.isEnabled = isEnabled
-            self.element   = element
+        /// The button is its window's `AXCancelButton` or `AXCloseButton`, whatever its title.
+        public let closesItsWindow: Bool
+
+        public init(
+            title          : String,
+            isEnabled      : Bool,
+            element        : Element,
+            closesItsWindow: Bool = false
+        ) {
+            self.title           = title
+            self.isEnabled       = isEnabled
+            self.element         = element
+            self.closesItsWindow = closesItsWindow
         }
     }
 
@@ -49,21 +58,28 @@ public enum DialogButtonPress {
     }
 
     /// The choice, over any list: exactly one enabled button with the title, compared like menu
-    /// titles, and nothing destructive unless the person allowed it.
+    /// titles, and nothing destructive unless the person allowed it. `closingRefusal` is asked only
+    /// for a button that closes its window, and refuses it with its sentence when it gives one.
     public static func resolve<Element>(
         _ title          : String,
         among buttons    : [Button<Element>],
-        allowsDestructive: Bool
+        allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)? = nil
     ) -> Resolution<Element> {
 
         let shown   = buttons.map(\.title).filter { !$0.isEmpty }.joined(separator: ", ")
-        let matches = buttons.filter { MenuBarCommand.normalized($0.title) == MenuBarCommand.normalized(title) }
+        let wanted  = ActionPolicy.normalizedLabel(title)
+        let matches = buttons.filter { ActionPolicy.normalizedLabel($0.title) == wanted }
         guard let only = matches.first else {
             let listing = shown.isEmpty ? "It has no buttons accessibility can read." : "Its buttons: \(shown)."
             return .outcome(ActOutcome(.honestMiss, "No button '\(title)' in the dialog in front. " + listing))
         }
         guard matches.count == 1 else {
             return .outcome(ActOutcome(.ambiguous, "\(matches.count) buttons are titled '\(title)' in the dialog in front."))
+        }
+        if only.closesItsWindow || ActionPolicy.isWindowClosingLabel(only.title),
+           let sentence = closingRefusal?("Pressing '\(only.title)'") {
+            return .outcome(ActOutcome(.refused, sentence))
         }
         if !allowsDestructive, ActionPolicy.isDestructive(label: only.title) {
             return .outcome(ActOutcome(.refused, "'\(only.title)' reads as destructive, and the person has not allowed it."))
@@ -93,6 +109,7 @@ public enum DialogButtonPress {
         processID        : pid_t,
         dialogs          : [Int],
         allowsDestructive: Bool,
+        closingRefusal   : ((String) -> String?)? = nil,
         observe          : () async throws -> SceneSnapshot
     ) async throws -> ActOutcome {
 
@@ -110,7 +127,13 @@ public enum DialogButtonPress {
                 : "The dialog open in the seat is not one accessibility can read.")
         }
 
-        switch resolve(title, among: windows.flatMap(buttons(in:)), allowsDestructive: allowsDestructive) {
+        let resolution = resolve(
+            title,
+            among            : windows.flatMap(buttons(in:)),
+            allowsDestructive: allowsDestructive,
+            closingRefusal   : closingRefusal
+        )
+        switch resolution {
             case .outcome(let outcome):
                 return outcome
             case .press(let button, let title):
@@ -118,22 +141,50 @@ public enum DialogButtonPress {
                 let error  = AXUIElementPerformAction(button, kAXPressAction as CFString)
                 // A button that opens a modal can keep the reply past the timeout: it was pressed.
                 guard error == .success || error == .cannotComplete else {
-                    return ActOutcome(.actedUnverified, "Pressing '\(title)' failed with AXError \(error.rawValue).")
+                    return ActOutcome(
+                        .actedUnverified,
+                        "Pressing '\(title)' failed with AXError \(error.rawValue).",
+                        check: MenuBarCommand.windowCheck(.unknown, limits: [.deliveryUncertain], performed: .uncertain)
+                    )
                 }
                 try? await Task.sleep(for: .milliseconds(400))
-                let scene   = try await observe()
-                let changed = MenuBarCommand.windowSignature(of: processID) != before
-                return changed
-                    ? ActOutcome(.foundActed, "pressed '\(title)': a window of the application opened, closed or "
-                        + "was retitled", scene: scene)
-                    : ActOutcome(.actedUnverified, "pressed '\(title)': no window opened, closed or was retitled; "
-                        + "the scene shows whether it took effect. Do not press it again blind.", scene: scene)
+                return try await observed(title, observe: observe) { MenuBarCommand.windowSignature(of: processID) != before }
         }
+    }
+
+    /// What a press that was dispatched says once the window after it is perceived: whether the
+    /// application's windows changed, with the scene. A perception that fails leaves the press made and
+    /// its effect unknown (`no_after_scene`), with no scene and no error text: nothing says it worked,
+    /// failed or changed nothing, and it is not pressed again. A cancellation, or any error once the task
+    /// was cancelled, is no failed perception: it is thrown, the gesture made, and the call ends cancelled.
+    package static func observed(
+        _ title       : String,
+        observe       : () async throws -> SceneSnapshot,
+        windowsChanged: () -> Bool
+    ) async throws -> ActOutcome {
+        let scene: SceneSnapshot
+        do {
+            scene = try await observe()
+        } catch {
+            if error is CancellationError || Task.isCancelled { throw error }
+            return ActOutcome(.actedUnverified, "pressed '\(title)', but the window could not be perceived after it, so whether "
+                + "it took effect is unknown. Do not press it again; observe the session before further input.",
+                check: MenuBarCommand.windowCheck(.unknown, limits: [.noAfterScene]))
+        }
+        let changed = windowsChanged()
+        let check   = MenuBarCommand.windowCheck(changed ? .passed : .unknown)
+        return changed
+            ? ActOutcome(.foundActed, "pressed '\(title)': a window of the application opened, closed or "
+                + "was retitled", scene: scene, check: check)
+            : ActOutcome(.actedUnverified, "pressed '\(title)': no window opened, closed or was retitled; "
+                + "the scene shows whether it took effect. Do not press it again blind.",
+                scene: scene, check: check)
     }
 
     /// Every `AXButton` under `window`, bounded: a dialog holds a handful, and a window that
     /// holds thousands of elements is not the dialog this is for.
     private static func buttons(in window: AXUIElement) -> [Button<AXUIElement>] {
+        let closing = [kAXCancelButtonAttribute, kAXCloseButtonAttribute].compactMap { element(window, $0) }
         var found: [Button<AXUIElement>] = []
         var pending: [(AXUIElement, Int)] = [(window, 0)]
         var visited = 0
@@ -142,9 +193,12 @@ public enum DialogButtonPress {
             if string(node, kAXRoleAttribute) == (kAXButtonRole as String) {
                 var enabled: CFTypeRef?
                 AXUIElementCopyAttributeValue(node, kAXEnabledAttribute as CFString, &enabled)
-                found.append(Button(title: string(node, kAXTitleAttribute) ?? "",
-                                    isEnabled: (enabled as? Bool) ?? true,
-                                    element: node))
+                found.append(Button(
+                    title          : string(node, kAXTitleAttribute) ?? "",
+                    isEnabled      : (enabled as? Bool) ?? true,
+                    element        : node,
+                    closesItsWindow: closing.contains { CFEqual($0, node) }
+                ))
             }
             guard depth < 10 else { continue }
             var children: CFTypeRef?

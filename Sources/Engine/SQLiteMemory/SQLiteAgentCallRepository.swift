@@ -1,6 +1,6 @@
 //
 //  SQLiteAgentCallRepository.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 02/10/2026.
 //
@@ -230,7 +230,8 @@ enum SQLiteAgentCallRows {
             """
             UPDATE memory_agent_actions SET execution_status = ?, started_at_ms = COALESCE(?, started_at_ms), completed_at_ms = ?,
                 duration_ms = ?, result_kind = ?, result_message = ?, attempted_count = ?, verified_count = ?,
-                observed_effect_kind = ?, observed_effect_text = ?, observed_state_before = ?, observed_state_after = ?
+                observed_effect_kind = ?, observed_effect_text = ?, observed_state_before = ?, observed_state_after = ?,
+                observed_effect_label = ?, observed_effect_value = ?
             WHERE event_id = ?
             """,
             [.text(progress.status.rawValue), progress.startedAtMS.map(SQLiteValue.integer) ?? .null,
@@ -238,6 +239,7 @@ enum SQLiteAgentCallRows {
              columns.kind, columns.message, columns.attempted, columns.verified,
              effect.map { .text($0.kind) } ?? .null, effect?.title.map(SQLiteValue.text) ?? .null,
              effect?.stateBefore.map { .text($0.rawValue) } ?? .null, effect?.stateAfter.map { .text($0.rawValue) } ?? .null,
+             effect?.label.map(SQLiteValue.text) ?? .null, effect?.value.map(SQLiteValue.text) ?? .null,
              .text(eventID)]
         )
         if let effect {
@@ -329,13 +331,14 @@ enum SQLiteAgentCallRows {
         let verified: Int
     }
 
-    /// The summary the current producer (`AutomationTools.call`, its batch) writes for the batch's
-    /// stored steps, or nil when no run of it could have left them so. In position order: a step is
+    /// The summary the producers (`AutomationTools.call`'s batch, `braus batch`) write for the batch's
+    /// stored steps, or nil when no run of them could have left them so. In position order: a step is
     /// accepted when it completed with `found_acted`, or with `acted_noop` for `act` with
     /// `set_toggle`; the first step that completed with any other outcome, or failed, stops the
-    /// batch; every step after the stop is skipped, and no step is skipped before it. A cancelled or
-    /// interrupted step, one still open, or a count other than the batch's requested steps admits no
-    /// summary. The rule is the producer's, not a verdict on any step's or task's result.
+    /// batch, and so does the first skipped step (one whose start the memory refused, so it never
+    /// ran); every step after the stop is skipped. A cancelled or interrupted step, one still open,
+    /// or a count other than the batch's requested steps admits no summary. The rule is the
+    /// producer's, not a verdict on any step's or task's result.
     static func producerSummary(_ handle: some SQLiteQuerying, batchID: String, requestedSteps: Int?) throws -> BatchSummary? {
         let ids = try handle.query(
             "SELECT event_id FROM memory_events WHERE parent_event_id = ? ORDER BY parent_position", [.text(batchID)]
@@ -349,6 +352,8 @@ enum SQLiteAgentCallRows {
                 continue
             }
             switch (step.progress.status, step.progress.result) {
+                case (.skipped, _):
+                    stopped = true
                 case (.completed, .outcome(let kind, _)?):
                     attempted += 1
                     var accepted = kind == .foundActed
@@ -399,7 +404,7 @@ enum SQLiteAgentCallRows {
             SELECT e.local_order, a.tool_kind, a.contract_version, a.execution_status, a.completed_at_ms, a.result_kind,
                    a.result_message, a.observed_effect_kind, a.observed_effect_text, a.requested_count, a.attempted_count,
                    a.verified_count, e.parent_event_id, a.started_at_ms, a.duration_ms, a.observed_state_before,
-                   a.observed_state_after
+                   a.observed_state_after, a.observed_effect_label, a.observed_effect_value
             FROM memory_agent_actions a JOIN memory_events e ON e.event_id = a.event_id
             WHERE a.event_id = ?
             """,
@@ -428,12 +433,20 @@ enum SQLiteAgentCallRows {
                     throw refuse(.positionsNotContiguous("effect labels"))
                 }
                 do {
-                    observed = try ObservedEffect(kind: effectKind, title: try row.text(8), stateBefore: try row.text(15),
-                                                  stateAfter: try row.text(16), labels: labels.map(\.1))
+                    observed = try ObservedEffect(
+                        kind       : effectKind,
+                        title      : try row.text(8),
+                        stateBefore: try row.text(15),
+                        stateAfter : try row.text(16),
+                        label      : try row.text(17),
+                        value      : try row.text(18),
+                        labels     : labels.map(\.1)
+                    )
                 } catch AgentCallError.invalidProgress(.effectShape(let what)) {
                     throw refuse(.resultShape("observed_effect: \(what)"))
                 }
-            } else if try row.text(8) != nil || row.text(15) != nil || row.text(16) != nil {
+            } else if try row.text(8) != nil || row.text(15) != nil || row.text(16) != nil || row.text(17) != nil
+                        || row.text(18) != nil {
                 throw refuse(.resultShape("observed_effect"))
             }
             let requested = row.integer(9)
@@ -456,7 +469,9 @@ enum SQLiteAgentCallRows {
                     guard message == nil, let attempted, let verified else { throw refuse(.resultShape("batch")) }
                     result = .batch(stopped: code == "stopped", attempted: Int(attempted), verified: Int(verified))
                 case let code?:
-                    guard tool.isBatchStep, let outcome = ActOutcomeKind(rawValue: code), outcome.rawValue.utf8.elementsEqual(code.utf8) else {
+                    // An outcome is every operation's result, `menu` and `press` included, as the writer admits it.
+                    guard tool.isOperation, let outcome = ActOutcomeKind(rawValue: code),
+                          outcome.rawValue.utf8.elementsEqual(code.utf8) else {
                         throw refuse(.unknownCode(argument: "result_kind", code: code))
                     }
                     guard let message else { throw refuse(.resultShape("result_message")) }

@@ -10,7 +10,7 @@ recovery retains its 250 ms verification policy.
 Release `d00ee49d` refuses File > New... before dispatch after its brief
 Photoshop activation. One diagnostic performs one 0.2 ms focus reading, then
 resumes after 343.8 ms with its 250 ms deadline already elapsed. Another reads
-the correct complete identity, eligible physical window and Mecum foreground
+the correct complete identity, eligible physical window and Braus foreground
 at 263.4 ms. The post-reading deadline correction correctly refuses that late
 sample. An armed profile covers a third diagnostic with two readings and
 342.9 ms elapsed; AppKit/ViewBridge process key-window resignation and native
@@ -45,7 +45,7 @@ Signed-app repetitions must verify both handback and the requested command's
 effect with clean closure. A returned foreground alone does not qualify New
 Document or other Adobe workflows. All failed diagnostics remain recorded.
 
-Release `ef3b05dc` verifies the expected Mecum handback in 369.7 ms, following
+Release `ef3b05dc` verifies the expected Braus handback in 369.7 ms, following
 Photoshop menu readiness at 1051.2 ms. Its single subsequent menu press still
 has no observed new-modal effect, and closure leaves null status with the
 same four owned documents. This is one native handback qualification; command
@@ -85,7 +85,7 @@ the S6/F1 document/tool changes are not attributed to these handback changes.
 M6 and M3 diagnostic repetitions preserve all observed document/tool state and
 finish their menu handbacks inside the old one-second bound. The first timing
 probe separates scheduler waits (up to 373.6 ms) from a focused-window read
-(up to 496.9 ms); it does not isolate that read's internal cause when Mecum
+(up to 496.9 ms); it does not isolate that read's internal cause when Braus
 itself is the destination. The second probe observes Codex as destination:
 AX briefly times out while native focus settles, then two valid readings confirm
 return. These are distinct observations, not evidence of a self-AX deadlock.

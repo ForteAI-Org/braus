@@ -9,7 +9,7 @@ import unittest
 
 class UnitCommandTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="mecum-unit-command-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="braus-unit-command-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.log = self.root / "calls.jsonl"
@@ -17,13 +17,13 @@ class UnitCommandTests(unittest.TestCase):
         self.swift = self.root / "fake swift"
         self.swift.write_text("""#!/usr/bin/env python3
 import json, os, sys
-with open(os.environ['MECUM_UNIT_COMMAND_LOG'], 'a') as log:
+with open(os.environ['BRAUS_UNIT_COMMAND_LOG'], 'a') as log:
     log.write(json.dumps(['swift', *sys.argv[1:]]) + '\\n')
 arguments = sys.argv[1:]
 if arguments and arguments[0] == 'prefix': arguments = arguments[1:]
-if arguments[0] == 'test': sys.exit(int(os.environ.get('MECUM_UNIT_SWIFT_STATUS', '0')))
+if arguments[0] == 'test': sys.exit(int(os.environ.get('BRAUS_UNIT_SWIFT_STATUS', '0')))
 if arguments == ['build', '--show-bin-path']:
-    print(os.environ['MECUM_UNIT_BIN_DIR'])
+    print(os.environ['BRAUS_UNIT_BIN_DIR'])
 else:
     sys.exit(90)
 """)
@@ -32,19 +32,19 @@ else:
         native.parent.mkdir()
         native.write_text("""#!/usr/bin/env python3
 import json, os, sys
-with open(os.environ['MECUM_UNIT_COMMAND_LOG'], 'a') as log:
+with open(os.environ['BRAUS_UNIT_COMMAND_LOG'], 'a') as log:
     log.write(json.dumps(['native', *sys.argv[1:]]) + '\\n')
-sys.exit(int(os.environ.get('MECUM_UNIT_NATIVE_STATUS', '0')))
+sys.exit(int(os.environ.get('BRAUS_UNIT_NATIVE_STATUS', '0')))
 """)
         native.chmod(0o700)
         self.script = Path(__file__).with_name("unit-test-command.sh").resolve()
 
     def run_command(self, *, swift_status=0, native_status=0, prefix=False):
         environment = dict(os.environ,
-            MECUM_UNIT_COMMAND_LOG=str(self.log),
-            MECUM_UNIT_BIN_DIR=str(self.bin_dir),
-            MECUM_UNIT_SWIFT_STATUS=str(swift_status),
-            MECUM_UNIT_NATIVE_STATUS=str(native_status),
+            BRAUS_UNIT_COMMAND_LOG=str(self.log),
+            BRAUS_UNIT_BIN_DIR=str(self.bin_dir),
+            BRAUS_UNIT_SWIFT_STATUS=str(swift_status),
+            BRAUS_UNIT_NATIVE_STATUS=str(native_status),
         )
         arguments = ["bash", str(self.script), str(self.swift)]
         if prefix:

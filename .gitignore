@@ -1,6 +1,6 @@
-# Swift Package Manager
-/.build/
-/.swiftpm/
+# Swift Package Manager, at any depth: tools under Tools/ are packages of their own.
+.build/
+.swiftpm/
 /Packages/
 Package.resolved.lock
 
@@ -23,7 +23,7 @@ __pycache__/
 # Xcode build products. `xcodebuild` writes ./build relative to its working
 # directory when no -derivedDataPath is given, which is how these appear.
 /build/
-/MecumApp/build/
-/MecumApp/App/build/
+/BrausApp/build/
+/BrausApp/App/build/
 # A clang module cache left by a mis-parsed -Xcc flag.
 -Xcc/

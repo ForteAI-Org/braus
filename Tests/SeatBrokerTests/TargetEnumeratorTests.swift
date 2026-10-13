@@ -232,20 +232,20 @@ private func row(_ path: String, _ bundleID: String?) -> TargetEnumerator.Instal
         row("/Users/me/.Trash/Old.app", "com.example.Old"),
         row("/System/Library/Input Methods/CharacterPalette.app", "com.apple.CharacterPaletteIM"),
         row("/System/Library/CoreServices/Finder.app", "com.apple.finder"),
-        row("/Users/me/Library/DerivedData/Build/Mecum.app", "dev.forte.Mecum"),
-        row("/Applications/Mecum.app", "dev.forte.Mecum"),
-        row("/Users/me/Downloads/Mecum.app", "dev.forte.Mecum"),
+        row("/Users/me/Library/DerivedData/Build/Braus.app", "dev.forte.Braus"),
+        row("/Applications/Braus.app", "dev.forte.Braus"),
+        row("/Users/me/Downloads/Braus.app", "dev.forte.Braus"),
         row("/Users/me/Projects/build/Output/Xcode.app", nil),
     ]
     let kept = TargetEnumerator.installable(rows) { _ in nil }.map(\.path)
-    #expect(kept == ["/Applications/Mecum.app", "/Applications/Xcode.app", "/System/Library/CoreServices/Finder.app"])
+    #expect(kept == ["/Applications/Braus.app", "/Applications/Xcode.app", "/System/Library/CoreServices/Finder.app"])
 
     // The copy Launch Services names wins over the one under /Applications.
     let named = TargetEnumerator.installable(rows) {
-        $0 == "dev.forte.Mecum" ? "/Users/me/Library/DerivedData/Build/Mecum.app" : nil
+        $0 == "dev.forte.Braus" ? "/Users/me/Library/DerivedData/Build/Braus.app" : nil
     }
-    #expect(named.filter { $0.bundleID == "dev.forte.Mecum" }.map(\.path)
-        == ["/Users/me/Library/DerivedData/Build/Mecum.app"])
+    #expect(named.filter { $0.bundleID == "dev.forte.Braus" }.map(\.path)
+        == ["/Users/me/Library/DerivedData/Build/Braus.app"])
 }
 
 @Test func aSplashScreenNobodyNamesIsNotAWindowToAdopt() {

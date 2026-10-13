@@ -1,6 +1,6 @@
 //
 //  BrainGraph.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 02/10/2026.
 //
@@ -82,6 +82,7 @@ public struct BrainArc: Sendable {
             && fromSceneID.utf8.elementsEqual(other.fromSceneID.utf8) && EventFactText.same(toSceneID, other.toSceneID)
             && effect.kind.utf8.elementsEqual(other.effect.kind.utf8) && EventFactText.same(effect.text, other.effect.text)
             && effect.requiredState == other.effect.requiredState && effect.resultingState == other.effect.resultingState
+            && EventFactText.same(effect.label, other.effect.label) && EventFactText.same(effect.value, other.effect.value)
             && effect.items.count == other.effect.items.count && zip(effect.items, other.effect.items).allSatisfy { $0.utf8.elementsEqual($1.utf8) }
             && firstSeenMS == other.firstSeenMS
     }

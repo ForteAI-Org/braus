@@ -6,9 +6,9 @@ before input. The ordinary UXP family prepares nothing. A separately attested
 recipient can require only its make-key pair and a 300 ms settle, with no
 application activation record. See [ADR 0016](../adr/Adr0016UXPModalKeysWithStaleFocus.md).
 
-## Mecum app integration
+## Braus app integration
 
-Mecum's Xcode project links the repository's local `SeatBroker` product.
+Braus's Xcode project links the repository's local `SeatBroker` product.
 `AppModel` owns that broker, and each worker's `BrokeredAutomationSession`
 uses it to adopt and drive windows through `SeatDriver` and `AgentSeat`.
 The broker requires UXP framework evidence before selecting the measured
@@ -34,12 +34,12 @@ The separate mandatory scrollbar-drag failure below remains unresolved; this
 subset is not a pass of the complete eight-row Adobe matrix.
 
 The original checkout that the Xcode app links also passed
-`swift build --product mecum` and `make test SWIFT=swift`: 2,200 executed,
+`swift build --product braus` and `make test SWIFT=swift`: 2,200 executed,
 85 intentionally skipped, 2,285 reported across 28 runs, with no tier problems.
 `make host-tests SWIFT=swift` passed its separate one-test and 29-test processes;
 `python3 Tools/Driver/Scripts/test-run-tier.py` passed 15 checks. These are build
 and infrastructure evidence, not additional Photoshop effects. The actual
-Mecum Xcode app also passed `build-for-testing` and `test-without-building`
+Braus Xcode app also passed `build-for-testing` and `test-without-building`
 with `CODE_SIGNING_ALLOWED=NO`: 320 tests in 59 suites. Its local package
 reference resolves to this same checkout.
 
@@ -275,7 +275,7 @@ following serialized checks on that host:
 
 | Command | Outcome |
 | --- | --- |
-| `swift build --product mecum` | Passed |
+| `swift build --product braus` | Passed |
 | `make test SWIFT=swift`, with Host/Live opt-ins unset | 2,195 executed, 82 skipped, 2,277 reported across 28 runs; passed |
 | `make host-tests SWIFT=swift` | One native seat-cycle check and 29 other checks; all 30 passed with no skips |
 | `swift test --filter 'AppWindowFollowTests\|WindowAdoptionTests\|WindowReleaseTests' --no-parallel` | All 55 tests in two matching suites passed, including natural settlement, no-write release, thumbnail staging and rollback |
@@ -423,7 +423,7 @@ remain unqualified. A passing modal or view-control row cannot close this failur
 ## Inventory and qualification
 
 The 4 October follow-up fixes a pixel-grouping defect in New Document: Close's
-label had named the neighboring Create border. Three signed Mecum UI repeats
+label had named the neighboring Create border. Three signed Braus UI repeats
 on candidate `6443dc84` cancel without creating a document; independent native
 Window menu inspection confirms the same four owned documents before and after.
 See [stabilization rounds](../reports/StabilizationRounds.md#round-4-neighboring-photoshop-button-labels).
@@ -435,9 +435,9 @@ not select or replace text by itself. Only exact native focused-field readback
 against an explicit expected complete value can verify it; unreadable UXP fields
 remain unverified. This bridge has automated regression coverage; complete
 Photoshop name, commit and undo/redo effects still require the separate app
-workflow checks below. It adds no scripting or foreground fallback to Mecum.
+workflow checks below. It adds no scripting or foreground fallback to Braus.
 
-The signed Mecum application flow on 3 October 2026 reached Photoshop 27.10.0's
+The signed Braus application flow on 3 October 2026 reached Photoshop 27.10.0's
 New Layer and New Document dialogs through the app's tool path. It exposed
 additional integration limits: replacing the layer name left existing text,
 opaque fields prevented exact Unicode readback, and background Undo/Redo menu

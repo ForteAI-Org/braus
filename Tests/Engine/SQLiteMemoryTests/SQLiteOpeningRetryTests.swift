@@ -1,6 +1,6 @@
 //
 //  SQLiteOpeningRetryTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 03/10/2026.
 //
@@ -37,7 +37,7 @@ struct SQLiteOpeningRetryTests {
         try await store.open(.producer)
         let diagnostics = try await store.diagnostics()
         #expect(diagnostics.bootstrappedNow)
-        #expect(diagnostics.schemaVersion == 1)
+        #expect(diagnostics.schemaVersion == SQLiteMemorySchema.version)
         #expect(await store.liveHandles == 2)
         _ = try await record(EventRow(id: "after-retry", key: "k"), in: store)
         #expect(try await count("SELECT count(*) FROM memory_events", in: store) == 1)
@@ -61,7 +61,7 @@ struct SQLiteOpeningRetryTests {
 
     @Test("a directory not there yet: the producer's open fails, the directory is made, the same instance opens")
     func directoryCreatedThenRetry() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("mecum-retry-\(UUID().uuidString)")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("braus-retry-\(UUID().uuidString)")
         let url   = directory.appendingPathComponent("memory.sqlite")
         let store = SQLiteMemoryStore(url: url)
         let first = await storeError { try await store.open() }

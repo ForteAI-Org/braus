@@ -159,9 +159,9 @@ class ProbeCanvas(QWidget):
 
 
 app = QApplication(sys.argv)
-app.setApplicationName("Mecum Qt Probe")
+app.setApplicationName("Braus Qt Probe")
 window = QWidget()
-window.setWindowTitle("Mecum Qt Probe")
+window.setWindowTitle("Braus Qt Probe")
 window.resize(700, 580)
 layout = QVBoxLayout(window)
 

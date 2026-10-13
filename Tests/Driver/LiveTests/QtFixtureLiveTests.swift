@@ -58,7 +58,7 @@ private final class QtProbeTarget {
             .deletingLastPathComponent()
             .appendingPathComponent("Tools/Driver/" + scriptName)
         let output = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mecum-qt-probe-\(UUID().uuidString).json")
+            .appendingPathComponent("braus-qt-probe-\(UUID().uuidString).json")
         let person = NSWorkspace.shared.frontmostApplication
         let launched = Process()
         launched.executableURL = URL(fileURLWithPath: python)
@@ -76,7 +76,7 @@ private final class QtProbeTarget {
                 && (try? WindowReader.windowSnapshot(
                     processID: launched.processIdentifier,
                     allowUnvalidatedBuild: true
-                ).windowTitle) == "Mecum Qt Probe"
+                ).windowTitle) == "Braus Qt Probe"
         }, timeout: 5)
         if let person, person.processIdentifier != processID,
            NSWorkspace.shared.frontmostApplication?.processIdentifier == processID {
@@ -136,7 +136,7 @@ struct QtFixtureLiveTests {
         }
         try #require(try state()["fixture"] as? String == "qt-native-drag")
         let payload = try #require(try state()["payload"] as? String)
-        try #require(payload.hasPrefix("mecum-native-drag-") && payload.count > 32)
+        try #require(payload.hasPrefix("braus-native-drag-") && payload.count > 32)
         var failure: (any Error)?
         try await LiveStage.run(
             needsFixture : false,
@@ -545,7 +545,7 @@ struct QtFixtureLiveTests {
         let original = try WindowReader.windowSnapshot(
             processID: processID, allowUnvalidatedBuild: true
         )
-        try #require(original.windowTitle == "Mecum Qt Probe")
+        try #require(original.windowTitle == "Braus Qt Probe")
 
         func state() throws -> [String: Any] {
             let data = try Data(contentsOf: URL(fileURLWithPath: target.statePath))
@@ -809,7 +809,7 @@ struct QtFixtureLiveTests {
         let original = try WindowReader.windowSnapshot(
             processID: processID, allowUnvalidatedBuild: true
         )
-        try #require(original.windowTitle == "Mecum Qt Probe")
+        try #require(original.windowTitle == "Braus Qt Probe")
 
         func state() throws -> [String: Any] {
             let data = try Data(contentsOf: URL(fileURLWithPath: target.statePath))
@@ -976,7 +976,7 @@ struct QtFixtureLiveTests {
         let original = try WindowReader.windowSnapshot(
             processID: processID, allowUnvalidatedBuild: true
         )
-        try #require(original.windowTitle == "Mecum Qt Probe")
+        try #require(original.windowTitle == "Braus Qt Probe")
 
         func state() throws -> [String: Any] {
             let data = try Data(contentsOf: URL(fileURLWithPath: target.statePath))
@@ -1160,7 +1160,7 @@ struct QtFixtureLiveTests {
         let original = try WindowReader.windowSnapshot(
             processID: processID, allowUnvalidatedBuild: true
         )
-        try #require(original.windowTitle == "Mecum Qt Probe")
+        try #require(original.windowTitle == "Braus Qt Probe")
 
         func state() throws -> [String: Any] {
             let data = try Data(contentsOf: URL(fileURLWithPath: target.statePath))
@@ -1314,7 +1314,7 @@ struct QtFixtureLiveTests {
         let original = try WindowReader.windowSnapshot(
             processID: processID, allowUnvalidatedBuild: true
         )
-        try #require(original.windowTitle == "Mecum Qt Probe")
+        try #require(original.windowTitle == "Braus Qt Probe")
 
         func probeState() throws -> [String: Any] {
             let data = try Data(contentsOf: URL(fileURLWithPath: target.statePath))
@@ -1398,7 +1398,7 @@ struct QtFixtureLiveTests {
         let original = try WindowReader.windowSnapshot(
             processID: processID, allowUnvalidatedBuild: true
         )
-        try #require(original.windowTitle == "Mecum Qt Probe")
+        try #require(original.windowTitle == "Braus Qt Probe")
 
         func probeState() throws -> [String: Any] {
             let data = try Data(contentsOf: URL(fileURLWithPath: target.statePath))
@@ -1496,7 +1496,7 @@ struct QtFixtureLiveTests {
         let original = try WindowReader.windowSnapshot(
             processID: processID, allowUnvalidatedBuild: true
         )
-        try #require(original.windowTitle == "Mecum Qt Probe")
+        try #require(original.windowTitle == "Braus Qt Probe")
 
         func probeState() throws -> [String: Any] {
             let data = try Data(contentsOf: URL(fileURLWithPath: statePath))
@@ -1624,7 +1624,7 @@ struct QtFixtureLiveTests {
         let original = try WindowReader.windowSnapshot(
             processID: processID, allowUnvalidatedBuild: true
         )
-        try #require(original.windowTitle == "Mecum Qt Probe")
+        try #require(original.windowTitle == "Braus Qt Probe")
         let verifiesSettledHome = ProcessInfo.processInfo.environment["AGENTSEAT_QT_INITIAL_POSITION"] != nil
         if verifiesSettledHome {
             try #require(MultiWindowLiveTests.stageManagerIsEnabled,

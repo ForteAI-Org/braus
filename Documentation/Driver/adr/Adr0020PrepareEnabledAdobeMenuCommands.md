@@ -6,7 +6,7 @@ it does not establish live coverage of other UXP hosts.
 
 ## Evidence
 
-On signed Release Mecum `6f6c08ac`, three declared Photoshop New Document
+On signed Release Braus `6f6c08ac`, three declared Photoshop New Document
 workflows adopt the correct document and resolve File > New... as enabled.
 Each AX press acknowledges delivery, but the following scene and window list
 remain unchanged. The Window menu retains the same four owned documents;
@@ -45,7 +45,7 @@ keep the default policy.
 
 The first Release repeat (`76dda26d`) still has no command effect. Its native
 brief-activation log reports readiness after 100.1 ms while the foreground
-remains Mecum. An enabled menu predicate was evaluated even though Photoshop
+remains Braus. An enabled menu predicate was evaluated even though Photoshop
 had never held foreground. This is a false readiness result, independently of
 the later command's effect.
 
@@ -62,9 +62,9 @@ restoration route. Native command and foreground effects still require a
 rebuilt-app repeat; the controlled regressions do not establish either.
 
 Release `3aa20a1c` reaches a positive server foreground witness, but its native
-log reports a return to Mecum's process without the expected window being
+log reports a return to Braus's process without the expected window being
 verified. The menu still has no effect; the four owned documents are unchanged,
-the session closes with null status, and Mecum remains visible without an
+the session closes with null status, and Braus remains visible without an
 external rescue. This is a failed diagnostic, not acceptance.
 
 Readiness now requires agreement between the server witness and workspace

@@ -4,8 +4,8 @@ Status: implemented; controlled checks and three signed-app Chrome selections pa
 
 ## Observed problem
 
-Chrome's owned window has the WindowServer title `Mecum Chromium App Flow`
-and the AX title `Mecum Chromium App Flow - Google Chrome`. The dropdown
+Chrome's owned window has the WindowServer title `Braus Chromium App Flow`
+and the AX title `Braus Chromium App Flow - Google Chrome`. The dropdown
 selector passes the first title into a native lookup that requires the
 second to be exactly equal. Two signed-app `select` calls therefore refuse
 with `windowNotUnique` before requesting an opening. Both fresh observations
@@ -79,7 +79,7 @@ The complete-pipeline connection is observed, while real dropdown selection
 still requires the fresh primary-action candidate's app repetition.
 
 
-Release `9e5e4f34` selects Beta, Gamma and Alpha in three fresh Mecum sessions.
+Release `9e5e4f34` selects Beta, Gamma and Alpha in three fresh Braus sessions.
 Each begins at a different native value, observes the exact requested value
 at the same control after selection, verifies popup withdrawal and closes
 with null status. No outside recovery or replay occurs. This qualifies the

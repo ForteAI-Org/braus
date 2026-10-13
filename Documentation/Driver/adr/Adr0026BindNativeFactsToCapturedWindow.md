@@ -13,7 +13,7 @@ no window and the scene loses every native field.
 The read-only production augmenter finds 20 native elements for the Rich Text
 fixture and 45 for the Chromium fixture before assignment. During an adoption
 with no input, both windows occupy 2192,1288,1200,828 and both return zero
-native elements. All three Mecum observations have the same missing fields.
+native elements. All three Braus observations have the same missing fields.
 This establishes a geometry-only lookup defect independently of the separate
 targetActivated input failures.
 
@@ -50,7 +50,7 @@ without identity support cannot supply facts for an identified capture and
 that the SeatSceneProvider forwards the actual captured recipient despite
 another census row sharing its frame.
 
-Evidence is under `/private/tmp/mecum-stabilization-round4-20261004` with the
+Evidence is under `/private/tmp/braus-stabilization-round4-20261004` with the
 `captured-native-identity` prefix. Native acquisition evidence is in
 `chrome-owned-augmentation.txt`, `chrome-augmentation-during-adoption.txt`
 and `release-chrome-augmentation-readonly`. Signed-app effect qualification
