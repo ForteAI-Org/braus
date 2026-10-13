@@ -187,7 +187,7 @@ final class ModelSettingsStore {
                 checkedAt[provider] = Date()
 
                 if state.isReady {
-                    try? await loadCatalogue(for: provider)
+                    _ = try? await loadCatalogue(for: provider)
                 }
                 guard !Task.isCancelled else { return }
 
@@ -284,22 +284,29 @@ final class ModelSettingsStore {
     /// missing key, and a provider with neither kept nor fixed models; the connection's state says why.
     @discardableResult
     func loadCatalogue(for provider: ModelProvider) async throws -> [ModelInfo] {
+        
         let listing: Result<[ModelInfo], any Error>
+        
         do {
-            listing = .success(try await ProviderCatalog.catalogue(
-                provider,
-                settings: providerSettings
-            ))
+            listing = .success(
+                try await ProviderCatalog.catalogue(
+                    provider,
+                    settings: providerSettings
+                )
+            )
+            
         } catch {
             // A cancelled listing says nothing about the provider.
             if Task.isCancelled { throw CancellationError() }
             listing = .failure(error)
         }
+        
         let resolved = try ProviderCatalog.resolvedCatalogue(
             listing,
             for : provider,
             kept: catalogues[provider]
         )
+        
         try Task.checkCancellation()
         catalogues[provider] = resolved
         return resolved

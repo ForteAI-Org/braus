@@ -24,35 +24,39 @@ extension ProviderCatalog {
         settings  : ProviderSettings
     ) async throws -> [ModelInfo] {
         switch provider {
-        case .codex:
-            let result = try await CodexCLIClient.run(
-                executable: CodexCLIClient.executableURL(),
-                arguments : ["debug", "models"],
-                input     : Data(),
-                schema    : nil,
-                timeout   : 20
-            )
-            guard result.status == 0 else { throw CodexClientError.failed("codex debug models exited \(result.status)") }
-            return try codexCatalogue(from: result.output)
-        case .claudeCode:
-            let request = #"{"type":"control_request","request_id":"models","request":{"subtype":"initialize"}}"#
-            let result  = try await CodexCLIClient.run(
-                executable: ClaudeCLIClient.executableURL(),
-                arguments : [
-                    "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-                    "--setting-sources", "", "--strict-mcp-config", "--no-session-persistence",
-                ],
-                input     : Data((request + "\n").utf8),
-                schema    : nil,
-                timeout   : 20
-            )
-            return try claudeCatalogue(from: result.output)
-        case .anthropic:
-            return try await anthropicCatalogue(apiKey: settings.anthropicAPIKey)
-        case .gemini:
-            return try await geminiCatalogue(apiKey: settings.geminiAPIKey)
-        case .ollama:
-            return try await OllamaClient.models(host: settings.ollamaHost).map { .known($0, provider: provider) }
+            
+            case .codex:
+                let result = try await CodexCLIClient.run(
+                    executable: CodexCLIClient.executableURL(),
+                    arguments : ["debug", "models"],
+                    input     : Data(),
+                    schema    : nil,
+                    timeout   : 20
+                )
+                guard result.status == 0 else {
+                    throw CodexClientError.failed("codex debug models exited \(result.status)")
+                }
+                return try codexCatalogue(from: result.output)
+            
+            case .claudeCode:
+                let request = #"{"type":"control_request","request_id":"models","request":{"subtype":"initialize"}}"#
+                let result  = try await CodexCLIClient.run(
+                    executable: ClaudeCLIClient.executableURL(),
+                    arguments : [
+                        "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                        "--setting-sources", "", "--strict-mcp-config", "--no-session-persistence",
+                    ],
+                    input     : Data((request + "\n").utf8),
+                    schema    : nil,
+                    timeout   : 20
+                )
+                return try claudeCatalogue(from: result.output)
+            case .anthropic:
+                return try await anthropicCatalogue(apiKey: settings.anthropicAPIKey)
+            case .gemini:
+                return try await geminiCatalogue(apiKey: settings.geminiAPIKey)
+            case .ollama:
+                return try await OllamaClient.models(host: settings.ollamaHost).map { .known($0, provider: provider) }
         }
     }
 
@@ -139,20 +143,26 @@ extension ProviderCatalog {
         for provider: ModelProvider,
         kept        : [ModelInfo]?
     ) throws -> [ModelInfo] {
+        
         switch listing {
-        case .success(let live):
-            return live
-        case .failure(let error):
-            switch error {
-            case ClaudeClientError.unavailable, CodexClientError.unavailable, ProviderError.missingAPIKey:
-                throw error
-            default:
-                break
-            }
-            if let kept, !kept.isEmpty { return kept }
-            let fixed = provider.defaultModels.map { ModelInfo.known($0, provider: provider) }
-            if fixed.isEmpty { throw error }
-            return fixed
+            case .success(let live): return live
+        
+            case .failure(let error):
+                switch error {
+                    case ClaudeClientError.unavailable,
+                         CodexClientError .unavailable,
+                         ProviderError    .missingAPIKey: throw error
+                        
+                    default: break
+                }
+                if let kept, !kept.isEmpty { return kept }
+                
+                let fixed = provider.defaultModels.map {
+                    ModelInfo.known($0, provider: provider)
+                }
+                
+                if fixed.isEmpty { throw error }
+                return fixed
         }
     }
 

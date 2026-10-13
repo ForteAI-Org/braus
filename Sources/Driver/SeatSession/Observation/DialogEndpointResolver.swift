@@ -1310,9 +1310,9 @@ nonisolated package struct DialogEndpointResolver<Node> {
         for _ in 0..<Self.maximumDepth {
             let childNodes: [Node]
             switch children(node) {
-            case .children(let values): childNodes = values
-            case .leaf: return .success((node, windowNumber))
-            case .unreadable: return .failure(.unreadable)
+                case .children(let values): childNodes = values
+                case .leaf                : return .success((node, windowNumber))
+                case .unreadable          : return .failure(.unreadable)
             }
             guard let innermost = smallestChild(of: childNodes, containing: point) else { break }
             node = innermost
@@ -1434,7 +1434,8 @@ extension DialogEndpointResolver where Node == AXUIElement {
                 let window = windows.first {
                     WindowRelocator.windowNumber(of: $0, table: table) == number
                 }
-                window.map { AXUIElementSetMessagingTimeout($0, BoundedAccessibilityRead.fastTimeout) }
+                
+                _ = window.map { AXUIElementSetMessagingTimeout($0, BoundedAccessibilityRead.fastTimeout) }
                 return window
             },
             inertWindowlessLeaf: Self.inertWindowlessLeaf,
