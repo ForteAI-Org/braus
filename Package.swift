@@ -198,7 +198,7 @@ let package = Package(
         .library(
             name: "MecumEngine",
             targets: ["EngineCore", "Engine", "HIDActuation", "AccessibilityActions", "WorkspaceActivation",
-                      "Memory", "FileKnowledge", "LiveScenes"]
+                      "Memory", "FileKnowledge", "LiveScenes", "LocalEmbedding"]
         ),
         .library(name: "UserInteractions", targets: ["InteractionListener", "InteractionObservation"]),
         .library(name: "SeatBroker", targets: ["SeatBroker"]),
@@ -366,6 +366,13 @@ let package = Package(
                            .copy("Resources/brain-living-memory-schema-3.sql"), .copy("Resources/brain-living-memory-schema-4.sql"),
                            .copy("Resources/brain-living-memory-schema-5.sql")]),
 
+        // `TextEmbedding` over a pinned local model: the XLM-RoBERTa tokenizer and a BERT-family encoder on
+        // Accelerate, reading the model's files from disk. Imports Memory, Foundation and Accelerate; no network.
+        engine("LocalEmbedding", ["Memory", "LocalEmbeddingKernels"], settings: pure),
+        // The matrix product of the local model over Accelerate's current CBLAS interface, which needs a C define.
+        .target(name: "LocalEmbeddingKernels", path: "Sources/Engine/LocalEmbeddingKernels",
+                cSettings: [.define("ACCELERATE_NEW_LAPACK")], linkerSettings: [.linkedFramework("Accelerate")]),
+
         // `SceneProviding` for a window on the real screen: census, capture, pipeline.
         engine("LiveScenes", ["EngineCore", "PerceptionCore", "Perception", "ScreenCapture"], settings: pure),
 
@@ -459,6 +466,10 @@ let package = Package(
                     resources: [.copy("Fixtures/route-corpus.json"), .copy("Fixtures/misfire-corpus.json"),
                                 .copy("Fixtures/misfire-corpus.md")]),
         engineTests("FileKnowledge", ["FileKnowledge", "Memory", "PerceptionCore"]),
+        // The local model's tokenizer and encoder against Hugging Face's own outputs; the model files come from
+        // MECUM_RECALL_MODELS and the suites that need them are skipped, saying so, without it.
+        engineTests("LocalEmbedding", ["LocalEmbedding", "Memory"],
+                    resources: [.copy("Fixtures/recall-embedding-reference.json")]),
         // The capture and scene fixtures walk a fake accessibility tree through the producer, the merge and
         // the pure pipeline before they reach the store, so the suite imports the perception modules too.
         engineTests("SQLiteMemory", ["SQLiteMemory", "Memory", "EngineCore", "PerceptionCore", "Perception"]),
