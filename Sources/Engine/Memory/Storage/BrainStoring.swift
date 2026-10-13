@@ -32,6 +32,31 @@ public protocol BrainReading: Sendable {
     /// The active projection of an application's brain, or nil when the store has never seen the
     /// application. Read from one consistent snapshot.
     func brain(of bundleID: String) async throws -> UIBrain?
+
+    /// The part of an application's projection the detections of one scene can match: what naming that
+    /// scene's elements needs (`UIBrain.enrich`), read by its labels, kinds and groups, so the ordinary
+    /// path never reads an application's whole projection. Nil when the store has never seen the
+    /// application. A store with nothing to bound answers its whole projection.
+    func projection(of bundleID: String, for detections: [BrainDetection]) async throws -> UIBrain?
+}
+
+public extension BrainReading {
+
+    func projection(of bundleID: String, for detections: [BrainDetection]) async throws -> UIBrain? {
+        try await brain(of: bundleID)
+    }
+}
+
+/// BrainProjectionKeys are the keys a part of a projection is read by for some detections: the
+/// normalized labels they carry and their kinds.
+public struct BrainProjectionKeys: Sendable, Equatable {
+    public let labels: Set<String>
+    public let kinds: Set<ElementKind>
+
+    public init(_ detections: [BrainDetection]) {
+        labels = Set(detections.map { LabelText.normalize($0.label) }.filter { !$0.isEmpty })
+        kinds  = Set(detections.map(\.kind))
+    }
 }
 
 /// BrainStoring keeps one `UIBrain` per application as a stored projection and applies the brain's

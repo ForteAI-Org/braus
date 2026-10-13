@@ -67,8 +67,14 @@ public struct SQLiteSceneRepository: SceneStoring {
             let bundleID = try transaction.query(
                 "SELECT bundle_id FROM brain_apps WHERE app_id = ?", [.integer(appID)]
             ) { try $0.text(0) ?? "" }.first ?? ""
-            let known    = try SQLiteSceneRows.scenes(transaction, appID: appID, bundleID: bundleID)
             let observed = SceneSkeleton(sample: sample)
+            // A complete capture is the same as, or uncertain against, only a scene of its own roles: the
+            // others are different whatever else they hold, so only those are read. An incomplete capture
+            // is uncertain against every scene, as the matcher decides.
+            let known    = try SQLiteSceneRows.scenes(
+                transaction, appID: appID, bundleID: bundleID,
+                roleKey: sample.quality.isComplete ? observed.roleKey : nil
+            )
             let decision = SceneStructureMatcher.decide(
                 observed  : observed,
                 isComplete: sample.quality.isComplete,
@@ -119,14 +125,20 @@ enum SQLiteSceneRows {
 
     // MARK: Reading
 
-    static func scenes(_ handle: some SQLiteQuerying, appID: Int64, bundleID: String) throws -> [SceneDefinition] {
+    /// The structural scenes of an application, every one or, with a role key, only those of that set of
+    /// roles (`brain_scene_shapes`), in the order they were first seen.
+    static func scenes(_ handle: some SQLiteQuerying, appID: Int64, bundleID: String,
+                       roleKey: String? = nil) throws -> [SceneDefinition] {
+        let filter = roleKey == nil ? "" : " AND scene_id IN (SELECT scene_id FROM brain_scene_shapes WHERE app_id = ? AND role_key = ?)"
+        var values: [SQLiteValue] = [.integer(appID)]
+        if let roleKey { values += [.integer(appID), .text(roleKey)] }
         let heads = try handle.query(
             """
             SELECT scene_id, scene_kind, title_bucket, structural_key, first_seen_ms, last_seen_ms, observation_count
-            FROM brain_scenes WHERE app_id = ? AND scene_kind <> 'app'
+            FROM brain_scenes WHERE app_id = ? AND scene_kind <> 'app'\(filter)
             ORDER BY first_seen_ms, scene_id
             """,
-            [.integer(appID)]
+            values
         ) { row in
             (
                 id      : try row.text(0) ?? "",
@@ -315,6 +327,10 @@ enum SQLiteSceneRows {
                 [.text(sceneID), .text(role)]
             )
         }
+        try transaction.execute(
+            "INSERT INTO brain_scene_shapes (scene_id, app_id, role_key) VALUES (?, ?, ?)",
+            [.text(sceneID), .integer(appID), .text(skeleton.roleKey)]
+        )
         for label in Set(skeleton.captions.map(\.label)).sorted() where !label.isEmpty {
             try transaction.execute(
                 "INSERT INTO brain_scene_labels (scene_id, label_token) VALUES (?, ?)",
@@ -362,9 +378,9 @@ enum SQLiteSceneRows {
             let parent    = try container(element.containerPath)
             let isCaption = SceneSkeleton.captionRoles.contains(element.role)
                 && element.labelOrigin.map(SceneSkeleton.captionOrigins.contains) == true
-            let caption   = isCaption ? LabelText.normalize(element.label) : ""
+            guard let key = SceneElementKey.key(of: element) else { continue }
             _ = try insert(
-                key   : "control|\(element.containerPath)|\(element.role)|\(caption)",
+                key   : key,
                 scope : "control",
                 parent: parent,
                 role  : element.role,

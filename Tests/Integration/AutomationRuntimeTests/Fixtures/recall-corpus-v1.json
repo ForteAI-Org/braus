@@ -1,0 +1,818 @@
+{
+  "version": "recall-corpus-v1",
+  "created": "2026-10-11",
+  "purpose": "Quality corpus of the D3 Recall: knowledge learned through D2's producers over synthetic application windows, and queries with independent expectations, split by task family into development and final. Synthetic and plausible; no personal data. Load data for scale is generated apart and is not part of this corpus.",
+  "conventions": {
+    "steps": "1-based positions of a knowledge item's UI operations in its candidate (open is a context call, not a step)",
+    "accept": "any one of the listed selections is correct; an empty list with coverage absent means nothing should be proposed",
+    "coverage": "the expected coverage of the need, or a list of acceptable ones",
+    "exclude": "knowledge whose delivery for this need is an error (incompatible or retired)",
+    "forbid_steps": "steps that must not appear in any delivered selection of that knowledge",
+    "bindings": "parameter name of the selected version -> the value of the task it must take"
+  },
+  "apps": {
+    "com.apple.finder": {
+      "windows": {
+        "main": {"title": "Prove", "elements": [
+          {"kind": "textfield", "label": "Search", "origin": "description", "container": "toolbar"},
+          {"kind": "row", "label": "foto_demo.png", "list": "files"}, {"kind": "row", "label": "report_q3.pdf", "list": "files"},
+          {"kind": "row", "label": "Progetto", "list": "files"}, {"kind": "checkbox", "label": "Show Preview", "state": "off"}]}
+      }
+    },
+    "com.apple.Preview": {
+      "windows": {
+        "editing": {"title": "foto_demo.png", "elements": [
+          {"kind": "button", "label": "Rotate Right", "container": "toolbar"}, {"kind": "button", "label": "Markup", "container": "toolbar"},
+          {"kind": "button", "label": "Share", "container": "toolbar"}]},
+        "export": {"title": "Export", "surface": "dialog", "elements": [
+          {"kind": "textfield", "label": "foto_demo.png", "origin": "value"}, {"kind": "popup", "label": "Format", "value": "PNG"},
+          {"kind": "popup", "label": "Quartz Filter", "value": "None"}, {"kind": "button", "label": "Save"}, {"kind": "button", "label": "Cancel"}]},
+        "adjust": {"title": "Adjust Size", "surface": "dialog", "elements": [
+          {"kind": "textfield", "label": "Width", "origin": "title"}, {"kind": "textfield", "label": "Height", "origin": "title"},
+          {"kind": "checkbox", "label": "Scale proportionally", "state": "on"}, {"kind": "button", "label": "OK"}, {"kind": "button", "label": "Cancel"}]},
+        "pdf": {"title": "contratto.pdf", "elements": [
+          {"kind": "button", "label": "Sidebar", "container": "toolbar"}, {"kind": "button", "label": "Highlight", "container": "toolbar"},
+          {"kind": "textfield", "label": "Search", "origin": "description", "container": "toolbar"}]},
+        "print": {"title": "Print", "surface": "sheet", "elements": [
+          {"kind": "text", "label": "1 of 4"}, {"kind": "button", "label": "Previous page"}, {"kind": "button", "label": "Next page"},
+          {"kind": "popup", "label": "Printer", "value": "Office"}, {"kind": "popup", "label": "Presets", "value": "Default Settings"},
+          {"kind": "textfield", "label": "Copies", "origin": "title"}, {"kind": "popup", "label": "Pages", "value": "All"},
+          {"kind": "checkbox", "label": "Double-sided", "state": "off"}, {"kind": "popup", "label": "PDF", "value": "PDF"},
+          {"kind": "button", "label": "Show Details"}, {"kind": "button", "label": "Print"}, {"kind": "button", "label": "Cancel"}]}
+      }
+    },
+    "com.apple.TextEdit": {
+      "windows": {
+        "document": {"title": "note", "elements": [
+          {"kind": "text", "label": "Body"}, {"kind": "button", "label": "Styles", "container": "toolbar"}]},
+        "save": {"title": "Save", "surface": "sheet", "elements": [
+          {"kind": "textfield", "label": "Untitled", "origin": "value"}, {"kind": "popup", "label": "Where", "value": "Documents"},
+          {"kind": "button", "label": "Save"}, {"kind": "button", "label": "Cancel"}]},
+        "saveas": {"title": "Save As", "surface": "sheet", "elements": [
+          {"kind": "textfield", "label": "note", "origin": "value"}, {"kind": "popup", "label": "Where", "value": "Documents"},
+          {"kind": "checkbox", "label": "Keep original", "state": "off"}, {"kind": "button", "label": "Save"}, {"kind": "button", "label": "Cancel"}]}
+      }
+    },
+    "com.google.Chrome": {
+      "windows": {
+        "form": {"title": "Contatti", "elements": [
+          {"kind": "textfield", "label": "Name", "origin": "title"}, {"kind": "textfield", "label": "Email", "origin": "title"},
+          {"kind": "textfield", "label": "Message", "origin": "title"}, {"kind": "button", "label": "Submit"}]},
+        "thanks": {"title": "Grazie", "elements": [{"kind": "text", "label": "Message sent"}, {"kind": "link", "label": "Home"}]}
+      }
+    },
+    "com.apple.mail": {
+      "windows": {
+        "viewer": {"title": "Inbox", "elements": [
+          {"kind": "button", "label": "New Message", "container": "toolbar"}, {"kind": "button", "label": "Reply", "container": "toolbar"},
+          {"kind": "row", "label": "Weekly update", "list": "messages"}]},
+        "compose": {"title": "New Message", "elements": [
+          {"kind": "textfield", "label": "To", "origin": "title"}, {"kind": "textfield", "label": "Subject", "origin": "title"},
+          {"kind": "button", "label": "Attach", "container": "toolbar"}, {"kind": "button", "label": "Send", "container": "toolbar"}]},
+        "attach": {"title": "Choose File", "surface": "sheet", "elements": [
+          {"kind": "row", "label": "report_q3.pdf", "list": "files"}, {"kind": "row", "label": "foto_demo.png", "list": "files"},
+          {"kind": "button", "label": "Choose File"}, {"kind": "button", "label": "Cancel"}]}
+      }
+    },
+    "com.apple.iWork.Numbers": {
+      "windows": {
+        "sheet": {"title": "Vendite", "elements": [
+          {"kind": "button", "label": "Sort & Filter", "container": "toolbar"}, {"kind": "button", "label": "Chart", "container": "toolbar"},
+          {"kind": "row", "label": "North", "list": "table"}]},
+        "sort": {"title": "Sort", "surface": "panel", "elements": [
+          {"kind": "popup", "label": "Column", "value": "Region"}, {"kind": "popup", "label": "Order", "value": "Ascending"},
+          {"kind": "button", "label": "Sort Now"}, {"kind": "button", "label": "Filter"}]},
+        "filter": {"title": "Filter", "surface": "panel", "elements": [
+          {"kind": "popup", "label": "Column", "value": "Region"}, {"kind": "popup", "label": "Rule", "value": "is"},
+          {"kind": "textfield", "label": "Value", "origin": "title"}, {"kind": "button", "label": "Apply Filter"}]}
+      }
+    },
+    "com.apple.iWork.Keynote": {
+      "windows": {
+        "slides": {"title": "deck", "elements": [
+          {"kind": "button", "label": "Play", "container": "toolbar"}, {"kind": "button", "label": "Add Slide", "container": "toolbar"}]},
+        "exportpdf": {"title": "Export Your Presentation", "surface": "dialog", "elements": [
+          {"kind": "checkbox", "label": "Include skipped slides", "state": "off"}, {"kind": "popup", "label": "Image Quality", "value": "Good"},
+          {"kind": "button", "label": "Next…"}, {"kind": "button", "label": "Cancel"}]},
+        "saveexport": {"title": "Export", "surface": "sheet", "elements": [
+          {"kind": "textfield", "label": "deck", "origin": "value"}, {"kind": "popup", "label": "Where", "value": "Documents"},
+          {"kind": "button", "label": "Export"}, {"kind": "button", "label": "Cancel"}]}
+      }
+    },
+    "com.apple.iWork.Pages": {
+      "windows": {
+        "document": {"title": "relazione", "elements": [
+          {"kind": "button", "label": "Insert", "container": "toolbar"}, {"kind": "button", "label": "Format", "container": "toolbar"}]},
+        "export": {"title": "Export Your Document", "surface": "dialog", "elements": [
+          {"kind": "popup", "label": "Image Quality", "value": "Better"}, {"kind": "button", "label": "Next…"}, {"kind": "button", "label": "Cancel"}]},
+        "saveexport": {"title": "Export", "surface": "sheet", "elements": [
+          {"kind": "textfield", "label": "relazione", "origin": "value"}, {"kind": "popup", "label": "Where", "value": "Documents"},
+          {"kind": "button", "label": "Export"}, {"kind": "button", "label": "Cancel"}]}
+      }
+    },
+    "com.apple.Safari": {
+      "windows": {
+        "portal": {"title": "Portale fornitori", "elements": [
+          {"kind": "link", "label": "Invoices"}, {"kind": "link", "label": "Orders"}, {"kind": "link", "label": "Profile"}]},
+        "invoices": {"title": "Invoices", "elements": [
+          {"kind": "row", "label": "INV-2026-031", "list": "invoices"}, {"kind": "row", "label": "INV-2026-032", "list": "invoices"},
+          {"kind": "button", "label": "Download PDF"}, {"kind": "link", "label": "Back"}]}
+      }
+    },
+    "com.apple.Notes": {
+      "windows": {
+        "notes": {"title": "Notes", "elements": [
+          {"kind": "button", "label": "New Note", "container": "toolbar"}, {"kind": "button", "label": "Share", "container": "toolbar"},
+          {"kind": "textfield", "label": "Note title", "origin": "description"}, {"kind": "row", "label": "Spesa", "list": "notes"}]}
+      }
+    },
+    "com.microsoft.VSCode": {
+      "windows": {
+        "editor": {"title": "config.yaml", "elements": [
+          {"kind": "button", "label": "Explorer", "container": "activity"}, {"kind": "button", "label": "Search", "container": "activity"},
+          {"kind": "text", "label": "Editor"}]},
+        "find": {"title": "config.yaml", "elements": [
+          {"kind": "textfield", "label": "Find", "origin": "description"}, {"kind": "textfield", "label": "Replace", "origin": "description"},
+          {"kind": "button", "label": "Replace All"}, {"kind": "button", "label": "Close"}]},
+        "saveas": {"title": "Save As", "surface": "dialog", "elements": [
+          {"kind": "textfield", "label": "config.yaml", "origin": "value"}, {"kind": "popup", "label": "Where", "value": "project"},
+          {"kind": "button", "label": "Save"}, {"kind": "button", "label": "Cancel"}]}
+      }
+    }
+  },
+  "knowledge": [
+    {
+      "id": "photo-export", "family": "photo",
+      "goal": "Find foto_demo, rotate it right in Preview and export it as foto_web.jpg in JPEG",
+      "inputs": [{"name": "criterion", "value": "foto_demo"}, {"name": "output_name", "value": "foto_web"}],
+      "run": [
+        {"open": "com.apple.finder", "window": "main"},
+        {"op": "type_text", "args": {"target": "Search", "text": "foto_demo"}},
+        {"op": "act", "args": {"target": "foto_demo.png"}},
+        {"open": "com.apple.Preview", "window": "editing"},
+        {"op": "act", "args": {"target": "Rotate Right"}},
+        {"op": "menu", "args": {"path": "File > Export…"}, "next": "export"},
+        {"op": "type_text", "args": {"target": "foto_demo.png", "text": "foto_web.jpg"}},
+        {"op": "select", "args": {"control": "Format", "item": "JPEG"}},
+        {"op": "press", "args": {"button": "Save"}, "next": "editing"},
+        {"open": "com.apple.finder", "window": "main"},
+        {"op": "act", "args": {"target": "Show Preview", "verb": "set_toggle", "value": "on"}}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Find <file> in Finder, rotate it in Preview and export it as <name>.<extension>"},
+        "parts": [{"part": "b1", "label": "Find <file> in Finder", "outcome": "completed"},
+                  {"part": "b2", "label": "Rotate <file> and export it as <name>.<extension> in <format>", "outcome": "completed"},
+                  {"part": "b3", "label": "Keep Finder's preview shown", "outcome": "completed"}],
+        "steps": [{"step": 1, "label": "Search <criterion> in Finder"}, {"step": 2, "label": "Select the file found"},
+                  {"step": 3, "label": "Rotate the image right"}, {"step": 4, "label": "Open the Export dialog"},
+                  {"step": 5, "label": "Set <name>.<extension> in the Name field"}, {"step": 6, "label": "Choose <format>"},
+                  {"step": 7, "label": "Confirm the export"}, {"step": 8, "label": "Show the preview in Finder"}],
+        "parameters": [{"name": "criterion", "role": "text searched for the input file", "kind": "text"},
+                       {"name": "output_name", "role": "name of the exported file without extension", "kind": "text"},
+                       {"name": "output_extension", "role": "extension of the exported file", "kind": "text", "value": "jpg", "source": "derived"},
+                       {"name": "output_format", "role": "format chosen in the Export dialog", "kind": "text", "value": "JPEG", "source": "request"}],
+        "uses": [{"step": 1, "argument": "text", "template": "{criterion}"},
+                 {"step": 5, "argument": "text", "template": "{output_name}.{output_extension}"},
+                 {"step": 6, "argument": "item", "template": "{output_format}"}]
+      }
+    },
+    {
+      "id": "print-current-page", "family": "print",
+      "goal": "Print only the page I am reading of contratto.pdf",
+      "run": [
+        {"open": "com.apple.Preview", "window": "pdf"},
+        {"op": "menu", "args": {"path": "File > Print…"}, "next": "print"},
+        {"op": "select", "args": {"control": "Pages", "item": "Current"}},
+        {"op": "press", "args": {"button": "Print"}, "next": "pdf"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Print only the current page of the open PDF"},
+        "steps": [{"step": 1, "label": "Open the Print dialog"}, {"step": 2, "label": "Choose to print the current page only"},
+                  {"step": 3, "label": "Confirm printing"}]
+      }
+    },
+    {
+      "id": "print-all-pages", "family": "print",
+      "goal": "Print the whole contratto.pdf",
+      "run": [
+        {"open": "com.apple.Preview", "window": "pdf"},
+        {"op": "menu", "args": {"path": "File > Print…"}, "next": "print"},
+        {"op": "select", "args": {"control": "Pages", "item": "All"}},
+        {"op": "press", "args": {"button": "Print"}, "next": "pdf"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Print all pages of the open PDF"},
+        "steps": [{"step": 1, "label": "Open the Print dialog"}, {"step": 2, "label": "Choose to print all pages"},
+                  {"step": 3, "label": "Confirm printing"}]
+      }
+    },
+    {
+      "id": "textedit-duplicate-save", "family": "textcopy",
+      "goal": "Save a copy of the note as note_copy on the Desktop",
+      "inputs": [{"name": "output_name", "value": "note_copy"}, {"name": "output_folder", "value": "Desktop"}],
+      "run": [
+        {"open": "com.apple.TextEdit", "window": "document"},
+        {"op": "menu", "args": {"path": "File > Duplicate"}},
+        {"op": "menu", "args": {"path": "File > Save…"}, "next": "save"},
+        {"op": "type_text", "args": {"target": "Untitled", "text": "note_copy"}},
+        {"op": "select", "args": {"control": "Where", "item": "Desktop"}},
+        {"op": "press", "args": {"button": "Save"}, "next": "document"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Duplicate the document and save the copy"},
+        "steps": [{"step": 1, "label": "Duplicate the document"}, {"step": 2, "label": "Open the Save sheet"},
+                  {"step": 3, "label": "Type <output_name> as the copy's name"}, {"step": 4, "label": "Choose <output_folder> as destination"},
+                  {"step": 5, "label": "Save the copy"}],
+        "parameters": [{"name": "output_name", "role": "name of the copy", "kind": "text"},
+                       {"name": "output_folder", "role": "folder where the copy is saved", "kind": "folder"}],
+        "uses": [{"step": 3, "argument": "text", "template": "{output_name}"}, {"step": 4, "argument": "item", "template": "{output_folder}"}]
+      },
+      "after": [{"reinterpret": {
+        "procedure": {"label": "Duplicate the document and save the duplicate under a new name"},
+        "steps": [{"step": 1, "label": "Make a duplicate of the document"}, {"step": 2, "label": "Open the Save sheet for the duplicate"},
+                  {"step": 3, "label": "Type <output_name> as the duplicate's name"}, {"step": 4, "label": "Choose <output_folder> as destination"},
+                  {"step": 5, "label": "Save the duplicate"}],
+        "parameters": [{"name": "output_name", "role": "name of the copy", "kind": "text"},
+                       {"name": "output_folder", "role": "folder where the copy is saved", "kind": "folder"}],
+        "uses": [{"step": 3, "argument": "text", "template": "{output_name}"}, {"step": 4, "argument": "item", "template": "{output_folder}"}]
+      }}]
+    },
+    {
+      "id": "textedit-save-as-copy", "family": "textcopy",
+      "goal": "Save the note as a new file keeping the original",
+      "inputs": [{"name": "output_name", "value": "note_v2"}, {"name": "output_folder", "value": "Documents"}],
+      "run": [
+        {"open": "com.apple.TextEdit", "window": "document"},
+        {"op": "menu", "args": {"path": "File > Save As…"}, "next": "saveas"},
+        {"op": "type_text", "args": {"target": "note", "text": "note_v2"}},
+        {"op": "select", "args": {"control": "Where", "item": "Documents"}},
+        {"op": "act", "args": {"target": "Keep original", "verb": "set_toggle", "value": "on"}},
+        {"op": "press", "args": {"button": "Save"}, "next": "document"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Save the document as a new file, keeping the original"},
+        "steps": [{"step": 1, "label": "Open the Save As sheet"}, {"step": 2, "label": "Type <output_name> as the new file's name"},
+                  {"step": 3, "label": "Choose <output_folder> as destination"}, {"step": 4, "label": "Keep the original file"},
+                  {"step": 5, "label": "Save the new file"}],
+        "parameters": [{"name": "output_name", "role": "name of the new file", "kind": "text"},
+                       {"name": "output_folder", "role": "folder where the new file is saved", "kind": "folder"}],
+        "uses": [{"step": 2, "argument": "text", "template": "{output_name}"}, {"step": 3, "argument": "item", "template": "{output_folder}"}]
+      }
+    },
+    {
+      "id": "contact-form", "family": "webform",
+      "goal": "Send the supplier contact form with my name, email and request",
+      "inputs": [{"name": "full_name", "value": "Mario Rossi"}, {"name": "email", "value": "mario@example.com"},
+                 {"name": "message", "value": "Vorrei informazioni sui prezzi"}],
+      "run": [
+        {"open": "com.google.Chrome", "window": "form"},
+        {"op": "type_text", "args": {"target": "Name", "text": "Mario Rossi"}},
+        {"op": "type_text", "args": {"target": "Email", "text": "mario@example.com"}},
+        {"op": "type_text", "args": {"target": "Message", "text": "Vorrei informazioni sui prezzi"}},
+        {"op": "act", "args": {"target": "Submit"}, "next": "thanks"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Fill the contact form with <full_name>, <email> and <message> and submit it"},
+        "steps": [{"step": 1, "label": "Type <full_name> in the Name field"}, {"step": 2, "label": "Type <email> in the Email field"},
+                  {"step": 3, "label": "Type <message> in the Message field"}, {"step": 4, "label": "Submit the contact form"}],
+        "parameters": [{"name": "full_name", "role": "name of the person writing", "kind": "text"},
+                       {"name": "email", "role": "email address to be answered at", "kind": "text"},
+                       {"name": "message", "role": "text of the request", "kind": "text"}],
+        "uses": [{"step": 1, "argument": "text", "template": "{full_name}"}, {"step": 2, "argument": "text", "template": "{email}"},
+                 {"step": 3, "argument": "text", "template": "{message}"}]
+      }
+    },
+    {
+      "id": "mail-attach", "family": "mailattach",
+      "goal": "Find report_q3.pdf and send it by email to Anna with subject Report Q3",
+      "inputs": [{"name": "file_name", "value": "report_q3.pdf"}, {"name": "recipient", "value": "anna@example.com"},
+                 {"name": "subject", "value": "Report Q3"}],
+      "run": [
+        {"open": "com.apple.finder", "window": "main"},
+        {"op": "type_text", "args": {"target": "Search", "text": "report_q3"}},
+        {"op": "act", "args": {"target": "report_q3.pdf"}},
+        {"open": "com.apple.mail", "window": "viewer"},
+        {"op": "act", "args": {"target": "New Message"}, "next": "compose"},
+        {"op": "type_text", "args": {"target": "To", "text": "anna@example.com"}},
+        {"op": "type_text", "args": {"target": "Subject", "text": "Report Q3"}},
+        {"op": "act", "args": {"target": "Attach"}, "next": "attach"},
+        {"op": "act", "args": {"target": "report_q3.pdf"}},
+        {"op": "press", "args": {"button": "Choose File"}, "next": "compose"},
+        {"op": "act", "args": {"target": "Send"}, "next": "viewer"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Find <file_name> in Finder and email it to <recipient>"},
+        "parts": [{"part": "b1", "label": "Find <file_name> in Finder", "outcome": "completed"},
+                  {"part": "b2", "label": "Email <file_name> as an attachment to <recipient> with subject <subject>", "outcome": "completed"}],
+        "steps": [{"step": 1, "label": "Search the file in Finder"}, {"step": 2, "label": "Select <file_name>"},
+                  {"step": 3, "label": "Start a new email"}, {"step": 4, "label": "Type <recipient> in To"},
+                  {"step": 5, "label": "Type <subject> as the subject"}, {"step": 6, "label": "Open the attachment chooser"},
+                  {"step": 7, "label": "Pick <file_name> to attach"}, {"step": 8, "label": "Confirm the attachment"},
+                  {"step": 9, "label": "Send the email"}],
+        "parameters": [{"name": "file_criterion", "role": "text searched for the file", "kind": "text", "value": "report_q3", "source": "derived"},
+                       {"name": "file_name", "role": "name of the file to send", "kind": "text"},
+                       {"name": "recipient", "role": "email address of the recipient", "kind": "text"},
+                       {"name": "subject", "role": "subject of the email", "kind": "text"}],
+        "uses": [{"step": 1, "argument": "text", "template": "{file_criterion}"}, {"step": 2, "argument": "target", "template": "{file_name}"},
+                 {"step": 4, "argument": "text", "template": "{recipient}"}, {"step": 5, "argument": "text", "template": "{subject}"},
+                 {"step": 7, "argument": "target", "template": "{file_name}"}]
+      }
+    },
+    {
+      "id": "numbers-sort-desc", "family": "sheets",
+      "goal": "Sort the sales table by Total from the largest",
+      "inputs": [{"name": "sort_column", "value": "Total"}],
+      "run": [
+        {"open": "com.apple.iWork.Numbers", "window": "sheet"},
+        {"op": "act", "args": {"target": "Sort & Filter"}, "next": "sort"},
+        {"op": "select", "args": {"control": "Column", "item": "Total"}},
+        {"op": "select", "args": {"control": "Order", "item": "Descending"}},
+        {"op": "act", "args": {"target": "Sort Now"}, "next": "sheet"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Sort the table by <sort_column> in descending order"},
+        "steps": [{"step": 1, "label": "Open the Sort & Filter panel"}, {"step": 2, "label": "Choose <sort_column> as the sort column"},
+                  {"step": 3, "label": "Choose descending order"}, {"step": 4, "label": "Apply the sort"}],
+        "parameters": [{"name": "sort_column", "role": "column the rows are sorted by", "kind": "text"}],
+        "uses": [{"step": 2, "argument": "item", "template": "{sort_column}"}]
+      }
+    },
+    {
+      "id": "numbers-filter", "family": "sheets",
+      "goal": "Show only the rows of the North region",
+      "inputs": [{"name": "filter_column", "value": "Region"}, {"name": "filter_value", "value": "North"}],
+      "run": [
+        {"open": "com.apple.iWork.Numbers", "window": "sheet"},
+        {"op": "act", "args": {"target": "Sort & Filter"}, "next": "sort"},
+        {"op": "act", "args": {"target": "Filter"}, "next": "filter"},
+        {"op": "select", "args": {"control": "Column", "item": "Region"}},
+        {"op": "type_text", "args": {"target": "Value", "text": "North"}},
+        {"op": "act", "args": {"target": "Apply Filter"}, "next": "sheet"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Filter the table to rows where <filter_column> is <filter_value>"},
+        "steps": [{"step": 1, "label": "Open the Sort & Filter panel"}, {"step": 2, "label": "Switch to the filter options"},
+                  {"step": 3, "label": "Choose <filter_column> as the filtered column"}, {"step": 4, "label": "Type <filter_value> as the value to keep"},
+                  {"step": 5, "label": "Apply the filter"}],
+        "parameters": [{"name": "filter_column", "role": "column the rows are filtered on", "kind": "text"},
+                       {"name": "filter_value", "role": "value the kept rows have", "kind": "text"}],
+        "uses": [{"step": 3, "argument": "item", "template": "{filter_column}"}, {"step": 4, "argument": "text", "template": "{filter_value}"}]
+      }
+    },
+    {
+      "id": "keynote-export-pdf", "family": "slides",
+      "goal": "Export the deck to PDF including the skipped slides, best quality, as deck_v2",
+      "inputs": [{"name": "output_name", "value": "deck_v2"}],
+      "run": [
+        {"open": "com.apple.iWork.Keynote", "window": "slides"},
+        {"op": "menu", "args": {"path": "File > Export To > PDF…"}, "next": "exportpdf"},
+        {"op": "act", "args": {"target": "Include skipped slides", "verb": "set_toggle", "value": "on"}},
+        {"op": "select", "args": {"control": "Image Quality", "item": "Best"}},
+        {"op": "press", "args": {"button": "Next…"}, "next": "saveexport"},
+        {"op": "type_text", "args": {"target": "deck", "text": "deck_v2"}},
+        {"op": "press", "args": {"button": "Export"}, "next": "slides"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Export the presentation to PDF as <output_name>, skipped slides included"},
+        "steps": [{"step": 1, "label": "Open the PDF export options"}, {"step": 2, "label": "Include the skipped slides"},
+                  {"step": 3, "label": "Choose the best image quality"}, {"step": 4, "label": "Go on to the file name"},
+                  {"step": 5, "label": "Type <output_name> as the PDF's name"}, {"step": 6, "label": "Export the PDF"}],
+        "parameters": [{"name": "output_name", "role": "name of the exported PDF", "kind": "text"}],
+        "uses": [{"step": 5, "argument": "text", "template": "{output_name}"}]
+      },
+      "after": [{"state": {"step": 2, "value": "retired", "reason": "skipped slides now break the export"}}]
+    },
+    {
+      "id": "preview-resize-export", "family": "resize",
+      "goal": "Make the photo 1200 pixels wide and export it as foto_small.png",
+      "inputs": [{"name": "width", "value": "1200"}, {"name": "output_name", "value": "foto_small"}],
+      "run": [
+        {"open": "com.apple.Preview", "window": "editing"},
+        {"op": "menu", "args": {"path": "Tools > Adjust Size…"}, "next": "adjust"},
+        {"op": "type_text", "args": {"target": "Width", "text": "1200"}},
+        {"op": "press", "args": {"button": "OK"}, "next": "editing"},
+        {"op": "menu", "args": {"path": "File > Export…"}, "next": "export"},
+        {"op": "type_text", "args": {"target": "foto_demo.png", "text": "foto_small.png"}},
+        {"op": "select", "args": {"control": "Format", "item": "PNG"}},
+        {"op": "press", "args": {"button": "Save"}, "next": "editing"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Resize the image to <width> pixels wide and export it as <name>.<extension>"},
+        "steps": [{"step": 1, "label": "Open the Adjust Size dialog"}, {"step": 2, "label": "Type <width> as the new width"},
+                  {"step": 3, "label": "Apply the new size"}, {"step": 4, "label": "Open the Export dialog"},
+                  {"step": 5, "label": "Type <name>.<extension> as the exported file's name"}, {"step": 6, "label": "Pick <format> as the export format"},
+                  {"step": 7, "label": "Save the exported image"}],
+        "parameters": [{"name": "width", "role": "new width of the image in pixels", "kind": "number", "unit": "px"},
+                       {"name": "name", "role": "name of the exported file without extension", "kind": "text", "value": "foto_small", "source": "request"},
+                       {"name": "extension", "role": "extension of the exported file", "kind": "text", "value": "png", "source": "derived"},
+                       {"name": "format", "role": "format of the exported image", "kind": "text", "value": "PNG", "source": "derived"}],
+        "uses": [{"step": 2, "argument": "text", "template": "{width}"}, {"step": 5, "argument": "text", "template": "{name}.{extension}"},
+                 {"step": 6, "argument": "item", "template": "{format}"}]
+      }
+    },
+    {
+      "id": "pages-export-word", "family": "docexport",
+      "goal": "Export the report as a Word document named relazione_word",
+      "inputs": [{"name": "output_name", "value": "relazione_word"}],
+      "run": [
+        {"open": "com.apple.iWork.Pages", "window": "document"},
+        {"op": "menu", "args": {"path": "File > Export To > Word…"}, "next": "export"},
+        {"op": "press", "args": {"button": "Next…"}, "next": "saveexport"},
+        {"op": "type_text", "args": {"target": "relazione", "text": "relazione_word"}},
+        {"op": "press", "args": {"button": "Export"}, "next": "document"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Export the document to Word as <output_name>"},
+        "steps": [{"step": 1, "label": "Open the Word export options"}, {"step": 2, "label": "Go on to the file name"},
+                  {"step": 3, "label": "Type <output_name> as the exported file's name"}, {"step": 4, "label": "Export the file"}],
+        "parameters": [{"name": "output_name", "role": "name of the exported file", "kind": "text"}],
+        "uses": [{"step": 3, "argument": "text", "template": "{output_name}"}]
+      }
+    },
+    {
+      "id": "pages-export-pdf", "family": "docexport",
+      "goal": "Export the report as PDF named relazione_pdf",
+      "inputs": [{"name": "output_name", "value": "relazione_pdf"}],
+      "run": [
+        {"open": "com.apple.iWork.Pages", "window": "document"},
+        {"op": "menu", "args": {"path": "File > Export To > PDF…"}, "next": "export"},
+        {"op": "press", "args": {"button": "Next…"}, "next": "saveexport"},
+        {"op": "type_text", "args": {"target": "relazione", "text": "relazione_pdf"}},
+        {"op": "press", "args": {"button": "Export"}, "next": "document"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Export the document to PDF as <output_name>"},
+        "steps": [{"step": 1, "label": "Open the PDF export options"}, {"step": 2, "label": "Go on to the file name"},
+                  {"step": 3, "label": "Type <output_name> as the exported file's name"}, {"step": 4, "label": "Export the file"}],
+        "parameters": [{"name": "output_name", "role": "name of the exported file", "kind": "text"}],
+        "uses": [{"step": 3, "argument": "text", "template": "{output_name}"}]
+      }
+    },
+    {
+      "id": "safari-download-invoice", "family": "download",
+      "goal": "Download invoice INV-2026-031 from the supplier portal",
+      "inputs": [{"name": "invoice", "value": "INV-2026-031"}],
+      "run": [
+        {"open": "com.apple.Safari", "window": "portal"},
+        {"op": "act", "args": {"target": "Invoices"}, "next": "invoices"},
+        {"op": "act", "args": {"target": "INV-2026-031"}},
+        {"op": "act", "args": {"target": "Download PDF"}}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Download invoice <invoice> as PDF from the supplier portal"},
+        "steps": [{"step": 1, "label": "Open the invoices page of the portal"}, {"step": 2, "label": "Select invoice <invoice>"},
+                  {"step": 3, "label": "Download the selected invoice as PDF"}],
+        "parameters": [{"name": "invoice", "role": "number of the invoice", "kind": "text"}],
+        "uses": [{"step": 2, "argument": "target", "template": "{invoice}"}]
+      }
+    },
+    {
+      "id": "notes-share-mail", "family": "notes",
+      "goal": "Write a note titled Riunione and send it by email to Paolo",
+      "inputs": [{"name": "note_title", "value": "Riunione"}, {"name": "recipient", "value": "paolo@example.com"}],
+      "run": [
+        {"open": "com.apple.Notes", "window": "notes"},
+        {"op": "act", "args": {"target": "New Note"}},
+        {"op": "type_text", "args": {"target": "Note title", "text": "Riunione"}},
+        {"op": "context_menu", "args": {"target": "Share", "item": "Mail"}},
+        {"open": "com.apple.mail", "window": "compose"},
+        {"op": "type_text", "args": {"target": "To", "text": "paolo@example.com"}},
+        {"op": "act", "args": {"target": "Send"}, "next": "viewer"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Create a note titled <note_title> and email it to <recipient>"},
+        "parts": [{"part": "b1", "label": "Create a note titled <note_title> and share it by Mail", "outcome": "completed"},
+                  {"part": "b2", "label": "Send the shared note to <recipient>", "outcome": "completed"}],
+        "steps": [{"step": 1, "label": "Create a new note"}, {"step": 2, "label": "Type <note_title> as the note's title"},
+                  {"step": 3, "label": "Share the note through Mail"}, {"step": 4, "label": "Type <recipient> in To"},
+                  {"step": 5, "label": "Send the email"}],
+        "parameters": [{"name": "note_title", "role": "title of the note", "kind": "text"},
+                       {"name": "recipient", "role": "email address of the recipient", "kind": "text"}],
+        "uses": [{"step": 2, "argument": "text", "template": "{note_title}"}, {"step": 4, "argument": "text", "template": "{recipient}"}]
+      }
+    },
+    {
+      "id": "finder-compress-folder", "family": "compress",
+      "goal": "Compress the Progetto folder into a zip archive",
+      "inputs": [{"name": "folder", "value": "Progetto"}],
+      "run": [
+        {"open": "com.apple.finder", "window": "main"},
+        {"op": "context_menu", "args": {"target": "Progetto", "item": "Compress"}}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Compress the folder <folder> into a zip archive"},
+        "steps": [{"step": 1, "label": "Compress <folder> from its contextual menu"}],
+        "parameters": [{"name": "folder", "role": "folder to archive", "kind": "text"}],
+        "uses": [{"step": 1, "argument": "target", "template": "{folder}"}]
+      }
+    },
+    {
+      "id": "preview-reduce-pdf-size", "family": "compress",
+      "goal": "Make contratto.pdf smaller with the Reduce File Size filter",
+      "inputs": [{"name": "output_name", "value": "contratto_small.pdf"}],
+      "run": [
+        {"open": "com.apple.Preview", "window": "pdf"},
+        {"op": "menu", "args": {"path": "File > Export…"}, "next": "export"},
+        {"op": "select", "args": {"control": "Quartz Filter", "item": "Reduce File Size"}},
+        {"op": "type_text", "args": {"target": "foto_demo.png", "text": "contratto_small.pdf"}},
+        {"op": "press", "args": {"button": "Save"}, "next": "pdf"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Reduce the size of the PDF by exporting it with the Reduce File Size filter"},
+        "steps": [{"step": 1, "label": "Open the Export dialog of the PDF"}, {"step": 2, "label": "Apply the Reduce File Size filter"},
+                  {"step": 3, "label": "Type <output_name> as the smaller PDF's name"}, {"step": 4, "label": "Save the smaller PDF"}],
+        "parameters": [{"name": "output_name", "role": "file name of the reduced PDF", "kind": "text"}],
+        "uses": [{"step": 3, "argument": "text", "template": "{output_name}"}]
+      }
+    },
+    {
+      "id": "vscode-find-replace", "family": "editor",
+      "goal": "Replace staging with production everywhere in config.yaml and save",
+      "inputs": [{"name": "search_text", "value": "staging"}, {"name": "replacement", "value": "production"}],
+      "run": [
+        {"open": "com.microsoft.VSCode", "window": "editor"},
+        {"op": "press_key", "args": {"key": "f", "modifiers": ["cmd", "opt"]}, "next": "find"},
+        {"op": "type_text", "args": {"target": "Find", "text": "staging"}},
+        {"op": "type_text", "args": {"target": "Replace", "text": "production"}},
+        {"op": "act", "args": {"target": "Replace All"}},
+        {"op": "act", "args": {"target": "Close"}, "next": "editor"},
+        {"op": "press_key", "args": {"key": "s", "modifiers": ["cmd"]}}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Replace every <search_text> with <replacement> in the open file and save it"},
+        "steps": [{"step": 1, "label": "Open find and replace"}, {"step": 2, "label": "Type <search_text> as the text to find"},
+                  {"step": 3, "label": "Type <replacement> as the replacement"}, {"step": 4, "label": "Replace every occurrence"},
+                  {"step": 5, "label": "Close find and replace"}, {"step": 6, "label": "Save the file"}],
+        "parameters": [{"name": "search_text", "role": "text to replace", "kind": "text"},
+                       {"name": "replacement", "role": "text written instead", "kind": "text"}],
+        "uses": [{"step": 2, "argument": "text", "template": "{search_text}"}, {"step": 3, "argument": "text", "template": "{replacement}"}]
+      }
+    },
+    {
+      "id": "vscode-save-copy", "family": "editor",
+      "goal": "Save config.yaml as a copy named config.prod.yaml in the project folder",
+      "inputs": [{"name": "output_name", "value": "config.prod.yaml"}, {"name": "output_folder", "value": "project"}],
+      "run": [
+        {"open": "com.microsoft.VSCode", "window": "editor"},
+        {"op": "menu", "args": {"path": "File > Save As…"}, "next": "saveas"},
+        {"op": "type_text", "args": {"target": "config.yaml", "text": "config.prod.yaml"}},
+        {"op": "select", "args": {"control": "Where", "item": "project"}},
+        {"op": "press", "args": {"button": "Save"}, "next": "editor"}
+      ],
+      "end": "completed",
+      "interpretation": {
+        "procedure": {"label": "Save the open file under the name <output_name> in <output_folder>"},
+        "steps": [{"step": 1, "label": "Open Save As"}, {"step": 2, "label": "Type <output_name> as the file name"},
+                  {"step": 3, "label": "Choose <output_folder> as the folder"}, {"step": 4, "label": "Save the file under the new name"}],
+        "parameters": [{"name": "output_name", "role": "new file name", "kind": "text"},
+                       {"name": "output_folder", "role": "folder of the new file", "kind": "folder"}],
+        "uses": [{"step": 2, "argument": "text", "template": "{output_name}"}, {"step": 3, "argument": "item", "template": "{output_folder}"}]
+      }
+    }
+  ],
+  "queries": [
+    {"id": "photo-1", "family": "photo", "split": "dev", "language": "en", "kind": "tract with ready output",
+     "remaining": "Export the photo already rotated in Preview as foto_mail.png in PNG",
+     "inputs": [{"name": "output_name", "value": "foto_mail"}, {"name": "output_extension", "value": "png"}, {"name": "output_format", "value": "PNG"}],
+     "expect": {"forbid_steps": [{"knowledge": "photo-export", "steps": [3]}], "coverage": "complete", "accept": [{"knowledge": "photo-export", "steps": [4, 7]}, {"knowledge": "preview-resize-export", "steps": [4, 7]}],
+                "bindings": {"output_name": "foto_mail"}},
+     "why": "the rotation is done: only the export episode, with the new values"},
+    {"id": "photo-2", "family": "photo", "split": "dev", "language": "it", "kind": "tract with ready output, Italian",
+     "remaining": "Esporta in PNG la foto già aperta in Anteprima con il nome foto_mail",
+     "inputs": [{"name": "output_name", "value": "foto_mail"}, {"name": "output_extension", "value": "png"}, {"name": "output_format", "value": "PNG"}],
+     "expect": {"forbid_steps": [{"knowledge": "photo-export", "steps": [3]}], "coverage": "complete", "accept": [{"knowledge": "photo-export", "steps": [4, 7]}, {"knowledge": "preview-resize-export", "steps": [4, 7]}]},
+     "why": "Italian request over English labels"},
+    {"id": "photo-3", "family": "photo", "split": "dev", "language": "en", "kind": "whole procedure, new values",
+     "remaining": "Find ritratto.png in Finder, rotate it right in Preview and export it as ritratto_web.jpg",
+     "inputs": [{"name": "criterion", "value": "ritratto"}, {"name": "output_name", "value": "ritratto_web"}, {"name": "output_extension", "value": "jpg"},
+                {"name": "output_format", "value": "JPEG"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "photo-export", "steps": [1, 7]}, {"knowledge": "photo-export", "steps": [1, 8]}],
+                "bindings": {"criterion": "ritratto"}},
+     "why": "the whole method, without copying foto_demo or foto_web"},
+    {"id": "photo-4", "family": "photo", "split": "dev", "language": "en", "kind": "single step",
+     "remaining": "Rotate the open image to the right",
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "photo-export", "steps": [3, 3]}]},
+     "why": "a step that leaves the state unchanged is an episode of its own"},
+    {"id": "photo-5", "family": "photo", "split": "dev", "language": "en", "kind": "missing parameter",
+     "remaining": "Export the edited photo in Preview with the name foto_mail",
+     "inputs": [{"name": "output_name", "value": "foto_mail"}, {"name": "output_extension", "value": "png"}],
+     "expect": {"forbid_steps": [{"knowledge": "photo-export", "steps": [3]}], "coverage": "ambiguous", "accept": [{"knowledge": "photo-export", "steps": [4, 7]}, {"knowledge": "preview-resize-export", "steps": [4, 7]}]},
+     "why": "the format is needed and the request does not give it: the agent must ask or observe"},
+    {"id": "photo-6", "family": "photo", "split": "dev", "language": "mixed", "kind": "mixed language, compatibility unknown",
+     "remaining": "export la foto modificata as TIFF chiamata foto_stampa",
+     "inputs": [{"name": "output_name", "value": "foto_stampa"}, {"name": "output_extension", "value": "tiff"}, {"name": "output_format", "value": "TIFF"}],
+     "expect": {"forbid_steps": [{"knowledge": "photo-export", "steps": [3]}], "coverage": "complete", "accept": [{"knowledge": "photo-export", "steps": [4, 7]}, {"knowledge": "preview-resize-export", "steps": [4, 7]}],
+                "conditions": ["compatibility_unknown"]},
+     "why": "TIFF was never chosen: the method is proposed with its compatibility to check"},
+    {"id": "print-1", "family": "print", "split": "dev", "language": "en", "kind": "near but incompatible, resolved",
+     "remaining": "Print all the pages of the open PDF",
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "print-all-pages", "steps": [1, 3]}], "exclude": ["print-current-page"]},
+     "why": "printing all pages is not printing the current page"},
+    {"id": "print-2", "family": "print", "split": "dev", "language": "en", "kind": "near but incompatible, resolved",
+     "remaining": "Print just the current page of this PDF",
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "print-current-page", "steps": [1, 3]}], "exclude": ["print-all-pages"]},
+     "why": "only the page being read"},
+    {"id": "print-3", "family": "print", "split": "dev", "language": "en", "kind": "ambiguity between variants",
+     "remaining": "Print the open PDF",
+     "expect": {"coverage": "ambiguous", "accept": [], "alternatives": ["print-current-page", "print-all-pages"]},
+     "why": "the request does not say which pages"},
+    {"id": "print-4", "family": "print", "split": "dev", "language": "it", "kind": "near but incompatible, Italian",
+     "remaining": "Stampa tutte le pagine del PDF aperto",
+     "expect": {"coverage": ["complete", "ambiguous"], "accept": [{"knowledge": "print-all-pages", "steps": [1, 3]}], "exclude": ["print-current-page"]},
+     "why": "Italian over English labels; asking is acceptable, the current page is not"},
+    {"id": "textcopy-1", "family": "textcopy", "split": "dev", "language": "en", "kind": "alternative valid methods, superseded version",
+     "remaining": "Save a copy of the open note named appunti_copia on the Desktop",
+     "inputs": [{"name": "output_name", "value": "appunti_copia"}, {"name": "output_folder", "value": "Desktop", "kind": "folder"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "textedit-duplicate-save", "steps": [1, 5]}, {"knowledge": "textedit-save-as-copy", "steps": [1, 5]}],
+                "exclude": ["textedit-duplicate-save@1"]},
+     "why": "either method makes a copy; the version superseded by the reinterpretation is never offered"},
+    {"id": "textcopy-2", "family": "textcopy", "split": "dev", "language": "it", "kind": "alternative valid methods, Italian",
+     "remaining": "Salva il documento come nuovo file mantenendo l'originale, nome bozza_2 in Documenti",
+     "inputs": [{"name": "output_name", "value": "bozza_2"}, {"name": "output_folder", "value": "Documents", "kind": "folder"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "textedit-save-as-copy", "steps": [1, 5]}, {"knowledge": "textedit-duplicate-save", "steps": [1, 5]}],
+                "exclude": ["textedit-duplicate-save@1"]},
+     "why": "keeping the original is what both methods do"},
+    {"id": "textcopy-3", "family": "textcopy", "split": "dev", "language": "en", "kind": "binding by role",
+     "remaining": "Make a duplicate of the document and save it as verbale_def in Documents",
+     "inputs": [{"name": "copy name", "value": "verbale_def", "role": "name of the copy"}, {"name": "destination", "value": "Documents", "kind": "folder", "role": "folder where the copy is saved"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "textedit-duplicate-save", "steps": [1, 5]}],
+                "bindings": {"output_name": "verbale_def", "output_folder": "Documents"}, "exclude": ["textedit-duplicate-save@1"]},
+     "why": "the task's names differ from the parameters'; the roles bind them"},
+    {"id": "webform-1", "family": "webform", "split": "dev", "language": "en", "kind": "whole procedure, new values",
+     "remaining": "Fill in the supplier contact form with Giulia Bianchi, giulia@example.com and ask for a quote, then submit",
+     "inputs": [{"name": "full_name", "value": "Giulia Bianchi"}, {"name": "email", "value": "giulia@example.com"}, {"name": "message", "value": "Vorrei un preventivo"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "contact-form", "steps": [1, 4]}], "bindings": {"email": "giulia@example.com"}},
+     "why": "the form with the new person's values"},
+    {"id": "webform-2", "family": "webform", "split": "dev", "language": "en", "kind": "output ready, last step",
+     "remaining": "The contact form is already filled in: just submit it",
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "contact-form", "steps": [4, 4]}]},
+     "why": "typing again what is already in the form would repeat done work"},
+    {"id": "webform-3", "family": "webform", "split": "dev", "language": "it", "kind": "missing parameter, Italian",
+     "remaining": "Compila e invia il modulo contatti a nome di Luca Verdi chiedendo un appuntamento",
+     "inputs": [{"name": "full_name", "value": "Luca Verdi"}, {"name": "message", "value": "Vorrei un appuntamento"}],
+     "expect": {"coverage": "ambiguous", "accept": [{"knowledge": "contact-form", "steps": [1, 4]}]},
+     "why": "the email address is needed and not given"},
+    {"id": "mail-1", "family": "mailattach", "split": "dev", "language": "en", "kind": "subprocedure with ready input",
+     "remaining": "Email the already found report_q3.pdf to luca@example.com with subject Numeri Q3",
+     "inputs": [{"name": "file_name", "value": "report_q3.pdf"}, {"name": "recipient", "value": "luca@example.com"}, {"name": "subject", "value": "Numeri Q3"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "mail-attach", "steps": [3, 9]}], "bindings": {"recipient": "luca@example.com"}},
+     "why": "the file is ready: the Finder search is not repeated"},
+    {"id": "mail-2", "family": "mailattach", "split": "dev", "language": "it", "kind": "whole procedure, Italian",
+     "remaining": "Trova il file bilancio.pdf nel Finder e mandalo per email a marta@example.com con oggetto Bilancio",
+     "inputs": [{"name": "file_name", "value": "bilancio.pdf"}, {"name": "recipient", "value": "marta@example.com"}, {"name": "subject", "value": "Bilancio"}],
+     "expect": {"coverage": ["complete", "ambiguous"], "accept": [{"knowledge": "mail-attach", "steps": [1, 9]}]},
+     "why": "the whole procedure; the search criterion may be asked"},
+    {"id": "mail-3", "family": "mailattach", "split": "dev", "language": "en", "kind": "needs split, one absent",
+     "remaining": "Send report_q3.pdf to anna@example.com and then archive the email thread",
+     "needs": [{"text": "Email report_q3.pdf to anna@example.com"}, {"text": "Archive the email thread"}],
+     "inputs": [{"name": "file_name", "value": "report_q3.pdf"}, {"name": "recipient", "value": "anna@example.com"}, {"name": "subject", "value": "Report"}],
+     "expect": {"coverage": ["partial", "ambiguous"], "needs": [{"coverage": ["complete", "ambiguous"], "accept": [{"knowledge": "mail-attach", "steps": [3, 9]}, {"knowledge": "mail-attach", "steps": [1, 9]}]},
+                                                  {"coverage": "absent", "accept": []}]},
+     "why": "nothing learned archives a thread"},
+    {"id": "sheets-1", "family": "sheets", "split": "dev", "language": "en", "kind": "compatibility unknown",
+     "remaining": "Sort the sales table by Amount, largest first",
+     "inputs": [{"name": "sort_column", "value": "Amount"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "numbers-sort-desc", "steps": [1, 4]}], "exclude": ["numbers-filter"],
+                "conditions": ["compatibility_unknown"]},
+     "why": "another column than the learned one: to check in the pop-up"},
+    {"id": "sheets-2", "family": "sheets", "split": "dev", "language": "en", "kind": "near method, different result",
+     "remaining": "Keep only the rows where Region is South",
+     "inputs": [{"name": "filter_column", "value": "Region"}, {"name": "filter_value", "value": "South"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "numbers-filter", "steps": [1, 5]}], "exclude": ["numbers-sort-desc"]},
+     "why": "filtering is not sorting, though both start from Sort & Filter"},
+    {"id": "sheets-3", "family": "sheets", "split": "dev", "language": "it", "kind": "Italian paraphrase",
+     "remaining": "Ordina la tabella dal valore più grande al più piccolo sulla colonna Totale",
+     "inputs": [{"name": "sort_column", "value": "Total"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "numbers-sort-desc", "steps": [1, 4]}], "exclude": ["numbers-filter"]},
+     "why": "Italian paraphrase of the learned sort"},
+    {"id": "slides-1", "family": "slides", "split": "dev", "language": "en", "kind": "retired part",
+     "remaining": "Export the presentation to PDF named deck_final",
+     "inputs": [{"name": "output_name", "value": "deck_final"}],
+     "expect": {"coverage": ["partial", "absent"], "forbid_steps": [{"knowledge": "keynote-export-pdf", "steps": [2]}]},
+     "why": "the step retired after indexing is never delivered, and the episode without it is not complete"},
+    {"id": "absent-1", "family": "absent-dev", "split": "dev", "language": "en", "kind": "absence",
+     "remaining": "Create an event in Calendar for Friday at 10 called Revisione",
+     "expect": {"coverage": "absent", "accept": []}, "why": "nothing learned works with Calendar"},
+    {"id": "absent-2", "family": "absent-dev", "split": "dev", "language": "it", "kind": "absence, Italian",
+     "remaining": "Imposta una sveglia alle 7 nell'app Orologio",
+     "expect": {"coverage": "absent", "accept": []}, "why": "no clock knowledge"},
+    {"id": "absent-3", "family": "absent-dev", "split": "dev", "language": "en", "kind": "absence near a learned app",
+     "remaining": "Change the Wi-Fi network in System Settings",
+     "expect": {"coverage": "absent", "accept": []}, "why": "no settings knowledge"},
+
+    {"id": "resize-1", "family": "resize", "split": "final", "language": "en", "kind": "tract inside a procedure",
+     "remaining": "Resize the open image to 800 pixels wide",
+     "inputs": [{"name": "width", "value": "800", "kind": "number"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "preview-resize-export", "steps": [1, 3]}], "bindings": {"width": "800"}},
+     "why": "the adjust-size episode only, not the export"},
+    {"id": "resize-2", "family": "resize", "split": "final", "language": "it", "kind": "Italian tract inside a procedure",
+     "remaining": "Ridimensiona l'immagine aperta in Anteprima a 640 pixel di larghezza",
+     "inputs": [{"name": "width", "value": "640", "kind": "number"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "preview-resize-export", "steps": [1, 3]}]},
+     "why": "Italian request"},
+    {"id": "resize-3", "family": "resize", "split": "final", "language": "en", "kind": "whole procedure",
+     "remaining": "Scale the picture to 1024 px wide and then export it as thumb.png",
+     "inputs": [{"name": "width", "value": "1024", "kind": "number"}, {"name": "name", "value": "thumb"}, {"name": "extension", "value": "png"},
+                {"name": "format", "value": "PNG"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "preview-resize-export", "steps": [1, 7]}]},
+     "why": "both episodes"},
+    {"id": "resize-4", "family": "resize", "split": "final", "language": "en", "kind": "missing parameter",
+     "remaining": "Make the open image smaller in width",
+     "expect": {"coverage": "ambiguous", "accept": [{"knowledge": "preview-resize-export", "steps": [1, 3]}]},
+     "why": "the width is needed"},
+    {"id": "docexport-1", "family": "docexport", "split": "final", "language": "en", "kind": "variants resolved",
+     "remaining": "Export the open Pages document to Word as relazione_v3",
+     "inputs": [{"name": "output_name", "value": "relazione_v3"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "pages-export-word", "steps": [1, 4]}], "exclude": ["pages-export-pdf"]},
+     "why": "Word, not PDF"},
+    {"id": "docexport-2", "family": "docexport", "split": "final", "language": "it", "kind": "variants resolved, Italian",
+     "remaining": "Esporta il documento di Pages in PDF con nome relazione_finale",
+     "inputs": [{"name": "output_name", "value": "relazione_finale"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "pages-export-pdf", "steps": [1, 4]}], "exclude": ["pages-export-word"]},
+     "why": "PDF, not Word"},
+    {"id": "docexport-3", "family": "docexport", "split": "final", "language": "en", "kind": "ambiguity between variants",
+     "remaining": "Export the open Pages document as relazione_x",
+     "inputs": [{"name": "output_name", "value": "relazione_x"}],
+     "expect": {"coverage": "ambiguous", "accept": [], "alternatives": ["pages-export-word", "pages-export-pdf"]},
+     "why": "the format is the request's choice"},
+    {"id": "docexport-4", "family": "docexport", "split": "final", "language": "en", "kind": "no method for the requested choice",
+     "remaining": "Export the open Pages document to EPUB",
+     "expect": {"coverage": ["absent", "ambiguous", "partial"], "exclude": ["pages-export-word", "pages-export-pdf"]},
+     "why": "neither learned method produces EPUB: a complete proposal of either would be an incompatible delivery"},
+    {"id": "download-1", "family": "download", "split": "final", "language": "en", "kind": "whole procedure, new value",
+     "remaining": "Download invoice INV-2026-032 from the supplier portal as PDF",
+     "inputs": [{"name": "invoice", "value": "INV-2026-032"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "safari-download-invoice", "steps": [1, 3]}], "bindings": {"invoice": "INV-2026-032"}},
+     "why": "another invoice, the same method"},
+    {"id": "download-2", "family": "download", "split": "final", "language": "it", "kind": "output ready",
+     "remaining": "Sono già sulla pagina delle fatture con la fattura INV-2026-040 selezionata: scaricala in PDF",
+     "inputs": [{"name": "invoice", "value": "INV-2026-040"}],
+     "expect": {"coverage": ["complete", "partial"], "accept": [{"knowledge": "safari-download-invoice", "steps": [3, 3]}, {"knowledge": "safari-download-invoice", "steps": [2, 3]}]},
+     "why": "the page is open and the invoice selected: the navigation is not repeated"},
+    {"id": "notes-1", "family": "notes", "split": "final", "language": "en", "kind": "cross-application procedure",
+     "remaining": "Write a note titled Budget and email it to sara@example.com",
+     "inputs": [{"name": "note_title", "value": "Budget"}, {"name": "recipient", "value": "sara@example.com"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "notes-share-mail", "steps": [1, 5]}]},
+     "why": "both blocks, with the switch of application declared"},
+    {"id": "notes-2", "family": "notes", "split": "final", "language": "en", "kind": "subprocedure in one application",
+     "remaining": "Create a new note titled Idee in Notes",
+     "inputs": [{"name": "note_title", "value": "Idee"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "notes-share-mail", "steps": [1, 2]}]},
+     "why": "only the note, no sharing"},
+    {"id": "compress-1", "family": "compress", "split": "final", "language": "it", "kind": "homonymy",
+     "remaining": "Comprimi la cartella Progetto in un archivio zip",
+     "inputs": [{"name": "folder", "value": "Progetto"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "finder-compress-folder", "steps": [1, 1]}], "exclude": ["preview-reduce-pdf-size"]},
+     "why": "compressing a folder is not reducing a PDF"},
+    {"id": "compress-2", "family": "compress", "split": "final", "language": "en", "kind": "homonymy",
+     "remaining": "Make the open PDF smaller so it can be emailed, as contratto_light.pdf",
+     "inputs": [{"name": "output_name", "value": "contratto_light.pdf"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "preview-reduce-pdf-size", "steps": [1, 4]}], "exclude": ["finder-compress-folder"]},
+     "why": "reducing a PDF is not zipping a folder"},
+    {"id": "editor-1", "family": "editor", "split": "final", "language": "en", "kind": "whole procedure, new values",
+     "remaining": "In the open file replace every occurrence of debug with release and save it",
+     "inputs": [{"name": "search_text", "value": "debug"}, {"name": "replacement", "value": "release"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "vscode-find-replace", "steps": [1, 6]}, {"knowledge": "vscode-find-replace", "steps": [1, 5]}],
+                "exclude": ["vscode-save-copy"]},
+     "why": "find and replace, then save"},
+    {"id": "editor-2", "family": "editor", "split": "final", "language": "it", "kind": "near method",
+     "remaining": "Salva il file aperto con il nome config.dev.yaml nella cartella project",
+     "inputs": [{"name": "output_name", "value": "config.dev.yaml"}, {"name": "output_folder", "value": "project", "kind": "folder"}],
+     "expect": {"coverage": "complete", "accept": [{"knowledge": "vscode-save-copy", "steps": [1, 4]}], "exclude": ["vscode-find-replace"]},
+     "why": "saving under a new name, not replacing text"},
+    {"id": "partial-1", "family": "partial-final", "split": "final", "language": "en", "kind": "needs split, one absent near a known word",
+     "remaining": "Download invoice INV-2026-033 from the supplier portal and upload it to the accounting system",
+     "needs": [{"text": "Download invoice INV-2026-033 from the supplier portal"}, {"text": "Upload the downloaded invoice to the accounting system"}],
+     "inputs": [{"name": "invoice", "value": "INV-2026-033"}],
+     "expect": {"coverage": "partial", "needs": [{"coverage": "complete", "accept": [{"knowledge": "safari-download-invoice", "steps": [1, 3]}]},
+                                                  {"coverage": "absent", "accept": []}]},
+     "why": "the download is known, the upload is not, though it speaks of the same invoice"},
+    {"id": "absent-4", "family": "absent-final", "split": "final", "language": "en", "kind": "absence",
+     "remaining": "Book a meeting room for tomorrow in the company intranet",
+     "expect": {"coverage": "absent", "accept": []}, "why": "nothing learned books rooms"},
+    {"id": "absent-5", "family": "absent-final", "split": "final", "language": "it", "kind": "absence, Italian",
+     "remaining": "Registra una nota vocale con Memo Vocali",
+     "expect": {"coverage": "absent", "accept": []}, "why": "no voice memo knowledge"},
+    {"id": "absent-6", "family": "absent-final", "split": "final", "language": "en", "kind": "absence near learned words",
+     "remaining": "Export the browser bookmarks to an HTML file",
+     "expect": {"coverage": "absent", "accept": []}, "why": "export is a learned word, bookmarks are not learned"}
+  ]
+}

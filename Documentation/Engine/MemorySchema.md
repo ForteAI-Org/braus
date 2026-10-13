@@ -3,10 +3,12 @@
 The SQLite schema of the living memory: what the `SQLiteMemory` module ships, how its store treats a
 file, the observation contract its repositories write and read, the stored projection of the brain,
 the agent calls, how production writes all of it, and how the shipped resource differs from the
-candidate it was copied from. Status on 2026-10-07, branch `tommaso/merge-memory`: schema 1, 48
-tables, 48 triggers, 31 explicit indexes. On 2026-10-13 the merge of the value change added four
-columns ([below](#the-value-change)): resource sha256
-`b93622990ea5ec285c53aed98af4ffac956c3bf2ddd7c65aa11de99e68452141`.
+candidate it was copied from. Status on 2026-10-13, branch `rename-app` with G76 D1 to D3 merged: one
+schema text at version 7, 109 tables, 187 triggers, 73 explicit indexes, resource sha256
+`8ad0d5571d1b28e13b222560ce2c7e962302d4ec984eb99039e3d7b045ecbac6`. Its part 1 is schema 1 (48 tables, 48 triggers, 31 explicit indexes) with
+the value change ([below](#the-value-change)), whose resource had sha256
+`b93622990ea5ec285c53aed98af4ffac956c3bf2ddd7c65aa11de99e68452141` ([One schema text](#one-schema-text)).
+Everything below about schema 1 still holds for the tables of the base.
 
 The store and its repositories were built on `tommaso/memory-model` and documented there at
 `f163651`. This branch transplanted that data layer onto main, extended the contract to main's
@@ -32,11 +34,171 @@ them. Every step stayed at schema 1. Which tables production writes, and which h
 fixtures, is in [the memory contracts](MemoryContracts.md#what-production-writes-today). The
 contract items listed at the end were carried into S2 as they stand.
 
+## One schema text
+
+Since 2026-10-13 the module ships one text, `brain-living-memory-schema.sql`, that creates the whole
+schema at version 7, and edits it in place: a change of shape before a release adds no file. Its part 1 is
+schema 1 with the value change, statement for statement; the store reads the shape of version 1 from that
+part (`SQLiteMemorySchema.part(_:of:)`), to recognize an archive of version 1 before migrating it.
+
+- **New archive.** The bootstrap runs the one text and sets `user_version = 7` in the same transaction.
+- **Archive of version 1** at exactly part 1's shape, the one `rename-app`'s builds create. A producer's open
+  migrates it after a verified copy, in one transaction (`SQLiteMemorySchema.migrationText(from: 1)`):
+  - every table of the one text that schema 1 lacks, each statement as the one text writes it, in its order;
+  - the shapes of the structural scenes it holds, derived from its own rows (`SQLiteMemorySchema.derivedRows`);
+  - the indexes, then the triggers;
+  - the anchors' label keys, filled by the store, and one rebuild of the Recall's index queued;
+  - the record `7:1` in `memory_schema_migrations`.
+
+  The migration only adds: no later part alters a table of part 1 (`SchemaMigrationTests.oneText`). A reader
+  refuses the archive until then (`migrationRequired`).
+- **Archive of main before the value change.** Its version-1 tables lack the value change's columns: refused
+  untouched by name (`missingColumns`), as `rename-app` already decided, never migrated or reset. Editing part 1
+  again moves this line: an archive bootstrapped before the edit is refused untouched, and
+  `SchemaMigrationTests.partOneShape` names the shape part 1 must keep for the archives it recognizes.
+- **Versions 2 to 6.** They were the development steps of the G76 plans, one text each, never released. An
+  archive at one of them, which only a development build of D1, D2 or D3 could create, is refused untouched,
+  with no copy beside it (`schema(.unsupported)`, `ProcedureRepositoryTests.developmentVersionsRefused`).
+  An archive at version 7 of a development build of D3 lacks the value change's columns and is refused untouched
+  too (`missingColumns`).
+
+**Why.** The six development texts each added to the one before, so the shape of version 7 was spread
+over seven files and a migration existed for every step, though only version 1 was ever released. R63
+asks that the archives of a released version keep their facts, so the migration from version 1 stays;
+the others served only development machines. Schema 1 is read from the one text, not from a copy of it,
+so there is one SQL file; the archives of main before the value change are refused as `rename-app`
+already refused them.
+
+**Proof that nothing changed.** Before the merge, the one text created the same 369 objects as the chain
+of seven, each with the same statement (checked with SQLite). After it, the only objects that differ are the
+two tables the value change altered, `brain_transitions` and `memory_agent_actions`. Three archives of version 1 with rows
+(calls and captures; a projection of 413 anchors; structural scenes with their roles) were migrated by
+the chain's build and by this one: every object and every row is the same, the instants of the
+migration aside. `RecallLifecycleTests.schemaOneArchive`, `ProjectionSliceTests.migrationFillsTheKeys`
+and `SchemaMigrationTests.sceneShapes` cover the derived rows; `verify-memory-schema.py` runs schema 1's
+checks on part 1 and the parts 2 to 7 in order on that populated file, and checks that the parts are the
+whole text.
+
+The one text keeps three tables no build writes any more: `brain_relation_applications` and
+`brain_relation_proofs`, the register of the first relation policy, and `memory_variant_prefixes`, the
+first check of a variant's prefix. They are empty in every archive this schema opens; removing them is a
+change of shape left to a later edit of the one text.
+
+The sections below record each part as it was added, when each was a version of its own, with the counts
+and checks of that day; the files they name were merged into the one text, and the migrations from
+versions 2 to 6 removed.
+
+## Schema 2 (G76 D1)
+
+Since 2026-10-09 the store bootstraps and opens schema 2: this page's schema 1 resource, unchanged, followed by
+`brain-living-memory-schema-2.sql`, which adds 18 tables, 27 triggers and 10 indexes (66, 75 and 41 in all) for
+tasks, operation effects and verifications, withheld values, the parts of a call's end saved without them
+(`memory_call_recording_gaps`), the unified archives' origins with what their JSON Brains contributed
+(`memory_origin_brain_contributions`), and the migration record. An archive at exactly schema 1 is migrated by a producer's open after a verified copy; a reader refuses
+it (`migrationRequired`). Everything below about schema 1 still holds for its tables. The contracts, the
+migration and the tests are in [MemoryFacts](MemoryFacts.md); `verify-memory-schema.py` runs schema 2's text on
+its populated schema 1 file and checks it (292 checks, 239 negative, on 2026-10-09).
+
+## Schema 3 (G76 D2)
+
+`brain-living-memory-schema-3.sql`, the first D2 delivery's (2026-10-11), follows schemas 1 and 2 unchanged and
+adds 20 tables, 47 triggers and 11 indexes (86, 122 and 52 in all) for procedure candidates, interpretations,
+versions and parts, parameters' details, templates and bindings, the qualification of parts with its policies,
+reasons, evidence and states, and the Brain's relations with their proofs, their register and the role keys of
+structural scenes. Archives of schema 3 exist, so its text is unchanged and schema 4 follows it.
+
+## Schema 4 (G76 D2, after its independent review)
+
+From the first corrections of 2026-10-11 until schema 5 the store bootstrapped and opened schema 4: schemas 1, 2 and 3 unchanged,
+followed by `brain-living-memory-schema-4.sql`, which adds 4 tables, 10 triggers and 8 indexes (90, 132 and 60
+in all) for the append-only history of what each call teaches the relations and the evidence of each
+evaluation, the anchors' label keys a scene's part of the projection is read by, and the check of a variant's
+common prefix. Schema 3's register of the first relation policy stays as written. A producer's open migrates
+an archive at exactly schema 3, 2 or 1 after a verified copy, in one transaction, and fills the label keys of
+the anchors it holds; readers refuse it until then. The contracts, the migration and the tests are in
+[MemoryProcedures](MemoryProcedures.md#schema-4-and-its-migration); `verify-memory-schema.py` runs schema 4's
+text after schema 3's on its populated file (390 checks, 324 negative, on 2026-10-11).
+
+## Schema 5 (G76 D2, after its second independent review)
+
+Since the second corrections of 2026-10-11 the store bootstraps and opens schema 5: schemas 1 to 4 unchanged,
+followed by `brain-living-memory-schema-5.sql`, which adds 1 table and 3 triggers (91, 135 and 60 in all):
+`memory_variant_prefix_checks`, the check of a variant's common prefix with the reason a prefix whose
+parameters do not correspond is only suggested. Schema 4's `memory_variant_prefixes` stays as written and is
+written no more. A producer's open migrates an archive at exactly schema 4, 3, 2 or 1 after a verified copy,
+in one transaction, copies schema 4's suggested prefixes and checks its verified ones again from the stored
+definitions; readers refuse it until then. The contracts, the migration and the tests are in
+[MemoryProcedures](MemoryProcedures.md#schema-5-and-its-migration); `verify-memory-schema.py` runs schema 5's
+text after schema 4's on its populated file (401 checks, 332 negative, on 2026-10-11).
+
+## Schema 6 (G76 D3, the Recall)
+
+Since D3 (2026-10-11) the store bootstraps and opens schema 6: schemas 1 to 5 unchanged, followed by
+`brain-living-memory-schema-6.sql`, which adds 12 tables, 35 triggers and 12 indexes (103, 170 and 72 in all):
+the Recall's derived index (`memory_recall_spaces`, `_generations`, `_documents`, `_vectors`, `_entries`, and
+the durable queue `_work`) and its facts (`memory_recall_queries`, `_needs`, `_selections`, `_requirements`,
+`_links`, `_reports`). Five of its triggers sit on schema 3's tables (versions, part qualifications, part states,
+qualification policies) and record index work in the same transaction as every write that changes what the
+catalogue may offer, and four of its indexes give schema 3's lookups by version (bindings, parameter details,
+contract items, the version that supersedes another) the index they lacked; no table of an earlier schema is
+altered. A producer's open migrates an archive at exactly
+schema 5 to 1 after a verified copy, in one transaction, and queues one rebuild of the index there, since the
+text cannot read the time; readers refuse it until then. The index is derived and rebuildable; its contract,
+lifecycle and tests are in [MemoryRecall](MemoryRecall.md). `verify-memory-schema.py` runs schema 6's text after
+schema 5's on its populated file (481 checks, 403 negative, on 2026-10-12): spaces, generations and their
+transitions, vectors of the space's length, entries of a live generation in its format, the work triggers and
+their coalescing, queries whose search status, coverage, channel and delivery agree, needs whose reason fits
+their coverage (`excluded` only for an absence), selections within their version (an excluded episode allowed
+for an absence, never for a search that could not answer), requirements on their selection's steps (a
+prerequisite out of the catalogue, a step done before the selection or an output's producer on a step of its
+version before it), exclusions only on excluded selections and excluded selections stating only exclusions, a
+constraint named by its position, an observed state with its scene, links of calls of the query's attempt to
+its selected interval, reports in order, and every fact immutable and kept. The correction round of the
+independent review (2026-10-12) changed schema 6's text before any release: the requirement kinds
+(`observed_state`, `prepared_before`, `input_produced`, `output_ready`, `constraint_unchecked`,
+`certain_conflict`, `constraint_excluded`), the `constraint_position` column, the `produced` binding match, the
+`excluded` selection role and need reason, a link's `undetermined` flag; the counts are unchanged.
+
+## Schema 7 (G76 D3, the experiment of the agent's choice)
+
+Since the experiment A round (2026-10-12) the store bootstraps and opens schema 7: schemas 1 to 6 unchanged, followed by
+`brain-living-memory-schema-7.sql`, which adds 6 tables, 17 triggers and 1 index (109, 187 and 73 in all):
+
+- a proposal (`memory_recall_proposals`), its needs (`memory_recall_proposal_needs`) and the versions it shortlisted
+  per need with their names and the automatic suggestion (`memory_recall_proposal_sources`);
+- the choice that answers a proposal, one per proposal (`memory_recall_choices`);
+- the agent's declaration of coverage per need (`memory_recall_choice_needs`): `all`, `part`, `none` or `ambiguous`,
+  what remains or the question for the person, and the request's words it quoted to settle a choice (`settled_by`); an
+  ambiguous need has no selected row and two `alternative` rows at least;
+- the links of a choice's calls to the tract they carried out (`memory_recall_choice_links`).
+
+One trigger sits on schema 6's `memory_recall_links`: a choice's calls are never linked there, since those links name
+no tract. Schema 6's check of a requirement's step (`memory_recall_requirements_valid`) is dropped and written again with
+the same checks and one case admitted: an `input_produced` of a chosen tract may name the producer's step in an earlier
+selected tract of the same version and need. The measure with a real agent found that case refused. No table of an
+earlier schema is altered. Why the experiment needs these, and why schema 6's columns would
+have changed meaning to hold them, is in [RecallAgentChoice](RecallAgentChoice.md#persistence-schema-7).
+
+A producer's open migrates an archive at exactly schema 6 to 7 after a verified copy, in one transaction, with no data
+statement and no rebuild; an archive at schema 5 or earlier runs every text it lacks. `RecallLifecycleTests` migrated
+an archive of schema 6 that held a query, its selection and its index, and read every row back; that test went with
+the migrations from versions 2 to 6.
+`verify-memory-schema.py` runs schema 7's text after schema 6's on its populated file (520 checks, 437 negative, on
+2026-10-12). The checks cover:
+- one name per version in a proposal;
+- a suggestion with both ends;
+- a source of a need the proposal has;
+- a choice of a proposal of the same attempt, revision and producer, at most one per proposal;
+- a declaration of all covered with nothing uncovered;
+- a link to a step of the tract it names, a call linked once per query;
+- no schema 6 link for a choice's call;
+- every row immutable and kept.
+
 ## The resource
 
 `Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema.sql`, copied into the module's
-resource bundle and read by `SQLiteMemorySchema` at every open. Its base is the S0 closing candidate
-v5, whose logical model was approved at v3. The resource differs from that base in the changes
+resource bundle and read by `SQLiteMemorySchema` at every open ([One schema text](#one-schema-text)). What follows describes the base, part 1 of the one text. Its base is
+the S0 closing candidate v5, whose logical model was approved at v3. The resource differs from that base in the changes
 listed in [Differences from the archived v5 candidate](#differences-from-the-archived-v5-candidate),
 in its comments (English) and in carrying no `PRAGMA`, `BEGIN` or `COMMIT` of its own: the store owns
 those boundaries.
@@ -45,16 +207,17 @@ Shape: 48 tables, all `STRICT`; 48 triggers; 31 explicit indexes; no JSON column
 `FileKnowledge` wrote are never read at run time; their Brains are copied once, when an open creates
 the archive beside them, and `mecum memory --import-json <dir>` copies any directory's by hand
 ([The brain's projection](#the-brains-projection). The resource has no version of
-its own: the bootstrap sets `user_version = 1` in the same transaction that creates the tables. No
+its own: the bootstrap sets `user_version = 7` in the same transaction that creates the tables. No
 `application_id` is set or checked: a file is recognized by its version and its shape.
 
-A file at version 1 must carry every table of the resource; every column this build writes that an
+A file at version 1 must carry every table of schema 1 before it migrates; every column this build writes that an
 earlier development form lacked (`SQLiteMemorySchema.requiredColumns`: `brain_anchors.current_group_id`,
 `memory_operation_arguments.brain_application_id`, `memory_agent_actions.started_at_ms`,
 `memory_agent_actions.duration_ms`, `memory_agent_actions.observed_state_before`,
 `memory_events.origin_event_id`, `brain_transitions.effect_label` and
 `memory_agent_actions.observed_effect_label`); and exactly the tables, indexes and triggers the resource creates,
-compared with a scratch bootstrap of the shipped DDL in memory. A difference is
+compared with a scratch bootstrap of part 1 in memory. A file at version 7 is compared, the same way,
+with the whole text. A difference is
 `schema(.differentShape)`, naming each object as `type name`. The archives `tommaso/memory-model`'s
 builds created are at version 1 with every table and required column, and their CHECKs and triggers
 differ from this resource's, so they are refused by that comparison, untouched. Against the resource of
@@ -76,15 +239,17 @@ about the library the binary links; `SQLiteLibrary.version` and `.sourceID` do, 
 
 | The file at `open` | What the store does |
 |---|---|
-| Does not exist, directory writable | Creates it, puts it in WAL, creates schema 1 under the write lock, sets `user_version = 1` |
+| Does not exist, directory writable | Creates it, puts it in WAL, runs the one text under the write lock, sets `user_version = 7` |
 | `user_version` 0, no tables (a file `sqlite3` created and left empty) | Same as above |
-| `user_version` 1, all 48 tables, every required column, and every table, index and trigger written exactly as the resource writes it | Verifies and opens; `bootstrappedNow` is false |
+| `user_version` 7, every table, index and trigger written exactly as the one text writes it | Verifies and opens; `bootstrappedNow` is false |
+| `user_version` 1, all 48 tables, every required column, and every table, index and trigger written exactly as schema 1 writes it | A producer migrates it to 7 after a verified copy, in one transaction ([One schema text](#one-schema-text)); a reader refuses it with `schema(.migrationRequired)` |
+| `user_version` 2 to 6, a development step of the G76 plans never released | Refuses with `schema(.unsupported)`, file untouched, no copy |
 | `user_version` 1, the 42 tables of the S3-d build | Refuses with `schema(.missingTables)`, file untouched: the person moves it aside, nothing migrates |
 | `user_version` 0 with tables of its own | Refuses with `schema(.unknownTables)`, file untouched (journal mode included) |
 | `user_version` 1 with a table missing, the form before `brain_applications` included | Refuses with `schema(.missingTables)`, file untouched |
 | `user_version` 1, every table, a required column missing (the form before `current_group_id`) | Refuses with `schema(.missingColumns(["brain_anchors.current_group_id"]))`, file untouched (journal mode included); never migrated or reset |
 | `user_version` 1, every table and required column, but a table, index or trigger missing, extra or written differently (an archive `tommaso/memory-model`'s builds created, whose CHECKs and triggers differ) | Refuses with `schema(.differentShape(["table memory_events", …]))`, the objects named `type name`, file untouched; never migrated or reset |
-| `user_version` above 1 | Refuses with `schema(.future)`: no downgrade, no reset, and no reading either, since a typed reader of an unknown layout would be a guess |
+| `user_version` above 7 | Refuses with `schema(.future)`: no downgrade, no reset, and no reading either, since a typed reader of an unknown layout would be a guess |
 | Not a database, or corrupt | `open` error with the library's code (`SQLITE_NOTADB` 26, `SQLITE_CORRUPT` 11), file untouched by the store; `MemoryService` then moves it aside ([Copies and recovery](#copies-and-recovery)) |
 | Directory missing or unwritable | `open` error (`SQLITE_CANTOPEN` 14 or `SQLITE_READONLY` 8), nothing created |
 

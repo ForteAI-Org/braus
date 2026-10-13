@@ -76,6 +76,13 @@ nonisolated public struct MemoryRepositories: Sendable {
     public let applications: SQLiteBrainApplicationRepository
     public let graph       : SQLiteBrainGraphRepository
     public let traces      : SQLiteTraceRepository
+    public let facts       : SQLiteOperationFactRepository
+    public let tasks       : SQLiteTaskContextRepository
+    public let attributions: SQLiteTaskRepository
+    public let verifications: SQLiteVerificationRepository
+    public let procedures  : SQLiteProcedureRepository
+    public let relations   : SQLiteBrainRelationRepository
+    public let recall      : SQLiteRecallRepository
 
     /// The store under the roles, for the package's tests: a write that holds it, as a long
     /// transaction of a producer would.
@@ -90,6 +97,13 @@ nonisolated public struct MemoryRepositories: Sendable {
         applications = SQLiteBrainApplicationRepository(store: store)
         graph        = SQLiteBrainGraphRepository(store: store)
         traces       = SQLiteTraceRepository(store: store)
+        facts        = SQLiteOperationFactRepository(store: store)
+        tasks        = SQLiteTaskContextRepository(store: store)
+        attributions = SQLiteTaskRepository(store: store)
+        verifications = SQLiteVerificationRepository(store: store)
+        procedures   = SQLiteProcedureRepository(store: store)
+        relations    = SQLiteBrainRelationRepository(store: store)
+        recall       = SQLiteRecallRepository(store: store)
     }
 }
 
@@ -99,14 +113,21 @@ nonisolated public struct MemoryRepositories: Sendable {
 /// for the same directory, as each of them used to open the same JSON directory: none of them owns
 /// it and none closes it. The process closes every service once, at its end (`closeAll`).
 ///
-/// Writing never holds up an action. A producer `enqueue`s a write and goes on; the writes run one
-/// after another, in the order they were enqueued, on a task of the service's own, so a sample
-/// always follows its event and a call's end its start. A busy archive is waited out by that task
-/// alone. A write that fails is counted and logged, never retried in a loop and never thrown back at
-/// the action: it is a gap, visible in `status()`. A queue that grows past `queueLimit` (the archive
-/// stuck for a long time) drops what arrives next and counts it, rather than holding the process's
-/// memory without bound. `flush(within:)` waits for what is queued, within a budget, for the few
-/// places that read what they just wrote, and for the end of the process.
+/// Two kinds of write. The essential facts of an operation (its start before the effect, its samples,
+/// end and verification after it, a task's declarations) are `confirm`ed: the caller waits for the
+/// commit and gets its receipt, or a typed `EssentialWriteFailure`, with contention waited for within
+/// `essentialCycles` lock budgets and recoverable failures retried with the same identity up to
+/// `essentialAttempts` times. A failure before an effect stops the effect; a failure after one keeps
+/// the write and suspends the service: no producer may confirm the start of a new effect until that
+/// write is saved, retried first at each such start, and the effect is never repeated.
+///
+/// What can be rebuilt from those facts (scene associations, the Brain's learning) is `enqueue`d and
+/// never holds up an action. The writes run one after another, in the order they were enqueued, on a
+/// task of the service's own; a busy archive is waited out by that task alone. A write that fails is
+/// counted and logged, never retried in a loop and never thrown back at the action: it is a gap,
+/// visible in `status()`. A queue that grows past `queueLimit` drops what arrives next and counts it.
+/// `flush(within:)` waits for what is queued, within a budget: it says the queue drained, never that
+/// a fact was saved, and no essential fact relies on it.
 ///
 /// An open that creates the archive where none was imports, in the same open and before any queued write
 /// runs, the Brains of the JSON files main kept in the directory (`JSONBrainImport`); `status().lastImport`
@@ -131,7 +152,7 @@ nonisolated public struct MemoryRepositories: Sendable {
 /// recovery that stopped half way, in this process or another, is completed from its record on the
 /// next open, or the service stays degraded saying why, with every file kept: it never starts an
 /// empty memory in its place.
-public actor MemoryService: BrainReading, BrainApplicationStoring {
+public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelationReading {
 
     nonisolated public struct Configuration: Sendable, Equatable {
 
@@ -157,6 +178,16 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
         /// How many copies are kept, the newest first.
         public var keptBackups: Int
 
+        /// How many times an essential write is offered when it fails for a reason that may pass.
+        public var essentialAttempts: Int
+
+        /// How many lock budgets of the store an essential write waits through before contention is
+        /// its answer.
+        public var essentialCycles: Int
+
+        /// The pause before an essential write is offered again, doubled at each attempt.
+        public var essentialPause: Duration
+
         public init(
             fileName      : String = "memory.sqlite",
             store         : SQLiteMemoryStore.Configuration = SQLiteMemoryStore.Configuration(),
@@ -164,7 +195,10 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
             queueLimit    : Int = 4096,
             closingBudget : Duration = .seconds(3),
             backupInterval: Duration = .seconds(86_400),
-            keptBackups   : Int = 3
+            keptBackups   : Int = 3,
+            essentialAttempts: Int = 3,
+            essentialCycles  : Int = 2,
+            essentialPause   : Duration = .milliseconds(50)
         ) {
             self.fileName       = fileName
             self.store          = store
@@ -173,6 +207,9 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
             self.closingBudget  = closingBudget
             self.backupInterval = backupInterval
             self.keptBackups    = keptBackups
+            self.essentialAttempts = max(1, essentialAttempts)
+            self.essentialCycles   = max(1, essentialCycles)
+            self.essentialPause    = essentialPause
         }
     }
 
@@ -219,6 +256,23 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
         public let lastImport: String?
         /// How the close went, once the service closed: how long it took, what it saved and what not.
         public let lastClose: String?
+        /// Essential writes confirmed since the service was made, and those that ended without a commit.
+        public let essentialWritten: Int
+        public let essentialFailed: Int
+        /// Why the service is suspended, and how many facts written after an effect wait to be saved;
+        /// nil and zero when it is not.
+        public let suspended: String?
+        public let pendingEssential: Int
+        /// The migration the archive's open ran, when it ran one: from which version and the copy kept.
+        public let lastMigration: String?
+        /// What the unification of the user's earlier archives took in, when it ran.
+        public let lastUnification: String?
+        /// What the recovery of the Brain's relations did since the service was made: calls evaluated for
+        /// the first time after a stopped process or a lost queue, calls evaluated again when their
+        /// evidence arrived or under a new policy, samples placed in a state on the way; and whether a
+        /// pass is wanted.
+        public let relationRecovery: SQLiteBrainRelationRepository.CatchUp
+        public let relationRecoveryPending: Bool
     }
 
     /// Activity is what a quitting process may ask without waiting for the actor: whether this
@@ -268,9 +322,36 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
 
     private var brains: [String: (version: Int64, brain: UIBrain?)] = [:]
 
+    private var essentialWritten = 0
+    private var essentialFailed  = 0
+    private var essentialProbe: (@Sendable (EssentialTiming) -> Void)?
+    /// Facts confirmed after an effect that the archive did not save, oldest first: retried with their
+    /// identity before any new effect may start, kept until they are saved or the service closes.
+    private var pendingEssential: [Essential] = []
+    private var suspendedReason: String?
+    private var lastMigration: String?
+
+    /// The one retry of the kept facts in progress: every start that finds them waits for it, so no
+    /// fact is offered by two producers at once and each is removed once, when it is saved.
+    private var retrying: Task<EssentialWriteFailure?, Never>?
+
+    /// One essential write as it may wait to be retried: its identity in the list, a label for the log
+    /// and the body.
+    private struct Essential {
+        let id = UUID()
+        let label: String
+        let body : @Sendable (MemoryRepositories) async throws -> Void
+    }
+
+    private var unifying: Task<Void, Never>?
+    private var lastUnification: String?
+
     private var lastBackup: Date?
     private var lastRecovery: String?
     private var lastImport: String?
+    /// What the relation recovery did, and whether a pass of it waits in the queue.
+    private var relationRecovery = SQLiteBrainRelationRepository.CatchUp()
+    private var relationRecoveryWanted = false
     private var backingUp: Task<Void, Never>?
     /// How the last copy ended: handed over, or abandoned with nothing published.
     private var lastCopyPublished: Bool?
@@ -290,6 +371,17 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
 
     private static let services = Mutex<[String: MemoryService]>([:])
 
+    /// The earlier archives each directory's service unifies when it opens, by the directory's key.
+    private static let legacyOrigins = Mutex<[String: [KnowledgeLocation.LegacyKnowledge]]>([:])
+
+    /// Registers the earlier Knowledge directories whose facts and Brains the service of `directory` takes in
+    /// when it opens its archive (`unify`). Called by a frontend before its first use of the memory; a
+    /// directory with none registered unifies nothing.
+    public static func unify(_ directory: URL, with legacy: [KnowledgeLocation.LegacyKnowledge]) {
+        let key = directory.standardizedFileURL.resolvingSymlinksInPath().path
+        legacyOrigins.withLock { $0[key] = legacy }
+    }
+
     /// The service of the directory for this process, made on first request. Every caller of the same
     /// directory gets the same service, so the process has one writer per archive.
     public static func shared(for directory: URL) -> MemoryService {
@@ -300,6 +392,13 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
             services[key] = made
             return made
         }
+    }
+
+    /// Forgets the shared service of the directory, closed by the caller, so the next `shared(for:)` opens
+    /// the archive anew, as another process would: for tests that reopen it through the producers.
+    package static func forget(_ directory: URL) {
+        let key = directory.standardizedFileURL.resolvingSymlinksInPath().path
+        services.withLock { _ = $0.removeValue(forKey: key) }
     }
 
     /// Closes every shared service of the process, each within its closing budget: what the queue
@@ -356,14 +455,220 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
         return true
     }
 
+    // MARK: Essential writes
+
+    /// Writes an essential fact and answers once it is committed, or throws an `EssentialWriteFailure`.
+    ///
+    /// `beforeEffect` is the start of an effect, which a suspended service refuses: the facts it keeps
+    /// are retried first, and while one still fails the answer is `suspended` and the effect must not
+    /// begin. Any other write (`beforeEffect` false) is made whatever the suspension, so the facts of an
+    /// effect already made are always offered. A write `afterEffect` that fails is kept, with its
+    /// identity, and suspends the service until it is saved; a write before any effect that fails
+    /// leaves nothing behind. The body must be idempotent: it is offered again, as it is, after a
+    /// failure whose outcome is unknown, and a stored identical fact answers `alreadyApplied`.
+    ///
+    /// The write runs in a task of its own, so cancelling the caller after an effect never abandons
+    /// the effect's facts; a write before any effect is abandoned with the caller.
+    ///
+    /// A `fallback` is the least the effect's facts may be saved as when the archive refuses the body as
+    /// offered (a contract's refusal or a conflict, which no retry changes): it runs instead, given that
+    /// refusal, and its own failure is the one that suspends. It must save, in its own transaction, the
+    /// durable declaration of what it left out and why; the answer is `.least`, never `.whole`.
+    @discardableResult
+    public func confirm(
+        _ label     : String,
+        beforeEffect: Bool = false,
+        afterEffect : Bool = false,
+        fallback    : (@Sendable (MemoryRepositories, EssentialWriteFailure) async throws -> Void)? = nil,
+        _ body      : @escaping @Sendable (MemoryRepositories) async throws -> Void
+    ) async throws -> Confirmation {
+        guard let probe = essentialProbe else {
+            return try await SQLiteMemoryStore.$operationLabel.withValue("essential: \(label)") {
+                try await confirmed(label, beforeEffect: beforeEffect, afterEffect: afterEffect, fallback: fallback, body)
+            }
+        }
+        let timing = SQLiteMemoryStore.WriteTiming()
+        let started = ContinuousClock.now
+        defer {
+            probe(EssentialTiming(label: label, tag: Self.probeTag, total: started.duration(to: .now), inside: timing.inside,
+                                  transactions: timing.transactions))
+        }
+        return try await SQLiteMemoryStore.$timing.withValue(timing) {
+            try await SQLiteMemoryStore.$operationLabel.withValue("essential: \(label)") {
+                try await confirmed(label, beforeEffect: beforeEffect, afterEffect: afterEffect, fallback: fallback, body)
+            }
+        }
+    }
+
+    private func confirmed(
+        _ label     : String,
+        beforeEffect: Bool,
+        afterEffect : Bool,
+        fallback    : (@Sendable (MemoryRepositories, EssentialWriteFailure) async throws -> Void)?,
+        _ body      : @escaping @Sendable (MemoryRepositories) async throws -> Void
+    ) async throws -> Confirmation {
+        if beforeEffect {
+            try Task.checkCancellation()
+            try await retryPending()
+        }
+        var essential = Essential(label: label, body: body)
+        var outcome   = await run(essential, cancellable: !afterEffect)
+        var saved     = Confirmation.whole
+        if case .failure(let failure) = outcome, failure.isRefusal, let fallback {
+            saved = .least(refused: failure)
+            Self.log.error("memory refused \(label, privacy: .public) as offered, saving its least: \(failure.description, privacy: .public)")
+            essential = Essential(label: label + " (least)") { try await fallback($0, failure) }
+            outcome   = await run(essential, cancellable: !afterEffect)
+        }
+        switch outcome {
+            case .success:
+                return saved
+            case .failure(let failure):
+                if afterEffect {
+                    pendingEssential.append(essential)
+                    suspendedReason = "\(essential.label): \(failure)"
+                    Self.log.error("memory suspended: \(essential.label, privacy: .public): \(failure.description, privacy: .public)")
+                }
+                throw failure
+        }
+    }
+
+    /// EssentialTiming is one essential write as a measure sees it: its label, the tag of the task that made it, how
+    /// long the caller waited for its answer, and of that how long its transactions took inside the store; the rest is
+    /// the wait to reach the store (another write holding it) and the hops between tasks.
+    package struct EssentialTiming: Sendable {
+        package let label: String
+        package let tag: String?
+        package let total: Duration
+        package let inside: Duration
+        package let transactions: Int
+    }
+
+    /// The tag the essential writes of the current task are reported with, for a measure that tells its own calls apart.
+    @TaskLocal package static var probeTag: String?
+
+    /// Reports every essential write to `probe`, or stops when nil: for the measures only.
+    package func probeEssentials(_ probe: (@Sendable (EssentialTiming) -> Void)?) { essentialProbe = probe }
+
+    /// Reports the store's transactions that take at least `threshold`, with the label of the work that ran them, or
+    /// stops when nil: for the measures only.
+    package func observeSlowStoreOperations(threshold: Duration, _ report: (@Sendable (SQLiteMemoryStore.SlowOperation) -> Void)?) async throws {
+        _ = try await ready()
+        await store?.observeSlowOperations(threshold: threshold, report)
+    }
+
+    /// Runs `body` with its store operations reported under `label` when slow.
+    package static func labelled<T: Sendable>(_ label: String, _ body: () async throws -> T) async rethrows -> T {
+        try await SQLiteMemoryStore.$operationLabel.withValue(label, operation: body)
+    }
+
+    /// Confirmation is what an essential write saved: the whole body, or its fallback's least, with the
+    /// refusal that made the body unsavable.
+    public enum Confirmation: Sendable, Equatable {
+        case whole
+        case least(refused: EssentialWriteFailure)
+    }
+
+    /// One essential write in a task of its own: abandoned with the caller only when `cancellable`.
+    private func run(_ essential: Essential, cancellable: Bool) async -> Result<Void, EssentialWriteFailure> {
+        let attempt = Task { await self.offer(essential) }
+        return cancellable
+            ? await withTaskCancellationHandler { await attempt.value } onCancel: { attempt.cancel() }
+            : await attempt.value
+    }
+
+    /// Runs a write or a read whose answer the caller needs typed (a task's declaration, a diagnosis):
+    /// the archive opened, contention waited for within `essentialCycles` lock budgets, every error as
+    /// the store or the contract threw it. It touches no suspension: it starts no effect.
+    public func perform<T: Sendable>(_ body: @Sendable (MemoryRepositories) async throws -> T) async throws -> T {
+        let repositories = try await ready()
+        return try await SQLiteMemoryStore.$cycleLimit.withValue(configuration.essentialCycles) {
+            try await body(repositories)
+        }
+    }
+
+    /// Offers the facts kept after an earlier effect again, through the one retry in progress or a new
+    /// one; throws `suspended` while one still fails. A caller cancelled meanwhile starts nothing.
+    private func retryPending() async throws {
+        let retry: Task<EssentialWriteFailure?, Never>
+        if let retrying {
+            retry = retrying
+        } else {
+            guard !pendingEssential.isEmpty || suspendedReason != nil else { return }
+            retry = Task { await self.drainPending() }
+            retrying = retry
+        }
+        if let failure = await retry.value {
+            throw EssentialWriteFailure.suspended(suspendedReason ?? failure.description)
+        }
+        try Task.checkCancellation()
+    }
+
+    /// The retry itself: the kept facts, oldest first, including those kept while it runs, until one
+    /// fails or none is left. It alone removes a fact from the list, by its identity, so a close that
+    /// emptied the list meanwhile removes nothing twice; the suspension lifts only on an empty list.
+    private func drainPending() async -> EssentialWriteFailure? {
+        defer { retrying = nil }
+        while let first = pendingEssential.first {
+            if case .failure(let failure) = await offer(first) {
+                suspendedReason = "\(first.label): \(failure)"
+                return failure
+            }
+            pendingEssential.removeAll { $0.id == first.id }
+        }
+        if suspendedReason != nil {
+            Self.log.info("memory suspension lifted: every fact kept after an effect is saved")
+            suspendedReason = nil
+        }
+        return nil
+    }
+
+    /// One essential write, offered up to `essentialAttempts` times while its failure may pass, each
+    /// within `essentialCycles` lock budgets: the outcome, counted.
+    private func offer(_ essential: Essential) async -> Result<Void, EssentialWriteFailure> {
+        var pause = configuration.essentialPause
+        for attempt in 1...configuration.essentialAttempts {
+            do {
+                guard !storeClosing else { throw MemoryUnavailable("the memory is closed") }
+                let repositories = try await open()
+                try await SQLiteMemoryStore.$cycleLimit.withValue(configuration.essentialCycles) {
+                    try await essential.body(repositories)
+                }
+                essentialWritten += 1
+                return .success(())
+            } catch {
+                let failure = EssentialWriteFailure(error)
+                guard failure.isRetryable, attempt < configuration.essentialAttempts, !Task.isCancelled else {
+                    essentialFailed += 1
+                    lastFailure = "\(essential.label): \(failure)"
+                    Self.log.error("memory essential write failed: \(essential.label, privacy: .public): \(failure.description, privacy: .public)")
+                    return .failure(failure)
+                }
+                try? await Task.sleep(for: pause)
+                pause = pause * 2
+            }
+        }
+        return .failure(.unavailable("no attempt was made"))
+    }
+
     private func drain() async {
-        while !queue.isEmpty, !Task.isCancelled {
+        while !Task.isCancelled {
+            guard !queue.isEmpty else {
+                // The queue is empty: one bounded pass of the relation recovery when one is wanted, then the
+                // queue again, so whatever was offered meanwhile goes first.
+                guard relationRecoveryWanted, admitting, state == .open, let repositories else { break }
+                relationRecoveryWanted = false
+                await recoverRelations(with: repositories)
+                continue
+            }
             let write = queue.removeFirst()
             let tally = SQLiteMemoryStore.CommitTally()
             running = (write.label, tally)
             do {
                 try await SQLiteMemoryStore.$tally.withValue(tally) {
-                    try await write.body(try await self.open())
+                    try await SQLiteMemoryStore.$operationLabel.withValue("derived: \(write.label)") {
+                        try await write.body(try await self.open())
+                    }
                 }
                 settle(write, tally: tally, error: nil)
             } catch {
@@ -393,6 +698,43 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
         let saved = tally.commits > 0 ? " after \(tally.commits) of its changes were saved" : ""
         lastFailure = "\(write.label)\(saved): \(Self.describe(error))"
         Self.log.error("memory write failed\(saved, privacy: .public): \(write.label, privacy: .public): \(Self.describe(error), privacy: .public)")
+    }
+
+    // MARK: Recovering the relations
+
+    /// The calls one pass of the relation recovery evaluates at most, by kind of work.
+    static let relationRecoveryBatch = 25
+
+    /// Asks for the relation recovery. It runs in the queue's drainer, only while the queue is empty, one
+    /// bounded pass at a time with the queue looked at again between passes: whatever is offered
+    /// meanwhile goes first, and the recovery never blocks an open, an action or a close, which stops it
+    /// between two passes. It is no offered write: the writes' counts do not include it, its own does
+    /// (`Status.relationRecovery`). It only reads facts and writes evaluations: no action is repeated.
+    func scheduleRelationRecovery() {
+        relationRecoveryWanted = true
+        guard admitting, state == .open, drainer == nil else { return }
+        drainer = Task { await self.drain() }
+    }
+
+    /// One pass of the relation recovery; another is wanted when it stopped at its limit. A pass that
+    /// fails is logged and not tried again until the recovery is asked for again.
+    private func recoverRelations(with repositories: MemoryRepositories) async {
+        let now = clock.brainMS()
+        do {
+            let report = try await SQLiteMemoryStore.$operationLabel.withValue("relation recovery") {
+                try await repositories.relations.catchUp(at: now, limit: Self.relationRecoveryBatch) { key in
+                    _ = try await repositories.scenes.associate(key, at: now)
+                }
+            }
+            relationRecovery.recovered    += report.recovered
+            relationRecovery.reconsidered += report.reconsidered
+            relationRecovery.reevaluated  += report.reevaluated
+            relationRecovery.associated   += report.associated
+            relationRecovery.remaining     = report.remaining
+            if report.remaining { relationRecoveryWanted = true }
+        } catch {
+            Self.log.error("memory relation recovery stopped: \(Self.describe(error), privacy: .public)")
+        }
     }
 
     // MARK: Opening
@@ -439,6 +781,12 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
                 throw MemoryUnavailable("the memory is closed")
             }
             let repositories  = MemoryRepositories(store: store)
+            if let migration = (try? await store.diagnostics())?.migration {
+                lastMigration =
+                    "the archive was migrated from schema \(migration.fromVersion) to \(migration.toVersion); "
+                        + "its copy at schema \(migration.fromVersion) is \(migration.copyName)"
+                Self.log.info("memory \(self.lastMigration ?? "", privacy: .public)")
+            }
             // An archive this open created where none was, not one a recovery left empty: the JSON Brains
             // beside it come in now, before any write of the queue can learn into it.
             if !existed, !recovered, (try? await store.diagnostics().bootstrappedNow) == true {
@@ -449,6 +797,14 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
             state             = .open
             degradedSince     = nil
             scheduleBackupIfDue()
+            // What a stopped process, a lost queue or an earlier policy left of the relations is recovered
+            // in bounded passes behind the writes, never before them.
+            scheduleRelationRecovery()
+            let key    = directory.standardizedFileURL.resolvingSymlinksInPath().path
+            let legacy = Self.legacyOrigins.withLock { $0[key] ?? [] }
+            if !legacy.isEmpty, unifying == nil {
+                unifying = Task { await self.unify(legacy, into: store, repositories: repositories) }
+            }
             return repositories
         } catch {
             if state != .closed {
@@ -516,6 +872,85 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
         }
         // Whatever the recovery did, this open went through one: it never counts as a new archive.
         return (try await SQLiteMemoryStore.open(at: url, configuration: configuration.store), true)
+    }
+
+    // MARK: Unification
+
+    /// Takes in the earlier Knowledge directories of the user's other producers, once each and resumably:
+    /// each origin's archive through `SQLiteArchiveTransfer` (facts with their source, Brains learned
+    /// again by key), and its JSON Brains for the applications this archive holds no Brain of. Runs beside
+    /// the producers, after the archive opened; the earlier directories are only read. `status()` says
+    /// what came in (`lastUnification`); a transfer that stops resumes at the next open.
+    private func unify(_ legacy: [KnowledgeLocation.LegacyKnowledge], into store: SQLiteMemoryStore,
+                       repositories: MemoryRepositories) async {
+        var lines: [String] = []
+        for origin in legacy {
+            guard !Task.isCancelled, admitting else { break }
+            let nowMS = clock.calendarMS()
+            let base: @Sendable () async throws -> Void = {
+                let applications = JSONBrainImport.applications(in: origin.directory)
+                guard !applications.isEmpty else { return }
+                _ = try await JSONBrainImport.merge(applications, into: repositories.brains, origin: origin.originID,
+                                                    now: Date())
+            }
+            do {
+                let report: SQLiteArchiveTransfer.Report
+                if origin.hasArchive {
+                    guard await SQLiteArchiveTransfer.needsTransfer(
+                        source: origin.archive,
+                        origin: origin.originID,
+                        into  : store
+                    )
+                    else { continue }
+                    let staging = directory.appendingPathComponent(".unification", isDirectory: true)
+                        .appendingPathComponent(
+                            origin.originID.replacingOccurrences(of: ":", with: "-"),
+                            isDirectory: true
+                        )
+                    report = try await SQLiteArchiveTransfer.transfer(
+                        from: origin.archive, origin: origin.originID, location: origin.location, into: store,
+                        staging: staging, nowMS: nowMS, importBase: base
+                    )
+                } else {
+                    // The same lock as an archive's transfer: one opener merges an origin's JSON Brains at a time.
+                    let merged = try await SQLiteArchiveTransfer.coordinated(
+                        destination: store,
+                        origin: origin.originID,
+                        wait: .seconds(30)
+                    ) {
+                        () async throws -> SQLiteArchiveTransfer.Report? in
+                        let journaled = try await SQLiteArchiveTransfer.origins(store)[origin.originID]
+                        guard !SQLiteArchiveTransfer.ended.contains(journaled ?? "") else { return nil }
+                        try await SQLiteArchiveTransfer.beginJSONOnly(store, origin: origin.originID,
+                                                                      location: origin.location, nowMS: nowMS)
+                        try await base()
+                        return try await SQLiteArchiveTransfer.recordJSONOnly(store, origin: origin.originID,
+                                                                              nowMS: nowMS)
+                    }
+                    guard let merged else { continue }
+                    report = merged
+                }
+                lines.append(
+                    "\(origin.location): \(report.status), \(report.eventsAdded) events added, "
+                    + "\(report.eventsDuplicate) already here, \(report.eventsRenamed) renamed, "
+                    + "\(report.applicationsAdded) Brain applications learned, "
+                    + "\(report.brainsImported) JSON Brains merged"
+                    + (report.detail.map { " (\($0))" } ?? "")
+                )
+            } catch {
+                lines.append("\(origin.location): stopped (\(Self.describe(error))); it resumes on the next open")
+            }
+        }
+        if !lines.isEmpty {
+            lastUnification = lines.joined(separator: "; ")
+            Self.log.info("memory unified: \(self.lastUnification ?? "", privacy: .public)")
+        }
+        unifying = nil
+    }
+
+    /// Waits for the unification this open started, for a caller that reads what it took in (a test, a diagnosis).
+    public func unificationFinished() async {
+        await unifying?.value
     }
 
     /// Imports, once, the JSON Brains main left in the directory into the archive this open has just created
@@ -638,6 +1073,8 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
         let deadline = started + configuration.closingBudget
         let copying  = backingUp != nil
         backingUp?.cancel()
+        // A unification in progress stops at its next step and resumes at the next open.
+        unifying?.cancel()
         let drained = await waitUntil(deadline - Self.closingReserve(of: configuration.closingBudget)) {
             self.drainer == nil && self.queue.isEmpty
         }
@@ -671,6 +1108,8 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
             case (true, true, true?):  copy = ", the copy in progress finished before it was stopped"
             case (true, true, _):      copy = ", the copy in progress stopped with nothing published"
         }
+        let unsaved = pendingEssential.count
+        pendingEssential.removeAll()
         state        = .closed
         store        = nil
         repositories = nil
@@ -680,10 +1119,11 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
             + "\(unsettled) unsettled"
             + (leftQueued > 0 ? ", \(leftQueued) still queued at the end of the drain" : "")
             + stillRunning + copy
+            + (unsaved > 0 ? ", \(unsaved) facts written after an effect never saved (suspended until the close)" : "")
             + (archiveClosed.isRaised ? "" : ", the archive still closing at the bound (a synchronous operation holds it; "
                + "it closes when that ends, or with the process)")
         lastClose = summary
-        if drained && stillRunning.isEmpty && archiveClosed.isRaised {
+        if drained && stillRunning.isEmpty && archiveClosed.isRaised && unsaved == 0 {
             Self.log.info("memory \(summary, privacy: .public)")
         } else {
             Self.log.error("memory \(summary, privacy: .public)")
@@ -745,7 +1185,11 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
                       pending: queue.count, inFlight: running == nil ? 0 : 1, written: written, failed: failed,
                       partial: partial, dropped: dropped, unsettled: unsettled,
                       lastFailure: lastFailure, lastBackup: lastBackup ?? newestBackup()?.date,
-                      lastRecovery: lastRecovery, lastImport: lastImport, lastClose: lastClose)
+                      lastRecovery: lastRecovery, lastImport: lastImport, lastClose: lastClose,
+                      essentialWritten: essentialWritten, essentialFailed: essentialFailed,
+                      suspended: suspendedReason, pendingEssential: pendingEssential.count,
+                      lastMigration: lastMigration, lastUnification: lastUnification,
+                      relationRecovery: relationRecovery, relationRecoveryPending: relationRecoveryWanted)
     }
 
     /// The archive's applications and counts.
@@ -768,9 +1212,39 @@ public actor MemoryService: BrainReading, BrainApplicationStoring {
         try await ready().captures.sample(key)
     }
 
+    /// The earlier archives a fact came from (`EventOrigin`): none for a fact this archive's producers wrote.
+    public func origins(of eventID: String) async throws -> [EventOrigin] {
+        try await SQLiteArchiveTransfer.origins(of: eventID, in: try await ready().store)
+    }
+
     /// A stored event.
     public func event(_ eventID: String) async throws -> MemoryEventRecord? {
         try await ready().captures.event(eventID)
+    }
+
+    // MARK: Relations
+
+    /// The part of an application's projection a scene's detections can match (`BrainReading`), read by
+    /// its labels, kinds and groups: never the whole projection, and not cached.
+    public func projection(of bundleID: String, for detections: [BrainDetection]) async throws -> UIBrain? {
+        try await ready().brains.projection(of: bundleID, for: detections)
+    }
+
+    /// The functional state a capture is, by the scenes of its own roles only (`BrainRelationReading`).
+    public func state(of skeleton: SceneSkeleton, isComplete: Bool, in bundleID: String) async throws -> String? {
+        try await ready().relations.state(of: skeleton, isComplete: isComplete, in: bundleID)
+    }
+
+    /// The state a stored sample was confirmed in.
+    public func state(of sample: CaptureSampleKey) async throws -> String? {
+        try await ready().relations.state(of: sample)
+    }
+
+    /// The relations of one state and some of its elements, by the state's index.
+    public func relations(from sceneID: String, in bundleID: String, elementKeys: [String],
+                          includingContext: Bool) async throws -> [BrainRelation] {
+        try await ready().relations.relations(from: sceneID, in: bundleID, elementKeys: elementKeys,
+                                              includingContext: includingContext)
     }
 
     // MARK: Reasons

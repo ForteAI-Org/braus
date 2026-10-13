@@ -402,6 +402,10 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 permissions: ActionPermissions(
                     allowsDestructive: allowsDestructive,
                     contextMenusOnTextFieldsOnly: Self.drawsMenusUnderThePointer(application)
+                ),
+                report: SelectorReporting.reporting(
+                    to: CallRecorder.current,
+                    bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)"
                 )
             )
             return await enriched(chosen, by: runtime)
@@ -440,33 +444,41 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             bundleURL       : application.bundleURL,
             bundleIdentifier: application.bundleIdentifier
         )
-        if Self.preparesMenuInFront(platform, bundleIdentifier: application.bundleIdentifier) {
-            return try await MenuBarCommand.performInFront(
+        let allowsDestructive = self.allowsDestructive
+        let inFront = Self.preparesMenuInFront(platform, bundleIdentifier: application.bundleIdentifier)
+        return try await PerceivedCommand.perform(
+            bundleID: application.bundleIdentifier ?? "pid.\(processID)",
+            recorder: Self.recorder(runtime, sessionID: id),
+            perceive: { try await runtime.scenes.currentScene(of: processID) }
+        ) { observe in
+            if inFront {
+                return try await MenuBarCommand.performInFront(
+                    path,
+                    processID: processID,
+                    allowsDestructive: allowsDestructive,
+                    closingRefusal: closingRefusal,
+                    withFront: { command in
+                        let outcome = await agentSeat.performMenuCommandBrieflyInFront(
+                            when: { MenuBarCommand.isEnabled(path, processID: processID) },
+                            performOnce: command
+                        )
+                        if case .ready = outcome { return nil }
+                        return Self.briefMenuFailure(outcome)
+                    },
+                    frontReturned: { agentSeat.frontIsBackAfterCommand },
+                    settling: runtime.settling,
+                    observe: observe
+                )
+            }
+            return try await MenuBarCommand.perform(
                 path,
-                processID: processID,
+                processID        : processID,
                 allowsDestructive: allowsDestructive,
-                closingRefusal: closingRefusal,
-                withFront: { command in
-                    let outcome = await agentSeat.performMenuCommandBrieflyInFront(
-                        when: { MenuBarCommand.isEnabled(path, processID: processID) },
-                        performOnce: command
-                    )
-                    if case .ready = outcome { return nil }
-                    return Self.briefMenuFailure(outcome)
-                },
-                frontReturned: { agentSeat.frontIsBackAfterCommand },
-                settling: runtime.settling,
-                observe: { try await self.observe() }
+                closingRefusal   : closingRefusal,
+                settling         : runtime.settling,
+                observe          : observe
             )
         }
-        return try await MenuBarCommand.perform(
-            path,
-            processID        : processID,
-            allowsDestructive: allowsDestructive,
-            closingRefusal   : closingRefusal,
-            settling         : runtime.settling,
-            observe          : { try await self.observe() }
-        )
     }
 
     /// What closing the window `seat` targets would do to its application, read now. Nothing is read
@@ -547,7 +559,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func press(button: String) async throws -> ActOutcome {
-        let (application, _, seat) = try current()
+        let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
             agentSeat,
@@ -555,14 +567,19 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         ) {
             throw AutomationFailure(sentence)
         }
-        return try await DialogButtonPress.perform(
-            button,
-            processID        : application.processIdentifier,
-            dialogs          : agentSeat.openDialogs.map(\.windowNumber),
-            allowsDestructive: allowsDestructive,
-            closingRefusal   : closingRefusal(application, agentSeat),
-            observe          : { try await self.observe() }
-        )
+        let processID = application.processIdentifier
+        let dialogs   = agentSeat.openDialogs.map(\.windowNumber)
+        let allowsDestructive = self.allowsDestructive
+        let closingRefusal = closingRefusal(application, agentSeat)
+        return try await PerceivedCommand.perform(
+            bundleID: application.bundleIdentifier ?? "pid.\(processID)",
+            recorder: Self.recorder(runtime, sessionID: id),
+            perceive: { try await runtime.scenes.currentScene(of: processID) }
+        ) { observe in
+            try await DialogButtonPress.perform(button, processID: processID, dialogs: dialogs,
+                                                allowsDestructive: allowsDestructive, closingRefusal: closingRefusal,
+                                                observe: observe)
+        }
     }
 
     public func select(control: String, item: String) async throws -> ActOutcome {
@@ -575,7 +592,11 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 name: application.localizedName ?? "application"
             ),
             permissions: ActionPermissions(allowsDestructive: allowsDestructive),
-            dryRun: false
+            dryRun: false,
+            report: SelectorReporting.reporting(
+                to: CallRecorder.current,
+                bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)"
+            )
         )
         return await enriched(result.outcome, by: runtime)
     }
@@ -694,7 +715,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The engine already recorded the transition, so the scene is not observed again.
     private func enriched(_ outcome: ActOutcome, by runtime: EngineRuntime) async -> ActOutcome {
         guard let scene = outcome.scene else { return outcome }
-        return ActOutcome(outcome.kind, outcome.message, scene: await runtime.memory.enrich(scene))
+        return outcome.with(scene: await Self.recorder(runtime, sessionID: id).enrich(scene))
     }
 
     private func current() throws -> (NSRunningApplication, EngineRuntime, SeatTarget) {

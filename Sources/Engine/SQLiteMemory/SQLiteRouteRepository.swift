@@ -274,7 +274,25 @@ enum SQLiteRouteRows {
             [.text(operation.operationID), .text(routeID), .text(stepID), parent.map(SQLiteValue.text) ?? .null, .integer(Int64(operation.position)),
              .text(operation.tool.rawValue), .integer(Int64(AgentCallContract.version)), appID.map(SQLiteValue.integer) ?? .null]
         )
-        for argument in operation.arguments {
+        for (index, argument) in operation.arguments.enumerated() {
+            if case .template(let segments) = argument.value {
+                for (position, segment) in segments.enumerated() {
+                    let (kind, literal, parameter): (String, SQLiteValue, SQLiteValue) = switch segment {
+                        case .literal(let text)   : ("literal", .text(text), .null)
+                        case .parameter(let id)   : ("parameter", .null, .text(id))
+                    }
+                    try transaction.execute(
+                        """
+                        INSERT INTO memory_operation_argument_segments (route_id, operation_id, argument_name, argument_position,
+                            argument_index, segment_position, segment_kind, literal_text, parameter_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [.text(routeID), .text(operation.operationID), .text(argument.name), .integer(Int64(argument.position)),
+                         .integer(Int64(index)), .integer(Int64(position)), .text(kind), literal, parameter]
+                    )
+                }
+                continue
+            }
             let (kind, column, value): (String, String, SQLiteValue)
             switch argument.value {
                 case .literal(.text(let text))   : (kind, column, value) = ("text", "text_value", .text(text))
@@ -288,6 +306,8 @@ enum SQLiteRouteRows {
                 case .menu(let id):
                     try reference(transaction, "menu", id, appID: appID)
                     (kind, column, value) = ("menu", "menu_command_id", .text(id))
+                case .template:
+                    continue
             }
             try transaction.execute(
                 """
@@ -470,7 +490,69 @@ enum SQLiteRouteRows {
         }
     }
 
+    /// The operation's arguments in the order they were given: its rows, in the order they were written,
+    /// and its templates back at the places they held among them.
     private static func arguments(_ handle: some SQLiteQuerying, operationID: String) throws -> [OperationArgument] {
+        var plain = try rows(handle, operationID: operationID)
+        let templates = try self.templates(handle, operationID: operationID)
+        var merged: [OperationArgument] = []
+        for template in templates.sorted(by: { $0.index < $1.index }) {
+            while merged.count < template.index, !plain.isEmpty { merged.append(plain.removeFirst()) }
+            guard merged.count == template.index else {
+                throw RouteError.malformedRow(table: "memory_operation_argument_segments", id: "\(operationID):\(template.argument.name)",
+                                              malformation: .invalid(.positions(of: "arguments")))
+            }
+            merged.append(template.argument)
+        }
+        return merged + plain
+    }
+
+    /// The templated arguments of an operation with the place each held among its arguments.
+    private static func templates(_ handle: some SQLiteQuerying, operationID: String) throws
+        -> [(index: Int, argument: OperationArgument)] {
+        let rows = try handle.query(
+            """
+            SELECT argument_name, argument_position, argument_index, segment_position, segment_kind, literal_text, parameter_id
+            FROM memory_operation_argument_segments WHERE operation_id = ?
+            ORDER BY argument_index, argument_name, argument_position, segment_position
+            """,
+            [.text(operationID)]
+        ) { row in
+            (name: try row.text(0) ?? "", position: row.integer(1) ?? -1, index: row.integer(2) ?? -1, segment: row.integer(3) ?? -1,
+             kind: try row.text(4) ?? "", literal: try row.text(5), parameter: try row.text(6))
+        }
+        var result: [(index: Int, argument: OperationArgument)] = []
+        var current: (name: String, position: Int64, index: Int64, segments: [TemplateSegment])?
+        func refuse(_ name: String, _ malformation: RouteError.Malformation) -> RouteError {
+            .malformedRow(table: "memory_operation_argument_segments", id: "\(operationID):\(name)", malformation: malformation)
+        }
+        func close() throws {
+            guard let done = current else { return }
+            guard let position = Int(exactly: done.position), let index = Int(exactly: done.index) else {
+                throw refuse(done.name, .invalid(.positions(of: done.name)))
+            }
+            result.append((index, OperationArgument(name: done.name, position: position, value: .template(done.segments))))
+            current = nil
+        }
+        for row in rows {
+            if let open = current, !(open.name.utf8.elementsEqual(row.name.utf8) && open.position == row.position) {
+                try close()
+            }
+            if current == nil { current = (row.name, row.position, row.index, []) }
+            guard row.segment == Int64(current?.segments.count ?? -1), row.index == current?.index else {
+                throw refuse(row.name, .invalid(.positions(of: row.name)))
+            }
+            switch (row.kind, row.literal, row.parameter) {
+                case ("literal", let text?, nil)  : current?.segments.append(.literal(text))
+                case ("parameter", nil, let id?)  : current?.segments.append(.parameter(id))
+                default                            : throw refuse(row.name, .unknownCode(column: "segment_kind", code: row.kind))
+            }
+        }
+        try close()
+        return result
+    }
+
+    private static func rows(_ handle: some SQLiteQuerying, operationID: String) throws -> [OperationArgument] {
         try handle.query(
             """
             SELECT argument_name, position, value_kind, text_value, integer_value, real_value, boolean_value, parameter_id, anchor_id,

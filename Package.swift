@@ -198,7 +198,7 @@ let package = Package(
         .library(
             name: "MecumEngine",
             targets: ["EngineCore", "Engine", "HIDActuation", "AccessibilityActions", "WorkspaceActivation",
-                      "Memory", "FileKnowledge", "LiveScenes"]
+                      "Memory", "FileKnowledge", "LiveScenes", "LocalEmbedding"]
         ),
         .library(name: "UserInteractions", targets: ["InteractionListener", "InteractionObservation"]),
         .library(name: "SeatBroker", targets: ["SeatBroker"]),
@@ -299,8 +299,13 @@ let package = Package(
         .testTarget(
             name         : "AutomationRuntimeTests",
             dependencies : ["AutomationRuntime", "AutomationMCP", "Memory", "SQLiteMemory", "EngineCore",
-                            "PerceptionCore", "LocalMCP"].map { .target(name: $0) },
+                            "PerceptionCore", "LocalMCP", "LocalEmbedding"].map { .target(name: $0) },
             path         : "Tests/Integration/AutomationRuntimeTests",
+            // The Recall's quality corpus: knowledge learned through the tools and queries split by family.
+            resources    : [.copy("Fixtures/recall-corpus-v1.json"), .copy("Fixtures/recall-calibration-v1.json"),
+                            .copy("Fixtures/recall-corpus-v2.json"), .copy("Fixtures/recall-calibration-v2.json"),
+                            .copy("Fixtures/recall-corpus-v3.json"), .copy("Fixtures/recall-calibration-v3.json"),
+                            .copy("Fixtures/recall-corpus-v4.json")],
             swiftSettings: suite
         ),
 
@@ -362,11 +367,18 @@ let package = Package(
         // `KnowledgeStoring` over one JSON file per application, with backups and write-behind.
         engine("FileKnowledge", ["Memory"], settings: pure),
 
-        // The SQLite foundation of the living memory: one file at a chosen path, schema 1, a serial writer
+        // The SQLite foundation of the living memory: one file at a chosen path, one schema, a serial writer
         // and a separate reader, typed errors. Imports Memory and the SDK's SQLite3 only; AutomationRuntime's
         // MemoryService composes it.
         engine("SQLiteMemory", ["Memory"], settings: pure,
                resources: [.copy("Resources/brain-living-memory-schema.sql")]),
+
+        // `TextEmbedding` over a pinned local model: the XLM-RoBERTa tokenizer and a BERT-family encoder on
+        // Accelerate, reading the model's files from disk. Imports Memory, Foundation and Accelerate; no network.
+        engine("LocalEmbedding", ["Memory", "LocalEmbeddingKernels"], settings: pure),
+        // The matrix product of the local model over Accelerate's current CBLAS interface, which needs a C define.
+        .target(name: "LocalEmbeddingKernels", path: "Sources/Engine/LocalEmbeddingKernels",
+                cSettings: [.define("ACCELERATE_NEW_LAPACK")], linkerSettings: [.linkedFramework("Accelerate")]),
 
         // `SceneProviding` for a window on the real screen: census, capture, pipeline.
         engine("LiveScenes", ["EngineCore", "PerceptionCore", "Perception", "ScreenCapture"], settings: pure),
@@ -398,7 +410,7 @@ let package = Package(
         integration("AutomationRuntime", ["Perception", "VisionText", "PixelSections", "PixelRegions", "WindowServerListing", "AccessibilityFacts",
                     "ScreenCapture", "Engine", "EngineCore", "HIDActuation", "AccessibilityActions",
                     "WorkspaceActivation", "Memory", "SQLiteMemory", "LiveScenes", "PerceptionCore",
-                    "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement"]),
+                    "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding"]),
         integration("AutomationMCP", ["AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts"]),
         // The foreground command line: windows, scene, act, memory. What a model host does, by hand.
@@ -408,7 +420,8 @@ let package = Package(
                            "ScreenCapture", "Engine", "EngineCore", "HIDActuation", "AccessibilityActions",
                            "WorkspaceActivation", "Memory", "FileKnowledge", "SQLiteMemory", "LiveScenes",
                            "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "AutomationRuntime",
-                           "ChatCore", "CLIProviders", "FileConversations", "LocalMCP", "AutomationMCP", "SceneOverlay", "InteractionListener", "InteractionObservation"].map { .target(name: $0) },
+                           "ChatCore", "CLIProviders", "FileConversations", "LocalMCP", "AutomationMCP", "SceneOverlay", "InteractionListener", "InteractionObservation",
+                           "LocalEmbedding"].map { .target(name: $0) },
             path: "Tools/Engine/mecum",
             swiftSettings: facility
         ),
@@ -451,7 +464,8 @@ let package = Package(
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
             name: "MecumCLITests",
-            dependencies: ["mecum", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception"],
+            dependencies: ["mecum", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
+                           "Memory", "SQLiteMemory"],
             path: "Tests/Engine/MecumCLITests",
             swiftSettings: facility
         ),
@@ -461,6 +475,10 @@ let package = Package(
                     resources: [.copy("Fixtures/route-corpus.json"), .copy("Fixtures/misfire-corpus.json"),
                                 .copy("Fixtures/misfire-corpus.md")]),
         engineTests("FileKnowledge", ["FileKnowledge", "Memory", "PerceptionCore"]),
+        // The local model's tokenizer and encoder against Hugging Face's own outputs; the model files come from
+        // MECUM_RECALL_MODELS and the suites that need them are skipped, saying so, without it.
+        engineTests("LocalEmbedding", ["LocalEmbedding", "Memory"],
+                    resources: [.copy("Fixtures/recall-embedding-reference.json")]),
         // The capture and scene fixtures walk a fake accessibility tree through the producer, the merge and
         // the pure pipeline before they reach the store, so the suite imports the perception modules too.
         engineTests("SQLiteMemory", ["SQLiteMemory", "Memory", "EngineCore", "PerceptionCore", "Perception"]),

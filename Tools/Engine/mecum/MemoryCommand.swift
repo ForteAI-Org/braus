@@ -8,13 +8,16 @@
 import AppKit
 import AutomationRuntime
 import Foundation
+import LocalEmbedding
 import Memory
 import PerceptionCore
 import SQLiteMemory
 
 /// MemoryCommand prints what the living memory holds for an application: the Brain's size and clock,
 /// its most established anchors with what they do, and its groups. With `--import-json <dir>` it
-/// copies the Brains of an earlier JSON Knowledge directory into the memory instead.
+/// copies the Brains of an earlier JSON Knowledge directory into the memory instead; with
+/// `--task <id>` it prints what the procedures and the Brain hold of one task, read only; with
+/// `--recall-status`, `--recall-rebuild` and `--recall-explain <text>` it shows and maintains the Recall's index.
 enum MemoryCommand {
 
     static func run(_ invocation: Invocation) async throws {
@@ -22,7 +25,26 @@ enum MemoryCommand {
             printStatus(of: Runtime.knowledgeDirectory(invocation).appendingPathComponent("memory.sqlite"))
             return
         }
+        if let taskID = invocation.options["task"] {
+            printTask(taskID, graph: invocation.flags.contains("graph"),
+                      in: Runtime.knowledgeDirectory(invocation).appendingPathComponent("memory.sqlite"))
+            return
+        }
         let runtime = Runtime(invocation: invocation)
+        if invocation.flags.contains("recall-status") || invocation.flags.contains("recall-rebuild")
+            || invocation.options["recall-explain"] != nil {
+            try await recall(invocation, in: runtime)
+            return
+        }
+        if invocation.flags.contains("apply-relations") {
+            try await applyRelations(in: runtime)
+            return
+        }
+        if invocation.options["part"] != nil || invocation.options["requalify"] != nil
+            || invocation.options["quarantine-policy"] != nil {
+            try await changeProcedures(invocation, in: runtime)
+            return
+        }
         if let source = invocation.options["import-json"] {
             try await importJSON(from: URL(fileURLWithPath: (source as NSString).expandingTildeInPath, isDirectory: true),
                                  into: runtime)
@@ -84,6 +106,9 @@ enum MemoryCommand {
             case .empty:                 print("this build: a database with no schema yet; Mecum's memory would create its schema in it, "
                                                + "a reader refuses it")
             case .current:               print("this build: opens it; version \(known) and exactly the shape this build creates")
+            case .migratable(let from):
+                print("this build: migrates it from version \(from) to \(known) on Mecum's next open, "
+                      + "after a verified copy beside it; exactly the shape of version \(from)")
             case .refused(let mismatch): print("this build: refuses it and leaves it as it is; " + describe(mismatch))
             case .unreadable(let why):   print("this build: cannot read it as a database: \(why)")
             case .unavailable(let why):  print("this build: did not read it: \(why)")
@@ -101,6 +126,137 @@ enum MemoryCommand {
         print("this command has its own and shows none. The app shows its own on Settings > Brain.")
     }
 
+    /// Prints one task by its id, read only as `--status` reads the file: its attempts and calls with
+    /// what each one is to the procedures, its candidates and versions with their parts, parameters,
+    /// contracts and qualifications, the relations its calls proved, and the counts kept apart. With
+    /// `--graph`, the same objects as one Mermaid graph.
+    private static func printTask(_ taskID: String, graph: Bool, in url: URL) {
+        switch SQLiteMemoryInspection.task(taskID, in: url) {
+            case .found(let inspection): print(graph ? inspection.graph : inspection.text.joined(separator: "\n"))
+            case .notFound:              print("no task \(taskID) in \(url.path)")
+            case .unavailable(let why):  print("the task was not read: \(why)")
+        }
+    }
+
+    /// Changes how the procedures are offered, without deleting anything: a part's operational state
+    /// (`--part <id> --state usable|to_reevaluate|retired --reason <text>`; `retired` is final), a
+    /// version evaluated again from the facts under the policy in force (`--requalify <route id>`), or a
+    /// qualification policy put in quarantine (`--quarantine-policy <version> --reason <text>`), which
+    /// stops offering what it admitted until a build with another policy evaluates the parts again.
+    private static func changeProcedures(_ invocation: Invocation, in runtime: Runtime) async throws {
+        let now = runtime.service.clock.calendarMS()
+        let reason = invocation.options["reason"] ?? ""
+        do {
+            if let partID = invocation.options["part"] {
+                let word = invocation.options["state"] ?? ""
+                guard let state = PartOperationalState(rawValue: word) else {
+                    throw UsageError.invalid(option: "state", value: word, expected: "usable, to_reevaluate or retired")
+                }
+                guard !reason.isEmpty else { throw UsageError.missing("--reason <text>") }
+                let receipt = try await runtime.service.perform {
+                    try await $0.procedures.setState(state, of: partID, reason: reason, by: "mecum-cli", at: now)
+                }
+                print("\(partID): \(state.rawValue) (\(receipt == .committed ? "recorded" : "already so"))")
+            } else if let routeID = invocation.options["requalify"] {
+                let qualifications = try await runtime.service.perform { try await $0.procedures.requalify(routeID: routeID, at: now) }
+                for qualification in qualifications {
+                    let reasons = qualification.findings.map(\.reason.rawValue).joined(separator: ", ")
+                    print("\(qualification.partID): \(qualification.verdict.rawValue) under \(qualification.policyVersion)"
+                          + (reasons.isEmpty ? "" : " (\(reasons))"))
+                }
+            } else if let policy = invocation.options["quarantine-policy"] {
+                guard !reason.isEmpty else { throw UsageError.missing("--reason <text>") }
+                let receipt = try await runtime.service.perform {
+                    try await $0.procedures.quarantine(policy: policy, reason: reason, at: now)
+                }
+                print("\(policy): quarantined (\(receipt == .committed ? "recorded" : "already so"))")
+            }
+        } catch let error as ProcedureError {
+            print("not changed: \(error)")
+        }
+        await runtime.finish()
+    }
+
+    /// Runs the relation recovery the service runs in the background, to its end, at once: every
+    /// operation never evaluated (an archive migrated from an earlier schema, a derived write lost when a
+    /// process ended), every one waiting for evidence that has arrived, every one evaluated under another
+    /// policy. A call counts once however often it is evaluated; a second run evaluates nothing.
+    private static func applyRelations(in runtime: Runtime) async throws {
+        var total = SQLiteBrainRelationRepository.CatchUp()
+        while true {
+            let now = runtime.service.clock.brainMS()
+            let pass = try await runtime.service.perform { repositories in
+                try await repositories.relations.catchUp(at: now, limit: 500) { key in
+                    _ = try await repositories.scenes.associate(key, at: now)
+                }
+            }
+            total.recovered += pass.recovered
+            total.reconsidered += pass.reconsidered
+            total.reevaluated += pass.reevaluated
+            total.associated += pass.associated
+            if !pass.remaining { break }
+        }
+        print("relations of \(runtime.service.url.path): \(total.recovered) operations evaluated for the first time, "
+              + "\(total.reconsidered) evaluated again with new evidence, \(total.reevaluated) under the current policy, "
+              + "\(total.associated) samples placed in a state")
+        await runtime.finish()
+    }
+
+    /// Shows and maintains the Recall's index with the configuration this process resolves (`MECUM_RECALL`,
+    /// `MECUM_RECALL_MODELS`): `--recall-status` prints the generations, the entries, the vectors still to compute and
+    /// the index work pending, without running any; `--recall-rebuild` queues a rebuild of the whole catalogue and runs
+    /// the index work until it is done or `--within <seconds>` passes; `--recall-explain <text>` scores every part of
+    /// the current generation against a text and prints the most relevant (`--limit`), recording no query and
+    /// selecting nothing.
+    private static func recall(_ invocation: Invocation, in runtime: Runtime) async throws {
+        let recall = RecallService.shared(for: runtime.service)
+        let configuration = recall.configuration
+        if invocation.flags.contains("recall-rebuild") {
+            let now = runtime.service.clock.calendarMS()
+            try await runtime.service.perform { try await $0.recall.queueRebuild(at: now) }
+            let budget = Double(invocation.options["within"] ?? "") ?? 600
+            print("rebuild of the whole catalogue queued; building for at most \(Int(budget)) s…")
+            await recall.schedule()
+            if !(await recall.waitUntilIdle(within: .seconds(budget))) {
+                print("the index work did not finish in time; Mecum's memory goes on with it whenever it runs")
+            }
+        }
+        if invocation.flags.contains("recall-status") || invocation.flags.contains("recall-rebuild") {
+            let status = try await recall.status()
+            let model = configuration.model.map { "\($0.modelID)@\($0.revision.prefix(12))" } ?? "none"
+            print("recall of \(runtime.service.url.path)")
+            print("configuration: channel \(configuration.channel.rawValue), model \(model), format \(configuration.format.rawValue)")
+            if configuration.channel != .lexical {
+                print("models folder: \(configuration.modelsDirectory?.path ?? "none")")
+            }
+            if let failure = status.modelFailure { print("semantic model unavailable: \(failure); the lexical index answers") }
+            if status.index.generations.isEmpty { print("no index generation yet") }
+            for generation in status.index.generations {
+                print("generation \(generation.generationID): \(generation.status.rawValue), format \(generation.format.rawValue), "
+                      + "space \(generation.spaceID ?? "lexical only"), revision \(generation.revision)"
+                      + (generation.isEnumerated ? "" : ", catalogue being enumerated"))
+            }
+            print("entries in the current generation: \(status.index.entries); vectors still to compute: \(status.index.vectorBacklog)")
+            let work = try await runtime.service.perform { try await $0.recall.pendingWork(limit: 20) }
+            print("index work pending: \(status.index.pendingWork)")
+            for item in work {
+                print("  \(item.reason) \(item.routeID ?? "whole catalogue")" + (item.attempts > 0 ? ", \(item.attempts) failed attempts" : ""))
+            }
+            if let failure = status.workerFailure { print("index work stopped: \(failure)") }
+        }
+        if let text = invocation.options["recall-explain"] {
+            let limit = Int(invocation.options["limit"] ?? "") ?? 15
+            let (channel, parts) = try await recall.explain(text, limit: limit)
+            print("scored on the \(channel.rawValue) channel; no query recorded, nothing selected")
+            for part in parts {
+                let semantic = part.semantic.map { String(format: "%.3f", $0) } ?? "  -  "
+                print(String(format: "%.3f  semantic %@  lexical %.3f  %@  ", part.combined, semantic, part.lexical, part.kind.rawValue)
+                      + "\(part.partID)\n       \(part.text)")
+            }
+        }
+        await runtime.finish()
+    }
+
     /// Why this build refuses a file, in a sentence.
     private static func describe(_ mismatch: MemorySchemaMismatch) -> String {
         func listed(_ names: [String]) -> String { names.prefix(8).joined(separator: ", ") + (names.count > 8 ? ", …" : "") }
@@ -112,6 +268,10 @@ enum MemoryCommand {
             case .missingColumns(let columns):      return "an earlier development form, columns missing: \(listed(columns))"
             case .differentShape(let objects):      return "another shape: \(listed(objects))"
             case .uninitialized:                    return "no schema yet"
+            case .migrationRequired(let found, let supported):
+                return "schema \(found), which Mecum's memory migrates to \(supported) on its next open; a reader does not"
+            case .unsupported(let found, let supported):
+                return "schema \(found), below the \(supported) this build knows, with no migration from it"
         }
     }
 

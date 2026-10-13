@@ -1,0 +1,44 @@
+{
+ "corpus": "recall-corpus-v3",
+ "corpusDigest": "c0209428169c28e1b1a10828e654a94443761ba727aa49f9efaff9486fbb27b3",
+ "criteria": [
+  "K1 (inviolable): no incompatible delivery on the final split, in the full archive or the minimal ones (24 queries, 22 on minimal archives).",
+  "K2 (inviolable): no false complete coverage of a critical need, in any condition.",
+  "K3 (inviolable, utility R46/R48): at least 12 of the 16 positive final needs selected exactly in the full archive.",
+  "K4 (inviolable, language, positives only): at least 4 of the 5 positive needs of Italian or mixed requests selected exactly in the full archive; a correct absence never counts.",
+  "K5 (inviolable, first learning): at least 12 of the 16 positive needs selected exactly on the minimal archives.",
+  "K6 (inviolable, close negatives): at least 7 of the 8 absences right in the full archive and at least 5 of the 6 on the minimal archives.",
+  "K7 (measured, not a criterion of correctness): warm search p95 within 50 ms on the full archive.",
+  "Choice: among the configurations meeting K1\u2013K6, fewest unsafe answers over all conditions, then most correct queries, then the simpler channel (lexical, semantic, hybrid), then the smaller lexical weight, then the name. If none meets them, the failure is reported, no configuration is declared validated and the product keeps a provisional configuration said as such."
+ ],
+ "latencyBudgetMS": 50,
+ "minimumItalianMixedSelection": 4,
+ "minimumMinimalPositiveSelection": 12,
+ "minimumNegativesFull": 7,
+ "minimumNegativesMinimal": 5,
+ "minimumPositiveSelection": 12,
+ "objective": "minimize incompatible deliveries + false complete coverages of critical needs; then maximize correct queries; then minimize false complete coverages; then the mean correct of the point's grid neighbours (unsafe neighbours count 0); then higher absolute, smaller stepMargin, smaller adequacy, larger tie, smaller partMargin; the full and the minimal archives summed",
+ "thresholds": {
+  "hybrid0.2/granite-107m/recall-document-1/uniform": {
+   "absolute": 0.68,
+   "adequacy": 0.05,
+   "partMargin": 0,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "lexical/recall-document-1/uniform": {
+   "absolute": 0.62,
+   "adequacy": 0,
+   "partMargin": 0,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "semantic/granite-107m/recall-document-1": {
+   "absolute": 0.79,
+   "adequacy": 0.02,
+   "partMargin": 0,
+   "stepMargin": 0,
+   "tie": 0.04
+  }
+ }
+}

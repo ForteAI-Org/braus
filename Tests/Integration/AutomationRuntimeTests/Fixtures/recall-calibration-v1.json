@@ -1,0 +1,176 @@
+{
+  "corpus": "recall-corpus-v1",
+  "corpusDigest": "83164c0b6e3be287ac08e80a6449bb5617496a4beae606a5e0e30235a61daf00",
+  "criteria": [
+    "C1 (inviolable): no incompatible delivery on the final split: a delivered selection of a version the query excludes (a near method with another result, a superseded version) or holding a step it forbids (work already done).",
+    "C2 (inviolable): at most one false complete coverage among the final needs: complete where the query does not accept it, or with an incompatible selection, or with an interval the query does not accept.",
+    "C3 (inviolable): the three final queries that expect absence are answered absent.",
+    "C4 (inviolable, the semantic requirement): at least three of the six final requests in Italian are correct; a lexical configuration is not exempt.",
+    "C5 (inviolable): at least ten of the twenty final queries are correct (coverage, selection, exclusions, bindings, conditions and alternatives all as expected).",
+    "C6 (measured, not a criterion of correctness): warm search p95 on the corpus within 50 ms on the release build; the load, memory and scale budgets are checkpoint 5's.",
+    "Choice: among the configurations that meet C1 to C5, fewest unsafe answers, then most correct, then the simpler channel (lexical, semantic, hybrid), then the smaller lexical weight, then the name. If none meets them the failure is reported, no configuration is declared validated, and the product keeps a provisional configuration said as such."
+  ],
+  "latencyBudgetMS": 50,
+  "maximumFalseComplete": 1,
+  "maximumIncompatible": 0,
+  "minimumAbsenceRight": 3,
+  "minimumCorrect": 10,
+  "minimumItalianCorrect": 3,
+  "objective": "minimize unsafe = incompatible deliveries + false complete coverages; then maximize correct queries; then maximize the mean correct of the point's grid neighbours (unsafe neighbours count 0); then higher absolute, smaller stepMargin, smaller adequacy, larger tie, smaller partMargin",
+  "thresholds": {
+    "hybrid0.2/e5-small/recall-document-1": {
+      "absolute": 0.84,
+      "adequacy": 0.02,
+      "partMargin": -0.08,
+      "stepMargin": 0,
+      "tie": 0.04
+    },
+    "hybrid0.2/e5-small/recall-document-1c": {
+      "absolute": 0.84,
+      "adequacy": 0.02,
+      "partMargin": -0.02,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    },
+    "hybrid0.2/granite-107m/recall-document-1": {
+      "absolute": 0.81,
+      "adequacy": 0.1,
+      "partMargin": -0.1,
+      "stepMargin": 0.01,
+      "tie": 0.04
+    },
+    "hybrid0.2/granite-107m/recall-document-1c": {
+      "absolute": 0.8,
+      "adequacy": 0.05,
+      "partMargin": -0.02,
+      "stepMargin": 0.01,
+      "tie": 0.04
+    },
+    "hybrid0.35/e5-small/recall-document-1": {
+      "absolute": 0.77,
+      "adequacy": 0.02,
+      "partMargin": -0.04,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    },
+    "hybrid0.35/e5-small/recall-document-1c": {
+      "absolute": 0.78,
+      "adequacy": 0.02,
+      "partMargin": -0.06,
+      "stepMargin": 0.08,
+      "tie": 0.02
+    },
+    "hybrid0.35/granite-107m/recall-document-1": {
+      "absolute": 0.73,
+      "adequacy": 0.1,
+      "partMargin": -0.15,
+      "stepMargin": 0.01,
+      "tie": 0.04
+    },
+    "hybrid0.35/granite-107m/recall-document-1c": {
+      "absolute": 0.72,
+      "adequacy": 0.05,
+      "partMargin": -0.02,
+      "stepMargin": 0.01,
+      "tie": 0.04
+    },
+    "hybrid0.5/e5-small/recall-document-1": {
+      "absolute": 0.69,
+      "adequacy": 0.02,
+      "partMargin": -0.1,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    },
+    "hybrid0.5/e5-small/recall-document-1c": {
+      "absolute": 0.69,
+      "adequacy": 0.02,
+      "partMargin": 0,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    },
+    "hybrid0.5/granite-107m/recall-document-1": {
+      "absolute": 0.69,
+      "adequacy": 0.05,
+      "partMargin": -0.08,
+      "stepMargin": 0.01,
+      "tie": 0.04
+    },
+    "hybrid0.5/granite-107m/recall-document-1c": {
+      "absolute": 0.67,
+      "adequacy": 0.05,
+      "partMargin": -0.02,
+      "stepMargin": 0.01,
+      "tie": 0.04
+    },
+    "hybrid0.65/e5-small/recall-document-1": {
+      "absolute": 0.62,
+      "adequacy": 0.02,
+      "partMargin": -0.15,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    },
+    "hybrid0.65/e5-small/recall-document-1c": {
+      "absolute": 0.63,
+      "adequacy": 0.02,
+      "partMargin": 0,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    },
+    "hybrid0.65/granite-107m/recall-document-1": {
+      "absolute": 0.61,
+      "adequacy": 0.05,
+      "partMargin": -0.15,
+      "stepMargin": 0.01,
+      "tie": 0.04
+    },
+    "hybrid0.65/granite-107m/recall-document-1c": {
+      "absolute": 0.59,
+      "adequacy": 0.05,
+      "partMargin": -0.02,
+      "stepMargin": 0.03,
+      "tie": 0.04
+    },
+    "lexical/recall-document-1": {
+      "absolute": 0.48,
+      "adequacy": 0.01,
+      "partMargin": -0.2,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    },
+    "lexical/recall-document-1c": {
+      "absolute": 0.48,
+      "adequacy": 0.01,
+      "partMargin": -0.02,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    },
+    "semantic/e5-small/recall-document-1": {
+      "absolute": 0.92,
+      "adequacy": 0.01,
+      "partMargin": -0.3,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    },
+    "semantic/e5-small/recall-document-1c": {
+      "absolute": 0.92,
+      "adequacy": 0,
+      "partMargin": -0.3,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    },
+    "semantic/granite-107m/recall-document-1": {
+      "absolute": 0.89,
+      "adequacy": 0.01,
+      "partMargin": -0.06,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    },
+    "semantic/granite-107m/recall-document-1c": {
+      "absolute": 0.87,
+      "adequacy": 0,
+      "partMargin": 0,
+      "stepMargin": 0.01,
+      "tie": 0.02
+    }
+  }
+}

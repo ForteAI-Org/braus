@@ -13,16 +13,19 @@ import SeatCore
 
 /// CallProducer is who makes a set of tool calls, as the living memory records them: the source (the
 /// app's worker, an external client, the command line), the stream that tells two producers of one
-/// source apart, and the trace the producer is in now (a message, a conversation), which it updates.
+/// source apart, the trace the producer is in now (a message, a conversation), which it updates, and
+/// the message being answered when the frontend has one, which a task names as its origin.
 public struct CallProducer: Sendable, Equatable {
     public var source: MemoryEventSource
     public var streamID: String
     public var traceID: String?
+    public var messageRef: String?
 
-    public init(source: MemoryEventSource, streamID: String, traceID: String? = nil) {
-        self.source   = source
-        self.streamID = streamID
-        self.traceID  = traceID
+    public init(source: MemoryEventSource, streamID: String, traceID: String? = nil, messageRef: String? = nil) {
+        self.source     = source
+        self.streamID   = streamID
+        self.traceID    = traceID
+        self.messageRef = messageRef
     }
 }
 
@@ -34,6 +37,13 @@ public final class AutomationTools {
     /// Who makes the calls, as the living memory records them: the app's worker, an external client,
     /// the command line's chat. Each call is recorded under it, with the trace it names at that moment.
     public var producer = CallProducer(source: .app, streamID: "tools-\(UUID().uuidString)")
+    /// The task the agent declared through `memory_task` and has not ended: its calls are attributed to it.
+    public private(set) var openTask: OpenTask?
+    /// Values withheld from the record so far (the task's secrets, typed secrets), in memory only, so
+    /// every later record withholds them too. Never stored, never shown.
+    private var secrets: [String] = []
+    /// The check the last operation's path reported, for its record.
+    private var lastCheck: OperationCheck?
     private var revision = 0
     /// The last scene sent to the model of each window it read, most recent last: what the next scene
     /// of that window is sent as changes against.
@@ -50,7 +60,9 @@ public final class AutomationTools {
     }
 
     /// The base instructions every provider turn over these tools runs with, in the CLI and the app alike.
-    public static let instructions = """
+    public static var instructions: String { baseInstructions + "\n" + MemoryTaskTool.instructions }
+
+    static let baseInstructions = """
     You are Mecum's desktop automation assistant. Use only the mecum MCP tools to inspect and control apps.
     All app actions happen on a background Seat. Never use a shell, AppleScript, computer-use fallback,
     or foreground actions. Never claim completion without the tool's evidence.
@@ -258,7 +270,8 @@ public final class AutomationTools {
             tool("close_session", "Return the application's windows and release its Seat. Only when the person "
                  + "asks, or before calling open_session again; never to finish a task, since Mecum releases the "
                  + "Seat by itself.",
-                 session, ["session"])
+                 session, ["session"]),
+            MemoryTaskTool.definition
         ]
     }
 
@@ -267,6 +280,11 @@ public final class AutomationTools {
         let tool = PhaseInterval.begin("tool", name)
         defer { tool.end() }
         #endif
+        return try await MemoryService.labelled("tool \(name)") { try await toolCall(name, arguments) }
+    }
+
+    private func toolCall(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
+        if name == MemoryTaskTool.name { return try await task(arguments) }
         let before = seen
         // A session that ended leaves no scene to compare the next one against.
         defer { if session.id == nil { seen = [] } }
@@ -278,38 +296,612 @@ public final class AutomationTools {
             let guidance = session.id == nil
                 ? "Use status and list current windows before opening a new session."
                 : "Observe before any retry."
-            try record?("← \(name) error: \(error). \(guidance)")
+            try transcribe("← \(name) error: \(error). \(guidance)")
             throw error
         }
     }
 
-    /// Runs the call under its recorder, when the session has a memory: the call is recorded planned and
-    /// started before any effect, the engine reports to the recorder through `CallRecorder.current`, and
-    /// the call's end carries the result the tool answered, or its error. A request the contract cannot
-    /// represent is not recorded and the call runs as it always did.
+    /// Runs the call under its recorder, when the session has a memory. A call that may change the
+    /// application or the Seat is confirmed in the archive, planned and started with its admitted
+    /// arguments and its task attribution, before any effect: when the memory does not confirm it, or
+    /// cannot represent it, the call is refused and nothing is done. A read-only call runs whatever the
+    /// memory answers, and its answer says when it was not recorded. The engine reports to the recorder
+    /// through `CallRecorder.current`; the call's end carries the result the tool answered, or its error,
+    /// with the check the operation's oracle made. An end the memory cannot save suspends it: the answer
+    /// says so, the effect is never repeated, and no further effect starts until the end is saved.
     private func dispatch(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
         let request = try? Self.callRequest(name, arguments == .null ? JSONValue.object([:]) : arguments)
-        guard let request, let recorder = makeRecorder(sessionID: session.id) else {
-            return try await answer(name, arguments, recorder: nil)
+        guard let recorder = makeRecorder(sessionID: session.id) else {
+            return try finish(name, try await answer(name, arguments, recorder: nil), notice: nil)
         }
-        if case .batch = request {} else { await recorder.begin(request, app: memoryApplication) }
+        guard let request else {
+            if AgentTool(rawValue: name)?.requiresConfirmedStart == true {
+                // The call itself refuses such a request before any effect: let it say why, unrecorded.
+                _ = try await answer(name, arguments, recorder: nil)
+                throw AutomationFailure("Mecum's memory cannot represent this call, so it was not run.")
+            }
+            return try finish(name, try await answer(name, arguments, recorder: nil),
+                          notice: "This call was not recorded: Mecum's memory cannot represent its arguments.")
+        }
+        let attribution = request.tool == .batch ? nil : openTask?.attribution
+        if case .batch = request {} else {
+            do {
+                try await recorder.begin(request, app: memoryApplication, attribution: attribution)
+            } catch {
+                await collectSecrets(of: recorder)
+                guard !request.tool.requiresConfirmedStart else { throw Self.unconfirmed(error) }
+                let value = try await CallRecorder.$current.withValue(nil) {
+                    try await self.answer(name, arguments, recorder: nil)
+                }
+                return try finish(name, value, notice: "This call was not recorded: \(error).")
+            }
+        }
+        await collectSecrets(of: recorder)
         do {
             let value = try await CallRecorder.$current.withValue(recorder) {
                 try await self.answer(name, arguments, recorder: recorder)
             }
-            await recorder.end(.completed, result: lastResult, tool: request.tool)
-            return value
+            // The notice is read after the end, which may itself be saved only in part.
+            let notice: String?
+            do {
+                try await recorder.end(.completed, result: lastResult, tool: request.tool, check: lastCheck)
+                notice = await recorder.recordingGap.map { "Part of this call was not recorded: \($0)." }
+            } catch {
+                notice = Self.suspended(error)
+            }
+            await collectSecrets(of: recorder)
+            return try finish(name, value, notice: notice)
         } catch {
-            await recorder.end(.failed, result: .error(message: String(describing: error)), tool: request.tool)
-            throw error
+            let cancelled = error is CancellationError
+            let notice: String?
+            do {
+                try await recorder.end(cancelled ? .cancelled : .failed,
+                                       result: cancelled ? nil : .error(message: String(describing: error)),
+                                       tool: request.tool, check: lastCheck)
+                notice = await recorder.recordingGap.map { "Part of this call was not recorded: \($0)." }
+            } catch let failure {
+                notice = Self.suspended(failure)
+            }
+            guard let notice else { throw error }
+            try transcribe("← \(name) memory: \(notice)")
+            // A cancelled call has no reader; any other failure reaches the model with what was not recorded.
+            if cancelled { throw error }
+            throw AutomationFailure("\(error) \(notice)")
         }
+    }
+
+    /// The answer of a call, with the memory's notice when part of it was not recorded, as the model reads it.
+    private func finish(_ name: String, _ value: JSONValue, notice: String?) throws -> JSONValue {
+        #if MECUM_PHASES
+        let rendering = PhaseInterval.begin("render.result")
+        defer { rendering.end() }
+        #endif
+        var answered = Self.noted(value, session.seatNotice)
+        if let notice, case .object(var object) = answered {
+            object["memory"] = .string(notice)
+            answered = .object(object)
+        }
+        try transcribe("← \(name) \(String(decoding: try JSONEncoder().encode(answered), as: UTF8.self))")
+        return MCPRouter.toolResult(answered)
+    }
+
+    /// The refusal of a call whose start the memory did not confirm: nothing was done.
+    private static func unconfirmed(_ error: any Error) -> AutomationFailure {
+        AutomationFailure(
+            "Mecum's memory did not confirm this call before it could act (\(error)), so nothing was done. "
+                + "Mecum records every action before taking it; use status, and try again once the memory is available."
+        )
+    }
+
+    /// What the answer says when the end of a call that may have acted could not be saved.
+    private static func suspended(_ error: any Error) -> String {
+        "The action ran, but Mecum's memory could not save its record (\(error)). Do not repeat the action: observe instead. "
+            + "Mecum takes no further action until the record is saved."
+    }
+
+    /// Hands a line to the transcript with every value the memory withholds withheld here too: the
+    /// producer's secrets and the credential shapes, so no log of the tools keeps what the archive may not.
+    private func transcribe(_ line: String) throws {
+        guard let record else { return }
+        try record(ValueMinimization(secrets: secrets).minimize(text: line).0)
+    }
+
+    /// Keeps the values a call withheld, so every later record of this producer withholds them too.
+    private func collectSecrets(of recorder: CallRecorder) async {
+        for text in await recorder.withheldTexts where !secrets.contains(text) { secrets.append(text) }
+    }
+
+    // MARK: The task
+
+    /// Answers a `memory_task` call: decodes it, writes the task's declaration through `TaskChannel`, and
+    /// keeps the open task its next calls are attributed to. It acts on no application and is not
+    /// recorded as a call. A refusal is answered as a tool error with a code and the facts the agent
+    /// needs (the current revision, the open task), never thrown as a failure of an action.
+    private func task(_ arguments: JSONValue) async throws -> JSONValue {
+        // The request's secrets are the producer's before any line of it is written, the transcript's first.
+        for text in MemoryTaskTool.declaredSecrets(in: arguments) where !secrets.contains(text) { secrets.append(text) }
+        try transcribe("→ \(MemoryTaskTool.name) \(Self.masked(arguments))")
+        let answered: JSONValue
+        let isError: Bool
+        do {
+            answered = try await taskAnswer(arguments)
+            isError  = false
+        } catch let failure as MemoryTaskTool.Failure {
+            answered = Self.taskFailure(failure)
+            isError  = true
+        } catch let error as TaskContextError {
+            answered = Self.taskFailure(Self.failure(of: error))
+            isError  = true
+        } catch let error as ProcedureError {
+            answered = Self.taskFailure(Self.failure(of: error))
+            isError  = true
+        } catch {
+            answered = Self.taskFailure(MemoryTaskTool.Failure(code: "memory_unavailable",
+                message: "Mecum's memory did not record the task (\(MemoryService.describe(error))). App actions still "
+                    + "require the memory; use status."))
+            isError  = true
+        }
+        try transcribe(
+            "← \(MemoryTaskTool.name) \(String(decoding: try JSONEncoder().encode(answered), as: UTF8.self))"
+        )
+        return MCPRouter.toolResult(answered, isError: isError)
+    }
+
+    private func taskAnswer(_ arguments: JSONValue) async throws -> JSONValue {
+        guard let directory = session.memoryDirectory else {
+            throw MemoryTaskTool.Failure(
+                code   : "no_memory",
+                message: "This session has no memory: nothing about tasks is recorded."
+            )
+        }
+        let memory   = MemoryService.shared(for: directory)
+        let producer = try TaskProducer(source: self.producer.source, streamID: self.producer.streamID)
+        let request  = try MemoryTaskTool.decode(arguments == .null ? .object([:]) : arguments,
+                                                 minimization: ValueMinimization(secrets: secrets),
+                                                 messageRef: self.producer.messageRef)
+        func open(_ task: OpenTask, _ status: String, _ extra: [String: JSONValue] = [:]) -> JSONValue {
+            .object(["status": .string(status), "task": .string(task.taskID), "attempt": .string(task.attemptID),
+                     "revision": .number(Double(task.revision))].merging(extra, uniquingKeysWith: { $1 }))
+        }
+        func keep(_ more: [String]) { for text in more where !secrets.contains(text) { secrets.append(text) } }
+        switch request {
+            case .begin(let content, let declared, let plan):
+                if let current = openTask {
+                    throw MemoryTaskTool.Failure(
+                        code   : "task_already_open",
+                        message: "A task is already open: update it, or end it "
+                            + "before beginning another.",
+                        details: ["task": .string(current.taskID)]
+                    )
+                }
+                keep(declared)
+                let opened = try await TaskChannel.begin(
+                    content,
+                    producer: producer,
+                    traceID : self.producer.traceID,
+                    memory  : memory
+                )
+                openTask = opened
+                // The preparation before any operation: the memory searched once for what serves the task.
+                guard let plan else { return open(opened, "begun") }
+                if plan.propose {
+                    return open(opened, "begun", await propose(.initial, plan, content: content, task: opened, producer: producer, memory: memory))
+                }
+                return open(opened, "begun", await recall(.initial, plan, content: content, task: opened, producer: producer,
+                                                          memory: memory))
+            case .update(let update, let declared):
+                guard let current = openTask else { throw Self.noOpenTask }
+                keep(declared)
+                let expecting = update.expecting ?? current.revision
+                let base      = try await TaskChannel.revision(
+                    expecting,
+                    of      : current.taskID,
+                    producer: producer,
+                    memory  : memory
+                )
+                let content   = try update.applied(
+                    to        : base.content,
+                    messageRef: self.producer.messageRef.flatMap { $0.isEmpty ? nil : $0 }
+                )
+                let revised   = try await TaskChannel.revise(
+                    current,
+                    expecting: expecting,
+                    content  : content,
+                    reason   : update.reason,
+                    producer : producer,
+                    memory   : memory
+                )
+                openTask = revised
+                return open(revised, "revised")
+            case .checkpoint(let draft, let declared, let uses), .end(let draft, let declared, let uses):
+                guard let current = openTask else { throw Self.noOpenTask }
+                keep(declared)
+                let reported = try await report(uses, task: current, memory: memory)
+                let (receipt, checkpoint) = try await TaskChannel.checkpoint(
+                    current,
+                    draft,
+                    producer: producer,
+                    memory  : memory
+                )
+                let recorded: JSONValue = .string(receipt == .committed ? "recorded" : "already recorded")
+                var extra: [String: JSONValue] = ["recorded": recorded]
+                if let used = await linked(current, producer: producer, memory: memory) { extra["recall_use"] = used }
+                if reported > 0 { extra["use_reported"] = .number(Double(reported)) }
+                // The checkpoint is saved whatever the candidate: a candidate that cannot be built now is
+                // built again from the same facts by `candidate` or the next checkpoint.
+                do {
+                    if let summary = try await ProcedureProducer.candidate(attemptID: current.attemptID, producer: producer,
+                                                                           memory: memory) {
+                        extra["candidate"] = Self.candidate(summary)
+                    }
+                } catch {
+                    extra["candidate_error"] = .string(MemoryService.describe(error))
+                }
+                if draft.kind == .end {
+                    openTask = nil
+                    extra["outcome"] = .string(checkpoint.declared?.rawValue ?? "")
+                    return open(current, "ended", extra)
+                }
+                extra["sequence"] = .number(Double(checkpoint.sequence))
+                return open(current, "checkpointed", extra)
+            case .resume(let taskID):
+                if let current = openTask, current.taskID != taskID {
+                    throw MemoryTaskTool.Failure(
+                        code   : "task_already_open",
+                        message: "Another task is open: end it before "
+                            + "resuming this one.",
+                        details: ["task": .string(current.taskID)]
+                    )
+                }
+                let resumed = try await TaskChannel.resume(taskID, producer: producer, memory: memory)
+                openTask = resumed
+                return open(
+                    resumed,
+                    "resumed",
+                    ["guidance": .string("A new attempt began. Observe the present state before "
+                        + "acting: nothing of the earlier attempt is replayed.")]
+                )
+            case .candidate(let taskID):
+                guard let summary = try await ProcedureProducer.candidate(taskID: taskID, producer: producer, memory: memory) else {
+                    return .object(["status": .string("no candidate"), "task": .string(taskID),
+                                    "message": .string("The task's last attempt started no app action.")])
+                }
+                return .object(["status": .string("candidate"), "task": .string(taskID), "candidate": Self.candidate(summary)])
+            case .interpret(let interpretation, let declared):
+                keep(declared)
+                let outcome = try await ProcedureProducer.interpret(interpretation, producer: producer, memory: memory)
+                // The version and its qualification are committed with their index work: the worker takes it now.
+                await RecallService.shared(for: memory).schedule()
+                return Self.interpreted(outcome, candidateID: interpretation.candidateID)
+            case .recall(let reason, let plan):
+                guard let current = openTask else { throw Self.noOpenTask }
+                let revision = try await TaskChannel.revision(current.revision, of: current.taskID, producer: producer, memory: memory)
+                if plan.propose {
+                    return open(current, "proposed", await propose(reason, plan, content: revision.content, task: current, producer: producer,
+                                                                   memory: memory))
+                }
+                return open(current, "recalled", await recall(reason, plan, content: revision.content, task: current,
+                                                              producer: producer, memory: memory))
+            case .choose(let plan):
+                guard let current = openTask else { throw Self.noOpenTask }
+                let revision = try await TaskChannel.revision(current.revision, of: current.taskID, producer: producer, memory: memory)
+                do {
+                    let answer = try await RecallService.shared(for: memory).choose(
+                        plan, taskID: current.taskID, attemptID: current.attemptID, revision: current.revision,
+                        values: revision.content.inputs, constraints: revision.content.constraints, producer: producer)
+                    let data = try JSONEncoder().encode(answer.delivery)
+                    return open(current, answer.recordedNow ? "chosen" : "already chosen",
+                                ["recall": try JSONDecoder().decode(JSONValue.self, from: data)])
+                } catch let refusal as RecallChoice.Refusal {
+                    throw MemoryTaskTool.Failure(code: refusal.code.rawValue,
+                                                 message: "The plan was not admitted; nothing was recorded or run: "
+                                                    + refusal.problems.joined(separator: "; ") + ".",
+                                                 details: ["problems": .array(refusal.problems.map(JSONValue.string))])
+                } catch let error as MemoryStoreError where Self.isChoiceRecordFault(error) {
+                    // The archive refused the choice's own record: an internal error of the experiment, not the memory's
+                    // unavailability. The task's facts are untouched and the memory is not suspended.
+                    throw MemoryTaskTool.Failure(code: "choice_not_recorded",
+                                                 message: "Mecum could not record this choice (\(MemoryService.describe(error))): nothing was "
+                                                    + "recorded or delivered, and this call ran no app action. Plan with the current scene "
+                                                    + "and tools, or propose again.")
+                }
+            case .use(let uses):
+                guard let current = openTask else { throw Self.noOpenTask }
+                let reported = try await report(uses, task: current, memory: memory)
+                var extra: [String: JSONValue] = ["use_reported": .number(Double(reported))]
+                if let used = await linked(current, producer: producer, memory: memory) { extra["recall_use"] = used }
+                return open(current, "use recorded", extra)
+            case .status:
+                let suspended = await memory.status().suspended
+                var answer: [String: JSONValue] = ["status": .string(openTask == nil ? "no open task" : "open")]
+                if let current = openTask {
+                    answer["task"] = .string(current.taskID)
+                    answer["attempt"] = .string(current.attemptID)
+                    answer["revision"] = .number(Double(current.revision))
+                }
+                if let suspended { answer["memory"] = .string("suspended: \(suspended)") }
+                return .object(answer)
+        }
+    }
+
+    /// Whether a store error is a refusal of a choice's own record (a check of the archive, an identity, a lock or a wait
+    /// inside the store) rather than the memory being unusable, which stays `memory_unavailable`.
+    static func isChoiceRecordFault(_ error: MemoryStoreError) -> Bool {
+        switch error {
+            case .contract, .identity, .locked, .contention, .malformedText: true
+            case .open, .schema, .failed, .snapshot, .unavailable, .cancelled: false
+        }
+    }
+
+    /// Runs a query of the Recall for the open task and answers it as the agent reads it, under `recall`; a query
+    /// the memory cannot run answers `recall_error`, and the task's declaration stays recorded.
+    private func recall(_ reason: RecallReason, _ plan: MemoryTaskTool.RecallPlan, content: TaskRevisionContent, task: OpenTask,
+                        producer: TaskProducer, memory: MemoryService) async -> [String: JSONValue] {
+        let service = RecallService.shared(for: memory)
+        await service.schedule()
+        do {
+            let request = try RecallRequest(taskID: task.taskID, attemptID: task.attemptID, revision: task.revision, reason: reason,
+                                            remainingWork: plan.remaining ?? content.goal, needs: plan.needs,
+                                            values: content.inputs, constraints: content.constraints)
+            let answer = try await service.recall(request, producer: producer)
+            let data = try JSONEncoder().encode(answer.delivery)
+            return ["recall": try JSONDecoder().decode(JSONValue.self, from: data)]
+        } catch let error as TaskContextError {
+            return ["recall_error": .string("The memory was not searched: \(error).")]
+        } catch {
+            return ["recall_error": .string("The memory could not be searched (\(MemoryService.describe(error))); plan with the current "
+                                            + "scene and tools.")]
+        }
+    }
+
+    /// Searches for a proposal of the experiment of the agent's choice and answers its text under `recall_proposal`; a
+    /// search the memory cannot run answers `recall_error`, and the task's declaration stays recorded.
+    private func propose(_ reason: RecallReason, _ plan: MemoryTaskTool.RecallPlan, content: TaskRevisionContent, task: OpenTask,
+                         producer: TaskProducer, memory: MemoryService) async -> [String: JSONValue] {
+        let service = RecallService.shared(for: memory)
+        await service.schedule()
+        do {
+            let request = try RecallRequest(taskID: task.taskID, attemptID: task.attemptID, revision: task.revision, reason: reason,
+                                            remainingWork: plan.remaining ?? content.goal, needs: plan.needs,
+                                            values: content.inputs, constraints: content.constraints)
+            let answer = try await service.propose(request, producer: producer)
+            let data = try JSONEncoder().encode(answer.delivery)
+            return ["recall_proposal": try JSONDecoder().decode(JSONValue.self, from: data)]
+        } catch let error as TaskContextError {
+            return ["recall_error": .string("The memory was not searched: \(error).")]
+        } catch {
+            return ["recall_error": .string("The memory could not be searched (\(MemoryService.describe(error))); plan with the current "
+                                            + "scene and tools.")]
+        }
+    }
+
+    /// Records the agent's declared uses of the selections it received; answers how many were recorded.
+    private func report(_ uses: [MemoryTaskTool.UseReport], task: OpenTask, memory: MemoryService) async throws -> Int {
+        let service = RecallService.shared(for: memory)
+        for use in uses {
+            do {
+                try await service.report(queryID: use.queryID, attemptID: task.attemptID, needPosition: use.needPosition,
+                                         declared: use.declared, cause: use.cause, note: use.note)
+            } catch RecallUseError.unknownQuery(let id) {
+                throw MemoryTaskTool.Failure(code: "unknown_query",
+                                             message: "No query \(id) with that need was made by this attempt: report the query ids recall answered.")
+            }
+        }
+        return uses.count
+    }
+
+    /// Links the attempt's calls to the steps the Recall delivered to it and answers what each selection was used
+    /// for, or nil when it received none.
+    private func linked(_ task: OpenTask, producer: TaskProducer, memory: MemoryService) async -> JSONValue? {
+        // The facts a link reads are derived after each call: let the queue write them, within a short budget.
+        _ = await memory.flush(within: .seconds(2))
+        guard let summaries = try? await RecallService.shared(for: memory).link(attemptID: task.attemptID, taskID: task.taskID,
+                                                                                 producer: producer),
+              !summaries.isEmpty else { return nil }
+        return .array(summaries.map { summary in
+            .object([
+                "query": .string(summary.queryID), "need": .number(Double(summary.needPosition + 1)),
+                "tract": summary.tract.map { .number(Double($0 + 1)) } ?? .null,
+                "steps_carried_out": .array(summary.executed.map { .number(Double($0 + 1)) }),
+                "verified": .array(summary.confirmed.map { .number(Double($0 + 1)) }),
+                "not_carried_out": .array(summary.notExecuted.map { .number(Double($0 + 1)) }),
+                "own_operations": .number(Double(summary.ownOperations)),
+                "undetermined": .number(Double(summary.undetermined)),
+            ])
+        })
+    }
+
+    private static let noOpenTask = MemoryTaskTool.Failure(
+        code   : "no_open_task",
+        message: "No task is open in this session: begin one, or resume your unfinished task by its id."
+    )
+
+    private static func failure(of error: TaskContextError) -> MemoryTaskTool.Failure {
+        switch error {
+            case .invalid:
+                return MemoryTaskTool.Failure(
+                    code   : "invalid_task",
+                    message: "The task cannot be recorded as given: \(error)."
+                )
+            case .unknownTask(let id):
+                return MemoryTaskTool.Failure(code: "unknown_task", message: "No task \(id) of yours is recorded.")
+            case .unknownAttempt:
+                return MemoryTaskTool.Failure(
+                    code   : "unknown_task",
+                    message: "The attempt is not the task's last one: resume the task."
+                )
+            case .foreignTask(let id):
+                return MemoryTaskTool.Failure(
+                    code   : "foreign_task",
+                    message: "Task \(id) belongs to another producer: it cannot be "
+                        + "read or changed from here. Begin your own task."
+                )
+            case .closed(let id, let status):
+                return MemoryTaskTool.Failure(
+                    code   : "task_closed",
+                    message: "Task \(id) ended as \(status.rawValue): begin a new "
+                        + "task for a new request."
+                )
+            case .staleRevision(let id, let expected, let current):
+                return MemoryTaskTool.Failure(
+                    code   : "stale_revision",
+                    message: "Task \(id) is at revision \(current), not "
+                        + "\(expected): read it again and revise from the current revision.",
+                    details: ["current_revision": .number(Double(current))]
+                )
+            case .attemptNotRunning:
+                return MemoryTaskTool.Failure(
+                    code   : "attempt_not_running",
+                    message: "This attempt ended: resume the task to "
+                        + "continue it."
+                )
+        }
+    }
+
+    private static func failure(of error: ProcedureError) -> MemoryTaskTool.Failure {
+        switch error {
+            case .unknownCandidate(let id):
+                return MemoryTaskTool.Failure(code: "unknown_candidate", message: "No candidate \(id) of your tasks is recorded.")
+            case .staleCandidate(let id, let current):
+                return MemoryTaskTool.Failure(
+                    code   : "stale_candidate",
+                    message: "Candidate \(id) is not the attempt's latest: interpret \(current), which covers the later actions.",
+                    details: ["current_candidate": .string(current)]
+                )
+            case .conflictingInterpretation(_, let revision):
+                return MemoryTaskTool.Failure(
+                    code   : "interpretation_conflict",
+                    message: "Revision \(revision) of this interpretation was recorded with other statements: omit the revision "
+                        + "to record a new one."
+                )
+            case .revisionOutOfOrder(_, let expected):
+                return MemoryTaskTool.Failure(code: "revision_out_of_order",
+                                              message: "The next revision of this interpretation is \(expected).",
+                                              details: ["next_revision": .number(Double(expected))])
+            case .unknownReference(let what):
+                return MemoryTaskTool.Failure(code: "unknown_reference",
+                                              message: "The interpretation names \(what), which the candidate or its actions do not have.")
+            case .contradictedPrefix(let step, let why):
+                return MemoryTaskTool.Failure(code: "contradicted_prefix",
+                                              message: "Step \(step + 1) is not the same operation in both versions (\(why)): they do not "
+                                                + "share the steps before the divergence you named. Name the first step that differs.",
+                                              details: ["step": .number(Double(step + 1))])
+            default:
+                return MemoryTaskTool.Failure(code: "invalid_interpretation",
+                                              message: "The interpretation cannot be recorded as given: \(error).")
+        }
+    }
+
+    /// A candidate as the agent reads it: its steps with their block, application, tool, arguments as
+    /// recorded, how each ended and how its check judged it, and the blocks.
+    static func candidate(_ summary: ProcedureProducer.CandidateSummary) -> JSONValue {
+        let steps: [JSONValue] = summary.steps.map { step in
+            var arguments: [String: JSONValue] = [:]
+            for argument in step.arguments {
+                let value: JSONValue = switch argument.value {
+                    case .text(let text): .string(text)
+                    case .integer(let number): .number(Double(number))
+                    case .real(let number): .number(number)
+                    case .boolean(let flag): .bool(flag)
+                }
+                if AgentCallArguments.specs(of: step.tool).first(where: { $0.name == argument.name })?.rows == .list {
+                    arguments[argument.name] = .array((arguments[argument.name]?.array ?? []) + [value])
+                } else {
+                    arguments[argument.name] = value
+                }
+            }
+            var fields: [String: JSONValue] = [
+                "step": .number(Double(step.number)), "block": .string("b\(step.block)"), "tool": .string(step.tool.rawValue),
+                "arguments": .object(arguments), "status": .string(step.status.rawValue),
+            ]
+            if let bundle = step.bundleID { fields["app"] = .string(bundle) }
+            if let condition = step.condition, let verdict = step.verdict {
+                fields["check"] = .string("\(condition.rawValue) \(verdict.rawValue)")
+            }
+            return .object(fields)
+        }
+        let blocks: [JSONValue] = summary.candidate.blocks.map { block in
+            var fields: [String: JSONValue] = ["part": .string("b\(block.index + 1)"),
+                                               "steps": .array([.number(Double(block.firstPosition + 1)),
+                                                                .number(Double(block.lastPosition + 1))])]
+            if let bundle = block.bundleID { fields["app"] = .string(bundle) }
+            return .object(fields)
+        }
+        return .object([
+            "id": .string(summary.candidate.candidateID),
+            "new": .bool(summary.isNew),
+            "steps": .array(steps),
+            "blocks": .array(blocks),
+            "interpret": .string("Call memory_task interpret with this candidate: labels and outcomes of the procedure, of the "
+                + "blocks when there are several, and of the steps; the parameters with their roles and values; the uses "
+                + "of parameters in steps' arguments as templates. Steps and blocks are fixed."),
+        ])
+    }
+
+    /// The answer to an interpretation: its revision and version, each part's qualification with its
+    /// reasons, and the uses the recorded actions contradicted.
+    static func interpreted(_ outcome: InterpretationOutcome, candidateID: String) -> JSONValue {
+        func reference(_ partID: String) -> String {
+            if partID.hasSuffix("/procedure") { return "procedure" }
+            if let range = partID.range(of: "/block-", options: .backwards), let index = Int(partID[range.upperBound...]) {
+                return "b\(index + 1)"
+            }
+            if let range = partID.range(of: "/step-", options: .backwards), let index = Int(partID[range.upperBound...]) {
+                return "s\(index + 1)"
+            }
+            return partID
+        }
+        let parts: [JSONValue] = outcome.qualifications.map { qualification in
+            var fields: [String: JSONValue] = ["part": .string(reference(qualification.partID)),
+                                               "admitted": .bool(qualification.verdict == .admitted)]
+            if !qualification.findings.isEmpty {
+                fields["reasons"] = .array(qualification.findings.map { finding in
+                    .string(finding.reason.rawValue + (finding.stepPosition.map { " (step \($0 + 1))" } ?? ""))
+                })
+            }
+            return .object(fields)
+        }
+        var answer: [String: JSONValue] = [
+            "status": .string(outcome.receipt == .committed ? "interpreted" : "already recorded"),
+            "candidate": .string(candidateID), "revision": .number(Double(outcome.revision)), "version": .string(outcome.routeID),
+            "parts": .array(parts),
+        ]
+        if !outcome.findings.isEmpty {
+            answer["findings"] = .array(outcome.findings.map { finding in
+                .object(["step": .number(Double(finding.stepPosition + 1)), "argument": .string(finding.argumentName),
+                         "finding": .string(finding.kind.rawValue)])
+            })
+        }
+        return .object(answer)
+    }
+
+    private static func taskFailure(_ failure: MemoryTaskTool.Failure) -> JSONValue {
+        .object(["status": .string("error"), "error": .string(failure.code), "message": .string(failure.message)]
+            .merging(failure.details, uniquingKeysWith: { $1 }))
+    }
+
+    /// The arguments as the transcript shows them: every secret value of an input or output masked.
+    private static func masked(_ arguments: JSONValue) -> String {
+        func mask(_ list: JSONValue) -> JSONValue {
+            guard let items = list.array else { return list }
+            return .array(items.map { item in
+                guard case .object(var fields) = item, item["secret"].bool == true,
+                      fields["value"] != nil else { return item }
+                fields["value"] = .string(ValueMinimization.marker)
+                return .object(fields)
+            })
+        }
+        guard case .object(var object) = arguments else { return "{}" }
+        for key in ["inputs", "outputs", "parameters"] where object[key] != nil { object[key] = mask(object[key] ?? .null) }
+        return String(decoding: (try? JSONEncoder().encode(JSONValue.object(object))) ?? Data(), as: UTF8.self)
     }
 
     /// The recorder of one call over this session's memory, under the producer and its current trace.
     private func makeRecorder(sessionID: UUID?, parent: CallRecorder? = nil, position: Int? = nil) -> CallRecorder? {
         guard let directory = session.memoryDirectory else { return nil }
         let service = MemoryService.shared(for: directory)
-        let brain   = BrainMemory(brains: service, applications: service, clock: { service.clock.brainNow() })
+        let brain   = BrainMemory(brains: service, applications: service, relations: service,
+                                  clock: { service.clock.brainNow() })
         let context: ActionContext
         if let parent, let position {
             context = parent.context.child(position)
@@ -317,7 +909,12 @@ public final class AutomationTools {
             context = ActionContext(source: producer.source, streamID: producer.streamID, traceID: producer.traceID,
                                     sessionID: sessionID?.uuidString)
         }
-        return CallRecorder(memory: service, brain: brain, context: context)
+        return CallRecorder(
+            memory      : service,
+            brain       : brain,
+            context     : context,
+            minimization: ValueMinimization(secrets: secrets)
+        )
     }
 
     /// The application the session holds, as a call's event names it.
@@ -330,6 +927,7 @@ public final class AutomationTools {
 
     private func answer(_ name: String, _ arguments: JSONValue, recorder: CallRecorder?) async throws -> JSONValue {
         lastResult = nil
+        lastCheck  = nil
         let arguments = arguments == .null ? JSONValue.object([:]) : arguments
         guard let definition = Self.definitions.first(where: { $0["name"].string == name }),
               let values = arguments.object else { throw AutomationFailure("Invalid tool arguments.") }
@@ -339,7 +937,7 @@ public final class AutomationTools {
         for field in schema["required"].array ?? [] {
             guard let key = field.string, values[key] != nil else { throw AutomationFailure("A required argument is missing.") }
         }
-        try record?("→ \(name) \(String(decoding: try JSONEncoder().encode(arguments), as: UTF8.self))")
+        try transcribe("→ \(name) \(String(decoding: try JSONEncoder().encode(arguments), as: UTF8.self))")
         let value: JSONValue
         if !["status", "windows", "apps", "open_session"].contains(name) {
             guard let id = session.id, arguments["session"].string == id.uuidString else {
@@ -403,15 +1001,18 @@ public final class AutomationTools {
             let done = try await session.menu(path: string(arguments, "path"))
             value = outcome(done)
             lastResult = .outcome(done.kind, message: done.message)
+            lastCheck  = done.withStatedCheck.check
         case "press":
             let done = try await session.press(button: string(arguments, "button"))
             value = outcome(done)
             lastResult = .outcome(done.kind, message: done.message)
+            lastCheck  = done.withStatedCheck.check
         case "act", "select", "type_text", "insert_text", "press_key", "scroll", "drag", "context_menu":
             let step = try Step(name, arguments)
             let done = try await perform(step)
             value = outcome(done)
             lastResult = .outcome(done.kind, message: done.message)
+            lastCheck  = done.withStatedCheck.check
         case "batch":
             guard let rows = arguments["steps"].array, (1...20).contains(rows.count) else {
                 throw AutomationFailure("batch requires 1...20 steps.")
@@ -422,49 +1023,104 @@ public final class AutomationTools {
                 steps.indices.compactMap { makeRecorder(sessionID: session.id, parent: parent, position: $0) }
             }
             if let recorder, let children, children.count == steps.count {
-                await recorder.begin(batch: zip(children, steps).map { ($0, $1.callRequest) }, app: memoryApplication)
+                do {
+                    try await recorder.begin(
+                        batch      : zip(children, steps).map { ($0, $1.callRequest) },
+                        app        : memoryApplication,
+                        attribution: openTask?.attribution
+                    )
+                } catch {
+                    for child in children { await collectSecrets(of: child) }
+                    throw Self.unconfirmed(error)
+                }
+                for child in children { await collectSecrets(of: child) }
             }
             var results: [JSONValue] = []
             var complete = true
             var verified = 0
+            // The steps that started: a step the memory refused to start never ran, and is skipped.
+            var started  = 0
+            var memoryNotice: String?
+            // Steps saved only in part: said in the answer, without stopping the batch as a suspension does.
+            var stepGaps: [String] = []
+            func noteGap(of child: CallRecorder?, at index: Int) async {
+                guard let gap = await child?.recordingGap else { return }
+                stepGaps.append("Part of step \(index + 1) was not recorded: \(gap).")
+            }
             for (index, step) in steps.enumerated() {
                 if Task.isCancelled {
                     // The cancellation ends the call as before; the steps it leaves unrun are recorded as never
                     // run, as after a stop, so none stays planned in the memory.
-                    for child in (children ?? []).dropFirst(results.count) { await child.skip() }
+                    for child in (children ?? []).dropFirst(started) { try? await child.skip() }
                     throw CancellationError()
                 }
                 let child = children?.indices.contains(index) == true ? children?[index] : nil
-                await child?.startStep()
+                if let child {
+                    do {
+                        try await child.startStep()
+                    } catch {
+                        complete = false
+                        results.append(.object(["status": .string("error"),
+                                                "message": .string(Self.unconfirmed(error).description),
+                                                "guidance": .string("This step was not run. Earlier effects remain.")]))
+                        try transcribe("← batch step \(index + 1) not run: \(error)")
+                        break
+                    }
+                }
+                started += 1
                 let result: ActOutcome
                 do { result = try await CallRecorder.$current.withValue(child) { try await self.perform(step) } }
                 catch {
-                    await child?.end(.failed, result: .error(message: String(describing: error)), tool: step.callRequest.tool)
+                    do {
+                        try await child?.end(
+                            error is CancellationError ? .cancelled : .failed,
+                            result: error is CancellationError ? nil : .error(message: String(describing: error)),
+                            tool  : step.callRequest.tool
+                        )
+                    } catch let failure {
+                        memoryNotice = Self.suspended(failure)
+                    }
+                    await noteGap(of: child, at: index)
                     let guidance = session.id == nil
                         ? "Earlier effects remain. Use status and list current windows before opening a new session."
                         : "Earlier effects remain. Observe before deciding the next step."
                     let failed: JSONValue = .object(["status": .string("error"), "message": .string(String(describing: error)),
                         "guidance": .string(guidance)])
                     results.append(failed)
-                    try record?("← batch step \(index + 1) error: \(error)")
+                    try transcribe("← batch step \(index + 1) error: \(error)")
                     complete = false
                     break
                 }
                 let value = outcome(result)
                 results.append(value)
-                await child?.end(.completed, result: .outcome(result.kind, message: result.message), tool: step.callRequest.tool)
-                try record?("← batch step \(index + 1) \(String(decoding: try JSONEncoder().encode(value), as: UTF8.self))")
+                do {
+                    try await child?.end(.completed, result: .outcome(result.kind, message: result.message),
+                                         tool: step.callRequest.tool, check: result.withStatedCheck.check)
+                } catch {
+                    memoryNotice = Self.suspended(error)
+                }
+                await noteGap(of: child, at: index)
+                if let child { await collectSecrets(of: child) }
+                try transcribe(
+                    "← batch step \(index + 1) \(String(decoding: try JSONEncoder().encode(value), as: UTF8.self))"
+                )
                 let accepted = result.kind == .foundActed
                     || (result.kind == .actedNoop && step.isToggle)
-                if !accepted { complete = false; break }
+                if !accepted || memoryNotice != nil { complete = false; break }
                 verified += 1
             }
-            for child in (children ?? []).dropFirst(results.count) { await child.skip() }
-            value = .object(["status": .string(complete ? "completed" : "stopped"),
-                             "steps": .array(results), "attemptedSteps": .number(Double(results.count)),
-                             "verifiedSteps": .number(Double(verified)),
-                             "requested": .number(Double(steps.count))])
-            lastResult = .batch(stopped: !complete, attempted: results.count, verified: verified)
+            for child in (children ?? []).dropFirst(started) {
+                do { try await child.skip() } catch { memoryNotice = memoryNotice ?? Self.suspended(error) }
+            }
+            var summary: [String: JSONValue] = ["status": .string(complete ? "completed" : "stopped"),
+                                                "steps": .array(results),
+                                                "attemptedSteps": .number(Double(started)),
+                                                "verifiedSteps": .number(Double(verified)),
+                                                "requested": .number(Double(steps.count))]
+            let notes = (memoryNotice.map { [$0] } ?? []) + stepGaps
+            if !notes.isEmpty { summary["memory"] = .string(notes.joined(separator: " ")) }
+            value = .object(summary)
+            lastResult = .batch(stopped: !complete, attempted: started, verified: verified)
         case "close_session":
             await session.close()
             var result: [String: JSONValue] = ["status": .string("closed"),
@@ -474,13 +1130,7 @@ public final class AutomationTools {
             lastResult = .closed(message: "Application session closed.")
         default: throw AutomationFailure("Unknown tool: \(name)")
         }
-        #if MECUM_PHASES
-        let rendering = PhaseInterval.begin("render.result")
-        defer { rendering.end() }
-        #endif
-        let answered = Self.noted(value, session.seatNotice)
-        try record?("← \(name) \(String(decoding: try JSONEncoder().encode(answered), as: UTF8.self))")
-        return MCPRouter.toolResult(answered)
+        return value
     }
 
     /// `value` with the seat's note about windows its scene does not show, when it carries a scene.

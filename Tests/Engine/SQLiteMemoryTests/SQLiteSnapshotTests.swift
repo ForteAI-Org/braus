@@ -51,7 +51,7 @@ struct SQLiteSnapshotTests {
         let check = try SQLiteConnection(path: destination.path)
         #expect(try check.query("PRAGMA journal_mode") { try $0.text(0) }.first == "delete")
         #expect(try check.query("PRAGMA integrity_check") { try $0.text(0) }.first == "ok")
-        #expect(try check.query("PRAGMA user_version") { $0.integer(0) }.first == 1)
+        #expect(try check.query("PRAGMA user_version") { $0.integer(0) }.first == Int64(SQLiteMemorySchema.version))
         check.close()
         #expect(try await store.diagnostics().snapshots == 1)
 
@@ -60,11 +60,11 @@ struct SQLiteSnapshotTests {
         #expect(try await count("SELECT count(*) FROM memory_events", in: store) == 51)
         let reopened = try await SQLiteMemoryStore.open(at: destination)
         let diagnostics = try await reopened.diagnostics()
-        #expect(diagnostics.schemaVersion == 1)
+        #expect(diagnostics.schemaVersion == SQLiteMemorySchema.version)
         #expect(!diagnostics.bootstrappedNow)
         #expect(diagnostics.journalMode == "wal")
         #expect(try await count("SELECT count(*) FROM memory_events", in: reopened) == 50)
-        #expect(try await reopened.read { try SchemaShape($0) } == SchemaShape(tables: 48, triggers: 48, indexes: 31))
+        #expect(try await reopened.read { try SchemaShape($0) } == SchemaShape.current)
         await reopened.close()
         await store.close()
     }
@@ -130,6 +130,42 @@ struct SQLiteSnapshotTests {
         #expect(await store.liveHandles == 0)
         #expect(!FileManager.default.fileExists(atPath: destination.path))
         #expect(try strayFiles(beside: url) == [])
+    }
+
+    @Test("while the finished copy is checked, the store answers reads and writes; a close then still ends the copy with no file left")
+    func storeFreeDuringVerification() async throws {
+        let url   = try temporaryDatabase()
+        let store = try await filled(url, events: 5)
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        await store.holdVerifications {
+            entered.continuation.yield()
+            for await _ in release.stream { break }
+        }
+        let destination = url.deletingLastPathComponent().appendingPathComponent("copy.sqlite")
+        let copying = Task { try await store.snapshot(to: destination) }
+        for await _ in entered.stream { break }
+        // The copy is being checked: a write and a read are answered now, not after it.
+        _ = try await record(EventRow(id: "during", key: "k"), in: store)
+        #expect(try await count("SELECT count(*) FROM memory_events", in: store) == 6)
+        release.continuation.yield()
+        let report = try await copying.value
+        #expect(try rawCount("SELECT count(*) FROM memory_events", at: report.destination) == 5, "the copy is as of its read transaction")
+        #expect(await store.liveHandles == 2)
+
+        let second = url.deletingLastPathComponent().appendingPathComponent("second.sqlite")
+        let held = AsyncStream<Void>.makeStream()
+        await store.holdVerifications {
+            held.continuation.yield()
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        let closing = Task { await storeError { _ = try await store.snapshot(to: second) } }
+        for await _ in held.stream { break }
+        await store.close()
+        #expect(await closing.value == .unavailable(.closed))
+        #expect(await store.liveHandles == 0)
+        #expect(!FileManager.default.fileExists(atPath: second.path))
+        #expect(try strayFiles(beside: url) == ["copy.sqlite"])
     }
 
     @Test("a writer active in another process, holding the lock, neither blocks the copy nor gets into it")
