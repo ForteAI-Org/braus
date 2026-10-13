@@ -145,7 +145,8 @@ Schema 6 already allows several `selected` rows per need. It has no place for th
 
 `memory_recall_links` keys a link by need and step only, so the same step position in two versions of one need would
 be confused. Using `delivery = 'not_delivered'`, an `alternative` role or the need's coverage for these would give
-existing columns another meaning. Schema 7 (`brain-living-memory-schema-7.sql`) therefore only adds tables, immutable
+existing columns another meaning. Schema 7 (`brain-living-memory-schema-7.sql`, since 2026-10-13 part 7 of the one schema text,
+[One schema text](MemorySchema.md#one-schema-text)) therefore only adds tables, immutable
 as the other recall facts are:
 
 | Table | Holds |
@@ -164,8 +165,8 @@ Their meaning is unchanged. An ambiguous need's options are `alternative` rows o
 a need has no selected row and two alternatives at least.
 `input_produced` states a producer the need's plan includes, in an earlier tract of the same need. Schema 6's check
 of a requirement's step admitted only steps of the requirement's own tract, so schema 7 writes that trigger again with
-this one case admitted (an earlier selected tract of the same version and need). The migration adds the tables and
-replaces the trigger in an archive at schema 6 in one transaction. Rows of earlier schemas are not touched.
+this one case admitted (an earlier selected tract of the same version and need). The one schema text writes that
+trigger once, as schema 7 did; an archive of version 1 gets it in its migration with every other part 7 object.
 
 ## Ownership, invalidation, cost, compatibility
 

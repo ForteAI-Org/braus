@@ -195,6 +195,11 @@ declared or recognized secret could be kept. A row with no proof named is shown 
 
 ## Schema 2 and its migration
 
+Since 2026-10-13 schema 2 is part 2 of the one schema text at version 7, and the migration below runs from schema 1
+straight to version 7 with every later part ([One schema text](MemorySchema.md#one-schema-text)). The copy, the
+transaction, the readers' refusal and the recovery are as described here; an archive at version 2 to 6, never
+released, is refused untouched.
+
 Schema 2 is the schema 1 resource, unchanged, followed by `brain-living-memory-schema-2.sql`, which only
 adds: 18 tables, 27 triggers, 10 indexes (66, 75 and 41 in all). No table of schema 1 is altered and no
 column is reused with another meaning, so a new archive (both texts at once) and a migrated one (the
@@ -360,7 +365,7 @@ be read (`malformedCall`, result kind `found_acted`). The reader now admits an o
 | R18 | Batch parent as container, steps started and ended one by one, unrun steps skipped, for the tools and `mecum batch` alike | `FactWiringTests.partialBatch`, `UncertainInputTests`, `CommandLineBatchTests` |
 | R58 | `resume`: a new attempt linked, the last interrupted, nothing replayed; a started call stays incomplete | `FactWiringTests.ownershipAndResumption`, `.crashLeavesIncomplete`, `AgentCallProcessTests.diedBetweenStartAndEnd` |
 | R61 | Identity and content compared on every write; a unification duplicate written once | `OperationFactRepositoryTests.conflictsWriteNothing`, `UnificationTests.duplicatesAndConflicts` |
-| R63 | Schema 2 by addition, verified copy, one-transaction migration, readers refuse, recovery accepts schema 1; an earlier archive's copy migrated only as the existing file it is | `SchemaMigrationTests`, `ArchiveTransferCoordinationTests.lostCopyNeverCompletes` |
+| R63 | Schema 2 by addition, verified copy, one-transaction migration, readers refuse, recovery accepts schema 1; an earlier archive's copy migrated only as the existing file it is; since 2026-10-13 one text and one migration, from schema 1 | `SchemaMigrationTests`, `ArchiveTransferCoordinationTests.lostCopyNeverCompletes`, `ProcedureRepositoryTests.developmentVersionsRefused` |
 | R71 | Baseline and inventory in the D1 report and here | The D1 report |
 | R39 to R44, R78 (foundations) | Task values with role, kind, source, sensitivity; withheld values and their gaps, declared secrets of any length in every task text; sources of every transferred fact | `FactContractTests`, `FactWiringTests.canariesAreWithheld`, `.declaredSecretCopiesAreWithheld`, `.outOfRangeRevisions` |
 

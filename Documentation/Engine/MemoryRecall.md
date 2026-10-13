@@ -73,7 +73,8 @@ never instructions with authority; the guidance says so in every answer.
 
 ## The index
 
-Schema 6 (`brain-living-memory-schema-6.sql`, sha256 `8bd83675a5ff44ea4622631dd2b831e88f7fcb31cc1918c015565b2bb60fbe14`) adds 12 tables, 35 triggers and
+Schema 6 (`brain-living-memory-schema-6.sql`, sha256 `8bd83675a5ff44ea4622631dd2b831e88f7fcb31cc1918c015565b2bb60fbe14`), since
+2026-10-13 part 6 of the one schema text ([One schema text](MemorySchema.md#one-schema-text)), adds 12 tables, 35 triggers and
 12 indexes (103, 170 and 72 in all); no table of an earlier schema is altered. Four of the indexes are on schema 3's tables: reading a
 version by its id scanned the bindings, parameter details and contract items, and the routes for the version
 that supersedes it, a cost that grew with the catalogue ([measures](#measures)). The index is derived from the catalogue and can be
@@ -97,8 +98,8 @@ rebuilt from it; SQLite stays authoritative.
   catalogue may offer (a version published or superseding another, a part evaluated, a part's state, a
   policy quarantined), one pending row per route or for the whole catalogue. A worker of `RecallService`
   takes it after the commit, in bounded passes, outside any transaction for the model; work that fails three
-  times stays pending, counted, and said in every answer's search note. An archive migrated from schema 5
-  gets one rebuild queued by the store in the migrating transaction.
+  times stays pending, counted, and said in every answer's search note. An archive migrated from schema 1,
+  the only migration left, gets one rebuild queued by the store in the migrating transaction.
 - **Facts of the Recall**: each query (why, the remaining work, generation, channel, search status and
   note, candidates considered, coverage, delivery and its size, selector version, duration), its needs (with
   the reason of a coverage that is not complete, `excluded` for an absence by exclusion), the selections

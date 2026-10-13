@@ -151,36 +151,6 @@ struct BrainRelationLearningTests {
         await service.close()
     }
 
-    @Test("an archive migrated from schema 2 learns from its earlier operations by the service's own bounded recovery, each operation once")
-    func migratedHistoryOnRequest() async throws {
-        let service = try W.service()
-        let directory = service.url.deletingLastPathComponent()
-        let editing = Self.window([Self.export, Self.cancel])
-        let dialog = Self.window([Self.save, Self.cancel], title: "Export", surface: .dialog)
-        let first = try await Self.act(service, Self.export, before: editing, after: dialog, check: Self.passed(Self.export))
-        try await Self.act(service, Self.export, before: editing, after: dialog, check: Self.passed(Self.export))
-        #expect(await service.flush(within: .seconds(10)))
-        await service.close()
-        try downgradeToSchema2(service.url)
-
-        let migrated = MemoryService(directory: directory)
-        _ = try await migrated.ready()
-        #expect(try rawRows("PRAGMA user_version", at: migrated.url) == ["\(SQLiteMemorySchema.version)"])
-        // The migration itself derives nothing; the service's recovery evaluates the two calls behind its writes.
-        #expect(await migrated.flush(within: .seconds(10)))
-        let status = await migrated.status()
-        #expect(status.relationRecovery.recovered == 2 && !status.relationRecoveryPending, "\(status.relationRecovery)")
-        #expect(try await migrated.perform { try await $0.relations.applyPending(at: 5_001) } == 0, "nothing is left to recover")
-        #expect(try await migrated.perform { try await $0.relations.evaluations(of: first) }.map(\.cause) == [.recovery])
-        let relations = try await migrated.perform { try await $0.relations.relations(of: Self.bundle) }
-        #expect(relations.count == 1 && relations.first?.supports == 2 && relations.first?.standing == .exposed)
-        // The states observed before the migration are found by the new lookup: their shapes were filled in.
-        let skeleton = SceneSkeleton(sample: CaptureSample(key: CaptureSampleKey(eventID: "probe", phase: .current), of: editing,
-                                                           sessionRevision: nil))
-        #expect(try await migrated.state(of: skeleton, isComplete: true, in: Self.bundle) == relations.first?.key.fromSceneID)
-        await migrated.close()
-    }
-
     @Test("a recovery gesture and an unattributed change teach nothing, and say why")
     func nothingFromRecoveryOrExtraneousChange() async throws {
         let service = try W.service()
@@ -199,15 +169,4 @@ struct BrainRelationLearningTests {
                 "the projection learns no transition from a gesture its check did not verify")
         await service.close()
     }
-}
-
-/// Brings an archive back to exactly schema 2, as a build before D2 left it: the objects schema 3 adds are
-/// dropped with their rows, and the migration record of schema 3 with them.
-func downgradeToSchema2(_ url: URL) throws {
-    let raw = try SQLiteConnection(path: url.path)
-    defer { raw.close() }
-    try raw.execute("PRAGMA foreign_keys = OFF")
-    for object in try SQLiteMemorySchema.objectsAdded(since: 2) { try raw.execute("DROP \(object.type.uppercased()) \(object.name)") }
-    try raw.execute("DELETE FROM memory_schema_migrations WHERE to_version > 2")
-    try raw.execute("PRAGMA user_version = 2")
 }

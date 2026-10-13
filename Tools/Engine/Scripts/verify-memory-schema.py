@@ -1,41 +1,52 @@
-"""SQL checks on the living memory's schema resource, the one file SQLiteMemory ships.
+"""SQL checks on the living memory's schema: the one text SQLiteMemory ships, and schema 1 frozen beside it.
 
 They prove the shape of the schema (constraints, triggers, round trips) on the resources included
 in the module, through Python's sqlite3: not the Swift store, not the Brain's retention, not the
-desktop. Schema 1's checks run first; schema 2's additions then run on that populated file, as the
-migration does, with checks of their own, and each later schema's after them, up to schema 7. `make test`
-runs them; pass other DDL paths (schema 1, then schema 2, and so on) as arguments to check copies.
+desktop. Schema 1's checks run first, on the frozen copy main shipped; then the one text's parts 2 to 7
+run on that populated file in their order, each with checks of its own, the rows a migration from schema 1
+derives (`SQLiteMemorySchema.derivedRows`) after part 3. The check of a requirement's step, which part 7
+writes with one more case admitted, runs with part 6, whose checks it keeps. The parts are also checked to
+be the whole text: part 1 creates what schema 1 creates, and the text alone what the parts create in order.
+`make test` runs them; pass other paths (the one text, then schema 1) as arguments to check copies.
 The library used is Python's, and it says nothing about the one the Swift binary links.
 """
+import re
 import sqlite3
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-DDL = Path(sys.argv[1]) if len(sys.argv) > 1 else \
+SCHEMA = Path(sys.argv[1]) if len(sys.argv) > 1 else \
     ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema.sql"
-# Schema 2's additions, run after the schema 1 checks on the same file, as a migration runs them.
-DDL2 = Path(sys.argv[2]) if len(sys.argv) > 2 else \
-    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-2.sql"
-# Schema 3's additions (D2), run after schema 2's checks on the same populated file.
-DDL3 = Path(sys.argv[3]) if len(sys.argv) > 3 else \
-    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-3.sql"
-# Schema 4's additions (D2 after its review), run after schema 3's checks on the same populated file.
-DDL4 = Path(sys.argv[4]) if len(sys.argv) > 4 else \
-    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-4.sql"
-# Schema 5's additions (D2 after its second review), run after schema 4's checks on the same populated file.
-DDL5 = Path(sys.argv[5]) if len(sys.argv) > 5 else \
-    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-5.sql"
-# Schema 6's additions (D3, the Recall), run after schema 5's checks on the same populated file.
-DDL6 = Path(sys.argv[6]) if len(sys.argv) > 6 else \
-    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-6.sql"
-# Schema 7's additions (D3, the experiment of the agent's choice), run after schema 6's checks on the same populated file.
-DDL7 = Path(sys.argv[7]) if len(sys.argv) > 7 else \
-    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-7.sql"
+SCHEMA_1 = Path(sys.argv[2]) if len(sys.argv) > 2 else \
+    ROOT / "Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema-1.sql"
+# The rows a migration from schema 1 derives that no statement of the text creates, as the store holds them.
+DERIVED = re.search(r'derivedRows: \[Int32: String\] = \[1: """\n(.*?)\n\s*"""\]',
+                    (ROOT / "Sources/Engine/SQLiteMemory/SQLiteMemorySchema.swift").read_text(), re.S).group(1) + ";"
+RULE = "-- " + "=" * 109 + "\n"
+segments = SCHEMA.read_text().split(RULE)
+assert len(segments) == 15, len(segments)
+PARTS = {}
+for number in range(1, 8):
+    assert segments[2 * number - 1].startswith(f"-- Part {number}. "), segments[2 * number - 1][:40]
+    PARTS[number] = segments[2 * number]
+REQUIREMENT = re.search(r"CREATE TRIGGER memory_recall_requirements_valid .*?\nEND;\n", PARTS[7], re.S).group(0)
+PARTS[6] += "\n" + REQUIREMENT
+PARTS[7] = PARTS[7].replace(REQUIREMENT, "")
+
+
+def objects_of(text):
+    scratch = sqlite3.connect(":memory:")
+    scratch.executescript(text)
+    found = set(scratch.execute("SELECT type, name, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'"))
+    scratch.close()
+    return found
+
+
 db = sqlite3.connect(":memory:")
 # The resource carries no PRAGMA of its own: foreign keys are enabled per connection, as the store does.
-db.executescript("PRAGMA foreign_keys = ON;\n" + DDL.read_text())
+db.executescript("PRAGMA foreign_keys = ON;\n" + SCHEMA_1.read_text())
 passed = []
 LIB = db.execute("SELECT sqlite_version(), sqlite_source_id()").fetchone()
 
@@ -695,7 +706,7 @@ assert db.execute("SELECT count(*) FROM memory_operation_arguments WHERE brain_a
 
 # ================================================================== schema 2 (G76 D1): run on the schema 1 file above
 # Schema 2 adds tables, triggers and indexes only: the migration's text runs on an archive of schema 1 with rows.
-db.executescript(DDL2.read_text())
+db.executescript(PARTS[2])
 assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 ok("schema 2: its text runs on a populated schema 1 file and every foreign key still holds")
 
@@ -873,7 +884,7 @@ ok("schema 2: gaps, origins and the migration record keep their shapes")
 
 # ================================================================== schema 3 (D2): procedures, parts, qualification, relations
 scenes_before = db.execute("SELECT count(*) FROM brain_scenes WHERE scene_kind <> 'app'").fetchone()[0]
-db.executescript(DDL3.read_text())
+db.executescript(PARTS[3] + "\n" + DERIVED)
 assert db.execute("SELECT count(*) FROM brain_scene_shapes").fetchone()[0] == scenes_before
 assert db.execute("SELECT role_key FROM brain_scene_shapes WHERE scene_id='scene1'").fetchone()[0] == "\x1f".join(sorted(
     r[0] for r in db.execute("SELECT role FROM brain_scene_roles WHERE scene_id='scene1'")))
@@ -1106,12 +1117,15 @@ insert("memory_procedure_interpretations", interpretation_id="i8", candidate_id=
        payload_digest="v8", source="app", source_stream_id="worker", task_revision=1, attempt_state="ended", recorded_at_ms=160)
 insert("memory_procedure_versions", route_id="v8", interpretation_id="i8", candidate_id="c1", task_id="t1", task_occurrence_id="o1",
        contract_version=1, variant_of_route_id="v1", divergence_position=1, built_at_ms=160)
-db.executescript(DDL4.read_text())
-assert db.execute("SELECT status, compared_steps, reason FROM memory_variant_prefixes").fetchall() == \
-    [("suggested", 0, "declared_before_verification")]
+db.executescript(PARTS[4])
+# A migration comes from schema 1 only, which holds no procedure: part 4 writes no row of its own. The suggested
+# prefix of v8, a variant declared before its prefix was checked, is written as a build states it.
+assert db.execute("SELECT count(*) FROM memory_variant_prefixes").fetchone()[0] == 0
+insert("memory_variant_prefixes", route_id="v8", status="suggested", compared_steps=0, reason="declared_before_verification",
+       checked_at_ms=160)
 assert db.execute("SELECT count(*) FROM brain_relation_applications").fetchone()[0] == 2
 assert db.execute("SELECT count(*) FROM brain_relation_proofs").fetchone()[0] == 2
-ok("schema 4: runs on the populated schema 3 file; a variant built before states its prefix suggested; schema 3's register is kept")
+ok("schema 4: runs on the populated file; a variant declared before its prefix was checked states it suggested; part 3's register is kept")
 
 insert("brain_relation_evaluations", call_event_id="v2_call", sequence=1, app_id=1, policy_version="brain-relations-2",
        cause="acquisition", outcome="excluded", reason="awaiting_state", recoverable=1, evaluated_at_ms=200)
@@ -1183,14 +1197,14 @@ assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 ok("schema 4: a verified prefix and the migration record")
 
 # ================================================================== schema 5 (D2 after its second review): prefix checks
-# v8's prefix is suggested (schema 4's text stated it), v7's verified by schema 4's check: the text copies the first,
-# and leaves the second to the store, which checks it again with the parameters' correspondence.
-db.executescript(DDL5.read_text())
-assert db.execute("SELECT route_id, status, compared_steps, reason FROM memory_variant_prefix_checks").fetchall() == \
-    [("v8", "suggested", 0, "declared_before_verification")]
+# Part 5 writes no row of its own; part 4's rows stay as written, and v8's check is written as a build states it.
+db.executescript(PARTS[5])
+assert db.execute("SELECT count(*) FROM memory_variant_prefix_checks").fetchone()[0] == 0
 assert db.execute("SELECT route_id, status FROM memory_variant_prefixes ORDER BY route_id").fetchall() == \
     [("v7", "verified"), ("v8", "suggested")]
-ok("schema 5: runs on the populated schema 4 file; copies the suggested prefixes, keeps schema 4's rows as written")
+insert("memory_variant_prefix_checks", route_id="v8", status="suggested", compared_steps=0, reason="declared_before_verification",
+       checked_at_ms=180)
+ok("schema 5: runs on the populated file, keeps part 4's rows as written")
 insert("memory_variant_prefix_checks", route_id="v7", status="suggested", compared_steps=1, reason="parameter_correspondence",
        checked_at_ms=180)
 ok("schema 5: a prefix whose parameters do not correspond is suggested, and says why")
@@ -1219,9 +1233,9 @@ assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 ok("schema 5: a verified prefix and the migration record")
 
 # ================================================================== schema 6 (D3): the Recall's index and facts
-# The text runs on the populated schema 5 file and writes nothing: the rebuild a migrated archive needs is queued by
-# the store in the migrating transaction, since a text cannot read the time.
-db.executescript(DDL6.read_text())
+# The part runs on the populated file and writes nothing: the rebuild a migrated archive needs is queued by the
+# store in the migrating transaction, since a text cannot read the time.
+db.executescript(PARTS[6])
 assert db.execute("SELECT count(*) FROM memory_recall_work").fetchone()[0] == 0
 ok("schema 6: runs on the populated schema 5 file; the text itself queues no index work")
 
@@ -1456,7 +1470,7 @@ assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 ok("schema 6: the migration record")
 
 # ================================================================== schema 7 (D3, the experiment of the agent's choice)
-db.executescript(DDL7.read_text())
+db.executescript(PARTS[7])
 
 def proposal(pid, **extra):
     row = dict(proposal_id=pid, task_id="t1", task_occurrence_id="o1", task_revision=1, source="app", source_stream_id="worker",
@@ -1629,6 +1643,12 @@ with tempfile.TemporaryDirectory(prefix="mecum-ddl-v7-") as folder:
     with sqlite3.connect(path) as again:
         assert again.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 ok("orders, app scope, triggers, retired identities and evidence persist after file reopen; WAL persists in the file")
+
+# The parts are the whole text: part 1 is schema 1 as main shipped it, and the text alone creates what its parts
+# create run in order.
+assert objects_of(PARTS[1]) == objects_of(SCHEMA_1.read_text())
+assert objects_of(SCHEMA.read_text()) == objects_of("".join(PARTS[n] for n in range(1, 8)))
+ok("the one text: part 1 creates schema 1 exactly as main shipped it, and the whole text what its parts create in order")
 
 rejected = sum(1 for p in passed if p.startswith("rejects: "))
 print(f"PASS: {len(passed)} DDL checks ({rejected} negative) on SQLite {LIB[0]} [{LIB[1]}] via Python {sys.version.split()[0]} sqlite3 module {sqlite3.sqlite_version}")

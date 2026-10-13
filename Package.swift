@@ -362,16 +362,12 @@ let package = Package(
         // `KnowledgeStoring` over one JSON file per application, with backups and write-behind.
         engine("FileKnowledge", ["Memory"], settings: pure),
 
-        // The SQLite foundation of the living memory: one file at a chosen path, schema 1, a serial writer
+        // The SQLite foundation of the living memory: one file at a chosen path, one schema, a serial writer
         // and a separate reader, typed errors. Imports Memory and the SDK's SQLite3 only; AutomationRuntime's
         // MemoryService composes it.
         engine("SQLiteMemory", ["Memory"], settings: pure,
                resources: [.copy("Resources/brain-living-memory-schema.sql"),
-                           .copy("Resources/brain-living-memory-schema-2.sql"),
-                           .copy("Resources/brain-living-memory-schema-3.sql"), .copy("Resources/brain-living-memory-schema-4.sql"),
-                           .copy("Resources/brain-living-memory-schema-5.sql"),
-                           .copy("Resources/brain-living-memory-schema-6.sql"),
-                           .copy("Resources/brain-living-memory-schema-7.sql")]),
+                           .copy("Resources/brain-living-memory-schema-1.sql")]),
 
         // `TextEmbedding` over a pinned local model: the XLM-RoBERTa tokenizer and a BERT-family encoder on
         // Accelerate, reading the model's files from disk. Imports Memory, Foundation and Accelerate; no network.

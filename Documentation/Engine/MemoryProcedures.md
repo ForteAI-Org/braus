@@ -25,6 +25,13 @@ calls of an attempt ──segmentation──▶ candidate ──agent's interpre
 
 ## Schema 3 and its migration
 
+Since 2026-10-13 schemas 3, 4 and 5 are parts 3, 4 and 5 of the one schema text, at version 7
+([One schema text](MemorySchema.md#one-schema-text)). The three sections below record them as they were added.
+Of their migrations only the one from version 1 remains: it fills the shapes of the structural scenes and the
+anchors' label keys as described here. The migrations from versions 2, 3 and 4 were removed with those versions,
+never released, and with them the data statements of schemas 4 and 5 and the second check of the prefixes schema 4
+stated verified (`checkVerifiedPrefixesAgain`): an archive of version 1 holds no procedure and no prefix.
+
 `brain-living-memory-schema-3.sql` follows schema 2 and only adds: 20 tables, 47 triggers, 11 indexes (86,
 122 and 52 in all). Its sha256 is `ec26cef5ab5323ebbd898b3ff4bc46ad00a9105d4bba0de45846fd68654b9a88`;
 the schema 1 and 2 resources are unchanged. No table is altered and no column takes another meaning: the
@@ -602,7 +609,7 @@ relation coverage is claimed.
 
 | Area | What implements it | What proves it |
 | --- | --- | --- |
-| Schemas and migrations from 1, 2, 3 and 4 | `brain-living-memory-schema-3.sql`, `-4.sql`, `-5.sql`, `SQLiteMemorySchema`, `brain_scene_shapes` backfill, `fillLabelKeys`, `checkVerifiedPrefixesAgain` | `SchemaMigrationTests`, `ProcedureRepositoryTests`, `SchemaFourCompatibilityTests`, `ProjectionSliceTests.migrationFillsTheKeys`, `VariantCorrespondenceTests`, `verify-memory-schema.py` |
+| Parts 3 to 5 of the one schema text, the migration from 1 | `brain-living-memory-schema.sql`, `SQLiteMemorySchema` (`migrationText`, `derivedRows`: the `brain_scene_shapes` backfill), `fillLabelKeys` | `SchemaMigrationTests` (`oneText`, `sceneShapes`), `ProcedureRepositoryTests.developmentVersionsRefused`, `ProjectionSliceTests.migrationFillsTheKeys`, `verify-memory-schema.py` |
 | Segmentation, occurrences, blocks A→B→A | `ProcedureSegmentation`, `SQLiteProcedureRepository.buildCandidate` | `ProcedureConstructionTests`, `ProcedureLearningTests.wholeCycle`, `.partialBatchRetryAndFailedParent` |
 | Interpretation, templates, S23, secrets | `ProcedureInterpretation`, `ProcedureAssembly`, `MemoryTaskTool` | `ProcedureConstructionTests`, `ProcedureLearningTests.homonymsAndContradiction`, `.secretParameter`, `ProcedureRepositoryTests` |
 | Idempotency, conflicts, staleness, interruption, variants and their prefixes, concurrency | `SQLiteProcedureRepository.interpret`, `VariantPrefix` | `ProcedureLearningTests.interruptionAndIdempotency`, `.variantOfAnEarlierVersion`, `ProcedureRepositoryTests.concurrentProducers`, `D2StorageIndependentReviewTests`, `VariantPrefixTests`, `VariantCorrespondenceTests`, `D2CorrectionsIndependentReviewTests` |

@@ -53,32 +53,21 @@ struct SchemaShape: Equatable, Sendable {
         self.init(tables: byType["table"] ?? 0, triggers: byType["trigger"] ?? 0, indexes: byType["index"] ?? 0)
     }
 
-    /// Schema 7, the one this build bootstraps and opens: schema 1's 48 tables, 48 triggers and 31
-    /// indexes, the 18 tables, 27 triggers and 10 indexes schema 2 adds, the 20 tables, 47 triggers and
-    /// 11 indexes schema 3 adds (one of its triggers on an earlier table), the 4 tables, 10 triggers and 8
-    /// indexes schema 4 adds, the table and 3 triggers schema 5 adds, the 12 tables, 35 triggers and 12
-    /// indexes schema 6 adds (five of its triggers and four of its indexes on schema 3's tables), and the 6
-    /// tables, 17 triggers and 1 index schema 7 adds (one of its triggers on a schema 6 table), with one
-    /// trigger of schema 6 written again by schema 7.
+    /// Schema 7, the one this build bootstraps and opens, in its seven parts: the base (version 1) with 48
+    /// tables, 48 triggers and 31 indexes; D1's facts, 18 tables, 27 triggers and 10 indexes; D2's procedures
+    /// and relations, 20 tables, 47 triggers and 11 indexes; its review, 4 tables, 10 triggers and 8 indexes;
+    /// its second review, a table and 3 triggers; D3's Recall, 12 tables, 34 triggers and 12 indexes (five
+    /// of its triggers and four of its indexes on part 3's tables); the agent's choice, 6 tables, 18 triggers
+    /// and 1 index (one of its triggers on a part 6 table, and the check of a requirement's step).
     static let current = SchemaShape(tables: 109, triggers: 187, indexes: 73)
 
     /// Leaves a file of this build at an earlier schema: every trigger, index and table added since is
-    /// dropped, in that order, an object a later schema replaced is created again as the earlier one wrote
-    /// it, and the version set back. The earlier tables and their rows stay as
-    /// written: the shape an earlier build bootstraps, holding facts.
+    /// dropped, in that order, and the version set back. The current text writes every object of an earlier
+    /// schema as it did, so the earlier tables and their rows stay as written: the shape an earlier build
+    /// bootstraps, holding facts.
     static func downgrade(_ raw: SQLiteConnection, to version: Int32) throws {
         for object in try SQLiteMemorySchema.objectsAdded(since: version) {
             try raw.execute("DROP \(object.type.uppercased()) \(object.name)")
-        }
-        for object in try SQLiteMemorySchema.objectsReplaced(since: version) {
-            try raw.execute(object.sql ?? "")
-        }
-        if version >= 2 {
-            // The record an earlier build bootstrapping the file would have left, and none of the later ones.
-            try raw.execute("DELETE FROM memory_schema_migrations WHERE to_version > \(version)")
-            try raw.execute(
-                "INSERT OR IGNORE INTO memory_schema_migrations (to_version, from_version, migrated_at_ms) VALUES (\(version), 0, 0)"
-            )
         }
         try raw.execute("PRAGMA user_version = \(version)")
     }

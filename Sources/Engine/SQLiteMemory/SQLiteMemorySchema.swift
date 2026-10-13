@@ -9,56 +9,72 @@ import Foundation
 import Memory
 
 /// SQLiteMemorySchema is the DDL this module ships and what the bootstrap and the migration need to
-/// know about it: the `user_version` the current schema carries, the text that creates it, the text
-/// of each earlier schema it migrates from, and the tables they create. Each schema is the one before
-/// it, unchanged, followed by its own resource, which only adds: a new archive runs every resource in
-/// order, and an archive at the exact shape of an earlier schema runs the resources it lacks in its
-/// migration, so all end at one shape. The texts carry no `PRAGMA`, `BEGIN` or `COMMIT` of their own;
-/// the store owns those boundaries. Documentation/Engine/MemorySchema.md says what the resources are
-/// and how they differ from the candidate they were copied from; Documentation/Engine/MemoryFacts.md
-/// what schema 2 adds; Documentation/Engine/MemoryProcedures.md what schemas 3, 4 and 5 add;
-/// Documentation/Engine/MemoryRecall.md what schema 6 adds; Documentation/Engine/RecallAgentChoice.md what schema 7 adds.
+/// know about it: the `user_version` the current schema carries, the one text that creates it, the
+/// frozen text of each earlier schema an archive migrates from, and the tables they create. The current
+/// text is edited in place, as main edits its own; a new archive runs it whole. An archive at the exact
+/// shape of an earlier schema gets, in its migration, every object of the current text it lacks, each as
+/// the current text writes it, so all end at one shape. The texts carry no `PRAGMA`, `BEGIN` or `COMMIT`
+/// of their own; the store owns those boundaries. Documentation/Engine/MemorySchema.md says what the
+/// resources are and how the schema came to one text; the header of brain-living-memory-schema.sql
+/// names the document of each of its parts.
 enum SQLiteMemorySchema {
 
     /// The schema version this build bootstraps and opens. A file at version 0 with no tables is empty
-    /// and is bootstrapped; a file at a version of `migrations` is migrated; any other is refused.
+    /// and is bootstrapped; a file at a version of `migrations` is migrated; any other is refused,
+    /// versions 2 to 6 among them: development steps of the G76 plans, never released.
     static let version: Int32 = 7
 
-    /// The resource of schema 1, the base every later schema adds to.
+    /// The resource of the current schema, the one text a new archive runs.
     static let resourceName      = "brain-living-memory-schema"
     static let resourceExtension = "sql"
 
-    /// The resources each migration runs, by the version it migrates from: version 1 to 2 adds the
-    /// tables of schema 2 (D1), version 2 to 3 those of schema 3 (D2), version 3 to 4 those of schema 4
-    /// (D2 after its review), version 4 to 5 those of schema 5 (D2 after its second review), version 5 to 6
-    /// those of schema 6 (D3, the Recall), version 6 to 7 those of schema 7 (D3, the experiment of the agent's choice).
-    /// An archive at an earlier version runs every one it lacks.
-    static let migrations: [Int32: String] = [1: "brain-living-memory-schema-2", 2: "brain-living-memory-schema-3",
-                                              3: "brain-living-memory-schema-4", 4: "brain-living-memory-schema-5",
-                                              5: "brain-living-memory-schema-6", 6: "brain-living-memory-schema-7"]
+    /// The frozen resources of the earlier schemas an archive migrates from, by version: version 1, as
+    /// main shipped it. Only its exact shape is read from it, to recognize such an archive; what the
+    /// migration creates comes from the current text.
+    static let migrations: [Int32: String] = [1: "brain-living-memory-schema-1"]
 
-    /// The text that creates the current schema in an empty file: every resource, in order.
+    /// What an archive of an earlier schema needs that the current text's statements cannot create: rows
+    /// derived from its own, written after the tables and before the indexes and triggers. Version 1 gets the
+    /// shapes of the structural scenes it holds. The store derives the rest in the same transaction (the
+    /// anchors' label keys, one rebuild of the Recall's index).
+    static let derivedRows: [Int32: String] = [1: """
+        INSERT INTO brain_scene_shapes (scene_id, app_id, role_key)
+        SELECT s.scene_id, s.app_id,
+               ifnull((SELECT group_concat(r.role, char(31) ORDER BY r.role) FROM brain_scene_roles r WHERE r.scene_id = s.scene_id), '')
+        FROM brain_scenes s WHERE s.scene_kind <> 'app'
+        """]
+
+    /// The text that creates the current schema in an empty file.
     static func text() throws -> String {
-        try text(of: version)
+        try resource(resourceName)
     }
 
-    /// The text that creates schema `version` in an empty file: the base and every migration below it.
+    /// The text that creates schema `version` in an empty file: the current one, or an earlier one this build
+    /// migrates from.
     static func text(of version: Int32) throws -> String {
-        var parts = [try resource(resourceName)]
-        var from: Int32 = 1
-        while from < version {
-            parts.append(try migrationText(from: from))
-            from += 1
-        }
-        return parts.joined(separator: "\n")
-    }
-
-    /// The text that migrates a file at `version` to the next one.
-    static func migrationText(from version: Int32) throws -> String {
+        if version == Self.version { return try text() }
         guard let name = migrations[version] else {
-            throw MemoryStoreError.unavailable(.resourceMissing("migration from \(version)"))
+            throw MemoryStoreError.unavailable(.resourceMissing("schema \(version)"))
         }
         return try resource(name)
+    }
+
+    /// The text that migrates a file at the exact shape of `version` to the current schema: every table the
+    /// current text creates and that version does not, in creation order, then the rows derived from its own,
+    /// then the indexes, then the triggers, each statement as the current text writes it. Refused when an
+    /// object of that version is not in the current text exactly as that version wrote it: a migration only adds.
+    static func migrationText(from version: Int32) throws -> String {
+        let earlier = try objects(of: try text(of: version))
+        let current = try orderedObjects(of: try text())
+        guard earlier.isSubset(of: Set(current)) else {
+            throw MemoryStoreError.unavailable(.resourceMissing("migration from \(version)"))
+        }
+        let added = current.filter { !earlier.contains($0) }
+        let statements = added.filter { $0.type == "table" }.compactMap(\.sql)
+            + [derivedRows[version]].compactMap { $0 }
+            + added.filter { $0.type == "index" }.compactMap(\.sql)
+            + added.filter { $0.type == "trigger" }.compactMap(\.sql)
+        return statements.map { $0 + ";" }.joined(separator: "\n\n")
     }
 
     /// One resource's text, read from the module's bundle.
@@ -113,9 +129,22 @@ enum SQLiteMemorySchema {
 
     /// The objects a database holds, the library's own left out.
     static func objects(in connection: SQLiteConnection) throws -> Set<SchemaObject> {
-        Set(try connection.query(
-            "SELECT type, name, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'"
-        ) { SchemaObject(type: try $0.text(0) ?? "", name: try $0.text(1) ?? "", sql: try $0.text(2)) })
+        Set(try orderedObjects(in: connection))
+    }
+
+    /// The objects the text creates, in the order it creates them.
+    static func orderedObjects(of text: String) throws -> [SchemaObject] {
+        let scratch = try SQLiteConnection(path: ":memory:")
+        defer { scratch.close() }
+        try scratch.execute(text)
+        return try orderedObjects(in: scratch)
+    }
+
+    /// The objects a database holds, in the order they were created, the library's own left out.
+    static func orderedObjects(in connection: SQLiteConnection) throws -> [SchemaObject] {
+        try connection.query(
+            "SELECT type, name, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY rowid"
+        ) { SchemaObject(type: try $0.text(0) ?? "", name: try $0.text(1) ?? "", sql: try $0.text(2)) }
     }
 
     /// The objects that differ between a file and the expected shape, missing, extra or written
@@ -127,7 +156,8 @@ enum SQLiteMemorySchema {
     /// What the current schema holds that schema `version` does not, in the order that removes it from
     /// a file: the triggers first, then the indexes, then the tables, the last created first. Nothing in
     /// the product goes back to an earlier schema; a test uses this to leave a file exactly at the shape
-    /// an earlier build bootstraps, with the rows the earlier tables hold.
+    /// an earlier build bootstraps, with the rows the earlier tables hold. The current text writes every
+    /// object of an earlier schema as that schema did, so nothing else needs putting back.
     static func objectsAdded(since version: Int32) throws -> [SchemaObject] {
         let earlier = try objects(of: try text(of: version))
         let current = try text()
@@ -145,16 +175,6 @@ enum SQLiteMemorySchema {
             if a.type == "table" { return (tables.firstIndex(of: a.name) ?? 0) > (tables.firstIndex(of: b.name) ?? 0) }
             return a.name < b.name
         }
-    }
-
-    /// What schema `version` holds that a later schema writes differently: the earlier definition of each object the
-    /// current schema replaced (schema 7 replaces schema 6's check of a recall requirement's step). A test that leaves a
-    /// file at `version` creates these again after removing `objectsAdded(since:)`, which holds their later definitions.
-    static func objectsReplaced(since version: Int32) throws -> [SchemaObject] {
-        let current = Dictionary(uniqueKeysWithValues: try objects(of: try text()).map { ($0.label, $0) })
-        return try objects(of: try text(of: version))
-            .filter { earlier in current[earlier.label].map { $0.sql != earlier.sql } ?? false }
-            .sorted { $0.name < $1.name }
     }
 
     /// Every table the text creates, in creation order, read from its `CREATE TABLE` lines.

@@ -346,7 +346,7 @@ public actor SQLiteMemoryStore {
     }
 
     /// Opening is what an open may do to the file it finds. `producer` is the open of whoever
-    /// writes the memory: it creates a missing file and bootstraps schema 1 in an empty one, as S1
+    /// writes the memory: it creates a missing file and bootstraps the current schema in an empty one, as S1
     /// decided. `existingArchive` is the open of a reader: it takes only a file that is already a
     /// Mecum archive at the schema this build knows, and never creates the file, bootstraps a
     /// schema or sets the journal of a file it refuses (`uninitialized` for a file with no schema
@@ -383,7 +383,7 @@ public actor SQLiteMemoryStore {
     // MARK: Lifecycle
 
     /// Opens the writer and the reader, checks the linked library, enables foreign keys, sets WAL
-    /// and `synchronous=FULL`, then bootstraps (`producer` only) or verifies schema 1 under the write
+    /// and `synchronous=FULL`, then bootstraps (`producer` only) or verifies the schema under the write
     /// lock (a reader inspects in a read transaction); `existingArchive` creates no file and refuses
     /// one with no schema yet (`Opening`). A second
     /// opener of the same file waits for the first and then finds the schema. Throws without
@@ -615,7 +615,7 @@ public actor SQLiteMemoryStore {
     /// neither appear in it nor restart it; the writer is not stopped. The destination must not be
     /// the store's file or its journals and must not exist: nothing is overwritten. The copy is
     /// built at a temporary path beside the destination that only this call names, checked
-    /// (`integrity_check`, `foreign_key_check`, schema 1 with every table), put in rollback
+    /// (`integrity_check`, `foreign_key_check`, the current schema with every table), put in rollback
     /// journal mode so it is one self-contained file, and then renamed into place without
     /// clobbering. Any refusal, failure, cancellation between steps or close of the store removes
     /// the temporary files this call created and leaves no copy: an interrupted copy is never
@@ -806,7 +806,7 @@ public actor SQLiteMemoryStore {
     /// Migrates an archive found at an earlier schema to the current one. First a verified copy of the
     /// archive as it is, beside it (`<name>.schema-<version>-<instant>`), kept: the way back to the
     /// earlier build. Then, in one write transaction, the archive is inspected again under the lock,
-    /// every migration text from its version up runs, the version is set and recorded with the copy's
+    /// the migration text from its version runs, the version is set and recorded with the copy's
     /// name, and the result must be exactly the current shape: anything else rolls the whole
     /// migration back and leaves the archive at its earlier schema, with the copy beside it. Answers
     /// nil when another process migrated it meanwhile; this open's copy is then removed.
@@ -819,25 +819,18 @@ public actor SQLiteMemoryStore {
         let copy     = url.deletingLastPathComponent().appendingPathComponent(copyName)
         try await copyBeforeMigration(to: copy, version: version)
         try stillOpening()
-        var texts: [String] = []
-        for step in version..<SQLiteMemorySchema.version {
-            texts.append(try SQLiteMemorySchema.migrationText(from: step))
-        }
+        let text  = try SQLiteMemorySchema.migrationText(from: version)
         let nowMS = Self.nowMS()
         let fault = migrationFault
         migrationFault = nil
         let migrated = try await transaction(on: writer, begin: "BEGIN IMMEDIATE", phase: .bootstrap) {
             guard try Self.inspect(writer, expected: expected) == .previous(version) else { return false }
-            for text in texts { try writer.execute(text) }
-            // What a text cannot derive, derived here in the same transaction: the anchors' label keys, and
-            // the prefixes schema 4 verified without their parameters' correspondence, checked again.
-            if version < 4 { try SQLiteBrainRows.fillLabelKeys(writer) }
-            if version < 5 { try SQLiteProcedureRows.checkVerifiedPrefixesAgain(writer, at: nowMS) }
-            // The Recall's index starts from the catalogue the archive already holds: one rebuild queued.
-            if version < 6 {
-                try writer.run("INSERT INTO memory_recall_work (route_id, reason, enqueued_at_ms) VALUES (NULL, 'migration', ?)",
-                               [.integer(nowMS)])
-            }
+            try writer.execute(text)
+            // What a text cannot derive, derived here in the same transaction: the anchors' label keys, which
+            // the projection normalizes, and one rebuild of the Recall's index from the catalogue the archive holds.
+            try SQLiteBrainRows.fillLabelKeys(writer)
+            try writer.run("INSERT INTO memory_recall_work (route_id, reason, enqueued_at_ms) VALUES (NULL, 'migration', ?)",
+                           [.integer(nowMS)])
             try fault?()
             // A pragma cannot take a bound value; the version is this module's own constant.
             try writer.execute("PRAGMA user_version = \(SQLiteMemorySchema.version)")

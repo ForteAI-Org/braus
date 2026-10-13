@@ -283,79 +283,28 @@ struct RecallLifecycleTests {
 
     // MARK: Migration
 
-    @Test("an archive of schema 5 with procedures migrates to the current schema, queues one rebuild in the same transaction and is indexed")
-    func schemaFiveArchive() async throws {
+    @Test("an archive of schema 1 migrates to the current schema, queues one rebuild of the Recall's index in the same transaction, and the rebuild completes")
+    func schemaOneArchive() async throws {
         let session = P.photoSession(try W.directory())
-        let (_, routeID) = try await Self.learnPhoto(session)
+        _ = try await Self.learnPhoto(session)
         await Self.close(session)
         let url = Self.url(session)
-        do {
-            let raw = try SQLiteConnection(path: url.path)
-            defer { raw.close() }
-            try raw.execute("PRAGMA foreign_keys = OFF")
-            for object in try SQLiteMemorySchema.objectsAdded(since: 5) {
-                try raw.execute("DROP \(object.type.uppercased()) IF EXISTS \(object.name)")
-            }
-            try raw.execute("DELETE FROM memory_schema_migrations WHERE to_version > 5")
-            try raw.execute("PRAGMA user_version = 5")
-        }
+        // The archive as main's build would hold it: its calls and its Brain, every later table dropped with its rows.
+        try UnificationTests.downgrade(url)
         let reopened = MemoryService.shared(for: session.directory)
         RecallService.install(RecallService(memory: reopened, configuration: Self.configuration()))
         _ = try await reopened.ready()
         #expect(try rawRows("PRAGMA user_version", at: url) == ["\(SQLiteMemorySchema.version)"])
         #expect(try rawRows("SELECT reason || ':' || ifnull(route_id, '*') FROM memory_recall_work", at: url) == ["migration:*"])
-        #expect(try rawRows("SELECT to_version || ':' || from_version FROM memory_schema_migrations WHERE from_version = 5", at: url)
-                == ["\(SQLiteMemorySchema.version):5"])
+        #expect(try rawRows("SELECT to_version || ':' || from_version FROM memory_schema_migrations", at: url)
+                == ["\(SQLiteMemorySchema.version):1"])
         await RecallService.shared(for: reopened).schedule()
         #expect(await RecallService.shared(for: reopened).waitUntilIdle(within: .seconds(60)))
         #expect(try rawRows("SELECT count(*) FROM memory_recall_work WHERE done_at_ms IS NULL", at: url) == ["0"])
-        #expect(Int(try rawRows("SELECT count(*) FROM memory_recall_entries WHERE route_id = '\(routeID)'", at: url).first ?? "0") ?? 0 > 0)
+        #expect(try rawRows("SELECT count(*) FROM memory_recall_entries", at: url) == ["0"], "schema 1 holds no procedure to index")
         let again = try await P.task(P.tools(session, stream: "worker-3"), RecallCycleTests.exportRequest)
         #expect(again["recall"]["search"]["status"].string == "completed")
-        #expect(again["recall"]["needs"].array?.first?["selection"]["version"].string == routeID)
-        await Self.close(session)
-    }
-
-    @Test("an archive of schema 6 with the Recall's facts migrates to schema 7 keeping every row, with no rebuild, and answers")
-    func schemaSixArchive() async throws {
-        let session = P.photoSession(try W.directory())
-        let (_, routeID) = try await Self.learnPhoto(session)
-        let first = try await P.task(P.tools(session, stream: "worker-2"), RecallCycleTests.exportRequest)
-        #expect(first["recall"]["needs"].array?.first?["selection"]["version"].string == routeID)
-        await Self.close(session)
-        let url = Self.url(session)
-        let tables = ["memory_recall_queries", "memory_recall_needs", "memory_recall_selections", "memory_recall_requirements",
-                      "memory_recall_entries", "memory_procedure_versions", "memory_tasks"]
-        func counts() throws -> [String] { try tables.map { try rawRows("SELECT count(*) FROM \($0)", at: url).first ?? "-" } }
-        do {
-            let raw = try SQLiteConnection(path: url.path)
-            defer { raw.close() }
-            try raw.execute("PRAGMA foreign_keys = OFF")
-            for object in try SQLiteMemorySchema.objectsAdded(since: 6) {
-                try raw.execute("DROP \(object.type.uppercased()) IF EXISTS \(object.name)")
-            }
-            // Schema 6's own check of a requirement's step, which schema 7 replaced.
-            for object in try SQLiteMemorySchema.objectsReplaced(since: 6) { try raw.execute(object.sql ?? "") }
-            try raw.execute("DELETE FROM memory_schema_migrations WHERE to_version > 6")
-            try raw.execute("PRAGMA user_version = 6")
-        }
-        let before = try counts()
-        #expect(before[0] == "1", "\(before)")
-        let reopened = MemoryService.shared(for: session.directory)
-        RecallService.install(RecallService(memory: reopened, configuration: Self.configuration()))
-        _ = try await reopened.ready()
-        #expect(try rawRows("PRAGMA user_version", at: url) == ["7"])
-        #expect(try counts() == before, "every row of schema 6 kept")
-        #expect(try rawRows("SELECT to_version || ':' || from_version FROM memory_schema_migrations WHERE from_version = 6", at: url) == ["7:6"])
-        #expect(try rawRows("SELECT count(*) FROM memory_recall_work WHERE done_at_ms IS NULL", at: url) == ["0"], "no rebuild for schema 7")
-        #expect(try rawRows("SELECT count(*) FROM memory_recall_proposals", at: url) == ["0"])
-        let again = try await P.task(P.tools(session, stream: "worker-3"), RecallCycleTests.exportRequest)
-        #expect(again["recall"]["needs"].array?.first?["selection"]["version"].string == routeID)
-        await Self.close(session)
-        // Reopened once more: nothing left to migrate.
-        let third = MemoryService.shared(for: session.directory)
-        _ = try await third.ready()
-        #expect(try rawRows("SELECT count(*) FROM memory_schema_migrations WHERE to_version = 7", at: url) == ["1"])
+        #expect(again["recall"]["coverage"].string == "absent", "\(again)")
         await Self.close(session)
     }
 }

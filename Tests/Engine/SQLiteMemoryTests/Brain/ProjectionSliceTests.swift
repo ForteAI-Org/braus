@@ -81,16 +81,16 @@ struct ProjectionSliceTests {
         await memory.store.close()
     }
 
-    @Test("an archive of schema 3 gets its anchors' label keys in its migration, and the part it reads names as the whole")
+    @Test("an archive of schema 1 gets its anchors' label keys in its migration, and the part it reads names as the whole")
     func migrationFillsTheKeys() async throws {
         let (memory, _) = try await Self.populated()
         let url = memory.url
         await memory.store.close()
         let raw = try SQLiteConnection(path: url.path)
-        try SchemaShape.downgrade(raw, to: 3)
+        try SchemaShape.downgrade(raw, to: 1)
         raw.close()
         let migrated = try await F.open(at: url)
-        #expect(try await migrated.store.diagnostics().migration?.fromVersion == 3)
+        #expect(try await migrated.store.diagnostics().migration?.fromVersion == 1)
         let whole = try #require(try await migrated.load())
         let keys = try await migrated.integers("SELECT count(*) FROM brain_anchor_label_keys").first ?? nil
         #expect(keys == Int64(whole.objects.reduce(0) { $0 + SQLiteBrainRows.labelKeys(label: $1.label, aliases: $1.aliases).count }))

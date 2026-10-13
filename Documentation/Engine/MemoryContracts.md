@@ -12,7 +12,8 @@ keeps the procedures built from a task's facts, their qualification and the Brai
 of their evaluations: [MemoryProcedures](MemoryProcedures.md), which prevails for those. Since G76 plan D3
 (2026-10-11, corrected 2026-10-12) the archive is at schema 6 and also keeps the Recall's derived index and its
 facts (queries, selections and exclusions, requirements, links of calls, declared uses): [MemoryRecall](MemoryRecall.md), which prevails for
-those.
+those. Since 2026-10-13 the schema is one text at version 7, with schema 1 frozen beside it for the migration of
+main's archives ([One schema text](MemorySchema.md#one-schema-text)), which prevails over the paragraph below.
 
 The resource is schema version 5 (`user_version` 5): the schema 1 text,
 `Sources/Engine/SQLiteMemory/Resources/brain-living-memory-schema.sql` (48 tables, 48 triggers, 31 explicit

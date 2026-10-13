@@ -35,61 +35,28 @@ struct ProcedureRepositoryTests {
         SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text(of: version))
     }
 
-    static func downgrade(_ url: URL, to version: Int32) throws {
-        let raw = try SQLiteConnection(path: url.path)
-        defer { raw.close() }
-        try SchemaShape.downgrade(raw, to: version)
-        _ = try raw.query("PRAGMA wal_checkpoint(TRUNCATE)") { $0.integer(0) }
-    }
-
-    @Test("an archive of schema 2 with D1's facts migrates to the current schema after its copy, keeping every row; nothing is learned or qualified by the migration")
-    func migratesFromTwo() async throws {
-        let memory = try await Self.populated()
-        await memory.store.close()
-        try Self.downgrade(memory.url, to: 2)
-        let tables = try Self.tables(of: 2)
-        let before = try SchemaMigrationTests.counts(tables, at: memory.url)
-        #expect(before["memory_operation_verifications"] == 1 && before["memory_tasks"] == 1)
-        #expect(SQLiteMemoryInspection.inspect(memory.url).shape == .migratable(from: 2))
-        let reader = SQLiteMemoryStore(url: memory.url)
-        #expect(await storeError { try await reader.open(.existingArchive) }
-                == .schema(.migrationRequired(found: 2, supported: SQLiteMemorySchema.version)))
-
-        let store = try await SQLiteMemoryStore.open(at: memory.url)
-        let migration = try #require(try await store.diagnostics().migration)
-        #expect(migration.fromVersion == 2 && migration.toVersion == SQLiteMemorySchema.version)
-        #expect(try await store.read { try SchemaShape($0) } == SchemaShape.current)
-        let recorded = try await store.read { snapshot in
-            try snapshot.query("SELECT to_version || ':' || from_version FROM memory_schema_migrations ORDER BY to_version") {
-                try $0.text(0) ?? ""
+    @Test("an archive at a development version, 2 to 6, is refused untouched by a producer and a reader, with no copy beside it")
+    func developmentVersionsRefused() async throws {
+        for version: Int32 in 2...6 {
+            let memory = try await Self.populated()
+            await memory.store.close()
+            do {
+                let raw = try SQLiteConnection(path: memory.url.path)
+                defer { raw.close() }
+                try raw.execute("PRAGMA user_version = \(version)")
+                _ = try raw.query("PRAGMA wal_checkpoint(TRUNCATE)") { $0.integer(0) }
             }
+            let tables = try Self.tables(of: SQLiteMemorySchema.version)
+            let before = try SchemaMigrationTests.counts(tables, at: memory.url)
+            let refusal = MemorySchemaMismatch.unsupported(found: version, supported: SQLiteMemorySchema.version)
+            #expect(SQLiteMemoryInspection.inspect(memory.url).shape == .refused(refusal))
+            #expect(await storeError { _ = try await SQLiteMemoryStore.open(at: memory.url) } == .schema(refusal))
+            let reader = SQLiteMemoryStore(url: memory.url)
+            #expect(await storeError { try await reader.open(.existingArchive) } == .schema(refusal))
+            #expect(try rawCount("PRAGMA user_version", at: memory.url) == Int64(version), "schema \(version): the version is left")
+            #expect(try SchemaMigrationTests.counts(tables, at: memory.url) == before, "schema \(version): every row is left")
+            #expect(try strayFiles(beside: memory.url).allSatisfy { !$0.contains(".schema-") }, "schema \(version): no copy")
         }
-        #expect(recorded == ["2:0", "\(SQLiteMemorySchema.version):2"], "the bootstrap of schema 2 and this migration: \(recorded)")
-        for table in ["memory_procedure_candidates", "memory_procedure_versions", "memory_part_qualifications", "brain_relations",
-                      "brain_relation_applications", "brain_relation_evaluations", "brain_relation_evidence", "memory_variant_prefixes",
-                      "memory_variant_prefix_checks"] {
-            #expect(try await count("SELECT count(*) FROM \(table)", in: store) == 0, "\(table): no knowledge invented by a migration")
-        }
-        await store.close()
-        var after = try SchemaMigrationTests.counts(tables, at: memory.url)
-        #expect(after["memory_schema_migrations"] == (before["memory_schema_migrations"] ?? 0) + 1, "the migration is recorded")
-        after["memory_schema_migrations"] = before["memory_schema_migrations"]
-        #expect(after == before, "every row of schema 2 is kept")
-        let copy = memory.url.deletingLastPathComponent().appendingPathComponent(migration.copyName)
-        #expect(SQLiteMemoryInspection.inspect(copy).shape == .migratable(from: 2), "the copy is the archive of schema 2 as it was")
-
-        // The facts migrated are what D2 builds from: the candidate and the relations come from them now.
-        let reopened = try await SQLiteMemoryStore.open(at: memory.url)
-        let procedures = SQLiteProcedureRepository(store: reopened)
-        let (receipt, candidate) = try #require(try await procedures.buildCandidate(attemptID: "attempt-1", for: TaskFixtures.producer,
-                                                                                    at: TaskFixtures.t0 + 100))
-        #expect(receipt == .committed && candidate.steps.map(\.callEventID) == ["c1"])
-        let relations = SQLiteBrainRelationRepository(store: reopened)
-        #expect(try await relations.applyPending(at: TaskFixtures.t0 + 100) == 1)
-        #expect(try await relations.application(of: "c1")?.exclusion == .noBeforeState,
-                "a call whose samples were never placed in a state teaches no relation, and says so")
-        #expect(try await relations.applyPending(at: TaskFixtures.t0 + 200) == 0, "a call is applied once")
-        await reopened.close()
     }
 
     @Test("an archive of schema 1 migrates to the current schema in one transaction, recorded from 1")
@@ -103,23 +70,6 @@ struct ProcedureRepositoryTests {
                                 in: store) == 1)
         await store.close()
         #expect(try SchemaMigrationTests.counts(try Self.tables(of: 1), at: url) == before)
-    }
-
-    @Test("a migration from schema 2 that fails inside its transaction leaves schema 2 whole with its copy, and the next open migrates")
-    func failedMigrationFromTwo() async throws {
-        struct Fault: Error {}
-        let memory = try await Self.populated()
-        await memory.store.close()
-        try Self.downgrade(memory.url, to: 2)
-        let before = try SchemaMigrationTests.counts(try Self.tables(of: 2), at: memory.url)
-        let store = SQLiteMemoryStore(url: memory.url)
-        await store.injectMigrationFault { throw Fault() }
-        await #expect(throws: (any Error).self) { try await store.open() }
-        #expect(SQLiteMemoryInspection.inspect(memory.url).shape == .migratable(from: 2))
-        #expect(try SchemaMigrationTests.counts(try Self.tables(of: 2), at: memory.url) == before)
-        let retried = try await SQLiteMemoryStore.open(at: memory.url)
-        #expect(try await retried.diagnostics().migration?.fromVersion == 2)
-        await retried.close()
     }
 
     /// A candidate of the populated archive, interpreted, with its version.

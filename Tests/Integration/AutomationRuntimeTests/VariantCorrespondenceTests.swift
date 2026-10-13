@@ -15,23 +15,11 @@ import PerceptionCore
 @testable import SQLiteMemory
 import Testing
 
-/// Brings an archive back to exactly schema 4, as the first correction of D2 wrote it: what schema 5 adds
-/// is dropped, and nothing of schema 4 is touched.
-func downgradeToSchema4(_ url: URL) throws {
-    let raw = try SQLiteConnection(path: url.path)
-    defer { raw.close() }
-    for object in try SQLiteMemorySchema.objectsAdded(since: 4) { try raw.execute("DROP \(object.type.uppercased()) \(object.name)") }
-    try raw.execute("DELETE FROM memory_schema_migrations WHERE to_version > 4")
-    try raw.execute("INSERT OR IGNORE INTO memory_schema_migrations (to_version, from_version, migrated_at_ms) VALUES (4, 0, 0)")
-    try raw.execute("PRAGMA user_version = 4")
-}
-
 /// A variant's prefix through the product's own entry (`memory_task interpret` over `LearningSession`,
 /// the real archive), its parameters matched one to one with its origin's (review F04b): a file typed in
 /// two fields as one parameter is not the same method as two independent parameters, which stays
 /// suggested and says why, in the version read back and in the diagnosis; the same parameter renamed, with
-/// new values, is verified. A prefix the first correction's build stated verified is checked again when
-/// its archive migrates, its first record kept.
+/// new values, is verified.
 @MainActor
 @Suite("A variant's prefix keeps its parameters' correspondence, through the tools", .serialized)
 struct VariantCorrespondenceTests {
@@ -81,7 +69,7 @@ struct VariantCorrespondenceTests {
             """#
     }
 
-    @Test("one parameter typed twice is not two independent ones: the variant is kept with its prefix suggested and why, in the version and the diagnosis; the same parameter renamed, with new values, is verified; a schema 4 archive's verified prefix is checked again on migration, its first record kept")
+    @Test("one parameter typed twice is not two independent ones: the variant is kept with its prefix suggested and why, in the version and the diagnosis; the same parameter renamed, with new values, is verified")
     func parametersCorrespond() async throws {
         let session = try Self.session()
         let tools = Learning.tools(session)
@@ -106,7 +94,7 @@ struct VariantCorrespondenceTests {
         #expect(renamedVersion.variantPrefix == VariantPrefix.Check(status: .verified, comparedSteps: 2, reason: nil))
         #expect(splitVersion.version.definition.parameters.count == 2 && renamedVersion.version.definition.parameters.count == 1)
         #expect(try Learning.rows("SELECT count(*) FROM memory_variant_prefixes", in: session) == ["0"],
-                "schema 4's table is written no more")
+                "part 4's table is written no more")
         await memory.close()
         MemoryService.forget(session.directory)
         let taskID = try #require(try Learning.rows("SELECT task_id FROM memory_procedure_candidates WHERE candidate_id = '\(second)'",
@@ -115,28 +103,5 @@ struct VariantCorrespondenceTests {
         #expect(text.contains { $0.contains("revision 1 ") && $0.hasSuffix("prefix suggested over 2 steps (parameter_correspondence)") },
                 "\(text.filter { $0.contains("version") })")
         #expect(text.contains { $0.contains("revision 2 ") && $0.hasSuffix("prefix verified over 2 steps") })
-
-        // The same archive as the first correction's build wrote it: both prefixes stated verified, by a check
-        // that did not match parameters. The migration checks them again; schema 4's rows stay as written.
-        let url = session.directory.appendingPathComponent("memory.sqlite")
-        try downgradeToSchema4(url)
-        let raw = try SQLiteConnection(path: url.path)
-        for route in [splitRoute, renamedRoute] {
-            _ = try raw.run("""
-                INSERT INTO memory_variant_prefixes (route_id, status, compared_steps, reason, checked_at_ms)
-                VALUES (?, 'verified', 2, NULL, 1)
-                """, [.text(route)])
-        }
-        raw.close()
-        let reopened = MemoryService.shared(for: session.directory)
-        _ = try await reopened.ready()
-        #expect(await reopened.status().lastMigration?.contains("from schema 4") == true)
-        #expect(try rawRows("PRAGMA user_version", at: url) == ["\(SQLiteMemorySchema.version)"])
-        #expect(try rawRows("SELECT route_id || ':' || status || ':' || ifnull(reason, '-') FROM memory_variant_prefix_checks ORDER BY route_id",
-                            at: url) == ["\(splitRoute):suggested:parameter_correspondence", "\(renamedRoute):verified:-"])
-        #expect(try rawRows("SELECT status FROM memory_variant_prefixes ORDER BY route_id", at: url) == ["verified", "verified"],
-                "the first check's record is kept as it was written")
-        await reopened.close()
-        MemoryService.forget(session.directory)
     }
 }

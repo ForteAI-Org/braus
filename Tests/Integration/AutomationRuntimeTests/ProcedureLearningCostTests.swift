@@ -28,8 +28,8 @@ import Testing
 /// of a whole task's candidate. The scene a model reads is measured as it is enriched (its part of the
 /// projection, the state and its relations), on this load and on a projection of `screens` screens of
 /// ten labels; the part read is set beside the whole projection. The archive is then brought back to
-/// schema 2 and to schema 3 and opened: the migration with its verified copy, then the relation recovery
-/// the service runs on its own, until it is over.
+/// schema 1, as main shipped it, and opened: the migration with its verified copy, then the relation
+/// recovery the service runs on its own over the calls schema 1 holds, until it is over.
 @MainActor
 @Suite("The cost of learning on a declared load", .serialized)
 struct ProcedureLearningCostTests {
@@ -204,36 +204,32 @@ struct ProcedureLearningCostTests {
         await memory.close()
         MemoryService.forget(session.directory)
 
-        // Migrations: the same archive brought back to schema 2 (its D2 rows dropped) and to schema 3 (as the
-        // first D2 delivery wrote it), each opened: the migration with its verified copy, then the recovery the
-        // service runs on its own when its queue is empty, timed until it is over.
-        let learned = Dictionary(uniqueKeysWithValues: relations.map { ($0.relationID, $0.supports) })
-        for from in [2, 3] {
+        // Migration: the same archive brought back to schema 1 (every row the later parts hold dropped with their
+        // tables) and opened: the migration with its verified copy, the shapes of its scenes derived, then the
+        // recovery the service runs on its own when its queue is empty, over the calls schema 1 holds, timed until it
+        // is over: each call evaluated once, and a pass after it finds nothing left.
+        do {
             let copy = try W.directory()
             try FileManager.default.copyItem(at: session.directory.appendingPathComponent("memory.sqlite"),
                                              to: copy.appendingPathComponent("memory.sqlite"))
-            if from == 2 { try downgradeToSchema2(copy.appendingPathComponent("memory.sqlite")) }
-            else { try downgradeToSchema3(copy.appendingPathComponent("memory.sqlite")) }
+            try UnificationTests.downgrade(copy.appendingPathComponent("memory.sqlite"))
             let migrating = MemoryService.shared(for: copy)
             let migration = try await Self.measured { _ = try await migrating.ready() }
-            let shapes = try rawRows("SELECT (SELECT count(*) FROM brain_scene_shapes) || '/' || (SELECT count(*) FROM brain_scenes)",
-                                     at: migrating.url)
-            print("measure: migration \(from)→\(SQLiteMemorySchema.version) with its verified copy ms=\(Self.ms(migration)) "
+            let shapes = try rawRows("SELECT (SELECT count(*) FROM brain_scene_shapes) || '/' || (SELECT count(*) FROM brain_scenes "
+                                     + "WHERE scene_kind <> 'app')", at: migrating.url)
+            print("measure: migration 1→\(SQLiteMemorySchema.version) with its verified copy ms=\(Self.ms(migration)) "
                   + "shapes/scenes=\(shapes.first ?? "?")")
             #expect(try rawRows("PRAGMA user_version", at: migrating.url) == ["\(SQLiteMemorySchema.version)"])
+            #expect(shapes.first.map { Set($0.split(separator: "/")).count == 1 } == true, "every scene has its shape: \(shapes)")
             var drained = false
             let recovery = await Self.measured { drained = await migrating.flush(within: .seconds(300)) }
             let report = await migrating.status().relationRecovery
-            let calls = report.total
-            print("measure: relation recovery after the migration from \(from) calls=\(calls) recovered=\(report.recovered) "
+            print("measure: relation recovery after the migration from 1 calls=\(report.total) recovered=\(report.recovered) "
                   + "reevaluated=\(report.reevaluated) reconsidered=\(report.reconsidered) associated=\(report.associated) "
-                  + "totalms=\(Self.ms(recovery)) perCallus=\(calls == 0 ? 0 : Self.ms(recovery) * 1000 / Int64(calls))")
+                  + "totalms=\(Self.ms(recovery)) perCallus=\(report.total == 0 ? 0 : Self.ms(recovery) * 1000 / Int64(report.total))")
             let pending = await migrating.status().relationRecoveryPending
             #expect(drained && !pending)
-            #expect(from == 2 ? report.recovered == Self.tasks * Self.steps : report.reevaluated == Self.tasks * Self.steps, "\(report)")
-            let again = try await migrating.perform { try await $0.relations.relations(of: Self.bundle) }
-            #expect(Dictionary(uniqueKeysWithValues: again.map { ($0.relationID, $0.supports) }) == learned,
-                    "the relations the recovery gives from the facts are the ones learned while acting")
+            #expect(report.recovered == Self.tasks * Self.steps, "\(report)")
             let idle = try await migrating.perform { try await $0.relations.catchUp(at: 2_000_000, associate: { _ in }) }
             #expect(idle.total == 0 && !idle.remaining, "a pass after the recovery finds nothing left")
             await migrating.close()

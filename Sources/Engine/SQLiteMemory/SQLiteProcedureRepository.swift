@@ -645,44 +645,6 @@ enum SQLiteProcedureRows {
         }
     }
 
-    /// A version read back whole: the definition, its parts, details, bindings, findings and occurrences,
-    /// the contract, each part's latest evaluation and state, and whether a later version superseded it.
-    /// Checks again, in a migration from schema 4, every prefix schema 4 stated verified, whose check did
-    /// not match the parameters of the two versions: from their stored definitions and details, under the
-    /// current rule, into `memory_variant_prefix_checks`. Schema 4's row stays as it was written. A prefix
-    /// whose versions cannot be read again, or that the rule would now refuse, is kept as suggested
-    /// (`unreadable_step`): a migration never drops a variant's reference to its origin.
-    static func checkVerifiedPrefixesAgain(_ connection: SQLiteConnection, at nowMS: Int64) throws {
-        let verified = try connection.query(
-            """
-            SELECT p.route_id, v.variant_of_route_id, v.divergence_position FROM memory_variant_prefixes p
-            JOIN memory_procedure_versions v ON v.route_id = p.route_id
-            WHERE p.status = 'verified' AND v.variant_of_route_id IS NOT NULL
-              AND NOT EXISTS (SELECT 1 FROM memory_variant_prefix_checks c WHERE c.route_id = p.route_id)
-            ORDER BY p.route_id
-            """
-        ) { (route: try $0.text(0) ?? "", origin: try $0.text(1) ?? "", divergence: Int($0.integer(2) ?? 0)) }
-        for prefix in verified {
-            var check = VariantPrefix.Check(status: .suggested, comparedSteps: 0, reason: .unreadableStep)
-            if let variant = try? SQLiteRouteRows.read(connection, routeID: prefix.route),
-               let origin = try? SQLiteRouteRows.read(connection, routeID: prefix.origin),
-               let checked = try? VariantPrefix.check(
-                   variant: variant.definition, of: origin.definition, divergence: prefix.divergence,
-                   variantDetails: try parameterDetails(connection, routeID: prefix.route),
-                   originalDetails: try parameterDetails(connection, routeID: prefix.origin)) {
-                check = checked
-            }
-            _ = try connection.run(
-                """
-                INSERT INTO memory_variant_prefix_checks (route_id, status, compared_steps, reason, checked_at_ms)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                [.text(prefix.route), .text(check.status.rawValue), .integer(Int64(check.comparedSteps)),
-                 check.reason.map { .text($0.rawValue) } ?? .null, .integer(nowMS)]
-            )
-        }
-    }
-
     /// The details of a version's parameters: role, kind, unit, sensitivity and producing part.
     static func parameterDetails(_ handle: some SQLiteQuerying, routeID: String) throws -> [ParameterDetail] {
         try handle.query(

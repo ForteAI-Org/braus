@@ -41,7 +41,7 @@ struct SchemaMigrationTests {
         return memory.url
     }
 
-    /// Drops what schema 2 and 3 added and sets version 1.
+    /// Drops what the current schema adds to schema 1 and sets version 1.
     static func downgrade(_ url: URL) throws {
         let raw = try SQLiteConnection(path: url.path)
         defer { raw.close() }
@@ -181,6 +181,34 @@ struct SchemaMigrationTests {
         let store = try await SQLiteMemoryStore.open(at: url)
         #expect(try await store.diagnostics().migration?.fromVersion == 1)
         #expect(try await count("SELECT count(*) FROM memory_agent_actions", in: store) == 1)
+        await store.close()
+    }
+
+    @Test("the one text writes every object of schema 1 as main shipped it, and the migration from 1 creates exactly what it lacks")
+    func oneText() throws {
+        let earlier = try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.text(of: 1))
+        let current = try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.text())
+        #expect(earlier.isSubset(of: current), "\(SQLiteMemorySchema.differences(found: earlier.intersection(current), expected: earlier))")
+        let migrated = try SQLiteMemorySchema.text(of: 1) + "\n" + (try SQLiteMemorySchema.migrationText(from: 1))
+        #expect(SQLiteMemorySchema.differences(found: try SQLiteMemorySchema.objects(of: migrated), expected: current).isEmpty)
+        #expect(SQLiteMemorySchema.migrations.keys.sorted() == [1], "versions 2 to 6 were never released")
+    }
+
+    @Test("an archive of schema 1 with structural scenes gets their shapes in its migration, as the scene repository writes them")
+    func sceneShapes() async throws {
+        let memory = try await SceneFixtures.open()
+        _ = try await SceneFixtures.observe(memory, "e1", SceneFixtures.perceive(SceneFixtures.window("Inbox", [
+            SceneFixtures.table("People", rows: ["Alice", "Bruno"]), SceneFixtures.button("Compose", y: 700)])))
+        _ = try await SceneFixtures.observe(memory, "e2", SceneFixtures.perceive(SceneFixtures.dialog("Save", [
+            SceneFixtures.textField(value: "report", y: 300, title: "Name"), SceneFixtures.button("Save", y: 500)])))
+        let shapes = "SELECT scene_id || ':' || app_id || ':' || role_key FROM brain_scene_shapes ORDER BY scene_id"
+        let written = try await memory.store.read { try $0.query(shapes) { try $0.text(0) ?? "" } }
+        #expect(written.count == 2)
+        await memory.store.close()
+        try Self.downgrade(memory.url)
+        let store = try await SQLiteMemoryStore.open(at: memory.url)
+        #expect(try await store.diagnostics().migration?.fromVersion == 1)
+        #expect(try await store.read { try $0.query(shapes) { try $0.text(0) ?? "" } } == written)
         await store.close()
     }
 }
