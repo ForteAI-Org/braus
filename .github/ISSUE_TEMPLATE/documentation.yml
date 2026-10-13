@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Documentation feedback is welcome even if you have never contributed code.
-        Search [existing issues](https://github.com/ForteAI-Org/mecum/issues?q=is%3Aissue) first.
+        Search [existing issues](https://github.com/ForteAI-Org/braus/issues?q=is%3Aissue) first.
         For changes, link an issue in the pull request, including small wording fixes.
   - type: input
     id: location

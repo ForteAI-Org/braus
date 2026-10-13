@@ -31,7 +31,7 @@ Run each command after the previous one succeeds. If cloning is denied, check
 repository access. Keep subsequent Terminal commands inside `braus`.
 
 ```sh
-git clone https://github.com/ForteAI-Org/mecum.git
+git clone https://github.com/ForteAI-Org/braus.git
 cd braus
 swift build --product braus
 .build/debug/braus help
@@ -101,7 +101,7 @@ After the scene, expect `seat: window returned, display down`. Also check that
 the window returns, the virtual display disappears and foreground focus is restored.
 Record any change in the window's position or size.
 
-If the Driver reports `unvalidated`, open a [Seat compatibility issue](https://github.com/ForteAI-Org/mecum/issues/new?template=seat_validation.yml).
+If the Driver reports `unvalidated`, open a [Seat compatibility issue](https://github.com/ForteAI-Org/braus/issues/new?template=seat_validation.yml).
 Build and hardware qualification do not block a run. The Driver keeps the
 `unvalidatedBuild` mark and still requires permissions and passing runtime checks.
 `--allow-unvalidated-build` remains accepted for existing scripts. One successful
@@ -134,6 +134,6 @@ See [CLI chat](Documentation/Engine/Chat.md) for tools, limits and resuming conv
 - **`noPhysicalDisplays`:** wake the physical display before retrying setup.
 - **Provider missing or chat already open:** check `PATH` or exit the other Braus chat.
 
-For other failures, submit a [bug report](https://github.com/ForteAI-Org/mecum/issues/new?template=bug_report.yml)
+For other failures, submit a [bug report](https://github.com/ForteAI-Org/braus/issues/new?template=bug_report.yml)
 with the exact command and test data. Do not include suspected vulnerabilities
 in public issues or pull requests.

@@ -22,15 +22,15 @@ instructions will be added on GitHub.
 
 ## Report a problem or request
 
-Search [existing issues](https://github.com/ForteAI-Org/mecum/issues) first, then use:
+Search [existing issues](https://github.com/ForteAI-Org/braus/issues) first, then use:
 
-- [Bug report](https://github.com/ForteAI-Org/mecum/issues/new?template=bug_report.yml):
+- [Bug report](https://github.com/ForteAI-Org/braus/issues/new?template=bug_report.yml):
   incorrect command, tool or library behavior.
-- [Feature or improvement](https://github.com/ForteAI-Org/mecum/issues/new?template=feature_request.yml):
+- [Feature or improvement](https://github.com/ForteAI-Org/braus/issues/new?template=feature_request.yml):
   the user's task, current limitation and desired result.
-- [Seat compatibility](https://github.com/ForteAI-Org/mecum/issues/new?template=seat_validation.yml):
+- [Seat compatibility](https://github.com/ForteAI-Org/braus/issues/new?template=seat_validation.yml):
   an unvalidated macOS build or hardware model, including refusals before adoption.
-- [Documentation](https://github.com/ForteAI-Org/mecum/issues/new?template=documentation.yml):
+- [Documentation](https://github.com/ForteAI-Org/braus/issues/new?template=documentation.yml):
   an unclear, incorrect or missing explanation. No code contribution is required.
 
 New reports enter `Inbox`; reporters need not know the responsible module or reviewer.

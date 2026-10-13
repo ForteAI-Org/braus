@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Search [existing reports](https://github.com/ForteAI-Org/mecum/issues?q=is%3Aissue+Seat) first.
+        Search [existing reports](https://github.com/ForteAI-Org/braus/issues?q=is%3Aissue+Seat) first.
         A refusal before adoption is enough to report; no research opt-in or extra test run is required.
         One successful operation does not establish full Driver validation. Share only test content.
         Do not include suspected vulnerabilities in public issues. Private reporting instructions will be added on GitHub.

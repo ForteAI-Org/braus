@@ -162,7 +162,7 @@ Test hardware: MacBook Pro with M4 (base model), 16 GB RAM, macOS 27.0.1 (26A434
 
 ## Contribute
 
-We welcome help with Qt driver coverage, UXP and Flutter support, missing Perception controls, and feedback on Brain and Memory as you use apps. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and [GitHub Issues](https://github.com/ForteAI-Org/mecum/issues).
+We welcome help with Qt driver coverage, UXP and Flutter support, missing Perception controls, and feedback on Brain and Memory as you use apps. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and [GitHub Issues](https://github.com/ForteAI-Org/braus/issues).
 
 For questions and workflows, join [Discord](https://discord.gg/SBqrAN9wDg).
 

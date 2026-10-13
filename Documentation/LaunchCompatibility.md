@@ -51,7 +51,7 @@ for the tools and model connection you use.
 
 ## Report a result
 
-Use the existing [bug report](https://github.com/ForteAI-Org/mecum/issues/new?template=bug_report.yml)
-for workflow failures or the [Seat compatibility report](https://github.com/ForteAI-Org/mecum/issues/new?template=seat_validation.yml)
+Use the existing [bug report](https://github.com/ForteAI-Org/braus/issues/new?template=bug_report.yml)
+for workflow failures or the [Seat compatibility report](https://github.com/ForteAI-Org/braus/issues/new?template=seat_validation.yml)
 for a macOS build or hardware configuration. Follow the
 [contribution workflow](../CONTRIBUTING.md). Share test content and remove private data.
