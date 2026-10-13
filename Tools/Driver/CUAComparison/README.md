@@ -9,7 +9,7 @@ titles). `summarize.py` turns the rows into tables and a `summary.json`. Method 
 
 | File | Role |
 | --- | --- |
-| `Server/main.swift` | Mecum's `AutomationTools` over MCP stdio (`mecum-mcp-stdio`), a benchmark tool only |
+| `Server/main.swift` | Mecum's `AutomationTools` over a worker's brokered desktop, served over MCP stdio (`mecum-mcp-stdio`), a benchmark tool only |
 | `prepare.py` | Preflight (Stage Manager, other Mecum, power, Low Power, thermal, displays), fixtures, the meta row |
 | `compare.py`, `mcpclient.py`, `rusage.py` | Scenarios, runner (ops, chain, soak, phases) and MCP client |
 | `probe.swift`, `ocr.swift` | Independent observers, built to `.build/probe` and `.build/ocr` |
@@ -70,6 +70,17 @@ Always set `MECUM_APP_SUPPORT_DIR` for Mecum. Mecum runs with its research opt-i
 macOS build (`MECUM_BENCH_UNVALIDATED=1`, set by the harness). Never run `sample` or another profiler
 during a measured window.
 
+The server is the app's worker path, not the command line's: `AutomationTools` and the tool definitions
+a worker's host serves, over a `BrokeredAutomationSession` on a `SeatBroker` made as the app makes its
+own (the standard 2560×1440 display at 60 Hz, `allowUnvalidatedBuild` from `MECUM_BENCH_UNVALIDATED`,
+which the app always passes). So the run measures what a worker gets: the window stream for observing
+and settling, the per-application input recipes, menu commands pressed in a brief activation (TextEdit,
+UXP hosts, Safari), the closing guards, the browser's own new window when no window is named, and the
+broker's discovery and release. Each process is one worker turn: the seat is held from the first call
+to the end of stdin, never released for idling. At the end it closes the session, takes the parked
+seat's display down and closes the memory, as the app does when it quits. Run records go to `Runs`
+in the knowledge directory.
+
 ### Modes
 
 | `--mode` | What it does |
@@ -106,7 +117,7 @@ dialog and the document are separate windows.
 
 | `--drivers` | Launched as | Notes |
 | --- | --- | --- |
-| `mecum` | `.build/release/mecum-mcp-stdio <knowledge dir>` (`MECUM_BIN` overrides) | One Seat session per app block |
+| `mecum` | `.build/release/mecum-mcp-stdio <knowledge dir>` (`MECUM_BIN` overrides) | The app's worker path; one Seat session per app block |
 | `cua` | `cua-driver mcp --direct` | The MCP process owns the runtime; no agent cursor overlay |
 | `cua-overlay` | Daemon-backed Cua, overlay on (its default) | See below |
 | `cua-legacy` | As `cua`, acting the 6 October way | Secondary series `step_legacy` |

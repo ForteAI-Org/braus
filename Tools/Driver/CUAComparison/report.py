@@ -1211,7 +1211,7 @@ LIMITS = """- One machine on one day, a small operation set and few repetitions 
 - Mecum's stream rest is inferred from the gap since the previous call; a `--phases` run shows the real `preview.rest` events.
 - `cua-overlay` is measured with an embedded daemon when CuaDriver.app is not installed; the app-daemon path is a different process layout.
 - Token counts are estimates. The task phase counts billed tokens for one model at one effort level with few repetitions per task.
-- The benchmark server is the CLI path (`AutomationSession`), not the app's `BrokeredAutomationSession`; app-only behaviours are not measured.
+- The benchmark server is the app's worker path (`BrokeredAutomationSession` over a `SeatBroker`), not the CLI's `AutomationSession`; the app's views are not measured.
 - Cua changed version since 6 October: its deltas against that run say nothing about Mecum."""
 
 REPRO = """```sh
