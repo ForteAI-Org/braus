@@ -1,6 +1,6 @@
 //
 //  SafetensorsFile.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
@@ -152,8 +152,27 @@ final class SafetensorsFile: @unchecked Sendable {
                 }
             default:
                 for index in 0..<count {
-                    destination[index] = Float(Float16(bitPattern: source.loadUnaligned(fromByteOffset: index * 2, as: UInt16.self).littleEndian))
+                    destination[index] = float(fromHalfBits: source.loadUnaligned(fromByteOffset: index * 2, as: UInt16.self).littleEndian)
                 }
+        }
+    }
+
+    /// IEEE 754 binary16 to float32, bit by bit. `Float16` itself is unavailable on
+    /// x86_64 macOS and the app ships universal, so the conversion cannot rely on it.
+    static func float(fromHalfBits bits: UInt16) -> Float {
+        let sign     = UInt32(bits & 0x8000) << 16
+        let exponent = UInt32(bits >> 10) & 0x1F
+        let fraction = UInt32(bits & 0x03FF)
+        switch exponent {
+            case 0:
+                // Zero or subnormal: fraction × 2^-24, with the sign reapplied.
+                let magnitude = Float(fraction) * Float(bitPattern: 0x3380_0000)
+                return sign == 0 ? magnitude : -magnitude
+            case 0x1F:
+                // Infinity or NaN; the payload keeps its position.
+                return Float(bitPattern: sign | 0x7F80_0000 | (fraction << 13))
+            default:
+                return Float(bitPattern: sign | ((exponent + 112) << 23) | (fraction << 13))
         }
     }
 }
