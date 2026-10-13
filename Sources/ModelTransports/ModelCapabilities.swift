@@ -1,6 +1,6 @@
 //
 //  ModelCapabilities.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 25/09/2026.
 //

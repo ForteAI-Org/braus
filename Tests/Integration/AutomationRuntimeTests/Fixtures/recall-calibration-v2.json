@@ -1,0 +1,429 @@
+{
+ "corpus": "recall-corpus-v2",
+ "corpusDigest": "042797268429cc068015a1de0aabbc72bdaa464c1b14079315742f969949e03a",
+ "criteria": [
+  "K1 (inviolable): no incompatible delivery on the final split, in the full archive or the minimal ones (21 queries, 19 on minimal archives).",
+  "K2 (inviolable): no false complete coverage of a critical need, in any condition.",
+  "K3 (inviolable, utility R46/R48): at least 10 of the 14 positive final needs selected exactly in the full archive.",
+  "K4 (inviolable, language, positives only): at least 4 of the 6 positive needs of Italian or mixed requests selected exactly in the full archive; a correct absence never counts.",
+  "K5 (inviolable, first learning, review F01): at least 10 of the 14 positive needs selected exactly on the minimal archives.",
+  "K6 (inviolable, close negatives): at least 6 of the 7 absences right in the full archive and at least 4 of the 5 on the minimal archives.",
+  "K7 (measured, not a criterion of correctness): warm search p95 within 50 ms on the full archive.",
+  "Choice: among the configurations meeting K1\u2013K6, fewest unsafe answers over all conditions, then most correct queries, then the simpler channel (lexical, semantic, hybrid), then the smaller lexical weight, then the name. If none meets them, the failure is reported, no configuration is declared validated and the product keeps a provisional configuration said as such."
+ ],
+ "latencyBudgetMS": 50,
+ "minimumItalianMixedSelection": 4,
+ "minimumMinimalPositiveSelection": 10,
+ "minimumNegativesFull": 6,
+ "minimumNegativesMinimal": 4,
+ "minimumPositiveSelection": 10,
+ "objective": "minimize incompatible deliveries + false complete coverages of critical needs; then maximize correct queries; then minimize false complete coverages; then the mean correct of the point's grid neighbours (unsafe neighbours count 0); then higher absolute, smaller stepMargin, smaller adequacy, larger tie, smaller partMargin; the full and the minimal archives summed",
+ "thresholds": {
+  "hybrid0.2/e5-small/recall-document-1/collection": {
+   "absolute": 0.79,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.2/e5-small/recall-document-1/uniform": {
+   "absolute": 0.81,
+   "adequacy": 0.02,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.2/e5-small/recall-document-1/version": {
+   "absolute": 0.78,
+   "adequacy": 0.02,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.2/e5-small/recall-document-1c/collection": {
+   "absolute": 0.84,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.2/e5-small/recall-document-1c/uniform": {
+   "absolute": 0.87,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.2/e5-small/recall-document-1c/version": {
+   "absolute": 0.82,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.2/granite-107m/recall-document-1/collection": {
+   "absolute": 0.76,
+   "adequacy": 0.05,
+   "partMargin": -0.2,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.2/granite-107m/recall-document-1/uniform": {
+   "absolute": 0.66,
+   "adequacy": 0.05,
+   "partMargin": -0.4,
+   "stepMargin": 0.1,
+   "tie": 0.04
+  },
+  "hybrid0.2/granite-107m/recall-document-1/version": {
+   "absolute": 0.77,
+   "adequacy": 0.05,
+   "partMargin": -0.2,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.2/granite-107m/recall-document-1c/collection": {
+   "absolute": 0.79,
+   "adequacy": 0.05,
+   "partMargin": -0.05,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.2/granite-107m/recall-document-1c/uniform": {
+   "absolute": 0.82,
+   "adequacy": 0.02,
+   "partMargin": -0.05,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.2/granite-107m/recall-document-1c/version": {
+   "absolute": 0.77,
+   "adequacy": 0.05,
+   "partMargin": -0.05,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.35/e5-small/recall-document-1/collection": {
+   "absolute": 0.72,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.35/e5-small/recall-document-1/uniform": {
+   "absolute": 0.77,
+   "adequacy": 0.02,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.35/e5-small/recall-document-1/version": {
+   "absolute": 0.72,
+   "adequacy": 0.02,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.35/e5-small/recall-document-1c/collection": {
+   "absolute": 0.76,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.35/e5-small/recall-document-1c/uniform": {
+   "absolute": 0.83,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.35/e5-small/recall-document-1c/version": {
+   "absolute": 0.73,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.35/granite-107m/recall-document-1/collection": {
+   "absolute": 0.58,
+   "adequacy": 0.05,
+   "partMargin": -0.4,
+   "stepMargin": 0.1,
+   "tie": 0.04
+  },
+  "hybrid0.35/granite-107m/recall-document-1/uniform": {
+   "absolute": 0.75,
+   "adequacy": 0.05,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.35/granite-107m/recall-document-1/version": {
+   "absolute": 0.56,
+   "adequacy": 0.05,
+   "partMargin": -0.4,
+   "stepMargin": 0.1,
+   "tie": 0.04
+  },
+  "hybrid0.35/granite-107m/recall-document-1c/collection": {
+   "absolute": 0.72,
+   "adequacy": 0.05,
+   "partMargin": -0.05,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.35/granite-107m/recall-document-1c/uniform": {
+   "absolute": 0.81,
+   "adequacy": 0.05,
+   "partMargin": -0.05,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.35/granite-107m/recall-document-1c/version": {
+   "absolute": 0.69,
+   "adequacy": 0.05,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.5/e5-small/recall-document-1/collection": {
+   "absolute": 0.56,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0.1,
+   "tie": 0.04
+  },
+  "hybrid0.5/e5-small/recall-document-1/uniform": {
+   "absolute": 0.73,
+   "adequacy": 0.02,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.5/e5-small/recall-document-1/version": {
+   "absolute": 0.66,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.5/e5-small/recall-document-1c/collection": {
+   "absolute": 0.69,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.5/e5-small/recall-document-1c/uniform": {
+   "absolute": 0.78,
+   "adequacy": 0.02,
+   "partMargin": -0.05,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.5/e5-small/recall-document-1c/version": {
+   "absolute": 0.65,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.5/granite-107m/recall-document-1/collection": {
+   "absolute": 0.51,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0.1,
+   "tie": 0.04
+  },
+  "hybrid0.5/granite-107m/recall-document-1/uniform": {
+   "absolute": 0.71,
+   "adequacy": 0.02,
+   "partMargin": -0.3,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.5/granite-107m/recall-document-1/version": {
+   "absolute": 0.64,
+   "adequacy": 0.02,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.5/granite-107m/recall-document-1c/collection": {
+   "absolute": 0.66,
+   "adequacy": 0.02,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.5/granite-107m/recall-document-1c/uniform": {
+   "absolute": 0.75,
+   "adequacy": 0.02,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.5/granite-107m/recall-document-1c/version": {
+   "absolute": 0.63,
+   "adequacy": 0.02,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.65/e5-small/recall-document-1/collection": {
+   "absolute": 0.46,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0.1,
+   "tie": 0.04
+  },
+  "hybrid0.65/e5-small/recall-document-1/uniform": {
+   "absolute": 0.72,
+   "adequacy": 0.02,
+   "partMargin": -0.2,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.65/e5-small/recall-document-1/version": {
+   "absolute": 0.63,
+   "adequacy": 0.02,
+   "partMargin": -0.2,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.65/e5-small/recall-document-1c/collection": {
+   "absolute": 0.62,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.65/e5-small/recall-document-1c/uniform": {
+   "absolute": 0.75,
+   "adequacy": 0.02,
+   "partMargin": -0.05,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.65/e5-small/recall-document-1c/version": {
+   "absolute": 0.58,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.65/granite-107m/recall-document-1/collection": {
+   "absolute": 0.45,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0.1,
+   "tie": 0.04
+  },
+  "hybrid0.65/granite-107m/recall-document-1/uniform": {
+   "absolute": 0.68,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.65/granite-107m/recall-document-1/version": {
+   "absolute": 0.58,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.65/granite-107m/recall-document-1c/collection": {
+   "absolute": 0.61,
+   "adequacy": 0.02,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.65/granite-107m/recall-document-1c/uniform": {
+   "absolute": 0.71,
+   "adequacy": 0.02,
+   "partMargin": -0.05,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "hybrid0.65/granite-107m/recall-document-1c/version": {
+   "absolute": 0.57,
+   "adequacy": 0.02,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "lexical/recall-document-1/collection": {
+   "absolute": 0.46,
+   "adequacy": 0.02,
+   "partMargin": -0.2,
+   "stepMargin": 0.01,
+   "tie": 0.02
+  },
+  "lexical/recall-document-1/uniform": {
+   "absolute": 0.62,
+   "adequacy": 0,
+   "partMargin": -0.3,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "lexical/recall-document-1/version": {
+   "absolute": 0.45,
+   "adequacy": 0,
+   "partMargin": -0.05,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "lexical/recall-document-1c/collection": {
+   "absolute": 0.47,
+   "adequacy": 0,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "lexical/recall-document-1c/uniform": {
+   "absolute": 0.63,
+   "adequacy": 0,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "lexical/recall-document-1c/version": {
+   "absolute": 0.38,
+   "adequacy": 0,
+   "partMargin": -0.05,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "semantic/e5-small/recall-document-1": {
+   "absolute": 0.92,
+   "adequacy": 0.02,
+   "partMargin": -0.3,
+   "stepMargin": 0.01,
+   "tie": 0.02
+  },
+  "semantic/e5-small/recall-document-1c": {
+   "absolute": 0.92,
+   "adequacy": 0,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "semantic/granite-107m/recall-document-1": {
+   "absolute": 0.82,
+   "adequacy": 0.05,
+   "partMargin": -0.1,
+   "stepMargin": 0,
+   "tie": 0.04
+  },
+  "semantic/granite-107m/recall-document-1c": {
+   "absolute": 0.88,
+   "adequacy": 0,
+   "partMargin": -0.4,
+   "stepMargin": 0,
+   "tie": 0.04
+  }
+ }
+}

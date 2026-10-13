@@ -6,8 +6,8 @@ owns every capture path, and the consumer only lends a stream it already runs.
 
 ## Evidence
 
-Measured on 7 October 2026 in the Mecum app's test host, optimized measurement build
-(`MECUM_PHASES`), Calculator, TextEdit and Chrome, 20 inputs each:
+Measured on 7 October 2026 in the Braus app's test host, optimized measurement build
+(`BRAUS_PHASES`), Calculator, TextEdit and Chrome, 20 inputs each:
 
 - After each adoption the Broker runs `PreviewStreamController`: one 30 fps stream of the
   attested window that follows the delivery window. It delivered about 29.3 `complete` frames a

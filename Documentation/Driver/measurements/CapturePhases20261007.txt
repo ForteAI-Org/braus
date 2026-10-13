@@ -1,5 +1,5 @@
 # Capture phases before and after skipping the one-shot Still (7 October 2026)
-# App test host, optimized measurement build (MECUM_PHASES), N=20 observe + 20 press_key per application.
+# App test host, optimized measurement build (BRAUS_PHASES), N=20 observe + 20 press_key per application.
 # Before and after differ only by the skip. Medians in ms.
 
 Calculator  (median ms; n before/after)

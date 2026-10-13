@@ -1,14 +1,14 @@
 import CoreGraphics
 import SeatCore
 
-/// One complete Mecum Command. A semantic action can expand into a succession,
+/// One complete Braus Command. A semantic action can expand into a succession,
 /// but every member is sent against its own observation.
 enum ActionInput: Sendable, Equatable {
     case command(InputCommand)
     case shortcut(Shortcut)
 }
 
-/// Converts an observed action into Mecum's public input vocabulary. The frame
+/// Converts an observed action into Braus's public input vocabulary. The frame
 /// that produced the observation remains the authority for click coordinates.
 enum ActionExecutor {
     /// Every action whose whole effect is a succession of Commands, and no
@@ -71,18 +71,18 @@ enum ActionExecutor {
 
         if let name = physicalName(key) {
             guard let physical = KeyNames.key(named: name) else {
-                throw SeatBrokerError.capabilityMissing("Mecum physical key \(name)")
+                throw SeatBrokerError.capabilityMissing("Braus physical key \(name)")
             }
             return .physical(physical, holding: held)
         }
         guard key.rawValue.count == 1, let character = key.rawValue.first else {
-            throw SeatBrokerError.capabilityMissing("Mecum shortcut for \(key.rawValue)")
+            throw SeatBrokerError.capabilityMissing("Braus shortcut for \(key.rawValue)")
         }
         return .character(character, holding: held)
     }
 
-    /// Planner control names are translated to Mecum's physical-key names.
-    /// Virtual key codes and character layouts belong to Mecum alone.
+    /// Planner control names are translated to Braus's physical-key names.
+    /// Virtual key codes and character layouts belong to Braus alone.
     private static func physicalName(_ key: KeyName) -> String? {
         switch key {
         case .return: "Enter"

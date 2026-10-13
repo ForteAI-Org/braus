@@ -234,7 +234,7 @@ struct PhotoshopProbe {
                 selection = [bounds[0].as('px'), bounds[1].as('px'), bounds[2].as('px'), bounds[3].as('px')].join(',');
             } catch (_) {}
             file.writeln([
-                'MECUM_EDITING', token, owned.id, owned.layers.length,
+                'BRAUS_EDITING', token, owned.id, owned.layers.length,
                 owned.width.as('px'), owned.height.as('px'), encodeURIComponent(owned.activeLayer.name),
                 selection, owned.histogram.join(','), owned.historyStates.length, encodeURIComponent(owned.activeHistoryState.name)
             ].join('\\t'));
@@ -287,7 +287,7 @@ struct PhotoshopProbe {
         let query = """
             var count = app.documents.length;
             if (count > 2) { throw new Error('fixture scope exceeded'); }
-            file.writeln('MECUM_DOCUMENTS\\t' + token + '\\t' + (count ? app.activeDocument.id : 'none') + '\\t' + count);
+            file.writeln('BRAUS_DOCUMENTS\\t' + token + '\\t' + (count ? app.activeDocument.id : 'none') + '\\t' + count);
             for (var i = 0; i < count; i++) {
                 var doc = app.documents[i], path = '';
                 try { path = doc.fullName.fsName; } catch (_) {}
@@ -312,7 +312,7 @@ struct PhotoshopProbe {
         guard !application.isTerminated, let applicationURL = application.bundleURL else {
             throw LiveFailure.unsupported("The Photoshop fixture host is unavailable")
         }
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("mecum-photoshop-documents-\(token)", isDirectory: true)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("braus-photoshop-documents-\(token)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         let script = directory.appendingPathComponent("document-fixture.jsx")
         let output = directory.appendingPathComponent("snapshot.tsv")
@@ -331,9 +331,9 @@ struct PhotoshopProbe {
                     \(action)
                     \(query)
                 } catch (error) {
-                    file.writeln('MECUM_ERROR\\t' + \(try javascriptString(token)) + '\\t' + encodeURIComponent(error.message));
+                    file.writeln('BRAUS_ERROR\\t' + \(try javascriptString(token)) + '\\t' + encodeURIComponent(error.message));
                 }
-                file.writeln('MECUM_DONE\\t' + \(try javascriptString(token)));
+                file.writeln('BRAUS_DONE\\t' + \(try javascriptString(token)));
                 file.close();
             })();
             """
@@ -355,7 +355,7 @@ struct PhotoshopProbe {
                 }
             }
             if let value = try? String(contentsOf: output, encoding: .utf8),
-               value.hasSuffix("MECUM_DONE\t\(token)\n") {
+               value.hasSuffix("BRAUS_DONE\t\(token)\n") {
                 snapshot = value
                 return true
             }
@@ -404,7 +404,7 @@ struct PhotoshopProbe {
         guard let snapshot, host != nil else {
             throw LiveFailure.unsupported("The Photoshop document fixture has no complete output")
         }
-        if snapshot.hasPrefix("MECUM_ERROR\t") {
+        if snapshot.hasPrefix("BRAUS_ERROR\t") {
             let detail = snapshot.split(separator: "\n").first?.split(separator: "\t").last
                 .flatMap { String($0).removingPercentEncoding } ?? "unreadable refusal"
             throw LiveFailure.unsupported("The scoped Photoshop document fixture refused: \(detail)")

@@ -6,7 +6,7 @@ Status: candidate, 2026-10-04. Qualification is recorded in
 ## Evidence
 
 Release `60979ddf` completes three TextEdit Unicode replacements and three
-single-character selection replacements through Mecum. Independent scenes
+single-character selection replacements through Braus. Independent scenes
 preserve two leading spaces, the final LF and UTF-16 selection. In each fresh
 session, Edit > Undo Typing and Edit > Redo read disabled; both refuse, and the
 text remains unchanged. This does not establish that other native hosts need
@@ -37,7 +37,7 @@ This qualification does not extend to localized dynamic titles.
 The existing menu and brief-activation tests cover dispatch ordering, current
 item identity, deadline, refused readiness, no replay and failed handback.
 Signed Release `3512aee9` completes three fresh TextEdit sessions through
-Mecum. Each replaces the text with two leading spaces, Unicode and a final LF,
+Braus. Each replaces the text with two leading spaces, Unicode and a final LF,
 selects the first UTF-16 unit, inserts Z, restores the original text and
 selection with Undo, then restores Z and the caret with bare Redo. Independent
 observations establish every text effect. All three sessions close with null

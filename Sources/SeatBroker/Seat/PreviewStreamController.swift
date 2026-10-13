@@ -1,6 +1,6 @@
 import CoreGraphics
 import Foundation
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import PhaseSignposts
 #endif
 import SeatCapture
@@ -121,7 +121,7 @@ final class PreviewStreamController {
     /// Whether the person has a live picture, and why not when they do not.
     /// It is nothing to do with the adoption: the seat holds the window in
     /// every one of these states and input still waits for a fresh observation.
-    #if MECUM_PHASES
+    #if BRAUS_PHASES
     private(set) var availability: PreviewAvailability = .idle {
         didSet { PhaseInterval.event("preview.availability", String(describing: availability)) }
     }
@@ -214,10 +214,10 @@ final class PreviewStreamController {
 
     /// Shows the delivered sample immediately, then changes the live source.
     /// Stream replacement is deliberately best effort: preview failure cannot
-    /// invalidate an observation that Mecum has already qualified.
+    /// invalidate an observation that Braus has already qualified.
     func follow(_ delivery: SeatObservationDelivery) {
         guard !isStoppingOrStopped else { return }
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         PhaseInterval.event("preview.follow", "pinned=\(pinnedTarget != nil)")
         #endif
         let target = delivery.captureTarget
@@ -346,7 +346,7 @@ final class PreviewStreamController {
         armRestTimer()
         guard isResting else { return }
         isResting = false
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         PhaseInterval.event("preview.rest", "leave.\(activity.rawValue)")
         #endif
         applyRate()
@@ -443,7 +443,7 @@ final class PreviewStreamController {
         }
 
         if let stream {
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             PhaseInterval.event("preview.replace", "stop")
             #endif
             detachLayersFromCurrentStream()
@@ -472,7 +472,7 @@ final class PreviewStreamController {
             return
         }
 
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         PhaseInterval.event("preview.replace", "start")
         #endif
         let replacement = makeStream(target)
@@ -520,7 +520,7 @@ final class PreviewStreamController {
     private func reshape(_ stream: any PreviewCaptureStreaming, to size: CGSize) async -> Bool {
         let configuration = configuration(pixelSize: size)
         let isReshape = size != streamPixelSize
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let phase = PhaseInterval.begin("preview.update")
         #endif
         do {
@@ -529,14 +529,14 @@ final class PreviewStreamController {
             streamFramesPerSecond = configuration.framesPerSecond
             if isReshape { for layer in layers { layer.markStale() } }
             lastFailure = nil
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             phase.end(isReshape ? "reshape" : "rate.\(configuration.framesPerSecond)")
             if isReshape { PhaseInterval.event("preview.reshape", "ok") }
             #endif
             return true
         } catch {
             lastFailure = String(describing: error)
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             PhaseInterval.event("preview.reshape", isReshape ? "refused" : "refused.rate")
             #endif
             return false
@@ -574,7 +574,7 @@ final class PreviewStreamController {
               availability == .live, let stream, stream.isRunning, stream.target == desiredTarget
         else { return }
         isResting = true
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         PhaseInterval.event("preview.rest", "enter")
         #endif
         applyRate()
@@ -622,7 +622,7 @@ final class PreviewStreamController {
                 try? await Task.sleep(for: self.recovery.pause)
                 guard !self.isStoppingOrStopped, self.desiredTarget == target else { break }
                 self.recoveryAttempts += 1
-                #if MECUM_PHASES
+                #if BRAUS_PHASES
                 PhaseInterval.event("preview.recovery", "attempt=\(self.recoveryAttempts)")
                 #endif
                 // Through the transition chain and not straight into the

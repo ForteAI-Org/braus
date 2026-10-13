@@ -14,7 +14,7 @@ import argparse, json, math, statistics, sys
 from collections import Counter
 
 TEXT_CHARS_PER_TOKEN = 4  # a rough English/JSON average; images use Anthropic's w*h/750
-DRIVERS = ["mecum", "cua", "cua-overlay", "cua-legacy", "cua-fast"]
+DRIVERS = ["braus", "cua", "cua-overlay", "cua-legacy", "cua-fast"]
 NOT_ACTIONS = {"observe", "observe_unchanged", "observe_after", "list_windows", "open_session", "close_session",
                "idle", "baseline", "startup", "soak_mem", "chain_step", "block_aborted", "target"}
 BAD_STATUS = {"error", "refused", "failed", "honest_miss", "ambiguous"}
@@ -107,7 +107,7 @@ def table(header, lines):
 
 def build_steps(data):
     """One record per agent step: the action row with the observation that follows it, in file order.
-    Mecum's action reply already has the scene and Cua's run_actions reply has its diff; a menu or a
+    Braus's action reply already has the scene and Cua's run_actions reply has its diff; a menu or a
     cua-legacy action adds its observe_after row."""
     last, steps = {}, []
     for r in data:
@@ -200,7 +200,7 @@ def chain_summary(rs):
     warm = [r["ms"] for r in rs if r.get("ok") and r.get("stream_resting") is False]
     out["wake"] = dict(resting_steps=len(resting), warm_steps=len(warm), resting_p50_ms=med(resting), warm_p50_ms=med(warm),
                        wake_cost_ms=med(resting) - med(warm) if resting and warm else None,
-                       basis="stream resting inferred from the gap since the last call (> 2.5 s, ADR 0036); mecum only")
+                       basis="stream resting inferred from the gap since the last call (> 2.5 s, ADR 0036); braus only")
     return out
 
 
@@ -294,7 +294,7 @@ def report(s):
             lines.append([op] + cells)
         out.append(f"### {app} ({framework})\n\n" + table(["operation"] + drivers, lines) + "\n")
     out.append("## Equivalent step (ms p50 / p90 / p99; tokens text+image=total)\n\n"
-               "Mecum: the action reply already has the scene. Cua: run_actions with observe (one call; a menu adds its "
+               "Braus: the action reply already has the scene. Cua: run_actions with observe (one call; a menu adds its "
                "diff read). cua-legacy: the action plus a full get_window_state, the series comparable with 6 October.\n")
     lines = []
     for app, _ in apps:
@@ -307,7 +307,7 @@ def report(s):
                              f"{f(st['tokens']['text'])}+{f(st['tokens']['image'])}={f(st['tokens']['total'])}")
             lines.append([f"{app} · {op}"] + cells)
     out.append(table(["step"] + drivers, lines) + "\n")
-    out.append("## Reads: full and unchanged (Mecum) or diff (Cua)\n")
+    out.append("## Reads: full and unchanged (Braus) or diff (Cua)\n")
     lines = []
     for app, _ in apps:
         for d in drivers:
@@ -388,7 +388,7 @@ def selftest():
     assert stats([1, 2, 3, 4])["p50"] == 2.5 and stats([])["n"] == 0
     steps = build_steps([dict(driver="cua", app="A", op="click", rep=1, ms=10, ok=True),
                          dict(driver="cua", app="A", op="observe_after", rep=1, ms=5, ok=True, after_op="click"),
-                         dict(driver="mecum", app="A", op="click", rep=1, ms=7, ok=True, self_verdict="honest_miss")])
+                         dict(driver="braus", app="A", op="click", rep=1, ms=7, ok=True, self_verdict="honest_miss")])
     assert [s["ms"] for s in steps] == [15, 7] and [s["ok"] for s in steps] == [True, False]
     print("summarize selftest ok")
 

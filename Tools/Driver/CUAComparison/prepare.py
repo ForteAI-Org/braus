@@ -2,7 +2,7 @@
 
     python3 prepare.py --scratch DIR [--open TextEdit,Calculator,Google\\ Chrome,Safari] [--apps ...] [--plan]
 
-Reads the state that would make a run unfair (Stage Manager, another Mecum, power, thermal state,
+Reads the state that would make a run unfair (Stage Manager, another Braus, power, thermal state,
 displays, permissions), optionally opens target apps in the background (`open -g`) with their fixtures,
 waits until each has a usable window, and writes `fixtures.json` (pid, window title and whether this
 script launched it, per app) and `meta.json` into DIR. `--plan` prints what --open would do and opens
@@ -17,7 +17,7 @@ PROBE = os.path.join(HERE, ".build/probe")
 DESK = os.path.join(HERE, ".build/desk")
 CUA = os.environ.get("CUA_DRIVER", os.path.expanduser(
     "~/Forte_Projects/_bench/cua/libs/cua-driver/rust/target/release/cua-driver"))
-MECUM = os.environ.get("MECUM_BIN", os.path.join(HERE, ".build/release/mecum-mcp-stdio"))
+BRAUS = os.environ.get("BRAUS_BIN", os.path.join(HERE, ".build/release/braus-mcp-stdio"))
 FIXTURES = os.path.join(HERE, "fixtures")
 # Every target: the process the harness binds to (`prefix`: by name prefix, as Photoshop carries its year) and the
 # seconds to wait for a usable window. Resolve and Photoshop are slow; `settle` waits for their window list to hold still.
@@ -133,8 +133,8 @@ def stage_manager():
     return int(value) if value.isdigit() else None
 
 
-def other_mecum():
-    """Mecum processes that are not this run's own children. Reported, never stopped."""
+def other_braus():
+    """Braus processes that are not this run's own children. Reported, never stopped."""
     table = processes()
     parent = {pid: ppid for pid, ppid, _ in table}
     mine = set()
@@ -146,7 +146,7 @@ def other_mecum():
                 break
             at = parent.get(at, 0)
     return [f"{pid} {comm}" for pid, _, comm in table
-            if "mecum" in comm.lower() and pid not in mine and pid != os.getpid()]
+            if "braus" in comm.lower() and pid not in mine and pid != os.getpid()]
 
 
 def drivers():
@@ -155,20 +155,20 @@ def drivers():
     cua_root = os.path.abspath(os.path.join(os.path.dirname(CUA), "../../../.."))
     binary_time = lambda path: time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(os.path.getmtime(path))) \
         if os.path.exists(path) else None
-    return {"mecum": {"commit": sh("git", "rev-parse", "--short", "HEAD", cwd=REPO), "dirty_files": len(status),
-                      "binary": MECUM, "binary_built": binary_time(MECUM)},
+    return {"braus": {"commit": sh("git", "rev-parse", "--short", "HEAD", cwd=REPO), "dirty_files": len(status),
+                      "binary": BRAUS, "binary_built": binary_time(BRAUS)},
             "cua": {"version": sh(CUA, "--version"), "commit": sh("git", "rev-parse", "--short", "HEAD", cwd=cua_root),
                     "binary": CUA, "binary_built": binary_time(CUA),
                     "app_daemon_installed": os.path.isdir("/Applications/CuaDriver.app")}}
 
 
 def preflight():
-    state = {"stage_manager": stage_manager(), "other_mecum": other_mecum(), "power": power(), "machine": machine()}
+    state = {"stage_manager": stage_manager(), "other_braus": other_braus(), "power": power(), "machine": machine()}
     blockers, warnings = [], []
     if state["stage_manager"] != 0:
         blockers.append(f"Stage Manager is not off (GloballyEnabled={state['stage_manager']})")
-    if state["other_mecum"]:
-        blockers.append("another Mecum is running: " + ", ".join(state["other_mecum"]))
+    if state["other_braus"]:
+        blockers.append("another Braus is running: " + ", ".join(state["other_braus"]))
     if state["power"]["source"] != "AC Power":
         warnings.append(f"power source is {state['power']['source']}")
     if state["machine"]["low_power_mode"]:
@@ -179,7 +179,7 @@ def preflight():
     for key, label in (("accessibility", "Accessibility"), ("screenRecording", "Screen Recording")):
         if grants is not None and not grants.get(key):
             blockers.append(f"{label} permission is missing for the terminal that runs the benchmark")
-    for tool, path in (("probe", PROBE), ("mecum-mcp-stdio", MECUM), ("cua-driver", CUA)):
+    for tool, path in (("probe", PROBE), ("braus-mcp-stdio", BRAUS), ("cua-driver", CUA)):
         if not os.path.exists(path):
             blockers.append(f"{tool} is not built at {path}")
     return dict(state, blockers=blockers, warnings=warnings)
@@ -209,13 +209,13 @@ def human_blockers(need_claude=True):
     out = []
     if stage_manager() != 0:
         out.append(("stage-manager", "Stage Manager è acceso: spegnilo da Centro di Controllo (Stage Manager)."))
-    mecums = other_mecum()
-    if mecums:
-        out.append(("mecum", f"Mecum è in esecuzione ({', '.join(mecums)}) e tiene il display virtuale: chiudilo con Mecum > Esci (⌘Q)."))
+    brauss = other_braus()
+    if brauss:
+        out.append(("braus", f"Braus è in esecuzione ({', '.join(brauss)}) e tiene il display virtuale: chiudilo con Braus > Esci (⌘Q)."))
     grants = permissions()
     for key, label in (("accessibility", "Accessibilità"), ("screenRecording", "Registrazione schermo")):
         if grants is not None and not grants.get(key):
-            out.append((key, f"Manca il permesso {label} per il terminale da cui lanci bench.sh (lo ereditano probe, Mecum e Cua): "
+            out.append((key, f"Manca il permesso {label} per il terminale da cui lanci bench.sh (lo ereditano probe, Braus e Cua): "
                              f"Impostazioni di Sistema > Privacy e sicurezza > {label}, attivalo per il terminale e riaprilo."))
     if need_claude:
         state = claude_state()

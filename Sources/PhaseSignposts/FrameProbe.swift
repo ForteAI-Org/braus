@@ -1,11 +1,11 @@
 //
 //  FrameProbe.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 07/10/2026.
 //
 
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import CoreGraphics
 import Darwin
 import Dispatch
@@ -15,13 +15,13 @@ import os
 /// input, the geometry queries of frames that arrive without attachments, and the one-second
 /// clock every `FrameStatistics` is flushed by.
 ///
-/// Compiled only under `MECUM_PHASES`, like the rest of this module. Nothing here changes what a
+/// Compiled only under `BRAUS_PHASES`, like the rest of this module. Nothing here changes what a
 /// stream does: it reads, counts and emits signpost events.
 public enum FrameProbe {
 
     /// Whether every frame's pixels are hashed, set by the environment of the measured process.
     /// It is off for the CPU measurements, since reading the surface would be part of the cost.
-    public static let hashesFrames = getenv("MECUM_PHASE_FRAME_HASH") != nil
+    public static let hashesFrames = getenv("BRAUS_PHASE_FRAME_HASH") != nil
 
     /// How long after an input the frames are reported one by one, in microseconds.
     static let inputWindowMicroseconds: UInt64 = 2_000_000
@@ -50,7 +50,7 @@ public enum FrameProbe {
 
     private static let ticker: any DispatchSourceTimer = {
         let timer = DispatchSource.makeTimerSource(
-            queue: DispatchQueue(label: "dev.forte.Mecum.phases.frames", qos: .utility)
+            queue: DispatchQueue(label: "dev.forte.Braus.phases.frames", qos: .utility)
         )
         timer.schedule(deadline: .now() + 1, repeating: 1)
         timer.setEventHandler { tick() }

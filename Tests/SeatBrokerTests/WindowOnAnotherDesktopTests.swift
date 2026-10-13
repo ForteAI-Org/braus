@@ -1,6 +1,6 @@
 //
 //  WindowOnAnotherDesktopTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 09/10/2026.
 //
@@ -111,7 +111,7 @@ struct WindowOnAnotherDesktopTests {
             broker            : broker,
             workerID          : UUID(),
             knowledgeDirectory: FileManager.default.temporaryDirectory
-                .appendingPathComponent("mecum-desktop-\(UUID().uuidString)", isDirectory: true),
+                .appendingPathComponent("braus-desktop-\(UUID().uuidString)", isDirectory: true),
             allowsDestructive : false,
             missingGrant      : { nil },
             requestGrants     : {},

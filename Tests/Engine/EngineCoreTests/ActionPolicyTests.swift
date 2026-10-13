@@ -1,6 +1,6 @@
 //
 //  ActionPolicyTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 18/09/2026.
 //
@@ -65,7 +65,7 @@ struct ActionPolicyTests {
         for text in ["\u{1B}", "a\u{1B}b", "\u{0}", "\u{7}", "\u{8}", "\u{1F}"] {
             #expect(ActionPolicy.containsControlCharacter(text), Comment(rawValue: text.debugDescription))
         }
-        for text in ["Mecum", "a\tb", "one\ntwo", "one\r\ntwo", "\u{7F}", "é 🧪", " "] {
+        for text in ["Braus", "a\tb", "one\ntwo", "one\r\ntwo", "\u{7F}", "é 🧪", " "] {
             #expect(!ActionPolicy.containsControlCharacter(text), Comment(rawValue: text.debugDescription))
         }
     }

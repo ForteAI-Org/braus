@@ -1,6 +1,6 @@
 //
 //  SceneRendering.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 15/09/2026.
 //
@@ -17,7 +17,7 @@ extension SceneSnapshot {
     /// full scene is ninety thousand. An open menu shows up to sixty rows: its rows are the surface.
     public func mapText(notable: Int = 8) -> String {
         guard !sections.isEmpty else { return text() }
-        var out = header()
+        var out = header() + knowledgeText()
         out += "map: \(elements.count) elements in \(sections.count) sections (describe_section(name) drills in)\n"
         for section in sections {
             let members = elements.filter { $0.section == section.name }
@@ -61,6 +61,7 @@ extension SceneSnapshot {
     /// by is still printed, and a `{container}` is printed where it changes within a section.
     public func text() -> String {
         var out = compactHeader(counting: true)
+        out += knowledgeText()
         let shared = labelsSharedAcrossOwners
         if sections.isEmpty {
             out += compactLines(of: elements, sharedLabels: shared)
@@ -178,6 +179,11 @@ extension SceneSnapshot {
         guard counting else { return "\(appName) (\(bundleID))\(title)\n" }
         return "\(appName) (\(bundleID))\(title) \(viewportPixelSize.width)x\(viewportPixelSize.height), "
             + "\(elements.count) elements\n"
+    }
+
+    /// What the memory said about the scene, one line each, or nothing for a scene it did not read.
+    func knowledgeText() -> String {
+        knowledge.map { $0.lines.map { $0 + "\n" }.joined() } ?? ""
     }
 
     func commandsLine() -> String {

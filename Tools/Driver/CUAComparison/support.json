@@ -11,8 +11,8 @@
   "compared_against_short": "4f33cd6",
   "note": "The 6 Oct benchmark ran the binary built at 4f33cd6; the next run uses c1c2b5f."
  },
- "mecum": {
-  "worktree": "/Users/mac/Forte_Projects/mecum-benchmark-cua",
+ "braus": {
+  "worktree": "/Users/mac/Forte_Projects/braus-benchmark-cua",
   "branch": "elio/benchmark-cua",
   "commit": "3c3398539906573a2a366d8b95164ba911f81353",
   "note": "Paths are repo-relative to the worktree; no public URL."
@@ -111,7 +111,7 @@
   },
   "status": {
    "not_run": "the operation was not part of that app's scenario",
-   "session_refused": "Mecum could not open a session"
+   "session_refused": "Braus could not open a session"
   },
   "cua_qt_note": "The published report omits Cua action values on Qt (outside declared background support); the counts here come from the raw rows."
  },
@@ -144,7 +144,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "swiftui",
    "capability": "observe",
    "claim": "supported",
@@ -197,7 +197,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "swiftui",
    "capability": "click",
    "claim": "supported",
@@ -218,7 +218,7 @@
     }
    ],
    "paraphrase": "Calculator clicks give 15 and 54 then zero; one cycle needed recovery after geometryChanged.",
-   "note": "Mecum docs name Calculator as native/AppKit; SwiftUI is not named as a framework and is not in LaunchCompatibility's list.",
+   "note": "Braus docs name Calculator as native/AppKit; SwiftUI is not named as a framework and is not in LaunchCompatibility's list.",
    "measured_20261006": {
     "done": 8,
     "attempted": 8,
@@ -251,7 +251,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "swiftui",
    "capability": "type",
    "claim": "not mentioned",
@@ -298,7 +298,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "swiftui",
    "capability": "key",
    "claim": "not mentioned",
@@ -345,7 +345,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "swiftui",
    "capability": "hotkey",
    "claim": "not mentioned",
@@ -386,7 +386,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "swiftui",
    "capability": "scroll",
    "claim": "not mentioned",
@@ -434,7 +434,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "swiftui",
    "capability": "menu",
    "claim": "not mentioned",
@@ -494,7 +494,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "swiftui",
    "capability": "background_no_activation",
    "claim": "supported",
@@ -554,7 +554,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "swiftui",
    "capability": "cursor_untouched",
    "claim": "supported",
@@ -613,7 +613,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "appkit",
    "capability": "observe",
    "claim": "supported",
@@ -666,7 +666,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "appkit",
    "capability": "click",
    "claim": "partial",
@@ -719,7 +719,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "appkit",
    "capability": "type",
    "claim": "supported",
@@ -778,7 +778,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "appkit",
    "capability": "key",
    "claim": "partial",
@@ -792,7 +792,7 @@
      "anchor": "observed-effects-and-failures"
     }
    ],
-   "paraphrase": "Navigation effect seen by an independent AX range; Mecum cannot verify the keys itself.",
+   "paraphrase": "Navigation effect seen by an independent AX range; Braus cannot verify the keys itself.",
    "measured_20261006": {
     "done": 8,
     "attempted": 8,
@@ -831,7 +831,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "appkit",
    "capability": "hotkey",
    "claim": "not mentioned",
@@ -885,7 +885,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "appkit",
    "capability": "scroll",
    "claim": "not mentioned",
@@ -940,7 +940,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "appkit",
    "capability": "menu",
    "claim": "partial",
@@ -994,7 +994,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "appkit",
    "capability": "background_no_activation",
    "claim": "partial",
@@ -1060,7 +1060,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "appkit",
    "capability": "cursor_untouched",
    "claim": "supported",
@@ -1127,7 +1127,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "chromium",
    "capability": "observe",
    "claim": "supported",
@@ -1195,7 +1195,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "chromium",
    "capability": "click",
    "claim": "supported",
@@ -1263,7 +1263,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "chromium",
    "capability": "type",
    "claim": "supported",
@@ -1322,7 +1322,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "chromium",
    "capability": "key",
    "claim": "supported",
@@ -1375,7 +1375,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "chromium",
    "capability": "hotkey",
    "claim": "partial",
@@ -1430,7 +1430,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "chromium",
    "capability": "scroll",
    "claim": "supported",
@@ -1491,7 +1491,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "chromium",
    "capability": "menu",
    "claim": "partial",
@@ -1551,7 +1551,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "chromium",
    "capability": "background_no_activation",
    "claim": "supported",
@@ -1611,7 +1611,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "chromium",
    "capability": "cursor_untouched",
    "claim": "supported",
@@ -1677,7 +1677,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "webkit",
    "capability": "observe",
    "claim": "partial",
@@ -1756,7 +1756,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "webkit",
    "capability": "click",
    "claim": "partial",
@@ -1836,7 +1836,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "webkit",
    "capability": "type",
    "claim": "partial",
@@ -1915,7 +1915,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "webkit",
    "capability": "key",
    "claim": "partial",
@@ -1988,7 +1988,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "webkit",
    "capability": "hotkey",
    "claim": "not mentioned",
@@ -2055,7 +2055,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "webkit",
    "capability": "scroll",
    "claim": "not supported",
@@ -2112,7 +2112,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "webkit",
    "capability": "menu",
    "claim": "not mentioned",
@@ -2159,7 +2159,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "webkit",
    "capability": "background_no_activation",
    "claim": "supported",
@@ -2181,7 +2181,7 @@
      "all action calls"
     ],
     "effect_verification": "probe_before_after",
-    "note": "frontmost app unchanged after 64/64 action calls. Probe samples frontmost app and cursor before and after each call; a transient activation inside a call is not visible. Mecum moved the person's second Safari window to its virtual display."
+    "note": "frontmost app unchanged after 64/64 action calls. Probe samples frontmost app and cursor before and after each call; a transient activation inside a call is not visible. Braus moved the person's second Safari window to its virtual display."
    }
   },
   {
@@ -2212,7 +2212,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "webkit",
    "capability": "cursor_untouched",
    "claim": "supported",
@@ -2278,7 +2278,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "electron",
    "capability": "observe",
    "claim": "supported",
@@ -2337,7 +2337,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "electron",
    "capability": "click",
    "claim": "partial",
@@ -2397,7 +2397,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "electron",
    "capability": "type",
    "claim": "supported",
@@ -2451,7 +2451,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "electron",
    "capability": "key",
    "claim": "partial",
@@ -2505,7 +2505,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "electron",
    "capability": "hotkey",
    "claim": "not mentioned",
@@ -2561,7 +2561,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "electron",
    "capability": "scroll",
    "claim": "not mentioned",
@@ -2603,7 +2603,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "electron",
    "capability": "menu",
    "claim": "not mentioned",
@@ -2650,7 +2650,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "electron",
    "capability": "background_no_activation",
    "claim": "supported",
@@ -2703,7 +2703,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "electron",
    "capability": "cursor_untouched",
    "claim": "supported",
@@ -2769,7 +2769,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "catalyst",
    "capability": "observe",
    "claim": "not mentioned",
@@ -2783,7 +2783,7 @@
      "anchor": "compatibility-and-limitations"
     }
    ],
-   "paraphrase": "Catalyst and Stocks are not mentioned in Mecum docs and Catalyst is not in the supported-framework list.",
+   "paraphrase": "Catalyst and Stocks are not mentioned in Braus docs and Catalyst is not in the supported-framework list.",
    "measured_20261006": {
     "status": "session_refused",
     "note": "open_session failed twice with placementNotConfirmed (second Untitled window)"
@@ -2812,7 +2812,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "catalyst",
    "capability": "click",
    "claim": "not mentioned",
@@ -2826,7 +2826,7 @@
      "anchor": "compatibility-and-limitations"
     }
    ],
-   "paraphrase": "Catalyst and Stocks are not mentioned in Mecum docs and Catalyst is not in the supported-framework list.",
+   "paraphrase": "Catalyst and Stocks are not mentioned in Braus docs and Catalyst is not in the supported-framework list.",
    "measured_20261006": {
     "status": "not_run",
     "note": "session refused"
@@ -2861,7 +2861,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "catalyst",
    "capability": "type",
    "claim": "not mentioned",
@@ -2875,7 +2875,7 @@
      "anchor": "compatibility-and-limitations"
     }
    ],
-   "paraphrase": "Catalyst and Stocks are not mentioned in Mecum docs and Catalyst is not in the supported-framework list.",
+   "paraphrase": "Catalyst and Stocks are not mentioned in Braus docs and Catalyst is not in the supported-framework list.",
    "measured_20261006": {
     "status": "not_run",
     "note": "session refused"
@@ -2916,7 +2916,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "catalyst",
    "capability": "key",
    "claim": "not mentioned",
@@ -2930,7 +2930,7 @@
      "anchor": "compatibility-and-limitations"
     }
    ],
-   "paraphrase": "Catalyst and Stocks are not mentioned in Mecum docs and Catalyst is not in the supported-framework list.",
+   "paraphrase": "Catalyst and Stocks are not mentioned in Braus docs and Catalyst is not in the supported-framework list.",
    "measured_20261006": {
     "status": "not_run",
     "note": "session refused"
@@ -2958,7 +2958,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "catalyst",
    "capability": "hotkey",
    "claim": "not mentioned",
@@ -2972,7 +2972,7 @@
      "anchor": "compatibility-and-limitations"
     }
    ],
-   "paraphrase": "Catalyst and Stocks are not mentioned in Mecum docs and Catalyst is not in the supported-framework list.",
+   "paraphrase": "Catalyst and Stocks are not mentioned in Braus docs and Catalyst is not in the supported-framework list.",
    "measured_20261006": {
     "status": "not_run",
     "note": "session refused"
@@ -3007,7 +3007,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "catalyst",
    "capability": "scroll",
    "claim": "not mentioned",
@@ -3021,7 +3021,7 @@
      "anchor": "compatibility-and-limitations"
     }
    ],
-   "paraphrase": "Catalyst and Stocks are not mentioned in Mecum docs and Catalyst is not in the supported-framework list.",
+   "paraphrase": "Catalyst and Stocks are not mentioned in Braus docs and Catalyst is not in the supported-framework list.",
    "measured_20261006": {
     "status": "not_run",
     "note": "session refused"
@@ -3050,7 +3050,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "catalyst",
    "capability": "menu",
    "claim": "not mentioned",
@@ -3064,7 +3064,7 @@
      "anchor": "compatibility-and-limitations"
     }
    ],
-   "paraphrase": "Catalyst and Stocks are not mentioned in Mecum docs and Catalyst is not in the supported-framework list.",
+   "paraphrase": "Catalyst and Stocks are not mentioned in Braus docs and Catalyst is not in the supported-framework list.",
    "measured_20261006": {
     "status": "not_run",
     "note": "session refused"
@@ -3105,7 +3105,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "catalyst",
    "capability": "background_no_activation",
    "claim": "supported",
@@ -3160,7 +3160,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "catalyst",
    "capability": "cursor_untouched",
    "claim": "supported",
@@ -3221,7 +3221,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "glfw",
    "capability": "observe",
    "claim": "not mentioned",
@@ -3235,7 +3235,7 @@
      "anchor": ""
     }
    ],
-   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Mecum guide; kitty appears only as a Stage Manager thumbnail.",
+   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Braus guide; kitty appears only as a Stage Manager thumbnail.",
    "measured_20261006": {
     "done": 8,
     "attempted": 8,
@@ -3276,7 +3276,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "glfw",
    "capability": "click",
    "claim": "not mentioned",
@@ -3290,7 +3290,7 @@
      "anchor": ""
     }
    ],
-   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Mecum guide; kitty appears only as a Stage Manager thumbnail.",
+   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Braus guide; kitty appears only as a Stage Manager thumbnail.",
    "measured_20261006": {
     "status": "not_run"
    }
@@ -3323,7 +3323,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "glfw",
    "capability": "type",
    "claim": "not mentioned",
@@ -3337,7 +3337,7 @@
      "anchor": ""
     }
    ],
-   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Mecum guide; kitty appears only as a Stage Manager thumbnail.",
+   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Braus guide; kitty appears only as a Stage Manager thumbnail.",
    "measured_20261006": {
     "done": 8,
     "attempted": 8,
@@ -3376,7 +3376,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "glfw",
    "capability": "key",
    "claim": "not mentioned",
@@ -3390,7 +3390,7 @@
      "anchor": ""
     }
    ],
-   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Mecum guide; kitty appears only as a Stage Manager thumbnail.",
+   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Braus guide; kitty appears only as a Stage Manager thumbnail.",
    "measured_20261006": {
     "done": 8,
     "attempted": 8,
@@ -3429,7 +3429,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "glfw",
    "capability": "hotkey",
    "claim": "not mentioned",
@@ -3443,7 +3443,7 @@
      "anchor": ""
     }
    ],
-   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Mecum guide; kitty appears only as a Stage Manager thumbnail.",
+   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Braus guide; kitty appears only as a Stage Manager thumbnail.",
    "measured_20261006": {
     "done": 8,
     "attempted": 8,
@@ -3483,7 +3483,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "glfw",
    "capability": "scroll",
    "claim": "not mentioned",
@@ -3497,7 +3497,7 @@
      "anchor": ""
     }
    ],
-   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Mecum guide; kitty appears only as a Stage Manager thumbnail.",
+   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Braus guide; kitty appears only as a Stage Manager thumbnail.",
    "measured_20261006": {
     "done": 16,
     "attempted": 16,
@@ -3532,7 +3532,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "glfw",
    "capability": "menu",
    "claim": "not mentioned",
@@ -3546,7 +3546,7 @@
      "anchor": ""
     }
    ],
-   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Mecum guide; kitty appears only as a Stage Manager thumbnail.",
+   "paraphrase": "OpenGL, GLFW and kitty are not covered by any Braus guide; kitty appears only as a Stage Manager thumbnail.",
    "measured_20261006": {
     "status": "not_run"
    }
@@ -3579,7 +3579,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "glfw",
    "capability": "background_no_activation",
    "claim": "supported",
@@ -3640,7 +3640,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "glfw",
    "capability": "cursor_untouched",
    "claim": "supported",
@@ -3707,7 +3707,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt_gpu",
    "capability": "observe",
    "claim": "supported",
@@ -3762,7 +3762,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt_gpu",
    "capability": "click",
    "claim": "supported",
@@ -3816,7 +3816,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt_gpu",
    "capability": "type",
    "claim": "supported",
@@ -3832,8 +3832,8 @@
     {
      "id": "m_qt_flow",
      "path": "Documentation/Driver/platforms/Qt.md",
-     "section": "Mecum application flow",
-     "anchor": "mecum-application-flow"
+     "section": "Braus application flow",
+     "anchor": "braus-application-flow"
     }
    ],
    "paraphrase": "Typed and inserted text reached Search; the exact Unicode value needed an Engine fix and then passed.",
@@ -3863,7 +3863,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt_gpu",
    "capability": "key",
    "claim": "partial",
@@ -3904,7 +3904,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt_gpu",
    "capability": "hotkey",
    "claim": "partial",
@@ -3952,7 +3952,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt_gpu",
    "capability": "scroll",
    "claim": "partial",
@@ -4001,7 +4001,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt_gpu",
    "capability": "menu",
    "claim": "partial",
@@ -4017,8 +4017,8 @@
     {
      "id": "m_qt_flow",
      "path": "Documentation/Driver/platforms/Qt.md",
-     "section": "Mecum application flow",
-     "anchor": "mecum-application-flow"
+     "section": "Braus application flow",
+     "anchor": "braus-application-flow"
     }
    ],
    "paraphrase": "Context-menu Select All on Search passed; menu-bar commands are not documented.",
@@ -4054,7 +4054,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt_gpu",
    "capability": "background_no_activation",
    "claim": "partial",
@@ -4115,7 +4115,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt_gpu",
    "capability": "cursor_untouched",
    "claim": "supported",
@@ -4182,7 +4182,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt6",
    "capability": "observe",
    "claim": "supported",
@@ -4236,7 +4236,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt6",
    "capability": "click",
    "claim": "supported",
@@ -4295,7 +4295,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt6",
    "capability": "type",
    "claim": "supported",
@@ -4348,7 +4348,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt6",
    "capability": "key",
    "claim": "partial",
@@ -4395,7 +4395,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt6",
    "capability": "hotkey",
    "claim": "partial",
@@ -4436,7 +4436,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt6",
    "capability": "scroll",
    "claim": "supported",
@@ -4478,7 +4478,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt6",
    "capability": "menu",
    "claim": "partial",
@@ -4525,7 +4525,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt6",
    "capability": "background_no_activation",
    "claim": "partial",
@@ -4586,7 +4586,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "qt6",
    "capability": "cursor_untouched",
    "claim": "supported",
@@ -4626,7 +4626,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "adobe",
    "capability": "observe",
    "claim": "supported",
@@ -4661,7 +4661,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "adobe",
    "capability": "click",
    "claim": "partial",
@@ -4671,8 +4671,8 @@
     {
      "id": "m_uxp_app",
      "path": "Documentation/Driver/platforms/UXP.md",
-     "section": "Mecum app integration",
-     "anchor": "mecum-app-integration"
+     "section": "Braus app integration",
+     "anchor": "braus-app-integration"
     },
     {
      "id": "m_uxp_mx",
@@ -4702,7 +4702,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "adobe",
    "capability": "type",
    "claim": "partial",
@@ -4743,7 +4743,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "adobe",
    "capability": "key",
    "claim": "supported",
@@ -4778,7 +4778,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "adobe",
    "capability": "hotkey",
    "claim": "partial",
@@ -4819,7 +4819,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "adobe",
    "capability": "scroll",
    "claim": "partial",
@@ -4863,7 +4863,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "adobe",
    "capability": "menu",
    "claim": "partial",
@@ -4926,7 +4926,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "adobe",
    "capability": "background_no_activation",
    "claim": "partial",
@@ -4982,7 +4982,7 @@
    }
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "framework": "adobe",
    "capability": "cursor_untouched",
    "claim": "supported",
@@ -4998,8 +4998,8 @@
     {
      "id": "m_uxp_app",
      "path": "Documentation/Driver/platforms/UXP.md",
-     "section": "Mecum app integration",
-     "anchor": "mecum-app-integration"
+     "section": "Braus app integration",
+     "anchor": "braus-app-integration"
     }
    ],
    "paraphrase": "Rows record zero physical events with foreground and cursor preserved.",
@@ -5196,7 +5196,7 @@
    ]
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "item": "Mac Catalyst, Stocks, OpenGL, GLFW, kitty and Obsidian in any Driver guide, ADR or report (kitty appears only as a Stage Manager thumbnail in the T13 campaign).",
    "frameworks": [
     "catalyst",
@@ -5205,28 +5205,28 @@
    ]
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "item": "SwiftUI as a named framework: Calculator is documented as native or AppKit, and LaunchCompatibility lists only AppKit, Chromium, Electron and Qt.",
    "frameworks": [
     "swiftui"
    ]
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "item": "WebKit in LaunchCompatibility's supported list; Safari evidence is workflow-specific (field replace and button click).",
    "frameworks": [
     "webkit"
    ]
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "item": "Resolve GPU editing-canvas input and any Resolve menu-bar command; only Project Manager, Import panel and editor page buttons are documented.",
    "frameworks": [
     "qt_gpu"
    ]
   },
   {
-   "driver": "mecum",
+   "driver": "braus",
    "item": "Hotkey, scroll and menu-bar claims for Calculator, Obsidian and Safari; Prism Launcher key, hotkey, scroll and menu (only fixture rows).",
    "frameworks": [
     "swiftui",

@@ -71,7 +71,7 @@ private let anyFrame = FrameGeometryObservation(
     version: GeometryObservationVersion(observerGeneration: 1, sequence: 1),
     capturesFullWindow: true)
 
-@Test func delegatesCharacterShortcutsToMecum() throws {
+@Test func delegatesCharacterShortcutsToBraus() throws {
     let action = try #require(SemanticAction.parse(command: "/key cmd+shift+g"))
     #expect(try ActionExecutor.inputs(for: action, in: emptyScene, frame: anyFrame)
             == [.shortcut(.character("g", holding: [.command, .shift]))])
@@ -93,7 +93,7 @@ func everyLetterKeepsItsSemanticIdentity(key: KeyName) throws {
 @Test(arguments: [(KeyName.return, "Enter"), (.escape, "Escape"), (.tab, "Tab"),
                   (.space, "Space"), (.delete, "Backspace"), (.up, "ArrowUp"),
                   (.down, "ArrowDown"), (.left, "ArrowLeft"), (.right, "ArrowRight")])
-func controlsUseMecumsPhysicalKeyTable(fixture: (KeyName, String)) throws {
+func controlsUseBraussPhysicalKeyTable(fixture: (KeyName, String)) throws {
     let physical = try #require(KeyNames.key(named: fixture.1))
     #expect(try ActionExecutor.inputs(for: .key(fixture.0), in: emptyScene, frame: anyFrame)
             == [.shortcut(.physical(physical))])

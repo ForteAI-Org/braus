@@ -1,6 +1,6 @@
 //
 //  RunningApplicationLookupTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 02/10/2026.
 //

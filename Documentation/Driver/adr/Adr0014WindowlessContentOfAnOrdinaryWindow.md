@@ -63,7 +63,7 @@ endpoint on its own window.
 
 ## Follow-up: auxiliary themed widgets in the subtree
 
-Repeated owned Safari field edits through Mecum on 2026-10-03 reached an
+Repeated owned Safari field edits through Braus on 2026-10-03 reached an
 unclassified keyboard endpoint with evidence `remoteContentOfSurface`. Native
 traces identified three successive 14×14 endpoints owned by
 `ThemeWidgetControlViewService`, while accessibility reported Safari's PID.

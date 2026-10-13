@@ -1,6 +1,6 @@
 //
 //  Runtime.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 18/09/2026.
 //
@@ -55,7 +55,7 @@ public struct EngineRuntime {
         }
         let service = MemoryService.shared(for: knowledgeDirectory)
         self.service = service
-        memory = BrainMemory(brains: service, applications: service, clock: { service.clock.brainNow() })
+        memory = BrainMemory(brains: service, applications: service, relations: service, clock: { service.clock.brainNow() })
     }
 
     /// The recorder of a call made outside the tools, for the engine and the session to report to: a

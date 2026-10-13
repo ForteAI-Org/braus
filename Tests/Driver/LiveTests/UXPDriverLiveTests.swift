@@ -549,8 +549,8 @@ struct UXPDriverLiveTests {
         var ownedModal: PhotoshopProbe.Window?
         let usesNativeDialog = flow == .layerDialog || flow == .typedLayerDialog
         let name = flow == .typedLayerDialog
-            ? "Mecum typed è🧪 👩🏽‍💻 e\u{301} \(cycle)"
-            : "Mecum layer è🧪 \(cycle)"
+            ? "Braus typed è🧪 👩🏽‍💻 e\u{301} \(cycle)"
+            : "Braus layer è🧪 \(cycle)"
         let nameCommand: InputCommand = flow == .typedLayerDialog ? .text(name) : .insertText(name)
         do {
             func newLayerDialog() -> PhotoshopProbe.Window? {

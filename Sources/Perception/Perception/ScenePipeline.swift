@@ -1,6 +1,6 @@
 //
 //  ScenePipeline.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 15/09/2026.
 //
@@ -8,7 +8,7 @@
 import CoreGraphics
 import Foundation
 import PerceptionCore
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import PhaseSignposts
 #endif
 
@@ -110,7 +110,7 @@ public struct ScenePipeline: Sendable {
     public func capture(_ image: CGImage, of window: Window) async throws -> SceneCapture {
         try Task.checkCancellation()
         let text = self.text, regions = self.regions, sections = self.sections, accuracy = self.accuracy
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         async let recognized = PhaseInterval.measure("pipeline.ocr") {
             try text.recognizeText(in: image, accuracy: accuracy)
         }
@@ -127,7 +127,7 @@ public struct ScenePipeline: Sendable {
         #endif
         let (runs, segments) = try await (recognized, segmented)
         try Task.checkCancellation()
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let composing = PhaseInterval.begin("pipeline.compose")
         #endif
         let visual = try regionFilter?.filter(segments, in: image, protecting: runs.map(\.pixelBox))
@@ -147,24 +147,24 @@ public struct ScenePipeline: Sendable {
             images   : visual.images,
             overlays : visual.overlays
         )
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         composing.end()
         let waiting = PhaseInterval.begin("pipeline.axWait")
         #endif
         let harvest = try await harvested
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         waiting.end()
         #endif
         try Task.checkCancellation()
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let merging = PhaseInterval.begin("pipeline.merge")
         #endif
         let merged = Self.augmented(scene, with: harvest.elements)
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         merging.end()
         #endif
         guard let controlState else { return SceneCapture(scene: merged, quality: harvest.quality) }
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let stating = PhaseInterval.begin("pipeline.controlState")
         defer { stating.end() }
         #endif

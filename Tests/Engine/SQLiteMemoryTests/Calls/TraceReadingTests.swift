@@ -1,6 +1,6 @@
 //
 //  TraceReadingTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 04/10/2026.
 //
@@ -27,7 +27,7 @@ struct TraceReadingTests {
         _ = try await memory.calls.record(try AgentCallFixtures.call("c1", .observe(full: false)))
         let (batch, steps) = try AgentCallFixtures.batch("b1", Array(AgentCallFixtures.sevenSteps.prefix(2)), at: AgentCallFixtures.t0 + 10)
         _ = try await memory.calls.record(batch: batch, steps: steps)
-        let other = MemoryEventRecord(eventID: "o1", source: .cli, streamID: "mecum-cli-1", traceID: "trace-2", sessionID: "s",
+        let other = MemoryEventRecord(eventID: "o1", source: .cli, streamID: "braus-cli-1", traceID: "trace-2", sessionID: "s",
                                       kind: .observation, app: AgentCallFixtures.app, occurredAtMS: AgentCallFixtures.t0 + 50,
                                       originEventID: "c1")
         _ = try await memory.captures.record(other)

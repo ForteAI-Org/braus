@@ -9,7 +9,7 @@ unchanged.
 ## Evidence
 
 Photoshop (PID 39362) driven through `menu "File > Place Embedded..."`, with
-Mecum (PID 66737) as the person's application. Times are milliseconds from the
+Braus (PID 66737) as the person's application. Times are milliseconds from the
 `menu` call. The command opens a native file panel, a window of Photoshop at
 layer 8 that is born on the person's display, and Photoshop takes the front for
 it.

@@ -1,6 +1,6 @@
 //
 //  Probe.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 30/09/2026.
 //
@@ -52,6 +52,10 @@ final class Probe {
         recover-stop <path> <stage>        recover, and at the stage (recorded, movedAside, published, finished)
                                            answer `stopped <stage>` and wait: `continue` goes on, any other
                                            line stops the recovery there, and a kill ends the process there
+        transfer <source> <origin> <staging> [pause]
+                                           transfer an earlier archive into the open archive as a unification
+                                           does: transferred <status> added=<n> | failed <error>; with pause,
+                                           answer `copied` once the staging copy is made and wait for `go`
         open-recovering <path> [stage]     open as the memory service does: an archive the library calls
                                            corrupt, or a recovery that stopped, is recovered first (answering
                                            `recovery ...`, stopping at the stage if given), then opened
@@ -84,6 +88,7 @@ final class Probe {
             case "brain-application": try await brainApplication(arguments)
             case "call-record"     : try await callRecord(arguments, die: false)
             case "call-record-and-die": try await callRecord(arguments, die: true)
+            case "call-open-and-die": try await callOpen(arguments)
             case "hold"            : try await hold(arguments, pause: nil)
             case "hold-for":
                 let pause = Int(arguments.first ?? "0") ?? 0
@@ -103,6 +108,7 @@ final class Probe {
                 }
                 try recover([arguments[0]], hold: false, stop: stage)
             case "open-recovering" : try await openRecovering(arguments)
+            case "transfer"        : await transfer(arguments)
             case "inspect"         : inspect(arguments)
             case "checkpoint"      : try await checkpoint()
             case "diagnostics"     : try await diagnostics()
@@ -289,6 +295,29 @@ final class Probe {
         emit(receipt == .committed ? "committed" : "alreadyApplied")
     }
 
+    /// Confirms a call planned and started, as a producer does before its gesture, then dies as a process
+    /// ending between the gesture and the call's end would: nothing ends the call.
+    private func callOpen(_ arguments: [String]) async throws {
+        let store = try opened()
+        guard arguments.count == 3 else {
+            emit("error usage call-open-and-die")
+            return
+        }
+        let call = try AgentCallRecord(
+            event: MemoryEventRecord(eventID: arguments[0], source: .app, streamID: "worker", traceID: "trace-1",
+                                     sessionID: arguments[1], kind: .action,
+                                     app: AppContextIdentity(bundleID: "test.fixture.calls"),
+                                     occurredAtMS: 1_700_000_000_000),
+            request: .act(target: arguments[2], verb: .click, value: nil, section: nil)
+        )
+        _ = try await SQLiteOperationFactRepository(store: store).open(try OperationOpening(
+            call: call,
+            startedAtMS: 1_700_000_000_001
+        ))
+        emit("started")
+        kill(getpid(), SIGKILL)
+    }
+
     private func hold(_ arguments: [String], pause: Duration?) async throws {
         let store = try opened()
         guard arguments.count >= 2, let rows = Int(arguments[0]), let bytes = Int(arguments[1]) else {
@@ -331,6 +360,34 @@ final class Probe {
     /// Recovers the archive at the path from the copies beside it (`<name>.backup-*`, newest name
     /// first), as `MemoryService` does; `hold` keeps the exclusive lock until the next line.
     private struct Stopped: Error {}
+
+    /// An earlier archive transferred into the open archive through the unification's own transfer, in this
+    /// process: with `pause` it stops once its staging copy is made, holding the origin's lock, until `go`.
+    private func transfer(_ arguments: [String]) async {
+        guard arguments.count >= 3, let store else {
+            emit("error usage transfer")
+            return
+        }
+        let pause = arguments.dropFirst(3).first == "pause"
+        do {
+            let report = try await SQLiteArchiveTransfer.transfer(
+                from    : URL(fileURLWithPath: arguments[0]),
+                origin  : arguments[1],
+                location: "probe",
+                into    : store,
+                staging : URL(fileURLWithPath: arguments[2], isDirectory: true),
+                nowMS   : Int64(Date().timeIntervalSince1970 * 1000),
+                at      : { stage in
+                    guard pause, stage == .copied else { return }
+                    Self.emit("copied")
+                    guard readLine() == "go" else { throw Stopped() }
+                }
+            )
+            emit("transferred \(report.status) added=\(report.eventsAdded)")
+        } catch {
+            emit("failed \(error)")
+        }
+    }
 
     private func recover(_ arguments: [String], hold: Bool, stop: SQLiteMemoryRecovery.Stage? = nil) throws {
         guard let path = arguments.first else { emit("error usage recover"); return }
@@ -408,6 +465,7 @@ final class Probe {
         case .missing    : shape = "missing"
         case .empty      : shape = "empty"
         case .current    : shape = "current"
+        case .migratable : shape = "migratable"
         case .refused    : shape = "refused"
         case .unreadable : shape = "unreadable"
         case .unavailable: shape = "unavailable"

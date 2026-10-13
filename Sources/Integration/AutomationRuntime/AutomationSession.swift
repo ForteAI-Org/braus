@@ -41,7 +41,7 @@ public final class AutomationSession: AutomationSessionOperating {
         }
         let application = try RunningApplicationLookup.running(word)
         if let missing = Permissions.firstMissing(of: [.screenRecording, .accessibility, .postEvent]) {
-            throw AutomationFailure("Missing macOS permission: \(missing). Grant access to the terminal launching Mecum, "
+            throw AutomationFailure("Missing macOS permission: \(missing). Grant access to the terminal launching Braus, "
                                     + "then relaunch it if needed. MCP does not bypass macOS permissions.")
         }
         let rows = try WindowServerWindowListing().windows(ownedBy: application.processIdentifier)
@@ -129,7 +129,11 @@ public final class AutomationSession: AutomationSessionOperating {
                     name: application.localizedName ?? "application"
                 ),
                 section: section,
-                permissions: ActionPermissions(allowsDestructive: allowsDestructive)
+                permissions: ActionPermissions(allowsDestructive: allowsDestructive),
+                report: SelectorReporting.reporting(
+                    to: CallRecorder.current,
+                    bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)"
+                )
             )
             return await enriched(chosen, by: runtime)
         }
@@ -154,17 +158,19 @@ public final class AutomationSession: AutomationSessionOperating {
         ) {
             throw AutomationFailure(sentence)
         }
-        return try await MenuBarCommand.perform(
-            path,
-            processID        : application.processIdentifier,
-            allowsDestructive: allowsDestructive,
-            settling         : runtime.settling,
-            observe          : { try await self.observe() }
-        )
+        let processID = application.processIdentifier
+        return try await PerceivedCommand.perform(
+            bundleID: application.bundleIdentifier ?? "pid.\(processID)",
+            recorder: recorder(runtime),
+            perceive: { try await runtime.scenes.currentScene(of: processID) }
+        ) { observe in
+            try await MenuBarCommand.perform(path, processID: processID, allowsDestructive: allowsDestructive,
+                                             settling: runtime.settling, observe: observe)
+        }
     }
 
     public func press(button: String) async throws -> ActOutcome {
-        let (application, _, seat) = try current()
+        let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
             agentSeat,
@@ -172,13 +178,16 @@ public final class AutomationSession: AutomationSessionOperating {
         ) {
             throw AutomationFailure(sentence)
         }
-        return try await DialogButtonPress.perform(
-            button,
-            processID        : application.processIdentifier,
-            dialogs          : agentSeat.openDialogs.map(\.windowNumber),
-            allowsDestructive: allowsDestructive,
-            observe          : { try await self.observe() }
-        )
+        let processID = application.processIdentifier
+        let dialogs   = agentSeat.openDialogs.map(\.windowNumber)
+        return try await PerceivedCommand.perform(
+            bundleID: application.bundleIdentifier ?? "pid.\(processID)",
+            recorder: recorder(runtime),
+            perceive: { try await runtime.scenes.currentScene(of: processID) }
+        ) { observe in
+            try await DialogButtonPress.perform(button, processID: processID, dialogs: dialogs,
+                                                allowsDestructive: allowsDestructive, observe: observe)
+        }
     }
 
     public func select(control: String, item: String) async throws -> ActOutcome {
@@ -191,7 +200,11 @@ public final class AutomationSession: AutomationSessionOperating {
                 name: application.localizedName ?? "application"
             ),
             permissions: ActionPermissions(allowsDestructive: allowsDestructive),
-            dryRun: false
+            dryRun: false,
+            report: SelectorReporting.reporting(
+                to: CallRecorder.current,
+                bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)"
+            )
         )
         return await enriched(result.outcome, by: runtime)
     }
@@ -229,11 +242,12 @@ public final class AutomationSession: AutomationSessionOperating {
         application.map { $0.bundleIdentifier ?? "pid.\($0.processIdentifier)" }
     }
 
-    /// `outcome` with its scene enriched by the Brain, so an action's scene reads like an observed one.
-    /// The engine already recorded the transition, so the scene is not observed again.
+    /// `outcome` with its scene enriched by the Brain, so an action's scene reads like an observed one:
+    /// through the call's recorder, which places it in the state of the window it perceived after
+    /// acting. The engine already recorded the transition, so the scene is not observed again.
     private func enriched(_ outcome: ActOutcome, by runtime: EngineRuntime) async -> ActOutcome {
         guard let scene = outcome.scene else { return outcome }
-        return ActOutcome(outcome.kind, outcome.message, scene: await runtime.memory.enrich(scene))
+        return outcome.with(scene: await recorder(runtime).enrich(scene))
     }
 
     private func current() throws -> (NSRunningApplication, EngineRuntime, SeatTarget) {

@@ -1,11 +1,11 @@
 #!/bin/bash
 #
 #  watch-resources.sh
-#  Mecum, Engine layer
+#  Braus, Engine layer
 #
 #  Created by Eliomar Alejandro Rodriguez Ferrer on 28/09/2026.
 #
-# Measures what `mecum watch` costs: CPU, memory, threads, idle wakeups and context switches in an idle
+# Measures what `braus watch` costs: CPU, memory, threads, idle wakeups and context switches in an idle
 # phase (hands off), an active one (the person uses the machine) and a stall one (SIGUSR2 pauses the
 # event loop while the person clicks and scrolls a lot); the tap callback's latency per phase (SIGUSR1
 # closes each phase); the stop counters and the events seen. It prints a first reading next to the
@@ -28,7 +28,7 @@ STALL=${STALL:-30}
 WARM=5
 STAMP=$(date +%Y%m%d-%H%M%S)
 BASE="$ROOT/.build/watch-resources"
-BIN="$ROOT/.build/release/mecum"
+BIN="$ROOT/.build/release/braus"
 
 analyze() {
 python3 - "$1" <<'PY' | tee "$1/summary.txt"
@@ -152,7 +152,7 @@ if stops:
         entry["callback_tail"] = stops[0]
 entry["callback"] = callback
 
-failure = re.findall(r"^mecum: (.*)$", stderr, re.M)
+failure = re.findall(r"^braus: (.*)$", stderr, re.M)
 stall_events = events[marks["active_end"]:]
 gaps = [e["gap"] for e in stall_events if e.get("kind") == "gap" and e.get("gap")]
 lost = re.search(r"lost (\d+) clicks/focus (\d+) hovers/scrolls in (\d+) gaps", entry["counters"] or "")
@@ -331,8 +331,8 @@ snapshot() {
     echo "$mode $phase engine $pid $line $threads" >> "$OUT/snapshots.txt"
 }
 
-# True while the pid is still a live mecum, so an exited and reused pid is never signalled.
-ours() { ps -o comm= -p "$1" 2>/dev/null | grep -Eq 'mecum$'; }
+# True while the pid is still a live braus, so an exited and reused pid is never signalled.
+ours() { ps -o comm= -p "$1" 2>/dev/null | grep -Eq 'braus$'; }
 
 # Signals one of this run's processes and records `<label> <signal> sent|gone` in signals.txt.
 signal_to() {
@@ -344,8 +344,8 @@ signal_to() {
     fi
 }
 
-say "Build release di mecum"
-if ! (cd "$ROOT" && xcrun swift build -c release --product mecum > "$OUT/build.log" 2>&1); then
+say "Build release di braus"
+if ! (cd "$ROOT" && xcrun swift build -c release --product braus > "$OUT/build.log" 2>&1); then
     echo "build fallita, vedi $OUT/build.log"
     exit 1
 fi
@@ -362,7 +362,7 @@ run_mode() {
     local mode=inprocess
     DIR="$OUT/$mode"
     mkdir -p "$DIR"
-    say "Avvio mecum watch"
+    say "Avvio braus watch"
     ENGINE=""
     # --duration is only a safety net: SIGTERM ends the run once the stall is over.
     "$BIN" watch --raw --json --duration $((WARM + IDLE + ACTIVE + STALL + 60)) \
@@ -371,7 +371,7 @@ run_mode() {
     CHILDREN+=("$ENGINE")
     sleep "$WARM"
     if ! kill -0 "$ENGINE" 2>/dev/null; then
-        echo "  mecum watch è uscito subito:"
+        echo "  braus watch è uscito subito:"
         sed 's/^/    /' "$DIR/stderr.log"
         grep -qi "input monitoring\|inputMonitoringDenied" "$DIR/stderr.log" \
             && echo "  → concedi Input Monitoring al terminale, chiudilo, riaprilo e rilancia."

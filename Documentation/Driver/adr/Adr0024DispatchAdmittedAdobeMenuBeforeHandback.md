@@ -6,7 +6,7 @@ it never retries an unverified background invocation.
 
 ## Evidence
 
-Release `ef3b05dc` verifies four handbacks to the expected Mecum window at
+Release `ef3b05dc` verifies four handbacks to the expected Braus window at
 369.7, 226.1, 371.8 and 352.4 ms. File > New... and three independent
 Window > Probe.png commands are acknowledged after those handbacks without
 the requested new dialog or active-document title. An independent
@@ -36,7 +36,7 @@ key-equivalent fallback, clipboard operation or other foreground input route
 is added. Other families keep their existing menu route.
 
 This extends the limited exception in ADR 0013 and supersedes ADR 0020's
-post-handback dispatch for the Mecum broker. Its package-only Seat entry point
+post-handback dispatch for the Braus broker. Its package-only Seat entry point
 does not turn the public readiness operation into an input callback.
 
 ## Qualification
@@ -44,7 +44,7 @@ does not turn the public readiness operation into an input callback.
 A controlled regression first executes the scoped callback after handback and
 fails its target-foreground and ordering assertions. Moving it before handback
 must pass alongside cancellation, identity loss, policy refusal, single press
-and partial-effect regressions. Signed Mecum repetitions must independently
+and partial-effect regressions. Signed Braus repetitions must independently
 verify menu effects, exact text, modal withdrawal, document counts and clean
 closure. Until those repetitions finish, this remains a candidate, not Adobe
 workflow qualification or qualification of another UXP host.
@@ -53,7 +53,7 @@ On Release `4e6b996e`, all three independent Window > Probe.png and New Layer
 cycles still return unverified with no intended effect. The four owned
 documents remain and session cleanup succeeds. An independent native AX
 control also has no effect; a subsequent sample finds an AppKit menu tracking
-loop. Its onset is unknown because no earlier sample exists. A later Mecum
+loop. Its onset is unknown because no earlier sample exists. A later Braus
 zoom-field click does not release the failure. This candidate therefore has
 passing controlled checks but no native command-effect qualification. It must
 not be used as evidence that Adobe is stable or that foreground dispatch fixes
@@ -81,7 +81,7 @@ records separate pending field, endpoint, handback and final-save cases.
 
 ## Consumer activation candidate, 2026-10-05
 
-For brief handback to Mecum itself, selecting its exact visible key-capable
+For brief handback to Braus itself, selecting its exact visible key-capable
 AppKit window now precedes the attested process/window foreground request
 already used for external destinations. Ordinary recovery keeps the local
 AppKit request. A disappeared local window still refuses without a private

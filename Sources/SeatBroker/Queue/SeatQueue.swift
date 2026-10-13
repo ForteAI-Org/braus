@@ -1,6 +1,6 @@
 //
 //  SeatQueue.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 22/09/2026.
 //
@@ -60,7 +60,7 @@ public final class SeatQueue {
     public struct Entry: Identifiable, Sendable, Equatable {
         public let id: UUID
         /// The consumer's name for the entry, which is not always for a person to read: a worker
-        /// waits under its id, and the lab under "Mecum".
+        /// waits under its id, and the lab under "Braus".
         public let label: String
         public internal(set) var state: State
         /// When it joined the queue, so a list can say how long it has waited.

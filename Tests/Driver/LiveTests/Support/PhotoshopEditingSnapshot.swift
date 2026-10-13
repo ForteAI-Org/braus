@@ -25,11 +25,11 @@ nonisolated struct PhotoshopEditingSnapshot {
 
     init(parsing source: String, token: String, documentID expected: Int) throws {
         let lines = source.split(separator: "\n", omittingEmptySubsequences: true)
-        guard lines.count == 2, lines.last == "MECUM_DONE\t\(token)" else {
+        guard lines.count == 2, lines.last == "BRAUS_DONE\t\(token)" else {
             throw Failure.invalidSnapshot
         }
         let fields = lines[0].split(separator: "\t", omittingEmptySubsequences: false)
-        guard fields.count == 11, fields[0] == "MECUM_EDITING", fields[1] == token,
+        guard fields.count == 11, fields[0] == "BRAUS_EDITING", fields[1] == token,
               let documentID = Int(fields[2]), documentID == expected, documentID > 0,
               let layerCount = Int(fields[3]), layerCount > 0,
               let width = Double(fields[4]), width.isFinite, width > 0,

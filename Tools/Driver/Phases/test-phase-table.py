@@ -13,7 +13,7 @@ phases = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(phases)
 
 
-def event(kind, name, identifier, ticks, message='', process=1, path='/a/Mecum'):
+def event(kind, name, identifier, ticks, message='', process=1, path='/a/Braus'):
     return json.dumps({
         'signpostType': kind, 'signpostName': name, 'signpostID': identifier, 'machTimestamp': ticks,
         'eventMessage': message, 'processID': process, 'processImagePath': path,
@@ -41,7 +41,7 @@ class PhaseTableTests(unittest.TestCase):
 
     def test_process_filter_and_tick_scale(self):
         lines = [
-            event('begin', 'pause', 1, 0, path='/a/Mecum'), event('end', 'pause', 1, 10, path='/a/Mecum'),
+            event('begin', 'pause', 1, 0, path='/a/Braus'), event('end', 'pause', 1, 10, path='/a/Braus'),
             event('begin', 'pause', 1, 0, process=2, path='/a/Other'),
             event('end', 'pause', 1, 50, process=2, path='/a/Other'),
         ]

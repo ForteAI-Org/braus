@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Turns the signposts of a MECUM_PHASES build into a table of milliseconds per phase.
+"""Turns the signposts of a BRAUS_PHASES build into a table of milliseconds per phase.
 
     phase-table.py record [--process NAME] [OUT.ndjson]   stream signposts until Ctrl-C, then print
     phase-table.py table  FILE.ndjson [--process NAME]    print the table of a recorded stream
 
 `record` runs `/usr/bin/log stream --signpost --style ndjson` for the subsystem
-`dev.forte.Mecum.phases`. It needs no sudo; it only has to be running while the measured build
+`dev.forte.Braus.phases`. It needs no sudo; it only has to be running while the measured build
 works. An interval that began and never ended (its operation threw) is ignored. Durations come
 from the Mach timestamps of the begin and end events, so they are not rounded by the log's clock.
 """
@@ -17,7 +17,7 @@ import subprocess
 import sys
 from collections import defaultdict
 
-SUBSYSTEM = 'dev.forte.Mecum.phases'
+SUBSYSTEM = 'dev.forte.Braus.phases'
 
 # The order the table prints in. A name not listed follows, alphabetically.
 ORDER = [

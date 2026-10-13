@@ -19,7 +19,7 @@ public struct ProviderTurn: Sendable {
     /// says, on the one turn that allows slash commands; Codex answers `prompt` with an auto-compaction
     /// limit so low that it compacts the session first.
     public let isCompaction: Bool
-    /// Whether the command line may search the web and read pages with its own tools, besides Mecum's.
+    /// Whether the command line may search the web and read pages with its own tools, besides Braus's.
     /// A compaction turn never does, whatever this says.
     public let allowsWebSearch: Bool
 

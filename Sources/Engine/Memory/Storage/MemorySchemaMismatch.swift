@@ -1,6 +1,6 @@
 //
 //  MemorySchemaMismatch.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 01/10/2026.
 //
@@ -28,6 +28,13 @@ public enum MemorySchemaMismatch: Sendable, Equatable {
     /// named `type name`. Constraints are part of the shape, so an earlier development form whose
     /// columns match but whose checks do not is refused here, before a write could fail on them.
     case differentShape([String])
+
+    /// The archive is at an earlier schema this build migrates from, and the open is a reader's,
+    /// which never migrates: the producer's next open migrates it, after a verified copy.
+    case migrationRequired(found: Int32, supported: Int32)
+
+    /// The archive is at a schema below this build's that this build has no migration from.
+    case unsupported(found: Int32, supported: Int32)
 
     /// A file with no schema of its own yet (version 0, no table): what a producer's open bootstraps,
     /// and what an open of an existing archive refuses, untouched. `fileIsEmpty` is a file of zero

@@ -9,7 +9,7 @@ not change external activation or the verification required for readiness.
 Signed Release `25a4fcd4` reaches Photoshop foreground readiness after 126.0 ms,
 then refuses File > New... before dispatch. At the end of the 250 ms handback
 verification it reads no focused window and no workspace foreground process.
-A later independent reading finds Mecum active and Photoshop inactive. The
+A later independent reading finds Braus active and Photoshop inactive. The
 same four owned documents remain and session closure leaves null status.
 This diagnoses a failed handback observation, not successful menu behavior.
 

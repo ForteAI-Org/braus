@@ -1,11 +1,11 @@
 //
 //  SQLiteLibrary.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 30/09/2026.
 //
 
-import SQLite3
+import SQLiteAmalgamation
 
 /// SQLiteLibrary reports the SQLite the running binary is linked against and checks it against what
 /// the schema needs. The `sqlite3` command and Python's module say nothing about this library:

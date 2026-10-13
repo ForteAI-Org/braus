@@ -1,12 +1,12 @@
 //
 //  SQLiteFailureClassification.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 30/09/2026.
 //
 
 import Memory
-import SQLite3
+import SQLiteAmalgamation
 
 extension MemoryStoreError {
 

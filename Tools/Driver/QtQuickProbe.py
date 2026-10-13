@@ -40,9 +40,9 @@ class InputObserver(QObject):
 
 
 app = QGuiApplication(sys.argv)
-app.setApplicationName("Mecum Qt Probe")
+app.setApplicationName("Braus Qt Probe")
 view = QQuickView()
-view.setTitle("Mecum Qt Probe")
+view.setTitle("Braus Qt Probe")
 observer = InputObserver()
 app.installEventFilter(observer)
 view.setSource(QUrl.fromLocalFile(str(Path(__file__).with_suffix(".qml"))))

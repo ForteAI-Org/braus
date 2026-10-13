@@ -1,18 +1,18 @@
 //
 //  PhaseInterval.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 07/10/2026.
 //
 
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import os
 
 /// PhaseInterval is one `os_signpost` interval of a phase measurement build.
 ///
-/// The whole file is compiled only under the `MECUM_PHASES` condition, which no default
+/// The whole file is compiled only under the `BRAUS_PHASES` condition, which no default
 /// configuration sets (SwiftPM or Xcode): a normal build has this module empty, and every call site
-/// is inside its own `#if MECUM_PHASES`. A measurement build is made optimized on purpose, since
+/// is inside its own `#if BRAUS_PHASES`. A measurement build is made optimized on purpose, since
 /// Swift in Debug would skew the numbers. `Tools/Driver/Phases/phase-table.py` turns the
 /// signposts into a table.
 ///
@@ -21,7 +21,7 @@ import os
 /// table ignores it. Signposts cost almost nothing while no tool listens.
 public struct PhaseInterval: Sendable {
 
-    private static let signposter = OSSignposter(subsystem: "dev.forte.Mecum.phases", category: "phases")
+    private static let signposter = OSSignposter(subsystem: "dev.forte.Braus.phases", category: "phases")
 
     private let name : StaticString
     private let state: OSSignpostIntervalState

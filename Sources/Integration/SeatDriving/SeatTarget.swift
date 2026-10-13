@@ -1,13 +1,13 @@
 //
 //  SeatTarget.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 18/09/2026.
 //
 
 import CoreGraphics
 import Foundation
-#if MECUM_PHASES
+#if BRAUS_PHASES
 import PhaseSignposts
 #endif
 import SeatCapture
@@ -147,19 +147,19 @@ public final class SeatTarget {
     /// application's window again, which is what closing and reopening the session used to do.
     @discardableResult
     public func observe() async throws -> SeatObservationDelivery {
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         let observing = PhaseInterval.begin("target.observe")
         defer { observing.end() }
         let verifying = PhaseInterval.begin("target.verify")
         #endif
         let seat = try agentSeat()
         try verifyCurrentWindow(of: seat)
-        #if MECUM_PHASES
+        #if BRAUS_PHASES
         verifying.end()
         #endif
         let delivered = try await Self.retrying {
             try self.verifyCurrentWindow(of: seat)
-            #if MECUM_PHASES
+            #if BRAUS_PHASES
             let seatObserving = PhaseInterval.begin("seat.observe")
             defer { seatObserving.end() }
             #endif

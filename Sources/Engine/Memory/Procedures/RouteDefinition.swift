@@ -1,6 +1,6 @@
 //
 //  RouteDefinition.swift
-//  Mecum
+//  Braus
 //
 //  Created by Tommaso Mazzarini on 02/10/2026.
 //
@@ -34,6 +34,21 @@ public enum ParameterValueType: String, Sendable, Equatable, Hashable, CaseItera
     }
 }
 
+extension BrainArgument.Value {
+    /// Whether a number or a flag recorded for an argument is what a whole parameter's textual binding spells: the
+    /// binding read as the argument's type (an integer, a real, `true` or `false`) is equal to it. A binding that does
+    /// not read as that type spells nothing. A text is never compared here: how a text compares is the caller's rule,
+    /// and a text of digits stays a text.
+    public func isSpelled(by binding: String) -> Bool {
+        switch self {
+            case .text                : false
+            case .integer(let number) : Int64(binding) == number
+            case .real(let number)    : Double(binding) == number
+            case .boolean(let flag)   : (binding == "true" ? true : binding == "false" ? false : nil) == flag
+        }
+    }
+}
+
 /// RouteParameter is one parameter of a Route: an id (never its name), the name a caller reads,
 /// its direction, its value's type and whether a caller must supply it.
 public struct RouteParameter: Sendable {
@@ -53,13 +68,47 @@ public struct RouteParameter: Sendable {
 }
 
 /// OperationValue is one argument's value in a definition: a literal, or an explicit reference to a
-/// parameter of the same Route, to an anchor or to a menu command of the step's application. A
-/// reference is not a resolved live target and not an ephemeral element id.
+/// parameter of the same Route, to an anchor or to a menu command of the step's application, or a text
+/// template of literal segments and text parameters. A reference is not a resolved live target and not
+/// an ephemeral element id.
 public enum OperationValue: Sendable {
     case literal(BrainArgument.Value)
     case parameter(String)
     case anchor(String)
     case menu(String)
+    /// A text built from its segments in order: `<name>.<extension>` is the parameter `name`, the
+    /// literal `.` and the parameter `extension`, so each keeps its own role and the dot stays fixed.
+    case template([TemplateSegment])
+}
+
+/// TemplateSegment is one piece of a templated text argument: a literal text, never empty, or a text
+/// parameter of the Route by its id. Two literals never follow each other in a template: the template
+/// has one form for one text.
+public enum TemplateSegment: Sendable, Equatable {
+    case literal(String)
+    case parameter(String)
+
+    public static func == (lhs: TemplateSegment, rhs: TemplateSegment) -> Bool {
+        switch (lhs, rhs) {
+            case (.literal(let a), .literal(let b)), (.parameter(let a), .parameter(let b)): a.utf8.elementsEqual(b.utf8)
+            default: false
+        }
+    }
+
+    /// The text the segments make with the given parameter values, by parameter id; nil when a value
+    /// is missing.
+    public static func render(_ segments: [TemplateSegment], values: [String: String]) -> String? {
+        var text = ""
+        for segment in segments {
+            switch segment {
+                case .literal(let literal): text += literal
+                case .parameter(let id):
+                    guard let value = values[id] else { return nil }
+                    text += value
+            }
+        }
+        return text
+    }
 }
 
 /// OperationArgument is one argument row of an operation, under the call contract's names.

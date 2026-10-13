@@ -1,6 +1,6 @@
 //
 //  CompactSceneTextTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 09/10/2026.
 //
@@ -183,13 +183,13 @@ struct CompactSceneTextTests {
         #expect(report.checked == scene.elements.count)
     }
 
-    /// With `MECUM_SCENE_SAMPLES` naming a folder of scene JSON files, each is checked the same way.
+    /// With `BRAUS_SCENE_SAMPLES` naming a folder of scene JSON files, each is checked the same way.
     @Test(
-        "every element of each scene in MECUM_SCENE_SAMPLES resolves by the target its printed line gives",
-        .enabled(if: ProcessInfo.processInfo.environment["MECUM_SCENE_SAMPLES"] != nil)
+        "every element of each scene in BRAUS_SCENE_SAMPLES resolves by the target its printed line gives",
+        .enabled(if: ProcessInfo.processInfo.environment["BRAUS_SCENE_SAMPLES"] != nil)
     )
     func resolvesSavedScenes() throws {
-        let folder = try #require(ProcessInfo.processInfo.environment["MECUM_SCENE_SAMPLES"])
+        let folder = try #require(ProcessInfo.processInfo.environment["BRAUS_SCENE_SAMPLES"])
         let files = try FileManager.default.contentsOfDirectory(atPath: folder).filter { $0.hasSuffix(".json") }.sorted()
         #expect(!files.isEmpty)
         for file in files {

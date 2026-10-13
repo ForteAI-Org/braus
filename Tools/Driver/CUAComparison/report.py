@@ -3,8 +3,8 @@
     python3 report.py --summary summary.json [--tasks tasks-summary.json] [--baseline base.json]
                       [--run run.json] [--out-dir ~/Downloads] [--date YYYYMMDD]
 
-Writes MecumVsCua-Team-<date>.md (Italian, short, one conclusion per table) and
-MecumVsCua-Report-<date>.md (English, full technical). Inputs: `summarize.py --json` of the run, `tasks.py
+Writes BrausVsCua-Team-<date>.md (Italian, short, one conclusion per table) and
+BrausVsCua-Report-<date>.md (English, full technical). Inputs: `summarize.py --json` of the run, `tasks.py
 --summary`, support.json, the 6 October summary (default: computed from ~/Forte_Projects/_bench/results-20261006/
 all.jsonl) and tickets.json. A section with no data says so in one line; every number comes from the inputs.
 """
@@ -14,8 +14,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from summarize import med, order, summarize, wilson  # noqa: E402
 
-DRV = ["mecum", "cua", "cua-overlay"]
-LABEL = {"mecum": "Mecum", "cua": "Cua", "cua-overlay": "Cua overlay"}
+DRV = ["braus", "cua", "cua-overlay"]
+LABEL = {"braus": "Braus", "cua": "Cua", "cua-overlay": "Cua overlay"}
 BASELINE_ROWS = os.path.expanduser("~/Forte_Projects/_bench/results-20261006/all.jsonl")
 IDLE_TARGET = 1.5  # ms/s with an open session, from the idle-CPU ticket
 CAP_OPS = {"observe": ["observe"], "click": ["click", "click_back"], "type": ["type"], "key": ["key", "key_close"],
@@ -71,7 +71,7 @@ def even(a, b, ci_a=None, ci_b=None):
 
 
 def verdict(m, o, low=True, ci_m=None, ci_o=None):
-    """Mecum value m against another driver's o: 🟢 better, 🔴 worse, 🟡 even (within 10% or intervals overlap)."""
+    """Braus value m against another driver's o: 🟢 better, 🔴 worse, 🟡 even (within 10% or intervals overlap)."""
     if m is None or o is None:
         return ""
     if even(m, o, ci_m, ci_o):
@@ -115,7 +115,7 @@ def change(cur, base):
 
 
 def arrow(cur, base, low=True):
-    """Mecum against its own 6 October value: ▲ better, ▼ worse, = within 5%."""
+    """Braus against its own 6 October value: ▲ better, ▼ worse, = within 5%."""
     ch = change(cur, base)
     if ch is None:
         return "n/d"
@@ -167,7 +167,7 @@ class Ctx:
         used = sorted(set.intersection(*(set(per[d]) for d in live))) if live else []
         return {d: (med([per[d][a] for a in used]) if d in live and used else None) for d in drivers}, used
 
-    def own(self, getter, driver="mecum"):
+    def own(self, getter, driver="braus"):
         """(current, baseline) medians of the apps both runs have for one driver."""
         cur = {a: getter(x) for a, x in g(self.S, "drivers", driver, "apps", default={}).items()}
         base = {a: getter(x) for a, x in g(self.B, "drivers", driver, "apps", default={}).items()}
@@ -198,7 +198,7 @@ class Ctx:
         """{app: ops present for every driver that has step data in this run}."""
         return {a: self.matched_ops(self.S, a, self.drivers) for a in self.apps()}
 
-    def own_ops(self, app, driver="mecum"):
+    def own_ops(self, app, driver="braus"):
         a = self.matched_ops(self.S, app, [driver])
         b = self.matched_ops(self.B, app, [driver])
         return a & b
@@ -240,20 +240,20 @@ class Team:
         self.out.append(text + "\n".join(intro) + "\n\n" + table(header, rows) + f"\n\n**Conclusione:** {conclusion}\n")
 
     def metric(self, rows, area, label, vals, fmt, low=True, own=None, cua_base=None, with_cua=False, ci=None, loss=True):
-        """One row: Mecum, Cua, Cua overlay (each value with its own marker), own change, optional Cua note."""
+        """One row: Braus, Cua, Cua overlay (each value with its own marker), own change, optional Cua note."""
         c, ci = self.c, ci or {}
-        m = vals.get("mecum")
+        m = vals.get("braus")
         mk = markers({d: vals.get(d) for d in DRV if d in c.drivers}, low, ci)
-        cells = [with_mark(fmt(m), mk.get("mecum", "")) if m is not None else "n/d"]
+        cells = [with_mark(fmt(m), mk.get("braus", "")) if m is not None else "n/d"]
         for d in ("cua", "cua-overlay"):
             v = vals.get(d)
             if d not in c.drivers or v is None:
                 cells.append("n/d")
                 continue
-            mark = verdict(m, v, low, ci.get("mecum"), ci.get(d))
+            mark = verdict(m, v, low, ci.get("braus"), ci.get(d))
             c.marks.append(mark)
             if mark == "🔴" and loss:
-                c.losses.append(dict(area=area, metric=label, mecum=fmt(m), other=fmt(v), against=LABEL[d],
+                c.losses.append(dict(area=area, metric=label, braus=fmt(m), other=fmt(v), against=LABEL[d],
                                      delta=change(m, v) if m > 0 and v > 0 else None))
             cells.append(with_mark(fmt(v), mk.get(d, "")))
         row = [label] + cells + [arrow(*own, low) if own else "n/d"]
@@ -268,7 +268,7 @@ class Team:
         rows.append(row)
 
 
-HEAD = ["Metrica", "Mecum", "Cua", "Cua overlay", "Mecum vs 6/10"]
+HEAD = ["Metrica", "Braus", "Cua", "Cua overlay", "Braus vs 6/10"]
 HEAD_CUA = HEAD + ["Cua vs 6/10"]
 ms = lambda v: f"{v:,.0f} ms"  # noqa: E731
 rate = lambda v: f"{v:.2f} ms/s" if abs(v) < 10 else f"{v:.1f} ms/s"  # noqa: E731
@@ -300,8 +300,8 @@ def t_headline(t):
     for d in c.drivers:
         vals[d], _ = c.pooled_step(c.S, d, sets)
     own_sets = {a: c.own_ops(a) for a in c.apps()}
-    cur_own, _ = c.pooled_step(c.S, "mecum", own_sets)
-    base_own, _ = c.pooled_step(c.B, "mecum", own_sets)
+    cur_own, _ = c.pooled_step(c.S, "braus", own_sets)
+    base_own, _ = c.pooled_step(c.B, "braus", own_sets)
     cur_cua, _ = c.pooled_step(c.S, "cua", {a: c.own_ops(a, "cua") for a in c.apps()})
     base_cua, _ = c.pooled_step(c.B, "cua", {a: c.own_ops(a, "cua") for a in c.apps()})
     t.metric(rows, "Passo", "Passo equivalente, mediana su operazioni appaiate", vals, ms, True,
@@ -316,7 +316,7 @@ def t_headline(t):
         t.metric(rows, area, label, v, fmt, low, c.own(getter), base_cua, True, loss=False)
     for key, label in (("median", "RAM del driver, mediana"), ("peak", "RAM del driver, picco")):
         v = {d: g(c.S, "drivers", d, "footprint_mb", key) for d in c.drivers}
-        own = (v.get("mecum"), g(c.B, "drivers", "mecum", "footprint_mb", key))
+        own = (v.get("braus"), g(c.B, "drivers", "braus", "footprint_mb", key))
         t.metric(rows, "RAM", label, v, mb, True, own, (v.get("cua"), g(c.B, "drivers", "cua", "footprint_mb", key)), True, loss=False)
     # success and intrusions pooled over the apps every driver has actions for
     used = [a for a in c.apps() if all(g(c.app(c.S, d, a), "actions", "n", default=0) for d in c.drivers)]
@@ -334,8 +334,8 @@ def t_headline(t):
         row = [label]
         for d in c.drivers:
             k, n = cnt[d]
-            if d != "mecum":
-                c.marks.append("" if gone[d] or gone["mecum"] else rate_verdict(*cnt["mecum"], k, n, low))
+            if d != "braus":
+                c.marks.append("" if gone[d] or gone["braus"] else rate_verdict(*cnt["braus"], k, n, low))
             row.append("n/d" if gone[d] else with_mark(f"{k}/{n} ({pct_text(k / n)})", mk[d]))
         row += ["n/d"] * (4 - len(row)) + [arrow(*c.own(lambda a, k=num_key, n=den_key: (g(a, "actions", k) / g(a, "actions", n)) if g(a, "actions", n) else None), False), "n/d"]
         rows.append(row)
@@ -349,18 +349,18 @@ def t_headline(t):
         row = [label]
         for d in c.drivers:
             k, n = cnt[d]
-            if d != "mecum":
-                mark = rate_verdict(*cnt["mecum"], k, n, True)
+            if d != "braus":
+                mark = rate_verdict(*cnt["braus"], k, n, True)
                 c.marks.append(mark)
                 if mark == "🔴":
-                    c.losses.append(dict(area="Intrusione", metric=label, mecum=f"{cnt['mecum'][0]}/{cnt['mecum'][1]}",
+                    c.losses.append(dict(area="Intrusione", metric=label, braus=f"{cnt['braus'][0]}/{cnt['braus'][1]}",
                                          other=f"{k}/{n}", against=LABEL[d], delta=None))
             row.append(with_mark(f"{k}/{n}", mk[d]))
         rows.append(row + ["n/d", "n/d"])
     marks = [m for m in c.marks if m]
     t.section("Sintesi", ["Le metriche principali, ognuna sulle app dove tutti i driver hanno dati.",
                           "Ogni valore ha il suo marcatore: 🟢 il migliore, 🔴 il peggiore, 🟡 pari.",
-                          "Passo equivalente: l'azione con la scena che la segue (Mecum una chiamata, Cua `run_actions` con `observe`)."],
+                          "Passo equivalente: l'azione con la scena che la segue (Braus una chiamata, Cua `run_actions` con `observe`)."],
               HEAD_CUA, rows, f"sul totale dei confronti {tally(marks)}; i dettagli sono nelle tabelle sotto.")
 
 
@@ -371,26 +371,26 @@ def t_steps(t):
         if not ops:
             continue
         vals = {d: c.pooled_step(c.S, d, {a: ops})[0] for d in c.drivers}
-        wins_of.append(verdict(vals.get("mecum"), vals.get("cua")) == "🟢")
+        wins_of.append(verdict(vals.get("braus"), vals.get("cua")) == "🟢")
         n_ops = len(ops)
         own_ops = c.own_ops(a)
-        own = (c.pooled_step(c.S, "mecum", {a: own_ops})[0], c.pooled_step(c.B, "mecum", {a: own_ops})[0]) if own_ops else None
+        own = (c.pooled_step(c.S, "braus", {a: own_ops})[0], c.pooled_step(c.B, "braus", {a: own_ops})[0]) if own_ops else None
         before = len(t.c.marks)
         t.metric(rows, "Passo", f"{a} ({c.fw(a)}), {n_ops} op.", vals, ms, True, own, loss=False)
         marks += t.c.marks[before:]
         for d in ("cua", "cua-overlay"):
-            if d in c.drivers and verdict(vals.get("mecum"), vals.get(d)) == "🔴":
+            if d in c.drivers and verdict(vals.get("braus"), vals.get(d)) == "🔴":
                 reds.setdefault(d, {})[a] = ops
     for d, apps in reds.items():
-        m, k = c.pooled_step(c.S, "mecum", apps)[0], c.pooled_step(c.S, d, apps)[0]
-        c.losses.append(dict(area="Passo", metric=f"Passo equivalente, app più lente ({', '.join(apps)})", mecum=ms(m), other=ms(k),
+        m, k = c.pooled_step(c.S, "braus", apps)[0], c.pooled_step(c.S, d, apps)[0]
+        c.losses.append(dict(area="Passo", metric=f"Passo equivalente, app più lente ({', '.join(apps)})", braus=ms(m), other=ms(k),
                              against=LABEL[d], delta=change(m, k)))
     wins = sum(1 for a in wins_of if a)
     both = sum(1 for r in rows if r[1] != "n/d")
     t.section("Tempo del passo per app", [
         "Mediana del passo equivalente su operazioni che tutti i driver hanno completato (stesso mix di operazioni).",
         "Così un'operazione rifiutata da un solo driver non sposta la media. Il numero di operazioni appaiate è nella prima colonna."],
-              HEAD, rows, f"su {both} app con dati di Mecum e di Cua, Mecum è più veloce di Cua in {wins}; sui confronti con le due varianti {tally(marks)}.",
+              HEAD, rows, f"su {both} app con dati di Braus e di Cua, Braus è più veloce di Cua in {wins}; sui confronti con le due varianti {tally(marks)}.",
               "nessuna operazione completata da tutti i driver")
 
 
@@ -410,13 +410,13 @@ def t_chain(t):
             before = len(c.marks)
             t.metric(rows, "Pausa", f"pausa {float(p):g} s, {label}", vals, ms, True)
             marks += c.marks[before:]
-    wake = wmed([(g(c.app(c.S, "mecum", a), "chain", "wake", "wake_cost_ms"), g(c.app(c.S, "mecum", a), "chain", "wake", "resting_steps", default=0))
+    wake = wmed([(g(c.app(c.S, "braus", a), "chain", "wake", "wake_cost_ms"), g(c.app(c.S, "braus", a), "chain", "wake", "resting_steps", default=0))
                  for a in c.apps()])
     if rows and wake is not None:
-        rows.append(["Costo del risveglio dello stream (Mecum, dedotto dal gap)", ms(wake), "-", "-", "n/d"])
+        rows.append(["Costo del risveglio dello stream (Braus, dedotto dal gap)", ms(wake), "-", "-", "n/d"])
     t.section("Ritardo tra i passi", [
         "Mediana del tempo di un passo in una catena di 10 passi, con una pausa fissa tra l'uno e l'altro (0, 1, 3, 5 s).",
-        "Dopo 2,5 s di quiete lo stream di Mecum scende a riposo (ADR 0036): il primo passo dopo una pausa lunga ne paga il risveglio.",
+        "Dopo 2,5 s di quiete lo stream di Braus scende a riposo (ADR 0036): il primo passo dopo una pausa lunga ne paga il risveglio.",
         "Il 6/10 la catena non fu misurata: la colonna con il confronto è n/d."],
               HEAD, rows, f"nessun valore del 6/10 per confrontare; sui confronti con Cua {tally(marks)}.", "nessuna catena misurata (modalità chain non eseguita)")
 
@@ -442,7 +442,7 @@ def t_cpu(t):
         "Costo in CPU del driver e del bersaglio, per azione e a riposo (mediana tra le app con dati per tutti).",
         "A riposo: finestre consecutive dopo l'ultima chiamata con una sessione aperta. Per `cua-overlay` il driver è il daemon più il proxy.",
         f"WindowServer senza driver: {num(base)} ms/s; sopra la baseline si legge solo uno scarto, non un costo isolato."],
-              HEAD, rows, f"su {len(marks)} confronti {tally(marks)}; dove Mecum è sopra Cua pesano le percezioni attorno all'azione e lo stream.",
+              HEAD, rows, f"su {len(marks)} confronti {tally(marks)}; dove Braus è sopra Cua pesano le percezioni attorno all'azione e lo stream.",
               "nessuna chiamata con CPU registrata")
 
 
@@ -451,10 +451,10 @@ def t_ram(t):
     for key, label in (("median", "Footprint mediano"), ("peak", "Picco")):
         v = {d: g(c.S, "drivers", d, "footprint_mb", key) for d in c.drivers}
         before = len(c.marks)
-        t.metric(rows, "RAM", label, v, mb, True, (v.get("mecum"), g(c.B, "drivers", "mecum", "footprint_mb", key)))
+        t.metric(rows, "RAM", label, v, mb, True, (v.get("braus"), g(c.B, "drivers", "braus", "footprint_mb", key)))
         marks += c.marks[before:]
     v = {d: g(c.S, "drivers", d, "startup_ms") for d in c.drivers}
-    t.metric(rows, "Avvio", "Avvio del server MCP", v, ms, True, (v.get("mecum"), g(c.B, "drivers", "mecum", "startup_ms")))
+    t.metric(rows, "Avvio", "Avvio del server MCP", v, ms, True, (v.get("braus"), g(c.B, "drivers", "braus", "startup_ms")))
     soak = lambda a: g(a, "soak", "driver_footprint_mb", "slope_mb_per_100_steps")  # noqa: E731
     sv, used = c.across(c.S, soak)
     if used:
@@ -466,7 +466,7 @@ def t_ram(t):
     t.section("RAM e soak", [
         "Memoria fisica del processo del driver durante la corsa (footprint) e andamento su una sequenza lunga di passi neutri.",
         "La pendenza è la regressione lineare del footprint sui passi: un valore vicino a 0 non mostra perdite nell'orizzonte misurato."],
-              HEAD, rows, f"footprint Mecum {num(g(c.S, 'drivers', 'mecum', 'footprint_mb', 'median'), 0)} MB contro Cua {num(g(c.S, 'drivers', 'cua', 'footprint_mb', 'median'), 0)} MB; "
+              HEAD, rows, f"footprint Braus {num(g(c.S, 'drivers', 'braus', 'footprint_mb', 'median'), 0)} MB contro Cua {num(g(c.S, 'drivers', 'cua', 'footprint_mb', 'median'), 0)} MB; "
               f"{'soak misurato' if used else 'soak non eseguito'}; {tally(marks)}.", "nessun dato di memoria")
 
 
@@ -482,7 +482,7 @@ def t_tokens(t):
             vals = {d: split(c.app(c.S, d, a), kind) for d in c.drivers}
             if not any(v is not None for v in vals.values()):
                 continue
-            own = (vals.get("mecum"), split(c.app(c.B, "mecum", a), kind))
+            own = (vals.get("braus"), split(c.app(c.B, "braus", a), kind))
             base_cua = (vals.get("cua"), split(c.app(c.B, "cua", a), kind))
             before = len(c.marks)
             t.metric(rows, "Token", f"{a}, {label}", vals, tok, True, own, base_cua, True)
@@ -493,7 +493,7 @@ def t_tokens(t):
         rows_split.append(f"{LABEL[d]} {num(tx)} testo + {num(im)} immagine")
     t.section("Token", [
         "Token stimati di una lettura della finestra: testo a 4 caratteri per token, immagini come larghezza per altezza diviso 750.",
-        "Mecum risponde con la scena in testo; Cua con l'albero in Markdown e uno screenshot (dal c1c2b5f albero ridotto a 250 nodi).",
+        "Braus risponde con la scena in testo; Cua con l'albero in Markdown e uno screenshot (dal c1c2b5f albero ridotto a 250 nodi).",
         "Mediana tra le app, lettura piena: " + "; ".join(rows_split) + "."],
               HEAD_CUA, rows, f"su {len(marks)} confronti {tally(marks)}; i valori di Cua non sono confrontabili con il 6/10 perché ha cambiato versione.",
               "nessuna lettura registrata")
@@ -506,7 +506,7 @@ def t_robust(t):
         refused = {d: c.session_refused(d, a) for d in c.drivers}
         if not any(x.get("n") for x in acts.values()) and not any(refused.values()):
             continue
-        row, m = [f"{a} ({c.fw(a)})"], acts.get("mecum", {})
+        row, m = [f"{a} ({c.fw(a)})"], acts.get("braus", {})
         mk = markers({d: x["ok_rate"] for d, x in acts.items() if x.get("n")}, False, {d: x["ok_wilson95"] for d, x in acts.items() if x.get("n")})
         for d in DRV:
             x = acts.get(d)
@@ -514,28 +514,28 @@ def t_robust(t):
                 row.append("n/d")
             elif not x.get("n"):
                 row.append("sessione rifiutata" if refused[d] else "n/d")
-                if d == "mecum" and refused[d]:
-                    c.losses.append(dict(area="Robustezza", metric=f"{a}: apertura della sessione", mecum="rifiutata", other="ok", against="Cua", delta=None))
+                if d == "braus" and refused[d]:
+                    c.losses.append(dict(area="Robustezza", metric=f"{a}: apertura della sessione", braus="rifiutata", other="ok", against="Cua", delta=None))
             else:
                 w = x["ok_wilson95"]
                 conf = ("n/d" if no_probe(x["n_confirmed"], x["n_checkable"], x["n"], x["n_ok"]) else f"{x['n_confirmed']}/{x['n_checkable']}") if x.get("n_checkable") else ""
                 s = f"{x['n_ok']}/{x['n']} [{w[0]:.2f}-{w[1]:.2f}]" + (f"; conf. {conf}" if conf else "")
-                if d != "mecum" and m.get("n"):
+                if d != "braus" and m.get("n"):
                     mark = verdict(m["ok_rate"], x["ok_rate"], False, m["ok_wilson95"], w)
                     marks.append(mark)
                     c.marks.append(mark)
                     if mark == "🔴":
-                        c.losses.append(dict(area="Robustezza", metric=f"{a}: azioni riuscite", mecum=f"{m['n_ok']}/{m['n']}", other=f"{x['n_ok']}/{x['n']}",
+                        c.losses.append(dict(area="Robustezza", metric=f"{a}: azioni riuscite", braus=f"{m['n_ok']}/{m['n']}", other=f"{x['n_ok']}/{x['n']}",
                                              against=LABEL[d], delta=None))
                 row.append(with_mark(s, mk.get(d, "")))
-        row.append(arrow(m.get("ok_rate"), (c.app(c.B, "mecum", a).get("actions") or {}).get("ok_rate"), False))
+        row.append(arrow(m.get("ok_rate"), (c.app(c.B, "braus", a).get("actions") or {}).get("ok_rate"), False))
         rows.append(row)
     t.section("Robustezza", [
         "Azioni riuscite su azioni tentate, con l'intervallo di Wilson al 95%; \"conf.\" sono quelle verificate dalla sonda indipendente.",
         "Un'azione conta come riuscita se il driver non dichiara errore, rifiuto o miss; la conferma c'è solo dove la sonda legge un effetto.",
         "Le operazioni senza oracolo (scroll, menu, pixel di kitty o Obsidian) restano non confermate."],
-              ["App", "Mecum", "Cua", "Cua overlay", "Mecum vs 6/10"], rows,
-              f"{tally(marks)}; dove Mecum rifiuta (menu in background, sessione su Stocks) il marcatore è rosso.", "nessuna azione registrata")
+              ["App", "Braus", "Cua", "Cua overlay", "Braus vs 6/10"], rows,
+              f"{tally(marks)}; dove Braus rifiuta (menu in background, sessione su Stocks) il marcatore è rosso.", "nessuna azione registrata")
 
 
 def support_rows(c):
@@ -547,7 +547,7 @@ def support_rows(c):
     for f in c.SUP.get("frameworks", []):
         a = f["app"]
         info = {}
-        for d in ("mecum", "cua"):
+        for d in ("braus", "cua"):
             claims, flags, ok, n, conf, chk = {}, [], 0, 0, 0, 0
             for cap, cell in cells.get((f["id"], d), {}).items():
                 claims[cap] = cell["claim"]
@@ -572,7 +572,7 @@ def t_support(t):
         if not any(i["app"] for i in info.values()):
             continue
         cells = [f"{f['framework']} ({f['app']})"]
-        for d in ("mecum", "cua"):
+        for d in ("braus", "cua"):
             i = info[d]
             counts = {}
             for cl in i["claims"].values():
@@ -581,20 +581,20 @@ def t_support(t):
             conf = "n/d" if no_probe(i["conf"], i["chk"], i["n"], i["ok"]) else f"{i['conf']}/{i['chk']}"
             measured = f"{i['ok']}/{i['n']}" + (f", conf. {conf}" if i["chk"] else "") if i["n"] else "n/d"
             cells += [declared, measured]
-        flags = [f"{LABEL[d]} {x}" for d in ("mecum", "cua") for x in info[d]["flags"]]
-        mi, ci_ = info["mecum"], info["cua"]
+        flags = [f"{LABEL[d]} {x}" for d in ("braus", "cua") for x in info[d]["flags"]]
+        mi, ci_ = info["braus"], info["cua"]
         marks.append(rate_verdict(mi["ok"], mi["n"], ci_["ok"], ci_["n"]) if mi["n"] and ci_["n"] else "")
-        mk = markers({d: info[d]["ok"] / info[d]["n"] for d in ("mecum", "cua") if info[d]["n"]}, False,
-                     {d: wilson(info[d]["ok"], info[d]["n"]) for d in ("mecum", "cua") if info[d]["n"]})
-        cells[2], cells[4] = with_mark(cells[2], mk.get("mecum", "")), with_mark(cells[4], mk.get("cua", ""))
+        mk = markers({d: info[d]["ok"] / info[d]["n"] for d in ("braus", "cua") if info[d]["n"]}, False,
+                     {d: wilson(info[d]["ok"], info[d]["n"]) for d in ("braus", "cua") if info[d]["n"]})
+        cells[2], cells[4] = with_mark(cells[2], mk.get("braus", "")), with_mark(cells[4], mk.get("cua", ""))
         cells.append("; ".join(flags) or "-")
         rows.append(cells)
     flagged = sum(1 for r in rows if r[-1] != "-")
     t.section("Supporto per framework", [
         "Cosa dichiara ciascun driver nella propria documentazione (a c1c2b5f per Cua) e cosa si è misurato in questa corsa, sulle capacità misurate.",
-        "Dichiarato: conteggio delle capacità per tipo; misurato: azioni ok su tentate (e confermate dalla sonda). Il marcatore di ogni valore misurato confronta Mecum con Cua.",
+        "Dichiarato: conteggio delle capacità per tipo; misurato: azioni ok su tentate (e confermate dalla sonda). Il marcatore di ogni valore misurato confronta Braus con Cua.",
         "Segnalazioni: dichiarato non supportato ma funziona, dichiarato supportato ma fallisce (per Cua la variante senza overlay)."],
-              ["Framework (app)", "Mecum dichiarato", "Mecum misurato", "Cua dichiarato", "Cua misurato", "Segnalazioni"],
+              ["Framework (app)", "Braus dichiarato", "Braus misurato", "Cua dichiarato", "Cua misurato", "Segnalazioni"],
               rows, f"{flagged} framework su {len(rows)} con almeno una incoerenza tra dichiarato e misurato; {tally(marks)}.",
               "support.json assente o nessuna app misurata")
 
@@ -626,7 +626,7 @@ def t_tasks(t):
     tasks = sorted({k for d in drivers for k in T[d]["tasks"]})
     for k in tasks + ["ALL(supported)"]:
         row = [k]
-        cm = g(T, "mecum", "tasks", k) if k != "ALL(supported)" else g(T, "mecum", "within_declared_support")
+        cm = g(T, "braus", "tasks", k) if k != "ALL(supported)" else g(T, "braus", "within_declared_support")
         mk = task_markers({d: (T.get(d) or {}).get("tasks", {}).get(k) if k != "ALL(supported)" else (T.get(d) or {}).get("within_declared_support") for d in DRV})
         for d in DRV:
             cell = (T.get(d) or {}).get("tasks", {}).get(k) if k != "ALL(supported)" else (T.get(d) or {}).get("within_declared_support")
@@ -634,7 +634,7 @@ def t_tasks(t):
                 row.append("n/d")
                 continue
             s = task_cells(cell) + (" (fuori dal supporto dichiarato)" if cell.get("outside_declared_support") and k != "ALL(supported)" else "")
-            if d != "mecum" and cm and cm["runs"]:
+            if d != "braus" and cm and cm["runs"]:
                 a, b = cm["success"], cell["success"]
                 # Rates as they are (three runs give overlapping intervals), the time only when they are equal.
                 ra, rb = (a["count"] / a["of"] if a["of"] else None), (b["count"] / b["of"] if b["of"] else None)
@@ -642,7 +642,7 @@ def t_tasks(t):
                     verdict(g(cm, "wall_s", "median"), g(cell, "wall_s", "median"))
                 marks.append(mark)
                 if mark == "🔴":
-                    c.losses.append(dict(area="Compiti", metric=f"compito {k}", mecum=task_cells(cm), other=task_cells(cell), against=LABEL[d], delta=None))
+                    c.losses.append(dict(area="Compiti", metric=f"compito {k}", braus=task_cells(cm), other=task_cells(cell), against=LABEL[d], delta=None))
             row.append(with_mark(s, mk.get(d, "")))
         rows.append(row)
     model = ""
@@ -675,59 +675,59 @@ def fail_hits(c, driver, app, ops, pattern):
 def detect(c, name):
     S = c.S
     if name == "catalyst_session_refused":
-        if c.session_refused("mecum", "Stocks") or g(c.app(S, "mecum", "Stocks"), "aborted"):
-            return "Stocks: open_session rifiutata" + (f" ({'; '.join(fail_hits(c, 'mecum', 'Stocks', ['open_session'], '.'))})" if fail_hits(c, 'mecum', 'Stocks', ['open_session'], '.') else "")
+        if c.session_refused("braus", "Stocks") or g(c.app(S, "braus", "Stocks"), "aborted"):
+            return "Stocks: open_session rifiutata" + (f" ({'; '.join(fail_hits(c, 'braus', 'Stocks', ['open_session'], '.'))})" if fail_hits(c, 'braus', 'Stocks', ['open_session'], '.') else "")
     elif name == "terminal_ctrl_keys":
-        o = g(c.app(S, "mecum", "kitty"), "ops", "hotkey")
+        o = g(c.app(S, "braus", "kitty"), "ops", "hotkey")
         if o and o["n"] and (o["n_checkable"] == 0 or o["n_confirmed"] < o["n_ok"] / 2):
             return f"kitty hotkey: {o['n_ok']}/{o['n']} ok, confermate {o['n_confirmed']}/{o['n_checkable']} (effetto non provato)"
     elif name == "safari_keys":
-        hits = fail_hits(c, "mecum", "Safari", ["type", "key", "hotkey"], "subtreeUnreadable|delivery failed")
-        bad = [f"{op} {o['n_ok']}/{o['n']}" for op, o in g(c.app(S, "mecum", "Safari"), "ops", default={}).items()
+        hits = fail_hits(c, "braus", "Safari", ["type", "key", "hotkey"], "subtreeUnreadable|delivery failed")
+        bad = [f"{op} {o['n_ok']}/{o['n']}" for op, o in g(c.app(S, "braus", "Safari"), "ops", default={}).items()
                if op in ("type", "key", "hotkey") and o["n"] and o["n_ok"] < o["n"]]
         if hits or bad:
             return "Safari: " + "; ".join(hits or bad)
     elif name == "scene_labels":
-        hits = [f"{a} {h}" for a in c.apps() for h in fail_hits(c, "mecum", a, ["click", "click_back", "type", "menu"], "honest_miss|ambiguous|no element|not found")]
+        hits = [f"{a} {h}" for a in c.apps() for h in fail_hits(c, "braus", a, ["click", "click_back", "type", "menu"], "honest_miss|ambiguous|no element|not found")]
         if hits:
             return "bersaglio non risolto: " + "; ".join(hits[:6])
     elif name == "photoshop_start_bar":
-        hits = fail_hits(c, "mecum", "Photoshop", None, "moveRefused|placementNotConfirmed")
-        if hits or g(c.app(S, "mecum", "Photoshop"), "aborted"):
+        hits = fail_hits(c, "braus", "Photoshop", None, "moveRefused|placementNotConfirmed")
+        if hits or g(c.app(S, "braus", "Photoshop"), "aborted"):
             return "Photoshop: " + "; ".join(hits or ["blocco interrotto"])
     elif name == "file_panel":
-        hits = fail_hits(c, "mecum", "Photoshop", None, "surfaceOutsideSeat|seatNotReady|targetActivated")
+        hits = fail_hits(c, "braus", "Photoshop", None, "surfaceOutsideSeat|seatNotReady|targetActivated")
         if hits:
             return "Photoshop: " + "; ".join(hits)
     elif name == "resolve_escape":
-        hits = fail_hits(c, "mecum", "DaVinci Resolve", None, "ambiguousEffect|quit|exited")
-        if hits or g(c.app(S, "mecum", "DaVinci Resolve"), "aborted"):
+        hits = fail_hits(c, "braus", "DaVinci Resolve", None, "ambiguousEffect|quit|exited")
+        if hits or g(c.app(S, "braus", "DaVinci Resolve"), "aborted"):
             return "Resolve: " + "; ".join(hits or ["blocco interrotto"])
     elif name == "idle_cpu":
-        v, used = c.across(S, idle_total, ["mecum"])
-        if v["mecum"] is not None and v["mecum"] > IDLE_TARGET:
-            return f"CPU a riposo {v['mecum']:.1f} ms/s con sessione aperta (mediana su {len(used)} app), obiettivo {IDLE_TARGET} ms/s"
+        v, used = c.across(S, idle_total, ["braus"])
+        if v["braus"] is not None and v["braus"] > IDLE_TARGET:
+            return f"CPU a riposo {v['braus']:.1f} ms/s con sessione aperta (mediana su {len(used)} app), obiettivo {IDLE_TARGET} ms/s"
     elif name == "background_menus":
-        hits = [f"{a} {h}" for a in c.apps() for h in fail_hits(c, "mecum", a, ["menu", "menu_back"], "disabled right now")]
+        hits = [f"{a} {h}" for a in c.apps() for h in fail_hits(c, "braus", a, ["menu", "menu_back"], "disabled right now")]
         if hits:
             return "menu rifiutati come disabilitati: " + "; ".join(hits)
     elif name == "step_time":
         slow = []
         for a, ops in c.step_sets().items():
             if ops and "cua" in c.drivers:
-                m, k = c.pooled_step(S, "mecum", {a: ops})[0], c.pooled_step(S, "cua", {a: ops})[0]
+                m, k = c.pooled_step(S, "braus", {a: ops})[0], c.pooled_step(S, "cua", {a: ops})[0]
                 if verdict(m, k) == "🔴":
                     slow.append(f"{a} {m:,.0f} contro {k:,.0f} ms")
         if slow:
             return "passo più lento di Cua: " + "; ".join(slow)
     elif name == "footprint":
-        m, k = g(S, "drivers", "mecum", "footprint_mb", "median"), g(S, "drivers", "cua", "footprint_mb", "median")
+        m, k = g(S, "drivers", "braus", "footprint_mb", "median"), g(S, "drivers", "cua", "footprint_mb", "median")
         if verdict(m, k) == "🔴":
             return f"RAM mediana {m:.0f} MB contro {k:.0f} MB di Cua"
     elif name == "action_cpu":
-        v, used = c.across(S, action_cpu, ["mecum", "cua"])
-        if verdict(v["mecum"], v["cua"]) == "🔴":
-            return f"CPU del driver per azione {v['mecum']:.0f} ms contro {v['cua']:.0f} ms di Cua"
+        v, used = c.across(S, action_cpu, ["braus", "cua"])
+        if verdict(v["braus"], v["cua"]) == "🔴":
+            return f"CPU del driver per azione {v['braus']:.0f} ms contro {v['cua']:.0f} ms di Cua"
     return None
 
 
@@ -754,16 +754,16 @@ def t_losses(t):
     for x in t.c.losses:
         dl = x["delta"]
         d = "" if dl is None else f", x{1 + dl:.1f}" if dl >= 1 else f", {dl * 100:+.0f}%"
-        e = merged.setdefault((x["area"], x["metric"]), [x["mecum"], []])
+        e = merged.setdefault((x["area"], x["metric"]), [x["braus"], []])
         e[1].append(f"{x['other']} ({x['against']}{d})")
     rows = [[area, metric, e[0], "; ".join(e[1])] for (area, metric), e in merged.items()]
     t.section("Dove perdiamo", [
-        "Le metriche delle tabelle sotto in cui Mecum è peggio di una variante di Cua oltre la soglia (più del 10% e intervalli distinti).",
+        "Le metriche delle tabelle sotto in cui Braus è peggio di una variante di Cua oltre la soglia (più del 10% e intervalli distinti).",
         "Elenco completo, senza selezione favorevole; tra parentesi la variante di Cua e la differenza relativa."],
-              ["Area", "Metrica", "Mecum", "Cua"], rows,
-              f"{len(rows)} voci in cui Mecum è peggio di almeno una variante.", "nessuna metrica in cui Mecum sia peggio")
+              ["Area", "Metrica", "Braus", "Cua"], rows,
+              f"{len(rows)} voci in cui Braus è peggio di almeno una variante.", "nessuna metrica in cui Braus sia peggio")
     if not rows:
-        t.out[-1] = "### Dove perdiamo\n\nNessuna metrica misurata in cui Mecum risulti peggio di Cua oltre la soglia.\n"
+        t.out[-1] = "### Dove perdiamo\n\nNessuna metrica misurata in cui Braus risulti peggio di Cua oltre la soglia.\n"
 
 
 # ------------------------------------------------------------------ the Team document
@@ -779,8 +779,8 @@ def specs(c):
              + f"; modalità a basso consumo: {'sì' if mach.get('low_power_mode') else 'no'}; stato termico: {mach.get('thermal_state') or 'n/d'}",
              f"- Display: {disp}; Stage Manager GloballyEnabled = {m.get('stage_manager')}"]
     dv = m.get("drivers") or {}
-    mecum, cua = dv.get("mecum") or {}, dv.get("cua") or {}
-    lines += [f"- Mecum: commit {mecum.get('commit') or 'n/d'}, {mecum.get('dirty_files', 'n/d')} file modificati nel working tree, binario del {mecum.get('binary_built') or 'n/d'}",
+    braus, cua = dv.get("braus") or {}, dv.get("cua") or {}
+    lines += [f"- Braus: commit {braus.get('commit') or 'n/d'}, {braus.get('dirty_files', 'n/d')} file modificati nel working tree, binario del {braus.get('binary_built') or 'n/d'}",
               f"- Cua: versione {cua.get('version') or 'n/d'}, commit {cua.get('commit') or g(c.SUP, 'cua', 'short') or 'n/d'}, binario del {cua.get('binary_built') or 'n/d'}; "
               f"overlay lanciato come {g(c.S, 'drivers', 'cua-overlay', 'launch') or 'n/d'}",
               f"- Corsa: inizio {r.get('started') or m.get('run') or 'n/d'}, fine {r.get('finished') or 'n/d'}"
@@ -798,19 +798,19 @@ def caveats(c):
         bullets.append(f"Stage Manager = {m['stage_manager']} (0 = spento): acceso, la finestra bersaglio viene riposta come miniatura e nessun driver può adottarla.")
     for w in (m.get("warnings") or []) + (m.get("blockers") or []):
         bullets.append(f"Avviso del preflight: {w}.")
-    blind = [(a, o) for a in c.apps() for o in g(c.app(S, "mecum", a), "ops", default={})
+    blind = [(a, o) for a in c.apps() for o in g(c.app(S, "braus", a), "ops", default={})
              if o not in ("open_session", "close_session", "list_windows", "observe", "observe_unchanged")
              and all(g(c.app(S, d, a), "ops", o, "n_checkable", default=0) == 0 for d in c.drivers if o in g(c.app(S, d, a), "ops", default={}))]
-    total = sum(1 for a in c.apps() for o in g(c.app(S, "mecum", a), "ops", default={})
+    total = sum(1 for a in c.apps() for o in g(c.app(S, "braus", a), "ops", default={})
                 if o not in ("open_session", "close_session", "list_windows", "observe", "observe_unchanged"))
     if total:
-        bullets.append(f"Punti ciechi della sonda: {len(blind)} delle {total} operazioni di Mecum non hanno un effetto leggibile via AX "
+        bullets.append(f"Punti ciechi della sonda: {len(blind)} delle {total} operazioni di Braus non hanno un effetto leggibile via AX "
                        f"(scroll, menu, pixel di kitty, Obsidian, Photoshop): per esse conta solo il verdetto del driver.")
     moves = g(S, "baseline", "windows_with_cursor_move")
     if moves is not None:
         bullets.append(f"La persona usa il Mac: {moves} finestre di baseline su {g(S, 'baseline', 'samples', default=0)} con il cursore mosso; "
                        "i movimenti del cursore nelle azioni non sono tutti del driver.")
-    bullets.append("Lo stream a riposo di Mecum è dedotto dal gap (> 2,5 s, ADR 0036), non osservato; la fase `--phases` mostra gli eventi veri se è stata eseguita.")
+    bullets.append("Lo stream a riposo di Braus è dedotto dal gap (> 2,5 s, ADR 0036), non osservato; la fase `--phases` mostra gli eventi veri se è stata eseguita.")
     bullets.append("I token sono stimati (testo a 4 caratteri per token, immagini w x h / 750); la fase compiti dà i token fatturati dal modello.")
     if c.cua_changed:
         bullets.append(f"Cua è cambiato rispetto al 6/10 ({g(c.SUP, 'cua', 'compared_against_short')} a {g(c.SUP, 'cua', 'short')}): "
@@ -841,10 +841,10 @@ def team(c):
     tickets = t.out
     date = time.strftime("%d/%m/%Y", time.strptime(c.when, "%Y-%m-%d"))
     legend = ("**Legenda.** Ogni valore confrontato ha il suo marcatore: 🟢 il migliore, 🔴 il peggiore, 🟡 pari (differenza entro ±10% oppure intervalli al 95% sovrapposti). "
-              "Colonna `vs 6/10`: variazione di Mecum rispetto alla propria corsa del 6 ottobre (▲ meglio, ▼ peggio, = entro ±5%). "
+              "Colonna `vs 6/10`: variazione di Braus rispetto alla propria corsa del 6 ottobre (▲ meglio, ▼ peggio, = entro ±5%). "
               "Cua è cambiato versione dal 6/10: le sue variazioni non sono un nostro guadagno. "
               "`Cua` è la variante senza overlay, `Cua overlay` quella con l'overlay del cursore.")
-    parts = [f"# Mecum contro Cua Driver: confronto del {date}\n", legend + "\n"] + losses + [head] + body
+    parts = [f"# Braus contro Cua Driver: confronto del {date}\n", legend + "\n"] + losses + [head] + body
     parts += ["### Mac e versioni\n", "\n".join(specs(c)) + "\n", "### Punti da tenere in considerazione\n", "\n".join(caveats(c)) + "\n"] + tickets
     return "\n".join(parts)
 
@@ -893,7 +893,7 @@ def per_app_table(c, title, fn, header_extra=None, empty="nothing recorded"):
 
 
 EN = [("Passo equivalente, mediana su operazioni appaiate", "Equivalent step, median over matched operations"), ("Metrica", "Metric"),
-      ("Mecum vs 6/10", "Mecum vs 6 Oct"), ("Cua vs 6/10", "Cua vs 6 Oct"), ("Cua cambiato versione", "Cua changed version"),
+      ("Braus vs 6/10", "Braus vs 6 Oct"), ("Cua vs 6/10", "Cua vs 6 Oct"), ("Cua cambiato versione", "Cua changed version"),
       ("Token per lettura piena (mediana tra app)", "Tokens per full read (median over apps)"),
       ("Token per lettura invariata o diff (mediana tra app)", "Tokens per unchanged / diff read (median over apps)"),
       ("CPU del driver a riposo, ultima finestra", "Driver CPU at rest, last window"), ("CPU del driver durante le azioni", "Driver CPU during actions"),
@@ -926,10 +926,10 @@ def r_step(c):
                   for q in ("p50", "p90", "p99")}
             row.append(f"{num(ps['p50'])} / {num(ps['p90'])} / {num(ps['p99'])}")
         own = c.own_ops(a)
-        cur, base = (c.pooled_step(c.S, "mecum", {a: own})[0], c.pooled_step(c.B, "mecum", {a: own})[0]) if own else (None, None)
+        cur, base = (c.pooled_step(c.S, "braus", {a: own})[0], c.pooled_step(c.B, "braus", {a: own})[0]) if own else (None, None)
         row += [f"{num(base)} → {num(cur)} ({arrow(cur, base)})" if own else "n/d"]
         rows.append(row)
-    return table(["Application", "Matched ops"] + [f"{LABEL[d]} p50 / p90 / p99 (ms)" for d in c.drivers] + ["Mecum 6 Oct → now (same operations)"], rows) + "\n" if rows else nodata("no operation completed by every driver")
+    return table(["Application", "Matched ops"] + [f"{LABEL[d]} p50 / p90 / p99 (ms)" for d in c.drivers] + ["Braus 6 Oct → now (same operations)"], rows) + "\n" if rows else nodata("no operation completed by every driver")
 
 
 def r_chain(c):
@@ -948,7 +948,7 @@ def r_chain(c):
                 rows.append([a, LABEL[d], "wake", w["resting_steps"], f"resting {num(w['resting_p50_ms'])}", f"warm {num(w['warm_p50_ms'])}",
                              "", f"cost {num(w['wake_cost_ms'])}", "", ""])
     return (table(["App", "Driver", "Pause s", "n", "p50 ms", "p90", "p99", "First step after rest", "Later steps", "Gap s (median)"], rows)
-            + "\n\nThe wake row counts Mecum steps that followed a gap above 2.5 s (ADR 0036); resting is inferred, not observed.\n") if rows else nodata("chain mode was not run")
+            + "\n\nThe wake row counts Braus steps that followed a gap above 2.5 s (ADR 0036); resting is inferred, not observed.\n") if rows else nodata("chain mode was not run")
 
 
 def r_reads(c):
@@ -960,7 +960,7 @@ def r_reads(c):
                 if o and o.get("n"):
                     t = o["tokens"]
                     ob = g(c.app(c.B, d, a), "reads", kind)
-                    rows.append([a, LABEL[d], kind if d == "mecum" or kind == "full" else "diff (since:latest)", lat(o), num(t["text"]), num(t["image"]), num(t["total"]),
+                    rows.append([a, LABEL[d], kind if d == "braus" or kind == "full" else "diff (since:latest)", lat(o), num(t["text"]), num(t["image"]), num(t["total"]),
                                  num(g(ob, "tokens", "total")) if ob else "n/d"])
     return table(["App", "Driver", "Read", "ms p50 / p90 / p99", "Text tokens", "Image tokens", "Total", "Total on 6 Oct"], rows) + "\n" if rows else nodata("no read rows")
 
@@ -1052,7 +1052,7 @@ def r_support(c):
         caps = [k for k in c.SUP.get("capabilities", [])]
         rows = []
         for cap in caps:
-            for d in ("mecum", "cua"):
+            for d in ("braus", "cua"):
                 x = cells.get((d, cap))
                 if not x:
                     continue
@@ -1104,21 +1104,21 @@ def r_deltas(c):
                ("Full read latency p50 (ms)", lambda a: g(a, "reads", "full", "latency_ms", "p50"), ms, True),
                ("Action success rate (reported ok)", lambda a: g(a, "actions", "ok_rate"), lambda v: f"{v * 100:.0f}%", False)]
     out = []
-    for d in ("mecum", "cua"):
+    for d in ("braus", "cua"):
         rows = []
         for label, getter, fmt, low in metrics:
             cur, base = c.own(getter, d)
             rows.append([label, fmt(base) if base is not None else "n/d", fmt(cur) if cur is not None else "n/d",
-                         arrow(cur, base, low) if d == "mecum" or not c.cua_changed else (f"Cua changed version ({change(cur, base) * 100:+.0f}%)" if change(cur, base) is not None else "n/d")])
+                         arrow(cur, base, low) if d == "braus" or not c.cua_changed else (f"Cua changed version ({change(cur, base) * 100:+.0f}%)" if change(cur, base) is not None else "n/d")])
         mem_c, mem_b = g(c.S, "drivers", d, "footprint_mb", "median"), g(c.B, "drivers", d, "footprint_mb", "median")
-        rows.append(["Footprint median (MB)", num(mem_b, 1), num(mem_c, 1), arrow(mem_c, mem_b) if d == "mecum" or not c.cua_changed else
+        rows.append(["Footprint median (MB)", num(mem_b, 1), num(mem_c, 1), arrow(mem_c, mem_b) if d == "braus" or not c.cua_changed else
                      (f"Cua changed version ({change(mem_c, mem_b) * 100:+.0f}%)" if change(mem_c, mem_b) is not None else "n/d")])
         sets = {a: c.own_ops(a, d) for a in c.apps()}
         cur, base = c.pooled_step(c.S, d, sets)[0], c.pooled_step(c.B, d, sets)[0]
-        rows.insert(0, ["Equivalent step p50 (ms, same operations)", num(base), num(cur), arrow(cur, base) if d == "mecum" or not c.cua_changed else
+        rows.insert(0, ["Equivalent step p50 (ms, same operations)", num(base), num(cur), arrow(cur, base) if d == "braus" or not c.cua_changed else
                         (f"Cua changed version ({change(cur, base) * 100:+.0f}%)" if change(cur, base) is not None else "n/d")])
-        note = ("" if d == "mecum" else (f"\n\nCua moved from {g(c.SUP, 'cua', 'compared_against_short')} to {g(c.SUP, 'cua', 'short')}: its reads were slimmed and its "
-                                         "step loop changed (`run_actions` with `observe`), so these differences are not a Mecum gain.\n" if c.cua_changed else ""))
+        note = ("" if d == "braus" else (f"\n\nCua moved from {g(c.SUP, 'cua', 'compared_against_short')} to {g(c.SUP, 'cua', 'short')}: its reads were slimmed and its "
+                                         "step loop changed (`run_actions` with `observe`), so these differences are not a Braus gain.\n" if c.cua_changed else ""))
         out.append(f"**{LABEL[d]}**, medians over the apps both runs have, same operations for steps.\n\n"
                    + table(["Metric", "6 Oct", "Now", "Change"], rows) + note)
     ch = c.SUP.get("cua_changes_since_20261006") or []
@@ -1150,19 +1150,19 @@ PARITY = [
     ("Window stream", "On: persistent window stream of the attested window (ADR 0034), observation reads from it", "No; a capture per read"),
     ("Stream rest", "On: ADR 0036, the stream drops to 1 fps after 2.5 s unused (offline tests only on 7 Oct)", "Not applicable"),
     ("Telemetry", "Not applicable", "Off (`CUA_DRIVER_RS_TELEMETRY_ENABLED=0`)"),
-    ("Defaults", "Release `mecum-mcp-stdio`, research opt-in for an unvalidated macOS build (`MECUM_BENCH_UNVALIDATED=1`)", "Every default kept, including the 1,000 ms post-action window watch; `cua-fast` is never in a report"),
+    ("Defaults", "Release `braus-mcp-stdio`, research opt-in for an unvalidated macOS build (`BRAUS_BENCH_UNVALIDATED=1`)", "Every default kept, including the 1,000 ms post-action window watch; `cua-fast` is never in a report"),
 ]
 
 
 def r_parity(c):
     rows = [list(x) for x in PARITY]
     launch = g(c.S, "drivers", "cua-overlay", "launch")
-    variants = [["`mecum`", "`.build/release/mecum-mcp-stdio <knowledge dir>`, one Seat session per app block, `MECUM_APP_SUPPORT_DIR` in the run directory"],
+    variants = [["`braus`", "`.build/release/braus-mcp-stdio <knowledge dir>`, one Seat session per app block, `BRAUS_APP_SUPPORT_DIR` in the run directory"],
                 ["`cua`", "`cua-driver mcp --direct`: the MCP process owns the runtime, no agent cursor overlay"],
                 ["`cua-overlay`", {"app-daemon": "bare `cua-driver mcp`, proxying to the daemon of `/Applications/CuaDriver.app` (overlay on)",
                                    "embedded-daemon": "the harness spawns `cua-driver serve --embedded --socket <run dir>/cua.sock` as its own child (the documented embedding path, "
                                                       "no CuaDriver.app installed) and speaks MCP to `cua-driver mcp --embedded --socket <same>`; overlay on"}.get(launch, "daemon-backed Cua, overlay on (launch kind not recorded in this run)")]]
-    return table(["Component", "Mecum", "Cua"], rows) + "\n\n" + table(["Variant", "Launched as"], variants) + "\n"
+    return table(["Component", "Braus", "Cua"], rows) + "\n\n" + table(["Variant", "Launched as"], variants) + "\n"
 
 
 def na(x):
@@ -1172,13 +1172,13 @@ def na(x):
 def methodology(c):
     m, rs = c.meta, c.S.get("meta") or []
     mach, power, dv = m.get("machine") or {}, m.get("power") or {}, m.get("drivers") or {}
-    mecum, cua = dv.get("mecum") or {}, dv.get("cua") or {}
+    braus, cua = dv.get("braus") or {}, dv.get("cua") or {}
     rows = [["Mac", f"{na(mach.get('model'))}; {na(mach.get('chip'))}; {na(mach.get('cores'))} cores; {num(mach.get('ram_gb'), 0).replace('n/d', 'n/a')} GB"],
             ["OS", f"macOS {na(mach.get('macos'))}, build {na(mach.get('build'))}"],
             ["Power / thermal", f"{na(power.get('source'))}; battery {na(power.get('battery_percent'))}%; low power {na(mach.get('low_power_mode'))}; thermal {na(mach.get('thermal_state'))}"],
             ["Displays", ", ".join(f"{x.get('w')}x{x.get('h')}{' built-in' if x.get('builtin') else ''}{' (Seat)' if x.get('seat') else ''}" for x in mach.get("displays") or []) or "n/a"],
             ["Stage Manager", f"GloballyEnabled = {na(m.get('stage_manager'))}"],
-            ["Mecum", f"commit {na(mecum.get('commit'))}, {na(mecum.get('dirty_files'))} modified files, binary built {na(mecum.get('binary_built'))}"],
+            ["Braus", f"commit {na(braus.get('commit'))}, {na(braus.get('dirty_files'))} modified files, binary built {na(braus.get('binary_built'))}"],
             ["Cua", f"{na(cua.get('version'))}, commit {na(cua.get('commit') or g(c.SUP, 'cua', 'short'))}, binary built {na(cua.get('binary_built'))}; "
                     f"CuaDriver.app installed: {na(cua.get('app_daemon_installed'))}"],
             ["Run", f"started {na(c.RUN.get('started') or m.get('run'))}; finished {na(c.RUN.get('finished'))}"
@@ -1191,7 +1191,7 @@ def methodology(c):
                if modes else "No meta rows in the data.") + "\n")
 
 
-METHOD_TEXT = """Each driver runs in its own block per application, in ABBA order (mecum, cua, cua-overlay, cua-overlay, cua, mecum) so slow drift
+METHOD_TEXT = """Each driver runs in its own block per application, in ABBA order (braus, cua, cua-overlay, cua-overlay, cua, braus) so slow drift
 is spread over the drivers. Every block starts a fresh driver process after a cooldown. One warm-up and `--reps` measured repetitions per
 operation; the warm-up is excluded. Latency is client wall time from request to reply including JSON and pipe transport. Resource deltas
 come from `proc_pid_rusage` around the call (WindowServer through `ps`, 10 ms resolution). An independent probe (AX values, frontmost app,
@@ -1199,7 +1199,7 @@ cursor, windows and their display) runs outside the measured window.
 
 **Success** is an effect the probe confirmed. `honest_miss`, `ambiguous`, `refused`, `error` and an `acted_unverified` that says delivery
 failed count as failures; an operation the probe cannot see stays unverified and never counts as a success. The equivalent step is one
-`run_actions` call with `observe:true` for Cua and the action call alone for Mecum (its reply already has the scene); a menu adds a diff read
+`run_actions` call with `observe:true` for Cua and the action call alone for Braus (its reply already has the scene); a menu adds a diff read
 for Cua. The pooled step medians use the operations every driver completed, weighted by their repetitions. **Tokens**: text is characters / 4,
 images are width x height / 750 after resizing; they estimate context, not billed tokens (the task phase has billed tokens). **Intervals**:
 Wilson 95% for proportions; the mean of a latency has a normal 95% interval from its standard deviation. A marker is 🟡 ("even") when the
@@ -1208,11 +1208,11 @@ difference is within 10% or the intervals overlap; otherwise the best value is �
 LIMITS = """- One machine on one day, a small operation set and few repetitions per operation: small differences are not distinguishable.
 - The probe sees AX values, not pixels: kitty, Obsidian and Photoshop pixel effects, scrolls and menu commands stay unverified.
 - The person may use the Mac during a run: the cursor and WindowServer observations carry that noise; idle and baseline rows carry the same check.
-- Mecum's stream rest is inferred from the gap since the previous call; a `--phases` run shows the real `preview.rest` events.
+- Braus's stream rest is inferred from the gap since the previous call; a `--phases` run shows the real `preview.rest` events.
 - `cua-overlay` is measured with an embedded daemon when CuaDriver.app is not installed; the app-daemon path is a different process layout.
 - Token counts are estimates. The task phase counts billed tokens for one model at one effort level with few repetitions per task.
 - The benchmark server is the app's worker path (`BrokeredAutomationSession` over a `SeatBroker`), not the CLI's `AutomationSession`; the app's views are not measured.
-- Cua changed version since 6 October: its deltas against that run say nothing about Mecum."""
+- Cua changed version since 6 October: its deltas against that run say nothing about Braus."""
 
 REPRO = """```sh
 cd Tools/Driver/CUAComparison
@@ -1223,7 +1223,7 @@ cd Tools/Driver/CUAComparison
 
 `bench.sh` runs the preflight (`prepare.py`), builds both drivers when stale, the per-call run, chain mode, the soak, optionally the phase
 breakdown, the model task phase (`tasks.py`), `summarize.py`, and `report.py`. Everything lands in `~/Forte_Projects/_bench/runs/<YYYYMMDD-HHMM>/`
-(raw JSONL, summaries, logs); the two reports are written to `~/Downloads/`. Stage Manager must be off and no other Mecum may run."""
+(raw JSONL, summaries, logs); the two reports are written to `~/Downloads/`. Stage Manager must be off and no other Braus may run."""
 
 
 def report(c, phases_text=None):
@@ -1238,9 +1238,9 @@ def report(c, phases_text=None):
                f"- Driver CPU at rest, last idle window, median over apps: " + "; ".join(f"{LABEL[d]} {num(idle[d], 2)} ms/s" for d in c.drivers) + ".",
                f"- Driver footprint median: " + "; ".join(f"{LABEL[d]} {num(g(S, 'drivers', d, 'footprint_mb', 'median'), 0)} MB" for d in c.drivers) + "."]
     sec = lambda n, title, body: f"## {n}. {title}\n\n{body}\n"  # noqa: E731
-    out = [f"# Mecum vs Cua Driver: macOS benchmark\n",
+    out = [f"# Braus vs Cua Driver: macOS benchmark\n",
            f"**{time.strftime('%-d %B %Y', time.strptime(c.when, '%Y-%m-%d'))} · {mach.get('model') or 'n/d'}, {mach.get('chip') or 'n/d'}, {num(mach.get('ram_gb'), 0)} GB · macOS {na(mach.get('macos'))} ({na(mach.get('build'))})**\n",
-           "This report compares Mecum (`mecum-mcp-stdio`, full stack) with Cua Driver (variants `cua` and `cua-overlay`) on the same windows. "
+           "This report compares Braus (`braus-mcp-stdio`, full stack) with Cua Driver (variants `cua` and `cua-overlay`) on the same windows. "
            "It extends the 6 October report with per-operation percentiles, intervals, chain timing, resources over time, a support matrix and real-model tasks. "
            "All numbers come from the summaries of this run; the 6 October values are the baseline of the delta tables.\n",
            "**Summary**\n\n" + "\n".join(summary) + "\n",
@@ -1256,7 +1256,7 @@ def report(c, phases_text=None):
            sec(10, "Memory and soak", r_memory(c)),
            sec(11, "Robustness", r_robust(c)),
            sec(12, "Intrusion seen by the independent probe", r_intrusion(c)),
-           sec(13, "Support: declared against measured", "Declared support is each driver's own documentation (Cua at c1c2b5f; Mecum paths are repo-relative, with no public URL). "
+           sec(13, "Support: declared against measured", "Declared support is each driver's own documentation (Cua at c1c2b5f; Braus paths are repo-relative, with no public URL). "
                "`cua` is the measured variant. Flags mark a declared refusal that works and a declared support that fails.\n\n" + r_support(c)),
            sec(14, "Tasks with a real model", r_tasks(c)),
            sec(15, "Phase breakdown", ("```\n" + phases_text.strip() + "\n```\n") if phases_text else nodata("`--phases` was not run")),
@@ -1313,7 +1313,7 @@ def main():
     out = os.path.expanduser(o.out_dir)
     os.makedirs(out, exist_ok=True)
     paths = []
-    for name, text in ((f"MecumVsCua-Team-{o.date}.md", team(c)), (f"MecumVsCua-Report-{o.date}.md", report(c, phases))):
+    for name, text in ((f"BrausVsCua-Team-{o.date}.md", team(c)), (f"BrausVsCua-Report-{o.date}.md", report(c, phases))):
         path = os.path.join(out, name)
         open(path, "w").write(text)
         paths.append(path)

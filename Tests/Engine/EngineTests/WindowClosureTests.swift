@@ -1,6 +1,6 @@
 //
 //  WindowClosureTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 12/10/2026.
 //
@@ -152,7 +152,7 @@ struct WindowClosureTests {
     }
 
     @Test("text with a control character is refused before any event, with the rule on or off", arguments: [
-        "\u{1B}", "Mecum\u{1B}", "\u{1B}[A", "a\u{0}b", "\u{7}", "\u{8}", "\u{1F}",
+        "\u{1B}", "Braus\u{1B}", "\u{1B}[A", "a\u{0}b", "\u{7}", "\u{8}", "\u{1F}",
     ])
     func controlCharactersAreRefused(text value: String) async {
         for permissions in [atRisk, ActionPermissions(), ActionPermissions(allowsDestructive: true)] {

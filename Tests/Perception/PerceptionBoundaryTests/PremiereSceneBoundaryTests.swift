@@ -1,6 +1,6 @@
 //
 //  PremiereSceneBoundaryTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Ronaldo Zefi on 15/09/2026.
 //
@@ -18,9 +18,9 @@ import WindowServerListing
 /// The adapters are proven at their boundary, on a Mac with the app running. Named apart from the
 /// Driver layer's Live tier on purpose: `make live-tests` filters on `LiveTests` and asserts a count. Prerequisites: Adobe
 /// Premiere open with a window on screen, Screen Recording and Accessibility granted to the process
-/// that runs the tests, and `MECUM_LIVE_TESTS=1` in the environment. Without the variable the suite is
+/// that runs the tests, and `BRAUS_LIVE_TESTS=1` in the environment. Without the variable the suite is
 /// skipped, so a headless run stays green and never pretends it saw a screen.
-@Suite("Boundary: Premiere scene", .enabled(if: ProcessInfo.processInfo.environment["MECUM_LIVE_TESTS"] == "1"))
+@Suite("Boundary: Premiere scene", .enabled(if: ProcessInfo.processInfo.environment["BRAUS_LIVE_TESTS"] == "1"))
 struct PremiereSceneBoundaryTests {
 
     private func premiereProcessID() -> pid_t? {

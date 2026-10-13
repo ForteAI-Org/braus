@@ -18,7 +18,7 @@ struct PhotoshopEditingSnapshotTests {
         history  : String = "2\tInvert"
     ) -> String {
         let bins = histogram ?? Array(repeating: "0", count: 255).joined(separator: ",") + ",1200"
-        return "MECUM_EDITING\t\(token)\t\(id)\t1\t40\t30\tLayer%20%C3%A8\t\(selection)\t\(bins)\t\(history)\nMECUM_DONE\t\(token)"
+        return "BRAUS_EDITING\t\(token)\t\(id)\t1\t40\t30\tLayer%20%C3%A8\t\(selection)\t\(bins)\t\(history)\nBRAUS_DONE\t\(token)"
     }
 
     @Test("selection and pixels come from the exact complete owned document")

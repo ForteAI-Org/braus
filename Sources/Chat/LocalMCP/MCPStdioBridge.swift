@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// MCPStdioBridge forwards standard MCP JSONL to an existing host. It never captures, launches Mecum,
+/// MCPStdioBridge forwards standard MCP JSONL to an existing host. It never captures, launches Braus,
 /// reconnects or replays a request. Full-duplex forwarding delivers cancellation while a tool runs.
 @MainActor
 public enum MCPStdioBridge {
@@ -64,9 +64,9 @@ public enum MCPBridgeFailure: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .unavailable:
-            "Mecum is unavailable. Open Mecum and enable this client in MCP Connections; copy its current configuration if needed."
+            "Braus is unavailable. Open Braus and enable this client in MCP Connections; copy its current configuration if needed."
         case .disconnected:
-            "Mecum disconnected or refused this connection. Check MCP Connections. A tool may have acted; observe before retrying."
+            "Braus disconnected or refused this connection. Check MCP Connections. A tool may have acted; observe before retrying."
         }
     }
 }

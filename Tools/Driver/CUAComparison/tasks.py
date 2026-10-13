@@ -16,11 +16,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CLAUDE = os.environ.get("CLAUDE_CLI", "/Users/mac/.local/bin/claude")
 CUA = os.environ.get("CUA_DRIVER", os.path.expanduser(
     "~/Forte_Projects/_bench/cua/libs/cua-driver/rust/target/release/cua-driver"))
-MECUM = os.path.join(HERE, ".build/release/mecum-mcp-stdio")
+BRAUS = os.path.join(HERE, ".build/release/braus-mcp-stdio")
 PROBE = os.path.join(HERE, ".build/probe")
 AXREAD = os.path.join(HERE, ".build/axread")
 CUA_APP = "/Applications/CuaDriver.app"
-DRIVERS = ["mecum", "cua", "cua-overlay"]
+DRIVERS = ["braus", "cua", "cua-overlay"]
 CONFIG = json.load(open(os.path.join(HERE, "tasks.json")))
 
 
@@ -284,11 +284,11 @@ class Launch:
     def __init__(self, driver, scratch, run_id):
         self.daemon, self.info = None, {}
         telemetry = {"CUA_DRIVER_RS_TELEMETRY_ENABLED": "0"}
-        if driver == "mecum":
+        if driver == "braus":
             support, knowledge = (os.path.join(scratch, f"{run_id}-{n}") for n in ("support", "knowledge"))
             os.makedirs(support), os.makedirs(knowledge)
-            spec = dict(command=MECUM, args=[knowledge],
-                        env=dict(MECUM_BENCH_UNVALIDATED="1", MECUM_APP_SUPPORT_DIR=support))
+            spec = dict(command=BRAUS, args=[knowledge],
+                        env=dict(BRAUS_BENCH_UNVALIDATED="1", BRAUS_APP_SUPPORT_DIR=support))
         elif driver == "cua":
             spec = dict(command=CUA, args=["mcp", "--direct"], env=telemetry)
         elif driver == "cua-overlay" and os.path.isdir(CUA_APP):
@@ -578,7 +578,7 @@ def main():
     parser.add_argument("--out")
     parser.add_argument("--scratch")
     parser.add_argument("--tasks", default=",".join(t["id"] for t in CONFIG["tasks"]))
-    parser.add_argument("--drivers", default=",".join(DRIVERS), help="mecum, cua, cua-overlay (selftest: the fake server)")
+    parser.add_argument("--drivers", default=",".join(DRIVERS), help="braus, cua, cua-overlay (selftest: the fake server)")
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--max-minutes", type=float, default=60)
     parser.add_argument("--dry-run", action="store_true", help="print the plan and estimate only")

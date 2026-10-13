@@ -1,6 +1,6 @@
 //
 //  LaunchWindowWatchTests.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 29/09/2026.
 //

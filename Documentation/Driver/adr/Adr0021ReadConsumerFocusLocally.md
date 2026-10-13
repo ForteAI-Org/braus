@@ -5,8 +5,8 @@ identity and physical-visibility checks used by focus recovery.
 
 ## Evidence
 
-Release Mecum `f73b09bd` observes Photoshop foreground readiness after 97.5 ms,
-then fails to verify the return to Mecum's own window within 250 ms. The app
+Release Braus `f73b09bd` observes Photoshop foreground readiness after 97.5 ms,
+then fails to verify the return to Braus's own window within 250 ms. The app
 remains visible, a fresh scene retains the Photoshop document, and session
 closure leaves null status. The command correctly refuses before dispatch.
 This is not successful menu qualification.

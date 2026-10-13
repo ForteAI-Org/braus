@@ -1,6 +1,6 @@
 //
 //  WindowClosureGuard.swift
-//  Mecum
+//  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 12/10/2026.
 //

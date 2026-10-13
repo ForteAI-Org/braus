@@ -2,10 +2,10 @@
 
 `SeatBroker` is the reusable application-facing runtime, under
 `Sources/SeatBroker` with its tests under `Tests/SeatBrokerTests`. It turns a
-captured scene into `SemanticAction` values, asks Mecum to execute each action,
+captured scene into `SemanticAction` values, asks Braus to execute each action,
 and verifies the resulting scene.
 
-It perceives through the Perception layer (`MecumPerception`, described in
+It perceives through the Perception layer (`BrausPerception`, described in
 `Documentation/Perception/README.md`) and through nothing else. One
 `ScenePipeline` is composed in `SeatBroker.init` over that layer's adapters:
 `VisionTextRecognizer` for text, `ConnectedComponentSegmenter` with
@@ -78,10 +78,10 @@ and view state. It does not duplicate runtime or perception code.
 
 ```mermaid
 flowchart LR
-    Lab[Mecum SwiftUI] --> Broker[SeatBroker]
+    Lab[Braus SwiftUI] --> Broker[SeatBroker]
     Lab -->|conversation, no seat| Transports[ModelTransports]
-    Broker -->|ScenePipeline| Perception[MecumPerception]
-    Broker --> Driver[MecumDriver]
+    Broker -->|ScenePipeline| Perception[BrausPerception]
+    Broker --> Driver[BrausDriver]
     Broker -->|plan| Transports
     Driver --> Seat[SeatHost and AgentSeat]
     Seat -->|frames| Broker
@@ -112,7 +112,7 @@ application and window, or, once released, the application and window the last
 session had. The agent observes or reopens it directly, with no `status` or
 `windows` call first. Nothing reopens on its own.
 
-### The browser window Mecum opened (7 October 2026)
+### The browser window Braus opened (7 October 2026)
 
 A browser that was already running is given a new window of its own, and that
 is the window the seat adopts (`BrowserOpening.seat`). When the session
