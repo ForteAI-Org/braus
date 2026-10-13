@@ -111,6 +111,7 @@ public enum SQLiteMemoryInspection {
         defer { presence.release() }
         if let pending = SQLiteMemoryRecovery.pending(of: url) { return report(.interruptedRecovery(pending)) }
         guard manager.fileExists(atPath: url.path) else { return report(.missing) }
+        if lacksLogFiles(url) { return report(.unavailable(missingLogFiles)) }
         var attempt = 0
         while true {
             attempt += 1
@@ -122,13 +123,6 @@ public enum SQLiteMemoryInspection {
             case .busy:
                 return report(.unavailable("the library answered busy \(busyAttempts) times; nothing was read"))
             case .failed(let failure):
-                if failure.primary == SQLITE_CANTOPEN, isWriteAheadLogged(url),
-                   !manager.fileExists(atPath: url.path + "-shm") {
-                    return report(.unavailable(
-                        "a WAL archive whose log files are not beside it: a reader cannot make them without "
-                        + "changing the directory; open it with Braus, or inspect it with its -wal and -shm"
-                    ))
-                }
                 return report(.unreadable("\(failure)"))
             }
         }
@@ -211,6 +205,7 @@ public enum SQLiteMemoryInspection {
         }
         defer { presence.release() }
         if let pending = SQLiteMemoryRecovery.pending(of: url) { return .unavailable(pending) }
+        if lacksLogFiles(url) { return .unavailable(missingLogFiles) }
         for attempt in 1...busyAttempts {
             do {
                 let connection = try SQLiteConnection(path: url.path, readOnly: true, mayCreate: false)
@@ -232,6 +227,20 @@ public enum SQLiteMemoryInspection {
             }
         }
         return .unavailable("the library answered busy \(busyAttempts) times; nothing was read")
+    }
+
+    /// Why a WAL archive without its log files is not read.
+    private static let missingLogFiles = "a WAL archive whose log files are not beside it: a reader cannot make "
+        + "them without changing the directory; open it with Braus, or inspect it with its -wal and -shm"
+
+    /// Whether the file is a WAL archive without its `-wal` or its `-shm`. A read-only connection of stock
+    /// SQLite makes them when the directory is writable, where Apple's refuses, so the diagnosis looks
+    /// before it opens. Every connection of this module keeps them after its close (`SQLiteConnection`),
+    /// so a closed archive has them; one another tool closed last, or a person moved, may not.
+    private static func lacksLogFiles(_ url: URL) -> Bool {
+        let manager = FileManager.default
+        return isWriteAheadLogged(url)
+            && !(manager.fileExists(atPath: url.path + "-wal") && manager.fileExists(atPath: url.path + "-shm"))
     }
 
     /// Whether the file's header says it is in WAL mode: read and write versions 2, bytes 18 and 19.

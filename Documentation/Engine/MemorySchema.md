@@ -1088,12 +1088,14 @@ files, and says so instead.
 | another shape, tables missing, columns missing, somebody else's tables | refused and left as it is, with the objects named |
 | not a database | not readable, with the library's reason |
 | a recovery holding the archive | not read: a recovery holds it |
-| a WAL file whose `-wal` and `-shm` are not beside it | not read: a read-only reader cannot make them without changing the directory |
+| a WAL file whose `-wal` or `-shm` is not beside it | not read: a read-only reader cannot make them without changing the directory; checked before opening, since a reader of stock SQLite would make them |
 | the record of a recovery that stopped | not read: what the record holds; the memory opens nothing until a recovery completes it |
 
 It never creates the archive, bootstraps, migrates, recovers or copies. The only file it may make is the
 empty lock file beside an archive that a build with the lock never opened. The library may update the
-`-shm` index while reading, as for any reader; it holds no data. The counters of writes live in each
+`-shm` index while reading, as for any reader; it holds no data. Every connection of the store keeps
+`-wal` (emptied) and `-shm` after its close (`SQLITE_FCNTL_PERSIST_WAL`), as Apple's library does by
+default, so a closed archive is read without making them. The counters of writes live in each
 process: this command has its own and shows none; the app shows its own on Settings > Brain.
 
 ### Recorders

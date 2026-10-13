@@ -65,6 +65,11 @@ final class SQLiteConnection {
         }
         sqlite3_extended_result_codes(opened, 1)
         sqlite3_busy_timeout(opened, 0)
+        // The log files stay beside the database after the last close, as the system library keeps
+        // them: a read-only diagnosis then reads a closed WAL archive without making any file. An
+        // in-memory database has no file to keep, so the answer is not checked.
+        var persistent: Int32 = 1
+        _ = sqlite3_file_control(opened, "main", SQLITE_FCNTL_PERSIST_WAL, &persistent)
         self.path   = path
         self.handle = opened
     }
