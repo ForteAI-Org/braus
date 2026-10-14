@@ -61,6 +61,9 @@ public enum ActVerification {
     public static func outcome(for verdict: Verdict, label: String, after: SceneSnapshot?) -> ActOutcome {
         switch verdict {
             case .landed(let effect, true):
+                if case .stateFlip = effect, let format = formatToggleOutcome("clicked", label: label, after: after) {
+                    return format
+                }
                 return ActOutcome(.foundActed, "clicked '\(label)': \(effect.summary)", scene: after)
             case .landed(let effect, false):
                 return ActOutcome(
@@ -84,4 +87,38 @@ public enum ActVerification {
                 )
         }
     }
+
+    /// The outcome of a text format toggle whose own state flipped, or nil for any other control.
+    ///
+    /// A bold, italic or underline control acts on the selected text, which no scene reads. Its own
+    /// state was observed to flip while the text kept its font (TextEdit's format bar reported `on`
+    /// and the line stayed Helvetica; the cause is not shown), so the flip is not the effect: the
+    /// gesture stays unverified, the check gains `commandEffectUnchecked`, and the sentence names the
+    /// menu command that applies the format.
+    public static func formatToggleOutcome(
+        _ performed: String,
+        label      : String,
+        after      : SceneSnapshot?,
+        check      : OperationCheck? = nil
+    ) -> ActOutcome? {
+        guard let path = formatMenuPaths[LabelText.normalize(label)] else { return nil }
+        return ActOutcome(
+            .actedUnverified,
+            "\(performed) '\(label)': only the control's own state changed; the selected text's format was "
+                + "not read. Check the text before more input; to apply the format, use menu \"\(path)\"",
+            scene: after,
+            check: check?.adding([.commandEffectUnchecked])
+        )
+    }
+
+    // Normalized format bar labels (AppKit FontManager ax_bold, ax_italic, ax_underline) to TextEdit's menu
+    // path in that language. A language not listed keeps the plain state-flip verdict until it is added.
+    private static let formatMenuPaths = [
+        "bold"        : "Format > Font > Bold",
+        "italic"      : "Format > Font > Italic",
+        "underline"   : "Format > Font > Underline",
+        "grassetto"   : "Formato > Font > Grassetto",
+        "corsivo"     : "Formato > Font > Corsivo",
+        "sottolineato": "Formato > Font > Sottolineato",
+    ]
 }

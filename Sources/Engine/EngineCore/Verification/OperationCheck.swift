@@ -111,7 +111,8 @@ public struct OperationCheck: Sendable, Equatable {
         /// The change was found anywhere in the window, not on the target itself.
         case windowWide = "window_wide"
 
-        /// Only the menu or the window closed; the command's own effect was not checked.
+        /// Only the menu or the window closed, or only the control's own state changed; the
+        /// command's own effect was not checked.
         case commandEffectUnchecked = "command_effect_unchecked"
 
         /// The control was pressed through accessibility by its label, not at the resolved element.

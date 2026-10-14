@@ -435,6 +435,34 @@ struct ActionEngineTests {
         #expect(actuator.confirmations == [.unknown], "a failed delivery is still closed, as unknown")
     }
 
+    // MARK: Format toggles
+
+    private let boldOff = SceneElement(id: "control|bold", kind: .control, label: "bold", bounds: NormalizedRect(x: 0.01, y: 0.05, width: 0.03, height: 0.02), role: "AXCheckBox", state: .off)
+    private let boldOn  = SceneElement(id: "control|bold", kind: .control, label: "bold", bounds: NormalizedRect(x: 0.01, y: 0.05, width: 0.03, height: 0.02), role: "AXCheckBox", state: .on)
+
+    @Test("a format toggle whose own state flipped is unverified and names the menu command")
+    func formatToggleClick() async throws {
+        let actuator = RecordingActuator()
+        let outcome = await engine(scenes: ScriptedScenes([scene([boldOff]), scene([boldOn])]), actuator: actuator)
+            .act(request("bold"))
+        #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
+        #expect(outcome.message.contains("menu \"Format > Font > Bold\""), Comment(rawValue: outcome.message))
+        let check = try #require(outcome.check)
+        #expect(check.verdict == .passed, "the flip itself was attributed to the click")
+        #expect(check.limits.contains(.commandEffectUnchecked))
+        #expect(actuator.confirmations == [.observed], "the click was delivered and its flip observed")
+    }
+
+    @Test("set_toggle on a format toggle reads its state back but does not claim the text's format")
+    func formatToggleSet() async {
+        let outcome = await engine(scenes: ScriptedScenes([scene([boldOff]), scene([boldOn])]), controls: FakeControls(toggle: .on))
+            .act(request("bold", verb: .setToggle, desired: .on))
+        #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
+        #expect(outcome.message.hasPrefix("set 'bold':"))
+        #expect(outcome.message.contains("menu \"Format > Font > Bold\""))
+        #expect(outcome.check?.limits.contains(.commandEffectUnchecked) == true)
+    }
+
     // MARK: set_toggle
 
     @Test("set_toggle is idempotent, needs a state, and verifies the read-back")

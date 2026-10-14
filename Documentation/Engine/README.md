@@ -288,6 +288,11 @@ Driver offers is not yet turned on here.
 
 - `ActVerification.verdict` compares a remembered expectation by effect family, never by exact
   string: a flip's direction or a menu's items may vary, the kind of effect should not.
+- A text format toggle (`bold`, `italic`, `underline`, and the Italian `grassetto`, `corsivo`,
+  `sottolineato`) is never `found_acted` from its own state:
+  a click or `set_toggle` that only flips it is `acted_unverified` with `commandEffectUnchecked`,
+  and the sentence names the menu command (`Format > Font > Bold`), since the selected text's
+  format is not read (`ActVerification.formatToggleOutcome`).
 - `Actuating.perform` returns when the events have gone out and says nothing about their effect;
   the engine verifies by perceiving again, then tells the actuator what it saw through
   `Actuating.confirm`: `observed` for a landed effect, `absent` for a ghost, `unknown` for a

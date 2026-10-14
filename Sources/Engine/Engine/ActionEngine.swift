@@ -393,6 +393,14 @@ public struct ActionEngine: Sendable {
                                                    limits: [.windowWide] + (openedByPress ? [.labelMatchOnly] : []))
         switch verdict {
             case .landed(let effect, true):
+                if case .stateFlip = effect, let format = ActVerification.formatToggleOutcome(
+                    request.verb.performed,
+                    label: element.label,
+                    after: after,
+                    check: check
+                ) {
+                    return format
+                }
                 let asExpected = expected == nil ? "" : " (as expected)"
                 return ActOutcome(.foundActed, "\(request.verb.performed) '\(element.label)': "
                     + "\(effect.summary)\(asExpected)", scene: after, check: check)
@@ -480,6 +488,14 @@ public struct ActionEngine: Sendable {
         )
         switch readBack {
             case desired:
+                if let format = ActVerification.formatToggleOutcome(
+                    "set",
+                    label: element.label,
+                    after: after,
+                    check: check
+                ) {
+                    return format
+                }
                 return ActOutcome(.foundActed, "set '\(element.label)' → \(desired.rawValue)",
                                   scene: after, check: check)
             case .some(let other):
