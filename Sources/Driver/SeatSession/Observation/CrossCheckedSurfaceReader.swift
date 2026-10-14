@@ -251,6 +251,17 @@ nonisolated package enum CrossCheckedSurfaceReader {
         windowNumbers: AccessibilityWindowNumberCache
     ) -> Result<AssignedSurfaceSnapshot, CrossCheckedSurfaceReadFailure> {
 
+        AXPassSignpost.measure("crossCheckedPass") {
+            read(ownedBy: processIDs, retaining: retainedIdentities, windowNumbers: windowNumbers)
+        }
+    }
+
+    private static func read(
+        ownedBy processIDs: Set<Int32>,
+        retaining retainedIdentities: Set<WindowIdentity>,
+        windowNumbers: AccessibilityWindowNumberCache
+    ) -> Result<AssignedSurfaceSnapshot, CrossCheckedSurfaceReadFailure> {
+
         guard Permissions.preflight(.accessibility) else {
             return .failure(.accessibilityPermissionMissing)
         }
