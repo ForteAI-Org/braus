@@ -17,9 +17,9 @@ import WindowPlacement
 /// seat holds the browser, ADR 0010 still takes its other visible windows onto the seat's display.
 ///
 /// A browser's windows are where the person is signed in, reading or in a call: adopting the main
-/// one moved the window a call was running in to the background display. A browser is any
-/// application registered for https (`WebBrowsers.bundleIDs`). The window comes from the browser's
-/// own new window item, which `MenuBarCommand.newWindowItem` finds by its key equivalent in any
+/// one moved the window a call was running in to the background display. A browser is a well-known
+/// one or the person's default (`WebBrowsers.bundleIDs`). The window comes from the browser's own
+/// new window item, which `MenuBarCommand.newWindowItem` finds by its key equivalent in any
 /// language, and it is the one window adopted: when it does not appear, `open` refuses and never
 /// falls back to a window the browser already had.
 ///
