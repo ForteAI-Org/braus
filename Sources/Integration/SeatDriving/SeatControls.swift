@@ -38,6 +38,11 @@ public struct SeatControls: ControlPressing {
         nil
     }
 
+    /// A label names no place, so the application's own answer holds wherever the window is.
+    public func toggleState(labelled label: String, in processID: pid_t) async -> ControlState? {
+        await accessibility.toggleState(labelled: label, in: processID)
+    }
+
     /// Focus is the application's own answer and names no place, so it holds wherever the window is.
     public func focusedFieldValue(in processID: pid_t) async -> String? {
         await accessibility.focusedFieldValue(in: processID)

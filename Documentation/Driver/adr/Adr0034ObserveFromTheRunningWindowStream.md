@@ -157,6 +157,23 @@ builds the new scene, and that is what is skipped:
   `SeatTarget.observe()`, so its Frame was taken after the Command's barrier. It is compared with
   the Frame the last scene was read from; the scene is reused only when those post-action pixels
   are byte-identical to it. A Command whose effect reached the pixels always runs the pipeline.
+- Amended 14 October 2026: a running stream's frame displayed after a Command is not evidence
+  that the window was drawn after it. This is inferred across two runs of one benchmark task on a
+  Qt window (Prism Launcher), not seen in one run, and its cause is not diagnosed. In one run an
+  observe about 2.5 s after a click on a checkbox read the running stream and showed it off; in the
+  other, an observe about 2 s after the same click fell back to a newly started stream and showed
+  it on. In the first, `set_toggle` then trusted the reused scene and clicked it back off. The kept scene
+  now answers identical pixels only when its own Frame was displayed after the last Command
+  (`SeatTarget.lastCommandAt`, set when the events go out). Otherwise `SeatTarget.freshWindowStill()`
+  takes a still from a stream started then: equal to the kept Frame, the scene is reused and that
+  still becomes the kept Frame; different, the pipeline reads it; failed, the pipeline reads the
+  observation's own pixels. This costs one stream start (about 135 ms) on the first identical
+  observation after each Command; a fresh still that fails costs at most
+  `SeatTarget.freshStillTimeout` (1 s), with no retry. `set_toggle` reads the control's state by
+  its label through accessibility before it decides and after it clicks, ahead of any scene.
+  Known limit: presses through accessibility (`DialogButtonPress`, `MenuBarCommand`,
+  `SeatControls.pressControl` and `pressMenuItem`) do not record the command time yet, so a state
+  change made only by one of them can still be answered from a kept scene.
 
 The trade-off, accepted by the owner on 7 October: the scene is not made of pixels alone. The
 accessibility stage can report a change that draws nothing (a value, or focus moving to an

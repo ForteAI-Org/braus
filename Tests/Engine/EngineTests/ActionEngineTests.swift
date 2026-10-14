@@ -81,6 +81,11 @@ struct ActionEngineTests {
             values.count > 1 ? values.removeFirst() : values.first ?? nil
         }
         func toggleState(at point: CGPoint, in processID: pid_t) async -> ControlState? { toggle }
+        var labelledToggle: ControlState?
+        var labelledReads: [String] = []
+        func toggleState(labelled label: String, in processID: pid_t) async -> ControlState? {
+            labelledReads.append(label); return labelledToggle
+        }
         func focusedFieldValue(in processID: pid_t) async -> String? { focused }
         var menuItemPresses = false
         var pressedMenuItems: [(title: String, frame: CGRect)] = []
@@ -451,6 +456,27 @@ struct ActionEngineTests {
             .act(request("Facebook", verb: .setToggle, desired: .on))
         #expect(stuck.kind == .actedUnverified)
         #expect(stuck.message.contains("now reads 'off'"))
+    }
+
+    @Test("set_toggle reads the control itself before deciding, so a stale scene never flips it back")
+    func setToggleReadsTheControlFirst() async {
+        let actuator = RecordingActuator()
+        let controls = FakeControls()
+        controls.labelledToggle = .on
+        let already = await engine(scenes: ScriptedScenes([scene([toggleOff])]), actuator: actuator, controls: controls)
+            .act(request("Facebook", verb: .setToggle, desired: .on))
+        #expect(already.kind == .actedNoop)
+        #expect(actuator.gestures.isEmpty, "the control already reads on: no click")
+        #expect(controls.labelledReads == ["Facebook"])
+        #expect(already.check?.observed == "on")
+
+        controls.labelledToggle = .off
+        let clicking = RecordingActuator()
+        let flipped = await engine(scenes: ScriptedScenes([scene([toggleOn]), scene([toggleOn])]), actuator: clicking,
+                                   controls: controls)
+            .act(request("Facebook", verb: .setToggle, desired: .on))
+        #expect(clicking.gestures.count == 1, "the scene said on but the control reads off: one click")
+        #expect(flipped.kind == .actedUnverified, "the read-back still answers off from the control")
     }
 
     // MARK: Pop-ups
