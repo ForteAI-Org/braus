@@ -47,8 +47,10 @@ struct ActionEngineTests {
         var gestures: [Gesture] = []
         var confirmations: [DeliveryEffect] = []
         var failure: (any Error)?
+        /// How many gestures go out before `failure` is thrown.
+        var failsFrom = 0
         func perform(_ gesture: Gesture, in processID: pid_t) async throws {
-            if let failure { throw failure }
+            if let failure, gestures.count >= failsFrom { throw failure }
             gestures.append(gesture)
         }
         func confirm(_ effect: DeliveryEffect, in processID: pid_t) async {
@@ -433,6 +435,49 @@ struct ActionEngineTests {
         #expect(outcome.kind == .actedUnverified)
         #expect(outcome.message.contains("delivery failed"))
         #expect(actuator.confirmations == [.unknown], "a failed delivery is still closed, as unknown")
+    }
+
+    @Test("a gesture the actuator refused before any event is a refusal with nothing sent, in its own words")
+    func gestureNotSent() async {
+        let actuator = RecordingActuator()
+        actuator.failure = GestureNotSent(reason: "endpoint_refused", sentence: "No control answered there.")
+        let outcome = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator).act(request("Export"))
+        #expect(outcome.kind == .refused)
+        #expect(outcome.message == "clicked 'Export': nothing was sent. No control answered there.")
+        #expect(outcome.check?.performed == OperationCheck.Performed.none, "\(String(describing: outcome.check))")
+        #expect(!outcome.message.contains("delivery failed"))
+
+        let key = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator)
+            .deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
+                                  input: .pressKey(KeyChord(.return), times: 1)))
+        #expect(key.kind == .refused)
+        #expect(key.message.hasSuffix("nothing was sent. No control answered there."))
+    }
+
+    @Test("a refusal after an earlier gesture of the same input went out stays a delivery whose effect is unknown")
+    func refusalAfterAnEarlierGesture() async {
+        let actuator = RecordingActuator()
+        actuator.failure = GestureNotSent(reason: "endpoint_refused", sentence: "No control.")
+        actuator.failsFrom = 1
+        let outcome = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator)
+            .deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
+                                  input: .pressKey(KeyChord(.return), times: 2)))
+        #expect(actuator.gestures.count == 1)
+        #expect(outcome.kind == .actedUnverified, "the first Return went out: its effect is unknown")
+        #expect(outcome.message.contains("delivery failed"))
+    }
+
+    @Test("a key that changed nothing in a file panel the system draws bounds the retries and says when to stop")
+    func aKeyWithNoEffectInAFilePanelAsksForAClick() async {
+        let goTo = InputRequest(processID: pid, bundleID: "com.x", appName: "X",
+                                input: .pressKey(KeyChord(.character("g"), modifiers: [.command, .shift]), times: 1))
+        let panel = await engine(scenes: ScriptedScenes([scene([export]), scene([export])]),
+                                 permissions: ActionPermissions(selectsFieldsByTripleClick: true)).deliver(goTo)
+        #expect(panel.message.contains("this window did NOT change"), "\(panel.message)")
+        #expect(panel.message.contains("Press it at most once more") && panel.message.contains("that way is closed"))
+        let window = await engine(scenes: ScriptedScenes([scene([export]), scene([export])])).deliver(goTo)
+        #expect(window.message.contains("click the control that should receive it first"))
+        #expect(!window.message.contains("name field"))
     }
 
     // MARK: set_toggle

@@ -321,7 +321,8 @@ nonisolated enum MemoryTaskTool {
 
     static let interpretationInstructions = """
     A checkpoint or an end answers the candidate procedure Braus segmented from your actions: one step per UI action,
-    grouped in blocks of one app. Interpret it in your next call with memory_task interpret: a short label of what the
+    grouped in blocks of one app. Interpret it in your very next call, before your answer to the person, with
+    memory_task interpret; a task whose candidate you do not interpret is never learned. Give a short label of what the
     procedure, each block and each step does, written for reuse without the rest; the outcome of each part as you know
     it; the parameters, each with its role, kind and value in this task (omit the value to take the task input of the
     same name); and every use of a parameter in a step's argument as a template over the argument's text, such as
@@ -465,7 +466,25 @@ nonisolated enum MemoryTaskTool {
         } catch let error as TaskContextError {
             throw Failure(code: "invalid_task", message: "The task cannot be recorded as given: \(error).")
         } catch let error as ProcedureError {
-            throw Failure(code: "invalid_interpretation", message: "The interpretation cannot be recorded as given: \(error).")
+            throw Failure(code: "invalid_interpretation", message: "The interpretation cannot be recorded as given: "
+                + "\(words(error)).")
+        }
+    }
+
+    /// A procedure error as the agent reads it: what to change, never the enum it is carried in. The canary of
+    /// 14/10/2026 read "invalid(Memory.ProcedureError.Invalidity.parameter(…))" twice before it could interpret.
+    static func words(_ error: ProcedureError) -> String {
+        guard case .invalid(let invalidity) = error else { return "\(error)" }
+        switch invalidity {
+            case .parameter(let text), .label(let text), .template(let text): return text
+            case .emptyText(let field)  : return "\(field) is empty"
+            case .tooLong(let field)    : return "\(field) is too long"
+            case .tooMany(let field)    : return "there are too many \(field)"
+            case .duplicate(let field)  : return "\(field) has a duplicate"
+            case .outOfRange(let field) : return "\(field) is out of range"
+            case .positions(let of)     : return "the steps of \(of) do not follow the candidate's order"
+            case .blocks                : return "the blocks are not the candidate's"
+            case .noSteps               : return "it names no step"
         }
     }
 

@@ -101,7 +101,9 @@ public struct ParameterStatement: Sendable, Equatable {
         }
         guard kind != .missing else { throw refuse("\(name) has a kind, missing is a value") }
         if sensitivity == .secret, case .text? = content { throw refuse("a secret's value is never kept: \(name)") }
-        if direction == .output, producedBy == nil { throw refuse("the output \(name) names the part that produced it") }
+        if direction == .output, producedBy == nil {
+            throw refuse("the output \(name) needs produced_by, the part that produced it: procedure, b1, … or s1, …")
+        }
         if direction != .output, producedBy != nil { throw refuse("only an output is produced by a part: \(name)") }
         if source == .previousOutput, sourceRef == nil { throw refuse("a previous output names its source: \(name)") }
         self.name          = name

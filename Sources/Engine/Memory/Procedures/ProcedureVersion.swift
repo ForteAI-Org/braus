@@ -368,7 +368,10 @@ public enum ProcedureAssembly {
             guard candidate.steps.indices.contains(use.stepPosition) else { throw unknown("step \(use.stepPosition + 1)") }
             let request = steps[use.stepPosition].request
             guard let spec = AgentCallArguments.specs(of: request.tool).first(where: { $0.name.utf8.elementsEqual(use.argumentName.utf8) }) else {
-                throw unknown("argument \(use.argumentName) of \(request.tool.rawValue) at step \(use.stepPosition + 1)")
+                // The value in place of the argument's name was the 14/10/2026 canary's mistake: say what a use names.
+                let names = AgentCallArguments.specs(of: request.tool).map(\.name).joined(separator: ", ")
+                throw unknown("argument \(use.argumentName) of \(request.tool.rawValue) at step \(use.stepPosition + 1); "
+                    + "a use names one of that step's arguments (\(names)) and writes its value in the template")
             }
             guard let recorded = request.arguments.first(where: {
                 $0.name.utf8.elementsEqual(use.argumentName.utf8) && $0.position == use.argumentPosition

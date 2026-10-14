@@ -127,7 +127,8 @@ final class ChatSession {
 
     /// One turn of the provider on the current transcript, with the first scene of the turn sent whole again: a
     /// resumed provider context may have been compacted. The Seat is held for the whole turn, as a worker's is;
-    /// between turns the session keeps it warm for a while, then gives it back.
+    /// between turns the session keeps it warm for a while, then gives it back. A turn that ends with a learning
+    /// candidate the agent did not interpret gets one more round asking for it (`takeInterpretationReminder`).
     func turn(_ message: String) async throws {
         guard let transcript = current else { throw ChatMenu.problem("No conversation to run the turn in.") }
         tools.forgetScene()
@@ -139,6 +140,18 @@ final class ChatSession {
         )
         try await desktop.turn {
             try await provider.run(turn, executable: executable) { event in try transcript.event(event) }
+            // A candidate the agent left uninterpreted is never learned: it is asked for once, in the same provider
+            // session and turn, with the Seat still held. The transcript keeps the request as Braus's own words.
+            guard let reminder = tools.takeInterpretationReminder() else { return }
+            print("\n\(reminder)\n")
+            try transcript.append(.user, reminder)
+            let follow = ProviderTurn(
+                provider: transcript.conversation.provider, model: transcript.conversation.model,
+                sessionID: transcript.conversation.providerSessionID, prompt: reminder,
+                instructions: ChatTools.instructions, bridgeExecutable: Self.executablePath,
+                connectionFile: connectionFile.path, workingDirectory: working.path
+            )
+            try await provider.run(follow, executable: executable) { event in try transcript.event(event) }
         }
     }
 

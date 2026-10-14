@@ -35,6 +35,10 @@ final class ModelToolLoop {
 
     private let call: @MainActor (String, JSONValue) async throws -> JSONValue
 
+    /// What a final answer is followed by, once: `AutomationTools.takeInterpretationReminder`, the request for a
+    /// learning candidate the model left uninterpreted. Nil goes on to the end of the turn.
+    private let reminder: @MainActor () -> String?
+
     /// Set by `stop`; checked before each round and each tool call.
     private var isStopRequested = false
 
@@ -43,8 +47,12 @@ final class ModelToolLoop {
 
     /// `call` runs one tool by name, as `AutomationTools.call` does, and reports
     /// its records itself.
-    init(call: @escaping @MainActor (String, JSONValue) async throws -> JSONValue) {
-        self.call = call
+    init(
+        call    : @escaping @MainActor (String, JSONValue) async throws -> JSONValue,
+        reminder: @escaping @MainActor () -> String? = { nil }
+    ) {
+        self.call     = call
+        self.reminder = reminder
     }
 
     /// The tools a model is handed: `AutomationTools.definitions`, each with its schema.
@@ -148,6 +156,13 @@ final class ModelToolLoop {
             if isStopRequested { throw CancellationError() }
             if let failure = reply.failure { throw failure }
             guard !reply.calls.isEmpty else {
+                // A candidate left uninterpreted is never learned: one more round asks for it, as `braus chat` does.
+                if hasTools, let asked = reminder() {
+                    onEvent(.provider(.activity(asked)))
+                    messages.append(TurnMessage(role: .assistant, text: reply.text, record: reply.record))
+                    messages.append(TurnMessage(role: .user, text: asked))
+                    continue
+                }
                 onEvent(.provider(.completed))
                 return
             }
