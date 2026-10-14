@@ -141,4 +141,62 @@ struct DialogButtonPressTests {
         #expect(missing.kind == .honestMiss)
         #expect(missing.message.hasSuffix("Its buttons: Save, OK, Cancel, OK."), "the listing is the scope's")
     }
+
+    // MARK: Waiting for the dialog
+
+    @Test("a missing button says no dialog is open when the window in front is none")
+    func aMissWithoutADialogSaysSo() {
+        guard case .outcome(let outcome) = DialogButtonPress.resolve(
+            "Don't Save",
+            among            : Self.buttonsOf["document"] ?? [],
+            allowsDestructive: false,
+            inDialog         : false
+        ) else { Issue.record("a button was pressed"); return }
+        #expect(outcome.kind == .honestMiss)
+        #expect(outcome.message.hasPrefix("No dialog is open, and the window in front has no button 'Don't Save'."))
+        #expect(!outcome.message.contains("dialog in front"))
+    }
+
+    @Test("an alert that comes to the front within the wait is the scope, read every poll")
+    func theAlertIsAwaited() async throws {
+        var reads: [String] = ["document", "document", "alert"]
+        var slept: [Duration] = []
+        let found = try await DialogButtonPress.awaitingDialog(
+            read     : { reads.count > 1 ? reads.removeFirst() : reads[0] },
+            isDialog : { $0 == "alert" },
+            elsewhere: { nil },
+            sleep    : { slept.append($0) }
+        )
+        #expect(found.window == "alert")
+        #expect(found.isDialog)
+        #expect(slept.count == 2)
+    }
+
+    @Test("with no dialog the wait ends at its bound, with the window in front and no dialog")
+    func theWaitIsBounded() async throws {
+        var slept = Duration.zero
+        let found = try await DialogButtonPress.awaitingDialog(
+            read     : { "document" },
+            isDialog : { $0 == "alert" },
+            elsewhere: { nil },
+            sleep    : { slept += $0 }
+        )
+        #expect(found.window == "document")
+        #expect(!found.isDialog)
+        #expect(slept == DialogButtonPress.dialogWait)
+    }
+
+    @Test("a dialog the focus stayed off is found among the windows once the wait ends")
+    func aDialogBehindTheFocusIsFound() async throws {
+        var askedElsewhere = 0
+        let found = try await DialogButtonPress.awaitingDialog(
+            read     : { "document" },
+            isDialog : { $0 == "alert" },
+            elsewhere: { askedElsewhere += 1; return "alert" },
+            sleep    : { _ in }
+        )
+        #expect(found.window == "alert")
+        #expect(found.isDialog)
+        #expect(askedElsewhere == 1)
+    }
 }

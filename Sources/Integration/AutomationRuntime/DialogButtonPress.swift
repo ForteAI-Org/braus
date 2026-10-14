@@ -29,6 +29,35 @@ import WindowPlacement
 @MainActor
 public enum DialogButtonPress {
 
+    /// How long a press waits for a dialog to come to the front when the seat holds none. Measured
+    /// on 30/09/2026 with Photoshop: right after File > Close the document was still the focused window.
+    public static let dialogWait: Duration = .milliseconds(500)
+
+    /// How often the focused window is read again during `dialogWait`.
+    static let dialogPoll: Duration = .milliseconds(50)
+
+    /// One open dialog as accessibility reads it, for a sentence that names it.
+    public struct OpenDialog: Equatable, Sendable {
+        public let title  : String
+        public let role   : String
+        public let buttons: [String]
+
+        /// A modal `AXDialog`, which the window list offers to `open_session` by its title.
+        public let isListed: Bool
+
+        public init(
+            title   : String,
+            role    : String,
+            buttons : [String],
+            isListed: Bool
+        ) {
+            self.title    = title
+            self.role     = role
+            self.buttons  = buttons
+            self.isListed = isListed
+        }
+    }
+
     /// One button as the search reads it.
     public struct Button<Element> {
         public let title    : String
@@ -60,22 +89,28 @@ public enum DialogButtonPress {
     /// The choice, over any list: exactly one enabled button with the title, compared like menu
     /// titles, and nothing destructive unless the person allowed it. `closingRefusal` is asked only
     /// for a button that closes its window, and refuses it with its sentence when it gives one.
+    /// `inDialog` false says the buttons are of a window in front that is no dialog.
     public static func resolve<Element>(
         _ title          : String,
         among buttons    : [Button<Element>],
         allowsDestructive: Bool,
+        inDialog         : Bool = true,
         closingRefusal   : ((String) -> String?)? = nil
     ) -> Resolution<Element> {
 
         let shown   = buttons.map(\.title).filter { !$0.isEmpty }.joined(separator: ", ")
         let wanted  = ActionPolicy.normalizedLabel(title)
         let matches = buttons.filter { ActionPolicy.normalizedLabel($0.title) == wanted }
+        let place   = inDialog ? "the dialog in front" : "the window in front"
         guard let only = matches.first else {
             let listing = shown.isEmpty ? "It has no buttons accessibility can read." : "Its buttons: \(shown)."
-            return .outcome(ActOutcome(.honestMiss, "No button '\(title)' in the dialog in front. " + listing))
+            let missing = inDialog
+                ? "No button '\(title)' in the dialog in front. "
+                : "No dialog is open, and the window in front has no button '\(title)'. "
+            return .outcome(ActOutcome(.honestMiss, missing + listing))
         }
         guard matches.count == 1 else {
-            return .outcome(ActOutcome(.ambiguous, "\(matches.count) buttons are titled '\(title)' in the dialog in front."))
+            return .outcome(ActOutcome(.ambiguous, "\(matches.count) buttons are titled '\(title)' in \(place)."))
         }
         if only.closesItsWindow || ActionPolicy.isWindowClosingLabel(only.title),
            let sentence = closingRefusal?("Pressing '\(only.title)'") {
@@ -101,6 +136,48 @@ public enum DialogButtonPress {
         dialogs.isEmpty ? (focusedWindow().map { [$0] } ?? []) : dialogs.compactMap(window)
     }
 
+    /// Reads `read` until it gives a window `isDialog` accepts, every `dialogPoll` for at most
+    /// `dialogWait`, then asks `elsewhere` for a dialog the focus is not on (ADR 0016: the focus can
+    /// stay on the blocked document): the dialog found, or the last window read and no dialog.
+    package static func awaitingDialog<Window>(
+        read     : () -> Window?,
+        isDialog : (Window) -> Bool,
+        elsewhere: () -> Window?,
+        sleep    : (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) async throws -> (window: Window?, isDialog: Bool) {
+        var window = read()
+        for _ in 0..<Int(dialogWait / dialogPoll) {
+            if let window, isDialog(window) { return (window, true) }
+            try await sleep(dialogPoll)
+            window = read()
+        }
+        if let window, isDialog(window) { return (window, true) }
+        if let dialog = elsewhere() { return (dialog, true) }
+        return (window, false)
+    }
+
+    /// The dialog `processID` has open, the focused one first, or nil when it has none.
+    public static func openDialog(of processID: pid_t) -> OpenDialog? {
+        let application = AXUIElementCreateApplication(processID)
+        AXUIElementSetMessagingTimeout(application, 1)
+        guard let dialog = dialogWindow(of: application) else { return nil }
+        // The window server's name first: it is the title open_session matches.
+        let served = WindowRelocator.windowNumber(of: dialog).flatMap { number in
+            CGWindowID(exactly: number).flatMap {
+                (CGWindowListCopyWindowInfo(.optionIncludingWindow, $0) as? [[String: Any]])?
+                    .first?[kCGWindowName as String] as? String
+            }
+        } ?? ""
+        var modal: CFTypeRef?
+        AXUIElementCopyAttributeValue(dialog, kAXModalAttribute as CFString, &modal)
+        return OpenDialog(
+            title   : served.isEmpty ? string(dialog, kAXTitleAttribute) ?? "" : served,
+            role    : string(dialog, kAXRoleAttribute) == (kAXSheetRole as String) ? "sheet" : "dialog",
+            buttons : buttons(in: dialog).map(\.title).filter { !$0.isEmpty },
+            isListed: string(dialog, kAXSubroleAttribute) == (kAXDialogSubrole as String) && (modal as? Bool) == true
+        )
+    }
+
     /// Presses `title` in the scope `dialogs` names in `processID`, the Window IDs of the dialogs
     /// the seat holds, and observes the scene after it, verified like a menu item: by the
     /// application's windows.
@@ -116,14 +193,22 @@ public enum DialogButtonPress {
         let application = AXUIElementCreateApplication(processID)
         AXUIElementSetMessagingTimeout(application, 1)
         let listed  = dialogs.isEmpty ? [] : windowsAndSheets(of: application)
+        // An alert a command just opened may not be the focused window yet.
+        let focused = dialogs.isEmpty
+            ? try await awaitingDialog(
+                read     : { element(application, kAXFocusedWindowAttribute) },
+                isDialog : isDialog,
+                elsewhere: { dialogWindow(of: application) }
+            )
+            : (window: nil, isDialog: true)
         let windows = scope(
             dialogs      : dialogs,
             window       : { number in listed.first { WindowRelocator.windowNumber(of: $0) == number } },
-            focusedWindow: { element(application, kAXFocusedWindowAttribute) }
+            focusedWindow: { focused.window }
         )
         guard !windows.isEmpty else {
             return ActOutcome(.honestMiss, dialogs.isEmpty
-                ? "The application has no window in front that accessibility can read."
+                ? "No dialog is open: the application has no window in front that accessibility can read."
                 : "The dialog open in the seat is not one accessibility can read.")
         }
 
@@ -131,6 +216,7 @@ public enum DialogButtonPress {
             title,
             among            : windows.flatMap(buttons(in:)),
             allowsDestructive: allowsDestructive,
+            inDialog         : focused.isDialog,
             closingRefusal   : closingRefusal
         )
         switch resolution {
@@ -179,6 +265,23 @@ public enum DialogButtonPress {
             : ActOutcome(.actedUnverified, "pressed '\(title)': no window opened, closed or was retitled; "
                 + "the scene shows whether it took effect. Do not press it again blind.",
                 scene: scene, check: check)
+    }
+
+    /// The application's dialog, the focused window first and then its windows and their sheets.
+    private static func dialogWindow(of application: AXUIElement) -> AXUIElement? {
+        let focused = element(application, kAXFocusedWindowAttribute).map { [$0] } ?? []
+        return (focused + windowsAndSheets(of: application)).first(where: isDialog)
+    }
+
+    /// A sheet, a window whose subrole says dialog, or a modal one, as Photoshop's New Document
+    /// (`AXLayoutArea`, `AXDialog`, modal) reads.
+    private static func isDialog(_ window: AXUIElement) -> Bool {
+        var modal: CFTypeRef?
+        AXUIElementCopyAttributeValue(window, kAXModalAttribute as CFString, &modal)
+        let subrole = string(window, kAXSubroleAttribute)
+        return string(window, kAXRoleAttribute) == (kAXSheetRole as String)
+            || subrole == (kAXDialogSubrole as String) || subrole == (kAXSystemDialogSubrole as String)
+            || (modal as? Bool) == true
     }
 
     /// Every `AXButton` under `window`, bounded: a dialog holds a handful, and a window that
