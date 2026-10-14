@@ -36,6 +36,9 @@ struct MenuBarCommandTests {
             Node("New..."), Node("Close"), Node("Close Window"), Node("Save", enabled: false), Node(""),
             Node("Save As..."),
         ]),
+        Node("Format", [Node("Font", [Node("Bold")])]),
+        Node("Formato", [Node("Font", [Node("Grassetto")])]),
+        Node("Edit", [Node("Erase")]),
         Node("Layer", [Node("New", [Node("Layer..."), Node("Group...")]), Node("Delete", [Node("Layer", enabled: false)])]),
     ])
 
@@ -130,6 +133,10 @@ struct MenuBarCommandTests {
         // Disabled in the fake, as it was in Photoshop: destructive is still the answer.
         guard case .outcome(let deleted) = resolve("Layer > Delete > Layer") else { Issue.record("pressed"); return }
         #expect(deleted.message.contains("destructive"))
+        // The menu-bar title is a place, not an action: Format does not make Bold destructive.
+        #expect(kind("Format > Font > Bold") == nil)
+        #expect(kind("Formato > Font > Grassetto") == nil)
+        #expect(kind("Edit > Erase") == .refused)
         #expect(kind("File > Export") == .honestMiss)
         #expect(kind("") == .honestMiss)
     }
