@@ -2,7 +2,7 @@
 
     python3 compare.py --apps Calculator,TextEdit --reps 8 --out results.jsonl --scratch DIR
     python3 compare.py --mode chain --apps TextEdit ...    # steps with 0, 1, 3 and 5 s pauses between them
-    python3 compare.py --mode soak --apps TextEdit ...     # 200 steps per driver, footprint every 10
+    python3 compare.py --mode soak --apps TextEdit ...     # 500 steps per driver, footprint every step
     python3 compare.py --phases --drivers braus ...        # a BRAUS_PHASES build, never mixed with timed runs
 
 Every call is one JSONL row: wall time at the client, reply size and tokens (text and image), CPU,
@@ -28,9 +28,14 @@ PHASES_BIN = os.environ.get("BRAUS_PHASES_BIN", os.path.join(HERE, ".build-phase
 PHASE_TABLE = os.path.join(HERE, "../Phases/phase-table.py")
 REST_DELAY_S = 2.5          # ADR 0036: the window stream rests after this long without a use
 TEXT_CHARS_PER_TOKEN = 4
+# Changed pixels a window shows with nothing done to it: a blinking text caret (about 2 x 20 pt) or a
+# terminal's block cursor (about 8 x 18 pt). Above this, the pixels confirm an effect.
+PIXEL_NOISE = 200
+REPLY_CHARS = 2000          # reply text kept in the row of a failed step, and of the reply before it
+PIXEL_DIR = None            # where the probe keeps the gray captures it compares; set by main()
 
-# What an independent oracle looks for after each kind of operation: the probe parts that must change.
-# `False` as an operation's fourth element means the probe cannot see the effect, so it stays unverified.
+# What an independent oracle looks for after each kind of operation: the probe parts that must change; `oracle()`
+# adds the bound window's "pixels" for scrolls and `pixels` scenarios. A fourth element `False` leaves it unverified.
 ORACLE = {"click": ["values", "selection", "focus", "windows"], "type": ["values", "selection"],
           "key": ["values", "selection", "focus"], "hotkey": ["values", "selection", "focus"],
           "scroll_down": ["scroll"], "scroll_up": ["scroll"]}
@@ -54,7 +59,10 @@ SCENARIOS = {
         ("key", ("press_key", {"key": "escape"}), ("press_key", {"key": "escape"}), ["values"]),
         menu("menu", ["View", "Basic"]),
     ]),
-    "TextEdit": dict(framework="AppKit", process="TextEdit", chain=["key", "hotkey", "scroll_down", "scroll_up"], ops=[
+    "TextEdit": dict(framework="AppKit", process="TextEdit", chain=["key", "hotkey", "scroll_down", "scroll_up"],
+                     # Undo not confirmed by its shortcut gets Edit > Undo as a row of its own; both are kept.
+                     fallback={"undo": menu("undo_menu", ["Edit", "Undo"], ["values"])},
+                     unknown_value="the whole document, around a caret the harness does not read", ops=[
         # The insert opens a new line below line two, so the click's label never changes between reps.
         ("click", ("act", {"target": "Line two."}), ("click", {"at": (0.06, 0.115)}), ["selection"]),
         ("hotkey", ("press_key", {"key": "right", "modifiers": ["cmd"]}), ("hotkey", {"keys": ["cmd", "right"]})),
@@ -65,7 +73,7 @@ SCENARIOS = {
         scroll("down"), scroll("up"),
         menu("menu", ["Edit", "Select All"], ["selection"]),
     ]),
-    "Google Chrome": dict(framework="Chromium", process="Google Chrome",
+    "Google Chrome": dict(framework="Chromium", process="Google Chrome", pixels=True,
                           chain=["key", "hotkey", "scroll_down", "scroll_up"], ops=[
         ("click", ("act", {"target": "Press me"}), ("click", {"label": "Press me", "role": "AXButton"}), ["values"]),
         ("type", ("type_text", {"target": "Name", "text": "hello{rep}"}),
@@ -75,17 +83,21 @@ SCENARIOS = {
         scroll("down"), scroll("up"),
         menu("menu", ["View", "Always Show Bookmarks Bar"]),
     ]),
-    "Prism Launcher": dict(framework="Qt 6", process="prismlauncher", ops=[
+    "Prism Launcher": dict(framework="Qt 6", process="prismlauncher", pixels=True, ops=[
         ("click", ("act", {"target": "Meow"}), ("click", {"label": "Meow", "role": "AXCheckBox"}), ["values"]),
         ("key", ("press_key", {"key": "escape"}), ("press_key", {"key": "escape"})),
     ]),
-    "kitty": dict(framework="OpenGL (GLFW)", process="kitty", ops=[
-        ("type", ("insert_text", {"text": "echo bench"}), ("type_text", {"text": "echo bench"}), False),
-        ("hotkey", ("press_key", {"key": "u", "modifiers": ["ctrl"]}), ("hotkey", {"keys": ["ctrl", "u"]}), False),
-        ("key", ("press_key", {"key": "left"}), ("press_key", {"key": "left"}), False),
+    "kitty": dict(framework="OpenGL (GLFW)", process="kitty", pixels=True,
+                  unknown_value="the terminal's whole text, prompt and scrollback included", ops=[
+        # A shell comment: should Ctrl-U not clear it, the Return below still runs no command.
+        ("type", ("insert_text", {"text": "# bench {rep}"}), ("type_text", {"text": "# bench {rep}"})),
+        ("hotkey", ("press_key", {"key": "u", "modifiers": ["ctrl"]}), ("hotkey", {"keys": ["ctrl", "u"]})),
+        # Return on the emptied line prints a new prompt: a visible effect, where Left there moved nothing.
+        ("key", ("press_key", {"key": "return"}), ("press_key", {"key": "return"})),
         scroll("up"), scroll("down"),
     ]),
-    "Safari": dict(framework="WebKit (Safari)", process="Safari", window="Personal — Bench Page", ops=[
+    "Safari": dict(framework="WebKit (Safari)", process="Safari", window="Personal — Bench Page",
+                   untitled_session=True, ops=[
         ("click", ("act", {"target": "Press me"}), ("click", {"label": "Press me", "role": "AXButton"}), ["values"]),
         ("type", ("type_text", {"target": "Name", "text": "hello{rep}"}),
                  ("type_text", {"label": "Name", "role": "AXTextField", "text": "hello{rep}"}), ["values"]),
@@ -95,18 +107,19 @@ SCENARIOS = {
         # Zoom in, then back to actual size, so each item is enabled when it is pressed.
         menu("menu", ["View", "Zoom In"]), menu("menu_back", ["View", "Actual Size"]),
     ]),
-    "Stocks": dict(framework="Mac Catalyst", process="Stocks", window="Stocks", ops=[
+    "Stocks": dict(framework="Mac Catalyst", process="Stocks", window="Stocks", pixels=True, ops=[
         ("key", ("press_key", {"key": "tab"}), ("press_key", {"key": "tab"})),
         scroll("down"), scroll("up"),
     ]),
-    "Obsidian": dict(framework="Electron", process="Obsidian", ops=[
-        ("click", ("act", {"target": "More options"}), ("click", {"label": "More options", "role": "AXButton"}), False),
-        ("key", ("press_key", {"key": "escape"}), ("press_key", {"key": "escape"}), False),
-        ("hotkey", ("press_key", {"key": "o", "modifiers": ["cmd"]}), ("hotkey", {"keys": ["cmd", "o"]}), False),
-        ("type", ("insert_text", {"text": "Driver"}), ("type_text", {"text": "Driver"}), False),
-        ("key_close", ("press_key", {"key": "escape"}), ("press_key", {"key": "escape"}), False),
+    "Obsidian": dict(framework="Electron", process="Obsidian", pixels=True, ops=[
+        ("click", ("act", {"target": "More options"}), ("click", {"label": "More options", "role": "AXButton"})),
+        ("key", ("press_key", {"key": "escape"}), ("press_key", {"key": "escape"})),
+        ("hotkey", ("press_key", {"key": "o", "modifiers": ["cmd"]}), ("hotkey", {"keys": ["cmd", "o"]})),
+        # Cmd-O opens the quick switcher with an empty query, so the field's whole value is the inserted text.
+        ("type", ("insert_text", {"text": "Driver", "expected_value": "Driver"}), ("type_text", {"text": "Driver"})),
+        ("key_close", ("press_key", {"key": "escape"}), ("press_key", {"key": "escape"})),
     ]),
-    "DaVinci Resolve": dict(framework="Qt + GPU (Resolve)", process="Resolve", ops=[
+    "DaVinci Resolve": dict(framework="Qt + GPU (Resolve)", process="Resolve", pixels=True, ops=[
         ("click", ("act", {"target": "Thumbnail View"}), ("click", {"label": "Thumbnail View", "role": "AXCheckBox"})),
         ("click_back", ("act", {"target": "List View"}), ("click", {"label": "List View", "role": "AXCheckBox"})),
         # No Escape here: it closes the Project Manager, and Resolve quits with no project open.
@@ -115,12 +128,15 @@ SCENARIOS = {
     # Works in the background and never saves: the document is closed with Don't Save. Known hazards, recorded
     # and not worked around: a "Start Bar" window can make Braus's adoption refuse (moveRefused), and right
     # after a new document Photoshop can be "not ready" for about 2 s.
-    "Photoshop": dict(framework="Adobe (proprietary toolkit)", process_prefix="Adobe Photoshop", rebind="front", ops=[
+    "Photoshop": dict(framework="Adobe (proprietary toolkit)", process_prefix="Adobe Photoshop", rebind="front",
+                      pixels=True, ops=[
         menu("new_doc", ["File", "New..."], ["windows"]),
         ("new_doc_confirm", ("press_key", {"key": "return"}), ("press_key", {"key": "return"}), ["windows"]),
+        # A blank canvas turned 180 degrees and a canvas that fits its window show no change, in AX or in pixels.
         menu("menu_rotate", ["Image", "Image Rotation", "180°"], False),
         menu("menu_rotate_back", ["Image", "Image Rotation", "180°"], False),
-        ("key", ("press_key", {"key": "x"}), ("press_key", {"key": "x"}), False),
+        # X swaps the foreground and background swatches of the toolbar: the pixels show it.
+        ("key", ("press_key", {"key": "x"}), ("press_key", {"key": "x"})),
         scroll("down", False), scroll("up", False),
         menu("close_doc", ["File", "Close"], ["windows"]),
         ("dont_save", ("press", {"button": "Don't Save"}), ("click", {"label": "Don't Save", "role": "AXButton"}),
@@ -129,7 +145,8 @@ SCENARIOS = {
 }
 # Rows that are not an operation under test: they carry no success verdict.
 NOT_ACTIONS = {"observe", "observe_unchanged", "observe_after", "list_windows", "open_session", "close_session",
-               "idle", "baseline", "startup", "soak_mem", "chain_step", "block_aborted", "target"}
+               "open_session_untitled", "idle", "baseline", "startup", "soak_mem", "chain_step", "block_aborted",
+               "target", "state_reset"}
 BAD_STATUS = ("error", "refused", "failed", "honest_miss", "ambiguous")
 RUN_TOOLS = {"click", "press_key", "hotkey", "type_text", "scroll"}
 ROLES = {"AXButton": "button", "AXCheckBox": "checkbox", "AXTextField": "textfield"}
@@ -155,6 +172,10 @@ def target_for(app, scenario, fixtures):
     # The window list names Chrome's window "<page> - Google Chrome"; both drivers see only "<page>".
     if title and title.endswith(" - Google Chrome"):
         title = title[:-len(" - Google Chrome")]
+    if app == "Obsidian":
+        # The title names the active note too: bind by the vault's part, as the window is titled now.
+        titles = [w.get("title", "") for w in probe(pid).get("windows", [])]
+        title = next((t for t in titles if prepare.OBSIDIAN_VAULT in t), prepare.OBSIDIAN_VAULT)
     return pid, title, name
 
 
@@ -167,11 +188,58 @@ def window_server():
     return WINDOW_SERVER
 
 
-def probe(pid):
+def probe(pid, pixels=None, against=None, window=None):
+    """The probe's reading; with `pixels`, the gray capture of the window with id `window` is kept in that file
+    and, with `against`, compared with an earlier one."""
+    argv = [PROBE, str(pid)] + (["--pixels", pixels, "--window", str(window or 0)] if pixels else []) \
+        + (["--against", against] if against else [])
     try:
-        return json.loads(subprocess.run([PROBE, str(pid)], capture_output=True, text=True, timeout=10).stdout)
+        return json.loads(subprocess.run(argv, capture_output=True, text=True, timeout=10).stdout)
     except Exception as error:
         return {"error": str(error)}
+
+
+def decide(expect, before, after):
+    """(verified, verified_by) of an operation: True/False/None and "ax", "pixels", or, left undecided,
+    "pixels_small" (a change no larger than a caret blink), "pixels_window_changed" (the two captures are of
+    different windows or sizes, so nothing was compared) or "pixels_unavailable" (no capture to compare)."""
+    parts_b, parts_a = before.get("parts"), after.get("parts")
+    if not expect or not parts_b or not parts_a:
+        return None, None
+    if any(parts_b.get(p) != parts_a.get(p) for p in expect if p != "pixels"):
+        return True, "ax"
+    if "pixels" not in expect:
+        return False, "ax"
+    shot_b, shot_a = before.get("pixels") or {}, after.get("pixels") or {}
+    if not shot_b.get("width") or not shot_a.get("width"):
+        return None, "pixels_unavailable"
+    frame = lambda shot: (shot.get("window"), shot.get("width"), shot.get("height"))  # noqa: E731
+    if frame(shot_b) != frame(shot_a):
+        return None, "pixels_window_changed"
+    changed = shot_a.get("changed")
+    if changed is None:
+        return None, "pixels_unavailable"
+    if changed > PIXEL_NOISE:
+        return True, "pixels"
+    return (None, "pixels_small") if changed else (False, "pixels")
+
+
+def bound_window(pid, title=None):
+    """The window server id of the target's window titled with `title` (a part of it, as Cua matches), or
+    without a title of its front window above 100 px, as Cua binds; None when there is no such window."""
+    found = [w for w in probe(pid).get("windows", []) if w.get("w", 0) > 100 and w.get("h", 0) > 100
+             and (title is None or title in (w.get("title") or ""))]
+    found.sort(key=lambda w: not w.get("onscreen"))  # stable: onscreen first, each group front to back
+    return found[0]["id"] if found else None
+
+
+def reply_text(reply):
+    """The text a client forwards to the model, bounded."""
+    text = " ".join(item.get("text", "") for item in (reply.get("result") or {}).get("content", [])
+                    if item.get("type") == "text")
+    if not text and reply.get("error"):
+        text = json.dumps(reply["error"])
+    return text[:REPLY_CHARS]
 
 
 def image_tokens(width, height):
@@ -256,6 +324,8 @@ class Recorder:
         self.timeout = call_timeout
         self.last_end = {}
         self.last = None
+        self.last_reply = {}       # per client: (op, text) of its previous reply
+        self.pixel_control = False  # reads with no action also compare pixels: the noise floor of the app
 
     def write(self, row):
         self.file.write(json.dumps(row) + "\n")
@@ -279,11 +349,15 @@ class Recorder:
             self.stalled = bool(fired)
 
     def measure(self, client, driver, app, framework, op, rep, name, arguments, target_pid, settle=0.25,
-                light=False, expect=None, **extra):
-        """One call. `light` skips the probes and the settle, for chain and soak steps whose timing counts."""
+                light=False, expect=None, window=None, **extra):
+        """One call. `light` skips the probes and the settle, for chain and soak steps whose timing counts.
+        `window` is the window server id of the window the driver is bound to: the only one the pixels read."""
         pid = getattr(client, "driver_pid", client.pid)
         proxy = client.pid if pid != client.pid else None
-        before = {} if light else probe(target_pid)
+        pixels = not light and PIXEL_DIR and ("pixels" in (expect or []) or
+                                              (self.pixel_control and op == "observe_unchanged"))
+        shots = [os.path.join(PIXEL_DIR, f"{side}.gray") for side in ("before", "after")] if pixels else [None, None]
+        before = {} if light else probe(target_pid, shots[0], window=window)
         ws = None if light else window_server()
         cursor0 = rusage.cursor()
         d0, a0, p0 = rusage.sample(pid), rusage.sample(target_pid), rusage.sample(proxy) if proxy else None
@@ -304,15 +378,21 @@ class Recorder:
         cursor1 = rusage.cursor()
         if not light:
             time.sleep(settle)
-        after = {} if light else probe(target_pid)
+        after = {} if light else probe(target_pid, shots[1], shots[0], window=window)
         text, images, structured = payload(reply)
         sizes = [s for s in image_sizes(reply) if s]
         image_toks = sum(image_tokens(*s) for s in sizes)
-        parts_b, parts_a = before.get("parts"), after.get("parts")
-        verified = any(parts_b.get(p) != parts_a.get(p) for p in expect) if expect and parts_b and parts_a else None
+        verified, verified_by = decide(expect, before, after)
         success = None
         if op not in NOT_ACTIONS:
             success = False if error is not None or verified is False else (True if verified else None)
+        previous = self.last_reply.get(id(client))
+        self.last_reply[id(client)] = (op, reply_text(reply))
+        # A failed step keeps what the driver answered and what it showed just before, for the reader.
+        kept = dict(reply_text=reply_text(reply), observe_before_op=previous and previous[0],
+                    observe_before_text=previous and previous[1]) if error is not None or success is False else {}
+        shown = lambda reading: (reading.get("pixels") or {})  # noqa: E731
+        changed_front = (before.get("frontmost") != after.get("frontmost")) if before and after else None
         observation = ((reply.get("result") or {}).get("structuredContent") or {}).get("observation")
         row = self.row(driver=driver, app=app, framework=framework, op=op, rep=rep, tool=name,
                        ms=None if seconds is None else seconds * 1000, ok=error is None, error=error,
@@ -332,9 +412,14 @@ class Recorder:
                        windowserver_cpu_ms=(w1 - w0) / 1e6 if w0 is not None and w1 is not None else None,
                        gap_s=gap,
                        stream_resting=(gap is not None and gap > REST_DELAY_S) if driver == "braus" else None,
-                       expect=expect or None, verified=verified, success=success,
+                       expect=expect or None, verified=verified, verified_by=verified_by, success=success,
+                       pixels_changed=shown(after).get("changed"),
+                       pixels_total=shown(after).get("width", 0) * shown(after).get("height", 0) or None,
+                       pixel_windows=[shown(before).get("window"), shown(after).get("window")] if pixels else None,
                        frontmost_before=before.get("frontmost"), frontmost_after=after.get("frontmost"),
-                       frontmost_changed=(before.get("frontmost") != after.get("frontmost")) if before and after else None,
+                       frontmost_changed=changed_front,
+                       frontmost_names=[before.get("frontmostName"), after.get("frontmostName")]
+                       if changed_front else None,
                        cursor_moved=moved(before.get("cursor"), after.get("cursor")) if before and after else None,
                        cursor_moved_call=moved(cursor0, cursor1),
                        user_windows_before=user_windows(before) if before else None,
@@ -342,7 +427,7 @@ class Recorder:
                        window_on_user_display=(user_windows(after) > user_windows(before)) if before and after else None,
                        effect_seen=before.get("digest") != after.get("digest") if before and after else None,
                        digest_before=before.get("digest"), digest_after=after.get("digest"),
-                       target_pid=target_pid, **extra)
+                       target_pid=target_pid, **kept, **extra)
         self.write(row)
         self.last = row
         ms = row["ms"]
@@ -504,7 +589,7 @@ class Cua:
         else:
             arguments |= {"full_output": True}
         reply = self.recorder.measure(self.client, self.name, app, framework, op, rep, "get_window_state",
-                                      arguments, pid, light=light, **extra)
+                                      arguments, pid, light=light, window=self.window, **extra)
         structured = (reply.get("result") or {}).get("structuredContent") or {}
         if op != "observe" and not self.legacy:
             return
@@ -572,7 +657,7 @@ class Cua:
             self.recorder.failure(self.name, app, framework, op, rep, f"harness: {error}", **extra)
             return self.recorder.last
         self.recorder.measure(self.client, self.name, app, framework, op, rep, tool, call, pid,
-                              light=light, expect=expect, **extra)
+                              light=light, expect=expect, window=self.window, **extra)
         return self.recorder.last
 
     def after(self, app, framework, op, rep, target, rebind=None, light=False, **extra):
@@ -605,15 +690,18 @@ class Braus:
         self.client = MCPClient([binary or BRAUS, knowledge], stderr=log, env=env)
         self.startup_ms = (time.perf_counter() - started) * 1000
         self.session = None
+        self.window = None
         self.launch = "phases" if binary else "release"
 
     def startup_row(self):
         return dict(driver="braus", op="startup", ms=self.startup_ms, ok=True, launch=self.launch)
 
-    def open(self, app, framework, rep, target, scenario):
+    def open(self, app, framework, rep, target, scenario, op="open_session"):
         pid, window, name = target
         arguments = {"app": name} | ({"window": window} if window else {})
-        reply = self.recorder.measure(self.client, "braus", app, framework, "open_session", rep,
+        # Braus names no window id: the one titled as the session asks is the one its pixels are read from.
+        self.window = bound_window(pid, window)
+        reply = self.recorder.measure(self.client, "braus", app, framework, op, rep,
                                       "open_session", arguments, pid, settle=0.5)
         self.session = (reply_body(reply) or {}).get("session")
         return bool(self.session)
@@ -627,16 +715,21 @@ class Braus:
     def read(self, app, framework, op, rep, pid, full, light=False, **extra):
         return self.recorder.measure(self.client, "braus", app, framework, op, rep, "observe",
                                      {"session": self.session} | ({"full": True} if full else {}), pid,
-                                     light=light, **extra)
+                                     light=light, window=self.window, **extra)
 
     def start_rep(self, app, framework, rep, pid):
         self.read(app, framework, "observe", rep, pid, full=True)
         self.read(app, framework, "observe_unchanged", rep, pid, full=False)
 
     def act(self, app, framework, op, rep, spec, target, expect, rebind=None, light=False, **extra):
+        if rebind == "front":
+            self.window = bound_window(target[0])
+        # Braus checks expected_value against the field's whole value: where the run cannot know it, the row says why.
+        if spec[0] == "insert_text" and "expected_value" not in spec[1]:
+            extra["expected_value_omitted"] = SCENARIOS.get(app, {}).get("unknown_value", "whole field value unknown")
         self.recorder.measure(self.client, "braus", app, framework, op, rep, spec[0],
                               dict(fill(spec[1], rep), session=self.session), target[0],
-                              light=light, expect=expect, **extra)
+                              light=light, expect=expect, window=self.window, **extra)
         return self.recorder.last
 
     def after(self, *args, **kwargs):
@@ -655,10 +748,15 @@ def new_driver(name, recorder, log, scratch, phases):
     return Braus(recorder, log, knowledge, PHASES_BIN if phases else None)
 
 
-def oracle(op, entry):
+def oracle(op, entry, scenario=None):
     """The probe parts that confirm this operation, or None when the probe cannot see its effect."""
     given = entry[3] if len(entry) > 3 else "default"
-    return None if given is False else ORACLE.get(op) if given == "default" else given
+    if given is False:
+        return None
+    parts = list(ORACLE.get(op) or []) if given == "default" else list(given)
+    if (scenario or {}).get("pixels") or op.startswith("scroll"):
+        parts.append("pixels")
+    return parts or None
 
 
 def spec_for(driver, entry):
@@ -714,14 +812,25 @@ def ops_block(driver, app, scenario, target, reps, options):
         driver.start_rep(app, framework, rep, pid)
         for step, entry in enumerate(scenario["ops"]):
             op = entry[0]
-            driver.act(app, framework, op, rep, spec_for(driver, entry), target, oracle(op, entry),
-                       rebind=scenario.get("rebind"), step=step)
+            acted = driver.act(app, framework, op, rep, spec_for(driver, entry), target, oracle(op, entry, scenario),
+                               rebind=scenario.get("rebind"), step=step)
             driver.after(app, framework, op, rep, target, rebind=scenario.get("rebind"), step=step)
+            backup = scenario.get("fallback", {}).get(op)
+            if backup and acted.get("success") is not True:
+                driver.act(app, framework, backup[0], rep, spec_for(driver, backup), target,
+                           oracle(backup[0], backup, scenario), rebind=scenario.get("rebind"), step=step,
+                           fallback_for=op)
+                driver.after(app, framework, backup[0], rep, target, rebind=scenario.get("rebind"), step=step,
+                             fallback_for=op)
     idle_windows(driver.recorder, driver, app, framework, pid, options.idle_windows, options.idle_seconds)
     driver.release(app, framework, 0, pid)
     for rep in range(1, options.sessions + 1) if options.extra_sessions else []:
         if driver.open(app, framework, rep, target, scenario):
             driver.release(app, framework, rep, pid)
+    # A session that names no window: for a browser, Braus opens a window of its own (ADR 0038).
+    if options.extra_sessions and scenario.get("untitled_session"):
+        if driver.open(app, framework, 0, (pid, None, target[2]), scenario, op="open_session_untitled"):
+            driver.release(app, framework, 0, pid)
 
 
 def chain_block(driver, app, scenario, target, options):
@@ -773,6 +882,81 @@ def soak_block(driver, app, scenario, target, options):
     driver.release(app, framework, 0, pid)
 
 
+def desk(*argv):
+    """One `desk` command (our own helper); its JSON answer, or the reason it gave none."""
+    try:
+        done = subprocess.run([prepare.DESK, *map(str, argv)], capture_output=True, text=True, timeout=15)
+        return json.loads(done.stdout)
+    except Exception as error:
+        return {"ok": False, "error": str(error)}
+
+
+def reset_state(app, scenario, fixtures):
+    """Puts back what a block may have left, before the next one: TextEdit's text and scroll from the fixture,
+    Photoshop's documents and dialogs closed without saving. None for every other app. Only on what the run
+    opened: the fixture's own TextEdit window, a Photoshop that prepare.py launched (a person's open documents
+    are never closed). Never an Escape to DaVinci Resolve: on its only window it quits (ADR 0039)."""
+    if app not in ("TextEdit", "Photoshop"):
+        return None
+    fixture = fixtures.get(app) or {}
+    if app == "TextEdit" and not str(fixture.get("window") or "").startswith("bench-"):
+        return {"ok": False, "skipped": "no fixture window recorded by prepare.py"}
+    if app == "Photoshop" and not fixture.get("launched"):
+        return {"ok": False, "skipped": "Photoshop was not launched by prepare.py"}
+    pid = target_for(app, scenario, fixtures)[0]
+    if app == "TextEdit":
+        done = desk("set-text", pid, fixture["window"], os.path.join(prepare.FIXTURES, "bench.txt"))
+        return {"ok": done.get("ok"), "set_text": done}
+    steps = {"ok": True}
+    if any("Dialog" in w.get("role", "") + w.get("subrole", "") for w in probe(pid).get("axWindows", [])):
+        steps["escape"] = desk("escape", pid)
+        time.sleep(1)
+    steps["close_all"] = desk("press", pid, "File", "Close All")
+    for index in range(3):
+        time.sleep(1.5)
+        steps[f"dont_save_{index}"] = desk("button", pid, "Don't Save")
+        if not steps[f"dont_save_{index}"].get("ok"):
+            break
+    steps["windows_after"] = [w.get("title") for w in probe(pid).get("axWindows", [])]
+    return steps
+
+
+def obsidian_refusal(fixtures):
+    """Why the Obsidian block must not run, or None: only the run's own instance on its scratch vault, opened by
+    prepare.py, may receive input. The 13 October run typed into a note of the person's vault."""
+    fixture = fixtures.get("Obsidian") or {}
+    pid = fixture.get("pid")
+    if not fixture.get("scratch_vault") or not pid:
+        return "refused: Obsidian was not opened by prepare.py on a scratch vault"
+    profile = subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True).stdout
+    if "user-data-dir=" not in profile or os.path.dirname(fixture["scratch_vault"]) not in profile:
+        return f"refused: pid {pid} is not the run's own Obsidian"
+    titles = [w.get("title", "") for w in probe(pid).get("axWindows", [])]
+    if not titles or any(prepare.OBSIDIAN_VAULT not in t for t in titles):
+        return f"refused: a window of pid {pid} is not on the scratch vault ({titles})"
+    return None
+
+
+def kitty_refusal(fixtures):
+    """Why the kitty block must not run, or None: its Return reaches a shell, so only the kitty that prepare.py
+    launched as its own process, on the run's config and with the run's window title, may receive input."""
+    fixture = fixtures.get("kitty") or {}
+    pid, config = fixture.get("pid"), fixture.get("config")
+    if not fixture.get("launched") or not pid or not config:
+        return "refused: kitty was not launched by prepare.py as the run's own instance"
+    if config not in subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True).stdout:
+        return f"refused: pid {pid} is not the run's own kitty"
+    titles = [w.get("title", "") for w in probe(pid).get("axWindows", [])]
+    if not titles or any(prepare.KITTY_TITLE not in t for t in titles):
+        return f"refused: a window of pid {pid} is not the run's kitty window ({titles})"
+    return None
+
+
+def refusal(app, fixtures):
+    """Why the app's block must not run, or None: Obsidian and kitty take input only in the run's own instance."""
+    return {"Obsidian": obsidian_refusal, "kitty": kitty_refusal}.get(app, lambda _: None)(fixtures)
+
+
 def schedule(drivers, reps, order):
     """[(driver, reps)] blocks: ABBA (forward then reversed), the odd repetition going to the forward pass."""
     first = (reps + 1) // 2
@@ -789,6 +973,10 @@ def run_app(app, drivers, options, recorder, log, fixtures):
     except RuntimeError as error:
         recorder.failure("none", app, scenario["framework"], "target", 0, str(error))
         return
+    refused = refusal(app, fixtures)
+    if refused:
+        recorder.failure("none", app, scenario["framework"], "target", 0, refused)
+        return
     if options.mode == "ops":
         blocks = schedule(drivers, options.reps, options.order)
     elif options.mode == "chain" and options.order == "abba" and len(drivers) > 1:
@@ -796,10 +984,21 @@ def run_app(app, drivers, options, recorder, log, fixtures):
     else:
         blocks = [(d, []) for d in drivers]
     seen = set()
+    recorder.pixel_control = bool(scenario.get("pixels"))
     for index, (name, reps) in enumerate(blocks):
         if index:
             print(f"-- cooldown {options.cooldown} s", flush=True)
             time.sleep(options.cooldown)
+        try:
+            reset = reset_state(app, scenario, fixtures)
+        except RuntimeError as error:
+            reset = {"ok": False, "error": str(error)}
+        if reset is not None:
+            recorder.write(dict(recorder.meta, op="state_reset", app=app, block=index, **reset))
+        refused = refusal(app, fixtures)
+        if refused:
+            recorder.write(recorder.row(driver=name, app=app, op="block_aborted", ok=False, error=refused))
+            continue
         before = prepare.restore_front(HOME_FRONT)
         if before[0] != HOME_FRONT[0]:
             # Evidence of the previous block leaving another application in front of the person's.
@@ -846,8 +1045,8 @@ def main():
     parser.add_argument("--pauses", default="0,1,3,5", help="chain mode: seconds between steps")
     parser.add_argument("--chain-steps", type=int, default=10)
     parser.add_argument("--group-rest", type=float, default=6, help="chain mode: rest before each pause group")
-    parser.add_argument("--soak-steps", type=int, default=200)
-    parser.add_argument("--soak-every", type=int, default=10)
+    parser.add_argument("--soak-steps", type=int, default=500)
+    parser.add_argument("--soak-every", type=int, default=1, help="soak mode: footprint sample every N steps")
     parser.add_argument("--call-timeout", type=float, default=60, help="a call with no reply by then kills its driver")
     parser.add_argument("--phases", action="store_true", help="Braus from a BRAUS_PHASES build, with signposts")
     parser.add_argument("--out", required=True)
@@ -860,7 +1059,9 @@ def main():
     if options.mode == "soak" and options.apps == parser.get_default("apps"):
         apps = ["TextEdit"]
     os.makedirs(options.scratch, exist_ok=True)
-    global HOME_FRONT
+    global HOME_FRONT, PIXEL_DIR
+    PIXEL_DIR = os.path.join(options.scratch, "pixels")
+    os.makedirs(PIXEL_DIR, exist_ok=True)
     HOME_FRONT = prepare.home_front(list(SCENARIOS) + ["Adobe Photoshop", "DaVinci"])
     fixtures_path = os.path.join(options.scratch, "fixtures.json")
     fixtures = json.load(open(fixtures_path)) if os.path.exists(fixtures_path) else {}

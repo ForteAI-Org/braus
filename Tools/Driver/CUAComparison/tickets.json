@@ -1,6 +1,6 @@
 {
- "source": "TicketBenchmarkCua20261007.md (7 Oct 2026) and ADR 0036",
- "note": "Each entry is shown by report.py only when its `detect` rule finds the weakness in the run's summary. `ticket` names the branch or ADR from the source list, or says none; `status` is the state in the source at 7 Oct.",
+ "source": "TicketBenchmarkCua20261007.md (7 Oct 2026), ADR 0036, 0038 and 0039, the runs of 9 and 13 Oct",
+ "note": "Each entry is shown by report.py only when its `detect` rule finds the weakness in the run's summary. `ticket` names the branch or ADR from the source list, or says none; `status` is the state in the source at 7 Oct, updated on 14 Oct where an ADR or a run has changed it.",
  "tickets": [
   {
    "id": "catalyst-session",
@@ -23,13 +23,13 @@
    "detect": "safari_keys",
    "weakness": "Safari: tasti e testo sul contenuto web rifiutati (subtreeUnreadable)",
    "ticket": "elio/safari-keys-fix",
-   "status": "fase 1 misura live, poi STOP",
+   "status": "ADR 0038 (Safari preparato come un renderer) e seguito di ADR 0014, misurati dal vivo il 9/10; da riconfermare nel benchmark",
    "expected": "Tab, Shift-Tab e type_text nel campo Name consegnati e verificati su Safari, 5/5"
   },
   {
    "id": "scene-labels",
    "detect": "scene_labels",
-   "weakness": "Etichette della scena da OCR (bersaglio testuale non risolto, modelli OCR assenti)",
+   "weakness": "Etichette della scena da OCR (bersaglio testuale non risolto)",
    "ticket": "elio/scene-labels-fix",
    "status": "fase 1 misura live, poi STOP; codice di Ron",
    "expected": "Obsidian con i nomi delle cartelle, Chrome \"Press me\" risolto 20/20 su sessioni nuove, TextEdit \"Line two.\" 8/8; token della scena +20% al massimo"
@@ -54,8 +54,8 @@
    "id": "resolve-escape",
    "detect": "resolve_escape",
    "weakness": "Resolve: Escape inviato dal seat ne provoca l'uscita",
-   "ticket": "da scrivere (elenco \"ticket nuovi emersi il 7/10\", nessun branch)",
-   "status": "da scrivere per bene",
+   "ticket": "ADR 0039 (rifiuto del tasto che chiude l'unica finestra)",
+   "status": "accettato il 12/10, misurato dal vivo su Resolve (5 Escape rifiutati su 5)",
    "expected": "capire quale finestra e perché; un tasto innocuo non deve avere un effetto distruttivo"
   },
   {
@@ -63,7 +63,7 @@
    "detect": "idle_cpu",
    "weakness": "CPU a riposo sopra l'obiettivo con una sessione aperta",
    "ticket": "ADR 0036 (stream a riposo: 1 fps dopo 2,5 s senza uso) e elio/idle-cpu-fix (battito)",
-   "status": "ADR 0036 implementato il 7/10, solo test offline, nessuna misura live; idle-cpu-fix pronto",
+   "status": "ADR 0036 implementato il 7/10 e misurato dal vivo: 2,04 ms/s il 9/10 (3 finestre da 10 s), 6,26 ms/s il 13/10 su 1 finestra da 5 s, che misura lo stream ancora sveglio e non è confrontabile; idle-cpu-fix pronto",
    "expected": "sessione aperta a riposo nell'app a 1,5 ms/s o meno (il 7/10 misurati 20 ms/s con le cache; obiettivo non raggiunto)"
   },
   {

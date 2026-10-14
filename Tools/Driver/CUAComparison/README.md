@@ -4,7 +4,8 @@ Runs the same operations on the same windows through one MCP stdio client and wr
 row per call: latency, reply size and tokens (text and image apart), CPU/energy/footprint of the
 driver and the target, WindowServer CPU, and what an independent probe saw (frontmost app,
 cursor, windows and their display, hashes of AX values, selection, focus, scroll and window
-titles). `summarize.py` turns the rows into tables and a `summary.json`. Method and results of the
+titles, and where an operation needs them the pixels of the window the driver is bound to).
+`summarize.py` turns the rows into tables and a `summary.json`. Method and results of the
 6 October 2026 run: `Documentation/Driver/reports/CUADriverBenchmark20261006.md`.
 
 | File | Role |
@@ -16,6 +17,7 @@ titles). `summarize.py` turns the rows into tables and a `summary.json`. Method 
 | `desk.swift` | `desk permissions` (Accessibility and Screen Recording of the terminal chain) and `desk press <pid> <menu> <item>` (AXPress on a menu bar item, no activation); built to `.build/desk` |
 | `summarize.py`, `headline.py` | Tables and `summary.json` (`headline.py` still knows only `braus` and `cua`) |
 | `fixtures/` | `bench.html` (Chrome/Safari "Bench Page"), `bench.txt` (TextEdit) |
+| `test_oracles.py` | Offline checks of the oracle decision, the row fields, the state resets, the Obsidian guard and the previous-run picker (`python3 test_oracles.py`) |
 
 ## Build
 
@@ -57,15 +59,22 @@ python3 summarize.py "$S/results.jsonl" --json "$S/summary.json"
 another Braus running, Accessibility or Screen Recording missing, a binary missing) and `warnings`
 (battery, Low Power mode, thermal state). With `--open` it opens each requested app in the background
 (`open -g`) on its fixture and waits until the app has a usable window (`--plan` prints this and opens
-nothing): Calculator, Stocks, kitty and Prism Launcher as they are; TextEdit on a fresh copy of
+nothing): Calculator, Stocks and Prism Launcher as they are; TextEdit on a fresh copy of
 `bench.txt`; Chrome in its own profile and Safari on `bench.html` in a window whose title ends with
-"Bench Page" (a running Safari first gets a new window through AXPress on File > New Window, which
-does not activate it); Obsidian on the vault it has open (the one the 6 October run used, from
-`obsidian.json`; a scratch vault in the run folder only when none is registered); DaVinci Resolve on its
+"Bench Page" (a running Safari first gets a new window through AXPress on File > New Window, or New
+Personal Window once Safari has profiles, which does not activate it); Obsidian as its own instance
+(`--user-data-dir` in the run folder) on a scratch vault `bench-vault` it creates there, never a person's
+vault; kitty as its own process (`open -n`), on the run's `kitty.conf` instead of the person's, with the
+fixed window title `bench-kitty` and its shell in the run folder; DaVinci Resolve on its
 Project Manager and Photoshop on its Home screen, with no document (it cannot save), both given up to
 7 minutes. `fixtures.json` (pid, window title, `launched`, `note`, seconds waited, read by
 `compare.py`) and `meta.json` go into the scratch directory. `compare.py` writes the same preflight, the Mac model,
 chip, RAM, macOS build and both driver commits and versions into a `kind: "meta"` first row.
+`compare.py` refuses the Obsidian block unless that instance, with every window on the scratch vault, is
+the target (the 13 October run typed into a person's note), and the kitty block unless kitty is the
+process `prepare.py` launched on the run's config, with only the `bench-kitty` window: its Return reaches a
+shell, so the text typed before it is a comment (`# bench <rep>`). Both drivers bind Obsidian by the
+`bench-vault` part of the title, read again before every block, so another active note keeps the binding.
 Always set `BRAUS_APP_SUPPORT_DIR` for Braus. Braus runs with its research opt-in for an unvalidated
 macOS build (`BRAUS_BENCH_UNVALIDATED=1`, set by the harness). Never run `sample` or another profiler
 during a measured window.
@@ -85,24 +94,44 @@ in the knowledge directory.
 
 | `--mode` | What it does |
 | --- | --- |
-| `ops` (default) | One warm-up and `--reps` measured repetitions per driver of each operation; idle CPU in 3 consecutive 10 s windows after the last call; WindowServer baseline before and after |
+| `ops` (default) | One warm-up and `--reps` measured repetitions per driver of each operation; idle CPU in 3 consecutive 10 s windows after the last call (`--idle-windows`, `--idle-seconds`: one 5 s window measures a stream that has not rested yet, ADR 0036); WindowServer baseline before and after |
 | `chain` | 10 consecutive steps per app with `--pauses 0,1,3,5` seconds between them, each group after a 6 s rest. Per step: wall time, the gap since the previous call, and for Braus whether the stream was resting |
-| `soak` | `--soak-steps 200` neutral steps (TextEdit by default) per driver, driver and target footprint every 10 steps; the summary gives the slope in MB per 100 steps and any error or stall |
+| `soak` | `--soak-steps 500` neutral steps (TextEdit by default) per driver, driver and target footprint after every step (`--soak-every`); the summary gives the slope in MB per 100 steps, the per-step series, and any error or stall |
 | `--phases` | Braus alone, from a `BRAUS_PHASES` build (see below). Rows are marked `phases: true` and `summarize.py` leaves them out of every timing aggregate |
 
 Order and fairness: drivers alternate per app in ABBA order, for example braus, cua, cua-overlay,
 cua-overlay, cua, braus (`--order forward` for one pass). `--reps` is per driver and splits over the two
 passes, the odd one going to the first. A cooldown (`--cooldown`, 15 s) separates blocks; every block
 starts a fresh driver process. TextEdit's `undo` step takes the insert back and Chrome and Safari type
-`hello{rep}`, so a repetition starts from the same text; the digest before each repetition's first call
+`hello{rep}`, so a repetition starts from the same text. The undo is Cmd-Z; when the probe does not
+confirm it, Edit > Undo follows as an `undo_menu` row of its own (`fallback_for: "undo"`), and both rows
+stay in the data and the report; the digest before each repetition's first call
 is in the rows. A call with no reply for `--call-timeout` (60 s) kills its driver (our child, by handle),
 is recorded as a stall and ends the block.
 
+State reset before every block (`op: "state_reset"` rows): TextEdit's fixture window gets `bench.txt` back,
+caret and scroll at the start (`desk set-text`, accessibility, no activation); a Photoshop that `prepare.py`
+launched gets an Escape for an open dialog, File > Close All and Don't Save. Nothing is reset in a window
+the run did not open, and DaVinci Resolve never gets an Escape (on its only window it quits, ADR 0039).
+
 Success is an effect the independent probe confirmed: an operation names the probe parts that must
-change (`values`, `selection`, `focus`, `scroll`, `windows`); `False` there means the probe cannot see
-the effect and the row stays unverified. `honest_miss`, `ambiguous`, `refused`, `error` and an
-`acted_unverified` whose message says "delivery failed" are failures. If both drivers show 0 confirmed
-for an operation, the probe is blind to it or nothing happened: read it as such.
+change (`values`, `selection`, `focus`, `scroll`, `windows`, `pixels`); `False` there means the probe
+cannot see the effect and the row stays unverified. `pixels` is read only when no AX part changed: the
+probe captures the window the driver is bound to by its window server id (Cua's `window_id`; for Braus
+the window titled as its session asks, or the front one), never another window of the app, with
+ScreenCaptureKit at one pixel per point, gray and without the cursor, before and after the call, and
+counts the pixels that moved by 24 gray levels or more. More than 200 confirms the effect
+(`verified_by: "pixels"`, apart from `"ax"`); 1 to 200 is a caret blink or a terminal cursor and stays
+undecided (`pixels_small`), as do two captures of different windows or sizes (`pixels_window_changed`);
+0 is a failure. Every scroll reads pixels, and so does every operation of Chrome, kitty, Obsidian,
+Stocks, Prism Launcher, DaVinci Resolve and Photoshop. For those apps the unchanged read compares pixels
+too, with no action: its count is the app's noise floor (live quotes in Stocks can pass 200).
+`honest_miss`, `ambiguous`, `refused`, `error` and an `acted_unverified` whose message says "delivery
+failed" are failures. Braus checks an `insert_text`'s `expected_value` against the field's whole value,
+so the scenario passes one only where the run knows that value: Obsidian's quick switcher opens empty, so
+it is the inserted text. TextEdit's document and kitty's terminal hold more than the text, so there it is
+omitted and the row says why (`expected_value_omitted`). If both drivers show 0 confirmed for an
+operation, the probe is blind to it or nothing happened: read it as such.
 
 ### Photoshop
 
@@ -172,6 +201,8 @@ Call rows keep the 6 October fields (`driver`, `app`, `framework`, `op`, `rep`, 
 | `kind` | `meta` on the first row (preflight, machine, driver versions), absent on call rows |
 | `mode`, `block`, `order_pass`, `series` | Run mode, ABBA block, `forward`/`reverse`, `step` or `step_legacy` |
 | `step`, `after_op` | Position of the operation in the repetition; the operation an `observe_after` row follows |
+| `fallback_for` | On an `undo_menu` row: the operation (`undo`) whose shortcut the probe did not confirm |
+| `expected_value_omitted` | On a Braus `insert_text` row without `expected_value`: the field value the run cannot know |
 | `tokens_text`, `image_tokens`, `tokens` | Text tokens (chars / 4), image tokens (w x h / 750 after resize), their sum |
 | `proxy_cpu_ms`, `proxy_footprint_mb`, `app_footprint_mb` | Cua stdio proxy beside the daemon; the target's footprint |
 | `expect`, `verified`, `success` | Probe parts that must change; whether they did; true/false/null (unverified) |
@@ -180,9 +211,13 @@ Call rows keep the 6 October fields (`driver`, `app`, `framework`, `op`, `rep`, 
 | `pause_s`, `chain_step`, `soak_step` | Chain and soak position |
 | `window`, `since_last_call_s` | Idle windows (`op: "idle"`), CPU also in `proxy_cpu_ms`, `app_cpu_ms` |
 | `digest_before`, `digest_after` | Probe digest around the call |
+| `verified_by` | `ax` or `pixels` for a confirmation; undecided: `pixels_small`, `pixels_window_changed`, `pixels_unavailable` |
+| `pixels_changed`, `pixels_total`, `pixel_windows` | Changed pixels of the bound window, its size, the window ids before and after |
+| `frontmost_names` | Names of the frontmost app before and after, on every row where it changed |
+| `reply_text`, `observe_before_op`, `observe_before_text` | On a failed step: the driver's reply text and the previous reply of the same driver, 2000 characters each at most |
 
 Chain mode also writes one `op: "chain_step"` row per step (wall time of the step, Cua's observation
-included) and soak writes `op: "soak_mem"` rows every 10 steps.
+included) and soak writes `op: "soak_mem"` rows after every step (`--soak-every`).
 
 ## summary.json
 
@@ -192,7 +227,8 @@ stdev, tokens (text, image, total), CPU (ms and ms per second of the call) and e
 equivalent steps, the full and unchanged/diff reads, idle windows, intrusion counts, chain and soak;
 per driver startup, footprint median and peak; plus the meta rows and the WindowServer baseline.
 It reads the 6 October `all.jsonl` too: missing fields become null, so deltas can be computed against
-it. `python3 summarize.py --selftest` checks the statistics helpers.
+it. Rows that name Braus by its former name `mecum` (6, 9 and 13 October) are read as `braus`, and so is
+the task summary `report.py` loads. `python3 summarize.py --selftest` checks the statistics helpers.
 
 ## Phase breakdown
 
@@ -212,7 +248,11 @@ to `<out>.phases.txt` and the raw signposts to `<out>.signposts.ndjson`.
 
 - The Braus stream's rest is inferred from the gap; the phases run shows the real `preview.rest` events.
 - WindowServer CPU is read through `ps` at 10 ms resolution: per-call values are coarse, idle windows are fine.
-- The probe sees AX values, not pixels: kitty, Obsidian and Photoshop pixel effects stay unverified.
+- Pixels confirm that the window changed, not which change: a scroll, a typed word and an unrelated
+  redraw above 200 pixels look the same. The pixel probe adds about 0.3 s per probe, outside the call's
+  timing, which lengthens `gap_s` (still below the 2.5 s of ADR 0036 on the per-call run).
+- Photoshop's 180 degree rotation of a blank canvas and its scrolls on a canvas that fits the window show
+  nothing, in AX or in pixels, and stay unverified.
 - The physical cursor moves when the person uses the Mac; idle and baseline rows carry the same check as a control.
 
 ## One command: `bench.sh`
@@ -235,7 +275,9 @@ not appear is recorded as a note in `fixtures.json` and the run goes on.
 the ten apps above on their fixtures, as described under Run. It records which it launched and at the end ends only
 those, by PID, after checking the PID is still that app; an app that was already running is left as it is. The model
 task phase needs nothing by hand: `tasks.py` starts its own local form server and writes and opens its per-run
-documents itself.
+documents itself. Its Obsidian and kitty tasks use only the run's own instances (`BENCH_RUN_DIR`; kitty is launched
+with `prepare.py`'s recipe when missing) and are recorded as skipped, with the reason, while another Obsidian or
+kitty runs, since a driver could pick the person's.
 
 | Step | What it does |
 | --- | --- |
@@ -246,14 +288,25 @@ documents itself.
 | Opening | `prepare.py --open` all selected apps and waits for their windows (about 5 min, mostly Resolve and Photoshop) |
 | Per-call run | `compare.py --mode ops` over `--apps` |
 | Chain | `--mode chain`, pauses `--pauses 0,1,3,5`, only `--chain-apps` (default Calculator, TextEdit, Chrome: the full set takes about three times as long) |
-| Soak | `--mode soak`, 200 steps, TextEdit |
+| Soak | `--mode soak`, 500 steps, TextEdit, footprint after every step |
 | Phases | Only with `--phases`: Braus alone from a `BRAUS_PHASES` build, Calculator |
 | Model tasks | `tasks.py` for the tasks of the chosen apps, 3 reps, capped at 60 minutes (`--skip-tasks`, `--task-reps`, `--task-max-minutes`) |
 | Summaries and report | `summarize.py` (`summary.json`, `tables.md`), `tasks.py --summary`, then `report.py` |
 
-**How long.** The estimate is printed first: about 3.5 hours for the default run (per-call run 1.5 h, chain 0.5 h, soak
-0.25 h, tasks up to 1 h, opening 5 min). `--quick` is a smoke test of about 80 minutes: 2 reps, chain pauses 0 and 3 s on
+**How long.** The estimate is printed first: about 4 hours for the default run (per-call run 1.5 h, chain 0.5 h, soak
+0.6 h, tasks up to 1 h, opening 5 min). `--quick` is a smoke test of about 80 minutes: 2 reps, chain pauses 0 and 3 s on
 the first chain app, soak 20 steps, one task rep, one 5 s idle window, 5 s cooldown. The elapsed time is printed at the end.
+
+The fast profile of the 13 October run, about 69 minutes:
+
+```sh
+./bench.sh --reps 3 --sessions 1 --task-reps 1 --task-max-minutes 10 --pauses 0,3 --chain-apps Calculator,TextEdit \
+  --chain-steps 6 --soak-steps 40 --cooldown 5 --idle-windows 1 --idle-seconds 5
+```
+
+It answers whether the operations work and how a step compares; it does not measure rest or leaks. One 5 s idle
+window measures the stream before it rests (ADR 0036) and 40 soak steps give no slope worth reading: for idle CPU,
+the soak and the complete model tasks use the full run.
 
 **At the end** it prints the two Markdown files (`~/Downloads/BrausVsCua-Team-<date>.md`, Italian, and
 `~/Downloads/BrausVsCua-Report-<date>.md`, English) and the run folder.
@@ -266,14 +319,17 @@ setting; it still needs the Mac free and the shared live lock.
 
 ### `report.py` and `tickets.json`
 
-`report.py --summary summary.json [--tasks tasks-summary.json] [--baseline base.json] [--run run.json]` writes two
-files to `~/Downloads/` (`--out-dir`), never into the repository:
+`report.py --summary summary.json [--tasks tasks-summary.json] [--baseline base.json] [--run run.json] [--previous DIR|none]`
+writes two files to `~/Downloads/` (`--out-dir`), never into the repository:
 
 - `BrausVsCua-Team-<YYYYMMDD>.md`: Italian, short. Every table is a `###` title, 2-4 lines of context, the table and one
   `**Conclusione:**` line. Every compared value carries its own marker: 🟢 the best, 🔴 the worst, 🟡 even with the best
   (within 10% or overlapping 95% intervals; all even: all 🟡); a metric with one value has none, and a value no row
   recorded (a probe verdict missing from the 6 October rows) is `n/d`. `vs 6/10` with ▲ / ▼ / = is Braus's own change,
-  and "Cua cambiato versione" Cua's, never counted as a Braus gain.
+  and "Cua cambiato versione" Cua's, never counted as a Braus gain. Beside each such column, `vs giro prec.` is the same
+  change against the previous run: the latest folder of `~/Forte_Projects/_bench/runs` before this one with a
+  `summary.json`, summarized again from its raw rows (`--previous` names another folder, `none` drops the columns).
+  "Cua cambiato versione" appears there only if Cua's commit differs between the two runs.
 - `BrausVsCua-Report-<YYYYMMDD>.md`: English, full technical report (method, component parity, p50/p90/p99 with
   intervals, per-operation tables, support matrix with source links, deltas against 6 October, limits, reproduction).
 
