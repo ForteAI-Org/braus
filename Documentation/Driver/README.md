@@ -264,10 +264,12 @@ It does not reselect an old window after the selection changes. A staging
 failure refuses the observation; all existing endpoint identity and modal
 checks still apply. See [stabilization evidence](reports/StabilizationRounds.md).
 
-The consumer's clean worker lease completion retires its display while keeping
-the queue's AgentSession reusable. A finish warning or outstanding restitution
-retains the host, including refused returns from earlier assignments on that
-host. Handover within a lease keeps its existing lifecycle.
+The consumer's worker lease completion retires its display while keeping
+the queue's AgentSession reusable. Only a window return not yet proven
+settled retains the host, including refused returns from earlier assignments
+on that host; a finish warning alone does not. A return settles on a window
+server row off the display or a proven destruction, never on a missing row
+or a refused reading. Handover within a lease keeps its existing lifecycle.
 See [ADR0030](adr/Adr0030RetireCleanWorkerDisplays.md) for the cost and limits.
 
 ## Testing it

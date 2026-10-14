@@ -100,12 +100,17 @@ final class SeatDriver {
     /// One outcome per window and not one for the whole handback: the seat
     /// follows new windows, so a release gives back several of them and they
     /// do not have to end the same way. The decisions read the set.
-    private var lastReleases: [WindowReleaseOutcome] = []
+    var lastReleases: [WindowReleaseOutcome] = []
 
     /// What the last release could not close, as the kit named it: the surfaces
     /// that are still out of place, each with the identity that survives a
     /// reused Window ID and the frame it is owed.
-    private var lastObligations: [AssignmentObligation] = []
+    var lastObligations: [AssignmentObligation] = []
+
+    /// The instance of the assignment the last `release` finished, as its report
+    /// names it, nil when nothing was assigned. Another lifetime's rollback is not
+    /// this instance's to settle.
+    private var releasedInstance: ProcessIdentity?
 
     /// The windows the last release put back on their display but on another
     /// desktop than their own. They are home for the seat, which cannot write a
@@ -169,8 +174,9 @@ final class SeatDriver {
     }
 
     /// True while a window the seat took is not confirmed back on the person's
-    /// display: a rollback the seat could not finish, or a release that refused
-    /// or left the window on the background display.
+    /// display: a rollback the released instance still owes, or a release that
+    /// refused or left the window on the background display. An obligation with
+    /// no such outcome, a window born on the display, does not stop the quit.
     ///
     /// It is the precondition for terminating the window's owner. A window the
     /// seat has not finished with is an obligation in its restitution ledger
@@ -178,8 +184,7 @@ final class SeatDriver {
     /// returning is not proof on its own: it answers with an outcome, and two
     /// of the four say the window is still out there.
     var hasUnrestoredWindow: Bool {
-        if seat?.hasPendingWindowRestorations == true { return true }
-        if !lastObligations.isEmpty { return true }
+        if seat?.hasPendingWindowRestorations(of: releasedInstance) == true { return true }
         return Self.leavesWindowUnrestored(lastReleases)
     }
 
@@ -191,9 +196,15 @@ final class SeatDriver {
     }
 
     /// Whether this host can retire after the current application is returned.
-    /// Earlier assignments' refused returns must keep their display alive.
-    var canRetireHost: Bool {
-        !hasUnrestoredWindow && seat?.hasOutstandingWindowReturns != true
+    /// Every owed return keeps it, an earlier assignment's too, until a reading
+    /// lists its window off the display or proves it destroyed. Settled answers
+    /// are pruned first.
+    func canRetireHost() -> Bool {
+        seat?.pruneSettledWindowReturns()
+        let unsettled = lastObligations.contains {
+            seat?.windowReturnIsSettled($0.windowNumber, identity: $0.identity) == false
+        }
+        return !hasUnrestoredWindow && !unsettled && seat?.hasOutstandingWindowReturns != true
     }
 
     /// Whether a handback left any window the seat took still out there. Every
@@ -1016,13 +1027,15 @@ final class SeatDriver {
         // Kept, not discarded, and one per window: "release returned" and "the
         // window went home" are two facts, and a termination waits on all.
         guard let report = await seat?.releaseAssignment() else {
-            lastReleases    = []
-            lastObligations = []
+            releasedInstance = nil
+            lastReleases     = []
+            lastObligations  = []
             lastWindowsOnAnotherDesktop = []
             return
         }
-        lastReleases    = report.windows.keys.sorted().compactMap { report.windows[$0] }
-        lastObligations = report.obligations
+        releasedInstance = report.instance
+        lastReleases     = report.windows.keys.sorted().compactMap { report.windows[$0] }
+        lastObligations  = report.obligations
         Self.log.notice("""
             release answered \(String(describing: report.outcome), privacy: .public): \
             windows \(report.windows.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }, privacy: .public), \

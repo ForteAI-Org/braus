@@ -270,22 +270,33 @@ public final class AgentSession {
     }
 
     /// Finishes with the held application and keeps the queue's session reusable.
-    /// A clean lease retires its display rather than parking it between workers.
-    /// This adds display removal and startup at the lease boundary. A warning
-    /// or outstanding restitution keeps its host alive.
+    /// A lease retires its display rather than parking it between workers.
+    /// This adds display removal and startup at the lease boundary. Only a
+    /// window return the host still owes keeps it alive.
     func finishUsingApp() async -> String? {
         guard isOpen else { return nil }
         let finish = await finishWithHeldApp()
-        let canRetire = driver.canRetireHost
-        let action = finish == nil && canRetire ? "taking the host down" : "keeping the host and its display"
+        let canRetire = driver.canRetireHost()
+        let action = canRetire ? "taking the host down" : "keeping the host and its display"
         Self.diagnosticLog.notice("""
             lease finished: warning \(finish != nil, privacy: .public), \
             canRetireHost \(canRetire, privacy: .public), \
             \(self.driver.restorationDiagnostics, privacy: .public): \
             \(action, privacy: .public)
             """)
-        guard finish == nil, canRetire else { return finish }
-        return await driver.stop()
+        return await Self.endingLease(finish: finish, canRetire: canRetire, stop: { await self.driver.stop() })
+    }
+
+    /// What ending a lease says, after taking the host down when nothing on it is owed. A finish
+    /// warning alone keeps no display: an app left running is not a window left out.
+    static func endingLease(
+        finish   : String?,
+        canRetire: Bool,
+        stop     : () async -> String?
+    ) async -> String? {
+        guard canRetire else { return finish }
+        let sentences = [finish, await stop()].compactMap { $0 }
+        return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }
 
     /// Gives the held window back and, when the agent opened the application

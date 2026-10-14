@@ -173,6 +173,11 @@ public final class AgentSeat {
     /// report's own field says it is.
     var releaseLedger: [Int: WindowReleaseOutcome] = [:]
 
+    /// The identity of every window the ledgers answer as still owing a return,
+    /// by Window ID. A refused return forgets its record, and this is what its
+    /// destruction is then proven against.
+    private var owedReturnIdentities: [Int: WindowIdentity] = [:]
+
     /// Where every window of the assigned application stood in the User Seat
     /// before the first of them was moved. Filled once per application, spent by
     /// the adoptions that find a window already inside the Virtual Display, and
@@ -336,6 +341,43 @@ public final class AgentSeat {
 
     /// A failed move still owned by the host until teardown can restore it.
     public var hasPendingWindowRestorations: Bool { !pendingAdoptions.isEmpty }
+
+    /// A failed move of `instance` still owed, with the filter `releaseAssignment`
+    /// restores by: another process lifetime's rollback is not this instance's.
+    public func hasPendingWindowRestorations(of instance: ProcessIdentity?) -> Bool {
+        guard let instance else { return false }
+        return pendingAdoptions.values.contains { $0.reference.identity?.process == instance }
+    }
+
+    /// Whether a window the host owed a return needs nothing of it any more, on
+    /// positive evidence only: a row that lists it off the Virtual Display, or a
+    /// destruction of `identity` the window server proves. No row (an ordered-out
+    /// or hidden window still exists) and a refused reading both keep it owed: a
+    /// display taken down under such a window moves it somewhere nobody chose.
+    public func windowReturnIsSettled(_ windowNumber: Int, identity: WindowIdentity?) -> Bool {
+        switch sensing.windowGeometryReading(of: windowNumber) {
+        case .present(let reading):
+            return !sensing.virtualDisplayBounds.intersects(reading.frame)
+        case .absent:
+            guard let identity else { return false }
+            return sensing.windowIsDestroyed(WindowReference(identity: identity, frame: .null))
+        case .refused:
+            return false
+        }
+    }
+
+    /// Forgets the refused and left-behind answers whose return is settled, by
+    /// `windowReturnIsSettled` with the identity the release's obligation named.
+    /// Nothing else settles them, so one stale answer kept every later lease's
+    /// display up.
+    public func pruneSettledWindowReturns() {
+        func isSettled(_ entry: (key: Int, value: WindowReleaseOutcome)) -> Bool {
+            Self.returnRequiresHost(entry.value)
+                && windowReturnIsSettled(entry.key, identity: owedReturnIdentities[entry.key])
+        }
+        releaseLedger        = releaseLedger.filter { !isSettled($0) }
+        adoptionRestorations = adoptionRestorations.filter { !isSettled($0) }
+    }
 
     /// Whether this seat still owes a window return, including earlier assignments.
     /// A consumer must retain the host while this is true. A deferred return
@@ -1344,6 +1386,7 @@ public final class AgentSeat {
                 ?? (outcome: .refused, error: nil)
             let restoration = rollback.outcome
             adoptionRestorations[window.windowNumber] = restoration
+            if Self.returnRequiresHost(restoration) { owedReturnIdentities[window.windowNumber] = window.identity }
             // A window the seat found by itself is left where it is and fails nothing; the ledger keeps
             // what it is owed, and the follower is not held up by it (a Qt drag image, 06/10/2026).
             let failsTheSeat = restoration == .refused && reason != .detected
@@ -1491,6 +1534,7 @@ public final class AgentSeat {
         let successor = forgetRecord(window.id)
         noteSurfaceGone(window.id)
         releaseLedger[window.id] = outcome
+        if Self.returnRequiresHost(outcome) { owedReturnIdentities[window.id] = window.reference.identity }
         eventChannel.yield(.windowReleased(windowNumber: window.id, outcome: outcome))
 
         // An explicit release is one of the two proofs that the target is gone,
@@ -1688,6 +1732,7 @@ public final class AgentSeat {
         guard await awaitCommandBoundary(until: limit) else {
             return AssignmentReleaseReport(
                 outcome    : .cancelled,
+                instance   : assignmentKit.lifecycle.current?.instance,
                 obligations: outstandingObligations()
             )
         }
@@ -1697,6 +1742,7 @@ public final class AgentSeat {
         guard !adoptionInFlight else {
             return AssignmentReleaseReport(
                 outcome    : .cancelled,
+                instance   : assignmentKit.lifecycle.current?.instance,
                 obligations: outstandingObligations()
             )
         }
@@ -1708,7 +1754,7 @@ public final class AgentSeat {
             )
         }
         if let use = assignmentUseInFlight() {
-            return AssignmentReleaseReport(outcome: .refused(use))
+            return AssignmentReleaseReport(outcome: .refused(use), instance: assignment.instance)
         }
 
         let instance = assignment.instance
@@ -1734,6 +1780,7 @@ public final class AgentSeat {
                 owedFrame: frame,
                 reason   : reason
             )
+            owedReturnIdentities[identity.windowNumber] = identity
         }
 
         let reconciled = reconcileBeforeRelease(of: instance)
@@ -1818,6 +1865,7 @@ public final class AgentSeat {
             publishCoherentState()
             return AssignmentReleaseReport(
                 outcome    : .cancelled,
+                instance   : instance,
                 windows    : windows,
                 reconciled : reconciled,
                 obligations: owed.keys.sorted().compactMap { owed[$0] }
@@ -1832,6 +1880,7 @@ public final class AgentSeat {
 
         return AssignmentReleaseReport(
             outcome    : .released,
+            instance   : instance,
             windows    : windows,
             reconciled : reconciled,
             obligations: owed.keys.sorted().compactMap { owed[$0] }

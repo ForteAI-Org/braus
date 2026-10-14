@@ -8,6 +8,7 @@
 import CoreGraphics
 import CursorGuard
 import SeatCore
+import WindowPlacement
 
 /// SeatSensing is every reading the session layer takes of the running system,
 /// behind one role protocol so that the state machine, the watchdog and the
@@ -78,6 +79,11 @@ nonisolated public protocol SeatSensing: Sendable {
     /// not readable. Window server and not Accessibility: an application
     /// publishes its own geometry and the server's at different moments.
     func windowGeometry(of windowNumber: Int) -> WindowReference?
+
+    /// The same reading with its three answers kept apart: a row, no row (a
+    /// window ordered out, hidden or destroyed), or a read that was refused.
+    /// Only `.present` says where a window is; the other two never place it.
+    func windowGeometryReading(of windowNumber: Int) -> WindowServerProbe.GeometryReading
 
     /// An attested identity, frame and display scale read for one known window.
     /// Session uses this seam when it must construct its own menu coordinate;
@@ -171,6 +177,10 @@ nonisolated public protocol SeatSensing: Sendable {
 }
 
 extension SeatSensing {
+    // A witness that cannot tell a missing row apart has no absence to offer.
+    public func windowGeometryReading(of windowNumber: Int) -> WindowServerProbe.GeometryReading {
+        windowGeometry(of: windowNumber).map { .present($0) } ?? .refused
+    }
     public func windowGeometryObservation(
         of window: WindowReference
     ) -> WindowGeometryObservation? { nil }

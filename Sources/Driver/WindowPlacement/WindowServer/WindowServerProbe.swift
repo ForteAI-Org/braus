@@ -34,7 +34,7 @@ nonisolated public enum WindowServerProbe {
     /// a missing row may be read through the qualified path, whereas a row that
     /// contradicts its ownership chain or an unavailable public read is a
     /// refusal. Neither is evidence of an unlisted remote window.
-    package enum GeometryReading {
+    public enum GeometryReading: Sendable, Equatable {
         case present(WindowReference)
         case absent
         case refused

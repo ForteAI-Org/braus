@@ -97,6 +97,10 @@ nonisolated public struct AssignmentReleaseReport: Sendable, Equatable {
 
     public let outcome: AssignmentReleaseOutcome
 
+    /// The instance of the assignment this call released or left standing, nil
+    /// when nothing was assigned. Read from the assignment itself, not before.
+    public let instance: ProcessIdentity?
+
     /// What the seat answered for every window it let go, by Window ID.
     public let windows: [Int: WindowReleaseOutcome]
 
@@ -115,11 +119,13 @@ nonisolated public struct AssignmentReleaseReport: Sendable, Equatable {
 
     public init(
         outcome    : AssignmentReleaseOutcome,
+        instance   : ProcessIdentity? = nil,
         windows    : [Int: WindowReleaseOutcome] = [:],
         reconciled : [Int] = [],
         obligations: [AssignmentObligation] = []
     ) {
         self.outcome     = outcome
+        self.instance    = instance
         self.windows     = windows
         self.reconciled  = reconciled
         self.obligations = obligations
