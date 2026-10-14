@@ -108,6 +108,7 @@
 				000000000000000130000000 /* Frameworks */,
 				000000000000000140000000 /* Resources */,
 				000000000000000150000000 /* Embed Helper */,
+				000000000000000160000000 /* Stamp Commit */,
 			);
 			buildRules = (
 			);
@@ -219,6 +220,22 @@
 			shellPath = /bin/sh;
 			shellScript = (
 				"exec \"$PROJECT_DIR/Scripts/embed-helper.sh\"",
+				"",
+			);
+		};
+		000000000000000160000000 /* Stamp Commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			inputPaths = (
+				"$(PROJECT_DIR)/Scripts/stamp-commit.sh",
+			);
+			name = "Stamp Commit";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BuildCommit.txt",
+			);
+			shellPath = /bin/sh;
+			shellScript = (
+				"exec \"$PROJECT_DIR/Scripts/stamp-commit.sh\"",
 				"",
 			);
 		};
