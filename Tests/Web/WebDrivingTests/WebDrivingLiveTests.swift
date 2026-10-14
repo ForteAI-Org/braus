@@ -4,6 +4,7 @@
 //
 
 import CoreGraphics
+import Engine
 import EngineCore
 import Foundation
 import PerceptionCore
@@ -105,6 +106,43 @@ struct WebDrivingLiveTests {
             let painted = CGRect(x: box["x"]!, y: box["y"]!, width: box["width"]!, height: box["height"]!)
             let point = window.globalPoint(of: far)
             #expect(painted.contains(point))
+        }
+    }
+
+    @Test("Through the engine: a click opens a select's list, a click on an option chooses it")
+    func select() async throws {
+        try await Self.withFixture { tabs, id, page in
+            let engine = ActionEngine(ActionEngine.Dependencies(
+                scenes  : WebScenes(tabs: tabs),
+                actuator: WebActuator(tabs: tabs),
+                windows : WebWindows(tabs: tabs),
+                controls: WebControls(tabs: tabs),
+                settling: WebSettler(tabs: tabs)
+            ))
+            func click(_ target: String) async -> ActOutcome {
+                await engine.act(ActionRequest(processID: id, bundleID: "web:file", appName: "file", target: target,
+                                               verb: .click))
+            }
+            _ = try await WebScenes(tabs: tabs).currentScene(of: id)
+
+            let opened = await click("Color")
+            let blue = try #require(opened.scene?.elements.first { $0.label == "Blue" }, "\(opened.message)")
+            #expect(blue.role == "AXMenuItem")
+            #expect(try WebWindows(tabs: tabs).windows(ownedBy: id).first?.layer == 101)
+
+            let chose = await click("Blue")
+            #expect(chose.isSuccess, "\(chose.message)")
+            #expect(try await page.evaluate("document.getElementById('color').value").stringValue == "Blue")
+            #expect(try await page.evaluate("document.getElementById('status').textContent").stringValue == "Color Blue")
+            let window = try await WebScenes(tabs: tabs).currentScene(of: id)
+            #expect(try Self.element("Color", in: window).value == "Blue")
+            #expect(!window.scene.elements.contains { $0.role == "AXMenuItem" })
+            #expect(try WebWindows(tabs: tabs).windows(ownedBy: id).count == 1)
+
+            _ = await click("Color")
+            _ = try await WebActuator(tabs: tabs).perform(.key(code: Key.escape), in: id)
+            #expect(try WebWindows(tabs: tabs).windows(ownedBy: id).count == 1)
+            #expect(try await page.evaluate("document.getElementById('color').value").stringValue == "Blue")
         }
     }
 }

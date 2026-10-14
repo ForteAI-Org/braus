@@ -11,9 +11,9 @@ import WebDriver
 
 /// WebControls is `ControlPressing` for tabs: it reads controls through the page's own DOM.
 ///
-/// It does not press a closed `<select>`: Chrome draws that list outside the page, where neither
-/// the scene nor a click reaches, so `pressControl` answers false and the engine falls back to the
-/// keyboard. Every read answers nil or false when the page cannot say.
+/// A native `<select>` is pressed by name: Chrome draws its list outside the page, so Braus opens
+/// a `WebSelectPopup` instead of clicking, and `pressMenuItem` chooses in it. Every read answers
+/// nil or false when the page cannot say.
 public struct WebControls: ControlPressing {
 
     let tabs: WebTabs
@@ -22,8 +22,66 @@ public struct WebControls: ControlPressing {
         self.tabs = tabs
     }
 
+    /// Opens the list of the one select named `label`, by its accessible name or its current
+    /// option; a trailing ordinal ` #n` picks the n-th of several. False for anything else, which
+    /// the engine then clicks.
     public func pressControl(labelled label: String, in processID: pid_t) async -> Bool {
-        false
+        guard let page = try? tabs.page(for: processID) else { return false }
+        let (name, ordinal) = Self.splitOrdinal(label)
+        let script = Self.openSelectScript
+            .replacingOccurrences(of: "$LABEL", with: Self.jsString(LabelText.normalize(name)))
+            .replacingOccurrences(of: "$ORDINAL", with: String(ordinal))
+        guard (try? await page.evaluate(script, timeoutSeconds: 5))?.boolValue == true,
+              let popup = await Self.openPopup(on: page)
+        else { return false }
+        tabs.setPopup(popup, for: processID)
+        return true
+    }
+
+    /// Chooses the option titled `title` in the open select's list and closes it. False, with the
+    /// list left open, when no option has that title or no list is open.
+    public func pressMenuItem(titled title: String, within menuFrame: CGRect, in processID: pid_t) async -> Bool {
+        guard let page = try? tabs.page(for: processID), tabs.window(of: processID)?.popup != nil else { return false }
+        let script = Self.chooseOptionScript
+            .replacingOccurrences(of: "$TITLE", with: Self.jsString(LabelText.menuTitleKey(Self.splitOrdinal(title).0)))
+        let answer = try? await page.evaluate(script, timeoutSeconds: 5)
+        guard answer?["found"]?.boolValue == true else { return false }
+        tabs.setPopup(nil, for: processID)
+        return true
+    }
+
+    /// Closes an open list without choosing, as Escape or a click outside it does.
+    func closePopup(in processID: pid_t) async {
+        guard tabs.window(of: processID)?.popup != nil else { return }
+        tabs.setPopup(nil, for: processID)
+        if let page = try? tabs.page(for: processID) { _ = try? await page.evaluate(Self.closeScript) }
+    }
+
+    /// The open select's list as the page has it now; nil when none is open or it left the page.
+    static func openPopup(on page: WebPage) async -> WebSelectPopup? {
+        guard let answer = try? await page.evaluate(popupScript, timeoutSeconds: 5),
+              let rect = answer["rect"]?.arrayValue?.compactMap(\.doubleValue), rect.count == 4
+        else { return nil }
+        let options = (answer["options"]?.arrayValue ?? []).map {
+            WebSelectPopup.Option(text: $0["text"]?.stringValue ?? "", isSelected: $0["selected"]?.boolValue ?? false,
+                                  isEnabled: !($0["disabled"]?.boolValue ?? false))
+        }
+        return WebSelectPopup(name: answer["name"]?.stringValue ?? "select",
+                              anchor: CGRect(x: rect[0], y: rect[1], width: rect[2], height: rect[3]), options: options)
+    }
+
+    /// A label and the ordinal its trailing ` #n` names, 1 when it has none.
+    static func splitOrdinal(_ label: String) -> (String, Int) {
+        guard let hash = label.range(of: " #", options: .backwards),
+              let ordinal = Int(label[hash.upperBound...]), ordinal > 0
+        else { return (label, 1) }
+        return (String(label[..<hash.lowerBound]), ordinal)
+    }
+
+    static func jsString(_ text: String) -> String {
+        let data = (try? JSONEncoder().encode([text])) ?? Data("[\"\"]".utf8)
+        let array = String(decoding: data, as: UTF8.self)
+        return String(array.dropFirst().dropLast())
     }
 
     public func controlValue(matchingAny labels: Set<String>, in processID: pid_t) async -> String? {
@@ -53,6 +111,65 @@ public struct WebControls: ControlPressing {
     }
 
     // MARK: Scripts
+
+    /// The select a person would call `$LABEL`: normalized like `LabelText.normalize`, matched on
+    /// its accessible name, then its current option. The chosen one is kept on the window, out of
+    /// the DOM, so the page sees no attribute change.
+    static let openSelectScript = """
+    (() => {
+      const norm = s => (s || '').toLowerCase().replace(/[^\\p{L}\\p{M}\\p{N}]/gu, '');
+      const nameOf = e => e.getAttribute('aria-label')
+        || (e.getAttribute('aria-labelledby') || '').split(/\\s+/).map(id => (document.getElementById(id) || {}).textContent || '').join(' ').trim()
+        || (e.labels && e.labels[0] ? e.labels[0].textContent : '') || e.title || '';
+      const visible = e => { const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1
+        && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth; };
+      const selects = [...document.querySelectorAll('select')].filter(e => !e.multiple && e.size <= 1 && visible(e));
+      let found = selects.filter(e => norm(nameOf(e)) === $LABEL);
+      if (!found.length) found = selects.filter(e => e.selectedOptions[0] && norm(e.selectedOptions[0].textContent) === $LABEL);
+      const target = found[$ORDINAL - 1];
+      if (!target || target.disabled) return false;
+      Object.defineProperty(window, '__brausSelect', { value: target, configurable: true, writable: true });
+      target.focus();
+      return true;
+    })()
+    """
+
+    /// The open select's name, box and options, or null.
+    static let popupScript = """
+    (() => {
+      const e = window.__brausSelect;
+      if (!e || !e.isConnected) return null;
+      const r = e.getBoundingClientRect();
+      const name = e.getAttribute('aria-label') || (e.labels && e.labels[0] ? e.labels[0].textContent.trim() : '') || e.title || e.name || '';
+      return { name, rect: [r.x, r.y, r.width, r.height],
+               options: [...e.options].map(o => ({ text: o.text.trim(), selected: o.selected, disabled: o.disabled })) };
+    })()
+    """
+
+    /// Chooses the option whose title is `$TITLE`, compared like `LabelText.menuTitleKey`, the way
+    /// a person's choice reaches a framework: focus, value, `input`, `change`, blur. `stuck` says
+    /// whether the value held.
+    static let chooseOptionScript = """
+    (() => {
+      const e = window.__brausSelect;
+      if (!e || !e.isConnected) return { found: false };
+      const key = s => (s || '').replace(/[\\u2066-\\u2069\\u200e\\u200f]/g, '').replace(/[\\u201c\\u201d]/g, '"')
+        .replace(/[\\u2018\\u2019]/g, "'").trim().replace(/(\\u2026|\\.\\.\\.)$/, '').trim().toLowerCase();
+      const option = [...e.options].find(o => !o.disabled && key(o.text) === $TITLE);
+      if (!option) return { found: false };
+      e.focus();
+      e.value = option.value;
+      option.selected = true;
+      e.selectedIndex = option.index;
+      e.dispatchEvent(new Event('input', { bubbles: true }));
+      e.dispatchEvent(new Event('change', { bubbles: true }));
+      e.blur();
+      delete window.__brausSelect;
+      return { found: true, stuck: e.value === option.value };
+    })()
+    """
+
+    static let closeScript = "delete window.__brausSelect"
 
     /// The current value of every select, combo box and text field in the main document.
     static let controlValuesScript = """

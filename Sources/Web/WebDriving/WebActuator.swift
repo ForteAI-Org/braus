@@ -27,6 +27,18 @@ public struct WebActuator: Actuating {
 
     public func perform(_ gesture: Gesture, in processID: pid_t) async throws {
         let page = try tabs.page(for: processID)
+        // An open select's list goes, as Chrome's own does, on Escape or on a click outside it.
+        if let window = tabs.window(of: processID), let popup = window.popup {
+            switch gesture {
+                case .key(Key.escape, _):
+                    await WebControls(tabs: tabs).closePopup(in: processID)
+                    return
+                case .click(let point, _, _) where !popup.frame(in: window.viewport).contains(point):
+                    await WebControls(tabs: tabs).closePopup(in: processID)
+                default:
+                    break
+            }
+        }
         for (method, params) in try Self.events(for: gesture) {
             _ = try await page.send(method, params)
         }

@@ -553,7 +553,7 @@ let package = Package(
         // A page as the engine sees a window: the scene from the accessibility tree and the layout, and the
         // roles that act on it over the DevTools protocol. Synthetic process ids name the tabs.
         web("WebDriving", ["WebDriver", "EngineCore", "PerceptionCore"]),
-        webTests("WebDriving", ["WebDriving", "WebDriver", "EngineCore", "PerceptionCore"],
+        webTests("WebDriving", ["WebDriving", "WebDriver", "Engine", "EngineCore", "PerceptionCore"],
                  resources: [.copy("Fixtures/web-scene.html")]),
 
         // MARK: Engine tests

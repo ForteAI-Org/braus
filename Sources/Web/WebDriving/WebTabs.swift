@@ -19,6 +19,8 @@ public final class WebTabs: Sendable {
         let page    : WebPage
         var viewport: CGSize
         var title   : String
+        /// The select whose list Braus draws, while it is open.
+        var popup   : WebSelectPopup?
     }
 
     struct State {
@@ -36,7 +38,7 @@ public final class WebTabs: Sendable {
         state.withLock { state in
             let id = state.nextID
             state.nextID -= 1
-            state.tabs[id] = Tab(page: page, viewport: viewport, title: "")
+            state.tabs[id] = Tab(page: page, viewport: viewport, title: "", popup: nil)
             return id
         }
     }
@@ -64,8 +66,12 @@ public final class WebTabs: Sendable {
         }
     }
 
-    func window(of processID: pid_t) -> (viewport: CGSize, title: String)? {
-        state.withLock { state in state.tabs[processID].map { ($0.viewport, $0.title) } }
+    func window(of processID: pid_t) -> (viewport: CGSize, title: String, popup: WebSelectPopup?)? {
+        state.withLock { state in state.tabs[processID].map { ($0.viewport, $0.title, $0.popup) } }
+    }
+
+    func setPopup(_ popup: WebSelectPopup?, for processID: pid_t) {
+        state.withLock { $0.tabs[processID]?.popup = popup }
     }
 }
 

@@ -29,7 +29,9 @@ public enum WebSceneBuilder {
         return "web:" + (host.hasPrefix("www.") ? String(host.dropFirst(4)) : host)
     }
 
-    public static func scene(nodes: [WebAXNode], layout: WebLayout) -> SceneSnapshot {
+    /// `popup` is an open select's list, drawn over the page: its options follow the page's
+    /// elements, in a section of their own, and cover what they are drawn over.
+    public static func scene(nodes: [WebAXNode], layout: WebLayout, popup: WebSelectPopup? = nil) -> SceneSnapshot {
         let byID     = Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let viewport = CGRect(origin: .zero, size: layout.viewport)
         var elements: [SceneElement]                       = []
@@ -84,6 +86,12 @@ public enum WebSceneBuilder {
             walk(root, container: nil, collection: nil, textCovered: false)
         }
 
+        if let popup {
+            let cover = NormalizedRect(pixelBox: popup.frame(in: layout.viewport), in: layout.viewport).cgRect
+            elements.removeAll { cover.contains($0.bounds.center) }
+            elements += popup.elements(in: layout.viewport)
+        }
+
         // Duplicates read apart by ordinal, as the desktop harvest does: same kind, place and name.
         var seen: [String: Int] = [:]
         for index in elements.indices {
@@ -94,12 +102,16 @@ public enum WebSceneBuilder {
         }
 
         var names: [String: Int] = [:]
-        let named = sections.map { section -> SceneSection in
+        var named = sections.map { section -> SceneSection in
             let count = (names[section.name] ?? 0) + 1
             names[section.name] = count
             return SceneSection(name: count > 1 ? "\(section.name) #\(count)" : section.name, bounds: section.rect)
         }
-        for index in elements.indices {
+        if let popup {
+            named.append(SceneSection(name: popup.sectionName,
+                                      bounds: NormalizedRect(pixelBox: popup.frame(in: layout.viewport), in: layout.viewport)))
+        }
+        for index in elements.indices where elements[index].section == nil {
             let center = elements[index].bounds.center
             elements[index].section = named
                 .filter { $0.bounds.contains(center) }

@@ -21,6 +21,9 @@
     document.getElementById('send').addEventListener('click', () => {
       document.getElementById('status').textContent = 'Sent ' + document.getElementById('name').value;
     });
+    document.getElementById('color').addEventListener('change', (event) => {
+      document.getElementById('status').textContent = 'Color ' + event.target.value;
+    });
   </script>
 </body>
 </html>

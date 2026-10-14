@@ -26,14 +26,17 @@ public struct WebScenes: SceneProviding {
         async let snapshot = page.send("DOMSnapshot.captureSnapshot", ["computedStyles": []])
         async let metrics  = page.send("Page.getLayoutMetrics")
         let layout = try WebLayout(snapshot: try await snapshot, metrics: try await metrics)
-        let scene  = WebSceneBuilder.scene(nodes: WebAXNode.nodes(fromFullTree: try await tree), layout: layout)
+        let popup  = tabs.window(of: processID)?.popup != nil ? await WebControls.openPopup(on: page) : nil
+        tabs.setPopup(popup, for: processID)
+        let scene  = WebSceneBuilder.scene(nodes: WebAXNode.nodes(fromFullTree: try await tree), layout: layout,
+                                           popup: popup)
         tabs.note(viewport: layout.viewport, title: scene.windowTitle, for: processID)
         return PerceivedWindow(scene: scene, frame: CGRect(origin: .zero, size: layout.viewport), surface: .window)
     }
 }
 
 /// WebWindows is `WindowListing` for tabs: one ordinary window, the viewport the last scene
-/// measured, and none for an id no tab has.
+/// measured, with an open select's list in front of it, and none for an id no tab has.
 public struct WebWindows: WindowListing {
 
     let tabs: WebTabs
@@ -44,6 +47,9 @@ public struct WebWindows: WindowListing {
 
     public func windows(ownedBy processID: pid_t) throws -> [WindowRow] {
         guard let window = tabs.window(of: processID) else { return [] }
-        return [WindowRow(layer: 0, frame: CGRect(origin: .zero, size: window.viewport), title: window.title)]
+        let main = WindowRow(layer: 0, frame: CGRect(origin: .zero, size: window.viewport), title: window.title)
+        // An open select's list is a pop-up menu over the page, at the menu layer a toolkit uses.
+        guard let popup = window.popup else { return [main] }
+        return [WindowRow(layer: 101, frame: popup.frame(in: window.viewport)), main]
     }
 }
