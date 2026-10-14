@@ -63,9 +63,15 @@ import SeatInput
 ///    renderer's preparation and is no embedded renderer: the evidence is the
 ///    exact identifier, as for Chrome's native composition and Photoshop's
 ///    clicks;
-/// 4. the bundle identifier is Apple's, and Apple ships its applications in
+/// 4. the bundle identifier is kitty's: unprepared keys changed 0 pixels in 5
+///    of 5 reps on 14/10/2026, and the working hypothesis is that its GLFW
+///    window ignores keys while it is not key. It is driven with
+///    `RemoteKeyboardPlatform` with no host, which prepares only keyboard
+///    Commands. GLFW is linked statically into a Python extension there, so the
+///    exact identifier is the evidence. The live qualification is pending;
+/// 5. the bundle identifier is Apple's, and Apple ships its applications in
 ///    AppKit, Finder included;
-/// 5. nothing is known, and nothing known is not a renderer: an application
+/// 6. nothing is known, and nothing known is not a renderer: an application
 ///    nobody has measured is driven without preparation, like the native one.
 ///
 /// **The known limit**: a Chromium-based application that ships neither known
@@ -89,10 +95,13 @@ enum TargetPlatform: Sendable, Equatable {
     /// Rule 3: Safari's bundle identifier, WebKit's page content (ADR 0038).
     case webKitBrowser
 
-    /// Rule 4: an Apple bundle identifier.
+    /// Rule 4: kitty's bundle identifier, whose keys are prepared.
+    case kittyTerminal
+
+    /// Rule 5: an Apple bundle identifier.
     case appleNative
 
-    /// Rule 5: no evidence either way, which is not evidence of a renderer.
+    /// Rule 6: no evidence either way, which is not evidence of a renderer.
     case unmeasured
 
     /// What inside the bundle said it is a Chromium renderer. It is carried
@@ -116,6 +125,10 @@ enum TargetPlatform: Sendable, Equatable {
     /// The one bundle identifier ADR 0038 measured. Safari Technology Preview and
     /// other WebKit shells are not covered until each is measured.
     static let safariBundleIdentifier = "com.apple.Safari"
+
+    /// The one bundle identifier ticket 5 measured. Other GLFW applications are
+    /// not covered until each is measured.
+    static let kittyBundleIdentifier = "net.kovidgoyal.kitty"
 
     /// What says the interface is drawn by Adobe's UXP host.
     private static let uxpHosts = ["dvauxphost.framework"]
@@ -143,19 +156,21 @@ enum TargetPlatform: Sendable, Equatable {
         if let bundleURL, frameworks(of: bundleURL, contain: qtLibraries) { return .qtToolkit }
         if let bundleURL, frameworks(of: bundleURL, contain: uxpHosts) { return .adobeUXP }
         if bundleIdentifier == Self.safariBundleIdentifier { return .webKitBrowser }
+        if bundleIdentifier == Self.kittyBundleIdentifier { return .kittyTerminal }
         if bundleIdentifier?.hasPrefix("com.apple.") == true { return .appleNative }
         return .unmeasured
     }
 
     /// The platform the seat is handed. Only the renderer's and Safari's
-    /// clicks are prepared; `AppKitPlatform` prepares nothing and is what the
-    /// Apple and the unmeasured cases answer. Safari takes `ChromiumPlatform`
+    /// clicks are prepared, and kitty's keys; `AppKitPlatform` prepares nothing and
+    /// is what the Apple and the unmeasured cases answer. Safari takes `ChromiumPlatform`
     /// as is: the same three Commands are prepared and keys and scroll are not.
     var platform: any InputPlatform {
         switch self {
             case .embeddedRenderer, .webKitBrowser: ChromiumPlatform()
             case .qtToolkit                       : QtPlatform()
             case .adobeUXP                        : UXPPlatform()
+            case .kittyTerminal                   : RemoteKeyboardPlatform()
             case .appleNative, .unmeasured        : AppKitPlatform()
         }
     }
@@ -185,6 +200,7 @@ enum TargetPlatform: Sendable, Equatable {
             case .qtToolkit                        : "the bundle ships Qt"
             case .adobeUXP                         : "the bundle ships Adobe's UXP host"
             case .webKitBrowser                    : "the bundle is Safari, whose web content drops unprepared clicks"
+            case .kittyTerminal                    : "the bundle is kitty, whose unprepared keys were not received"
             case .appleNative                      : "the bundle identifier is Apple's"
             case .unmeasured                       : "nothing in the bundle says it is a renderer"
         }
