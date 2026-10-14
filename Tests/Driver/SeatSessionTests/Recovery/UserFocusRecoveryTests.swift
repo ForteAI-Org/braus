@@ -297,8 +297,7 @@ struct UserFocusRecoveryTests {
         fixture.recovery.beginHold()
         try await fixture.recovery.prepareBeforeAction()
         fixture.activateTarget()
-        fixture.time += UserFocusRecovery.verificationWindowNanoseconds
-        fixture.recovery.verify()
+        fixture.sample(for: UserFocusRecovery.verificationWindowNanoseconds)
         let reads = fixture.sensing.snapshotReadCount
         await fixture.recovery.refreshPreparation()
         #expect(fixture.sensing.snapshotReadCount == reads)
@@ -418,8 +417,7 @@ struct UserFocusRecoveryTests {
         fixture.activateTarget()
         #expect(fixture.requested.count == 1)
 
-        fixture.time += 300_000_000
-        fixture.recovery.verify()
+        fixture.sample(for: 300_000_000)
         #expect(fixture.reports.last?.outcome == .waitingForUser)
         #expect(fixture.gate.isPaused)
 
@@ -934,6 +932,61 @@ struct UserFocusRecoveryTests {
         fixture.recovery.stop()
     }
 
+    @Test("a stall that skips ticks is not billed to the person: the user back in front still restores")
+    func aStallDoesNotExpireTheWindow() async throws {
+        let fixture = Harness()
+        fixture.recovery.beginHold()
+        try await fixture.recovery.prepareBeforeAction()
+        fixture.activateTarget()
+        #expect(fixture.requested == [Self.user])
+
+        // A pass holds the main thread for 700 ms, then the person's window is
+        // already in front for the first tick that runs.
+        fixture.time += 700_000_000
+        fixture.bringInFront(Self.user)
+        fixture.recovery.verify()
+        #expect(fixture.recovery.isRestoring, "one late sample is one sample, not 700 ms of them")
+        #expect(fixture.reports.last?.outcome == .restoring)
+        fixture.time += 5_000_000
+        fixture.recovery.verify()
+        #expect(fixture.reports.last?.outcome == .restored)
+        #expect(!fixture.reports.contains { $0.outcome == .waitingForUser })
+        #expect(!fixture.gate.isPaused)
+        fixture.recovery.stop()
+    }
+
+    @Test("250 ms of real samples with the target still in front end in waiting, one tick short does not")
+    func aFullWindowOfSamplesExpires() async throws {
+        let fixture = Harness()
+        fixture.recovery.beginHold()
+        try await fixture.recovery.prepareBeforeAction()
+        fixture.activateTarget()
+        fixture.sample(for: UserFocusRecovery.verificationWindowNanoseconds - 5_000_000)
+        #expect(fixture.recovery.isRestoring)
+        #expect(!fixture.reports.contains { $0.outcome == .waitingForUser })
+
+        fixture.sample(for: 5_000_000)
+        #expect(fixture.reports.last?.outcome == .waitingForUser)
+        #expect(!fixture.recovery.isRestoring)
+        fixture.recovery.stop()
+    }
+
+    @Test("a main thread too busy to sample still ends the verification at the wall-clock ceiling")
+    func theCeilingEndsAnUnsampledWindow() async throws {
+        let fixture = Harness()
+        fixture.recovery.beginHold()
+        try await fixture.recovery.prepareBeforeAction()
+        fixture.activateTarget()
+
+        fixture.time += UserFocusRecovery.verificationCeilingNanoseconds - 1
+        #expect(fixture.recovery.isRestoring)
+        fixture.time += 1
+        #expect(!fixture.recovery.isRestoring)
+        fixture.recovery.verify()
+        #expect(fixture.reports.last?.outcome == .waitingForUser)
+        fixture.recovery.stop()
+    }
+
     @Test("only a request in flight and unverified reads as restoring, and the gate reads neither")
     func restoringIsTheNarrowHalfOfPaused() async throws {
         let fixture = Harness()
@@ -946,7 +999,7 @@ struct UserFocusRecoveryTests {
 
         // The 250 ms the verification is given. Past it the episode is open and
         // the seat is waiting for a person who may not be at the keyboard.
-        fixture.time += UserFocusRecovery.verificationWindowNanoseconds
+        fixture.sample(for: UserFocusRecovery.verificationWindowNanoseconds)
         #expect(fixture.recovery.isPaused)
         #expect(!fixture.recovery.isRestoring)
         #expect(fixture.gate.isPaused, "and the input stop does not read the difference")
@@ -1422,6 +1475,13 @@ struct UserFocusRecoveryTests {
             sensing.frontmostProcessID = FakeGeometry.targetPID
             sensing.focusedUserWindow = FakeGeometry.adoptedWindow
             recovery.activationChanged(to: FakeGeometry.targetPID)
+        }
+        /// Ticks of the 5 ms verification timer, each one reading the front.
+        func sample(for nanoseconds: UInt64) {
+            for _ in 0..<(nanoseconds / 5_000_000) {
+                time += 5_000_000
+                recovery.verify()
+            }
         }
         func returnUser() {
             sensing.frontmostProcessID = userWindow.processID
