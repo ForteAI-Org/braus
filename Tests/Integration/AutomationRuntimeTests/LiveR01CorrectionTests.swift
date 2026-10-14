@@ -27,8 +27,8 @@ struct LiveR01CorrectionTests {
     typealias P = ProcedureLearningTests
     typealias L = RecallLifecycleTests
 
-    static let folderA = "/private/tmp/mecum-live-2026-10-12-R01/Inputs/A"
-    static let folderB = "/private/tmp/mecum-live-2026-10-13-R02-haiku/Inputs/B"
+    static let folderA = "/private/tmp/braus-live-2026-10-12-R01/Inputs/A"
+    static let folderB = "/private/tmp/braus-live-2026-10-13-R02-haiku/Inputs/B"
 
     /// Finder's window, the Go to Folder sheet it opens and the folder it shows after.
     @MainActor enum Finder {

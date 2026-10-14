@@ -15,9 +15,9 @@ import PerceptionCore
 @testable import SQLiteMemory
 import Testing
 
-/// PreviousProductTests prove the continuity of the knowledge the product kept under its earlier name, Mecum, into the
-/// user's one archive of Braus, on folders of their own: never the person's. The earlier folder is only read, and is read
-/// only for the default support folder or one named (`KnowledgeLocation.previousSupport`). Its archive is adopted whole
+/// PreviousProductTests prove the continuity of the knowledge the product kept under its earlier name into the user's
+/// one archive of Braus, on folders of their own: never the person's. The earlier folder is only read, and only when
+/// `BRAUS_PREVIOUS_SUPPORT_DIR` names it (`KnowledgeLocation.previousSupport`). Its archive is adopted whole
 /// where Braus has none yet (a consistent copy through the backup API, then the migration of its shape); its JSON Brains,
 /// and an archive found beside one Braus already has, are taken in by the unification's transfer, journaled under the
 /// origin `previous_product`, once. An archive the transfer does not carry is refused whole, untouched, and said.
@@ -48,7 +48,7 @@ struct PreviousProductTests {
     static func folders() throws -> Folders {
         let root = try W.directory()
         let folders = Folders(support: root.appendingPathComponent("Braus", isDirectory: true),
-                              previous: root.appendingPathComponent("Mecum", isDirectory: true))
+                              previous: root.appendingPathComponent("Earlier", isDirectory: true))
         try FileManager.default.createDirectory(at: folders.support, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: folders.previous, withIntermediateDirectories: true)
         return folders
@@ -105,14 +105,14 @@ struct PreviousProductTests {
 
     // MARK: Which folder
 
-    @Test("only the default support folder, or one named, reads the earlier name's: a moved support folder reads none of the person's")
+    @Test("only a folder named is read as the earlier name's: none by default, none for a moved support folder")
     func isolation() throws {
         #expect(KnowledgeLocation.previousSupport(environment: [KnowledgeLocation.supportOverride: "/private/tmp/braus-live/AppSupport"]) == nil)
         #expect(KnowledgeLocation.previousProductOrigins(environment: [KnowledgeLocation.supportOverride: "/private/tmp/braus-live/AppSupport"]).isEmpty)
         #expect(KnowledgeLocation.previousSupport(environment: [KnowledgeLocation.previousSupportOverride: ""]) == nil)
         #expect(KnowledgeLocation.previousSupport(environment: [KnowledgeLocation.previousSupportOverride: "/tmp/Old"])?.path == "/tmp/Old")
-        let byDefault = try #require(KnowledgeLocation.previousSupport(environment: [:]))
-        #expect(byDefault.lastPathComponent == "Mecum" && byDefault.deletingLastPathComponent().lastPathComponent == "Application Support")
+        #expect(KnowledgeLocation.previousSupport(environment: [:]) == nil, "no folder of the person's is read unless one is named")
+        #expect(KnowledgeLocation.previousProductOrigins(environment: [:]).isEmpty)
         // The support folder itself is never its own earlier name.
         let same = "/private/tmp/same-support"
         #expect(KnowledgeLocation.previousProductOrigins(environment: [KnowledgeLocation.supportOverride: same,
@@ -130,12 +130,12 @@ struct PreviousProductTests {
 
         let memory = try await Self.open(folders)
         let status = await memory.status()
-        #expect(status.lastUnification?.contains("Mecum/Knowledge: adopted whole") == true, "\(status.lastUnification ?? "")")
+        #expect(status.lastUnification?.contains("Earlier/Knowledge: adopted whole") == true, "\(status.lastUnification ?? "")")
         #expect(status.lastMigration?.contains("from schema d3-7 to 8") == true, "\(status.lastMigration ?? "")")
         let url = memory.url
         #expect(try U.count("SELECT count(*) FROM memory_events", at: url) == earlierEvents)
         #expect(try rawRows("SELECT origin_id || ':' || origin_kind || ':' || status || ':' || location FROM memory_archive_origins", at: url)
-                == ["previous-product:knowledge:previous_product:completed:Mecum/Knowledge"])
+                == ["previous-product:knowledge:previous_product:completed:Earlier/Knowledge"])
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
         let session = P.photoSession(folders.knowledge)
         let proposal = try await P.task(P.tools(session, stream: "after-rename"), RecallChoiceToolTests.proposeRequest)["recall_proposal"]
@@ -193,7 +193,7 @@ struct PreviousProductTests {
     @Test("both archives, the earlier one of facts: taken in by transfer with every event's source, Braus's own kept; once")
     func bothWithFacts() async throws {
         let folders = try Self.folders()
-        try await U.legacyArchive(in: folders.earlier, stream: "mecum-app", elements: [W.format, W.save])
+        try await U.legacyArchive(in: folders.earlier, stream: "earlier-app", elements: [W.format, W.save])
         let earlier = folders.earlier.appendingPathComponent("memory.sqlite")
         let earlierEvents = try U.count("SELECT count(*) FROM memory_events", at: earlier)
         let earlierFiles = try Self.files(folders.earlier)
@@ -236,7 +236,7 @@ struct PreviousProductTests {
         #expect(try U.count("SELECT count(*) FROM memory_events", at: url) == ownEvents, "nothing half merged")
         let journal = try rawRows("SELECT origin_kind || ':' || status || ':' || ifnull(detail, '') FROM memory_archive_origins", at: url)
         #expect(journal.count == 1 && journal[0].hasPrefix("previous_product:refused:") && journal[0].contains("memory_tasks"), "\(journal)")
-        #expect((await memory.status()).lastUnification?.contains("Mecum/Knowledge: refused") == true)
+        #expect((await memory.status()).lastUnification?.contains("Earlier/Knowledge: refused") == true)
         await Self.close(folders)
         let readBack = try Self.files(folders.earlier)
         #expect(try Self.emptyLocks(folders.earlier))
@@ -246,7 +246,7 @@ struct PreviousProductTests {
     @Test("a process that stopped after the adoption's copy, before its record: the next open takes the source in by transfer, each event recognized as already here, none twice")
     func adoptionStoppedBeforeItsRecord() async throws {
         let folders = try Self.folders()
-        try await U.legacyArchive(in: folders.earlier, stream: "mecum-app", elements: [W.format, W.save])
+        try await U.legacyArchive(in: folders.earlier, stream: "earlier-app", elements: [W.format, W.save])
         let earlier = folders.earlier.appendingPathComponent("memory.sqlite")
         let earlierEvents = try U.count("SELECT count(*) FROM memory_events", at: earlier)
         try FileManager.default.createDirectory(at: folders.knowledge, withIntermediateDirectories: true)

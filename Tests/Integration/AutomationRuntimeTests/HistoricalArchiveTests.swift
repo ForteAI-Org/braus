@@ -16,8 +16,9 @@ import Testing
 
 /// HistoricalArchiveTests prove the migration of the archives two earlier builds made (R63): `main-1`, schema 1 as main
 /// shipped it before the value change, and `d3-7`, version 7 of the D3 build the live run R01 used. The shapes come from the
-/// exact texts those builds ran (`Fixtures/schema-main-1.sql` from f44fb67, `Fixtures/schema-d3-7.sql` from 7ee2552),
-/// never from the current text. The rows come from the product's producers: a task learned through the tools on the
+/// exact texts those builds ran (`Fixtures/schema-main-1.sql` from f44fb67, `Fixtures/schema-d3-7.sql` from 7ee2552;
+/// since 13 October 2026 their first comment line names the product as Braus, their SQL objects untouched), never from
+/// the current text. The rows come from the product's producers: a task learned through the tools on the
 /// current schema is brought to the historical shape by rebuilding the tables that text writes otherwise and dropping what
 /// it lacks, and the result is checked equal, object for object, to the historical text's. Then the product opens it.
 @MainActor
@@ -35,7 +36,7 @@ struct HistoricalArchiveTests {
     }
 
     static func mainOne() throws -> String {
-        try text("schema-main-1", sha256: "9df535abc689f7f2610a023ed6be483d408896f7356e88b015b72c2b4324b9e4")
+        try text("schema-main-1", sha256: "a073430d7f6292fe21794a09422190b48e0c64ba869fa6e60bae86e8aceecd0c")
     }
 
     static func renameAppSeven() throws -> String {
@@ -43,7 +44,7 @@ struct HistoricalArchiveTests {
     }
 
     static func dThreeSeven() throws -> String {
-        try text("schema-d3-7", sha256: "cb8debcdb6a2076f9e30265cd57d0b91200c7f51886e2368f5bc0fd28581121d")
+        try text("schema-d3-7", sha256: "f899eb33bc4184c2e676fd40773f2ddf6c99d274a06c2350d0fc620130b92bac")
     }
 
     /// The digest this build recognizes a historical shape by.

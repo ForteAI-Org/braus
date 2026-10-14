@@ -282,16 +282,17 @@ was proved on synthetic archives only.
 
 ### The knowledge of the product's earlier name (2026-10-13)
 
-The product was called Mecum until 13 October 2026, and its support folder `~/Library/Application Support/Mecum`. The
-renamed build starts from `~/Library/Application Support/Braus`; a new folder is no forgotten knowledge, and an old one
-is no archive to choose over the new. `KnowledgeLocation.previousProductOrigins` inventories, read only, the earlier
+The product carried another name until 13 October 2026, with a support folder of its own under `Application Support`.
+The renamed build starts from `~/Library/Application Support/Braus`; a new folder is no forgotten knowledge, and an old
+one is no archive to choose over the new. The earlier name is kept nowhere in the product: the earlier folder is read
+only when `BRAUS_PREVIOUS_SUPPORT_DIR` names it. `KnowledgeLocation.previousProductOrigins` inventories, read only, the earlier
 name's `Knowledge` directory (origin `previous-product:knowledge`) and its external clients' private ones
 (`previous-product:mcp-profile:<name>`), journaled under the kind `previous_product`. The app and `braus` register them
 beside the client directories of the current folder.
 
-- **Which folder.** Only for the default support folder, or the one `BRAUS_PREVIOUS_SUPPORT_DIR` names (set empty, none).
-  A process whose support folder is moved (`BRAUS_APP_SUPPORT_DIR`: a test, a live run's root) and the app's check runs
-  read no folder of the person's. Profiles, conversations, credentials and settings of the earlier name are not
+- **Which folder.** Only the one `BRAUS_PREVIOUS_SUPPORT_DIR` names (set empty, none); none by default, so a process
+  whose support folder is moved (`BRAUS_APP_SUPPORT_DIR`: a test, a live run's root), the app's check runs and an
+  ordinary launch read no folder of the person's unless someone names it. Profiles, conversations, credentials and settings of the earlier name are not
   knowledge and are never read; the providers, the bridge and the permissions of the new identity need their own
   preflight.
 - **Only the earlier archive.** An open that finds no archive of its own adopts the earlier one whole

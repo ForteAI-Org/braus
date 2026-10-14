@@ -1,4 +1,4 @@
--- Mecum Brain and living memory: the schema resource of the SQLiteMemory module.
+-- Braus Brain and living memory: the schema resource of the SQLiteMemory module.
 -- Base: the S0 closing candidate v5 (41 tables, 32 triggers, 27 explicit indexes; sha256
 -- f3e651892c6af2ff87d48109666b0d4727485605add37b6eddd51e23d2e55d86), whose logical model Ron
 -- approved at v3. This resource is a CANDIDATE: the contract items of the v4->v5 diff are still to

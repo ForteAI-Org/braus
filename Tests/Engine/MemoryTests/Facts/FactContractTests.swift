@@ -179,8 +179,8 @@ struct FactContractTests {
     }
 
     @Test("live R01 LV02: an ordinary absolute path is judged by its components and kept whole, alone or inside a text",
-          arguments: ["/private/tmp/mecum-live-2026-10-12-R01/Inputs/A", "/Users/Tester/Projects/Reports2026/Exports",
-                      "~/Documents/Consegne2026/Mecum-Live-R02-Haiku/Outputs/B", "/private/tmp/mecum-live-2026-10-13-R02-haiku/Outputs/A/",
+          arguments: ["/private/tmp/braus-live-2026-10-12-R01/Inputs/A", "/Users/Tester/Projects/Reports2026/Exports",
+                      "~/Documents/Consegne2026/Braus-Live-R02-Haiku/Outputs/B", "/private/tmp/braus-live-2026-10-13-R02-haiku/Outputs/A/",
                       "/Volumes/Archivio2026/BrausAppSupportFolder2026/Knowledge"])
     func ordinaryPaths(_ path: String) {
         let minimization = ValueMinimization()

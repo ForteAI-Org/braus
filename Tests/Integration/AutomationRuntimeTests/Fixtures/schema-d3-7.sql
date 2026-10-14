@@ -1,4 +1,4 @@
--- Mecum Brain and living memory: the schema of the SQLiteMemory module, version 7.
+-- Braus Brain and living memory: the schema of the SQLiteMemory module, version 7.
 -- This one text creates a new archive in its bootstrap transaction, and the store compares every archive with the
 -- exact shape it creates at each open. It is edited in place: a change of shape before a release adds no file, and
 -- an archive of an earlier development shape is refused untouched.

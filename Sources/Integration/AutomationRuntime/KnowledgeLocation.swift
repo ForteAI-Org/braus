@@ -94,16 +94,12 @@ nonisolated public enum KnowledgeLocation {
     /// archive takes in, for a check run or a test; set and empty, none is read.
     public static let previousSupportOverride = "BRAUS_PREVIOUS_SUPPORT_DIR"
 
-    /// The support folder of the product's earlier name, Mecum (`<Application Support>/Mecum`), read only: for the default
-    /// support folder alone, or the one `BRAUS_PREVIOUS_SUPPORT_DIR` names. A process whose support folder is moved
-    /// (`BRAUS_APP_SUPPORT_DIR`: a test's or a live run's root) reads no folder of the person's unless one is named.
+    /// The support folder of the product's earlier name, read only: only the one `BRAUS_PREVIOUS_SUPPORT_DIR` names, and
+    /// none by default, so no folder of the person's is read unless someone names it (a check run, a test, a migration
+    /// decided). The earlier name is kept nowhere in the product.
     public static func previousSupport(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
-        if let named = environment[previousSupportOverride] {
-            return named.isEmpty ? nil : URL(fileURLWithPath: (named as NSString).expandingTildeInPath, isDirectory: true)
-        }
-        if let moved = environment[supportOverride], !moved.isEmpty { return nil }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Mecum", isDirectory: true)
+        guard let named = environment[previousSupportOverride], !named.isEmpty else { return nil }
+        return URL(fileURLWithPath: (named as NSString).expandingTildeInPath, isDirectory: true)
     }
 
     /// The knowledge the product kept under its earlier name, as origins of the user's one archive, inventoried without
