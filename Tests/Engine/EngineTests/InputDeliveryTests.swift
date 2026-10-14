@@ -464,6 +464,119 @@ struct InputDeliveryTests {
         #expect(repeated.confirmations == [.absent])
     }
 
+    @Test("Tab and Shift-Tab with a change that is not the focus moving stay unverified", arguments: [
+        "selection of the focused field", "element elsewhere"
+    ])
+    func focusKeyWithoutFocusMoveIsUnverified(_ change: String) async {
+        // Safari, 14/10: Shift-Tab select-alled the field that already held the focus.
+        var before = field(value: "hello1")
+        before.selectedRange = NSRange(location: 6, length: 0)
+        var after = before
+        if change == "selection of the focused field" { after.selectedRange = NSRange(location: 0, length: 6) }
+        let extra = change == "element elsewhere" ? [trash] : []
+        for chord in [KeyChord(.tab), KeyChord(.tab, modifiers: .shift)] {
+            let actuator = RecordingActuator()
+            let outcome = await engine(
+                scenes: ScriptedScenes([scene([before]), scene([after] + extra)]), actuator: actuator
+            ).deliver(request(.pressKey(chord, times: 1)))
+            #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
+            #expect(outcome.message.hasPrefix("pressed \(chord): the focus did not visibly move"))
+            #expect(outcome.message.contains("click the field"))
+            #expect(outcome.check?.verdict == .unknown)
+            #expect(actuator.confirmations == [.unknown])
+        }
+    }
+
+    @Test("Tab is found_acted when the focus moved to another field or left the one it was in")
+    func focusKeyWithFocusMoveIsFound() async {
+        var name = field(value: "hello1")
+        name.selectedRange = NSRange(location: 6, length: 0)
+        var email = field(value: "", id: "control|email")
+        email.label = "Email"
+        var focused = email
+        focused.selectedRange = NSRange(location: 0, length: 0)
+        let cases: [(PerceivedWindow, PerceivedWindow, KeyChord, String)] = [
+            (scene([name, email]), scene([field(value: "hello1"), focused]), KeyChord(.tab),
+             "pressed tab: the focus moved to 'Email'"),
+            (scene([name, email]), scene([field(value: "hello1"), email]), KeyChord(.tab, modifiers: .shift),
+             "pressed shift+tab: the focus left 'Project Name'"),
+        ]
+        for (before, after, chord, message) in cases {
+            let actuator = RecordingActuator()
+            let outcome = await engine(scenes: ScriptedScenes([before, after]), actuator: actuator)
+                .deliver(request(.pressKey(chord, times: 1)))
+            #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
+            #expect(outcome.message == message)
+            #expect(outcome.check?.verdict == .passed)
+            #expect(actuator.confirmations == [.observed])
+        }
+    }
+
+    @Test("Tab in a native form whose fields all hold a selection keeps the window-wide verdict")
+    func focusKeyAmongSeveralSelectionsKeepsTheOldRule() async {
+        // AppKit reports a selection on every text field, focused or not: the holders cannot show the focus.
+        var name = field(value: "hello1")
+        name.selectedRange = NSRange(location: 6, length: 0)
+        var email = field(value: "a@b", id: "control|email")
+        email.label = "Email"
+        email.selectedRange = NSRange(location: 0, length: 0)
+        var left = name, entered = email
+        left.selectedRange = NSRange(location: 0, length: 0)
+        entered.selectedRange = NSRange(location: 0, length: 3)
+        for chord in [KeyChord(.tab), KeyChord(.tab, modifiers: .shift)] {
+            let actuator = RecordingActuator()
+            let outcome = await engine(
+                scenes: ScriptedScenes([scene([name, email]), scene([left, entered])]), actuator: actuator
+            ).deliver(request(.pressKey(chord, times: 1)))
+            #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
+            #expect(outcome.message == "pressed \(chord): changes text selection")
+            #expect(actuator.confirmations == [.observed])
+        }
+    }
+
+    @Test("Tab typed into a text area is found_acted with the area's new value")
+    func tabTypedIntoTextAreaIsFound() async {
+        var notes = field(value: "hello")
+        notes.role = "AXTextArea"
+        notes.label = "Notes"
+        notes.selectedRange = NSRange(location: 5, length: 0)
+        var typed = notes
+        typed.value = "hello\t"
+        typed.selectedRange = NSRange(location: 6, length: 0)
+        let actuator = RecordingActuator()
+        let outcome = await engine(scenes: ScriptedScenes([scene([notes]), scene([typed])]), actuator: actuator)
+            .deliver(request(.pressKey(KeyChord(.tab), times: 1)))
+        #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
+        #expect(outcome.message == "pressed tab: 'Notes' now reads 'hello\t'")
+        #expect(actuator.confirmations == [.observed])
+    }
+
+    @Test("text read from pixels again in place is no effect of a key, and new text elsewhere still is")
+    func pixelTextRereadIsNoKeyEffect() async {
+        // TextEdit, 14/10: Command-Z answered "reveals elements" from OCR re-reading the same lines.
+        func text(_ label: String, x: Double, y: Double, width: Double) -> SceneElement {
+            SceneElement(id: "text|\(label)", kind: .text, label: label,
+                         bounds: NormalizedRect(x: x, y: y, width: width, height: 0.02))
+        }
+        let lines = [text("Line 4 of the scratch documenti", x: 0.01, y: 0.23, width: 0.4),
+                     text("Line 7 ot cne", x: 0.01, y: 0.33, width: 0.15)]
+        let reread = [text("ine4 ot", x: 0.01, y: 0.24, width: 0.08),
+                      text("scratch document", x: 0.15, y: 0.23, width: 0.2),
+                      text("Line 7 of thel", x: 0.01, y: 0.33, width: 0.16)]
+        let undo = KeyChord(.character("z"), modifiers: .command)
+        let actuator = RecordingActuator()
+        let jitter = await engine(scenes: ScriptedScenes([scene(lines), scene(reread)]), actuator: actuator)
+            .deliver(request(.pressKey(undo, times: 1)))
+        #expect(jitter.kind == .actedUnverified, Comment(rawValue: jitter.message))
+        #expect(actuator.confirmations == [.unknown])
+
+        let saved = text("Saved", x: 0.6, y: 0.9, width: 0.1)
+        let appeared = await engine(scenes: ScriptedScenes([scene(lines), scene(lines + [saved])]))
+            .deliver(request(.pressKey(undo, times: 1)))
+        #expect(appeared.kind == .foundActed, Comment(rawValue: appeared.message))
+        #expect(appeared.message == "pressed cmd+z: reveals elements")
+    }
+
     @Test("a bare slash or tilde is typed, and with a modifier it goes by character like a letter")
     func slashIsTyped() async throws {
         let slash = try #require(KeyChord.Name("/"))

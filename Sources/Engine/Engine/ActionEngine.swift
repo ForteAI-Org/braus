@@ -893,7 +893,9 @@ public struct ActionEngine: Sendable {
             repaint: "A key's effect is often only a moved focus or caret, which the scene cannot attribute: "
                 + "observe before pressing again.\(note)",
             // A typed key has no target; the field's new value is its effect.
-            countsValueChange: true
+            countsValueChange: true,
+            ignoresTextRereads: true,
+            movesFocus: chord.key == .tab && chord.modifiers.subtracting(.shift).isEmpty
         )
     }
 
@@ -1181,13 +1183,15 @@ public struct ActionEngine: Sendable {
     /// An input with no reading of its own is judged by the two scenes alone, and its delivery closed
     /// with what they showed. `ghost` and `repaint` are what to do next when nothing was attributed.
     private func judged(
-        _ performed      : String,
-        in request       : InputRequest,
-        before           : SceneSnapshot,
-        targetID         : String?,
-        ghost            : String,
-        repaint          : String,
-        countsValueChange: Bool = false
+        _ performed       : String,
+        in request        : InputRequest,
+        before            : SceneSnapshot,
+        targetID          : String?,
+        ghost             : String,
+        repaint           : String,
+        countsValueChange : Bool = false,
+        ignoresTextRereads: Bool = false,
+        movesFocus        : Bool = false
     ) async -> ActOutcome {
         let pid = request.processID
         await settle(pid)
@@ -1201,9 +1205,12 @@ public struct ActionEngine: Sendable {
         }
         let effect = Self.gatedEffect(
             before: before, after: after, targetID: targetID ?? "", popupIsOpen: (await surfaces(pid)).hasOpenPopup,
-            countsValueChange: countsValueChange
+            countsValueChange: countsValueChange, ignoresTextRereads: ignoresTextRereads
         )
         let verdict = ActVerification.verdict(before: before, after: after, effect: effect)
+        if movesFocus, verdict != .ghost, Self.showsFocus(before: before, after: after, effect: effect) {
+            return await focusJudged(performed, pid: pid, before: before, after: after, effect: effect, target: target)
+        }
         Self.inputTrail?.attribute(effect)
         let delivery: DeliveryEffect = switch verdict {
             case .landed        : .observed
@@ -1223,6 +1230,75 @@ public struct ActionEngine: Sendable {
                 return ActOutcome(.actedUnverified, "\(performed): the window's pixels changed but nothing "
                     + "structural did. \(repaint)", scene: after, check: check)
         }
+    }
+
+    /// Tab and Shift-Tab are judged by the focus alone: a change anywhere else in the window, a selection
+    /// redrawn in the field that kept the focus included, is not the key moving it.
+    private func focusJudged(
+        _ performed: String,
+        pid        : pid_t,
+        before     : SceneSnapshot,
+        after      : SceneSnapshot,
+        effect     : SceneEffect?,
+        target     : OperationCheck.Target?
+    ) async -> ActOutcome {
+        let moved = Self.focusMove(before: before, after: after)
+        Self.inputTrail?.attribute(moved == nil ? nil : effect)
+        await dependencies.actuator.confirm(moved == nil ? .unknown : .observed, in: pid)
+        let check = OperationCheck(
+            condition: .structuralEffect, method: .sceneDifference, verdict: moved == nil ? .unknown : .passed,
+            expected: "focus moved", observed: moved == nil ? effect?.family : "focus moved",
+            limits: moved == nil ? [.unattributed] : [], performed: .requested, target: target
+        )
+        guard let moved else {
+            return ActOutcome(.actedUnverified, "\(performed): the focus did not visibly move"
+                + (effect.map { "; what changed (\($0.summary)) is not the focus moving" } ?? "")
+                + ". To reach a field, click the field instead of pressing again.", scene: after, check: check)
+        }
+        return ActOutcome(.foundActed, "\(performed): \(moved)", scene: after, check: check)
+    }
+
+    /// Whether the selection holders show where a focus key sent the focus: each scene has at most one,
+    /// as web content reports only on its focused field, and the key typed no tab into a field. A native
+    /// window reports a selection on every text field, focused or not, and keeps the window-wide rule.
+    static func showsFocus(before: SceneSnapshot, after: SceneSnapshot, effect: SceneEffect?) -> Bool {
+        if case .valueChanged = effect { return false }
+        return [before, after].allSatisfy { scene in scene.elements.filter { $0.selectedRange != nil }.count <= 1 }
+    }
+
+    /// Where the focus went, from the text entry that holds a selection (see `showsFocus`). Nil when
+    /// the same entry, or none, holds it on both sides.
+    static func focusMove(before: SceneSnapshot, after: SceneSnapshot) -> String? {
+        let was = before.elements.filter { $0.selectedRange != nil }
+        let now = after.elements.filter { $0.selectedRange != nil }
+        if let entered = now.first(where: { element in !was.contains { $0.id == element.id } }) {
+            return "the focus moved to '\(entered.label)'"
+        }
+        if let left = was.first(where: { element in !now.contains { $0.id == element.id } }) {
+            return "the focus left '\(left.label)'"
+        }
+        return nil
+    }
+
+    /// Text read from pixels that changed in place is treated as the recognizer reading the same pixels
+    /// again, not an element that came or went: both readings leave the pair before an effect is named.
+    /// Its limit: a real in-place relabel by a key in an OCR-only app is then unverified, an under-claim,
+    /// never an over-claim. New text where there was none, and text gone with nothing in its place, count.
+    static func withoutTextRereads(before: SceneSnapshot, after: SceneSnapshot) -> (SceneSnapshot, SceneSnapshot) {
+        func isPixelText(_ element: SceneElement) -> Bool {
+            element.kind == .text && element.labelOrigin == nil && element.role == nil
+        }
+        func overlaps(_ element: SceneElement, any others: [SceneElement]) -> Bool {
+            others.contains { !$0.bounds.cgRect.intersection(element.bounds.cgRect).isEmpty }
+        }
+        let oldLabels = Set(before.elements.map { LabelText.normalize($0.label) })
+        let newLabels = Set(after.elements.map { LabelText.normalize($0.label) })
+        let gone  = before.elements.filter { isPixelText($0) && !newLabels.contains(LabelText.normalize($0.label)) }
+        let fresh = after.elements.filter { isPixelText($0) && !oldLabels.contains(LabelText.normalize($0.label)) }
+        var was = before, now = after
+        was.elements.removeAll { gone.contains($0) && overlaps($0, any: fresh) }
+        now.elements.removeAll { fresh.contains($0) && overlaps($0, any: gone) }
+        return (was, now)
     }
 
     /// The check of a gesture whose delivery failed part way: what went out is unknown, the condition
@@ -1247,14 +1323,16 @@ public struct ActionEngine: Sendable {
     /// A menu is believable only while a pop-up window exists; and when one does, the menu's rows
     /// are the effect whatever the scene difference read, because the after scene IS the menu.
     static func gatedEffect(
-        before           : SceneSnapshot,
-        after            : SceneSnapshot,
-        targetID         : String,
-        popupIsOpen      : Bool,
-        countsValueChange: Bool = false
+        before            : SceneSnapshot,
+        after             : SceneSnapshot,
+        targetID          : String,
+        popupIsOpen       : Bool,
+        countsValueChange : Bool = false,
+        ignoresTextRereads: Bool = false
     ) -> SceneEffect? {
+        let (was, now) = ignoresTextRereads ? withoutTextRereads(before: before, after: after) : (before, after)
         var effect = SceneDifference.effect(
-            before: before, after: after, targetID: targetID, countsValueChange: countsValueChange
+            before: was, after: now, targetID: targetID, countsValueChange: countsValueChange
         )
         if case .menuOpened(let labels) = effect, !popupIsOpen { effect = .elementsAppeared(labels: labels) }
         if popupIsOpen {
