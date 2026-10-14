@@ -93,7 +93,10 @@ nonisolated package struct SensingSurfaceReader: AssignedSurfaceReading {
             )
         }
         let passStarted = DispatchTime.now().uptimeNanoseconds
-        switch nativePass(processIDs, retained, windowNumbers) {
+        let pass = AXPassSignpost.measure("nativePass") {
+            nativePass(processIDs, retained, windowNumbers)
+        }
+        switch pass {
             case .success(let native):
                 if !retained.isEmpty {
                     let rows = String(describing: native.inventory.rows.map(\.surface.reference.windowNumber).sorted())
