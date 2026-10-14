@@ -19,6 +19,8 @@ CUA = os.environ.get("CUA_DRIVER", os.path.expanduser(
     "~/Forte_Projects/_bench/cua/libs/cua-driver/rust/target/release/cua-driver"))
 BRAUS = os.environ.get("BRAUS_BIN", os.path.join(HERE, ".build/release/braus-mcp-stdio"))
 FIXTURES = os.path.join(HERE, "fixtures")
+# Safari names File > New Window after the default profile once profiles exist.
+NEW_WINDOW_ITEMS = ("New Window", "New Personal Window")
 # Every target: the process the harness binds to (`prefix`: by name prefix, as Photoshop carries its year) and the
 # seconds to wait for a usable window. Resolve and Photoshop are slow; `settle` waits for their window list to hold still.
 TARGETS = {
@@ -34,7 +36,11 @@ TARGETS = {
     "Photoshop": dict(process="Adobe Photoshop", prefix=True, wait=420, settle=True),
 }
 BENCH_PAGE = "file://" + os.path.join(FIXTURES, "bench.html")
-OBSIDIAN_CONFIG = os.path.expanduser("~/Library/Application Support/obsidian/obsidian.json")
+# The scratch vault's folder name: it is in the title of every window of that vault, which is how the run
+# tells it from a person's vault.
+OBSIDIAN_VAULT = "bench-vault"
+# The fixed title of the run's own kitty window (kitty --title keeps it whatever the shell sets).
+KITTY_TITLE = "bench-kitty"
 CLAUDE = os.environ.get("CLAUDE_CLI", os.path.expanduser("~/.local/bin/claude"))
 
 
@@ -253,11 +259,12 @@ def chrome_profile(scratch):
 
 
 def target_pid(app, scratch):
-    """Pid of the target; Chrome is the instance started on this run's own profile."""
+    """Pid of the target; Chrome, Obsidian and kitty are the instances started on this run's own profiles or config."""
     t = TARGETS[app]
-    if app == "Google Chrome":
-        mark = "user-data-dir=" + chrome_profile(scratch)
-        return next((p for p, _, c in sorted(processes()) if c == t["process"] and mark in sh("ps", "-o", "args=", "-p", str(p))), None)
+    marks = {"Google Chrome": "user-data-dir=" + chrome_profile(scratch), "Obsidian": "user-data-dir=" + obsidian_profile(scratch),
+             "kitty": kitty_config(scratch)}
+    if app in marks:
+        return next((p for p, _, c in sorted(processes()) if c == t["process"] and marks[app] in sh("ps", "-o", "args=", "-p", str(p))), None)
     return process_pid(t["process"], prefix=t.get("prefix", False))
 
 
@@ -270,16 +277,40 @@ def bundle_name(app):
 
 
 def obsidian_vault(scratch):
-    """(vault path, scratch) of the vault Obsidian shows: the one it has open (the vault of the 6 October run),
-    else a scratch vault inside the run directory."""
-    try:
-        vaults = list(json.load(open(OBSIDIAN_CONFIG)).get("vaults", {}).values())
-        path = next((v["path"] for v in vaults if v.get("open")), vaults[0]["path"] if vaults else None)
-    except Exception:
-        path = None
-    if path and os.path.isdir(path):
-        return path, False
-    return os.path.join(scratch, "obsidian-vault"), True
+    """The scratch vault inside the run directory: the only vault the benchmark ever types into. The 13 October
+    run used the person's open vault and typed into one of their notes when Cmd-O did not open the switcher."""
+    return os.path.join(scratch, OBSIDIAN_VAULT)
+
+
+def obsidian_profile(scratch):
+    """Obsidian's own data folder for the run: it knows only the scratch vault, so the person's vaults never open."""
+    return os.path.join(scratch, "obsidian-profile")
+
+
+def kitty_config(scratch):
+    """The run's own kitty config: kitty reads it instead of the person's kitty.conf, and its path marks the process."""
+    return os.path.join(scratch, "kitty.conf")
+
+
+def make_kitty_config(scratch):
+    """Writes the run's kitty config. Closing the window asks nothing, so the quit at the end is not held by a dialog.
+
+    Its shell prints 400 numbered lines and then stays as a prompt, so the scroll operations have scrollback to move."""
+    with open(kitty_config(scratch), "w") as config:
+        config.write("# The benchmark's own kitty, never the person's config.\nconfirm_os_window_close 0\n"
+                     'shell /bin/sh -c "seq 1 400; exec ${SHELL:-/bin/zsh} -l"\n')
+
+
+def make_obsidian_vault(scratch):
+    """The scratch vault with two notes (the switcher's "Driver" finds one), registered as the only open vault of
+    the run's own Obsidian data folder."""
+    vault, profile = obsidian_vault(scratch), obsidian_profile(scratch)
+    os.makedirs(os.path.join(vault, ".obsidian"), exist_ok=True)
+    os.makedirs(profile, exist_ok=True)
+    open(os.path.join(vault, "Welcome.md"), "w").write("Benchmark scratch vault.\n")
+    open(os.path.join(vault, "Driver notes.md"), "w").write("A note the quick switcher finds.\n")
+    json.dump({"vaults": {"benchvault0000000": {"path": vault, "ts": int(time.time() * 1000), "open": True}}},
+              open(os.path.join(profile, "obsidian.json"), "w"))
 
 
 def open_steps(app, scratch, stamp):
@@ -294,14 +325,17 @@ def open_steps(app, scratch, stamp):
                                                               # demand; both drivers read the page through it.
                                                               "--force-renderer-accessibility", "--new-window", BENCH_PAGE])]
     if app == "Safari":
-        return [("if Safari already runs: AXPress File > New Window first (no activation)", [DESK, "press", "<pid>", "File", "New Window"]),
+        return [("if Safari already runs: AXPress File > New Window (New Personal Window with profiles) first, no activation",
+                 [DESK, "press", "<pid>", "File", "New Window"]),
                 ("bench page, a window whose title ends with Bench Page", open_a + [BENCH_PAGE]),
                 ("fallback when no such window appeared: New Window again, then the page", open_a + [BENCH_PAGE])]
     if app == "Obsidian":
-        vault, scratch_vault = obsidian_vault(scratch)
-        if scratch_vault:
-            return [(f"scratch vault {vault}", ["open", "-g", "obsidian://open?path=" + vault])]
-        return [(f"the open vault {vault}", open_a)]
+        return [(f"its own instance on the run's data folder, scratch vault {obsidian_vault(scratch)} only",
+                 ["open", "-g", "-n", "-a", name, "--args", f"--user-data-dir={obsidian_profile(scratch)}"])]
+    if app == "kitty":
+        return [(f"its own process on the run's config, window titled {KITTY_TITLE}, shell in the run folder",
+                 ["open", "-g", "-n", "-a", name, "--args", "--config", kitty_config(scratch), "--title", KITTY_TITLE,
+                  "--directory", scratch])]
     if app == "DaVinci Resolve":
         return [("Project Manager (what Resolve shows with no project loaded)", open_a)]
     if app == "Photoshop":
@@ -315,7 +349,8 @@ def plan(apps, scratch):
     for app in apps:
         t = TARGETS[app]
         rule = ("a window whose title ends with Bench Page" if app == "Safari" else "a window whose title has Bench Page" if app == "Google Chrome"
-                else "a usable window")
+                else f"a window whose title has {OBSIDIAN_VAULT}" if app == "Obsidian"
+                else f"a window titled {KITTY_TITLE}" if app == "kitty" else "a usable window")
         lines.append(f"{app}: wait up to {t['wait']} s for {rule}" + (" and for its window list to hold still" if t.get("settle") else "")
                      + "; quit at the end only if this run launched it, by pid")
         for what, argv in open_steps(app, scratch, "<time>"):
@@ -358,14 +393,17 @@ def open_fixtures(apps, scratch):
             window = os.path.basename(copy)
         elif app in ("Google Chrome", "Safari"):
             window, ends = "Bench Page", app == "Safari"
-        elif app == "Obsidian" and obsidian_vault(scratch)[1]:
-            os.makedirs(os.path.join(obsidian_vault(scratch)[0], ".obsidian"), exist_ok=True)
-            open(os.path.join(obsidian_vault(scratch)[0], "Welcome.md"), "w").write("Benchmark scratch vault.\n")
+        elif app == "Obsidian":
+            make_obsidian_vault(scratch)
+            window = OBSIDIAN_VAULT
+        elif app == "kitty":
+            make_kitty_config(scratch)
+            window = KITTY_TITLE
         print(f"[open] {app}", flush=True)
         if app == "Safari":
             pid, note = open_safari(steps, before)
         else:
-            if not (app == "Obsidian" and before):  # an Obsidian already running keeps its vault
+            if not (app == "Obsidian" and before):  # the run's own instance is already there
                 subprocess.run(steps[0][1], capture_output=True)
             pid = wait_for(lambda: target_pid(app, scratch), 30)
         titles, waited = ready(app, pid, scratch, window, ends) if pid else (None, 0)
@@ -381,6 +419,10 @@ def open_fixtures(apps, scratch):
             window = next(x for x in titles if (x.endswith(window) if ends else window in x))
         out[app] = {"pid": pid, "window": window, "already_running": before is not None, "launched": before is None and pid is not None,
                     "note": note, "ready_s": waited, "titles": titles}
+        if app == "Obsidian":
+            out[app]["scratch_vault"] = obsidian_vault(scratch)
+        if app == "kitty":
+            out[app]["config"] = kitty_config(scratch)
         print(f"    pid {pid}, ready in {waited} s" + (f", NOTE: {note}" if note else ""), flush=True)
     return out
 
@@ -392,18 +434,20 @@ def open_safari(steps, before):
 
     def new_window():
         count = len(window_titles(pid)) if pid else 0
-        subprocess.run([DESK, "press", str(pid), "File", "New Window"], capture_output=True)
+        for item in NEW_WINDOW_ITEMS:
+            if subprocess.run([DESK, "press", str(pid), "File", item], capture_output=True).returncode == 0:
+                break
         return wait_for(lambda: len(window_titles(pid)) > count, 10)
 
     if before and not new_window():
-        note = "File > New Window added no window"
+        note = "File > " + " / ".join(NEW_WINDOW_ITEMS) + " added no window"
     subprocess.run(page, capture_output=True)
     pid = wait_for(lambda: process_pid("Safari"), 30)
     if pid and not wait_for(lambda: any(x.endswith("Bench Page") for x in window_titles(pid)), 15):
         if new_window():
             subprocess.run(page, capture_output=True)
         else:
-            note = note or "no window titled like 'Bench Page' and File > New Window added none"
+            note = note or "no window titled like 'Bench Page' and File > " + " / ".join(NEW_WINDOW_ITEMS) + " added none"
     return pid, note
 
 

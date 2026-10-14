@@ -43,7 +43,8 @@ class Run:
         self.date = time.strftime("%Y%m%d")
         self.dir = os.path.expanduser(options.run_dir) if options.run_dir else os.path.join(RUNS, time.strftime("%Y%m%d-%H%M"))
         # The task phase opens its Chrome pages in the profile prepare.py launched, never in the person's own Chrome.
-        self.env = dict(os.environ, BRAUS_APP_SUPPORT_DIR=self.dir, BENCH_CHROME_PROFILE=os.path.join(self.dir, "chrome-profile"))
+        self.env = dict(os.environ, BRAUS_APP_SUPPORT_DIR=self.dir, BENCH_CHROME_PROFILE=os.path.join(self.dir, "chrome-profile"),
+                        BENCH_RUN_DIR=self.dir)
 
     def path(self, name):
         return os.path.join(self.dir, name)
@@ -200,7 +201,7 @@ def main():
     p.add_argument("--chain-steps", type=int, default=10)
     p.add_argument("--group-rest", type=float, default=6)
     p.add_argument("--soak-apps", default="TextEdit")
-    p.add_argument("--soak-steps", type=int, default=200)
+    p.add_argument("--soak-steps", type=int, default=500)
     p.add_argument("--task-reps", type=int, default=3)
     p.add_argument("--task-max-minutes", type=float, default=60, help="cap of the task phase (tasks.py drops later reps beyond it)")
     p.add_argument("--skip-tasks", action="store_true", help="skip the real-model task phase")

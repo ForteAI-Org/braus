@@ -21,7 +21,8 @@ PROBE = os.path.join(HERE, ".build/probe")
 AXREAD = os.path.join(HERE, ".build/axread")
 CUA_APP = "/Applications/CuaDriver.app"
 DRIVERS = ["braus", "cua", "cua-overlay"]
-CONFIG = json.load(open(os.path.join(HERE, "tasks.json")))
+with open(os.path.join(HERE, "tasks.json")) as config:
+    CONFIG = json.load(config)
 
 
 # ---------------------------------------------------------------- observers (independent of the drivers)
@@ -195,10 +196,40 @@ def check_form(c):
     return got == want, f"page state {got}, expected {want}"
 
 
-def obsidian_vault():
-    config = os.path.expanduser("~/Library/Application Support/obsidian/obsidian.json")
-    vaults = list(json.load(open(config)).get("vaults", {}).values())
-    return next((v["path"] for v in vaults if v.get("open")), vaults[0]["path"] if vaults else None)
+def obsidian_instance():
+    """(pid, vault) of the run's own Obsidian on its scratch vault (prepare.py, BENCH_RUN_DIR), or (None, why not).
+    Never the person's vault: with their Obsidian running too, a driver could pick it, so the task is skipped."""
+    run_dir = os.environ.get("BENCH_RUN_DIR")
+    if not run_dir:
+        return None, "no BENCH_RUN_DIR: Obsidian runs only on the scratch vault bench.sh prepares"
+    pid, vault = bench_prepare.target_pid("Obsidian", run_dir), bench_prepare.obsidian_vault(run_dir)
+    others = [p for p, _, comm in bench_prepare.processes() if comm == "Obsidian" and p != pid]
+    if not pid or not os.path.isdir(vault):
+        return None, "the run's own Obsidian on its scratch vault is not running"
+    if others:
+        return None, f"another Obsidian runs too (pids {others}): a driver could act on the person's vault"
+    return pid, vault
+
+
+def kitty_instance():
+    """(pid, None) of the run's own kitty (prepare.py's recipe, launched here when missing), or (None, why not).
+    Never the person's kitty: the task runs a command in its shell, so with another kitty running, which a driver
+    could pick, the task is skipped."""
+    run_dir = os.environ.get("BENCH_RUN_DIR")
+    if not run_dir:
+        return None, "no BENCH_RUN_DIR: kitty runs only as the run's own instance, which bench.sh prepares"
+    pid = bench_prepare.target_pid("kitty", run_dir)
+    others = [p for p, _, comm in bench_prepare.processes() if comm == "kitty" and p != pid]
+    if others:
+        return None, f"another kitty runs too (pids {others}): a driver could act on the person's shell"
+    if not pid:
+        bench_prepare.make_kitty_config(run_dir)
+        subprocess.run(bench_prepare.open_steps("kitty", run_dir, 0)[0][1], capture_output=True)
+        pid = bench_prepare.wait_for(lambda: bench_prepare.target_pid("kitty", run_dir), 30)
+    titles = bench_prepare.wait_for(lambda: bench_prepare.window_titles(pid), 15) if pid else None
+    if not titles or any(bench_prepare.KITTY_TITLE not in t for t in titles):
+        return None, f"the run's own kitty is not running with only its {bench_prepare.KITTY_TITLE} window ({titles})"
+    return pid, None
 
 
 def find_note(vault, title):
@@ -208,17 +239,15 @@ def find_note(vault, title):
 
 
 def prep_obsidian(c):
-    c.vault = obsidian_vault()
+    c.vault = obsidian_instance()[1]
     c.vars = dict(title=f"Bench note {c.id}")
-    if not c.vault:
-        c.skip = "no Obsidian vault found"
-    elif find_note(c.vault, c.vars["title"]):
+    if find_note(c.vault, c.vars["title"]):
         c.stale = True
 
 
 def check_obsidian(c):
     note = find_note(c.vault, c.vars["title"])
-    if note:  # Moved, never deleted: the note is the agent's test output inside the person's vault.
+    if note:  # Moved, never deleted: the note is the agent's test output, kept with the run.
         os.makedirs(os.path.join(c.scratch, "notes"), exist_ok=True)
         shutil.move(note, os.path.join(c.scratch, "notes", os.path.basename(note)))  # the vault can sit on another volume
     return bool(note), f"note {'found' if note else 'missing'} in {c.vault}"
@@ -411,7 +440,13 @@ def run_one(task, driver, rep, scratch, out, server):
     row = dict(kind="run", run_id=run_id, driver=driver, task=task["id"], rep=rep, model=CONFIG["model"], effort=CONFIG["effort"],
                outside_declared_support=driver in task.get("outside_declared_support", []), started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     prepare, check = HOOKS[task["id"]]
-    ctx.pid = ensure_app(task.get("app", task["process"]), task["process"]) if task["id"] != "selftest" else os.getpid()
+    own = {"obsidian": obsidian_instance, "kitty": kitty_instance}.get(task["id"])
+    if own:
+        ctx.pid, why = own()
+        if ctx.pid is None:
+            return write(out, dict(row, status="skipped", reason=why))
+    else:
+        ctx.pid = ensure_app(task.get("app", task["process"]), task["process"]) if task["id"] != "selftest" else os.getpid()
     if ctx.pid is None:
         return write(out, dict(row, status="skipped", reason="app not running"))
     prepare(ctx)

@@ -15,23 +15,40 @@ from collections import Counter
 
 TEXT_CHARS_PER_TOKEN = 4  # a rough English/JSON average; images use Anthropic's w*h/750
 DRIVERS = ["braus", "cua", "cua-overlay", "cua-legacy", "cua-fast"]
+# Braus was called "mecum" in the rows of the runs before the rename (6, 9 and 13 October).
+FORMER_NAMES = {"mecum": "braus"}
 NOT_ACTIONS = {"observe", "observe_unchanged", "observe_after", "list_windows", "open_session", "close_session",
-               "idle", "baseline", "startup", "soak_mem", "chain_step", "block_aborted", "target"}
+               "open_session_untitled", "idle", "baseline", "startup", "soak_mem", "chain_step", "block_aborted",
+               "target", "state_reset"}
 BAD_STATUS = {"error", "refused", "failed", "honest_miss", "ambiguous"}
-OPS_ORDER = ["list_windows", "open_session", "observe", "observe_unchanged", "click", "click_back", "type", "undo",
-             "key", "key_close", "hotkey", "scroll_down", "scroll_up", "menu", "menu_back", "new_doc",
-             "new_doc_confirm", "menu_rotate", "menu_rotate_back", "close_doc", "dont_save", "close_session"]
+# observe_after is listed last: unlisted ops tie at the end and would come in set order, which varies per process.
+OPS_ORDER = ["list_windows", "open_session", "open_session_untitled", "observe", "observe_unchanged", "click",
+             "click_back", "type", "undo", "undo_menu", "key", "key_close", "hotkey", "scroll_down", "scroll_up", "menu",
+             "menu_back", "new_doc", "new_doc_confirm", "menu_rotate", "menu_rotate_back", "close_doc", "dont_save",
+             "close_session", "observe_after"]
 
 
 def order(op):
     return OPS_ORDER.index(op) if op in OPS_ORDER else 99
 
 
+def current_names(by_driver):
+    """A {driver: value} mapping with Braus's former name read as `braus`."""
+    return {FORMER_NAMES.get(d, d): v for d, v in by_driver.items()}
+
+
 def rows(paths):
     for path in paths:
-        for line in open(path):
-            if line.strip():
-                yield json.loads(line)
+        with open(path) as lines:
+            for line in lines:
+                if line.strip():
+                    row = json.loads(line)
+                    row["driver"] = FORMER_NAMES.get(row.get("driver"), row.get("driver"))
+                    if isinstance(row.get("selected"), list):
+                        row["selected"] = [FORMER_NAMES.get(d, d) for d in row["selected"]]
+                    if isinstance(row.get("drivers"), dict):
+                        row["drivers"] = current_names(row["drivers"])
+                    yield row
 
 
 def pct(values, q):
@@ -96,6 +113,10 @@ def success_of(row):
     return False if not reported_ok(row) else None
 
 
+def g_max(o):
+    return (o.get("pixels_changed") or {}).get("max")
+
+
 def f(value, digits=0):
     return "-" if value is None else f"{value:,.{digits}f}"
 
@@ -135,9 +156,14 @@ def op_summary(rs):
     verdicts = [success_of(r) for r in rs]
     checkable = [v for v in verdicts if v is not None]
     wins = sum(1 for v in checkable if v)
+    by = Counter(r.get("verified_by") for r in rs if success_of(r))
     return dict(
         n=len(rs), n_ok=len(ok), ok_rate=len(ok) / len(rs) if rs else None, ok_wilson95=wilson(len(ok), len(rs)),
         n_checkable=len(checkable), n_confirmed=wins, n_unverified=len(verdicts) - len(checkable),
+        # How each confirmation was read (rows before 14 October name none), and the pixel changes too small to decide.
+        n_confirmed_ax=wins - by["pixels"], n_confirmed_pixels=by["pixels"],
+        n_pixels_small=sum(1 for r in rs if r.get("verified_by") == "pixels_small"),
+        pixels_changed=stats([r.get("pixels_changed") for r in rs]),
         success_rate=wins / len(checkable) if checkable else None, success_wilson95=wilson(wins, len(checkable)),
         latency_ms=stats([r.get("ms") for r in ok]),
         tokens=dict(text=med([(r.get("text_chars") or 0) / TEXT_CHARS_PER_TOKEN for r in rs]),
@@ -167,6 +193,8 @@ def intrusion(rs):
     probed = [r for r in rs if r.get("frontmost_changed") is not None]
     count = lambda key: sum(1 for r in probed if r.get(key))
     return dict(calls=len(probed), frontmost_changed=count("frontmost_changed"), cursor_moved=count("cursor_moved"),
+                frontmost_changed_to=dict(Counter((r.get("frontmost_names") or [None, None])[1] or "unknown"
+                                                  for r in probed if r.get("frontmost_changed"))),
                 cursor_moved_during_call=sum(1 for r in rs if r.get("cursor_moved_call")),
                 # Ending a session hands the window back to the person's display: that is the contract, not an intrusion.
                 window_on_user_display=sum(1 for r in probed if r.get("window_on_user_display") and r.get("op") != "close_session"))
@@ -213,6 +241,7 @@ def soak_summary(mem, calls):
                 driver_footprint_mb=dict(first=mem[0].get("driver_footprint_mb"), last=mem[-1].get("driver_footprint_mb"),
                                          slope_mb_per_100_steps=per_100("driver_footprint_mb")),
                 app_footprint_mb=dict(slope_mb_per_100_steps=per_100("app_footprint_mb")),
+                series=[[r["soak_step"], r.get("driver_footprint_mb"), r.get("app_footprint_mb")] for r in mem],
                 errors=sum(1 for r in calls if not r.get("ok")),
                 stalls=sum(1 for r in calls if str(r.get("error", "")).startswith("stall")
                            or (mid and r.get("ms") and r["ms"] > max(10 * mid, 10_000))),
@@ -277,7 +306,8 @@ def report(s):
         out.append(f"## Run\n\n{machine.get('model')} {machine.get('chip')} · {machine.get('ram_gb')} GB · "
                    f"macOS {machine.get('macos')} ({machine.get('build')}) · drivers {json.dumps(m.get('drivers'))}\n\n"
                    f"blockers: {m.get('blockers')} · warnings: {m.get('warnings')}\n")
-    out.append("## Latency per operation (ms: p50 / p90 / p99, stdev; ok/n; confirmed/checkable [Wilson 95%])\n")
+    out.append("## Latency per operation (ms: p50 / p90 / p99, stdev; ok/n; confirmed/checkable [Wilson 95%], how many "
+               "of them only by the window's pixels)\n")
     for app, framework in apps:
         lines = []
         names = sorted({o for d in drivers for o in s["drivers"][d]["apps"].get(app, {}).get("ops", {})}, key=order)
@@ -290,7 +320,8 @@ def report(s):
                     continue
                 l, w = o["latency_ms"], o["success_wilson95"]
                 cells.append(f"{f(l['p50'])} / {f(l['p90'])} / {f(l['p99'])}, sd {f(l['stdev'])}; {o['n_ok']}/{o['n']}"
-                             + (f"; {o['n_confirmed']}/{o['n_checkable']} [{w[0]:.2f}-{w[1]:.2f}]" if w else "; unverified"))
+                             + (f"; {o['n_confirmed']}/{o['n_checkable']} [{w[0]:.2f}-{w[1]:.2f}]" if w else "; unverified")
+                             + (f", {o['n_confirmed_pixels']} by pixels" if o.get("n_confirmed_pixels") else ""))
             lines.append([op] + cells)
         out.append(f"### {app} ({framework})\n\n" + table(["operation"] + drivers, lines) + "\n")
     out.append("## Equivalent step (ms p50 / p90 / p99; tokens text+image=total)\n\n"
@@ -314,8 +345,11 @@ def report(s):
             for kind, o in s["drivers"][d]["apps"].get(app, {}).get("reads", {}).items():
                 if o:
                     t = o["tokens"]
-                    lines.append([app, d, kind, f(o["latency_ms"]["p50"]), f(t["text"]), f(t["image"]), f(t["total"])])
-    out.append(table(["app", "driver", "read", "ms p50", "text tokens", "image tokens", "total"], lines) + "\n")
+                    lines.append([app, d, kind, f(o["latency_ms"]["p50"]), f(t["text"]), f(t["image"]), f(t["total"]),
+                                  f(g_max(o))])
+    out.append("A read changes nothing in the window: its changed pixels are the noise floor of the pixel oracle "
+               "(confirmations need more than 200).\n\n"
+               + table(["app", "driver", "read", "ms p50", "text tokens", "image tokens", "total", "pixels changed, max"], lines) + "\n")
     out.append("## CPU per action call (median) and driver memory\n")
     lines = []
     for app, _ in apps:
@@ -345,8 +379,11 @@ def report(s):
         for d in drivers:
             i = s["drivers"][d]["apps"].get(app, {}).get("intrusion")
             if i and i["calls"]:
-                lines.append([app, d, i["calls"], i["frontmost_changed"], i["cursor_moved"], i["window_on_user_display"]])
-    out.append(table(["app", "driver", "calls probed", "frontmost changed", "cursor moved", "window on user display"], lines) + "\n")
+                lines.append([app, d, i["calls"], i["frontmost_changed"],
+                              ", ".join(f"{k} x{v}" for k, v in i.get("frontmost_changed_to", {}).items()) or "-",
+                              i["cursor_moved"], i["window_on_user_display"]])
+    out.append(table(["app", "driver", "calls probed", "frontmost changed", "came to front", "cursor moved", "window on user display"],
+                     lines) + "\n")
     chain_lines, soak_lines = [], []
     for app, _ in apps:
         for d in drivers:

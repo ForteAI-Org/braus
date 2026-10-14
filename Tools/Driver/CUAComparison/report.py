@@ -1,22 +1,26 @@
 """Two Markdown reports from the summaries of a benchmark run.
 
     python3 report.py --summary summary.json [--tasks tasks-summary.json] [--baseline base.json]
-                      [--run run.json] [--out-dir ~/Downloads] [--date YYYYMMDD]
+                      [--run run.json] [--previous RUN_DIR|none] [--out-dir ~/Downloads] [--date YYYYMMDD]
 
 Writes BrausVsCua-Team-<date>.md (Italian, short, one conclusion per table) and
 BrausVsCua-Report-<date>.md (English, full technical). Inputs: `summarize.py --json` of the run, `tasks.py
 --summary`, support.json, the 6 October summary (default: computed from ~/Forte_Projects/_bench/results-20261006/
 all.jsonl) and tickets.json. A section with no data says so in one line; every number comes from the inputs.
+Beside every column against 6 October goes the same column against the previous run: the latest folder of
+~/Forte_Projects/_bench/runs before this one that has a summary.json, summarized again from its raw rows.
 """
-import argparse, json, os, sys, time
+import argparse, json, os, re, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from summarize import med, order, summarize, wilson  # noqa: E402
+from summarize import current_names, med, order, summarize, wilson  # noqa: E402
 
 DRV = ["braus", "cua", "cua-overlay"]
 LABEL = {"braus": "Braus", "cua": "Cua", "cua-overlay": "Cua overlay"}
 BASELINE_ROWS = os.path.expanduser("~/Forte_Projects/_bench/results-20261006/all.jsonl")
+RUNS = os.path.expanduser("~/Forte_Projects/_bench/runs")
+RAW = ("ops.jsonl", "chain.jsonl", "soak.jsonl")
 IDLE_TARGET = 1.5  # ms/s with an open session, from the idle-CPU ticket
 CAP_OPS = {"observe": ["observe"], "click": ["click", "click_back"], "type": ["type"], "key": ["key", "key_close"],
            "hotkey": ["hotkey"], "scroll": ["scroll_down", "scroll_up"], "menu": ["menu", "menu_back"]}
@@ -147,6 +151,7 @@ class Ctx:
         self.cua_changed = bool(cur and base and not (cur.startswith(base) or base.startswith(cur)))
         self.frameworks = {f["app"]: f["framework"] for f in SUP.get("frameworks", [])}
         self.when = (RUN.get("started") or meta.get("run") or time.strftime("%Y-%m-%d"))[:10]
+        self.previous, self.cua_changed_previous = None, False
 
     def app(self, S, d, a):
         return g(S, "drivers", d, "apps", a, default={})
@@ -356,7 +361,7 @@ def t_headline(t):
                     c.losses.append(dict(area="Intrusione", metric=label, braus=f"{cnt['braus'][0]}/{cnt['braus'][1]}",
                                          other=f"{k}/{n}", against=LABEL[d], delta=None))
             row.append(with_mark(f"{k}/{n}", mk[d]))
-        rows.append(row + ["n/d", "n/d"])
+        rows.append(row + ["n/d"] * (4 - len(row)) + ["n/d", "n/d"])
     marks = [m for m in c.marks if m]
     t.section("Sintesi", ["Le metriche principali, ognuna sulle app dove tutti i driver hanno dati.",
                           "Ogni valore ha il suo marcatore: 🟢 il migliore, 🔴 il peggiore, 🟡 pari.",
@@ -518,7 +523,8 @@ def t_robust(t):
                     c.losses.append(dict(area="Robustezza", metric=f"{a}: apertura della sessione", braus="rifiutata", other="ok", against="Cua", delta=None))
             else:
                 w = x["ok_wilson95"]
-                conf = ("n/d" if no_probe(x["n_confirmed"], x["n_checkable"], x["n"], x["n_ok"]) else f"{x['n_confirmed']}/{x['n_checkable']}") if x.get("n_checkable") else ""
+                conf = ("n/d" if no_probe(x["n_confirmed"], x["n_checkable"], x["n"], x["n_ok"]) else f"{x['n_confirmed']}/{x['n_checkable']}"
+                        + (f" ({x['n_confirmed_pixels']} dai pixel)" if x.get("n_confirmed_pixels") else "")) if x.get("n_checkable") else ""
                 s = f"{x['n_ok']}/{x['n']} [{w[0]:.2f}-{w[1]:.2f}]" + (f"; conf. {conf}" if conf else "")
                 if d != "braus" and m.get("n"):
                     mark = verdict(m["ok_rate"], x["ok_rate"], False, m["ok_wilson95"], w)
@@ -533,7 +539,7 @@ def t_robust(t):
     t.section("Robustezza", [
         "Azioni riuscite su azioni tentate, con l'intervallo di Wilson al 95%; \"conf.\" sono quelle verificate dalla sonda indipendente.",
         "Un'azione conta come riuscita se il driver non dichiara errore, rifiuto o miss; la conferma c'è solo dove la sonda legge un effetto.",
-        "Le operazioni senza oracolo (scroll, menu, pixel di kitty o Obsidian) restano non confermate."],
+        "Dove l'AX non cambia, la conferma viene dai pixel della finestra (\"dai pixel\"); restano non confermate solo le operazioni senza oracolo."],
               ["App", "Braus", "Cua", "Cua overlay", "Braus vs 6/10"], rows,
               f"{tally(marks)}; dove Braus rifiuta (menu in background, sessione su Stocks) il marcatore è rosso.", "nessuna azione registrata")
 
@@ -804,8 +810,8 @@ def caveats(c):
     total = sum(1 for a in c.apps() for o in g(c.app(S, "braus", a), "ops", default={})
                 if o not in ("open_session", "close_session", "list_windows", "observe", "observe_unchanged"))
     if total:
-        bullets.append(f"Punti ciechi della sonda: {len(blind)} delle {total} operazioni di Braus non hanno un effetto leggibile via AX "
-                       f"(scroll, menu, pixel di kitty, Obsidian, Photoshop): per esse conta solo il verdetto del driver.")
+        bullets.append(f"Punti ciechi della sonda: {len(blind)} delle {total} operazioni di Braus non hanno un effetto leggibile né via AX "
+                       f"né dai pixel della finestra (menu senza oracolo, rotazione di Photoshop): per esse conta solo il verdetto del driver.")
     moves = g(S, "baseline", "windows_with_cursor_move")
     if moves is not None:
         bullets.append(f"La persona usa il Mac: {moves} finestre di baseline su {g(S, 'baseline', 'samples', default=0)} con il cursore mosso; "
@@ -843,6 +849,9 @@ def team(c):
     legend = ("**Legenda.** Ogni valore confrontato ha il suo marcatore: 🟢 il migliore, 🔴 il peggiore, 🟡 pari (differenza entro ±10% oppure intervalli al 95% sovrapposti). "
               "Colonna `vs 6/10`: variazione di Braus rispetto alla propria corsa del 6 ottobre (▲ meglio, ▼ peggio, = entro ±5%). "
               "Cua è cambiato versione dal 6/10: le sue variazioni non sono un nostro guadagno. "
+              + (f"Colonne `vs giro prec.`: la stessa variazione rispetto alla corsa precedente ({c.previous}); "
+                 + ("anche lì Cua è di un'altra versione. " if c.cua_changed_previous else "Cua è la stessa versione, quindi la sua variazione si legge. ")
+                 if c.previous else "Nessuna corsa precedente trovata: niente colonne `vs giro prec.`. ") +
               "`Cua` è la variante senza overlay, `Cua overlay` quella con l'overlay del cursore.")
     parts = [f"# Braus contro Cua Driver: confronto del {date}\n", legend + "\n"] + losses + [head] + body
     parts += ["### Mac e versioni\n", "\n".join(specs(c)) + "\n", "### Punti da tenere in considerazione\n", "\n".join(caveats(c)) + "\n"] + tickets
@@ -866,6 +875,7 @@ def okcell(o):
     s = f"ok {o['n_ok']}/{o['n']}"
     if o.get("n_checkable"):
         s += f"; confirmed {o['n_confirmed']}/{o['n_checkable']}" + (f" [{w[0]:.2f}-{w[1]:.2f}]" if w else "")
+        s += f", {o['n_confirmed_pixels']} by pixels" if o.get("n_confirmed_pixels") else ""
     else:
         s += "; unverified"
     return s
@@ -1041,8 +1051,11 @@ def r_intrusion(c):
         for d in c.drivers:
             i = g(c.app(c.S, d, a), "intrusion")
             if i and i["calls"]:
-                rows.append([a, LABEL[d], i["calls"], i["frontmost_changed"], i["cursor_moved"], i["cursor_moved_during_call"], i["window_on_user_display"]])
-    return table(["App", "Driver", "Calls probed", "Frontmost changed", "Cursor moved (probe window)", "Cursor moved (call alone)", "Window on user display"], rows) + "\n" if rows else nodata("no intrusion probe rows")
+                rows.append([a, LABEL[d], i["calls"], i["frontmost_changed"],
+                             ", ".join(f"{k} x{v}" for k, v in (i.get("frontmost_changed_to") or {}).items()) or "-",
+                             i["cursor_moved"], i["cursor_moved_during_call"], i["window_on_user_display"]])
+    return table(["App", "Driver", "Calls probed", "Frontmost changed", "Came to front", "Cursor moved (probe window)", "Cursor moved (call alone)",
+                  "Window on user display"], rows) + "\n" if rows else nodata("no intrusion probe rows")
 
 
 def r_support(c):
@@ -1206,7 +1219,10 @@ Wilson 95% for proportions; the mean of a latency has a normal 95% interval from
 difference is within 10% or the intervals overlap; otherwise the best value is 🟢 and the others 🔴."""
 
 LIMITS = """- One machine on one day, a small operation set and few repetitions per operation: small differences are not distinguishable.
-- The probe sees AX values, not pixels: kitty, Obsidian and Photoshop pixel effects, scrolls and menu commands stay unverified.
+- The probe reads AX values and, where they do not change, the pixels of the window the driver is bound to (more than 200 pixels moved
+  by 24 gray levels at one pixel per point). A smaller change is a caret blink or a cursor, and captures of another window or size
+  compare nothing: both stay undecided. Live content (Stocks quotes) can pass the threshold: the unchanged reads give each app's noise
+  floor. Menus without an oracle and Photoshop's rotation stay unverified.
 - The person may use the Mac during a run: the cursor and WindowServer observations carry that noise; idle and baseline rows carry the same check.
 - Braus's stream rest is inferred from the gap since the previous call; a `--phases` run shows the real `preview.rest` events.
 - `cua-overlay` is measured with an embedded daemon when CuaDriver.app is not installed; the app-daemon path is a different process layout.
@@ -1242,7 +1258,9 @@ def report(c, phases_text=None):
            f"**{time.strftime('%-d %B %Y', time.strptime(c.when, '%Y-%m-%d'))} · {mach.get('model') or 'n/d'}, {mach.get('chip') or 'n/d'}, {num(mach.get('ram_gb'), 0)} GB · macOS {na(mach.get('macos'))} ({na(mach.get('build'))})**\n",
            "This report compares Braus (`braus-mcp-stdio`, full stack) with Cua Driver (variants `cua` and `cua-overlay`) on the same windows. "
            "It extends the 6 October report with per-operation percentiles, intervals, chain timing, resources over time, a support matrix and real-model tasks. "
-           "All numbers come from the summaries of this run; the 6 October values are the baseline of the delta tables.\n",
+           "All numbers come from the summaries of this run; the 6 October values are the baseline of the delta tables"
+           + (f", and every column against 6 October has a twin against the previous run ({c.previous}"
+              + (", where Cua was another version too).\n" if c.cua_changed_previous else ", same Cua version).\n") if c.previous else ".\n"),
            "**Summary**\n\n" + "\n".join(summary) + "\n",
            sec(1, "Method", methodology(c) + "\n" + METHOD_TEXT),
            sec(2, "Parity of the components", r_parity(c)),
@@ -1269,10 +1287,70 @@ def report(c, phases_text=None):
 
 # ------------------------------------------------------------------ main
 
+def previous_run(current, runs=RUNS):
+    """The latest run folder before `current` (by its YYYYMMDD-HHMM name) that has a summary.json; None if none."""
+    name = os.path.basename(os.path.normpath(current))
+    found = sorted(d for d in (os.listdir(runs) if os.path.isdir(runs) else [])
+                   if d != name and d < name and os.path.exists(os.path.join(runs, d, "summary.json")))
+    return os.path.join(runs, found[-1]) if found else None
+
+
+def summary_of(folder):
+    """The run summarized again from its raw rows, so its numbers follow this summarize.py."""
+    paths = [os.path.join(folder, n) for n in RAW if os.path.exists(os.path.join(folder, n))]
+    return json.loads(json.dumps(summarize(paths), default=str)) if paths else {"drivers": {}}
+
+
+def cua_commit(summary):
+    return g((summary.get("meta") or [{}])[0], "drivers", "cua", "commit")
+
+
+def run_label(folder):
+    name = os.path.basename(os.path.normpath(folder))
+    return f"{name[6:8]}/{name[4:6]} {name[9:11]}:{name[11:13]}" if re.fullmatch(r"\d{8}-\d{4}", name) else name
+
+
+AGAINST = {"giro prec.": ("6/10", None), "previous run": ("6 Oct", "Change")}
+
+
+def beside(cur, prev, label):
+    """`cur` with, after each table column about 6 October, the same column of `prev` (the same tables computed
+    against the previous run), headed with `label`. A table whose shape differs between the two is left alone."""
+    mark, change = AGAINST[label]
+    tables = lambda text: re.findall(r"(?m)(?:^\|.*\n?)+", text)  # noqa: E731
+    theirs = iter(tables(prev))
+    if len(tables(cur)) != len(tables(prev)):
+        return cur
+
+    def merge(match):
+        mine, other = match.group(0).rstrip("\n").split("\n"), next(theirs).rstrip("\n").split("\n")
+        cells = lambda line: line.strip()[1:-1].split("|")  # noqa: E731
+        head = cells(mine[0])
+        cols = [i for i, h in enumerate(head) if mark in h or h.strip() == change]
+        if not cols or len(mine) != len(other) or any(len(cells(x)) != len(cells(y)) for x, y in zip(mine, other)):
+            return match.group(0)
+        out = []
+        for index, (x, y) in enumerate(zip(mine, other)):
+            a, b = cells(x), cells(y)
+            for i in reversed(cols):
+                a.insert(i + 1, "---" if index == 1 else (head[i].replace(mark, label) if mark in head[i] else f" {change} vs {label} ")
+                         if index == 0 else b[i])
+            out.append("|" + "|".join(a) + "|")
+        return "\n".join(out) + ("\n" if match.group(0).endswith("\n") else "")
+    return re.sub(r"(?m)(?:^\|.*\n?)+", merge, cur)
+
+
 def load(path, default=None):
     if path and os.path.exists(os.path.expanduser(path)):
-        return json.load(open(os.path.expanduser(path)))
+        with open(os.path.expanduser(path)) as data:
+            return json.load(data)
     return default
+
+
+def task_summary(path):
+    """`tasks.py --summary` output keyed by today's driver names (the runs before the rename say `mecum`), or None."""
+    tasks = load(path)
+    return tasks and current_names(tasks)
 
 
 def selftest():
@@ -1286,6 +1364,12 @@ def selftest():
     assert markers({"a": 10, "b": None}) == {"a": "", "b": ""} and markers({"a": 10}) == {"a": ""}
     assert markers({"a": 10, "b": None, "c": 30}) == {"a": "🟢", "b": "", "c": "🔴"}
     assert no_probe(0, 32, 328, 296) and not no_probe(0, 40, 328, 296) and not no_probe(5, 32, 328, 296)
+    # A run with one driver still fills every column of the headline table.
+    one = Ctx({"drivers": {"braus": {"apps": {"A": {"intrusion": {"frontmost_changed": 1, "calls": 10}}}}}}, {"drivers": {}}, {}, {}, {}, {})
+    team_one = Team(one)
+    t_headline(team_one)
+    widths = {len(line.split(" | ")) for line in team_one.out[0].splitlines() if line.startswith("| ")}
+    assert widths == {len(HEAD_CUA)} and "Cursore spostato" in team_one.out[0], widths
     print("selftest ok")
 
 
@@ -1299,6 +1383,7 @@ def main():
     p.add_argument("--support", default=os.path.join(HERE, "support.json"))
     p.add_argument("--tickets", default=os.path.join(HERE, "tickets.json"))
     p.add_argument("--run", help="run.json written by bench.py (start, finish, duration)")
+    p.add_argument("--previous", help="run folder to compare with as the previous run, or 'none' (default: picked from " + RUNS + ")")
     p.add_argument("--phases-txt", help="phase table text of a --phases run")
     p.add_argument("--out-dir", default="~/Downloads")
     p.add_argument("--date", default=time.strftime("%Y%m%d"))
@@ -1306,14 +1391,27 @@ def main():
     base = load(o.baseline)
     if base is None and os.path.exists(BASELINE_ROWS):
         base = json.loads(json.dumps(summarize([BASELINE_ROWS]), default=str))
-    c = Ctx(load(o.summary), base or {"drivers": {}}, load(o.tasks), load(o.support, {}), load(o.tickets, {}), load(o.run, {}))
+    inputs = (task_summary(o.tasks), load(o.support, {}), load(o.tickets, {}), load(o.run, {}))
+    c = Ctx(load(o.summary), base or {"drivers": {}}, *inputs)
     if not c.S:
         sys.exit("empty summary")
-    phases = open(o.phases_txt).read() if o.phases_txt and os.path.exists(o.phases_txt) else None
+    here = os.path.dirname(os.path.abspath(o.run or o.summary))
+    folder = None if o.previous == "none" else os.path.expanduser(o.previous) if o.previous else previous_run(here)
+    texts = (team, lambda x: report(x, open(o.phases_txt).read() if o.phases_txt and os.path.exists(o.phases_txt) else None))
+    p = None
+    if folder:
+        p = Ctx(c.S, summary_of(folder), *inputs)
+        now, then = cua_commit(p.S), cua_commit(p.B)
+        p.cua_changed = c.cua_changed_previous = not (now and then and (now.startswith(then) or then.startswith(now)))
+        c.previous = p.previous = run_label(folder)
+    outputs = [make(c) for make in texts]
+    if p:
+        # The same tables again against the previous run; their columns about 6 October go beside the originals.
+        outputs = [beside(x, make(p), label) for x, make, label in zip(outputs, texts, ("giro prec.", "previous run"))]
     out = os.path.expanduser(o.out_dir)
     os.makedirs(out, exist_ok=True)
     paths = []
-    for name, text in ((f"BrausVsCua-Team-{o.date}.md", team(c)), (f"BrausVsCua-Report-{o.date}.md", report(c, phases))):
+    for name, text in zip((f"BrausVsCua-Team-{o.date}.md", f"BrausVsCua-Report-{o.date}.md"), outputs):
         path = os.path.join(out, name)
         open(path, "w").write(text)
         paths.append(path)
