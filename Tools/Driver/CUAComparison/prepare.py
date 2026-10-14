@@ -293,9 +293,12 @@ def kitty_config(scratch):
 
 
 def make_kitty_config(scratch):
-    """Writes the run's kitty config. Closing the window asks nothing, so the quit at the end is not held by a dialog."""
+    """Writes the run's kitty config. Closing the window asks nothing, so the quit at the end is not held by a dialog.
+
+    Its shell prints 400 numbered lines and then stays as a prompt, so the scroll operations have scrollback to move."""
     with open(kitty_config(scratch), "w") as config:
-        config.write("# The benchmark's own kitty, never the person's config.\nconfirm_os_window_close 0\n")
+        config.write("# The benchmark's own kitty, never the person's config.\nconfirm_os_window_close 0\n"
+                     'shell /bin/sh -c "seq 1 400; exec ${SHELL:-/bin/zsh} -l"\n')
 
 
 def make_obsidian_vault(scratch):

@@ -283,6 +283,7 @@ class KittyTaskTests(unittest.TestCase):
         os.environ["BENCH_RUN_DIR"] = "/runs/x"
         prepare = tasks.bench_prepare
         prepare.wait_for = lambda find, seconds=12: find()
+        self.real_make_kitty_config = prepare.make_kitty_config
         prepare.make_kitty_config = lambda scratch: None
         prepare.window_titles = lambda pid: [prepare.KITTY_TITLE]
 
@@ -307,6 +308,16 @@ class KittyTaskTests(unittest.TestCase):
         self.own(4242)
         self.assertEqual(tasks.kitty_instance(), (4242, None))
         self.assertEqual(self.launched, [])
+
+    def test_the_run_s_kitty_config_starts_a_shell_with_400_lines_of_scrollback(self):
+        import shlex
+        prepare = tasks.bench_prepare
+        with tempfile.TemporaryDirectory() as scratch:
+            self.real_make_kitty_config(scratch)
+            line = next(l for l in open(prepare.kitty_config(scratch)) if l.startswith("shell "))
+        argv = shlex.split(line)[1:]
+        out = subprocess.run(argv, capture_output=True, text=True, env={"SHELL": "/usr/bin/true"}).stdout.split()
+        self.assertEqual(out, [str(n) for n in range(1, 401)])
 
     def test_a_missing_own_kitty_is_launched_with_prepare_s_recipe(self):
         pids = iter([None, 4243])

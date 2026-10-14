@@ -361,7 +361,7 @@ def t_headline(t):
                     c.losses.append(dict(area="Intrusione", metric=label, braus=f"{cnt['braus'][0]}/{cnt['braus'][1]}",
                                          other=f"{k}/{n}", against=LABEL[d], delta=None))
             row.append(with_mark(f"{k}/{n}", mk[d]))
-        rows.append(row + ["n/d", "n/d"])
+        rows.append(row + ["n/d"] * (4 - len(row)) + ["n/d", "n/d"])
     marks = [m for m in c.marks if m]
     t.section("Sintesi", ["Le metriche principali, ognuna sulle app dove tutti i driver hanno dati.",
                           "Ogni valore ha il suo marcatore: 🟢 il migliore, 🔴 il peggiore, 🟡 pari.",
@@ -1364,6 +1364,12 @@ def selftest():
     assert markers({"a": 10, "b": None}) == {"a": "", "b": ""} and markers({"a": 10}) == {"a": ""}
     assert markers({"a": 10, "b": None, "c": 30}) == {"a": "🟢", "b": "", "c": "🔴"}
     assert no_probe(0, 32, 328, 296) and not no_probe(0, 40, 328, 296) and not no_probe(5, 32, 328, 296)
+    # A run with one driver still fills every column of the headline table.
+    one = Ctx({"drivers": {"braus": {"apps": {"A": {"intrusion": {"frontmost_changed": 1, "calls": 10}}}}}}, {"drivers": {}}, {}, {}, {}, {})
+    team_one = Team(one)
+    t_headline(team_one)
+    widths = {len(line.split(" | ")) for line in team_one.out[0].splitlines() if line.startswith("| ")}
+    assert widths == {len(HEAD_CUA)} and "Cursore spostato" in team_one.out[0], widths
     print("selftest ok")
 
 
