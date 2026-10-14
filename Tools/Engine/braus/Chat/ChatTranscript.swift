@@ -6,6 +6,8 @@ import Foundation
 final class ChatTranscript {
     var conversation: Conversation
     let store: ConversationStore
+    /// The last token counts the provider reported, for a script's evidence; nil when it reported none.
+    private(set) var lastUsage: ProviderUsage?
 
     init(conversation: Conversation, store: ConversationStore) {
         self.conversation = conversation
@@ -29,7 +31,8 @@ final class ChatTranscript {
             try append(.assistant, text)
         case .activity(let text): print(text)
         case .failure(let text): try append(.error, text)
-        case .usage, .compacted, .web, .completed: break
+        case .usage(let usage): lastUsage = usage
+        case .compacted, .web, .completed: break
         }
     }
 

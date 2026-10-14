@@ -54,6 +54,7 @@ Task { @MainActor in
             case "select" : try await SelectCommand.run(invocation)
             case "batch"  : try await BatchCommand.run(invocation)
             case "memory" : try await MemoryCommand.run(invocation)
+            case "doctor" : try await DoctorCommand.run(invocation)
             case "help", "--help", "-h":
                 print(Usage.text)
             default:

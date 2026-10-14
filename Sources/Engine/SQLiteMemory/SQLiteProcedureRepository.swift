@@ -1080,7 +1080,10 @@ enum SQLiteProcedureRows {
                 "SELECT route_id FROM memory_procedure_versions WHERE task_occurrence_id = ? ORDER BY built_at_ms, route_id",
                 [.text(attempt.attempt.attemptID)]
             ) { try $0.text(0) ?? "" }.compactMap { try stored(handle, routeID: $0) }
-            attempts.append(ProcedureInspection.Attempt(attempt: attempt, calls: listed, candidates: candidates, versions: versions))
+            var inspected = ProcedureInspection.Attempt(attempt: attempt, calls: listed, candidates: candidates, versions: versions)
+            inspected.proposals = try SQLiteRecallInspectionRows.proposals(handle, attemptID: attempt.attempt.attemptID)
+            inspected.queries   = try SQLiteRecallInspectionRows.queries(handle, attemptID: attempt.attempt.attemptID)
+            attempts.append(inspected)
         }
         var relations: [BrainRelation] = []
         var seen: Set<String> = []
@@ -1115,13 +1118,17 @@ enum SQLiteProcedureRows {
             "SELECT count(*) FROM memory_routes r WHERE NOT EXISTS (SELECT 1 FROM memory_procedure_versions v WHERE v.route_id = r.route_id)",
             []
         ) { Int($0.integer(0) ?? 0) }.first ?? 0
-        let counts = ProcedureInspection.Counts(
+        var counts = ProcedureInspection.Counts(
             operationalSteps: all.filter { $0.role == .step }.count, containers: all.filter { $0.role == .container }.count,
             skipped: all.filter { $0.role == .skipped }.count, contextCalls: all.filter { $0.role == .context }.count,
             candidates: attempts.map(\.candidates.count).reduce(0, +), versions: attempts.map(\.versions.count).reduce(0, +),
             admittedParts: parts.filter { $0.verdict == .admitted }.count, refusedParts: parts.filter { $0.verdict == .refused }.count,
             offeredParts: offered.count, legacyRoutes: legacy
         )
+        counts.proposals  = attempts.map(\.proposals.count).reduce(0, +)
+        counts.choices    = attempts.flatMap(\.proposals).filter { $0.choice != nil }.count
+        counts.queries    = attempts.map(\.queries.count).reduce(0, +)
+        counts.useReports = attempts.flatMap(\.queries).flatMap(\.needs).map(\.reports.count).reduce(0, +)
         return ProcedureInspection(task: task, goal: goal, attempts: attempts, relations: relations, offeredPartIDs: offered,
                                    counts: counts)
     }

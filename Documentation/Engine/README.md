@@ -119,6 +119,10 @@ swift build --product braus
 .build/debug/braus act "Pro Tools" "EditModeSpot"           # resolve, click, verify: found_acted or an honest miss
 .build/debug/braus act "Pro Tools" "Solo" --verb set_toggle --value on --section "Audio 1"
 .build/debug/braus memory "Pro Tools"                       # the archive's Brain: anchors, groups, worth naming
+.build/debug/braus memory --status                          # the archive file, and the Recall this build would run
+.build/debug/braus memory --tasks --last 10                 # the archive's tasks, newest first, counted
+.build/debug/braus memory --task <id>                       # one task: calls, procedures, Brain relations, and its Recall
+.build/debug/braus doctor                                   # every component a run needs on this Mac, each with its state
 ```
 
 Measured on this Mac against Pro Tools on the first run: a 589-element scene in 1.5 s, an act in 1.4 s

@@ -38,7 +38,30 @@ Saved conversations:
 .build/debug/braus --chat --resume <conversation-UUID> --allow-unvalidated-build
 ```
 
-Inside chat: `/model`, `/status`, `/release`, `/help`, `/quit`.
+A script runs its requests one conversation each, on one archive, with the Seat
+and the application session released between requests, so each starts from the
+applications as they are, with the knowledge the earlier ones left in the memory:
+
+```sh
+.build/debug/braus chat --script tasks.txt --provider claude --model haiku \
+  --knowledge /private/tmp/braus-live/AppSupport/Knowledge \
+  --preflight expected.json --evidence /private/tmp/braus-live/Evidence/run-1
+```
+
+`tasks.txt` holds blocks of lines separated by empty lines; `#` starts a comment;
+a block whose first line starts with `>` continues the previous conversation
+instead of opening a new one (a request that depends on the one before it).
+`expected.json` names the keys of `memory_task status` the run depends on
+(`archive`, `recall.channel`, `recall.model`, `recall.owns_index`, …): the process
+answers before any turn and a difference stops the chat. The evidence folder keeps
+the preflight's answer and, per request, the conversation as saved, the tasks it
+named, each task's diagnosis as `braus memory --task` prints it, and a summary with
+the times, the outcome and the provider's token counts when it gave them. A failed
+request stops the script unless `--continue`. A reopening of Braus between two
+requests is two runs of the script command on the same archive.
+
+Inside chat: `/model`, `/status`, `/memory` (the archive this process records into
+and the Recall it runs, as `memory_task status` answers), `/release`, `/help`, `/quit`.
 Ctrl+C or SIGTERM stops further tool calls, cancels the provider, drains the
 active tool operation, releases the Seat and saves an interrupted entry.
 
@@ -55,10 +78,17 @@ Likewise, `--allow-destructive` belongs to this invocation, not the saved model 
 - **FileConversations:** private atomic transcripts and exclusive conversation leases.
 - **LocalMCP:** JSON-RPC stdio bridge, authenticated ephemeral loopback host and
   serialized tool router. No application behavior.
-- **AutomationRuntime:** the shared engine composition and persistent Seat session.
-  Ordinary CLI actions and chat use the same EngineRuntime.
-- **AutomationMCP:** validation, tool schemas and result formatting over
-  AutomationSession. No provider, terminal or conversation-store dependency.
+- **AutomationRuntime:** the shared engine composition, the living memory and the
+  command line's own Seat session (`AutomationSession`), which the vertical commands
+  (`act`, `select`, `batch`, `scene`) keep: it adopts windows of running applications.
+- **SeatBroker:** the chat's application session is the app's,
+  `BrokeredAutomationSession` over a `SeatBroker` of the chat process: `apps` lists the
+  installed applications, `open_session` launches one that is not running on the Seat's
+  display and records that the agent opened it, the Seat is held for the whole turn and
+  kept warm between turns, and the run's frames go to `Runs` beside the knowledge. So
+  what the agent can open in the chat is what a worker can open in the app.
+- **AutomationMCP:** validation, tool schemas and result formatting over the session
+  role. No provider, terminal or conversation-store dependency.
 - **CLI composition:** menus, signals, paths, explicit policy flags and the event
   wiring between modules.
 
@@ -174,7 +204,8 @@ conversation or automatic replay. After restarting Braus, old Seat IDs are inval
 
 Local tests cover provider argv/stream parsing, complete-vs-truncated responses,
 concurrent pipe draining, process cancellation, MCP authentication/reconnection,
-serialized calls and draining, transcript round trips/locks, and CLI parsing.
+serialized calls and draining, transcript round trips/locks, CLI parsing, and the
+script's requests, task ids and preflight differences (`ChatScriptTests`).
 
 Real signed-in provider tests are opt-in and return only invented MCP data.
 They do not enumerate or capture real apps:

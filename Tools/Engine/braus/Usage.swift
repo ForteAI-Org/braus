@@ -14,6 +14,10 @@ enum Usage {
       braus --chat ["prompt"] [--provider claude|codex] [--model <name>]
                                               chat using your signed-in provider; --chat --help for options
       braus --chat --resume <UUID|last>         continue a saved conversation
+      braus chat --script <file> --provider claude|codex [--model <name>] [--evidence <dir>] [--preflight <json>]
+                                              one chat per request of the file, on one archive; evidence per request
+      braus doctor [--knowledge <dir>] [--json] every component a run needs on this Mac: archive, index, model,
+                                              permissions, provider CLIs, app and MCP bridge, disk
 
       braus windows <app>                      the window census: what would be driven, what is a pop-up
       braus scene   <app> [--json]             perceive the interaction window and print the text map
@@ -24,9 +28,14 @@ enum Usage {
       braus batch   <app> --window <title> --seat [options] -- <step> --then <step> ...
                                               run several steps in one Seat lifetime
       braus memory  <app>                      what the brain remembers about the application
-      braus memory  --status                   what the memory's archive file is, read only
-      braus memory  --task <id> [--graph]      one task's attempts, calls, procedures, qualifications and
-                                              Brain relations, read only; --graph prints them as Mermaid
+      braus memory  --status                   what the memory's archive file is, and the Recall this build
+                                              would run (channel, model and its files, ablation), read only
+      braus memory  --tasks [--last <n>] [--producer app|mcp|cli] [--json]
+                                              the archive's tasks, newest first, with what the procedures
+                                              and the Recall hold of each, counted; default the last 20
+      braus memory  --task <id> [--graph]      one task's attempts, calls, procedures, qualifications, Brain
+                                              relations, and its Recall (proposals, choices, queries, linked
+                                              calls, uses), read only; --graph prints them as Mermaid
       braus memory  --part <id> --state <usable|to_reevaluate|retired> --reason <text>
                                               keep a procedure part out of the catalogue, or offer it again;
                                               nothing is deleted and retired is final

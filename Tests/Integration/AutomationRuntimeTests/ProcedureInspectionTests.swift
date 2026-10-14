@@ -217,6 +217,82 @@ struct ProcedureInspectionTests {
         #expect(try #require(inspection.attempts.first).candidates.allSatisfy { $0.policyVersion == "app-blocks-2" })
     }
 
+    @Test("the Recall of a task read by its id: the proposal with its sources, the choice and its validated query, the calls linked to the tract, the use declared")
+    func recallInTheDiagnosis() async throws {
+        typealias L = RecallLifecycleTests
+        typealias C = RecallChoiceToolTests
+        let directory = try W.directory()
+        let learner = Learning.photoSession(directory)
+        let (_, routeID) = try await L.learnPhoto(learner)
+        let session = Learning.photoSession(directory)
+        let tools = Learning.tools(session, stream: "chooser")
+        let begun = try await Learning.task(tools, C.proposeRequest)
+        let taskID = try #require(begun["task"].string, "\(begun)")
+        let proposal = begun["recall_proposal"]
+        let proposalID = try #require(proposal["proposal"].string, "\(proposal)")
+        let key = try #require(RecallProductPathTests.source(proposal, routeID), "\(proposal)")
+        let chosen = try await Learning.task(tools, C.choose(proposalID, [(key, 4, 7)]))
+        let queryID = try #require(chosen["recall"]["query"].string, "\(chosen)")
+        let id = session.id!.uuidString
+        _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.preview)"}"#)
+        _ = try await Learning.call(tools, "menu", #"{"session":"\#(id)","path":"File > Export…"}"#)
+        _ = try await Learning.call(tools, "type_text", #"{"session":"\#(id)","target":"foto_demo.png","text":"foto_mail.png"}"#)
+        _ = try await Learning.call(tools, "select", #"{"session":"\#(id)","control":"Format","item":"PNG"}"#)
+        _ = try await Learning.call(tools, "press", #"{"session":"\#(id)","button":"Save"}"#)
+        let ended = try await Learning.task(tools, #"""
+            {"operation":"end","outcome":"completed","use":[{"query":"\#(queryID)","need":1,"outcome":"followed"}]}
+            """#)
+        #expect(ended["status"].string == "ended", "\(ended)")
+        await L.close(session)
+
+        let inspection = try Self.inspection(taskID, session)
+        let attempt = try #require(inspection.attempts.first)
+        let stored = try #require(attempt.proposals.first)
+        #expect(stored.proposalID == proposalID && stored.channel == "lexical" && stored.searchStatus == "completed", "\(stored)")
+        #expect(stored.needs.count == 1 && stored.sources.contains { $0.key == key && $0.routeID == routeID }, "\(stored)")
+        #expect(stored.choice?.queryID == queryID && stored.choice?.needs.first?.declared == "all", "\(String(describing: stored.choice))")
+        let query = try #require(attempt.queries.first)
+        #expect(query.queryID == queryID && query.proposalID == proposalID && query.delivery == "delivered", "\(query)")
+        let need = try #require(query.needs.first)
+        // Stored from 0, as every step of the diagnosis; the agent chose 4–7 as the proposal numbered them, from 1.
+        #expect(need.selections.contains { $0.role == "selected" && $0.routeID == routeID && $0.firstPosition == 3 && $0.lastPosition == 6 },
+                "\(need.selections)")
+        #expect(need.links.count == 4 && need.links.filter(\.confirmed).count == 4, "the four calls of the tract, each confirmed: \(need.links)")
+        #expect(need.reports.map(\.declared) == ["followed"])
+        #expect(inspection.counts.proposals == 1 && inspection.counts.choices == 1 && inspection.counts.queries == 1
+                && inspection.counts.useReports == 1)
+        let text = inspection.text
+        #expect(text.contains { $0.contains("proposal \(proposalID) rev 1, initial: lexical completed") }, "\(text)")
+        #expect(text.contains { $0.contains("chosen → query \(queryID): need 1 all") }, "\(text)")
+        #expect(text.contains { $0.contains("selected \(routeID) steps 3–6 (4–7 as proposed)") }, "\(text)")
+        #expect(text.contains { $0.contains("linked calls 4: 4 confirmed, 0 undetermined") }, "\(text)")
+        #expect(text.contains { $0.contains("use 1: followed") }, "\(text)")
+        #expect(text.contains { $0.contains("Recall: proposals 1, chosen 1, queries 1, uses 1") }, "\(text)")
+
+        // The listing: both tasks, newest first, each counted; a producer kind that opened none lists nothing.
+        guard case .found(let rows) = SQLiteMemoryInspection.tasks(in: Self.archive(session), limit: 10) else {
+            Issue.record("the tasks were not listed"); return
+        }
+        #expect(rows.count == 2 && rows.first?.taskID == taskID, "\(rows)")
+        #expect(rows.first.map { ($0.source, $0.streamID, $0.status, $0.attempts, $0.versions, $0.proposals, $0.choices, $0.queries) }
+                    .map { "\($0)" } == "\(("app", "chooser", "completed", 1, 0, 1, 1, 1))", "\(String(describing: rows.first))")
+        #expect(rows.last.map { ($0.streamID, $0.versions, $0.proposals) }.map { "\($0)" } == "\(("worker-1", 1, 0))", "\(String(describing: rows.last))")
+        #expect(rows.allSatisfy { $0.closedAtMS != nil && $0.closedAtMS! >= $0.openedAtMS && !$0.goal.isEmpty })
+        guard case .found(let one) = SQLiteMemoryInspection.tasks(in: Self.archive(session), limit: 1) else { Issue.record("not listed"); return }
+        #expect(one.map(\.taskID) == [taskID], "the limit keeps the newest")
+        guard case .found(let none) = SQLiteMemoryInspection.tasks(in: Self.archive(session), limit: 10, source: "mcp") else {
+            Issue.record("not listed"); return
+        }
+        #expect(none.isEmpty)
+
+        // The index as a reader finds it: one ready lexical generation holding the version's parts, nothing pending.
+        guard case .found(let index) = SQLiteMemoryInspection.recallIndex(in: Self.archive(session)) else {
+            Issue.record("the index was not read"); return
+        }
+        #expect(index.generations.contains { $0.status == "ready" && $0.spaceID == nil && $0.isEnumerated }, "\(index)")
+        #expect(index.entries > 0 && index.vectorBacklog == 0 && index.pendingWork == 0, "\(index)")
+    }
+
     @Test("the secret parameter's task read by its id prints no secret, in the text or the graph")
     func noSecretInTheDiagnosis() async throws {
         let session = LearningSession(directory: try W.directory())

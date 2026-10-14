@@ -239,7 +239,7 @@ If the interface only accepts a server URL, this local configuration cannot be p
 
 Desktop and Browser are selected by default when creating a grant. Watcher requires explicit selection. Watcher events are not automatically learned.
 
-Each grant has a living memory and a Brain of its own, in `MCP/Knowledge/<grant>` under Braus's support directory: what one client learns is not read by the app's workers or by another client. No option shares it.
+Every client shares one living memory and Brain with the app's workers and the `braus` command line: the archive in `Knowledge` under Braus's support directory. What one client learns, the workers and the other clients recall, and the other way round. The private archives earlier grants kept in `MCP/Knowledge/<grant>` are taken into the shared one, read only, when it first opens.
 
 The helper forwards requests to the running app. It does not grant macOS permissions or start Braus automatically. Changing capabilities requires revoking the grant and creating a new one.
 
@@ -257,7 +257,7 @@ For a subsequent action, name the app, window and intended result:
 
 The relevant application and window must already be available, and the selected Braus build must permit that operation. Client connectivity does not establish compatibility with every application or macOS build.
 
-Braus supplies workflow instructions during MCP initialization. Agents should call `task_begin` with the user's request before desktop/browser work, then `task_end` with `completed`, `failed` or `interrupted`. `status`, `apps` and `windows` are available without beginning a task. Calling a task completed does not by itself establish a successful UI action or qualify it for learning.
+Braus supplies workflow instructions during MCP initialization. Agents should call `memory_task` with `operation: begin` and the user's request before desktop/browser work, which also searches what Braus learned and answers a proposal to choose from, then `end` with `completed`, `failed` or `abandoned`. `status`, `apps` and `windows` are available without beginning a task; `memory_task` with `operation: status` says which archive the app records into and which Recall it runs. Calling a task completed does not by itself establish a successful UI action or qualify it for learning.
 
 ## Multiple clients and stopping access
 

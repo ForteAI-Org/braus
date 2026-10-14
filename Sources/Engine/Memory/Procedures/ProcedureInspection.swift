@@ -11,8 +11,10 @@ import Foundation
 /// archive: every attempt with its calls in the order they started and what each one is to the
 /// procedures (a step and its occurrence, a batch's container, a step never started, a context tool),
 /// how each call's check judged it and what it taught the Brain, the candidates and the versions built
-/// from them with their parts, contracts, parameters, bindings and qualifications, and the relations the
-/// task's calls proved or contradicted. It is a diagnosis by identity: it reads what is stored and
+/// from them with their parts, contracts, parameters, bindings and qualifications, the relations the
+/// task's calls proved or contradicted, and what each attempt asked the Recall and was given back: the
+/// proposals, the choice that answered each with its validated query, the calls linked to what was
+/// delivered and the uses the agent declared. It is a diagnosis by identity: it reads what is stored and
 /// selects nothing; it is not a recall.
 public struct ProcedureInspection: Sendable {
 
@@ -59,12 +61,18 @@ public struct ProcedureInspection: Sendable {
         }
     }
 
-    /// Attempt is one attempt with its calls, candidates and versions.
+    /// Attempt is one attempt with its calls, candidates and versions, and what it asked the Recall: the
+    /// proposals it was given to choose from and the queries made for it, each as stored.
     public struct Attempt: Sendable {
         public let attempt: StoredTaskAttempt
         public let calls: [Call]
         public let candidates: [ProcedureCandidate]
         public let versions: [StoredProcedureVersion]
+        /// The proposals the attempt was given, in the order they were recorded, each with its choice when one answered it.
+        public var proposals: [Proposal] = []
+        /// The queries made for the attempt, in the order they were recorded: a choice's validated query, or one made
+        /// without a proposal (the selector's, under a test's control).
+        public var queries: [Query] = []
 
         public init(attempt: StoredTaskAttempt, calls: [Call], candidates: [ProcedureCandidate], versions: [StoredProcedureVersion]) {
             self.attempt    = attempt
@@ -89,6 +97,11 @@ public struct ProcedureInspection: Sendable {
         /// The parts the catalogue offers now: admitted under a policy still active, usable, current.
         public let offeredParts: Int
         public let legacyRoutes: Int
+        /// The Recall's side: the proposals given, how many of them were chosen, the queries made and the uses declared.
+        public var proposals = 0
+        public var choices = 0
+        public var queries = 0
+        public var useReports = 0
 
         public init(operationalSteps: Int, containers: Int, skipped: Int, contextCalls: Int, candidates: Int, versions: Int,
                     admittedParts: Int, refusedParts: Int, offeredParts: Int, legacyRoutes: Int) {
@@ -102,6 +115,244 @@ public struct ProcedureInspection: Sendable {
             self.refusedParts     = refusedParts
             self.offeredParts     = offeredParts
             self.legacyRoutes     = legacyRoutes
+        }
+    }
+
+    // MARK: The Recall's side, as stored
+
+    /// Proposal is one proposal the attempt was given to choose from: what was asked and how the search went, the needs
+    /// and the sources shortlisted for each, and the choice that answered it when one did. Texts are the agent's, as
+    /// stored (minimized when recorded); the codes are the archive's words.
+    public struct Proposal: Sendable, Equatable {
+        public let proposalID: String
+        public let revision: Int
+        public let reason: String
+        public let remainingWork: String
+        public let channel: String
+        public let searchStatus: String
+        public let searchNote: String?
+        public let candidatesConsidered: Int
+        public let bytes: Int
+        public let durationUS: Int64?
+        public let recordedAtMS: Int64
+        public let needs: [ProposedNeed]
+        public let sources: [ProposedSource]
+        public let choice: Choice?
+
+        public init(proposalID: String, revision: Int, reason: String, remainingWork: String, channel: String, searchStatus: String,
+                    searchNote: String?, candidatesConsidered: Int, bytes: Int, durationUS: Int64?, recordedAtMS: Int64,
+                    needs: [ProposedNeed], sources: [ProposedSource], choice: Choice?) {
+            self.proposalID           = proposalID
+            self.revision             = revision
+            self.reason               = reason
+            self.remainingWork        = remainingWork
+            self.channel              = channel
+            self.searchStatus         = searchStatus
+            self.searchNote           = searchNote
+            self.candidatesConsidered = candidatesConsidered
+            self.bytes                = bytes
+            self.durationUS           = durationUS
+            self.recordedAtMS         = recordedAtMS
+            self.needs                = needs
+            self.sources              = sources
+            self.choice               = choice
+        }
+    }
+
+    /// ProposedNeed is one need of a proposal, from 0, with the application it was resolved to when the agent named one.
+    public struct ProposedNeed: Sendable, Equatable {
+        public let position: Int
+        public let text: String
+        public let bundleID: String?
+
+        public init(position: Int, text: String, bundleID: String?) {
+            self.position = position
+            self.text     = text
+            self.bundleID = bundleID
+        }
+    }
+
+    /// ProposedSource is one source shortlisted for a need: its name in the proposal, the version it is, its relevance and
+    /// the steps the selector would have suggested, when it suggested any.
+    public struct ProposedSource: Sendable, Equatable {
+        public let needPosition: Int
+        public let position: Int
+        public let key: String
+        public let routeID: String
+        public let relevance: Double
+        public let suggestedFirst: Int?
+        public let suggestedLast: Int?
+
+        public init(needPosition: Int, position: Int, key: String, routeID: String, relevance: Double, suggestedFirst: Int?,
+                    suggestedLast: Int?) {
+            self.needPosition   = needPosition
+            self.position       = position
+            self.key            = key
+            self.routeID        = routeID
+            self.relevance      = relevance
+            self.suggestedFirst = suggestedFirst
+            self.suggestedLast  = suggestedLast
+        }
+    }
+
+    /// Choice is the agent's admitted plan for a proposal: the query Engine validated and delivered for it, and what the
+    /// agent declared per need.
+    public struct Choice: Sendable, Equatable {
+        public let queryID: String
+        public let recordedAtMS: Int64
+        public let needs: [ChosenNeed]
+
+        public init(queryID: String, recordedAtMS: Int64, needs: [ChosenNeed]) {
+            self.queryID     = queryID
+            self.recordedAtMS = recordedAtMS
+            self.needs       = needs
+        }
+    }
+
+    /// ChosenNeed is what the agent declared of one need: covered all, part, none or ambiguous, what stays uncovered,
+    /// and the person's words that settled a choice between fixed alternatives.
+    public struct ChosenNeed: Sendable, Equatable {
+        public let position: Int
+        public let declared: String
+        public let uncovered: String?
+        public let settledBy: String?
+
+        public init(position: Int, declared: String, uncovered: String?, settledBy: String?) {
+            self.position  = position
+            self.declared  = declared
+            self.uncovered = uncovered
+            self.settledBy = settledBy
+        }
+    }
+
+    /// Query is one query made for the attempt: the search and what it delivered, the proposal it answered when it did,
+    /// and per need the tracts selected, the calls linked to them and the uses declared.
+    public struct Query: Sendable, Equatable {
+        public let queryID: String
+        public let revision: Int
+        public let reason: String
+        public let remainingWork: String
+        public let channel: String
+        public let searchStatus: String
+        public let searchNote: String?
+        public let candidateLimit: Int
+        public let candidatesConsidered: Int
+        public let coverage: String
+        public let delivery: String
+        public let deliveryBytes: Int?
+        public let selectorVersion: String
+        public let recordedAtMS: Int64
+        public let durationUS: Int64?
+        public let proposalID: String?
+        public let needs: [QueriedNeed]
+
+        public init(queryID: String, revision: Int, reason: String, remainingWork: String, channel: String, searchStatus: String,
+                    searchNote: String?, candidateLimit: Int, candidatesConsidered: Int, coverage: String, delivery: String,
+                    deliveryBytes: Int?, selectorVersion: String, recordedAtMS: Int64, durationUS: Int64?, proposalID: String?,
+                    needs: [QueriedNeed]) {
+            self.queryID              = queryID
+            self.revision             = revision
+            self.reason               = reason
+            self.remainingWork        = remainingWork
+            self.channel              = channel
+            self.searchStatus         = searchStatus
+            self.searchNote           = searchNote
+            self.candidateLimit       = candidateLimit
+            self.candidatesConsidered = candidatesConsidered
+            self.coverage             = coverage
+            self.delivery             = delivery
+            self.deliveryBytes        = deliveryBytes
+            self.selectorVersion      = selectorVersion
+            self.recordedAtMS         = recordedAtMS
+            self.durationUS           = durationUS
+            self.proposalID           = proposalID
+            self.needs                = needs
+        }
+    }
+
+    /// QueriedNeed is one need of a query with its coverage, the tracts selected or kept as alternatives, the calls
+    /// linked to them and the uses the agent declared.
+    public struct QueriedNeed: Sendable, Equatable {
+        public let position: Int
+        public let text: String
+        public let bundleID: String?
+        public let coverage: String
+        public let reason: String?
+        public let selections: [Selection]
+        public let links: [Link]
+        public let reports: [Use]
+
+        public init(position: Int, text: String, bundleID: String?, coverage: String, reason: String?, selections: [Selection],
+                    links: [Link], reports: [Use]) {
+            self.position   = position
+            self.text       = text
+            self.bundleID   = bundleID
+            self.coverage   = coverage
+            self.reason     = reason
+            self.selections = selections
+            self.links      = links
+            self.reports    = reports
+        }
+    }
+
+    /// Selection is one tract of a need: selected, an alternative or excluded, the version and its steps, and what was
+    /// required to deliver it, counted by kind (`parameter_bound`, `entry_state`, …).
+    public struct Selection: Sendable, Equatable {
+        public let position: Int
+        public let role: String
+        public let routeID: String
+        public let firstPosition: Int
+        public let lastPosition: Int
+        public let wholePartID: String?
+        public let relevance: Double
+        public let preparations: Int
+        public let requirements: [String: Int]
+
+        public init(position: Int, role: String, routeID: String, firstPosition: Int, lastPosition: Int, wholePartID: String?,
+                    relevance: Double, preparations: Int, requirements: [String: Int]) {
+            self.position      = position
+            self.role          = role
+            self.routeID       = routeID
+            self.firstPosition = firstPosition
+            self.lastPosition  = lastPosition
+            self.wholePartID   = wholePartID
+            self.relevance     = relevance
+            self.preparations  = preparations
+            self.requirements  = requirements
+        }
+    }
+
+    /// Link is one call of the attempt linked to a need: the tract and step it carried out when one was determined,
+    /// whether its check confirmed it, or whether that is undetermined.
+    public struct Link: Sendable, Equatable {
+        public let callEventID: String
+        public let selectionPosition: Int?
+        public let stepPosition: Int?
+        public let confirmed: Bool
+        public let undetermined: Bool
+
+        public init(callEventID: String, selectionPosition: Int?, stepPosition: Int?, confirmed: Bool, undetermined: Bool) {
+            self.callEventID       = callEventID
+            self.selectionPosition = selectionPosition
+            self.stepPosition      = stepPosition
+            self.confirmed         = confirmed
+            self.undetermined      = undetermined
+        }
+    }
+
+    /// Use is one use the agent declared of a need's selection: followed, adapted, abandoned or not executed, with the
+    /// cause it named and its note.
+    public struct Use: Sendable, Equatable {
+        public let sequence: Int
+        public let declared: String
+        public let cause: String?
+        public let note: String?
+
+        public init(sequence: Int, declared: String, cause: String?, note: String?) {
+            self.sequence = sequence
+            self.declared = declared
+            self.cause    = cause
+            self.note     = note
         }
     }
 
@@ -144,6 +395,7 @@ public struct ProcedureInspection: Sendable {
                 if let brain = call.brain { line += "; brain \(brain)" }
                 lines.append(line + "  [\(call.callEventID)]")
             }
+            lines += Self.describe(attempt.proposals, attempt.queries)
             for candidate in attempt.candidates {
                 lines.append("  candidate \(candidate.candidateID) (\(candidate.policyVersion)): \(candidate.steps.count) steps in "
                              + "\(candidate.blocks.count) blocks "
@@ -162,7 +414,80 @@ public struct ProcedureInspection: Sendable {
         lines.append("operational steps \(counted.operationalSteps) (containers \(counted.containers), skipped \(counted.skipped), "
                      + "context \(counted.contextCalls) are no step); candidates \(counted.candidates), versions \(counted.versions); "
                      + "parts admitted \(counted.admittedParts), refused \(counted.refusedParts), offered \(counted.offeredParts); "
-                     + "legacy Routes in the archive \(counted.legacyRoutes)")
+                     + "legacy Routes in the archive \(counted.legacyRoutes); "
+                     + "Recall: proposals \(counted.proposals), chosen \(counted.choices), queries \(counted.queries), uses \(counted.useReports)")
+        return lines
+    }
+
+    /// A range of steps as stored, from 0 like every step of this diagnosis, with the numbers the agent saw in the
+    /// proposal and gave in its choice, from 1.
+    private static func steps(_ first: Int, _ last: Int) -> String {
+        "steps \(first)–\(last) (\(first + 1)–\(last + 1) as proposed)"
+    }
+
+    /// The Recall's side of one attempt as lines: each proposal with its needs, sources and choice, then each query with
+    /// its needs, tracts, linked calls and uses. Relevances are printed to three decimals; durations in milliseconds.
+    private static func describe(_ proposals: [Proposal], _ queries: [Query]) -> [String] {
+        var lines: [String] = []
+        for proposal in proposals {
+            lines.append("  proposal \(proposal.proposalID) rev \(proposal.revision), \(proposal.reason): \(proposal.channel) \(proposal.searchStatus)"
+                         + (proposal.searchNote.map { " (\($0))" } ?? "")
+                         + ", \(proposal.candidatesConsidered) candidates considered, \(proposal.needs.count) needs, "
+                         + "\(proposal.sources.count) sources, \(proposal.bytes) bytes"
+                         + (proposal.durationUS.map { ", \($0 / 1000) ms" } ?? ""))
+            lines.append("    remaining: \(proposal.remainingWork)")
+            for need in proposal.needs {
+                let sources = proposal.sources.filter { $0.needPosition == need.position }
+                lines.append("    need \(need.position + 1) \"\(need.text)\"" + (need.bundleID.map { " on \($0)" } ?? "")
+                             + ": \(sources.count) sources")
+                for source in sources {
+                    lines.append("      source \(source.key) = \(source.routeID), relevance \(String(format: "%.3f", source.relevance))"
+                                 + (source.suggestedFirst.map { first in
+                                     ", suggested " + Self.steps(first, source.suggestedLast ?? first) } ?? ""))
+                }
+            }
+            if let choice = proposal.choice {
+                lines.append("    chosen → query \(choice.queryID): " + choice.needs.map { need in
+                    "need \(need.position + 1) \(need.declared)"
+                        + (need.settledBy.map { " settled by \"\($0)\"" } ?? "")
+                        + (need.uncovered.map { ", uncovered \"\($0)\"" } ?? "")
+                }.joined(separator: "; "))
+            } else {
+                lines.append("    not chosen")
+            }
+        }
+        for query in queries {
+            lines.append("  query \(query.queryID) rev \(query.revision), \(query.reason)"
+                         + (query.proposalID.map { " of proposal \($0)" } ?? " (no proposal)")
+                         + ": \(query.channel) \(query.searchStatus)" + (query.searchNote.map { " (\($0))" } ?? "")
+                         + ", coverage \(query.coverage), \(query.delivery)" + (query.deliveryBytes.map { " \($0) bytes" } ?? "")
+                         + ", \(query.candidatesConsidered)/\(query.candidateLimit) candidates, selector \(query.selectorVersion)"
+                         + (query.durationUS.map { ", \($0 / 1000) ms" } ?? ""))
+            for need in query.needs {
+                lines.append("    need \(need.position + 1) \"\(need.text)\"" + (need.bundleID.map { " on \($0)" } ?? "")
+                             + ": \(need.coverage)" + (need.reason.map { " (\($0))" } ?? ""))
+                for selection in need.selections {
+                    let requirements = selection.requirements.sorted { $0.key < $1.key }.map { "\($0.key) ×\($0.value)" }
+                        .joined(separator: ", ")
+                    lines.append("      \(selection.role) \(selection.routeID) " + Self.steps(selection.firstPosition, selection.lastPosition)
+                                 + (selection.wholePartID.map { " (whole \($0))" } ?? "")
+                                 + ", relevance \(String(format: "%.3f", selection.relevance))"
+                                 + (selection.preparations > 0 ? ", \(selection.preparations) preparations" : "")
+                                 + (requirements.isEmpty ? "" : "; " + requirements))
+                }
+                if !need.links.isEmpty {
+                    lines.append("      linked calls \(need.links.count): \(need.links.filter(\.confirmed).count) confirmed, "
+                                 + "\(need.links.filter(\.undetermined).count) undetermined; "
+                                 + need.links.map { link in
+                                     link.callEventID + (link.stepPosition.map { " → step \($0)" } ?? " → no step")
+                                 }.joined(separator: ", "))
+                }
+                for use in need.reports {
+                    lines.append("      use \(use.sequence): \(use.declared)" + (use.cause.map { ", cause \($0)" } ?? "")
+                                 + (use.note.map { ", \($0)" } ?? ""))
+                }
+            }
+        }
         return lines
     }
 
