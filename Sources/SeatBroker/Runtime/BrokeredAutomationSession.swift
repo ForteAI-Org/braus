@@ -372,13 +372,19 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             target: target, verb: verb, section: section, desiredState: desiredState
         )
         let remotePanel = try seat.agentSeat().holdsRemoteFilePanel
+        let inFront     = Self.preparesMenuInFront(application)
+        let menus       = MenuItemCommands(
+            menuCommand(application, runtime, try seat.agentSeat(), inFront: inFront),
+            inFront: inFront ? application.localizedName ?? "The application" : nil
+        )
         return await enriched(runtime.engine(
             recorder                    : Self.recorder(runtime, sessionID: id),
             allowsDestructive           : allowsDestructive,
             contextMenusOnTextFieldsOnly: Self.drawsMenusUnderThePointer(application),
             selectsFieldsByTripleClick  : remotePanel,
             refusesMenuOpeningClicks    : remotePanel,
-            windowClosure               : windowClosure(of: seat)
+            windowClosure               : windowClosure(of: seat),
+            menus                       : menus
         ).act(request), by: runtime)
     }
 
@@ -439,18 +445,28 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             throw AutomationFailure(sentence)
         }
         let processID = application.processIdentifier
-        let closingRefusal = closingRefusal(application, agentSeat)
-        let platform = TargetPlatform.chosen(
-            bundleURL       : application.bundleURL,
-            bundleIdentifier: application.bundleIdentifier
-        )
-        let allowsDestructive = self.allowsDestructive
-        let inFront = Self.preparesMenuInFront(platform, bundleIdentifier: application.bundleIdentifier)
+        let command = menuCommand(application, runtime, agentSeat, inFront: Self.preparesMenuInFront(application))
         return try await PerceivedCommand.perform(
             bundleID: application.bundleIdentifier ?? "pid.\(processID)",
             recorder: Self.recorder(runtime, sessionID: id),
             perceive: { try await runtime.scenes.currentScene(of: processID) }
         ) { observe in
+            try await command(path, processID, observe)
+        }
+    }
+
+    /// The menu command `menu` runs, which a text format toggle is carried out through as well,
+    /// pressed during a brief activation when `inFront` is true (`preparesMenuInFront`).
+    private func menuCommand(
+        _ application: NSRunningApplication,
+        _ runtime    : EngineRuntime,
+        _ agentSeat  : AgentSeat,
+        inFront      : Bool
+    ) -> MenuItemCommands.Command {
+        let closingRefusal    = closingRefusal(application, agentSeat)
+        let allowsDestructive = self.allowsDestructive
+        let settling          = runtime.settling
+        return { path, processID, observe in
             if inFront {
                 return try await MenuBarCommand.performInFront(
                     path,
@@ -466,7 +482,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                         return Self.briefMenuFailure(outcome)
                     },
                     frontReturned: { agentSeat.frontIsBackAfterCommand },
-                    settling: runtime.settling,
+                    settling: settling,
                     observe: observe
                 )
             }
@@ -475,7 +491,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 processID        : processID,
                 allowsDestructive: allowsDestructive,
                 closingRefusal   : closingRefusal,
-                settling         : runtime.settling,
+                settling         : settling,
                 observe          : observe
             )
         }
@@ -521,6 +537,14 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// active (ADR 0038). Other native hosts remain separately qualified.
     nonisolated static func preparesMenuInFront(_ platform: TargetPlatform, bundleIdentifier: String?) -> Bool {
         platform == .adobeUXP || platform == .webKitBrowser || bundleIdentifier == "com.apple.TextEdit"
+    }
+
+    /// `preparesMenuInFront` for `application`, its platform read now.
+    static func preparesMenuInFront(_ application: NSRunningApplication) -> Bool {
+        preparesMenuInFront(
+            TargetPlatform.chosen(bundleURL: application.bundleURL, bundleIdentifier: application.bundleIdentifier),
+            bundleIdentifier: application.bundleIdentifier
+        )
     }
 
     private static func briefMenuFailure(_ outcome: BriefActivationOutcome) -> String {

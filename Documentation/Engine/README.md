@@ -37,7 +37,7 @@ and is never a reason to send the gesture again.
 
 | Module | What it owns |
 |---|---|
-| `EngineCore` | pure types and contracts: `ActOutcome` and its closed kinds, `ActVerification` with `ActOracle` and `OracleEvidence`, `ActionVerb`, `ActionPolicy` and `ActionPermissions` (with `WindowClosureGuard`), `ActivationPolicy`, `ActionTiming`, `ActionRequest`, `ElsewhereGuide`, `PopupRowPick`, `CaptureSurface`, and the roles `Actuating`, `SceneProviding` (whose `PerceivedWindow` carries the capture's quality and surface), `ControlPressing`, `ApplicationActivating`, `EffectExpecting`, `ActionObserving` (whose `ActionRecord` and `InputRecord` carry the perceptions an action or an input used), `Settling` |
+| `EngineCore` | pure types and contracts: `ActOutcome` and its closed kinds, `ActVerification` with `ActOracle` and `OracleEvidence`, `ActionVerb`, `ActionPolicy` and `ActionPermissions` (with `WindowClosureGuard`), `ActivationPolicy`, `ActionTiming`, `ActionRequest`, `ElsewhereGuide`, `PopupRowPick`, `CaptureSurface`, and the roles `Actuating`, `SceneProviding` (whose `PerceivedWindow` carries the capture's quality and surface), `ControlPressing`, `MenuCommanding`, `ApplicationActivating`, `EffectExpecting`, `ActionObserving` (whose `ActionRecord` and `InputRecord` carry the perceptions an action or an input used), `Settling` |
 | `Engine` | `ActionEngine`: the act cycle and the observe side (`describeScene`, `describeSection`, `checkGoal`) over the roles |
 | `HIDActuation` | the foreground `Actuating`: synthetic events at the HID system tap |
 | `AccessibilityActions` | `ControlPressing` over the live accessibility tree: open a dropdown by its own press, read a combo box's value, read a toggle under a point |
@@ -293,6 +293,22 @@ Driver offers is not yet turned on here.
   a click or `set_toggle` that only flips it is `acted_unverified` with `commandEffectUnchecked`,
   and the sentence names the menu command (`Format > Font > Bold`), since the selected text's
   format is not read (`ActVerification.formatToggleOutcome`).
+- With a `MenuCommanding` role (the sessions give one, `MenuItemCommands` over their own menu
+  command), a click or `set_toggle` on such a toggle, a control that shows a state, is decided
+  before anything is sent: the engine presses its menu item (`ActVerification.formatMenuPath`)
+  and never also clicks, since the menu item toggles the format too. A button, a text or a row
+  with that label shows no state and is only clicked. The reply says so ("'bold' applied through
+  Format > Font > Bold, not by clicking the control: ..."), its verdict and check are the menu
+  command's own, with `performed` `substitute` (`menu_command`) and the toggle as target. When
+  the session presses that application's menus during a brief activation (the seat's
+  `preparesMenuInFront`), a clean press adds that the application was brought forward for a
+  moment. A menu item missing, disabled or refused dispatched nothing, so the toggle is clicked
+  and answered as above; a press that failed or may have acted answers as is. A `set_toggle` to
+  the state the control already shows stays `acted_noop`: no role reads the selected text's format.
+- The menu item toggles; it does not set a state. On text that is already bold while the control
+  reads off, the press removes the bold and the reply still says "applied": the requested state
+  is not checked after the press, and the verdict is the menu command's window check
+  (`command_effect_unchecked`). Only the attached scene shows the result.
 - `Actuating.perform` returns when the events have gone out and says nothing about their effect;
   the engine verifies by perceiving again, then tells the actuator what it saw through
   `Actuating.confirm`: `observed` for a landed effect, `absent` for a ghost, `unknown` for a

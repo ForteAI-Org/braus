@@ -36,6 +36,8 @@ public struct ActionEngine: Sendable {
         public var observer: (any ActionObserving)?
         /// Ends the wait after a gesture once the window settled; nil sleeps the fixed pause.
         public var settling: (any Settling)?
+        /// Carries out a text format toggle through its menu item; nil clicks the toggle.
+        public var menus: (any MenuCommanding)?
 
         public init(
             scenes      : any SceneProviding,
@@ -45,7 +47,8 @@ public struct ActionEngine: Sendable {
             activation  : (any ApplicationActivating)? = nil,
             expectations: (any EffectExpecting)? = nil,
             observer    : (any ActionObserving)? = nil,
-            settling    : (any Settling)? = nil
+            settling    : (any Settling)? = nil,
+            menus       : (any MenuCommanding)? = nil
         ) {
             self.scenes       = scenes
             self.actuator     = actuator
@@ -55,6 +58,7 @@ public struct ActionEngine: Sendable {
             self.expectations = expectations
             self.observer     = observer
             self.settling     = settling
+            self.menus        = menus
         }
     }
 
@@ -200,6 +204,10 @@ public struct ActionEngine: Sendable {
 
         if request.verb == .setToggle {
             return await setToggle(request, element: element, at: point, perceived: perceived, expected: expected)
+        }
+        if request.verb == .click, !surfaces.hasOpenPopup,
+           let applied = await formatThroughMenu(request, element: element, perceived: perceived) {
+            return applied
         }
         let containingPopup = surfaces.popups.first { $0.insetBy(dx: -4, dy: -4).contains(point) }
         if request.verb == .click, let popup = containingPopup {
@@ -420,6 +428,66 @@ public struct ActionEngine: Sendable {
         }
     }
 
+    /// A text format toggle's command carried out through its menu item instead of a click, which in
+    /// the background flips only the control: the click is never also sent, and the verdict is the
+    /// menu command's own, its check marked as a substitute. Nil sends the click as before: no menu
+    /// role, another control, or a menu item missing, disabled or refused, so nothing was dispatched.
+    /// A toggle is a control that shows a state: a button, a text or a row named Bold is only clicked.
+    private func formatThroughMenu(
+        _ request: ActionRequest,
+        element  : SceneElement,
+        perceived: PerceivedWindow
+    ) async -> ActOutcome? {
+        guard let menus = dependencies.menus, element.state != nil,
+              let path = ActVerification.formatMenuPath(for: element.label)
+        else { return nil }
+        if request.isDryRun {
+            return ActOutcome(.dryRun, "would apply '\(element.label)' through \(path) instead of clicking it, "
+                + "or click it if that menu item is missing, disabled or refused")
+        }
+        // The engine's own perception, so the call records the window after the command.
+        let trail  = InputTrail()
+        let scenes = dependencies.scenes
+        let pid    = request.processID
+        guard let outcome = await menus.performMenuItem(path, in: pid, observe: {
+            let window = try await scenes.currentScene(of: pid)
+            trail.append(window)
+            return window.scene
+        }) else { return nil }
+        let afterWindow = trail.windows.last
+        await dependencies.observer?.record(ActionRecord(
+            bundleID        : request.bundleID,
+            element         : element,
+            verb            : request.verb,
+            effect          : nil,
+            windowTitleAfter: afterWindow?.scene.windowTitle,
+            before          : perceived,
+            after           : afterWindow
+        ))
+        let check = outcome.check.map { menu in
+            OperationCheck(
+                condition    : menu.condition,
+                method       : menu.method,
+                methodVersion: menu.methodVersion,
+                verdict      : menu.verdict,
+                expected     : menu.expected,
+                observed     : menu.observed,
+                limits       : menu.limits,
+                performed    : menu.performed == .requested ? .substitute : menu.performed,
+                substitute   : menu.performed == .requested ? "menu_command" : nil,
+                target       : OperationCheck.Target(element)
+            )
+        }
+        // Only a press that went out is said to have applied it; a failed one says it was tried.
+        let how = check?.performed == .substitute ? "applied" : "tried"
+        return ActOutcome(
+            outcome.kind,
+            "'\(element.label)' \(how) through \(path), not by clicking the control: \(outcome.message)",
+            scene: outcome.scene,
+            check: check
+        )
+    }
+
     private func setToggle(
         _ request: ActionRequest,
         element  : SceneElement,
@@ -442,6 +510,9 @@ public struct ActionEngine: Sendable {
                     condition: .requestedStateAlreadyPresent, method: .controlState, verdict: .passed,
                     expected: desired.rawValue, observed: element.state?.rawValue, performed: .none,
                     target: OperationCheck.Target(element)))
+        }
+        if let applied = await formatThroughMenu(request, element: element, perceived: perceived) {
+            return applied
         }
         if request.isDryRun {
             return ActOutcome(.dryRun, "would click '\(element.label)' to set it \(desired.rawValue)")

@@ -101,7 +101,7 @@ public enum ActVerification {
         after      : SceneSnapshot?,
         check      : OperationCheck? = nil
     ) -> ActOutcome? {
-        guard let path = formatMenuPaths[LabelText.normalize(label)] else { return nil }
+        guard let path = formatMenuPath(for: label) else { return nil }
         return ActOutcome(
             .actedUnverified,
             "\(performed) '\(label)': only the control's own state changed; the selected text's format was "
@@ -109,6 +109,12 @@ public enum ActVerification {
             scene: after,
             check: check?.adding([.commandEffectUnchecked])
         )
+    }
+
+    /// The menu command that applies the format a text format toggle labelled `label` stands for, or
+    /// nil for any other control.
+    public static func formatMenuPath(for label: String) -> String? {
+        formatMenuPaths[LabelText.normalize(label)]
     }
 
     // Normalized format bar labels (AppKit FontManager ax_bold, ax_italic, ax_underline) to TextEdit's menu

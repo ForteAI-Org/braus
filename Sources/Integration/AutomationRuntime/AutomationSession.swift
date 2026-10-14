@@ -108,7 +108,8 @@ public final class AutomationSession: AutomationSessionOperating {
             recorder                  : recorder(runtime),
             allowsDestructive         : allowsDestructive,
             selectsFieldsByTripleClick: remotePanel,
-            refusesMenuOpeningClicks  : remotePanel
+            refusesMenuOpeningClicks  : remotePanel,
+            menus                     : MenuItemCommands(menuCommand(runtime))
         ).act(request), by: runtime)
     }
 
@@ -164,8 +165,17 @@ public final class AutomationSession: AutomationSessionOperating {
             recorder: recorder(runtime),
             perceive: { try await runtime.scenes.currentScene(of: processID) }
         ) { observe in
+            try await menuCommand(runtime)(path, processID, observe)
+        }
+    }
+
+    /// The menu command `menu` runs, which a text format toggle is carried out through as well.
+    private func menuCommand(_ runtime: EngineRuntime) -> MenuItemCommands.Command {
+        let allowsDestructive = allowsDestructive
+        let settling          = runtime.settling
+        return { path, processID, observe in
             try await MenuBarCommand.perform(path, processID: processID, allowsDestructive: allowsDestructive,
-                                             settling: runtime.settling, observe: observe)
+                                             settling: settling, observe: observe)
         }
     }
 
