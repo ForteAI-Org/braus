@@ -183,6 +183,13 @@ final class SeatDriver {
         return Self.leavesWindowUnrestored(lastReleases)
     }
 
+    /// The registers `hasUnrestoredWindow` reads, as one line for the log.
+    var restorationDiagnostics: String {
+        "seat [\(seat?.restorationRegisters ?? "no seat")], "
+            + "lastObligations \(lastObligations.map { "\($0.windowNumber):\($0.reason)" }), "
+            + "lastReleases \(lastReleases)"
+    }
+
     /// Whether this host can retire after the current application is returned.
     /// Earlier assignments' refused returns must keep their display alive.
     var canRetireHost: Bool {
@@ -1016,6 +1023,12 @@ final class SeatDriver {
         }
         lastReleases    = report.windows.keys.sorted().compactMap { report.windows[$0] }
         lastObligations = report.obligations
+        Self.log.notice("""
+            release answered \(String(describing: report.outcome), privacy: .public): \
+            windows \(report.windows.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }, privacy: .public), \
+            reconciled \(report.reconciled, privacy: .public), \
+            obligations \(report.obligations.map { "\($0.windowNumber):\($0.reason)" }, privacy: .public)
+            """)
         lastWindowsOnAnotherDesktop = report.windows
             .filter { $0.value == .returnedToOtherSpace }.keys.sorted()
         // `hasUnrestoredWindow` already stops the quit; this is what names the

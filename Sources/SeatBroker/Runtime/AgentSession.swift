@@ -276,7 +276,15 @@ public final class AgentSession {
     func finishUsingApp() async -> String? {
         guard isOpen else { return nil }
         let finish = await finishWithHeldApp()
-        guard finish == nil, driver.canRetireHost else { return finish }
+        let canRetire = driver.canRetireHost
+        let action = finish == nil && canRetire ? "taking the host down" : "keeping the host and its display"
+        Self.diagnosticLog.notice("""
+            lease finished: warning \(finish != nil, privacy: .public), \
+            canRetireHost \(canRetire, privacy: .public), \
+            \(self.driver.restorationDiagnostics, privacy: .public): \
+            \(action, privacy: .public)
+            """)
+        guard finish == nil, canRetire else { return finish }
         return await driver.stop()
     }
 
@@ -320,7 +328,15 @@ public final class AgentSession {
                 + "so it was returned to your desktop still open."
             : nil
         let handback = driver.releaseAssignedApplication()
-        let finish = Self.finishing(held.provenance.finish(windowRestored: !driver.hasUnrestoredWindow),
+        let unrestored = driver.hasUnrestoredWindow
+        Self.diagnosticLog.notice("""
+            finishing \(held.name, privacy: .public) pid \(held.pid, privacy: .public) \
+            \(String(describing: held.provenance), privacy: .public): \
+            unrestored \(unrestored, privacy: .public), \
+            handback \(handback ?? "nil", privacy: .public), \
+            \(self.driver.restorationDiagnostics, privacy: .public)
+            """)
+        let finish = Self.finishing(held.provenance.finish(windowRestored: !unrestored),
                                     handback: handback, app: held.name)
         var sentences = [notClosed, finish.sentence, finish.quits ? nil : driver.otherDesktopSentence]
             .compactMap { $0 }

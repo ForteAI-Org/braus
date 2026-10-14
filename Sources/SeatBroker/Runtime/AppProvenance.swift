@@ -7,6 +7,7 @@
 
 import AppKit
 import Foundation
+import os
 
 /// Where a running application came from, which is what "finished with it"
 /// means: an application the agent opened is quit once the agent is done with
@@ -69,6 +70,7 @@ enum FinishOutcome: Sendable, Equatable {
 /// quit.
 @MainActor
 final class LaunchLedger {
+    private static let log = Logger(subsystem: "dev.forte.AgentSeatKit", category: "Lab")
     private var records: [pid_t: AppProvenance] = [:]
 
     /// Asks the application `pid` to quit, for one a seat held and has finished with. The
@@ -114,16 +116,46 @@ final class LaunchLedger {
         defer { forget(pid) }
         terminate(pid)
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
+        let requested = clock.now
+        let deadline = requested.advanced(by: timeout)
         while !isTerminated(pid) {
-            guard clock.now < deadline, !Task.isCancelled else { return false }
+            guard clock.now < deadline, !Task.isCancelled else {
+                Self.note(pid, "still running", since: requested)
+                measureLateExit(of: pid, since: requested)
+                return false
+            }
             do {
                 try await clock.sleep(until: min(deadline, clock.now.advanced(by: .milliseconds(50))))
             } catch {
                 return false
             }
         }
+        Self.note(pid, "exited", since: requested)
         return true
+    }
+
+    // Measurement only: keeps watching a refused quit so the log says when the process really went.
+    private func measureLateExit(of pid: pid_t, since requested: ContinuousClock.Instant) {
+        Task {
+            let clock = ContinuousClock()
+            while clock.now < requested.advanced(by: .seconds(60)) {
+                try? await clock.sleep(for: .milliseconds(100))
+                if isTerminated(pid) {
+                    Self.note(pid, "exited late", since: requested)
+                    return
+                }
+            }
+            Self.log.notice("pid \(pid, privacy: .public) still running 60 s after the quit request")
+        }
+    }
+
+    private static func note(_ pid: pid_t, _ what: String, since requested: ContinuousClock.Instant) {
+        let parts = requested.duration(to: .now).components
+        let milliseconds = parts.seconds * 1000 + parts.attoseconds / 1_000_000_000_000_000
+        log.notice("""
+            pid \(pid, privacy: .public) \(what, privacy: .public) \
+            \(milliseconds, privacy: .public) ms after the quit request
+            """)
     }
 
     /// Forgets a process the lab has finished with. A PID is reused by the

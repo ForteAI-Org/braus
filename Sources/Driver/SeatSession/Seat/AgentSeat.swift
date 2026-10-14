@@ -346,6 +346,19 @@ public final class AgentSeat {
             || adoptionRestorations.values.contains(where: Self.returnRequiresHost)
     }
 
+    /// What the seat's own restoration registers hold, as one line for the log:
+    /// the rollbacks still owed, and what the ledgers answered for each window.
+    public var restorationRegisters: String {
+        let pending = pendingAdoptions.keys.sorted().compactMap { number in
+            pendingAdoptions[number].map { "\(number)@pid \($0.reference.processID)" }
+        }
+        func outcomes(_ ledger: [Int: WindowReleaseOutcome]) -> [String] {
+            ledger.keys.sorted().compactMap { number in ledger[number].map { "\(number)=\($0)" } }
+        }
+        return "pendingAdoptions \(pending), releaseLedger \(outcomes(releaseLedger)), "
+            + "adoptionRestorations \(outcomes(adoptionRestorations))"
+    }
+
     private static func returnRequiresHost(_ outcome: WindowReleaseOutcome) -> Bool {
         switch outcome {
         case .refused, .leftOnVirtualDisplay: true
