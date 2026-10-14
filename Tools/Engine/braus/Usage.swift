@@ -63,6 +63,8 @@ enum Usage {
       --window <title>           with --seat: require one exact window title (for example "I/O Setup")
       --seat                     scene, act, select and batch: drive in the background on the Seat's virtual
                                  display instead of the real screen; the window is adopted, driven, returned
+                                 through the app's own brokered session, so a running browser is given a new
+                                 window of its own unless --window names one
       --allow-unvalidated-build  with --seat: the Driver's research opt-in for a macOS build its ledger has
                                  not validated
 

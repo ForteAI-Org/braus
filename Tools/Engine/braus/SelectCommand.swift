@@ -5,14 +5,13 @@ import EngineCore
 import Foundation
 import ImageIO
 import Memory
-import Perception
-import SeatDriving
+import SeatBroker
 import SeatCore
 import SeatSession
 import UniformTypeIdentifiers
-import VisionText
 
-/// SelectCommand selects a dropdown item within one background Seat lifetime.
+/// SelectCommand selects a dropdown item within one background Seat lifetime, through the brokered
+/// session's own selection (`BrokeredSeat`).
 enum SelectCommand {
 
     static func run(_ invocation: Invocation) async throws {
@@ -22,37 +21,45 @@ enum SelectCommand {
         let application = try ApplicationLookup.running(try invocation.positional(0, "<app>"))
         let control = try invocation.positional(1, "<dropdown>")
         let item = try invocation.positional(2, "<item>")
-        let identity = ApplicationIdentity(
-            bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)",
-            name: application.localizedName ?? "application"
-        )
-        try await SeatRuntime.withSeat(application, invocation) { target in
-            let recorder = EngineRuntime.commandLineRecorder(knowledge: EngineRuntime.knowledgeDirectory(invocation))
-            let kind = try await perform(control: control, item: item, identity: identity,
-                                         target: target, invocation: invocation, recorder: recorder)
+        let bundleID = application.bundleIdentifier ?? "pid.\(application.processIdentifier)"
+        let knowledge = Runtime.knowledgeDirectory(invocation)
+        try await BrokeredSeat.withSession(
+            application,
+            invocation,
+            knowledge: knowledge,
+            recorder : Runtime.commandLineRecorder(knowledge: knowledge)
+        ) { desktop, _ in
+            let kind = try await perform(
+                control   : control,
+                item      : item,
+                bundleID  : bundleID,
+                desktop   : desktop,
+                invocation: invocation,
+                recorder  : Runtime.commandLineRecorder(knowledge: knowledge)
+            )
             guard [.foundActed, .dryRun].contains(kind) else { throw ActFailure(kind) }
         }
     }
 
-    /// Borrows an existing Seat, allowing a batch to reuse the same menu operation and verification.
+    /// Selects on a session already open, allowing a batch to reuse the same menu operation and
+    /// verification.
     static func perform(
         control: String,
         item: String,
-        identity: ApplicationIdentity,
-        target: SeatTarget,
+        bundleID: String,
+        desktop: BrokeredAutomationSession,
         invocation: Invocation,
         recorder: CallRecorder,
         begun: Bool = false,
         evidenceDirectory: String? = nil
     ) async throws -> ActOutcomeKind {
-        let selector = SeatDropdownSelector(target: target, pipeline: ScenePipeline(text: VisionTextRecognizer()))
         let dryRun = invocation.flags.contains("dry-run")
         // A batch's step is begun and started by its batch; the command's own call is begun here.
         if !dryRun, !begun {
             do {
                 try await recorder.begin(
                     .select(control: control, item: item),
-                    app: AppContextIdentity(bundleID: identity.bundleID)
+                    app: AppContextIdentity(bundleID: bundleID)
                 )
             } catch {
                 print("refused: Braus's memory did not confirm the selection before it could act (\(error)); nothing was done")
@@ -60,18 +67,20 @@ enum SelectCommand {
             }
         }
         do {
-            let result = try await selector.select(
-                control: control, item: item, identity: identity,
-                permissions: ActionPermissions(allowsDestructive: invocation.flags.contains("allow-destructive")),
-                dryRun: dryRun,
-                onMenu: { menu in print("menu: observed #\(menu.window.windowNumber) at \(menu.frame)") },
-                onCapture: { stage, image in
-                    if let directory = evidenceDirectory ?? invocation.options["evidence"] {
-                        try save(image, stage: stage, directory: directory)
+            // A dry run is no call, so what the selector perceived is reported to none.
+            let result = try await CallRecorder.$current.withValue(dryRun ? nil : recorder) {
+                try await desktop.select(
+                    control  : control,
+                    item     : item,
+                    dryRun   : dryRun,
+                    onMenu   : { menu in print("menu: observed #\(menu.window.windowNumber) at \(menu.frame)") },
+                    onCapture: { stage, image in
+                        if let directory = evidenceDirectory ?? invocation.options["evidence"] {
+                            try save(image, stage: stage, directory: directory)
+                        }
                     }
-                },
-                report: SelectorReporting.reporting(to: dryRun ? nil : recorder, bundleID: identity.bundleID)
-            )
+                )
+            }
             print("\(result.outcome.kind.rawValue): \(result.outcome.message)")
             if !dryRun { try await CommandLineCall.end(recorder, outcome: result.outcome, tool: .select) }
             if let receipt = result.receipt {
@@ -94,10 +103,11 @@ enum SelectCommand {
                     tool: .select
                 )
             }
-            let seat = try target.agentSeat()
-            print("seat: selection stopped in state \(seat.state)")
-            if seat.lastFocusRecovery != nil {
-                print("seat: a focus recovery occurred; this was not an uninterrupted background operation")
+            if let seat = desktop.heldSeat {
+                print("seat: selection stopped in state \(seat.state)")
+                if seat.lastFocusRecovery != nil {
+                    print("seat: a focus recovery occurred; this was not an uninterrupted background operation")
+                }
             }
             throw error
         }

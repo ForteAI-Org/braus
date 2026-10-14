@@ -29,8 +29,9 @@ public struct CallProducer: Sendable, Equatable {
     }
 }
 
-/// AutomationTools is the MCP adapter over AutomationSession. It validates a complete request before effects,
-/// requires the current ephemeral session ID, and records authoritative outcomes for the transcript.
+/// AutomationTools is the MCP adapter over an AutomationSessionOperating session. It validates a complete
+/// request before effects, requires the current ephemeral session ID, and records authoritative outcomes
+/// for the transcript.
 public final class AutomationTools {
     public let session: any AutomationSessionOperating
     public var record: ((String) throws -> Void)?

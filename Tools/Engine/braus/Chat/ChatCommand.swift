@@ -7,10 +7,12 @@ import FileConversations
 import Foundation
 import LocalMCP
 import Memory
-import PrivateSymbols
+import SeatBroker
 
 /// ChatCommand composes the terminal, provider adapter, transcript store and one ephemeral MCP host.
-/// Provider processes may exit between turns; the Seat belongs to this process until release or shutdown.
+/// The tools drive a worker's `BrokeredAutomationSession` on a `SeatBroker` of this process, as the app's
+/// workers do, so opening, guards and release are the app's own. Provider processes may exit between
+/// turns; the Seat belongs to this process until release or shutdown.
 enum ChatCommand {
     static func run(arguments: [String]) async throws {
         let options = try ChatOptions(arguments: arguments)
@@ -67,8 +69,24 @@ enum ChatCommand {
         try transcript.save()
         let knowledge = options.knowledgeDirectory.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             ?? EngineRuntime.sharedKnowledge()
-        let tools = ChatTools(session: AutomationSession(knowledgeDirectory: knowledge,
-                                                        allowsDestructive: options.allowDestructive))
+        // The app's composition (AppModel, TeamModel): a worker's brokered desktop on this process's broker,
+        // which also sets the Driver's research opt-in from the flag.
+        let broker  = SeatBroker(configuration: SeatBrokerConfiguration(
+            allowUnvalidatedBuild: options.allowUnvalidated
+        ))
+        let desktop = BrokeredAutomationSession(
+            broker            : broker,
+            workerID          : selected.id,
+            knowledgeDirectory: knowledge,
+            allowsDestructive : options.allowDestructive,
+            grantee           : BrokeredSeat.grantee
+        )
+        // Closing gives the window back and parks the seat; the shutdown takes the parked display down too.
+        let release = {
+            await desktop.close()
+            await broker.queue.shutdown()
+        }
+        let tools = ChatTools(session: desktop)
         tools.producer = CallProducer(source: .cli, streamID: "chat-" + selected.id.uuidString,
                                       traceID: selected.id.uuidString)
         tools.record = { text in
@@ -76,7 +94,6 @@ enum ChatCommand {
             try transcript.append(.tool, text)
         }
         if options.allowUnvalidated {
-            FacilityGate.researchOptInForUnvalidatedBuilds = true
             print("seat: research opt-in for an unvalidated macOS build")
         }
         let router = MCPRouter(tools: ChatTools.definitions) { name, arguments in
@@ -105,10 +122,11 @@ enum ChatCommand {
             provider.cancel()
             shutdown = Task {
                 await router.drain()
-                await tools.session.close()
+                await release()
                 await provider.waitUntilStopped()
                 do { try transcript.append(.interrupted, "Interrupted. Inspect the current app state before continuing.") }
                 catch { fputs("braus: transcript save failed: \(error)\n", stderr) }
+                await MemoryService.closeAll()
                 host.stop()
                 do { try FileManager.default.removeItem(at: temporary) }
                 catch { fputs("braus: temporary cleanup failed: \(error)\n", stderr) }
@@ -127,67 +145,71 @@ enum ChatCommand {
         }
         print("/help for commands. Ctrl+C stops and releases the Seat.\n")
         var next = options.prompt
-        do {
-            while true {
-                let line: String?
-                if let pending = next { line = pending; next = nil }
-                else if interactive { line = await ChatMenu.read("You › ") }
-                else { break }
-                guard let line else { break }
-                let message = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                if message.isEmpty { continue }
-                if message == "/quit" || message == "/exit" { break }
-                if message == "/help" { print(ChatOptions.usage); continue }
-                if message == "/model" {
-                    transcript.conversation.model = try await ChatMenu.model(selected.provider)
-                    try transcript.save()
-                    continue
+        // The whole chat is one worker turn, as in the benchmark server: the seat stays held between
+        // messages until /release, the end or a stop, and is never released for idling.
+        try await desktop.turn {
+            do {
+                while true {
+                    let line: String?
+                    if let pending = next { line = pending; next = nil }
+                    else if interactive { line = await ChatMenu.read("You › ") }
+                    else { break }
+                    guard let line else { break }
+                    let message = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if message.isEmpty { continue }
+                    if message == "/quit" || message == "/exit" { break }
+                    if message == "/help" { print(ChatOptions.usage); continue }
+                    if message == "/model" {
+                        transcript.conversation.model = try await ChatMenu.model(selected.provider)
+                        try transcript.save()
+                        continue
+                    }
+                    if message == "/release" {
+                        await release()
+                        try transcript.append(.tool, "User released the Seat. Any previous session ID is now stale.")
+                        print("Seat released.")
+                        continue
+                    }
+                    if message == "/status" {
+                        let result = try await tools.call("status", .object([:]))
+                        print(String(decoding: try JSONEncoder().encode(result), as: UTF8.self))
+                        continue
+                    }
+                    if message.hasPrefix("/") { print("Unknown command. Use /help."); continue }
+                    try transcript.append(.user, message)
+                    // A resumed provider context may have been compacted, so each turn's first scene goes whole.
+                    tools.forgetScene()
+                    let turn = ProviderTurn(
+                        provider: selected.provider, model: transcript.conversation.model,
+                        sessionID: transcript.conversation.providerSessionID, prompt: message,
+                        instructions: ChatTools.instructions, bridgeExecutable: executablePath,
+                        connectionFile: connectionFile.path, workingDirectory: working.path
+                    )
+                    do {
+                        try await provider.run(turn, executable: executable) { event in try transcript.event(event) }
+                    } catch {
+                        if let shutdown { await shutdown.value; return }
+                        router.pause()
+                        await router.drain()
+                        await release()
+                        router.resume()
+                        try transcript.append(.error, error.localizedDescription)
+                        print("Chat error: \(error.localizedDescription)")
+                        if !interactive { throw error }
+                    }
+                    if options.once { break }
                 }
-                if message == "/release" {
-                    await tools.session.close()
-                    try transcript.append(.tool, "User released the Seat. Any previous session ID is now stale.")
-                    print("Seat released.")
-                    continue
-                }
-                if message == "/status" {
-                    let result = try await tools.call("status", .object([:]))
-                    print(String(decoding: try JSONEncoder().encode(result), as: UTF8.self))
-                    continue
-                }
-                if message.hasPrefix("/") { print("Unknown command. Use /help."); continue }
-                try transcript.append(.user, message)
-                // A resumed provider context may have been compacted, so each turn's first scene goes whole.
-                tools.forgetScene()
-                let turn = ProviderTurn(
-                    provider: selected.provider, model: transcript.conversation.model,
-                    sessionID: transcript.conversation.providerSessionID, prompt: message,
-                    instructions: ChatTools.instructions, bridgeExecutable: executablePath,
-                    connectionFile: connectionFile.path, workingDirectory: working.path
-                )
-                do {
-                    try await provider.run(turn, executable: executable) { event in try transcript.event(event) }
-                } catch {
-                    if let shutdown { await shutdown.value; return }
-                    router.pause()
-                    await router.drain()
-                    await tools.session.close()
-                    router.resume()
-                    try transcript.append(.error, error.localizedDescription)
-                    print("Chat error: \(error.localizedDescription)")
-                    if !interactive { throw error }
-                }
-                if options.once { break }
+                router.pause()
+                await router.drain()
+                await release()
+                try transcript.save()
+            } catch {
+                if let shutdown { await shutdown.value; return }
+                router.pause()
+                await router.drain()
+                await release()
+                throw error
             }
-            router.pause()
-            await router.drain()
-            await tools.session.close()
-            try transcript.save()
-        } catch {
-            if let shutdown { await shutdown.value; return }
-            router.pause()
-            await router.drain()
-            await tools.session.close()
-            throw error
         }
     }
 

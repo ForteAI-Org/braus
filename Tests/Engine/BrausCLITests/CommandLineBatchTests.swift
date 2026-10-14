@@ -185,4 +185,27 @@ struct CommandLineBatchTests {
         #expect(try await reopened.call(children[2].eventID)?.progress.status == .planned)
         await reopened.close()
     }
+
+    @Test("an act step the brokered session refuses by throwing ends its call as failed, and the steps after it are skipped")
+    func refusedSeatActEndsItsCall() async throws {
+        let memory = memory()
+        let steps  = try plan().steps
+        let (parent, children) = recorders(memory, count: 3)
+        let request = ActionRequest(processID: 1, bundleID: app.bundleID, appName: "TextEdit", target: "Save",
+                                    verb: .click)
+        do {
+            try await CommandLineBatch.run(steps, app: app, parent: parent, children: children) { _, _, recorder in
+                try await ActCommand.perform(request, recorder: recorder, begun: true) { _ in
+                    throw AutomationFailure("The seat is waiting for the person.")
+                }
+            }
+            Issue.record("the batch went on after a refusal")
+        } catch let failure as BatchFailure {
+            #expect(failure.cause is AutomationFailure)
+        }
+        #expect(try await status(memory, children[0]) == .failed, "a refused act is never left started")
+        #expect(try await status(memory, children[1]) == .skipped)
+        #expect(try await status(memory, children[2]) == .skipped)
+        await memory.close()
+    }
 }

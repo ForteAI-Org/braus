@@ -61,6 +61,7 @@ struct BrokeredAutomationSessionTests {
     private static func session(
         _ broker  : SeatBroker,
         workerID  : UUID = workerID,
+        grantee   : String = "Braus",
         missing   : PermissionKind? = nil,
         requests  : @escaping @MainActor () -> Void = {},
         perceiving: @escaping BrokeredAutomationSession.Perceiving = BrokeredAutomationSession
@@ -76,6 +77,7 @@ struct BrokeredAutomationSessionTests {
             knowledgeDirectory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("braus-brokered-\(UUID().uuidString)", isDirectory: true),
             allowsDestructive : false,
+            grantee           : grantee,
             missingGrant      : { missing },
             requestGrants     : requests,
             seating           : seating,
@@ -429,6 +431,21 @@ struct BrokeredAutomationSessionTests {
             #expect(!wasSeated)
             #expect(broker.queue.entries.isEmpty)
         }
+    }
+
+    @Test("a missing grant names who to allow: Braus by default, the terminal the command line passes",
+          arguments: ["Braus", "the terminal launching Braus"])
+    func aMissingGrantNamesTheGrantee(_ grantee: String) async throws {
+        let desktop = Self.session(SeatBroker(), grantee: grantee, missing: .screenRecording) { _, _, _ in
+            throw Opened()
+        }
+        let refusal = await #expect(throws: AutomationFailure.self) {
+            try await desktop.open(application: "Calculator", window: nil)
+        }
+        let sentence = refusal?.description ?? ""
+        #expect(sentence.contains("allow \(grantee) in System Settings > Privacy & Security"))
+        #expect(sentence.contains("then quit and reopen \(grantee)."))
+        if grantee != "Braus" { #expect(!sentence.contains("allow Braus in"), "the terminal is the grantee") }
     }
 
     @Test("a launch that shows no window refuses with the reason, and the seat goes back")
