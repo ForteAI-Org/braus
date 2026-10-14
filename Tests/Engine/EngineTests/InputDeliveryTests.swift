@@ -39,6 +39,12 @@ struct InputDeliveryTests {
                      value: value)
     }
 
+    /// A line of text read from pixels, two hundredths of the window high.
+    private func text(_ label: String, x: Double, y: Double, width: Double) -> SceneElement {
+        SceneElement(id: "text|\(label)", kind: .text, label: label,
+                     bounds: NormalizedRect(x: x, y: y, width: width, height: 0.02))
+    }
+
     /// A row centred at 940,832.
     private let export = SceneElement(id: "control|export", kind: .control, label: "Export",
                                       bounds: NormalizedRect(x: 0.8, y: 0.9, width: 0.08, height: 0.03))
@@ -534,6 +540,35 @@ struct InputDeliveryTests {
         }
     }
 
+    @Test("in Safari the address bar's selection does not hide the web field's focus")
+    func focusKeyBesideTheAddressBarIsJudgedByTheFocus() async {
+        // Safari 14/10: `[field] smart search field ... = file:///.../bench.html [sel 0..0/106] @32,2` in the top
+        // bar, `[field] Name id:'control|name' = hello0 [sel 0..6/6] @7,19` in content (Bench Page).
+        let search = SceneElement(id: "control|smartsearchfield", kind: .control, label: "smart search field",
+                                  bounds: NormalizedRect(x: 0.32, y: 0.02, width: 0.33, height: 0.03),
+                                  role: "AXTextField", value: "file:///Users/mac/bench.html",
+                                  selectedRange: NSRange(location: 0, length: 0), section: "top bar")
+        let name = SceneElement(id: "control|name", kind: .control, label: "Name",
+                                bounds: NormalizedRect(x: 0.07, y: 0.19, width: 0.14, height: 0.03),
+                                role: "AXTextField", value: "hello0",
+                                selectedRange: NSRange(location: 6, length: 0), section: "content (Bench Page)")
+        var selectedAll = name, blurred = name
+        selectedAll.selectedRange = NSRange(location: 0, length: 6)
+        blurred.selectedRange = nil
+        let cases: [(SceneElement, KeyChord, ActOutcomeKind, String)] = [
+            (selectedAll, KeyChord(.tab, modifiers: .shift), .actedUnverified,
+             "pressed shift+tab: the focus did not visibly move; what changed (changes text selection) is not "
+                + "the focus moving. To reach a field, click the field instead of pressing again."),
+            (blurred, KeyChord(.tab), .foundActed, "pressed tab: the focus left 'Name'"),
+        ]
+        for (after, chord, kind, message) in cases {
+            let outcome = await engine(scenes: ScriptedScenes([scene([search, name]), scene([search, after])]))
+                .deliver(request(.pressKey(chord, times: 1)))
+            #expect(outcome.kind == kind, Comment(rawValue: outcome.message))
+            #expect(outcome.message == message)
+        }
+    }
+
     @Test("Tab typed into a text area is found_acted with the area's new value")
     func tabTypedIntoTextAreaIsFound() async {
         var notes = field(value: "hello")
@@ -554,10 +589,6 @@ struct InputDeliveryTests {
     @Test("text read from pixels again in place is no effect of a key, and new text elsewhere still is")
     func pixelTextRereadIsNoKeyEffect() async {
         // TextEdit, 14/10: Command-Z answered "reveals elements" from OCR re-reading the same lines.
-        func text(_ label: String, x: Double, y: Double, width: Double) -> SceneElement {
-            SceneElement(id: "text|\(label)", kind: .text, label: label,
-                         bounds: NormalizedRect(x: x, y: y, width: width, height: 0.02))
-        }
         let lines = [text("Line 4 of the scratch documenti", x: 0.01, y: 0.23, width: 0.4),
                      text("Line 7 ot cne", x: 0.01, y: 0.33, width: 0.15)]
         let reread = [text("ine4 ot", x: 0.01, y: 0.24, width: 0.08),
@@ -575,6 +606,50 @@ struct InputDeliveryTests {
             .deliver(request(.pressKey(undo, times: 1)))
         #expect(appeared.kind == .foundActed, Comment(rawValue: appeared.message))
         #expect(appeared.message == "pressed cmd+z: reveals elements")
+    }
+
+    @Test("a line re-read in place is no key effect although its fragments repeat on other lines")
+    func repeatedFragmentRereadIsNoKeyEffect() async {
+        // TextEdit 14/10 14:36, Command-Z: `- of the scratch document @8,35` `+ otthe scratch document @8,35`,
+        // `- Line 7 of the scratch document @1,32` `+ Line @1,33` `+ the scratch document @11,33`.
+        let kept = [text("Line", x: 0.01, y: 0.27, width: 0.05),
+                    text("of the scratch document", x: 0.08, y: 0.26, width: 0.3),
+                    text("Line", x: 0.01, y: 0.29, width: 0.05),
+                    text("of the scratch document", x: 0.08, y: 0.29, width: 0.3),
+                    text("Line", x: 0.01, y: 0.39, width: 0.05),
+                    text("of the scratch document", x: 0.08, y: 0.38, width: 0.3)]
+        let lines = [text("Line 7 of the scratch document", x: 0.01, y: 0.32, width: 0.38),
+                     text("of the scratch document", x: 0.08, y: 0.35, width: 0.3)]
+        let reread = [text("Line", x: 0.01, y: 0.33, width: 0.05),
+                      text("the scratch document", x: 0.11, y: 0.33, width: 0.27),
+                      text("otthe scratch document", x: 0.08, y: 0.35, width: 0.3)]
+        let undo = KeyChord(.character("z"), modifiers: .command)
+        let actuator = RecordingActuator()
+        let outcome = await engine(scenes: ScriptedScenes([scene(kept + lines), scene(kept + reread)]),
+                                   actuator: actuator)
+            .deliver(request(.pressKey(undo, times: 1)))
+        #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
+        #expect(actuator.confirmations == [.unknown])
+    }
+
+    @Test("a line a key restores above lines that move down is found, and a status relabeled in place is not")
+    func restoredLineAboveMovedLinesIsFound() async {
+        let undo = KeyChord(.character("z"), modifiers: .command)
+        let before = [text("First line", x: 0.01, y: 0.10, width: 0.2),
+                      text("Second line", x: 0.01, y: 0.13, width: 0.2)]
+        let after = [text("Restored line", x: 0.01, y: 0.10, width: 0.2),
+                     text("First line", x: 0.01, y: 0.13, width: 0.2),
+                     text("Second line", x: 0.01, y: 0.16, width: 0.2)]
+        let restored = await engine(scenes: ScriptedScenes([scene(before), scene(after)]))
+            .deliver(request(.pressKey(undo, times: 1)))
+        #expect(restored.kind == .foundActed, Comment(rawValue: restored.message))
+        #expect(restored.message == "pressed cmd+z: reveals elements")
+
+        let saving = [text("Saving", x: 0.6, y: 0.9, width: 0.1)]
+        let saved = [text("Saved", x: 0.6, y: 0.9, width: 0.1)]
+        let relabeled = await engine(scenes: ScriptedScenes([scene(before + saving), scene(before + saved)]))
+            .deliver(request(.pressKey(undo, times: 1)))
+        #expect(relabeled.kind == .actedUnverified, Comment(rawValue: relabeled.message))
     }
 
     @Test("a bare slash or tilde is typed, and with a modifier it goes by character like a letter")

@@ -1258,12 +1258,18 @@ public struct ActionEngine: Sendable {
         return ActOutcome(.foundActed, "\(performed): \(moved)", scene: after, check: check)
     }
 
-    /// Whether the selection holders show where a focus key sent the focus: each scene has at most one,
-    /// as web content reports only on its focused field, and the key typed no tab into a field. A native
-    /// window reports a selection on every text field, focused or not, and keeps the window-wide rule.
+    /// Whether the selection holders show where a focus key sent the focus: each panel of each scene has
+    /// at most one, as web content reports only on its focused field, and the key typed no tab into a field.
+    /// A native window reports a selection on every text field, focused or not, and keeps the window-wide
+    /// rule. Counting by panel keeps a browser's address bar, a native field in the top bar, out of the page.
+    /// Its limit: the panel stands in for the web area, so a native window with one field in each of two
+    /// panels gets the inference (an under-claim), and a browser scene with no panels keeps the old rule.
     static func showsFocus(before: SceneSnapshot, after: SceneSnapshot, effect: SceneEffect?) -> Bool {
         if case .valueChanged = effect { return false }
-        return [before, after].allSatisfy { scene in scene.elements.filter { $0.selectedRange != nil }.count <= 1 }
+        return [before, after].allSatisfy { scene in
+            Dictionary(grouping: scene.elements.filter { $0.selectedRange != nil }, by: \.section)
+                .values.allSatisfy { $0.count <= 1 }
+        }
     }
 
     /// Where the focus went, from the text entry that holds a selection (see `showsFocus`). Nil when
@@ -1291,13 +1297,29 @@ public struct ActionEngine: Sendable {
         func overlaps(_ element: SceneElement, any others: [SceneElement]) -> Bool {
             others.contains { !$0.bounds.cgRect.intersection(element.bounds.cgRect).isEmpty }
         }
+        // Gone and fresh are instances the other scene has fewer of, none in their place: a repeated
+        // fragment still pairs here, and a line that only moved is no partner for one restored above it.
+        func unmatched(_ scene: SceneSnapshot, in other: SceneSnapshot) -> [SceneElement] {
+            scene.elements.filter { element in
+                let twins = other.elements.filter { $0.id == element.id }
+                return isPixelText(element)
+                    && twins.count < scene.elements.filter { $0.id == element.id }.count
+                    && !overlaps(element, any: twins)
+            }
+        }
         let oldLabels = Set(before.elements.map { LabelText.normalize($0.label) })
         let newLabels = Set(after.elements.map { LabelText.normalize($0.label) })
-        let gone  = before.elements.filter { isPixelText($0) && !newLabels.contains(LabelText.normalize($0.label)) }
-        let fresh = after.elements.filter { isPixelText($0) && !oldLabels.contains(LabelText.normalize($0.label)) }
+        let gone  = unmatched(before, in: after)
+        let fresh = unmatched(after, in: before)
+        // Only a label the other scene lacks is dropped: one it still holds names no change anyway, and
+        // dropping it would make its namesakes on the other side look new.
         var was = before, now = after
-        was.elements.removeAll { gone.contains($0) && overlaps($0, any: fresh) }
-        now.elements.removeAll { fresh.contains($0) && overlaps($0, any: gone) }
+        was.elements.removeAll {
+            gone.contains($0) && !newLabels.contains(LabelText.normalize($0.label)) && overlaps($0, any: fresh)
+        }
+        now.elements.removeAll {
+            fresh.contains($0) && !oldLabels.contains(LabelText.normalize($0.label)) && overlaps($0, any: gone)
+        }
         return (was, now)
     }
 
