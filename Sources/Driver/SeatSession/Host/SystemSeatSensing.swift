@@ -89,6 +89,10 @@ nonisolated final class SystemSeatSensing: SeatSensing, @unchecked Sendable {
         WindowServerProbe.geometry(of: windowNumber)
     }
 
+    func windowGeometryReading(of windowNumber: Int) -> WindowServerProbe.GeometryReading {
+        WindowServerProbe.geometryReading(of: windowNumber)
+    }
+
     /// The list `geometry` reads leaves out an ordered-out window, while its
     /// owner chain still answers: both read, so a refused gate is never absence.
     func windowIsOrderedOut(_ window: WindowReference) -> Bool {

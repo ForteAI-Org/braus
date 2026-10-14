@@ -198,6 +198,13 @@ final class FakeSensing: SeatSensing, @unchecked Sendable {
         return windowNumber == FakeGeometry.windowNumber ? geometry : additionalWindows[windowNumber]
     }
 
+    /// No row only for a window this fake ordered out or destroyed, as the live
+    /// list leaves both out; any other nil is a reading that was refused.
+    func windowGeometryReading(of windowNumber: Int) -> WindowServerProbe.GeometryReading {
+        if let reading = windowGeometry(of: windowNumber) { return .present(reading) }
+        return orderedOut.contains(windowNumber) || destroyed.contains(windowNumber) ? .absent : .refused
+    }
+
     /// Every Window ID this fake window server can answer for, in a stable
     /// order. It is what a controlled surface reader enumerates, so membership
     /// follows the same readings the seat itself takes.

@@ -20,7 +20,23 @@ provenance permits any required quit, a lease with no outstanding restitution
 calls the existing SeatDriver.stop. The queue's AgentSession stays open and
 reusable. Its next adoption starts a host and creates a new Seat.
 
-A finish warning or an unrestored window retains the host. The change does
+An unrestored window retains the host. A finish warning alone does not
+(amended 2026-10-14): an application left running after the quit request
+is not a window left on the display. A refused or left-behind answer, and an
+obligation of the last release, is settled only on positive evidence: a
+window server row that lists the window off the display, or a destruction
+the window server proves for the identity the obligation named. A missing
+row (a window ordered out or hidden, which still exists) and a refused or
+failed reading keep the host. Settled answers are pruned before the check,
+so they cannot keep later leases' displays up.
+
+The quit of an application the agent opened waits only on the rollbacks
+owed by the instance of the assignment being finished, as the release
+report names it. A pending adoption with no attested identity, and any
+pending adoption met by a release that answers nothingAssigned, no longer
+block that quit: the process is the agent's and its windows go with it, so
+nothing of the person's is lost. Such a pending adoption still retains the
+host. The change does
 not erase deferred returns, replay input, choose another window, relax geometry
 or identity guards, or extend application activation. Handover within a lease
 keeps its existing lifecycle; explicit lease completion is the new boundary.

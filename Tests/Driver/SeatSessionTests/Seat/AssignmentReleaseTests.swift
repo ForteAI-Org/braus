@@ -358,6 +358,87 @@ struct AssignmentReleaseTests {
         #expect(teardown[Self.secondWindowNumber] == .returned)
     }
 
+    /// What the window server shows of a refused window after its release. The
+    /// raw values are the fixtures' markers.
+    enum RefusedWindowAfterwards: Int64, CaseIterable, Sendable {
+        case noRowStillAlive = 2_124
+        case readingRefused  = 2_125
+        case offTheDisplay   = 2_127
+        case destroyed       = 2_128
+
+        var settles: Bool { self == .offTheDisplay || self == .destroyed }
+    }
+
+    @Test("a refused return keeps the host until its window is listed off the display or proven destroyed",
+          arguments: RefusedWindowAfterwards.allCases)
+    func aRefusalSettlesOnlyOnEvidence(_ afterwards: RefusedWindowAfterwards) async throws {
+        let fixture = try await Self.fixture(marker: afterwards.rawValue)
+        fixture.placing.moveError = DisplayFailure.attributeNotSettable("AXPosition")
+        fixture.placing.onMove = { _ in }
+        let report = await fixture.seat.releaseAssignment()
+        #expect(report.windows[fixture.host.id] == .refused)
+        let owed = try #require(report.obligations.first { $0.windowNumber == fixture.host.id })
+
+        fixture.seat.pruneSettledWindowReturns()
+        #expect(fixture.seat.hasOutstandingWindowReturns, "the window is still on the display")
+
+        switch afterwards {
+        case .noRowStillAlive: fixture.sensing.orderedOut = [fixture.host.id]
+        case .readingRefused : break
+        case .offTheDisplay  : fixture.sensing.geometry = FakeGeometry.userSeatWindow
+        case .destroyed      : fixture.sensing.destroyed = [fixture.host.id]
+        }
+        if afterwards != .offTheDisplay { fixture.sensing.geometry = nil }
+        fixture.seat.pruneSettledWindowReturns()
+
+        // The ledger and the obligation the consumer holds are decided by the same rule.
+        #expect(fixture.seat.windowReturnIsSettled(owed.windowNumber, identity: owed.identity) == afterwards.settles)
+        #expect(fixture.seat.hasOutstandingWindowReturns == !afterwards.settles)
+        #expect((fixture.seat.releaseLedger[fixture.host.id] == nil) == afterwards.settles)
+    }
+
+    @Test("a refused release of one window settles once its window is proven destroyed")
+    func aRefusedSingleReleaseSettlesOnDestruction() async throws {
+        let fixture = try await Self.fixture(marker: 2_129)
+        fixture.placing.moveError = DisplayFailure.attributeNotSettable("AXPosition")
+        fixture.placing.onMove = { _ in }
+        #expect(await fixture.seat.release(fixture.host) == .refused)
+
+        fixture.sensing.geometry  = nil
+        fixture.sensing.destroyed = [fixture.host.id]
+        fixture.seat.pruneSettledWindowReturns()
+        #expect(!fixture.seat.hasOutstandingWindowReturns)
+        #expect(fixture.seat.releaseLedger[fixture.host.id] == nil)
+    }
+
+    @Test("a rollback one instance owes is not another instance's")
+    func anOwedRollbackBelongsToItsInstance() async throws {
+        let fixture = try await Self.fixture(marker: 2_126)
+        let inbound = FakeGeometry.reference(
+            frame       : CGRect(x: 300, y: 400, width: 320, height: 240),
+            windowNumber: Self.secondWindowNumber
+        )
+        fixture.sensing.additionalWindows[Self.secondWindowNumber] = FakeGeometry.reference(
+            frame       : CGRect(x: 1900, y: 600, width: 320, height: 240),
+            windowNumber: Self.secondWindowNumber
+        )
+        fixture.placing.moveError = DisplayFailure.attributeNotSettable("AXPosition")
+        await #expect(throws: DisplayFailure.self) {
+            try await fixture.seat.adopt(inbound, platform: AppKitPlatform())
+        }
+        let owner = try #require(inbound.identity?.process)
+        let other = ProcessIdentity(
+            processID       : FakeGeometry.distinctProcessID(),
+            serialNumberHigh: 0,
+            serialNumberLow : 1
+        )
+
+        #expect(fixture.seat.hasPendingWindowRestorations(of: owner))
+        #expect(!fixture.seat.hasPendingWindowRestorations(of: other))
+        #expect(!fixture.seat.hasPendingWindowRestorations(of: nil))
+        #expect(fixture.seat.hasOutstandingWindowReturns, "the host still owes the rollback")
+    }
+
     @Test("a release never touches a window of another assignment")
     func anotherAssignmentsWindowIsUntouched() async throws {
 
@@ -466,11 +547,13 @@ struct AssignmentReleaseTests {
 
         let first = await fixture.seat.releaseAssignment()
         #expect(first.outcome == .released)
+        #expect(first.instance == fixture.host.reference.identity?.process, "the instance it released")
 
         let writesBefore = fixture.placing.moves.count
         let second       = await fixture.seat.releaseAssignment()
 
         #expect(second.outcome == .nothingAssigned)
+        #expect(second.instance == nil)
         #expect(second.windows.isEmpty)
         #expect(second.obligations == first.obligations,
                 "the second call describes the same state and invents nothing")
