@@ -193,15 +193,66 @@ struct TargetPlatformTests {
             == .embeddedRenderer(.framework))
     }
 
-    @Test("a menu command is pressed in a brief activation for Adobe, TextEdit and Safari only")
-    func menuCommandsArePressedInFrontForQualifiedApplications() {
+    @Test("a menu command is pressed in a brief activation for Adobe, TextEdit, Safari and Chromium browsers only")
+    func menuCommandsArePressedInFrontForQualifiedApplications() throws {
         #expect(BrokeredAutomationSession.preparesMenuInFront(.adobeUXP, bundleIdentifier: "com.adobe.Photoshop"))
         #expect(BrokeredAutomationSession.preparesMenuInFront(.appleNative, bundleIdentifier: "com.apple.TextEdit"))
         #expect(BrokeredAutomationSession.preparesMenuInFront(.webKitBrowser, bundleIdentifier: "com.apple.Safari"))
         #expect(!BrokeredAutomationSession.preparesMenuInFront(.appleNative, bundleIdentifier: "com.apple.finder"))
-        #expect(!BrokeredAutomationSession.preparesMenuInFront(.embeddedRenderer(.framework),
-                                                              bundleIdentifier: "com.google.Chrome"))
         #expect(!BrokeredAutomationSession.preparesMenuInFront(.unmeasured, bundleIdentifier: nil))
+
+        // Chrome's layout is what finds the family, whatever the browser's identifier.
+        let browser = try Self.bundle(embedding: ["Row Framework.framework/Helpers/Row Helper (Renderer).app"])
+        for identifier in ["com.google.Chrome", "com.microsoft.edgemac", "com.brave.Browser", nil] {
+            let platform = TargetPlatform.chosen(bundleURL: browser, bundleIdentifier: identifier)
+            #expect(BrokeredAutomationSession.preparesMenuInFront(platform, bundleIdentifier: identifier),
+                    "\(identifier ?? "nil")")
+        }
+        // Electron and CEF hosts are found by their framework and are not measured.
+        let electron = try Self.bundle(embedding: ["Electron Framework.framework", "Row Helper (Renderer).app"])
+        let platform = TargetPlatform.chosen(bundleURL: electron, bundleIdentifier: "com.tinyspeck.slackmacgap")
+        #expect(platform == .embeddedRenderer(.framework))
+        #expect(!BrokeredAutomationSession.preparesMenuInFront(platform, bundleIdentifier: "com.tinyspeck.slackmacgap"))
+    }
+
+    @Test("a Chromium browser presses an item enabled in the background there, and a disabled one in front")
+    func aChromiumBrowserPaysTheActivationOnlyForADisabledItem() throws {
+        let browser = try Self.bundle(embedding: ["Row Framework.framework/Helpers/Row Helper (Renderer).app"])
+        let chrome  = TargetPlatform.chosen(bundleURL: browser, bundleIdentifier: "com.google.Chrome")
+        for enabled in [true, false] {
+            var reads = 0
+            let inFront = BrokeredAutomationSession.pressesMenuInFront(
+                chrome,
+                bundleIdentifier     : "com.google.Chrome",
+                isEnabledInBackground: { reads += 1; return enabled }
+            )
+            #expect(inFront == !enabled, "enabled \(enabled)")
+            #expect(reads == 1, "the item is read once in the background")
+        }
+    }
+
+    @Test("Adobe, TextEdit and Safari always press in front, and the others never, whatever the item reads")
+    func theOtherApplicationsKeepTheirRoute() {
+        let cases: [(TargetPlatform, String?, Bool)] = [
+            (.adobeUXP                    , "com.adobe.Photoshop"      , true ),
+            (.appleNative                 , "com.apple.TextEdit"       , true ),
+            (.webKitBrowser               , "com.apple.Safari"         , true ),
+            (.appleNative                 , "com.apple.finder"         , false),
+            (.embeddedRenderer(.framework), "com.tinyspeck.slackmacgap", false),
+            (.unmeasured                  , nil                        , false),
+        ]
+        for (platform, identifier, expected) in cases {
+            for enabled in [true, false] {
+                var reads = 0
+                let inFront = BrokeredAutomationSession.pressesMenuInFront(
+                    platform,
+                    bundleIdentifier     : identifier,
+                    isEnabledInBackground: { reads += 1; return enabled }
+                )
+                #expect(inFront == expected, "\(identifier ?? "nil") enabled \(enabled)")
+                #expect(reads == 0, "\(identifier ?? "nil") pays no background read")
+            }
+        }
     }
 
     @Test("an Electron bundle's renderer helper is evidence of a renderer on its own")

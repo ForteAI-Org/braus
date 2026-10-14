@@ -208,6 +208,48 @@ struct CommandBornWindowTests {
         #expect(rig.recovery.commandProvenance == nil)
     }
 
+    // MARK: The target taking the front after its new window is taken in
+
+    @Test("the target taking the front past the margin, just after its new window was taken in, is given back")
+    func anActivationAfterTheCommandsWindowIsAdoptedIsRestored() async throws {
+        let rig = try await Self.rig(marker: 7_513)
+        defer { rig.recovery.stop() }
+        let target = rig.target
+        // The window server as it is at each reading, so a preparation can be armed at all.
+        rig.sensing.snapshotPreparation = { [weak rig] in
+            guard let rig else { return nil }
+            let held = rig.seat.adoptedWindows.compactMap { rig.sensing.windowGeometry(of: $0.id) }
+            return FocusRecoverySnapshot(
+                topologyIsValid: true,
+                virtualBounds  : FakeGeometry.virtual,
+                physicalBounds : [FakeGeometry.physical],
+                windows        : [Self.user] + held
+            )
+        }
+        guard case .ready = await Self.press(rig) else { Issue.record("not pressed"); return }
+        rig.offset += CommandProvenance.marginNanoseconds
+        await rig.recovery.settleCommandProvenance()
+        #expect(rig.recovery.commandProvenance == nil)
+
+        // File > New Window: the row appears after the margin and the seat takes it in.
+        AppWindowFollowTests.offer(Self.panelNumber, to: rig.sensing, rig.placing)
+        await AppWindowFollowTests.pass(rig.seat)
+        #expect(await AppWindowFollowTests.settle { rig.seat.adoptedWindows.count == 2 })
+        await AppWindowFollowTests.pause(0.2)
+
+        // Chrome takes the front for it, well inside a second, before any beat.
+        rig.sensing.frontmostProcessID = target.processID
+        rig.recovery.activationChanged(to: target.processID, source: .workspaceNotification)
+
+        #expect(rig.reports.last?.detail != "No prepared action was held when this activation arrived")
+        #expect(rig.requested == [target, Self.user, Self.user], "the ordinary recovery asked once")
+        rig.recovery.verify()
+        rig.recovery.verify()
+        #expect(rig.reports.last?.outcome == .restored)
+        #expect(rig.sensing.frontmostProcessID == Self.user.processID)
+        #expect(rig.seat.state == .ready)
+    }
+
     // MARK: A window born while another transaction runs
 
     /// The target retaking the front for the Command, with the margin open.

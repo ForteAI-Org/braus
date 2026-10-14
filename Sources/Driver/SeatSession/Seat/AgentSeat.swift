@@ -2246,6 +2246,9 @@ public final class AgentSeat {
         if transfersInFlight == 0 {
             commandGate?.resume(.windowTransfer)
             focusRecovery?.endOperation()
+            // The end drops the preparation and the beat may be a second away: a target that
+            // takes the front for the window just taken in would meet nothing armed (ADR 0029).
+            refreshFocusPreparation()
         }
     }
 
@@ -4556,6 +4559,12 @@ public final class AgentSeat {
 
     // MARK: A moment in front, on purpose
 
+    /// The longest a brief activation holds the front, the recovery's own cap
+    /// (`UserFocusRecovery.briefActivationLimitNanoseconds`), as a `Duration`.
+    public static let briefActivationLimit = Duration.nanoseconds(
+        Int64(UserFocusRecovery.briefActivationLimitNanoseconds)
+    )
+
     /// Brings the seat's target window in front for a moment, reads `isReady`
     /// every 20 ms while it is there, and gives the front back to the person's
     /// window as soon as it holds or `bound` passes, two seconds at most.
@@ -4589,7 +4598,7 @@ public final class AgentSeat {
     /// prepared.
     public func bringTargetBrieflyInFront(
         until isReady: @MainActor () -> Bool,
-        atMost bound : Duration = .seconds(2)
+        atMost bound : Duration = briefActivationLimit
     ) async -> BriefActivationOutcome {
         await withBriefTargetActivation(until: isReady, atMost: bound, performOnce: nil)
     }
@@ -4602,7 +4611,11 @@ public final class AgentSeat {
         when isReady: @MainActor () -> Bool,
         performOnce : @escaping @MainActor () -> Void
     ) async -> BriefActivationOutcome {
-        await withBriefTargetActivation(until: isReady, atMost: .seconds(2), performOnce: performOnce)
+        await withBriefTargetActivation(
+            until      : isReady,
+            atMost     : Self.briefActivationLimit,
+            performOnce: performOnce
+        )
     }
 
     /// Whether the front is back with the person after the last Command pressed
@@ -4828,6 +4841,11 @@ public final class AgentSeat {
     /// accessibility notification that one of them created a window, and the
     /// heartbeat that is the net under an application family whose
     /// notification never comes. It adds no clock of its own.
+    ///
+    /// The end of a window transfer asks too, because ending its operation
+    /// drops what was prepared. Logged on 14/10/2026 with Chrome: a transfer
+    /// ended 0.8 s before Chrome took the front again, nothing was prepared
+    /// when it did, and the seat was left waiting with Chrome in front.
     ///
     /// A seat holding no window is skipped, because no application it drives
     /// can raise a popup it would have to answer, and the refresh is a window
