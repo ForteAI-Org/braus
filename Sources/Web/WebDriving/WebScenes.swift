@@ -28,10 +28,11 @@ public struct WebScenes: SceneProviding {
         let layout = try WebLayout(snapshot: try await snapshot, metrics: try await metrics)
         let popup  = tabs.window(of: processID)?.popup != nil ? await WebControls.openPopup(on: page) : nil
         tabs.setPopup(popup, for: processID)
-        let scene  = WebSceneBuilder.scene(nodes: WebAXNode.nodes(fromFullTree: try await tree), layout: layout,
+        let built  = WebSceneBuilder.build(nodes: WebAXNode.nodes(fromFullTree: try await tree), layout: layout,
                                            popup: popup)
-        tabs.note(viewport: layout.viewport, title: scene.windowTitle, for: processID)
-        return PerceivedWindow(scene: scene, frame: CGRect(origin: .zero, size: layout.viewport), surface: .window)
+        tabs.note(viewport: layout.viewport, title: built.scene.windowTitle, for: processID)
+        return PerceivedWindow(scene: built.scene, frame: CGRect(origin: .zero, size: layout.viewport),
+                               capture: built.capture, surface: popup == nil ? .window : .popupUnion)
     }
 }
 

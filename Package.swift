@@ -247,7 +247,7 @@ let package = Package(
             targets: ["EngineCore", "Engine", "HIDActuation", "AccessibilityActions", "WorkspaceActivation",
                       "Memory", "FileKnowledge", "LiveScenes", "LocalEmbedding"]
         ),
-        .library(name: "BrausWeb", targets: ["WebDriver", "WebDriving"]),
+        .library(name: "BrausWeb", targets: ["WebDriver", "WebDriving", "WebSession"]),
         .library(name: "UserInteractions", targets: ["InteractionListener", "InteractionObservation"]),
         .library(name: "SeatBroker", targets: ["SeatBroker"]),
         .library(name: "ModelTransports", targets: ["ModelTransports"]),
@@ -360,6 +360,16 @@ let package = Package(
                             // The exact texts two earlier builds ran (main f44fb67, D3 7ee2552), for the historical archives.
                             .copy("Fixtures/schema-main-1.sql"), .copy("Fixtures/schema-d3-7.sql"),
                             .copy("Fixtures/schema-rename-app-7.sql")],
+            swiftSettings: suite
+        ),
+
+        // The web session through the tools: routing, the engine on a real tab and what the memory keeps of it.
+        .testTarget(
+            name         : "WebSessionTests",
+            dependencies : ["WebSession", "WebDriving", "WebDriver", "AutomationRuntime", "AutomationMCP", "Memory",
+                            "SQLiteMemory", "EngineCore", "PerceptionCore", "LocalMCP"].map { .target(name: $0) },
+            path         : "Tests/Integration/WebSessionTests",
+            resources    : [.copy("Fixtures/web-session.html")],
             swiftSettings: suite
         ),
 
@@ -490,6 +500,10 @@ let package = Package(
                                      "AppAdapters", "TaskRouting"]),
         // The task router's rules and its catalogue of default routes: pure, and consulted before a session opens.
         integration("TaskRouting", settings: pure),
+        // A Chrome tab as a session, with the same engine, recorder and memory, and the session that routes
+        // `web:` and URLs to it and everything else to the desktop.
+        integration("WebSession", ["AutomationRuntime", "WebDriving", "WebDriver", "Engine", "EngineCore",
+                                   "PerceptionCore", "Memory"]),
         // The foreground command line: windows, scene, act, memory. What a model host does, by hand.
         .executableTarget(
             name: "braus",

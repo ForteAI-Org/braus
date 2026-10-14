@@ -32,6 +32,17 @@ public enum WebSceneBuilder {
     /// `popup` is an open select's list, drawn over the page: its options follow the page's
     /// elements, in a section of their own, and cover what they are drawn over.
     public static func scene(nodes: [WebAXNode], layout: WebLayout, popup: WebSelectPopup? = nil) -> SceneSnapshot {
+        build(nodes: nodes, layout: layout, popup: popup).scene
+    }
+
+    /// The scene and the quality of the read behind it: Chrome's tree is read whole, so the walk is
+    /// complete unless the element limit stopped it, and the window is the page's root.
+    public static func build(
+        nodes : [WebAXNode],
+        layout: WebLayout,
+        popup : WebSelectPopup? = nil
+    ) -> (scene: SceneSnapshot, capture: CaptureQuality) {
+        var visited = 0
         let byID     = Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let viewport = CGRect(origin: .zero, size: layout.viewport)
         var elements: [SceneElement]                       = []
@@ -48,6 +59,7 @@ public enum WebSceneBuilder {
 
         func walk(_ node: WebAXNode, container: String?, collection: String?, textCovered: Bool) {
             guard elements.count < maxElements else { return }
+            visited += 1
             var container   = container
             var collection  = collection
             var textCovered = textCovered
@@ -82,9 +94,9 @@ public enum WebSceneBuilder {
                 }
             }
         }
-        if let root = nodes.first(where: { $0.parentID == nil }) {
-            walk(root, container: nil, collection: nil, textCovered: false)
-        }
+        let root = nodes.first(where: { $0.parentID == nil })
+        if let root { walk(root, container: nil, collection: nil, textCovered: false) }
+        let stopped = elements.count >= maxElements
 
         if let popup {
             let cover = NormalizedRect(pixelBox: popup.frame(in: layout.viewport), in: layout.viewport).cgRect
@@ -120,7 +132,15 @@ public enum WebSceneBuilder {
         }
 
         let appKey = appKey(for: layout.url)
-        return SceneSnapshot(
+        let capture = CaptureQuality(
+            walkCompleted  : root != nil && !stopped,
+            stoppedBy      : stopped ? .elementLimit : nil,
+            windowFound    : root != nil,
+            windowRole     : root?.role,
+            nodesVisited   : visited,
+            elementsEmitted: elements.count
+        )
+        let scene = SceneSnapshot(
             bundleID         : appKey,
             appName          : String(appKey.dropFirst(4)),
             windowTitle      : layout.title.isEmpty ? layout.url : layout.title,
@@ -129,6 +149,7 @@ public enum WebSceneBuilder {
             elements         : elements,
             sections         : named
         )
+        return (scene, capture)
     }
 
     // MARK: Roles
