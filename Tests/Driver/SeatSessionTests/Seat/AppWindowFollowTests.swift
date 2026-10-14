@@ -1417,7 +1417,10 @@ struct AppWindowFollowTests {
 
         // The 250 ms passed with no verification. Nothing is in flight, the
         // episode is still open, and the person may not be at the keyboard.
-        clock += UserFocusRecovery.verificationWindowNanoseconds
+        for _ in 0..<50 {
+            clock += 5_000_000
+            recovery.verify()
+        }
         #expect(recovery.isPaused, "the gate's own reading is unchanged")
         #expect(!recovery.isRestoring)
         await Self.pass(seat)

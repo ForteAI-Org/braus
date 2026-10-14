@@ -55,6 +55,14 @@ final class UserFocusRecovery {
     /// the same instant.
     static let verificationWindowNanoseconds: UInt64 = 250_000_000
 
+    /// The most one tick adds to the window (five 5 ms intervals): a stall that
+    /// skips ticks counts as one late sample, not as the time it lasted.
+    static let verificationSampleCreditNanoseconds: UInt64 = 25_000_000
+
+    /// Wall-clock ceiling, so a main thread too busy to sample cannot keep the
+    /// episode restoring forever.
+    static let verificationCeilingNanoseconds: UInt64 = 2_000_000_000
+
     /// What one closure transition is allowed to spend, and the whole of it: the
     /// preparation its reconciliation may renew once, plus the verification
     /// window of the last request it may make. It is those two and not a third
@@ -180,6 +188,10 @@ final class UserFocusRecovery {
     private var destination: WindowReference?
     private var candidate: WindowReference?
     private var started: UInt64 = 0
+
+    /// Window time earned by ticks that read the front, and the last tick.
+    private var sampledNanoseconds: UInt64 = 0
+    private var lastSampleAt: UInt64 = 0
     private var activatingPID: Int32 = 0
     private var code: Int32?
     private var frontmostRestored: UInt64?
@@ -300,8 +312,19 @@ final class UserFocusRecovery {
     /// It is derived and not stored because a second flag set beside `isPaused`
     /// is one more place for the two to disagree, which is the defect this
     /// answers. The gate never reads this: input admission stays on `isPaused`.
-    var isRestoring: Bool {
-        isPaused && code == 0 && now() &- started < Self.verificationWindowNanoseconds
+    ///
+    /// The window is made of samples, so while a guard in `verify()` fails
+    /// (topology, display, fence) no sample is taken and it can stay open up to
+    /// the 2 s ceiling. Admissions that refuse while restoring then refuse for
+    /// longer than 250 ms; the gate is closed either way.
+    var isRestoring: Bool { isPaused && code == 0 && verificationIsOpen }
+
+    /// Open until the samples fill the window or the ceiling passes; the cadence
+    /// drop and `isRestoring` share it. A failing guard takes no samples, so it
+    /// can stay open up to the ceiling.
+    private var verificationIsOpen: Bool {
+        sampledNanoseconds < Self.verificationWindowNanoseconds
+            && now() &- started < Self.verificationCeilingNanoseconds
     }
 
     func beginHold() {
@@ -1071,6 +1094,8 @@ final class UserFocusRecovery {
 
         // Close the posting gate before any validation or private call.
         started = detected
+        sampledNanoseconds = 0
+        lastSampleAt = detected
         timing = UserFocusRecoveryTiming()
         timing.destinationPreparationNanoseconds = destinationPreparation
         timing.detectedAtUptimeNanoseconds = started
@@ -1248,6 +1273,11 @@ final class UserFocusRecovery {
         guard sensing.physicalTopologyIsUnchanged, sensing.virtualDisplayIsOnline,
               sensing.fenceIsActive else { return }
         reconcileIfOwed()
+        let sampledAt = now()
+        sampledNanoseconds &+= sampledAt >= lastSampleAt
+            ? min(sampledAt &- lastSampleAt, Self.verificationSampleCreditNanoseconds)
+            : 0
+        lastSampleAt = sampledAt
         if sensing.frontmostProcessID == destination?.processID, frontmostRestored == nil {
             frontmostRestored = now() &- started
         }
@@ -1281,7 +1311,7 @@ final class UserFocusRecovery {
             }
             candidate = current
         } else { candidate = nil }
-        if now() &- started >= Self.verificationWindowNanoseconds, timer?.timeInterval == 0.005 {
+        if !verificationIsOpen, timer?.timeInterval == 0.005 {
             emit(.waitingForUser, detail: requestRefusal ?? "Focus was not verified within 250 ms")
             timer?.invalidate()
             timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in

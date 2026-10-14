@@ -142,8 +142,7 @@ struct ClosureTransitionTests {
 
         // The verification does not agree at once, the state the Lab read as
         // a failed Cancel. The post is still a post.
-        fixture.time += UserFocusRecovery.verificationWindowNanoseconds
-        fixture.recovery.verify()
+        fixture.sample(for: UserFocusRecovery.verificationWindowNanoseconds)
         #expect(fixture.reports.last?.outcome == .waitingForUser)
         #expect(fixture.recovery.closureCommandWasPosted)
 
@@ -734,6 +733,13 @@ struct ClosureTransitionTests {
             }
         }
 
+        /// Ticks of the 5 ms verification timer, each one reading the front.
+        func sample(for nanoseconds: UInt64) {
+            for _ in 0..<(nanoseconds / 5_000_000) {
+                time += 5_000_000
+                recovery.verify()
+            }
+        }
         func returnUser() {
             sensing.frontmostProcessID = ClosureTransitionTests.user.processID
             sensing.focusedUserWindow = ClosureTransitionTests.user
