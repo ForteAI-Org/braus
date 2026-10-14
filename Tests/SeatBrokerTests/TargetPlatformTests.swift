@@ -147,6 +147,7 @@ struct TargetPlatformTests {
             .qtToolkit,
             .adobeUXP,
             .webKitBrowser,
+            .kittyTerminal,
             .appleNative,
             .unmeasured,
         ]
@@ -190,6 +191,35 @@ struct TargetPlatformTests {
         // The renderer and Qt evidence is read first: Safari's identifier never outranks a framework.
         let electron = try Self.bundle(embedding: ["Electron Framework.framework"])
         #expect(TargetPlatform.chosen(bundleURL: electron, bundleIdentifier: "com.apple.Safari")
+            == .embeddedRenderer(.framework))
+    }
+
+    @Test("kitty's bundle identifier prepares keys and text, never the mouse, and no other terminal does")
+    func kittyIsDrivenWithKeyWindowPreparation() throws {
+        // Unprepared keys changed 0 pixels in 5 of 5 reps (run 20261014);
+        // whether this recipe fixes it is the live experiment's answer.
+        let plain  = try Self.bundle()
+        let choice = TargetPlatform.chosen(bundleURL: plain, bundleIdentifier: "net.kovidgoyal.kitty")
+        let platform = choice.platform(for: "net.kovidgoyal.kitty")
+        let point    = InputLocation(screenPoint: .zero, windowPointFromTop: .zero)
+        #expect(choice == .kittyTerminal)
+        #expect(platform is RemoteKeyboardPlatform)
+        #expect(platform.preparation(for: .key(virtualKey: 36, text: "\r")) == .internalAppKitState)
+        #expect(platform.preparation(for: .text("ls")) == .internalAppKitState)
+        #expect(platform.preparation(for: .insertText("touch k1")) == .internalAppKitState)
+        #expect(platform.preparation(for: .click(point)) == .none)
+        #expect(platform.preparation(for: .scroll(point, deltaY: -5)) == .none)
+        #expect(platform.keyWindowPriming(for: .key(virtualKey: 36, text: "\r")) == nil)
+        #expect(choice.platformName == "RemoteKeyboardPlatform")
+        #expect(choice.reason.contains("kitty"))
+
+        for identifier in ["com.googlecode.iterm2", "com.apple.Terminal", "net.kovidgoyal.kitty-quick-access", nil] {
+            let other = TargetPlatform.chosen(bundleURL: plain, bundleIdentifier: identifier)
+            #expect(!(other.platform is RemoteKeyboardPlatform), "\(identifier ?? "nil")")
+        }
+        // A framework is read first: the identifier never outranks the evidence in the bundle.
+        let electron = try Self.bundle(embedding: ["Electron Framework.framework"])
+        #expect(TargetPlatform.chosen(bundleURL: electron, bundleIdentifier: "net.kovidgoyal.kitty")
             == .embeddedRenderer(.framework))
     }
 
