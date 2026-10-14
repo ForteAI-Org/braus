@@ -170,3 +170,23 @@ private func refusal(for name: String, in apps: [TargetApp]) -> String {
         == ["Slack", "Pro Tools Developer", "Pro Tools"])
     #expect(ApplicationOpening.ranked("Logic", in: recent).isEmpty)
 }
+
+private func product(_ bundleID: String, name: String, pid: pid_t? = nil) -> TargetApp {
+    TargetApp(pid: pid, bundleID: bundleID, name: name,
+              bundleURL: URL(fileURLWithPath: "/Applications/\(name).app"), windows: [])
+}
+
+@Test func theProductItselfIsNeverOpened() {
+    let apps = installed + [product("dev.forte.Braus", name: "Braus"), product("dev.forte.Mecum", name: "Mecum")]
+    for name in ["Braus", "mecum", "Braus.app", "dev.forte.Braus"] {
+        #expect(throws: SeatBrokerError.self) { try ApplicationOpening.resolve(name, in: apps) }
+    }
+}
+
+@Test func anyCopyOfTheProductIsOwn() {
+    #expect(ApplicationOpening.isOwn(product("dev.forte.Braus", name: "Braus")))
+    #expect(ApplicationOpening.isOwn(product("dev.forte.Mecum", name: "Mecum")))
+    #expect(ApplicationOpening.isOwn(product("com.example.Renamed", name: "Renamed", pid: 7), processID: 7))
+    #expect(!ApplicationOpening.isOwn(product("com.example.Photos", name: "Photos", pid: 8), processID: 7))
+    #expect(!ApplicationOpening.isOwn(app("Photos")))
+}
