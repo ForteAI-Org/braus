@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WebPopupProbe page</title>
+<style>
+  body { font: 14px -apple-system, sans-serif; margin: 16px; }
+  #drag { width: 80px; height: 40px; margin: 12px 0; background: #cde; user-select: none; }
+</style>
+<button id="button">Probe button</button>
+<a id="link" href="#linked">Probe link</a>
+<p><input id="input" type="text" placeholder="Probe input"></p>
+<p><label><input id="checkbox" type="checkbox"> Probe checkbox</label></p>
+<div id="drag">Drag me</div>
+<div style="height: 1200px">scroll filler</div>
+<script>
+  let scrolled = false;
+  const post = body => window.webkit.messageHandlers.probe.postMessage(body);
+
+  // An element as tag#id[type]; null for the document or window (a viewport scroll targets the document).
+  const describe = el => !el || !el.tagName ? null : el.tagName.toLowerCase()
+      + (el.id ? "#" + el.id : "") + (el.type ? "[" + el.type + "]" : "");
+
+  function record(type, event) {
+    post({
+      type,
+      surface: window.probeSurface,
+      isTrusted: event.isTrusted,
+      target: describe(event.target),
+      activeElement: describe(document.activeElement),
+      hasFocus: document.hasFocus(),
+      x: event.clientX, y: event.clientY,
+      key: event.key, value: event.target.value, checked: event.target.checked,
+      scrollY: window.scrollY, scrollTop: event.target.scrollTop,
+    });
+    if (type === "scroll") scrolled = true;
+  }
+
+  for (const type of ["mousedown", "mouseup", "click", "keydown", "input", "focusin"]) {
+    document.addEventListener(type, event => record(type, event), true);
+  }
+  // Pointer motion is only interesting while a button is down (drag), scroll always.
+  // Scroll does not bubble: capturing on the document sees both viewport and element scrolls.
+  document.addEventListener("mousemove", event => { if (event.buttons) record("mousemove", event); }, true);
+  document.addEventListener("scroll", event => record("scroll", event), true);
+
+  // Synthetic run for --self-test: the events are untrusted, which the log shows.
+  if (window.probeSelfTest) {
+    window.addEventListener("load", () => {
+      const fire = (el, type) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+      fire(button, "mousedown"); fire(button, "mouseup"); button.click();
+      link.click();
+      checkbox.click();
+      input.focus();
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+      input.value = "a";
+      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      window.scrollTo(0, 200);
+      // The app exits 3 when no scroll was logged, so a broken scroll path fails the self-test.
+      setTimeout(() => post({ type: "selfTestDone", surface: window.probeSurface, scrolled }), 1000);
+    });
+  }
+</script>
