@@ -14,8 +14,8 @@ import PerceptionCore
 
 /// AccessibilityController fills `ControlPressing` with the live accessibility tree: it finds a
 /// combo box or pop-up button by its value or title and presses it, reads the value of the one
-/// control whose value is among a set of labels, reads a toggle's state under a point, and reads
-/// the value of the text field that holds the application's focus.
+/// control whose value is among a set of labels, reads a toggle's state under a point or by its
+/// label, and reads the value of the text field that holds the application's focus.
 ///
 /// Every read and press hops to the main actor, where the C API is safe. Geometry is used only for
 /// the hit test under a point, never to relate a control to a pop-up: after a window-server move
@@ -24,6 +24,7 @@ public struct AccessibilityController: ControlPressing {
 
     private static let controlRoles: Set<String> = ["AXComboBox", "AXPopUpButton"]
     private static let fieldRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox"]
+    private static let toggleRoles: Set<String> = ["AXCheckBox", "AXRadioButton"]
 
     public init() {}
 
@@ -86,6 +87,32 @@ public struct AccessibilityController: ControlPressing {
                 case 2 : return .mixed
                 default: return nil
             }
+        }
+    }
+
+    public func toggleState(labelled label: String, in processID: pid_t) async -> ControlState? {
+        let want = LabelText.normalize(label)
+        guard !want.isEmpty else { return nil }
+        return await MainActor.run {
+            let reader = LiveAccessibilityReader()
+            let application = reader.application(processID: processID)
+            reader.setMessagingTimeout(application, seconds: 1)
+            var states: [ControlState?] = []
+            Self.walk(reader.windows(of: application), reader: reader) { node in
+                guard Self.toggleRoles.contains(reader.role(node) ?? ""),
+                      LabelText.normalize(reader.title(node) ?? "") == want
+                        || LabelText.normalize(reader.descriptionText(node) ?? "") == want
+                else { return false }
+                let state: ControlState? = switch reader.numericValue(node) {
+                    case 0 : .off
+                    case 1 : .on
+                    case 2 : .mixed
+                    default: nil
+                }
+                states.append(state)
+                return false
+            }
+            return states.count == 1 ? states[0] : nil
         }
     }
 

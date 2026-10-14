@@ -29,6 +29,10 @@ public protocol ControlPressing: Sendable {
     /// The state of the stateful control under a global point, when the application reports one.
     func toggleState(at point: CGPoint, in processID: pid_t) async -> ControlState?
 
+    /// The state of the one checkbox or radio button whose title or description is `label`; nil
+    /// when none or more than one qualifies. It names no place, so it holds wherever the window is.
+    func toggleState(labelled label: String, in processID: pid_t) async -> ControlState?
+
     /// The value of the text field or text area that holds the keyboard focus in the application; nil
     /// when none does or the application does not say. What typed text is verified by.
     func focusedFieldValue(in processID: pid_t) async -> String?
@@ -40,6 +44,11 @@ public protocol ControlPressing: Sendable {
 }
 
 extension ControlPressing {
+
+    /// A conformer that cannot read a toggle by its label answers nothing; the scene decides.
+    public func toggleState(labelled label: String, in processID: pid_t) async -> ControlState? {
+        nil
+    }
 
     /// A conformer that cannot read menu items presses none; the keyboard chooses.
     public func pressMenuItem(titled title: String, within menuFrame: CGRect, in processID: pid_t) async -> Bool {

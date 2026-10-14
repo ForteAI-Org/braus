@@ -31,14 +31,18 @@ import SeatSession
 /// window with the same census facts, answers that scene again without the pipeline (ADR 0034), so
 /// the layer above answers "Unchanged since revision N." through its own baseline. The trade-off,
 /// accepted by the owner: a change that draws nothing (an accessibility value or focus) is not seen.
-/// Every call still takes a fresh observation, so a reused scene is bound to pixels taken after the
-/// last Command. The display path never reuses.
+/// Every call still takes a fresh observation, but a running stream's frame displayed after a Command
+/// can still repeat the window's pixels from before it (a Qt window did for seconds). So a kept scene
+/// answers again only when its own frame was displayed after the last Command; otherwise a still from
+/// a stream started now decides, and the scene is reused only when that still matches too. The
+/// display path never reuses.
 public struct SeatSceneProvider: SceneProviding {
 
     private let target: SeatTarget
     private let pipeline: ScenePipeline
     private let windows: any WindowListing
     private let identity: @Sendable (pid_t) -> ApplicationIdentity?
+    private let freshStill: @MainActor @Sendable (SeatTarget) async throws -> SeatFrame
     private let lastScene = LastScene()
 
     public init(
@@ -47,10 +51,29 @@ public struct SeatSceneProvider: SceneProviding {
         windows : any WindowListing,
         identity: @escaping @Sendable (pid_t) -> ApplicationIdentity?
     ) {
-        self.target   = target
-        self.pipeline = pipeline
-        self.windows  = windows
-        self.identity = identity
+        self.init(
+            target    : target,
+            pipeline  : pipeline,
+            windows   : windows,
+            identity  : identity,
+            freshStill: { try await $0.freshWindowStill() }
+        )
+    }
+
+    /// `freshStill` takes the still a kept scene is confirmed against after a Command, so a test
+    /// can answer it without ScreenCaptureKit.
+    package init(
+        target    : SeatTarget,
+        pipeline  : ScenePipeline,
+        windows   : any WindowListing,
+        identity  : @escaping @Sendable (pid_t) -> ApplicationIdentity?,
+        freshStill: @escaping @MainActor @Sendable (SeatTarget) async throws -> SeatFrame
+    ) {
+        self.target     = target
+        self.pipeline   = pipeline
+        self.windows    = windows
+        self.identity   = identity
+        self.freshStill = freshStill
     }
 
     public func currentScene(of processID: pid_t) async throws -> PerceivedWindow {
@@ -66,7 +89,7 @@ public struct SeatSceneProvider: SceneProviding {
         let seatBounds = await target.displayID.map(CGDisplayBounds) ?? .null
         let onSeat = try windows.windows(ownedBy: processID).filter { $0.frame.intersects(seatBounds) }
         let popups = WindowSurfaceClassifier.classify(onSeat).popups
-        let image: CGImage
+        var image: CGImage
         let frame: CGRect
         let observedWindow: AdoptedWindow
         var comparable: SeatFrame?
@@ -135,13 +158,40 @@ public struct SeatSceneProvider: SceneProviding {
             return PerceivedWindow(scene: capture.scene, frame: frame, capture: capture.quality, surface: surface)
         }
         // ADR 0034: the same window and census over byte-identical pixels is the scene already read.
-        if let comparable, let kept = await lastScene.kept, kept.window == window,
-           kept.frame.showsSameContent(as: comparable) {
+        if let still = comparable, let kept = await lastScene.kept, kept.window == window,
+           kept.frame.showsSameContent(as: still) {
+            let keptDisplayedAt = kept.frame.displayTime.flatMap {
+                MachAbsoluteContentClock().displayTimeNanoseconds(fromMachTicks: $0)
+            }
+            if Self.mayReuse(keptDisplayedAt: keptDisplayedAt, lastCommandAt: await target.lastCommandAt) {
+                #if BRAUS_PHASES
+                reusing.end()
+                #endif
+                await MainActor.run { target.lastSceneImage = image }
+                return perceived(kept.capture)
+            }
             #if BRAUS_PHASES
-            reusing.end()
+            let confirming = PhaseInterval.begin("capture.freshStill")
             #endif
-            await MainActor.run { target.lastSceneImage = image }
-            return perceived(kept.capture)
+            let fresh = try? await freshStill(target)
+            #if BRAUS_PHASES
+            confirming.end()
+            #endif
+            if let fresh, fresh.showsSameContent(as: kept.frame) {
+                #if BRAUS_PHASES
+                reusing.end()
+                #endif
+                await MainActor.run {
+                    target.lastSceneImage = image
+                    lastScene.kept = LastScene.Kept(frame: fresh, window: window, capture: kept.capture)
+                }
+                return perceived(kept.capture)
+            }
+            // The fresh pixels are read only at the observed rectangle, which the next Command maps through.
+            if let fresh, fresh.geometry.screenRect == frame, let pixels = fresh.makeCGImage() {
+                image      = pixels
+                comparable = fresh
+            }
         }
         #if BRAUS_PHASES
         let perceiving = PhaseInterval.begin("pipeline")
@@ -155,6 +205,15 @@ public struct SeatSceneProvider: SceneProviding {
             if let comparable { lastScene.kept = LastScene.Kept(frame: comparable, window: window, capture: capture) }
         }
         return perceived(capture)
+    }
+
+    /// Whether a kept scene may answer a still whose pixels equal its frame's, from the uptime
+    /// instants its frame was displayed at and the last Command went out at. With no Command yet
+    /// equal pixels are enough; after one, only a frame displayed after it is, never an unknown time.
+    package static func mayReuse(keptDisplayedAt: UInt64?, lastCommandAt: UInt64?) -> Bool {
+        guard let lastCommandAt else { return true }
+        guard let keptDisplayedAt else { return false }
+        return keptDisplayedAt > lastCommandAt
     }
 
     /// LastScene keeps the window still the last scene was built from, with the window facts and the

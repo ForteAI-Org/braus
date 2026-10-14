@@ -9,6 +9,7 @@ import EngineCore
 import Foundation
 import Perception
 import PerceptionCore
+import SeatCapture
 import SeatCore
 import SeatDriving
 import SeatInput
@@ -139,20 +140,28 @@ struct SeatSceneProviderTests {
         let seat    : AgentSeat
         let window  : AdoptedWindow
         let windows : Windows
+        let target  : SeatTarget
     }
 
-    private func reuse(marker: Int64) async throws -> Reuse {
+    private func reuse(
+        marker    : Int64,
+        freshStill: @escaping @MainActor @Sendable (SeatTarget) async throws -> SeatFrame = { _ in
+            throw ObservationUnavailable.captureFailed(reason: "no fresh still in this test")
+        }
+    ) async throws -> Reuse {
         let sensing = FakeSensing()
         let context = try await ObservationAdmissionTests.composed(sensing: sensing, marker: marker)
         _ = try await observe(context.seat)
         let windows = Windows()
         windows.rows = [WindowRow(layer: 0, frame: context.window.reference.frame, title: "Doc", number: context.window.id)]
         let text = CountingText()
+        let target = SeatTarget(borrowing: SeatHost(), seat: context.seat)
         let provider = SeatSceneProvider(
-            target  : SeatTarget(borrowing: SeatHost(), seat: context.seat),
-            pipeline: ScenePipeline(text: text),
-            windows : windows,
-            identity: { _ in ApplicationIdentity(bundleID: "com.test", name: "Test") }
+            target    : target,
+            pipeline  : ScenePipeline(text: text),
+            windows   : windows,
+            identity  : { _ in ApplicationIdentity(bundleID: "com.test", name: "Test") },
+            freshStill: freshStill
         )
         return Reuse(
             provider: provider,
@@ -161,7 +170,8 @@ struct SeatSceneProviderTests {
             sensing : sensing,
             seat    : context.seat,
             window  : context.window,
-            windows : windows
+            windows : windows,
+            target  : target
         )
     }
 
@@ -235,6 +245,88 @@ struct SeatSceneProviderTests {
         await #expect(throws: (any Error).self) { try await context.provider.currentScene(of: processID) }
         #expect(context.text.count == 1)
 
+        _ = try await context.provider.currentScene(of: processID)
+        #expect(context.text.count == 2)
+    }
+
+    // MARK: A kept scene after a Command
+
+    /// Answers the fresh still a kept scene is confirmed against: a frame of `window` displayed now,
+    /// painted with `value` in its first byte, and counts how often it was asked.
+    @MainActor
+    private final class FreshStills {
+        var asked = 0
+        var value: UInt8 = 0
+        var window: AdoptedWindow?
+
+        func still() throws -> SeatFrame {
+            asked += 1
+            guard let identity = window?.reference.identity, let frame = makeControlledFrame(
+                of         : identity,
+                screenRect : window?.reference.frame ?? .zero,
+                displayTime: mach_absolute_time()
+            ) else { throw ObservationUnavailable.captureFailed(reason: "could not construct the fresh frame") }
+            CVPixelBufferLockBaseAddress(frame.pixelBuffer, [])
+            CVPixelBufferGetBaseAddress(frame.pixelBuffer)?.storeBytes(of: value, toByteOffset: 0, as: UInt8.self)
+            CVPixelBufferUnlockBaseAddress(frame.pixelBuffer, [])
+            return frame
+        }
+    }
+
+    @Test("a kept frame displayed before the last Command is not reused; one displayed after it is")
+    func reuseNeedsAFrameAfterTheCommand() {
+        #expect(SeatSceneProvider.mayReuse(keptDisplayedAt: 1_000, lastCommandAt: nil))
+        #expect(SeatSceneProvider.mayReuse(keptDisplayedAt: nil, lastCommandAt: nil))
+        #expect(!SeatSceneProvider.mayReuse(keptDisplayedAt: 1_000, lastCommandAt: 2_000))
+        #expect(!SeatSceneProvider.mayReuse(keptDisplayedAt: 2_000, lastCommandAt: 2_000))
+        #expect(!SeatSceneProvider.mayReuse(keptDisplayedAt: nil, lastCommandAt: 2_000))
+        #expect(SeatSceneProvider.mayReuse(keptDisplayedAt: 3_000, lastCommandAt: 2_000))
+    }
+
+    @Test("after a Command identical pixels are confirmed by a still started then, and a newer frame reuses")
+    func identicalPixelsAfterACommandAreConfirmed() async throws {
+        let stills = FreshStills()
+        let context = try await reuse(marker: 964, freshStill: { _ in try stills.still() })
+        stills.window = context.window
+        let processID = context.window.reference.processID
+        let first = try await context.provider.currentScene(of: processID)
+
+        context.target.spendObservation()
+        let confirmed = try await context.provider.currentScene(of: processID)
+        #expect(stills.asked == 1, "the kept frame predates the Command, so a fresh still decides")
+        #expect(context.text.count == 1, "the fresh still matched, so the pipeline did not run")
+        #expect(confirmed == first)
+
+        _ = try await context.provider.currentScene(of: processID)
+        #expect(stills.asked == 1, "the kept frame is now the fresh one, displayed after the Command")
+        #expect(context.text.count == 1)
+    }
+
+    @Test("after a Command a fresh still that differs runs the pipeline on its pixels")
+    func freshStillThatDiffersIsRead() async throws {
+        let stills = FreshStills()
+        stills.value = 7
+        let context = try await reuse(marker: 965, freshStill: { _ in try stills.still() })
+        stills.window = context.window
+        let processID = context.window.reference.processID
+        _ = try await context.provider.currentScene(of: processID)
+
+        context.target.spendObservation()
+        _ = try await context.provider.currentScene(of: processID)
+        #expect(stills.asked == 1)
+        #expect(context.text.count == 2, "the stale running-stream pixels were not answered as unchanged")
+        let image = try #require(context.target.lastSceneImage)
+        let firstByte = image.dataProvider?.data.flatMap { CFDataGetBytePtr($0)?[0] }
+        #expect(firstByte == 7, "the scene was read from the fresh still")
+    }
+
+    @Test("after a Command a fresh still that fails runs the pipeline instead of reusing")
+    func freshStillFailureIsNotAReuse() async throws {
+        let context = try await reuse(marker: 966)
+        let processID = context.window.reference.processID
+        _ = try await context.provider.currentScene(of: processID)
+
+        context.target.spendObservation()
         _ = try await context.provider.currentScene(of: processID)
         #expect(context.text.count == 2)
     }

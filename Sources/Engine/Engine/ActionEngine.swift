@@ -499,7 +499,9 @@ public struct ActionEngine: Sendable {
         guard let desired = request.desiredState, desired == .on || desired == .off else {
             return ActOutcome(.refused, "set_toggle needs a desired state of on or off")
         }
-        if element.state == desired {
+        // A reused scene can be older than the control, so the application's own answer decides first.
+        let current = await dependencies.controls?.toggleState(labelled: element.label, in: pid) ?? element.state
+        if current == desired {
             // Already in the requested state: the reading is the check, and no gesture is attributed.
             await dependencies.observer?.record(ActionRecord(
                 bundleID: request.bundleID, element: element, verb: .setToggle, effect: nil, windowTitleAfter: nil,
@@ -508,7 +510,7 @@ public struct ActionEngine: Sendable {
             return ActOutcome(.actedNoop, "'\(element.label)' is already \(desired.rawValue): nothing to "
                 + "do", scene: perceived.scene, check: OperationCheck(
                     condition: .requestedStateAlreadyPresent, method: .controlState, verdict: .passed,
-                    expected: desired.rawValue, observed: element.state?.rawValue, performed: .none,
+                    expected: desired.rawValue, observed: current?.rawValue, performed: .none,
                     target: OperationCheck.Target(element)))
         }
         if let applied = await formatThroughMenu(request, element: element, perceived: perceived) {
@@ -534,7 +536,9 @@ public struct ActionEngine: Sendable {
         await settle(pid)
         let afterWindow = await perceive(pid)
         let after = afterWindow?.scene
-        let readBack = await dependencies.controls?.toggleState(at: point, in: pid)
+        var answered = await dependencies.controls?.toggleState(at: point, in: pid)
+        if answered == nil { answered = await dependencies.controls?.toggleState(labelled: element.label, in: pid) }
+        let readBack = answered
             ?? after?.elements.first(where: { $0.id == element.id })?.state
             ?? after?.elements.first(where: {
                 $0.state != nil && LabelText.normalize($0.label) == LabelText.normalize(element.label)

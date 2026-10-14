@@ -49,6 +49,8 @@ public final class SeatTarget {
     public private(set) var lastCapturedWindow: AdoptedWindow?
     /// The pixels the last scene was read from, so a person can see what the agent saw.
     public internal(set) var lastSceneImage: CGImage?
+    /// When the events of the last Command went out, in uptime nanoseconds; nil before the first.
+    public private(set) var lastCommandAt: UInt64?
 
     public init(configuration: SeatHostConfiguration = SeatHostConfiguration(restoresUserFocus: true)) {
         host = SeatHost(configuration: configuration)
@@ -194,12 +196,30 @@ public final class SeatTarget {
     /// called only once the events have gone out.
     public func spendObservation() {
         deliverySpent = true
+        lastCommandAt = DispatchTime.now().uptimeNanoseconds
     }
 
     /// One still of the observed window, for perception. It is the observation's own Frame, so a
     /// scene read from it and the gesture decided on that scene are bound to the same picture.
     public func windowStill() async throws -> SeatFrame {
         try await observe().frame
+    }
+
+    /// How long `freshWindowStill` may take. A stream Still costs about 135 to 150 ms (ADR 0034),
+    /// and a failure only means the scene is read from the observation's pixels, so it is never retried.
+    package static let freshStillTimeout: Duration = .seconds(1)
+
+    /// One still of the last observed window from a stream started now, never from a running one:
+    /// a running stream can keep repeating a window's pixels from before a Command (ADR 0034). It
+    /// is for perception only and carries no observation, so no Command is admitted under it.
+    public func freshWindowStill() async throws -> SeatFrame {
+        guard seat != nil, let identity = lastCapturedWindow?.reference.identity else {
+            throw SeatDrivingFailure.notAdopted
+        }
+        return try await SeatCaptureStream.timestampedStill(
+            of     : .attestedWindow(identity),
+            timeout: Self.freshStillTimeout
+        )
     }
 
     /// One still of the whole virtual display: the only capture that holds both the window and a
@@ -235,6 +255,7 @@ public final class SeatTarget {
         deliverySpent = false
         lastCapturedWindow = nil
         lastWindowGeometry = nil
+        lastCommandAt      = nil
         initialWindow = nil
         if !isBorrowed { _ = await host.stop() }
     }
