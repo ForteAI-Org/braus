@@ -178,6 +178,35 @@ struct FactContractTests {
         }
     }
 
+    @Test("live R01 LV02: an ordinary absolute path is judged by its components and kept whole, alone or inside a text",
+          arguments: ["/private/tmp/mecum-live-2026-10-12-R01/Inputs/A", "/Users/Tester/Projects/Reports2026/Exports",
+                      "~/Documents/Consegne2026/Mecum-Live-R02-Haiku/Outputs/B", "/private/tmp/mecum-live-2026-10-13-R02-haiku/Outputs/A/",
+                      "/Volumes/Archivio2026/BrausAppSupportFolder2026/Knowledge"])
+    func ordinaryPaths(_ path: String) {
+        let minimization = ValueMinimization()
+        #expect(!ValueMinimization.hasCredentialShape(path))
+        #expect(minimization.minimize(text: path) == (path, nil))
+        #expect(minimization.minimize(text: "Vai a \(path) e apri A") == ("Vai a \(path) e apri A", nil))
+    }
+
+    @Test("live R01 LV02: a path holding a key, a folder named by a generator and a key with slashes still have a credential's shape")
+    func keysInPaths() {
+        let minimization = ValueMinimization()
+        let generated = "Qx7Lm2Np9Rs4Tv6Wy8Zb1Cd3Fg5Hj7Kk9M"
+        for text in ["/tmp/sk-ant-R01canary0123456789abcdefghijklmnopqrstuvwxyz/report.png",
+                     "/Users/Tester/Library/Caches/\(generated)/state",
+                     "/Users/Tester/Library/Caches/aB3dE5fG7hI9jK1lMn/state",
+                     // Before LV02 a home path or a file's extension took the whole path out of the key's alphabet.
+                     "~/Library/Caches/\(generated)/state", "/Users/Tester/\(generated)/report.png",
+                     "Qx7Lm2Np9Rs4/Tv6Wy8Zb1Cd3Fg5Hj7+Kk9M2Np9Rs4Tv6Wy=",
+                     "/Qx7Lm2Np9Rs4Tv6Wy8Zb1/Cd3Fg5Hj7Kk9M2Np9Rs4Tv"] {
+            #expect(ValueMinimization.hasCredentialShape(text), "\(text)")
+            #expect(minimization.minimize(text: text).1 == .credentialPattern, "\(text)")
+        }
+        let embedded = minimization.minimize(text: "/Users/Tester/Library/Caches/\(generated)/state")
+        #expect(!embedded.0.contains(generated))
+    }
+
     @Test("a text typed into a control named for a secret is withheld whole; a declared secret is withheld wherever it appears")
     func secretTargetsAndDeclaredSecrets() {
         let minimization = ValueMinimization(secrets: [Self.canaryPassword])

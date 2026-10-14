@@ -775,6 +775,20 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let existed = FileManager.default.fileExists(atPath: url.path)
+            let key     = directory.standardizedFileURL.resolvingSymlinksInPath().path
+            let legacy  = Self.legacyOrigins.withLock { $0[key] ?? [] }
+            // Where no archive is yet, the archive of the product's earlier name becomes this one, whole: its facts,
+            // procedures and versions with their provenance, which a transfer of facts alone would not carry.
+            var adopted: KnowledgeLocation.LegacyKnowledge?
+            if !existed, let earlier = legacy.first(where: { $0.originID == KnowledgeLocation.previousKnowledgeOrigin && $0.hasArchive }) {
+                do {
+                    if try await SQLiteArchiveTransfer.adopt(earlier.archive, as: url) { adopted = earlier }
+                } catch {
+                    lastUnification = "\(earlier.location): not adopted (\(Self.describe(error))); a new archive was started and "
+                        + "the earlier one is left as it is"
+                    Self.log.error("memory \(self.lastUnification ?? "", privacy: .public)")
+                }
+            }
             let (store, recovered) = try await openRecovering()
             guard state != .closed, !storeClosing else {
                 await store.close()
@@ -783,9 +797,22 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             let repositories  = MemoryRepositories(store: store)
             if let migration = (try? await store.diagnostics())?.migration {
                 lastMigration =
-                    "the archive was migrated from schema \(migration.fromVersion) to \(migration.toVersion); "
-                        + "its copy at schema \(migration.fromVersion) is \(migration.copyName)"
+                    "the archive was migrated from schema \(migration.fromShape ?? String(migration.fromVersion)) to \(migration.toVersion); "
+                        + "its copy at that schema is \(migration.copyName)"
                 Self.log.info("memory \(self.lastMigration ?? "", privacy: .public)")
+            }
+            if let adopted {
+                let version = Int64((try? await store.diagnostics())?.migration?.fromVersion ?? SQLiteMemoryInspection.supportedVersion)
+                do {
+                    try await SQLiteArchiveTransfer.recordAdoption(store, origin: adopted.originID, location: adopted.location,
+                                                                   nowMS: clock.calendarMS(), sourceVersion: version)
+                    lastUnification = "\(adopted.location): adopted whole as this archive"
+                } catch {
+                    // The copy is the archive now; without its record a later look takes the source in again by
+                    // transfer, which recognizes every event already here.
+                    lastUnification = "\(adopted.location): adopted, its record not written (\(Self.describe(error)))"
+                }
+                Self.log.info("memory \(self.lastUnification ?? "", privacy: .public)")
             }
             // An archive this open created where none was, not one a recovery left empty: the JSON Brains
             // beside it come in now, before any write of the queue can learn into it.
@@ -794,14 +821,14 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             }
             self.store        = store
             self.repositories = repositories
+            // Where this process records, said once per open, for a run's preflight that reads the process, not a shell.
+            Self.log.info("memory open: \(self.url.path, privacy: .public)")
             state             = .open
             degradedSince     = nil
             scheduleBackupIfDue()
             // What a stopped process, a lost queue or an earlier policy left of the relations is recovered
             // in bounded passes behind the writes, never before them.
             scheduleRelationRecovery()
-            let key    = directory.standardizedFileURL.resolvingSymlinksInPath().path
-            let legacy = Self.legacyOrigins.withLock { $0[key] ?? [] }
             if !legacy.isEmpty, unifying == nil {
                 unifying = Task { await self.unify(legacy, into: store, repositories: repositories) }
             }

@@ -21,7 +21,7 @@ import Testing
 /// use stays its producer's; and a use is credited only for the steps the calls carried out and verified, never for
 /// what an agent declares. These are integration proofs over the session double, not a live run.
 @MainActor
-@Suite("The Recall shared by the app's workers and an MCP client, with use credited from facts only", .serialized)
+@Suite("The Recall shared by the app's workers and an MCP client, with use credited from facts only", .serialized, .automaticSelection)
 struct RecallSharingTests {
 
     typealias P = ProcedureLearningTests

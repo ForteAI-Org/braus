@@ -157,13 +157,13 @@ public enum SQLiteMemoryInspection {
             switch inspection {
             case .empty:
                 return .read(.empty, version: version, counts: [:])
-            case .current, .previous:
+            case .current, .previous, .historical:
                 var counts: [String: Int] = [:]
                 for table in countedTables {
                     // Table names are this module's own literals; nothing from a caller is spliced in.
                     counts[table] = Int(try connection.query("SELECT count(*) FROM \(table)") { $0.integer(0) ?? 0 }.first ?? 0)
                 }
-                if case .previous(let earlier) = inspection {
+                if let earlier = SQLiteMemoryStore.migratedVersion(inspection) {
                     return .read(.migratable(from: earlier), version: version, counts: counts)
                 }
                 return .read(.current, version: version, counts: counts)

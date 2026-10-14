@@ -25,7 +25,7 @@ import Testing
 /// The thresholds are structural (the best episode alone, never a whole part), so what is proved is the lifecycle,
 /// not a calibration. These are integration proofs, not a live run.
 @MainActor
-@Suite("The Recall's index through faults, changes, new spaces and migrations", .serialized)
+@Suite("The Recall's index through faults, changes, new spaces and migrations", .serialized, .automaticSelection)
 struct RecallLifecycleTests {
 
     typealias P = ProcedureLearningTests
@@ -92,17 +92,34 @@ struct RecallLifecycleTests {
 
     // MARK: Faults
 
-    @Test("an index never built answers unavailable and unknown, recorded as such: never an absence")
+    @Test("an index never built over a learned procedure answers unavailable and unknown, recorded as such: never an absence; an archive that never learned anything answers a complete search that finds nothing")
     func unavailableIsNotAbsent() async throws {
+        let empty = P.photoSession(try W.directory())
+        let emptyMemory = MemoryService.shared(for: empty.directory)
+        let emptyService = RecallService(memory: emptyMemory, configuration: Self.configuration())
+        RecallService.install(emptyService)
+        await emptyService.holdWork(true)
+        let emptyBegun = try await P.task(P.tools(empty), #"{"operation":"begin","goal":"Export the photo as PNG","recall":false}"#)
+        let nothing = try await emptyService.recall(
+            try RecallRequest(taskID: try #require(emptyBegun["task"].string), attemptID: try #require(emptyBegun["attempt"].string),
+                              revision: 1, reason: .initial, remainingWork: "Export the photo as PNG"),
+            producer: try TaskProducer(source: .app, streamID: "worker-1"))
+        #expect(nothing.delivery.search.status == "completed" && nothing.delivery.coverage == "absent", "the catalogue proves the absence")
+        #expect(nothing.delivery.index.status == "empty" && nothing.delivery.search.note == "nothing has been learned on this Mac yet")
+        await Self.close(empty)
+
         let session = P.photoSession(try W.directory())
         let memory = MemoryService.shared(for: session.directory)
         let service = RecallService(memory: memory, configuration: Self.configuration())
         RecallService.install(service)
-        let tools = P.tools(session)
+        // The worker is held: a procedure is learned and nothing of it reaches an index.
+        await service.holdWork(true)
+        _ = try await Self.learnPhoto(session, service: service)
+        let tools = P.tools(session, stream: "worker-2")
         let begun = try await P.task(tools, #"{"operation":"begin","goal":"Export the photo as PNG","recall":false}"#)
         let request = try RecallRequest(taskID: try #require(begun["task"].string), attemptID: try #require(begun["attempt"].string),
                                         revision: 1, reason: .initial, remainingWork: "Export the photo as PNG")
-        let answer = try await service.recall(request, producer: try TaskProducer(source: .app, streamID: "worker-1"))
+        let answer = try await service.recall(request, producer: try TaskProducer(source: .app, streamID: "worker-2"))
         #expect(answer.delivery.search.status == "unavailable" && answer.delivery.coverage == "unknown")
         #expect(answer.delivery.index.status == "unavailable" && answer.delivery.delivery == "nothing")
         #expect(try rawRows("SELECT search_status || ':' || coverage || ':' || delivery || ':' || channel FROM memory_recall_queries",

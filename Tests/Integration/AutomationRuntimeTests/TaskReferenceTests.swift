@@ -20,7 +20,7 @@ import Testing
 /// output never declared, a version that is not the task's); never a way past the protection of secrets. Kept through an
 /// update and a reopening, and read by the Recall as the dependency the source's attempt stated.
 @MainActor
-@Suite("Structural references to a task's output, through the tool and SQLite", .serialized)
+@Suite("Structural references to a task's output, through the tool and SQLite", .serialized, .automaticSelection)
 struct TaskReferenceTests {
     typealias P = ProcedureLearningTests
 

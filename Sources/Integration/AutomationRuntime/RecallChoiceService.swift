@@ -49,21 +49,23 @@ extension RecallService {
                                              recordedAtMS: memory.clock.calendarMS())
         let search = RecallDelivery.Search(status: prepared.searchStatus.rawValue, channel: prepared.channel.rawValue,
                                            partsConsidered: prepared.considered, versionsRead: prepared.sources.count, note: note)
+        let index = index(prepared.status, searchStatus: prepared.searchStatus, generation: prepared.cache?.generation)
         var delivery = Self.render(proposal, sources: sources, suggestions: suggestions, context: prepared.context, values: request.values,
-                                   search: search)
+                                   search: search, index: index)
         var bytes = (try? JSONEncoder().encode(delivery).count) ?? 0
         if bytes > RecallContract.channelLimitBytes {
             // Over the channel's limit nothing of the sources is sent, and the answer says so: never a silent cut.
-            delivery = RecallProposalDelivery(proposal: proposalID, revision: request.revision, search: search, needs: delivery.needs, sources: [],
-                                              guidance: "The shortlisted sources exceed what one answer can carry, so none is given. Propose "
-                                                + "again with fewer or narrower needs.")
+            delivery = RecallProposalDelivery(proposal: proposalID, revision: request.revision, index: index, search: search,
+                                              needs: delivery.needs, sources: [],
+                                              guidance: "The shortlisted sources exceed what one answer can carry, so none is given. Search "
+                                                + "again with memory_task recall and fewer or narrower needs, or carry on with the tools.")
             bytes = (try? JSONEncoder().encode(delivery).count) ?? 0
         }
         let elapsed = started.duration(to: .now)
         let recorded = SQLiteRecallRepository.RecordedProposal(
             proposal: proposal, generationID: prepared.channel == .none ? nil : prepared.cache?.generation.generationID, channel: prepared.channel,
             searchStatus: prepared.searchStatus,
-            searchNote: prepared.searchStatus == .completed ? nil : (note ?? prepared.searchStatus.rawValue),
+            searchNote: note ?? (prepared.searchStatus == .completed ? nil : prepared.searchStatus.rawValue),
             candidatesConsidered: prepared.considered, bytes: bytes,
             durationUS: elapsed.components.seconds * 1_000_000 + elapsed.components.attoseconds / 1_000_000_000_000)
         let recording = ContinuousClock.now
@@ -165,11 +167,18 @@ extension RecallService {
         return ChoiceAnswer(delivery: delivery, queryID: queryID, recordedNow: true)
     }
 
+    /// Whether `id` names a proposal recorded for the task: what a use that names it instead of a query is told.
+    public func isProposal(_ id: String, of taskID: String) async -> Bool {
+        guard let recorded = try? await memory.perform({ try await $0.recall.proposal(id) }) else { return false }
+        return recorded.proposal.taskID == taskID
+    }
+
     // MARK: Rendering
 
     /// A proposal's text: per need the versions shortlisted and the suggestion; per version every step on one line.
     static func render(_ proposal: RecallChoice.Proposal, sources: [String: RecallSource], suggestions: [NeedOutcome],
-                       context: RecallSelector.Context, values: [TaskValue], search: RecallDelivery.Search) -> RecallProposalDelivery {
+                       context: RecallSelector.Context, values: [TaskValue], search: RecallDelivery.Search,
+                       index: RecallDelivery.Index) -> RecallProposalDelivery {
         let candidates = RecallBinding.candidates(values)
         let needs = proposal.needs.enumerated().map { index, need -> RecallProposalDelivery.Need in
             let mine = proposal.shortlisted.filter { $0.needPosition == index }
@@ -200,8 +209,10 @@ extension RecallService {
             rendered.append(Self.render(source, key: item.key, relevance: proposal.shortlisted.filter { $0.routeID == item.routeID }.map(\.relevance).max() ?? item.relevance,
                                         excluded: excluded, candidates: candidates, values: values))
         }
-        return RecallProposalDelivery(proposal: proposal.proposalID, revision: proposal.revision, search: search, needs: needs, sources: rendered,
-                                      guidance: RecallProposalDelivery.guidance)
+        let guidance = search.status == SearchStatus.unavailable.rawValue || search.status == SearchStatus.failed.rawValue
+            ? RecallProposalDelivery.unsearchedGuidance : rendered.isEmpty ? RecallProposalDelivery.nothingGuidance : RecallProposalDelivery.guidance
+        return RecallProposalDelivery(proposal: proposal.proposalID, revision: proposal.revision, index: index, search: search, needs: needs,
+                                      sources: rendered, guidance: guidance)
     }
 
     /// One shortlisted version, whole: its episodes, each step on one line, its parameters with how they bind, the outputs

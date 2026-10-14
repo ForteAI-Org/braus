@@ -60,9 +60,11 @@ final class AppModel {
 
     init() {
         broker.display = Self.storedDisplay
-        // The external clients' earlier private archives come into the shared memory when it first opens.
+        // The external clients' earlier private archives, and the knowledge the product kept under its earlier name, come
+        // into the shared memory when it first opens. A check run reads no folder of the person's.
         MemoryService.unify(KnowledgeLocation.knowledge(under: WorkspaceLaunch.directory),
-                            with: KnowledgeLocation.legacyProfiles(under: WorkspaceLaunch.directory))
+                            with: KnowledgeLocation.legacyProfiles(under: WorkspaceLaunch.directory)
+                                + (BrausApp.isCheckRun ? [] : KnowledgeLocation.previousProductOrigins()))
         let checks = AppPreferences.bool(
             AppPreferences.checksConnectionsAtLaunch,
             default: AppPreferences.checksConnectionsAtLaunchDefault

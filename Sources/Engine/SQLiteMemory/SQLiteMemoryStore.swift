@@ -801,6 +801,9 @@ public actor SQLiteMemoryStore {
         public let fromVersion: Int32
         public let toVersion  : Int32
         public let copyName   : String
+        /// The historical shape the archive had (`SQLiteMemorySchema.HistoricalShape`), nil for the part of the one text
+        /// its version is.
+        public var fromShape: String? = nil
     }
 
     /// Migrates an archive found at an earlier schema to the current one. First a verified copy of the
@@ -812,23 +815,41 @@ public actor SQLiteMemoryStore {
     /// nil when another process migrated it meanwhile; this open's copy is then removed.
     private func migrate(
         _ writer    : SQLiteConnection,
-        from version: Int32,
+        from found  : Inspection,
         expected    : Expected
     ) async throws -> Migration? {
-        let copyName = "\(url.lastPathComponent).schema-\(version)-\(Self.stamp(Date()))"
+        let shape: SQLiteMemorySchema.HistoricalShape?
+        let version: Int32
+        switch found {
+            case .previous(let earlier): (shape, version) = (nil, earlier)
+            case .historical(let name):
+                guard let known = SQLiteMemorySchema.historicalShapes.first(where: { $0.name == name }) else { return nil }
+                (shape, version) = (known, known.version)
+            default: return nil
+        }
+        let copyName = "\(url.lastPathComponent).schema-\(shape?.name ?? String(version))-\(Self.stamp(Date()))"
         let copy     = url.deletingLastPathComponent().appendingPathComponent(copyName)
-        try await copyBeforeMigration(to: copy, version: version)
+        try await copyBeforeMigration(to: copy, expecting: found)
         try stillOpening()
-        let text  = try SQLiteMemorySchema.migrationText(from: version)
+        let text  = shape == nil ? try SQLiteMemorySchema.migrationText(from: version) : ""
         let nowMS = Self.nowMS()
         let fault = migrationFault
         migrationFault = nil
+        // A rebuild renames and drops tables that other tables reference: their foreign keys are checked once, at the end
+        // of the transaction (`SQLiteMemorySchema.rebuild`). The pragma takes effect only outside a transaction.
+        if shape != nil { try writer.execute("PRAGMA foreign_keys = OFF") }
+        defer { if shape != nil { try? writer.execute("PRAGMA foreign_keys = ON") } }
         let migrated = try await transaction(on: writer, begin: "BEGIN IMMEDIATE", phase: .bootstrap) {
-            guard try Self.inspect(writer, expected: expected) == .previous(version) else { return false }
-            try writer.execute(text)
+            guard try Self.inspect(writer, expected: expected) == found else { return false }
+            var created: [String] = []
+            if let shape {
+                created = try SQLiteMemorySchema.rebuild(writer, from: shape)
+            } else {
+                try writer.execute(text)
+            }
             // What a text cannot derive, derived here in the same transaction: the anchors' label keys, which
             // the projection normalizes, and one rebuild of the Recall's index from the catalogue the archive holds.
-            try SQLiteBrainRows.fillLabelKeys(writer)
+            if (shape == nil && version == 1) || created.contains("brain_anchor_label_keys") { try SQLiteBrainRows.fillLabelKeys(writer) }
             try writer.run("INSERT INTO memory_recall_work (route_id, reason, enqueued_at_ms) VALUES (NULL, 'migration', ?)",
                            [.integer(nowMS)])
             try fault?()
@@ -843,7 +864,7 @@ public actor SQLiteMemoryStore {
                  .text(copyName)]
             )
             guard try Self.inspect(writer, expected: expected) == .current else {
-                throw Self.refusal(.bootstrap, "the migration from schema \(version) did not reach the current shape")
+                throw Self.refusal(.bootstrap, "the migration from schema \(shape?.name ?? String(version)) did not reach the current shape")
             }
             return true
         }
@@ -853,13 +874,13 @@ public actor SQLiteMemoryStore {
             }
             return nil
         }
-        return Migration(fromVersion: version, toVersion: SQLiteMemorySchema.version, copyName: copyName)
+        return Migration(fromVersion: version, toVersion: SQLiteMemorySchema.version, copyName: copyName, fromShape: shape?.name)
     }
 
     /// Copies the archive, at its earlier schema, to `target` through the backup API, consistent as of
     /// one read transaction, verified (integrity, foreign keys, exactly that schema), in rollback
     /// journal mode and renamed into place without clobbering. Any failure removes what it made.
-    private func copyBeforeMigration(to target: URL, version: Int32) async throws {
+    private func copyBeforeMigration(to target: URL, expecting found: Inspection) async throws {
         guard !FileManager.default.fileExists(atPath: target.path) else {
             throw MemoryStoreError.snapshot(.destinationExists)
         }
@@ -887,7 +908,7 @@ public actor SQLiteMemoryStore {
             copying.backup = nil
             release(source)
             copying.source = nil
-            _ = try Self.verify(copy: copy, expecting: .previous(version))
+            _ = try Self.verify(copy: copy, expecting: found)
             try Self.settle(copy: copy)
             release(copy)
             copying.copy = nil
@@ -918,6 +939,8 @@ public actor SQLiteMemoryStore {
     enum Inspection: Equatable {
         case empty, current
         case previous(Int32)
+        /// A historical shape this build migrates from (`SQLiteMemorySchema.historicalShapes`), by name.
+        case historical(String)
     }
 
     /// The open in flight. Every step that waited checks that the store is still opening, so a
@@ -972,7 +995,7 @@ public actor SQLiteMemoryStore {
                 let pages = try Self.integerPragma(writer, "page_count")
                 throw MemoryStoreError.schema(.uninitialized(fileIsEmpty: pages == 0))
             }
-            if case .previous(let version) = found, kind == .existingArchive {
+            if kind == .existingArchive, let version = Self.migratedVersion(found) {
                 // A reader never migrates: an archive of an earlier schema is refused as found.
                 throw MemoryStoreError.schema(.migrationRequired(found: version, supported: SQLiteMemorySchema.version))
             }
@@ -1001,8 +1024,8 @@ public actor SQLiteMemoryStore {
                 try stillOpening()
             }
             var migration: Migration?
-            if case .previous(let version) = found {
-                migration = try await migrate(writer, from: version, expected: expected)
+            if Self.migratedVersion(found) != nil {
+                migration = try await migrate(writer, from: found, expected: expected)
                 try stillOpening()
             }
             let reader = try acquire(path, mayCreate: kind.creates)
@@ -1020,6 +1043,15 @@ public actor SQLiteMemoryStore {
         } catch {
             release(writer)
             throw abandonedOpen(after: error)
+        }
+    }
+
+    /// The version of an archive this build migrates, nil for one it opens as it is or bootstraps.
+    static func migratedVersion(_ found: Inspection) -> Int32? {
+        switch found {
+            case .previous(let version): version
+            case .historical(let name): SQLiteMemorySchema.historicalShapes.first { $0.name == name }?.version
+            case .empty, .current: nil
         }
     }
 
@@ -1202,6 +1234,14 @@ public actor SQLiteMemoryStore {
         if version == 0 {
             guard existing.isEmpty else { throw MemoryStoreError.schema(.unknownTables(existing)) }
             return .empty
+        }
+        // A historical shape is recognized whole, by the digest of its objects, before anything is said about its parts.
+        let historical = SQLiteMemorySchema.historicalShapes.filter { Int64($0.version) == version }
+        if !historical.isEmpty {
+            let found = try SQLiteMemorySchema.objects(in: connection)
+            if found != expected.current.objects, let shape = historical.first(where: { $0.digest == SQLiteMemorySchema.digest(of: found) }) {
+                return .historical(shape.name)
+            }
         }
         let shape: Expected.Shape
         let answer: Inspection

@@ -5,37 +5,54 @@
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
 
+import EngineCore
+
 /// ProcedureSegmentation is the rule that turns an attempt's calls into the steps and blocks of a
 /// procedure, the system's decision and never the agent's: one step per UI operation that started (a
 /// call of `act`, `select`, the six inputs, `menu` or `press` that is not planned or skipped), in the
 /// order the attempt started them; a batch is a container whose started children are the steps; the
 /// context tools (`open_session`, `observe`, the listings, `close_session`) and `memory_task` are no
-/// step. A block is a run of consecutive steps on one application, the application the call acted on
-/// (its session's), so a passing change of focus never cuts a block and Finder, Preview, Finder is
-/// three blocks. The same calls under the same version give the same steps and blocks.
+/// step, and neither is a `menu` that only listed a menu's items (its path ended on a menu, nothing was
+/// pressed, `acted_noop`): a read of the application, as `observe` is, that a reuse never repeats and
+/// that no check could judge. A block is a run of consecutive steps on one application, the application
+/// the call acted on (its session's), so a passing change of focus never cuts a block and Finder,
+/// Preview, Finder is three blocks. The same calls under the same version give the same steps and blocks.
 public enum ProcedureSegmentation {
 
-    /// The version of the rule, kept with every candidate it made.
-    public static let policyVersion = "app-blocks-1"
+    /// The version of the rule, kept with every candidate it made: `app-blocks-2` since a menu listing
+    /// is no step (13 October 2026); the candidates `app-blocks-1` made stay as they were made.
+    public static let policyVersion = "app-blocks-2"
 
-    /// Call is what the rule reads of one call attributed to the attempt.
+    /// Call is what the rule reads of one call attributed to the attempt: the tool, how far it ran, the
+    /// application it acted on, and the kind of outcome it concluded with when it concluded with one.
     public struct Call: Sendable, Equatable {
         public let callEventID: String
         public let tool: AgentTool
         public let status: AgentCallStatus
         public let bundleID: String?
+        public let resultKind: ActOutcomeKind?
 
-        public init(callEventID: String, tool: AgentTool, status: AgentCallStatus, bundleID: String?) {
+        public init(callEventID: String, tool: AgentTool, status: AgentCallStatus, bundleID: String?,
+                    resultKind: ActOutcomeKind? = nil) {
             self.callEventID = callEventID
             self.tool        = tool
             self.status      = status
             self.bundleID    = bundleID
+            self.resultKind  = resultKind
         }
     }
 
-    /// Whether a call is a step: an operation that started.
+    /// Whether a call is a step: an operation that started and was not a menu listing.
     public static func isStep(_ call: Call) -> Bool {
         call.tool.isOperation && call.status != .planned && call.status != .skipped
+            && !isListing(tool: call.tool, resultKind: call.resultKind)
+    }
+
+    /// Whether a call only listed a menu's items: a `menu` whose path ended on a menu answers the items
+    /// and presses nothing, which `MenuBarCommand` concludes as `acted_noop`, the only no-op a `menu`
+    /// call has. A no-op of any other operation (a toggle already in its state) is a step.
+    public static func isListing(tool: AgentTool, resultKind: ActOutcomeKind?) -> Bool {
+        tool == .menu && resultKind == .actedNoop
     }
 
     /// The steps of the calls, in their order, each with its block.

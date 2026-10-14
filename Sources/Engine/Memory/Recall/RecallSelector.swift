@@ -585,7 +585,7 @@ public enum RecallSelector {
             positions = producing(positions, requirements: &requirements)
             // A clause whose work the version does not know may ask for work the selection does not do: the rotation a
             // synonym asked for ("turn … clockwise") is not covered because the export is (review F11). The rule cannot
-            // read the synonym, so it declares a gap and names the word; the agent's choice (experiment A) is what can.
+            // read the synonym, so it declares a gap and names the word; the agent's choice (A) is what can.
             var proposal = evaluated(positions, requirements: requirements, relevance: relevance, unaccounted: unaccounted)
             if let leftOut {
                 proposal.leftOut = leftOut

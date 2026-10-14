@@ -1067,7 +1067,8 @@ struct FactWiringTests {
             _ = try await tools.call("act", .object(["target": .string("Save")]))
             Issue.record("the call ran")
         } catch {
-            #expect("\(error)".contains("did not confirm this call before it could act"), "\(error)")
+            // Said as the missing session it is, never as the memory's failure (live run R01, Workspace event 113).
+            #expect("\(error)".contains("needs an open session") && !"\(error)".contains("memory"), "\(error)")
         }
         #expect(session.gestures.isEmpty, "no gesture went out")
         let memory = service(session)

@@ -323,6 +323,8 @@ public final class AutomationTools {
             return try finish(name, try await answer(name, arguments, recorder: nil),
                           notice: "This call was not recorded: Braus's memory cannot represent its arguments.")
         }
+        // The contract refuses such a call before the memory is asked; it is said as what it is, nothing run or recorded.
+        if request.tool.requiresConfirmedStart, request.tool.takesSession, session.id == nil { throw Self.noSession }
         let attribution = request.tool == .batch ? nil : openTask?.attribution
         if case .batch = request {} else {
             do {
@@ -384,6 +386,11 @@ public final class AutomationTools {
         try transcribe("← \(name) \(String(decoding: try JSONEncoder().encode(answered), as: UTF8.self))")
         return MCPRouter.toolResult(answered)
     }
+
+    /// The refusal of a call that needs a session when none is open: the call's own contract, never the memory's failure
+    /// (live run R01, Workspace event 113, where the agent read it as a memory that was not available).
+    static let noSession = AutomationFailure("This call needs an open session and none is open, so nothing was done. Open one "
+                                             + "with open_session, then call again.")
 
     /// The refusal of a call whose start the memory did not confirm: nothing was done.
     private static func unconfirmed(_ error: any Error) -> AutomationFailure {
@@ -620,6 +627,20 @@ public final class AutomationTools {
                     answer["revision"] = .number(Double(current.revision))
                 }
                 if let suspended { answer["memory"] = .string("suspended: \(suspended)") }
+                // What this process records into and recalls with, as it resolved them: for a run's preflight, which needs the
+                // process's own archive and configuration, not a value set in a shell.
+                answer["archive"] = .string(memory.url.path)
+                let recall = await RecallService.shared(for: memory).identity()
+                answer["recall"] = .object(["channel": .string(recall.channel), "model": recall.model.map(JSONValue.string) ?? .null,
+                                            "models_folder": recall.modelsFolder.map(JSONValue.string) ?? .null,
+                                            "format": .string(recall.format), "owns_index": .bool(recall.ownsIndex),
+                                            "model_state": .string(recall.modelState)])
+                // A measure's control names what it turned off, so the run proves it from the process; absent otherwise.
+                let ablation = MeasureAblation.active
+                if !ablation.isEmpty {
+                    let named: [(MeasureAblation, String)] = [(.recall, "recall"), (.brain, "brain")]
+                    answer["measure_ablation"] = .array(named.filter { ablation.contains($0.0) }.map { .string($0.1) })
+                }
                 return .object(answer)
         }
     }
@@ -640,9 +661,10 @@ public final class AutomationTools {
         let service = RecallService.shared(for: memory)
         await service.schedule()
         do {
+            let (needs, notes) = try await resolved(plan.needs, service: service)
             let request = try RecallRequest(taskID: task.taskID, attemptID: task.attemptID, revision: task.revision, reason: reason,
-                                            remainingWork: plan.remaining ?? content.goal, needs: plan.needs,
-                                            values: content.inputs, constraints: content.constraints)
+                                            remainingWork: plan.remaining ?? content.goal, needs: needs,
+                                            values: content.inputs, constraints: content.constraints, notes: notes)
             let answer = try await service.recall(request, producer: producer)
             let data = try JSONEncoder().encode(answer.delivery)
             return ["recall": try JSONDecoder().decode(JSONValue.self, from: data)]
@@ -661,9 +683,10 @@ public final class AutomationTools {
         let service = RecallService.shared(for: memory)
         await service.schedule()
         do {
+            let (needs, notes) = try await resolved(plan.needs, service: service)
             let request = try RecallRequest(taskID: task.taskID, attemptID: task.attemptID, revision: task.revision, reason: reason,
-                                            remainingWork: plan.remaining ?? content.goal, needs: plan.needs,
-                                            values: content.inputs, constraints: content.constraints)
+                                            remainingWork: plan.remaining ?? content.goal, needs: needs,
+                                            values: content.inputs, constraints: content.constraints, notes: notes)
             let answer = try await service.propose(request, producer: producer)
             let data = try JSONEncoder().encode(answer.delivery)
             return ["recall_proposal": try JSONDecoder().decode(JSONValue.self, from: data)]
@@ -675,6 +698,19 @@ public final class AutomationTools {
         }
     }
 
+    /// The needs with the applications they name resolved to bundle IDs (`RecallApplications`), before anything filters,
+    /// selects or records them, and the notes of those that could not be resolved. The applications are the learned parts'
+    /// and those the session offers the `apps` tool for each word named, asked once per word; nothing is opened.
+    private func resolved(_ needs: [RecallNeed], service: RecallService) async throws -> ([RecallNeed], [String]) {
+        let words = Set(needs.compactMap(\.bundleID))
+        guard !words.isEmpty else { return (needs, []) }
+        let learned = await service.learnedApplications()
+        var offered: [ApplicationCandidate] = []
+        for word in words.sorted() { offered += (try? await session.applications(matching: word)) ?? [] }
+        let resolution = try RecallApplications.resolving(needs, among: RecallApplications.known(learned: learned, offered: offered))
+        return (resolution.needs, resolution.notes)
+    }
+
     /// Records the agent's declared uses of the selections it received; answers how many were recorded.
     private func report(_ uses: [MemoryTaskTool.UseReport], task: OpenTask, memory: MemoryService) async throws -> Int {
         let service = RecallService.shared(for: memory)
@@ -683,8 +719,16 @@ public final class AutomationTools {
                 try await service.report(queryID: use.queryID, attemptID: task.attemptID, needPosition: use.needPosition,
                                          declared: use.declared, cause: use.cause, note: use.note)
             } catch RecallUseError.unknownQuery(let id) {
+                // A proposal's id is no query's (live run R01): say which id a use names, and that nothing was recorded.
+                if await service.isProposal(id, of: task.taskID) {
+                    throw MemoryTaskTool.Failure(code: "unknown_query",
+                                                 message: "\(id) is a proposal, not a query: a use names the query that memory_task choose "
+                                                    + "answered (recall.query). A proposal you did not choose from has no use to report. Nothing "
+                                                    + "was recorded.")
+                }
                 throw MemoryTaskTool.Failure(code: "unknown_query",
-                                             message: "No query \(id) with that need was made by this attempt: report the query ids recall answered.")
+                                             message: "No query \(id) with that need was made by this attempt: report the query ids recall answered. "
+                                                + "Nothing was recorded.")
             }
         }
         return uses.count

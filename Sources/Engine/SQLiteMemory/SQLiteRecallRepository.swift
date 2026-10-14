@@ -407,6 +407,14 @@ public struct SQLiteRecallRepository: Sendable {
 
     // MARK: The catalogue, checked again
 
+    /// Whether the archive holds any procedure version, however qualified: without one nothing was ever learned, and an
+    /// index that does not exist yet hides nothing.
+    public func hasVersions() async throws -> Bool {
+        try await store.read { snapshot in
+            try snapshot.query("SELECT EXISTS (SELECT 1 FROM memory_procedure_versions)") { $0.integer(0) ?? 0 }.first == 1
+        }
+    }
+
     /// The parts among `partIDs` the catalogue offers now.
     public func offered(_ partIDs: [String]) async throws -> Set<String> {
         guard !partIDs.isEmpty else { return [] }

@@ -27,11 +27,12 @@ extension EngineRuntime {
         recorder(CommandLineTrace.context())
     }
 
-    /// The user's one Knowledge directory, with its earlier client archives registered for unification.
+    /// The user's one Knowledge directory, with its earlier client archives and the knowledge of the product's earlier
+    /// name registered for unification.
     static func sharedKnowledge() -> URL {
         let support = KnowledgeLocation.support()
         let shared  = KnowledgeLocation.knowledge(under: support)
-        MemoryService.unify(shared, with: KnowledgeLocation.legacyProfiles(under: support))
+        MemoryService.unify(shared, with: KnowledgeLocation.legacyProfiles(under: support) + KnowledgeLocation.previousProductOrigins())
         return shared
     }
 

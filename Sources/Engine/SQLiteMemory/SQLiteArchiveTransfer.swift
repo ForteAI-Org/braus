@@ -422,6 +422,72 @@ package enum SQLiteArchiveTransfer {
         return store
     }
 
+    // MARK: Adoption
+
+    /// Makes the archive of the product's earlier name the user's archive, when none exists yet: a copy consistent as of
+    /// one read transaction of the source (through the backup API, never a copy of its files, which an earlier build may
+    /// hold open), checked whole, in rollback journal mode, renamed into place without replacing anything. The source is
+    /// only read. The copy keeps the source's shape: the store's open that follows recognizes it and migrates it as it
+    /// would the source. Answers false, with nothing left behind, when a file appeared at the destination meanwhile.
+    package static func adopt(_ source: URL, as destination: URL) async throws -> Bool {
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return false }
+        let partial = destination.deletingLastPathComponent()
+            .appendingPathComponent(".\(destination.lastPathComponent).adopting-\(UUID().uuidString)")
+        defer {
+            for suffix in ["", "-wal", "-shm", "-journal"] { try? FileManager.default.removeItem(atPath: partial.path + suffix) }
+        }
+        guard let presence = try SQLiteMemoryPresence.take(.shared, of: source) else {
+            throw MemoryStoreError.unavailable(.interruptedRecovery("a recovery holds the archive of the earlier name"))
+        }
+        defer { presence.release() }
+        do {
+            let reader = try readableConnection(to: source)
+            defer { reader.close() }
+            let target = try SQLiteConnection(path: partial.path)
+            defer { target.close() }
+            try reader.execute("BEGIN")
+            defer { _ = try? reader.execute("COMMIT") }
+            let backup = try SQLiteBackup(from: reader, to: target)
+            while try backup.step(pages: 1024).remaining > 0 { await Task.yield() }
+            try backup.finish()
+            guard try target.query("PRAGMA integrity_check", [], { try $0.text(0) ?? "" }) == ["ok"] else {
+                throw MemoryStoreError.snapshot(.copyFailedIntegrityCheck(["the copy of the earlier name's archive failed its integrity check"]))
+            }
+            guard try target.query("PRAGMA journal_mode = DELETE", [], { try $0.text(0) ?? "" }).first == "delete" else {
+                throw MemoryStoreError.snapshot(.copyFailedIntegrityCheck(["the copy could not leave its write-ahead log"]))
+            }
+        }
+        guard renamex_np(partial.path, destination.path, UInt32(RENAME_EXCL)) == 0 else {
+            if errno == EEXIST { return false }
+            throw MemoryStoreError.snapshot(.destinationUnavailable(MemoryStoreFault(
+                code: MemoryStoreFault.Code(primary: 0, extended: errno), phase: .snapshot, message: String(cString: strerror(errno)))))
+        }
+        return true
+    }
+
+    /// Journals an adopted origin: `completed`, the source's schema and its last event's order, which a later look at
+    /// the source compares (`needsTransfer`): only events it wrote after the adoption are taken in.
+    package static func recordAdoption(_ destination: SQLiteMemoryStore, origin: String, location: String, nowMS: Int64,
+                                       sourceVersion: Int64?) async throws {
+        _ = try await destination.write { transaction in
+            let high = try transaction.query("SELECT max(local_order) FROM memory_events") { $0.integer(0) }.first ?? nil
+            try transaction.execute(
+                """
+                INSERT INTO memory_archive_origins (origin_id, origin_kind, location, status, first_seen_at_ms, updated_at_ms,
+                                                    source_schema_version, high_local_order, detail)
+                VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?)
+                ON CONFLICT(origin_id) DO NOTHING
+                """,
+                [.text(origin), .text(Self.kind(of: origin)), .text(location), .integer(nowMS), .integer(nowMS),
+                 sourceVersion.map(SQLiteValue.integer) ?? .null, high.map(SQLiteValue.integer) ?? .null,
+                 .text(adoptedDetail)]
+            )
+        }
+    }
+
+    /// What the journal of an adopted origin says: the archive is its copy, every fact and version of it.
+    package static let adoptedDetail = "adopted: this archive began as a copy of it, whole"
+
     /// The token of the file at the URL, read without creating or changing it; nil when it cannot be read.
     private static func stagedToken(at url: URL) -> Int32? {
         guard let connection = try? SQLiteConnection(path: url.path, readOnly: true, mayCreate: false) else {
@@ -908,6 +974,15 @@ package enum SQLiteArchiveTransfer {
 
     // MARK: The journal
 
+    /// The prefix of the origins of the product's earlier name (`KnowledgeLocation.previousProductOrigins`): their
+    /// Knowledge (`previous-product:knowledge`) and their external clients' (`previous-product:mcp-profile:<name>`).
+    package static let previousProductPrefix = "previous-product:"
+
+    /// The kind an origin is journaled under, from its identity.
+    static func kind(of origin: String) -> String {
+        origin.hasPrefix(previousProductPrefix) ? "previous_product" : "mcp_profile"
+    }
+
     private static func journal(_ destination: SQLiteMemoryStore, _ origin: String, location: String, nowMS: Int64,
                                 status: String, detail: String?, sourceVersion: Int64? = nil) async throws {
         _ = try await destination.write { transaction in
@@ -915,12 +990,12 @@ package enum SQLiteArchiveTransfer {
                 """
                 INSERT INTO memory_archive_origins (origin_id, origin_kind, location, status, first_seen_at_ms,
                                                     updated_at_ms, source_schema_version, detail)
-                VALUES (?, 'mcp_profile', ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(origin_id) DO UPDATE SET status = excluded.status, updated_at_ms = excluded.updated_at_ms,
                     source_schema_version = ifnull(excluded.source_schema_version, source_schema_version),
                     detail = excluded.detail
                 """,
-                [.text(origin), .text(location), .text(status), .integer(nowMS), .integer(nowMS),
+                [.text(origin), .text(Self.kind(of: origin)), .text(location), .text(status), .integer(nowMS), .integer(nowMS),
                  sourceVersion.map(SQLiteValue.integer) ?? .null, detail.map(SQLiteValue.text) ?? .null]
             )
         }
@@ -974,16 +1049,24 @@ package enum SQLiteArchiveTransfer {
     package static func needsTransfer(source: URL, origin: String, into destination: SQLiteMemoryStore) async -> Bool {
         let recorded = try? await destination.read { snapshot in
             try snapshot.query(
-                "SELECT status, high_local_order FROM memory_archive_origins WHERE origin_id = ?",
+                "SELECT status, high_local_order, detail FROM memory_archive_origins WHERE origin_id = ?",
                 [.text(origin)]
             ) {
-                (status: try $0.text(0) ?? "", high: $0.integer(1))
+                (status: try $0.text(0) ?? "", high: $0.integer(1), detail: try $0.text(2))
             }
         }
         guard let journaled = recorded?.first, ended.contains(journaled.status) else { return true }
         if journaled.status == "refused" { return false }
         guard let reader = try? readableConnection(to: source) else { return true }
         defer { reader.close() }
+        // An adopted origin holds, as this archive's own, every event up to its last one at the adoption: only later
+        // ones are offered again.
+        if journaled.detail == adoptedDetail {
+            let later = try? reader.query("SELECT count(*) FROM memory_events WHERE local_order > ?", [.integer(journaled.high ?? 0)]) {
+                $0.integer(0) ?? 0
+            }
+            return (later?.first ?? 0) > 0
+        }
         guard let events = try? reader.query("SELECT event_id FROM memory_events", [], { try $0.text(0) ?? "" }),
               let mapped = try? await mappings(destination, origin) else {
             return true

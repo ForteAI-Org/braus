@@ -1,7 +1,11 @@
--- Braus Brain and living memory: the schema of the SQLiteMemory module, version 7.
+-- Braus Brain and living memory: the schema of the SQLiteMemory module, version 8.
 -- This one text creates a new archive in its bootstrap transaction, and the store compares every archive with the
 -- exact shape it creates at each open. It is edited in place: a change of shape before a release adds no file, and
--- an archive of an earlier development shape is refused untouched.
+-- an archive of an earlier development shape is refused untouched, except the historical shapes the store recognizes
+-- by the digest of their objects and rebuilds (main before the value change, the D3 build's version 7).
+-- Version 8 is the shape version 7 had since D1-D3 were merged into rename-app with one CHECK widened (the origins of
+-- the product's earlier name, `previous_product`); its number tells it apart from both versions 7 (the D3 build's and
+-- rename-app's), so every migration records the version it came from. Both are recognized whole and rebuilt.
 -- Part 1 is version 1, the base: an archive of version 1 at exactly its shape migrates in one transaction after a
 -- verified copy. The store reads that shape from part 1 itself, creates every table, index and trigger of the
 -- later parts the archive lacks, each as written here, and derives the rows a text cannot. Editing part 1 changes
@@ -1690,7 +1694,8 @@ CREATE TABLE memory_value_redactions (
 
 -- ---------------------------------------------------------------------------------------------
 -- Unification. The archives the memory took facts from (the MCP clients' private archives of schema
--- 1), the state of each transfer, and the source of every event it took: added as it was, found
+-- 1, `mcp_profile`, and the Knowledge of the product's earlier name, `previous_product`, adopted whole or
+-- taken in), the state of each transfer, and the source of every event it took: added as it was, found
 -- already present with the same content (a proven duplicate, which adds no evidence), or added under
 -- a new identity because its own was taken by another fact. An origin some of whose knowledge could
 -- not be taken in is `partial`, never `completed`; what it kept is named in its contributions.
@@ -1698,7 +1703,7 @@ CREATE TABLE memory_value_redactions (
 
 CREATE TABLE memory_archive_origins (
     origin_id TEXT PRIMARY KEY CHECK (length(origin_id) > 0),
-    origin_kind TEXT NOT NULL CHECK (origin_kind IN ('mcp_profile')),
+    origin_kind TEXT NOT NULL CHECK (origin_kind IN ('mcp_profile', 'previous_product')),
     location TEXT NOT NULL CHECK (length(location) > 0),
     status TEXT NOT NULL CHECK (status IN ('in_progress', 'completed', 'partial', 'refused', 'failed')),
     first_seen_at_ms INTEGER NOT NULL,

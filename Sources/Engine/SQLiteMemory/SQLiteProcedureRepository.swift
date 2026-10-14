@@ -327,11 +327,12 @@ enum SQLiteProcedureRows {
     // MARK: Facts
 
     /// The calls attributed to an attempt as actions, in the order they started, as the segmentation
-    /// reads them. A batch is attributed as context and never appears here; its started steps do.
+    /// reads them, with the kind of outcome each concluded with (a menu listing is told by it). A batch
+    /// is attributed as context and never appears here; its started steps do.
     static func attemptCalls(_ handle: some SQLiteQuerying, attemptID: String) throws -> [ProcedureSegmentation.Call] {
         try handle.query(
             """
-            SELECT e.event_id, a.tool_kind, a.execution_status, b.bundle_id
+            SELECT e.event_id, a.tool_kind, a.execution_status, b.bundle_id, a.result_kind
             FROM memory_task_events e
             JOIN memory_agent_actions a ON a.event_id = e.event_id
             LEFT JOIN brain_apps b ON b.app_id = a.app_id
@@ -344,7 +345,8 @@ enum SQLiteProcedureRows {
             guard let tool = AgentTool(rawValue: toolCode), let status = AgentCallStatus(rawValue: statusCode) else {
                 throw malformed("memory_agent_actions", id, "tool or status")
             }
-            return ProcedureSegmentation.Call(callEventID: id, tool: tool, status: status, bundleID: try row.text(3))
+            return ProcedureSegmentation.Call(callEventID: id, tool: tool, status: status, bundleID: try row.text(3),
+                                              resultKind: try row.text(4).flatMap(ActOutcomeKind.init(rawValue:)))
         }
     }
 
@@ -1002,23 +1004,26 @@ enum SQLiteProcedureRows {
         for attempt in try SQLiteTaskContextRows.attempts(handle, of: taskID) {
             let rows = try handle.query(
                 """
-                SELECT m.event_id, m.position, a.tool_kind, a.execution_status, b.bundle_id, e.parent_event_id
+                SELECT m.event_id, m.position, a.tool_kind, a.execution_status, b.bundle_id, e.parent_event_id, a.result_kind
                 FROM memory_task_events m JOIN memory_agent_actions a ON a.event_id = m.event_id
                 JOIN memory_events e ON e.event_id = m.event_id LEFT JOIN brain_apps b ON b.app_id = a.app_id
                 WHERE m.task_occurrence_id = ? AND m.role IN ('action', 'context') ORDER BY m.position
                 """,
                 [.text(attempt.attempt.attemptID)]
             ) { (id: try $0.text(0) ?? "", position: Int($0.integer(1) ?? 0), tool: try $0.text(2) ?? "", status: try $0.text(3) ?? "",
-                 bundle: try $0.text(4), parent: try $0.text(5)) }
+                 bundle: try $0.text(4), parent: try $0.text(5), result: try $0.text(6)) }
             var listed: [ProcedureInspection.Call] = []
             func call(_ id: String, position: Int, tool code: String, status statusCode: String, bundle: String?,
-                      parent: String?) throws -> ProcedureInspection.Call {
+                      parent: String?, result: String?) throws -> ProcedureInspection.Call {
                 guard let tool = AgentTool(rawValue: code), let status = AgentCallStatus(rawValue: statusCode) else {
                     throw malformed("memory_agent_actions", id, "tool or status")
                 }
                 let role: ProcedureInspection.CallRole
                 if tool == .batch { role = .container }
                 else if tool.isOperation, status == .planned || status == .skipped { role = .skipped }
+                else if ProcedureSegmentation.isListing(tool: tool, resultKind: result.flatMap(ActOutcomeKind.init(rawValue:))) {
+                    role = .context
+                }
                 else if tool.isOperation { role = .step }
                 else { role = .context }
                 let occurrence = try handle.query(
@@ -1048,7 +1053,7 @@ enum SQLiteProcedureRows {
             }
             for row in rows {
                 listed.append(try call(row.id, position: row.position, tool: row.tool, status: row.status, bundle: row.bundle,
-                                       parent: row.parent))
+                                       parent: row.parent, result: row.result))
                 guard row.tool == AgentTool.batch.rawValue else { continue }
                 // A batch's steps that never started were never attributed: they are read through their parent.
                 let unrun = try handle.query(
@@ -1063,7 +1068,7 @@ enum SQLiteProcedureRows {
                 ) { (id: try $0.text(0) ?? "", tool: try $0.text(1) ?? "", status: try $0.text(2) ?? "", bundle: try $0.text(3)) }
                 for child in unrun {
                     listed.append(try call(child.id, position: row.position, tool: child.tool, status: child.status,
-                                           bundle: child.bundle, parent: row.id))
+                                           bundle: child.bundle, parent: row.id, result: nil))
                 }
             }
             calls += listed.map(\.callEventID)

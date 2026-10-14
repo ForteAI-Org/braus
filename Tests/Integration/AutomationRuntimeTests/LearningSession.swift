@@ -61,6 +61,8 @@ final class LearningSession: AutomationSessionOperating {
     var script: [String: Outcome] = [:]
     /// Every operation that reached an application, in order.
     private(set) var gestures: [String] = []
+    /// The applications installed or running, as the `apps` tool offers them; none unless a test names some.
+    var offered: [ApplicationCandidate] = []
 
     init(directory: URL) { self.directory = directory }
 
@@ -296,7 +298,11 @@ final class LearningSession: AutomationSessionOperating {
         }
     }
 
-    func applications(matching query: String?) async throws -> [ApplicationCandidate] { [] }
+    /// The offered applications whose name or bundle ID contains the query, ignoring case, as the default session's do.
+    func applications(matching query: String?) async throws -> [ApplicationCandidate] {
+        guard let query, !query.isEmpty else { return offered }
+        return offered.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.bundleID.localizedCaseInsensitiveContains(query) }
+    }
 
     func close() async {}
 }

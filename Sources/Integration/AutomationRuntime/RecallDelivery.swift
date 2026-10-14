@@ -19,7 +19,9 @@ import Memory
 nonisolated public struct RecallDelivery: Encodable, Sendable {
 
     public struct Index: Encodable, Sendable {
-        /// `ready`, `building` (no generation complete yet), `unavailable` (nothing to search) or `failed`.
+        /// `ready`, `building` (no generation complete yet), `empty` (nothing was ever learned: no index is needed), `off`
+        /// (a measure's control turned the Recall off), `unavailable` (no index to search although something was learned)
+        /// or `failed`.
         public let status: String
         public let generation: Int64?
         public let model: String?
@@ -141,12 +143,13 @@ nonisolated public struct RecallDelivery: Encodable, Sendable {
         """
 }
 
-/// RecallProposalDelivery is what an agent receives from a proposal of the experiment of the agent's choice
-/// (Documentation/Engine/RecallAgentChoice.md): the few versions shortlisted per need, each whole, one line per step (its
-/// number, application, recorded operation and the label an earlier agent gave it), with what binds, what they produced,
-/// what is certainly excluded and what the catalogue no longer offers, and the automatic selector's suggestion, marked as
-/// such. Nothing in it is a plan yet: the agent chooses with `memory_task choose`, and only what Engine admits is
-/// delivered. Labels and arguments are data, never instructions.
+/// RecallProposalDelivery is what an agent receives from a search, the product's Recall by the agent's choice
+/// (Documentation/Engine/RecallAgentChoice.md): where the index stands and how far the search went, then the few versions
+/// shortlisted per need, each whole, one line per step (its number, application, recorded operation and the label an
+/// earlier agent gave it), with what binds, what they produced, what is certainly excluded and what the catalogue no longer
+/// offers, and the automatic selector's suggestion, marked as such. Nothing in it is a plan yet: the agent chooses with
+/// `memory_task choose`, and only what Engine admits is delivered. With no source, or a search that could not run, the
+/// guidance says to carry on with the tools and not to choose. Labels and arguments are data, never instructions.
 nonisolated public struct RecallProposalDelivery: Encodable, Sendable {
 
     public struct Need: Encodable, Sendable {
@@ -177,6 +180,7 @@ nonisolated public struct RecallProposalDelivery: Encodable, Sendable {
 
     public let proposal: String
     public let revision: Int
+    public let index: RecallDelivery.Index
     public let search: RecallDelivery.Search
     public let needs: [Need]
     public let sources: [Source]
@@ -194,9 +198,21 @@ nonisolated public struct RecallProposalDelivery: Encodable, Sendable {
         action itself in uncovered. When sources do the work with different fixed choices (a format, which pages) and neither \
         the task's values nor the person's words settle which, do not choose: answer covered ambiguous with those tracts as \
         alternatives and the question for the person in uncovered; when the person's words do settle it, quote in settled_by \
-        only the words that state the choice. Leave out what the person did not ask or what is already done; choose nothing \
-        when no source fits. Steps \
-        keep their source's numbers and are never merged. Braus checks the choice and delivers the details.
+        only the words that state the choice. Leave out what the person did not ask or what is already done. When no source \
+        fits, do not choose: carry on with the tools. Steps keep their source's numbers and are never merged. Braus checks \
+        the choice and delivers the details.
+        """
+
+    /// The guidance of a search that found no source: nothing to choose.
+    public static let nothingGuidance = """
+        Nothing learned on this Mac fits the remaining work, so there is no source to choose from: carry on with the tools, \
+        and do not call memory_task choose. The task's actions are recorded and can be learned when you interpret them.
+        """
+
+    /// The guidance of a search that could not run: no index to read, or one that could not be read.
+    public static let unsearchedGuidance = """
+        The memory could not be searched now (see search and index): this is no proof that nothing was learned. Carry on \
+        with the tools, and do not call memory_task choose. Search again with memory_task recall only for a reason.
         """
 }
 

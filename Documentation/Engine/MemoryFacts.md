@@ -198,8 +198,8 @@ declared or recognized secret could be kept. A row with no proof named is shown 
 
 ## Schema 2 and its migration
 
-Since 2026-10-13 schema 2 is part 2 of the one schema text at version 7, and the migration below runs from schema 1
-straight to version 7 with every later part ([One schema text](MemorySchema.md#one-schema-text)). The copy, the
+Since 2026-10-13 schema 2 is part 2 of the one schema text, now at version 8, and the migration below runs from schema 1
+straight to the current version with every later part ([One schema text](MemorySchema.md#one-schema-text)). The copy, the
 transaction, the readers' refusal and the recovery are as described here; an archive at version 2 to 6, never
 released, is refused untouched.
 
@@ -280,6 +280,44 @@ mapping lacks: one an older build wrote since the snapshot (the end certified th
 Mac no SQLite archive existed in the app's folder on 2026-10-09 (JSON Brains only), so the unification
 was proved on synthetic archives only.
 
+### The knowledge of the product's earlier name (2026-10-13)
+
+The product was called Mecum until 13 October 2026, and its support folder `~/Library/Application Support/Mecum`. The
+renamed build starts from `~/Library/Application Support/Braus`; a new folder is no forgotten knowledge, and an old one
+is no archive to choose over the new. `KnowledgeLocation.previousProductOrigins` inventories, read only, the earlier
+name's `Knowledge` directory (origin `previous-product:knowledge`) and its external clients' private ones
+(`previous-product:mcp-profile:<name>`), journaled under the kind `previous_product`. The app and `braus` register them
+beside the client directories of the current folder.
+
+- **Which folder.** Only for the default support folder, or the one `BRAUS_PREVIOUS_SUPPORT_DIR` names (set empty, none).
+  A process whose support folder is moved (`BRAUS_APP_SUPPORT_DIR`: a test, a live run's root) and the app's check runs
+  read no folder of the person's. Profiles, conversations, credentials and settings of the earlier name are not
+  knowledge and are never read; the providers, the bridge and the permissions of the new identity need their own
+  preflight.
+- **Only the earlier archive.** An open that finds no archive of its own adopts the earlier one whole
+  (`SQLiteArchiveTransfer.adopt`): under the earlier archive's presence lock, a copy consistent as of one read
+  transaction through the backup API, never a copy of its files, checked whole, in rollback journal mode, renamed into
+  place without replacing anything. The store's open then recognizes its shape and migrates it, after its own verified
+  copy ([MemorySchema](MemorySchema.md#historical-shapes)): facts, procedures, versions, qualifications and the Recall's
+  facts come with their own provenance, which a transfer of facts alone would not carry. The origin is journaled
+  `completed`, "adopted", with the source's last event order.
+- **Only JSON Brains** (the earlier app's folder before the SQLite memory): merged once into the new archive, element by
+  element, as a client directory's are.
+- **Both archives.** The earlier one is taken in by the transfer above, once, every event with its source. An earlier
+  archive holding tasks, procedures or relations (a D1–D3 development build's) is refused whole and said
+  (`status().lastUnification`, the journal's detail): nothing is half merged, both archives stay as they are. Merging
+  two archives of procedures is the sharing of plan D4.
+- **Stopped and reopened.** A transfer resumes from its mapping; a copy that stopped before its rename leaves nothing;
+  a process that stopped after the adoption's copy and before its record takes the source in by transfer at the next
+  open, every event recognized as already here. A later open of an adopted origin takes in only the events the earlier
+  archive gained since the adoption.
+- **What reading touches.** The earlier archive's data files keep their bytes. Its WAL index (`-shm`), which every SQLite
+  reader marks, and its presence lock (`memory.sqlite.lock`, created empty if absent), which every build since main
+  `f44fb67` takes before reading an archive, are coordination.
+
+`PreviousProductTests` proves each case on folders of its own; nothing of the person's was read or migrated. On this Mac
+the earlier folder holds JSON Brains only.
+
 ### Several openers at once (review F07)
 
 Two openers of the shared archive (an app and an MCP host, two services in one process, two processes)
@@ -347,7 +385,7 @@ production caller of the memory; they are outside D1.
 | context_menu | by reading (`SeatContextMenuSelector`, live path) | `everyOperationIsRecorded` |
 | menu, press | by reading (`MenuBarCommand`, `DialogButtonPress`, live paths) | `everyOperationIsRecorded`; before D1 closed, a call of either could not be read back (below) |
 | batch | per step, as above | `partialBatch`, `CommandLineBatchTests`, `ConsumerReadBackTests.everythingReadsBack` |
-| a request the contract cannot represent | refused before any effect | `FactWiringTests` (unrepresentable call refused) |
+| a request the contract cannot represent | refused before any effect; one that needs a session with none open is said as such, before the memory is asked, never as the memory's failure (R01, Workspace event 113) | `FactWiringTests` (unrepresentable call refused), `LiveR01CorrectionTests.noSessionIsNoMemoryFailure` |
 
 Reading a `menu` or `press` call back failed before D1 closed: the reader admitted an outcome only for a
 batch step's tool, while the writer stored one for every operation, so a trace holding either could not

@@ -72,6 +72,16 @@ struct RecallLoadTests {
         return Int(value.dropFirst(9))
     }
 
+    /// The lexical channel the product answers with when its model's files are missing: its configuration without a
+    /// model. `RecallConfiguration.chosen` itself was lexical until the agent's choice became the product's path.
+    static func lexical(owning: Bool) -> RecallConfiguration {
+        var configuration = RecallConfiguration.chosen
+        configuration.channel = .lexical
+        configuration.model = nil
+        configuration.ownsIndex = owning
+        return configuration
+    }
+
     /// The configuration measured: the product's, or the one `BRAUS_RECALL_LOAD_CONFIG` names.
     static func configuration() -> RecallConfiguration {
         var configuration = RecallConfiguration.chosen
@@ -247,8 +257,8 @@ struct RecallLoadTests {
         return phases
     }
 
-    /// Whole queries through `memory_task begin`: the task's revision, the search, the selection, the record and the
-    /// delivery, as an agent waits for them.
+    /// Whole queries through `memory_task begin`: the task's revision, the search, the shortlist, the proposal's record and
+    /// its text (the product's one path, the agent's choice), as an agent waits for them.
     static func toolQueries(_ directory: URL, queries: [(text: String, app: String)], stage: Int) async throws -> [Double] {
         var durations: [Double] = []
         for (position, query) in queries.enumerated() {
@@ -258,7 +268,7 @@ struct RecallLoadTests {
                 {"operation":"begin","goal":"\#(query.text)","inputs":[{"name":"output_name","value":"x_1"}]}
                 """#)
             durations.append(G.milliseconds(started.duration(to: .now)))
-            #expect(answer["recall"] != .null, "\(answer)")
+            #expect(answer["recall_proposal"] != .null, "\(answer)")
         }
         return durations
     }
@@ -280,9 +290,7 @@ struct RecallLoadTests {
         stage["warm search ms"] = try await Self.searches(service, queries: queries, bound: false).mapValues { G.summary($0) }
         stage["warm search bound to one application ms"] = try await Self.searches(service, queries: queries, bound: true).mapValues { G.summary($0) }
         if configuration.channel != .lexical {
-            var lexical = RecallConfiguration.chosen
-            lexical.ownsIndex = false
-            let guest = RecallService(memory: memory, configuration: lexical)
+            let guest = RecallService(memory: memory, configuration: Self.lexical(owning: false))
             _ = try await Self.searches(guest, queries: Array(queries.prefix(5)), bound: false)
             stage["warm search, lexical guest ms"] = try await Self.searches(guest, queries: queries, bound: false).mapValues { G.summary($0) }
         }
@@ -561,7 +569,7 @@ struct RecallLoadTests {
         for arm in ["no index", "lexical owner", "hybrid granite owner"] {
             let directory = try W.directory()
             let memory = MemoryService.shared(for: directory)
-            var configuration = arm == "hybrid granite owner" ? Self.configuration() : RecallConfiguration.chosen
+            var configuration = arm == "hybrid granite owner" ? Self.configuration() : Self.lexical(owning: true)
             if arm == "hybrid granite owner" {
                 configuration.channel = .hybrid
                 configuration.model = .graniteEmbedding107MMultilingual
@@ -632,10 +640,8 @@ struct RecallLoadTests {
             stage["warm search ms"] = try await Self.searches(service, queries: queries, bound: false).mapValues { G.summary($0) }
             stage["warm search bound to one application ms"] = try await Self.searches(service, queries: queries, bound: true).mapValues { G.summary($0) }
             if configuration.channel != .lexical {
-                // The product's provisional lexical channel over the same generation, as a guest of its index.
-                var lexical = RecallConfiguration.chosen
-                lexical.ownsIndex = false
-                let guest = RecallService(memory: memory, configuration: lexical)
+                // The product's lexical channel over the same generation, as a guest of its index.
+                let guest = RecallService(memory: memory, configuration: Self.lexical(owning: false))
                 _ = try await Self.searches(guest, queries: Array(queries.prefix(5)), bound: false)
                 stage["warm search, lexical guest ms"] = try await Self.searches(guest, queries: queries, bound: false).mapValues { G.summary($0) }
             }

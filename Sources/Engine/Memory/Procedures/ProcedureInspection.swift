@@ -24,7 +24,8 @@ public struct ProcedureInspection: Sendable {
         case container
         /// A batch's step that never started.
         case skipped
-        /// A planned operation that never started outside a batch, or a context tool.
+        /// A planned operation that never started outside a batch, a context tool, or a `menu` that only
+        /// listed a menu's items and pressed nothing.
         case context
     }
 

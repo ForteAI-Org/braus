@@ -146,13 +146,14 @@ struct SQLiteMemoryStoreTests {
         let store = try await SQLiteMemoryStore.open(at: url)
         await store.close()
         let raw = try SQLiteConnection(path: url.path)
-        try raw.execute("PRAGMA user_version = 8")
+        let future = Int64(SQLiteMemorySchema.version) + 1
+        try raw.execute("PRAGMA user_version = \(future)")
         raw.close()
 
         let error = await storeError { _ = try await SQLiteMemoryStore.open(at: url) }
-        #expect(error == .schema(.future(found: 8, supported: SQLiteMemorySchema.version)))
+        #expect(error == .schema(.future(found: Int32(future), supported: SQLiteMemorySchema.version)))
         let check = try SQLiteConnection(path: url.path)
-        #expect(try check.query("PRAGMA user_version") { $0.integer(0) }.first == 8)
+        #expect(try check.query("PRAGMA user_version") { $0.integer(0) }.first == future)
         #expect(try check.query(
             "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
         ) { $0.integer(0) }.first == Int64(SchemaShape.current.tables))

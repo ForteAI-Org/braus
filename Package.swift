@@ -305,7 +305,10 @@ let package = Package(
             resources    : [.copy("Fixtures/recall-corpus-v1.json"), .copy("Fixtures/recall-calibration-v1.json"),
                             .copy("Fixtures/recall-corpus-v2.json"), .copy("Fixtures/recall-calibration-v2.json"),
                             .copy("Fixtures/recall-corpus-v3.json"), .copy("Fixtures/recall-calibration-v3.json"),
-                            .copy("Fixtures/recall-corpus-v4.json")],
+                            .copy("Fixtures/recall-corpus-v4.json"),
+                            // The exact texts two earlier builds ran (main f44fb67, D3 7ee2552), for the historical archives.
+                            .copy("Fixtures/schema-main-1.sql"), .copy("Fixtures/schema-d3-7.sql"),
+                            .copy("Fixtures/schema-rename-app-7.sql")],
             swiftSettings: suite
         ),
 
@@ -387,7 +390,11 @@ let package = Package(
                             .define("SQLITE_USE_URI", to: "1"),
                             .define("SQLITE_ENABLE_API_ARMOR"),
                             .define("SQLITE_ENABLE_MATH_FUNCTIONS"),
-                            .define("SQLITE_OMIT_LOAD_EXTENSION")]),
+                            .define("SQLITE_OMIT_LOAD_EXTENSION"),
+                            // A debug build still runs SQLite optimized, as the system library the store was measured
+                            // against is: at -O0 learning a procedure took about a third longer (scale campaign,
+                            // 13 Oct 2026). This C target only; Swift and the release build are as before.
+                            .unsafeFlags(["-O2"], .when(configuration: .debug))]),
 
         // `TextEmbedding` over a pinned local model: the XLM-RoBERTa tokenizer and a BERT-family encoder on
         // Accelerate, reading the model's files from disk. Imports Memory, Foundation and Accelerate; no network.

@@ -183,6 +183,40 @@ struct ProcedureInspectionTests {
         #expect(inspection.counts.versions == 0, "nothing was interpreted: no version")
     }
 
+    @Test("a menu path that ends on a menu lists its items and presses nothing: read as context, no step and no occurrence; the item pressed after it is the step")
+    func menuListingIsNoStep() async throws {
+        let session = Learning.photoSession(try W.directory())
+        // The listing: the path ends on the File menu, nothing is pressed, no gesture goes out, no check is made.
+        session.script["menu|File"] = LearningSession.Outcome(kind: .actedNoop, gesture: false)
+        let tools = Learning.tools(session)
+        let begun = try await Learning.task(tools, #"{"operation":"begin","goal":"Export the photo"}"#)
+        let taskID = try #require(begun["task"].string)
+        let id = session.id!.uuidString
+        _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.preview)"}"#)
+        let listed = try await Learning.call(tools, "menu", #"{"session":"\#(id)","path":"File"}"#)
+        #expect(listed["status"].string == "acted_noop", "\(listed)")
+        _ = try await Learning.call(tools, "menu", #"{"session":"\#(id)","path":"File > Export…"}"#)
+        _ = try await Learning.call(tools, "press", #"{"session":"\#(id)","button":"Save"}"#)
+        let checkpoint = try await Learning.task(tools, #"{"operation":"checkpoint","note":"exported"}"#)
+        #expect(checkpoint["candidate"]["steps"].array?.count == 2, "the listing is no step: \(checkpoint)")
+        _ = try await Learning.task(tools, #"{"operation":"end","outcome":"completed"}"#)
+        let memory = MemoryService.shared(for: session.directory)
+        #expect(await memory.flush(within: .seconds(10)))
+        await memory.close()
+        MemoryService.forget(session.directory)
+
+        let inspection = try Self.inspection(taskID, session)
+        let calls = try #require(inspection.attempts.first).calls
+        #expect(calls.map { "\($0.tool.rawValue):\($0.role.rawValue)" }
+                == ["open_session:context", "menu:context", "menu:step", "press:step"],
+                "\(calls.map { ($0.tool.rawValue, $0.role.rawValue, $0.position) })")
+        #expect(inspection.counts.operationalSteps == 2 && inspection.counts.contextCalls == 2)
+        #expect(inspection.counts.operationalSteps == (try Self.count("SELECT count(*) FROM memory_step_occurrences", session)))
+        #expect(calls.first { $0.role == .context && $0.tool == .menu }?.stepOccurrenceID == nil)
+        #expect(inspection.text.contains { $0.contains("menu completed") && $0.contains("— context") }, "\(inspection.text)")
+        #expect(try #require(inspection.attempts.first).candidates.allSatisfy { $0.policyVersion == "app-blocks-2" })
+    }
+
     @Test("the secret parameter's task read by its id prints no secret, in the text or the graph")
     func noSecretInTheDiagnosis() async throws {
         let session = LearningSession(directory: try W.directory())

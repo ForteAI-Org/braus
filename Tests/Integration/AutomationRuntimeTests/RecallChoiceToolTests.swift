@@ -14,8 +14,9 @@ import Memory
 @testable import SQLiteMemory
 import Testing
 
-/// RecallChoiceToolTests prove the experiment of the agent's choice through `memory_task` and SQLite, on the photo export
-/// learned through the tools: off unless enabled; a proposal recorded and never delivered as a plan; a valid plan admitted,
+/// RecallChoiceToolTests prove the Recall by the agent's choice, the product's one path, through `memory_task` and SQLite, on
+/// the photo export learned through the tools: offered with no flag, the automatic selector only under its control; a
+/// proposal recorded and never delivered as a plan; a valid plan admitted,
 /// recorded with its query and delivered tract by tract; a plan given again answered unchanged and another refused; a
 /// refusal that records nothing; a proposal stale after a revision, unknown after a resumption, refused for a part retired or
 /// a version superseded since; and the calls that follow linked to the tract they carried out, each once, the version's
@@ -41,7 +42,7 @@ struct RecallChoiceToolTests {
         return #"{"operation":"choose","proposal":"\#(proposal)","plan":[{"need":1,"tracts":[\#(list)],"covered":"\#(covered)"}]}"#
     }
 
-    /// The photo export learned, and a tool of another stream with the experiment enabled that proposed for the export task:
+    /// The photo export learned, and a tool of another stream that proposed for the export task:
     /// the session, the tool, the proposal's id, the version's id and its name in the proposal.
     static func proposed() async throws -> (LearningSession, AutomationTools, String, String, String) {
         let session = P.photoSession(try W.directory())
@@ -60,26 +61,36 @@ struct RecallChoiceToolTests {
         Int(try P.rows("SELECT count(*) FROM \(table) WHERE \(condition)", in: session).first ?? "0") ?? 0
     }
 
-    @Test("off unless enabled: the tool neither describes nor accepts the experiment, and its instructions are unchanged")
-    func offUnlessEnabled() async throws {
-        let operations = "\(Self.definition["inputSchema"]["properties"]["operation"])"
-        #expect(!operations.contains("choose") && Self.definition["inputSchema"]["properties"]["recall_mode"] == .null)
-        #expect(!AutomationTools.instructions.contains("recall_mode propose"))
+    @Test("the agent's choice is the product's one path: described and accepted with no flag, begin answers a proposal, only the selector's control answers a selection")
+    func theOnePath() async throws {
+        let properties = Self.definition["inputSchema"]["properties"]
+        #expect("\(properties["operation"])".contains("choose") && properties["proposal"] != .null && properties["plan"] != .null)
+        #expect(properties["recall_mode"] == .null, "no mode is offered: there is one search")
+        let instructions = AutomationTools.instructions
+        #expect(instructions.contains("recall_proposal") && instructions.contains("memory_task choose"))
+        #expect(!instructions.contains("recall_mode") && !instructions.contains("Experiment"))
+        #expect(instructions.contains("When the\n    proposal lists no source") || instructions.contains("proposal lists no source"))
         let session = P.photoSession(try W.directory())
-        let tools = P.tools(session, stream: "plain")
-        let refused = try await tools.call("memory_task", P.json(Self.proposeRequest))
-        #expect(refused["isError"] == .bool(true) && "\(refused.payload)".contains("unknown argument"), "\(refused.payload)")
-        AgentChoiceExperiment.$enabled.withValue(true) {
-            #expect("\(Self.definition["inputSchema"]["properties"]["operation"])".contains("choose"))
-            #expect(Self.definition["inputSchema"]["properties"]["recall_mode"] != .null)
-            #expect(AutomationTools.instructions.contains("recall_mode propose"))
+        let (_, routeID) = try await L.learnPhoto(session)
+        let plain = Self.proposeRequest.replacingOccurrences(of: #""recall_mode":"propose","#, with: "")
+        let begun = try await P.task(P.tools(session, stream: "plain"), plain)
+        #expect(begun["recall"] == .null && begun["recall_proposal"]["sources"].array?.contains { $0["version"].string == routeID } == true,
+                "\(begun)")
+        let compatible = try await P.task(P.tools(session, stream: "compatible"), Self.proposeRequest)
+        #expect(compatible["recall_proposal"]["proposal"].string != nil, "recall_mode propose is accepted and changes nothing")
+        let refused = try await P.tools(session, stream: "other").call("memory_task",
+                                                                       P.json(Self.proposeRequest.replacingOccurrences(of: "propose", with: "select")))
+        #expect(refused["isError"] == .bool(true) && "\(refused.payload)".contains("recall_mode is propose"), "\(refused.payload)")
+        try await RecallSelectionControl.$automatic.withValue(true) {
+            let control = try await P.task(P.tools(session, stream: "control"), plain)
+            #expect(control["recall"]["query"].string != nil && control["recall_proposal"] == .null, "\(control)")
         }
         await L.close(session)
     }
 
     @Test("a proposal is recorded and delivers no plan; a valid choice is recorded with its query and delivered; given again, answered unchanged")
     func proposeAndChoose() async throws {
-        try await AgentChoiceExperiment.$enabled.withValue(true) {
+        do {
             let (session, tools, id, routeID, key) = try await Self.proposed()
             let proposals = try Self.count("memory_recall_proposals", session), queries = try Self.count("memory_recall_queries", session)
             #expect(proposals == 1 && queries == 0, "a proposal is not a query")
@@ -106,7 +117,7 @@ struct RecallChoiceToolTests {
 
     @Test("a refused plan records nothing and runs nothing; every problem is listed")
     func refusalRecordsNothing() async throws {
-        try await AgentChoiceExperiment.$enabled.withValue(true) {
+        do {
             let (session, tools, id, _, key) = try await Self.proposed()
             let calls = try Self.count("memory_agent_actions", session)
             let refused = try await tools.call("memory_task", P.json(Self.choose(id, [("s9", 4, 7), (key, 4, 40)])))
@@ -122,7 +133,7 @@ struct RecallChoiceToolTests {
 
     @Test("a proposal is stale after a revision of the task and after a restart and resumption; another task's is unknown")
     func staleAndResumed() async throws {
-        try await AgentChoiceExperiment.$enabled.withValue(true) {
+        do {
             let (session, tools, id, _, key) = try await Self.proposed()
             _ = try await P.task(tools, #"{"operation":"update","goal":"Export the photo already rotated as foto_mail.png in PNG, quickly"}"#)
             let stale = try await tools.call("memory_task", P.json(Self.choose(id, [(key, 4, 7)])))
@@ -145,7 +156,7 @@ struct RecallChoiceToolTests {
 
     @Test("a step retired, or the version superseded, between the proposal and the choice refuses the tract")
     func catalogueChangedBetween() async throws {
-        try await AgentChoiceExperiment.$enabled.withValue(true) {
+        do {
             let (session, tools, id, routeID, key) = try await Self.proposed()
             let memory = MemoryService.shared(for: session.directory)
             _ = try await memory.perform { try await $0.procedures.setState(.retired, of: "\(routeID)/step-5", reason: "the pop-up moved",
@@ -167,7 +178,7 @@ struct RecallChoiceToolTests {
 
     @Test("two tracts of one version: the calls are linked to the tract they carried out, each once; a tract wholly carried out is a confirmed reuse, the other not")
     func feedbackPerTract() async throws {
-        try await AgentChoiceExperiment.$enabled.withValue(true) {
+        do {
             let (session, tools, id, routeID, key) = try await Self.proposed()
             let chosen = try await P.task(tools, Self.choose(id, [(key, 1, 2), (key, 4, 7)]))
             let need = try #require(chosen["recall"]["needs"].array?.first, "\(chosen)")
@@ -210,7 +221,7 @@ struct RecallChoiceToolTests {
         let tools = P.tools(session, source: .app, stream: "relay-chooser")
         guard case .object(var begin) = RecallCorpus.begin(query) else { Issue.record("no begin"); return }
         begin["recall_mode"] = .string("propose")
-        try await AgentChoiceExperiment.$enabled.withValue(true) {
+        do {
             let proposal = try await tools.call("memory_task", .object(begin)).payload["recall_proposal"]
             let id = try #require(proposal["proposal"].string, "\(proposal)")
             let key = try #require(proposal["sources"].array?.first { $0["version"].string == routeID }?["source"].string, "\(proposal)")
@@ -246,7 +257,7 @@ struct RecallChoiceToolTests {
     func replayCannotRebindAnOldQuery() async throws {
         // The independent review's counterexample (F13), its body and expectations unchanged.
         typealias C = RecallChoiceToolTests
-        try await AgentChoiceExperiment.$enabled.withValue(true) {
+        do {
             let (session, tools, proposal, _, source) = try await C.proposed()
             let arguments = C.choose(proposal, [(source, 4, 7)])
             let first = try await P.task(tools, arguments)
@@ -270,7 +281,7 @@ struct RecallChoiceToolTests {
 
     @Test("a retry after a revision of the task is stale and records nothing; the chosen query's facts stay as recorded, also after reopening")
     func retryAfterRevisionIsStale() async throws {
-        try await AgentChoiceExperiment.$enabled.withValue(true) {
+        do {
             let (session, tools, id, _, key) = try await Self.proposed()
             _ = try await P.task(tools, Self.choose(id, [(key, 4, 7)]))
             let recorded = try Self.facts(session)
@@ -286,7 +297,7 @@ struct RecallChoiceToolTests {
 
     @Test("a retry in the same revision answers the recorded receipt: the same query, the same bindings, no new fact")
     func retryInTheSameRevisionIsIdempotent() async throws {
-        try await AgentChoiceExperiment.$enabled.withValue(true) {
+        do {
             let (session, tools, id, _, key) = try await Self.proposed()
             let first = try await P.task(tools, Self.choose(id, [(key, 4, 7)]))
             let recorded = try Self.facts(session)
@@ -301,7 +312,7 @@ struct RecallChoiceToolTests {
 
     @Test("a retry after a step was retired or the version superseded is refused like a new choice; the recorded query stays")
     func retryAfterCatalogueChange() async throws {
-        try await AgentChoiceExperiment.$enabled.withValue(true) {
+        do {
             let (session, tools, id, routeID, key) = try await Self.proposed()
             _ = try await P.task(tools, Self.choose(id, [(key, 4, 7)]))
             let recorded = try Self.facts(session)
@@ -317,7 +328,7 @@ struct RecallChoiceToolTests {
 
     @Test("a choice the archive cannot record is an internal error of the choice: nothing delivered or recorded, no app action to repeat, the memory not suspended")
     func choiceNotRecorded() async throws {
-        try await AgentChoiceExperiment.$enabled.withValue(true) {
+        do {
             let (session, tools, id, _, key) = try await Self.proposed()
             // A fault of the record, as the measure met one (R1): a check of the archive refuses the choice's row, so the
             // transaction that records the query and the choice rolls back.
@@ -359,9 +370,7 @@ struct RecallChoiceToolTests {
         func propose(_ remaining: String, inputs: String = "[]", stream: String) async throws -> (AutomationTools, String, [String: String]) {
             let tools = P.tools(session, source: .app, stream: stream)
             let text = remaining.replacingOccurrences(of: "\"", with: "\\\"")
-            let begun = try await AgentChoiceExperiment.$enabled.withValue(true) {
-                try await P.task(tools, #"{"operation":"begin","goal":"\#(text)","remaining":"\#(text)","recall_mode":"propose","inputs":\#(inputs)}"#)
-            }
+            let begun = try await P.task(tools, #"{"operation":"begin","goal":"\#(text)","remaining":"\#(text)","recall_mode":"propose","inputs":\#(inputs)}"#)
             let proposal = begun["recall_proposal"]
             let id = try #require(proposal["proposal"].string, "\(begun)")
             var keys: [String: String] = [:]
@@ -389,7 +398,7 @@ struct RecallChoiceToolTests {
     }
 
     static func choose(_ tools: AutomationTools, _ arguments: String) async throws -> JSONValue {
-        try await AgentChoiceExperiment.$enabled.withValue(true) { try await tools.call("memory_task", P.json(arguments)) }
+        try await tools.call("memory_task", P.json(arguments))
     }
 
     @Test("R3: tracts around a fixed choice the task contradicts are refused with its episode; an independent compatible episode of the same version stays reusable")

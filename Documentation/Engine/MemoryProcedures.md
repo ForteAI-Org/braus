@@ -13,7 +13,7 @@ in [MemoryFacts](MemoryFacts.md); the tables of schemas 1 and 2 in [MemorySchema
 
 ```text
 calls of an attempt ──segmentation──▶ candidate ──agent's interpretation──▶ version (parts, parameters,
- (D1 facts)            app-blocks-1    steps, blocks    memory_task interpret     contracts, bindings,
+ (D1 facts)            app-blocks-2    steps, blocks    memory_task interpret     contracts, bindings,
      │                                                                          variant prefix)
      │                                                                              │
      │                                                                   qualification A per part
@@ -150,10 +150,13 @@ the divergence.
 **Problem.** A procedure must be cut from what happened, not from what the agent says happened; the agent
 cannot be trusted to list its own steps, and a split by time or focus breaks on a passing change of window.
 
-**Choice.** `ProcedureSegmentation` (`app-blocks-1`) makes one step per UI operation that started (`act`,
+**Choice.** `ProcedureSegmentation` (`app-blocks-2`) makes one step per UI operation that started (`act`,
 `select`, the six inputs, `menu`, `press`, neither planned nor skipped), in the order the attempt started
 them. A batch is a container whose started children are the steps; context tools (`open_session`,
-`observe`, the listings, `close_session`) and `memory_task` are no step. A block is a run of consecutive
+`observe`, the listings, `close_session`) and `memory_task` are no step, and neither is a `menu` whose
+path ended on a menu: it listed the items and pressed nothing (`acted_noop`), a read of the application
+that a reuse never repeats and no check could judge, so it is read as context (since `app-blocks-2`, 13
+October 2026; the candidates `app-blocks-1` made stay as they were). A block is a run of consecutive
 steps on one application, the application of the call's session, so Finder, Preview, Finder is three
 blocks. Each step is one occurrence (`occurrence-<call id>`), written once in `memory_step_occurrences`
 with the call as its `action` member and every verification of the call attributed to it.
