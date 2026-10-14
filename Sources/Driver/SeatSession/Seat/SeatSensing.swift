@@ -136,6 +136,14 @@ nonisolated public protocol SeatSensing: Sendable {
     /// not implement this has no reading to offer rather than an empty desktop.
     func windowSurfaces(ownedBy processIDs: Set<Int32>) -> [WindowSurface]?
 
+    /// Every visible window of another process listed in front of `surface` and
+    /// intersecting its frame, attested, the window server's own rows left out:
+    /// its word on whether another process draws over a surface, read before a
+    /// sheet's or a modal's web content is taken as its own (ADR 0014,
+    /// 2026-10-14). `nil` is a reading that failed, a surface not listed, or a
+    /// row in front that could not be read. The default is a reading that failed.
+    func windowSurfaces(inFrontOf surface: WindowIdentity) -> [WindowSurface]?
+
     /// Every window of that process the window server draws at the pop up menu
     /// level and shows on screen.
     ///
@@ -189,6 +197,7 @@ extension SeatSensing {
     public func windowIsVisibleOnPhysicalDisplay(_ window: WindowReference) -> Bool { false }
     public func visibleWindowsAreVirtual(ownedBy processID: Int32) -> Bool { false }
     public func windowSurfaces(ownedBy processIDs: Set<Int32>) -> [WindowSurface]? { nil }
+    public func windowSurfaces(inFrontOf surface: WindowIdentity) -> [WindowSurface]? { nil }
     public func windowIsOrderedOut(_ window: WindowReference) -> Bool { false }
     public func windowIsDestroyed(_ window: WindowReference) -> Bool { false }
     public var desktopLayout: DesktopLayout? { nil }

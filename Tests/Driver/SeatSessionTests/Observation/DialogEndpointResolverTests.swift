@@ -49,6 +49,9 @@ struct DialogEndpointResolverTests {
         var focusedWindow: Int?
         var webAreas     : Set<Int> = []
 
+        /// The application's `AXWindows` entries, by Window ID.
+        var windowNodes  : [Int: Int] = [:]
+
         /// A control that takes the focus after this many reads of it.
         var focusAppearsAfterReads: Int?
     }
@@ -165,6 +168,7 @@ struct DialogEndpointResolverTests {
             now        : { now },
             focusedControl: focusReading,
             focusedWindow: { tree.focusedWindow.map(Node.init) },
+            windowNode : { tree.windowNodes[$0].map(Node.init) },
             parent     : { tree.parents[$0.id].map(Node.init) },
             windowReading: { node in
                 if tree.unreadableWindows.contains(node.id) { return .unreadable }
@@ -751,6 +755,267 @@ struct DialogEndpointResolverTests {
         long.parents[169] = 1
         long.parents[2]   = 100
         #expect(webArea(long) == unreadable)
+    }
+
+    // MARK: Web content of a sheet or a modal (ADR 0014, 2026-10-14)
+
+    private static let modalWindow = 905
+
+    private var modal: WindowIdentity {
+        identity(window: Self.modalWindow, processID: Self.hostProcessID, connection: 7000)
+    }
+
+    /// The fixture's two surfaces as the read-only dump of 14/10/2026 found them
+    /// (WebPopupProbe, AppKit with one WKWebView, after the hit test made WebKit
+    /// fill its subtree). Frames are the dump's; Window IDs are this suite's.
+    ///
+    /// The sheet, `AXSheet` inside the host's `AXStandardWindow`:
+    ///
+    ///     AXWindow sub=AXStandardWindow title="WebPopupProbe" @608,-1115 240x232 wid=<host>
+    ///       AXSheet @518,-1083 420x368 wid=<sheet>
+    ///         AXGroup @518,-1075 420x320 wid=<sheet>
+    ///           AXGroup @518,-1075 420x320
+    ///             AXScrollArea @518,-1075 420x320
+    ///               AXWebArea desc="WebPopupProbe page" @518,-1075 420x1385
+    ///                 AXButton title="Probe button" dom="button" @534,-1058 84x19
+    ///                 AXLink title="Probe link" dom="link" @622,-1059 64x17
+    ///                 AXGroup @534,-1026 388x22
+    ///                   AXTextField dom="input" @534,-1026 156x22
+    ///         AXButton title="Close" @698,-748 61x26 wid=<sheet>
+    ///
+    /// The modal, a top-level `runModal` window:
+    ///
+    ///     AXWindow sub=AXDialog title="WebPopupProbe modal" modal=true @518,-1157 420x400 wid=<modal>
+    ///       AXGroup @518,-1117 420x320 wid=<modal>
+    ///         AXGroup @518,-1117 420x320
+    ///           AXScrollArea @518,-1117 420x320
+    ///             AXWebArea desc="WebPopupProbe page" @518,-1117 420x1385
+    ///               AXButton title="Probe button" dom="button" @534,-1100 84x19
+    ///               AXGroup @534,-1068 388x22
+    ///                 AXTextField dom="input" @534,-1068 156x22
+    ///       AXButton title="Close" @698,-790 61x26 wid=<modal>
+    ///
+    /// Every node answered the application's PID, and nothing from the
+    /// windowless `AXGroup` down answered a Window ID. The hit test at the
+    /// button answered the button.
+    private struct ProbeSurface {
+        let tree   : Tree
+        let chain  : DialogEndpointResolver<Node>.SurfaceChain
+        let button : CGPoint
+        /// The windowless nodes between the surface's own group and the leaves.
+        let webNodes: [Int]
+    }
+
+    private func probeSurface(isSheet: Bool) -> ProbeSurface {
+        let dy: CGFloat = isSheet ? 0 : -42
+        let surfaceFrame = isSheet
+            ? CGRect(x: 518, y: -1083, width: 420, height: 368)
+            : CGRect(x: 518, y: -1157, width: 420, height: 400)
+        let window   = isSheet ? Self.sheetWindow : Self.modalWindow
+        let content  = CGRect(x: 518, y: -1075 + dy, width: 420, height: 320)
+        // 1 the surface, 2 its own group, 3 group, 4 scroll area, 5 web area,
+        // 6 button, 7 field's group, 8 field, 9 Close; 10 the sheet's host.
+        var tree = Tree(
+            hit      : 6,
+            focused  : 8,
+            frames   : [
+                1: surfaceFrame,
+                2: content,
+                3: content,
+                4: content,
+                5: CGRect(x: 518, y: -1075 + dy, width: 420, height: 1385),
+                6: CGRect(x: 534, y: -1058 + dy, width: 84, height: 19),
+                7: CGRect(x: 534, y: -1026 + dy, width: 388, height: 22),
+                8: CGRect(x: 534, y: -1026 + dy, width: 156, height: 22),
+                9: CGRect(x: 698, y: -748 + dy, width: 61, height: 26)
+            ],
+            children : [1: [2, 9], 2: [3], 3: [4], 4: [5], 5: [6, 7], 7: [8]],
+            windows  : [1: window, 2: window, 9: window],
+            processes: Dictionary(uniqueKeysWithValues: (1...10).map { ($0, Self.hostProcessID) }),
+            parents  : [2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 5, 8: 7, 9: 1],
+            focusedWindow: 1,
+            webAreas : [5],
+            windowNodes: [window: 1]
+        )
+        if isSheet {
+            tree.frames[10]   = CGRect(x: 608, y: -1115, width: 240, height: 232)
+            tree.windows[10]  = Self.hostWindow
+            tree.children[10] = [1]
+            tree.parents[1]   = 10
+            // A sheet is listed under its host's entry only.
+            tree.windowNodes  = [Self.hostWindow: 10]
+        }
+        let surface = isSheet ? sheet : modal
+        return ProbeSurface(
+            tree    : tree,
+            chain   : .init(host: isSheet ? host : modal, surface: surface, surfaceFrame: surfaceFrame),
+            button  : CGPoint(x: 576, y: -1048 + dy),
+            webNodes: [3, 4, 5, 6, 7, 8]
+        )
+    }
+
+    private func probeResolver(_ probe: ProbeSurface, tree: Tree? = nil) -> DialogEndpointResolver<Node> {
+        let surface = probe.chain.surface
+        return makeResolver(
+            tree      : tree ?? probe.tree,
+            identities: [surface.windowNumber: [surface, surface]],
+            geometries: [surface.windowNumber: observation(surface, probe.chain.surfaceFrame)]
+        )
+    }
+
+    private func probeContent(
+        _ probe : ProbeSurface,
+        tree    : Tree? = nil,
+        pointer : Bool,
+        modal   : Bool = true
+    ) -> Result<ResolvedInputEndpoint, InputEndpointRefusal> {
+        probeResolver(probe, tree: tree).windowlessContentEndpoint(
+            at                 : pointer ? probe.button : nil,
+            within             : probe.chain,
+            selectionGeneration: 6,
+            ofModalSurface     : modal
+        )
+    }
+
+    private func probeWithoutFocus(
+        _ probe: ProbeSurface,
+        tree   : Tree? = nil,
+        modal  : Bool = true
+    ) -> Result<ResolvedInputEndpoint, InputEndpointRefusal> {
+        var unfocused = tree ?? probe.tree
+        unfocused.focused       = nil
+        unfocused.focusIsAbsent = true
+        return probeResolver(probe, tree: unfocused).webAreaKeyboardContext(
+            within             : probe.chain,
+            selectionGeneration: 6,
+            ofModalSurface     : modal
+        )
+    }
+
+    @Test("the fixture's sheet and modal: web content under a point, or focused, is the surface's own",
+          arguments: [true, false], [true, false])
+    func probeWebContentIsTheModalSurfaces(isSheet: Bool, pointer: Bool) throws {
+        let probe    = probeSurface(isSheet: isSheet)
+        let resolver = probeResolver(probe)
+        // The measured F1: the descent and the focused control find no Window ID.
+        let measured = pointer
+            ? resolver.pointerEndpoint(at: probe.button, within: probe.chain, selectionGeneration: 6)
+            : resolver.keyboardContext(within: probe.chain, selectionGeneration: 6)
+        #expect(measured == .failure(.subtreeUnreadable(surface: probe.chain.surface)))
+
+        let endpoint = try probeContent(probe, pointer: pointer).get()
+        #expect(endpoint.identity == probe.chain.surface)
+        #expect(endpoint.logicalSurface == probe.chain.surface)
+        #expect(endpoint.relation == .logicalSurface)
+        #expect(endpoint.evidence == .windowlessContentOfSurface)
+        #expect(endpoint.kind == (pointer ? .pointer : .keyboardContext))
+        #expect(endpoint.focusedNodeWindowNumber == (pointer ? nil : probe.chain.surface.windowNumber))
+    }
+
+    @Test("the fixture's sheet and modal take keys through their page when nothing is focused",
+          arguments: [true, false])
+    func probeWebAreaWithoutFocusIsTheModalSurfaces(isSheet: Bool) throws {
+        let probe    = probeSurface(isSheet: isSheet)
+        let endpoint = try probeWithoutFocus(probe).get()
+        #expect(endpoint.identity == probe.chain.surface)
+        #expect(endpoint.relation == .logicalSurface)
+        #expect(endpoint.evidence == .windowlessContentWithoutFocus)
+        #expect(endpoint.focusedNodeWindowNumber == nil)
+    }
+
+    @Test("a sheet's web content is refused by the routes of an ordinary window")
+    func probeSheetNeedsTheModalRoute() {
+        let probe   = probeSurface(isSheet: true)
+        let refusal = Result<ResolvedInputEndpoint, InputEndpointRefusal>.failure(.subtreeUnreadable(surface: sheet))
+        #expect(probeContent(probe, pointer: true, modal: false) == refusal)
+        #expect(probeContent(probe, pointer: false, modal: false) == refusal)
+        #expect(probeWithoutFocus(probe, modal: false) == refusal)
+    }
+
+    @Test("the same web content under another process is refused",
+          arguments: [true, false], [true, false])
+    func probeWebContentOfAnotherProcessIsRefused(isSheet: Bool, pointer: Bool) {
+        let probe   = probeSurface(isSheet: isSheet)
+        let refusal = Result<ResolvedInputEndpoint, InputEndpointRefusal>
+            .failure(.subtreeUnreadable(surface: probe.chain.surface))
+
+        var foreign = probe.tree
+        for node in probe.webNodes { foreign.processes[node] = Self.remoteProcess }
+        #expect(probeContent(probe, tree: foreign, pointer: pointer) == refusal)
+        #expect(probeWithoutFocus(probe, tree: foreign) == refusal)
+
+        // A remote panel's shape: the content names another process's window.
+        var remoteContent = probe.tree
+        remoteContent.windows[3]   = Self.remoteWindow
+        remoteContent.processes[3] = Self.remoteProcess
+        #expect(probeContent(probe, tree: remoteContent, pointer: pointer) == refusal)
+        #expect(probeWithoutFocus(probe, tree: remoteContent) == refusal)
+    }
+
+    @Test("a modal's windowless path that crosses no web area is refused, as panel content is",
+          arguments: [true, false], [true, false])
+    func probeModalPathWithoutAWebAreaIsRefused(isSheet: Bool, pointer: Bool) throws {
+        let probe = probeSurface(isSheet: isSheet)
+        var native = probe.tree
+        native.webAreas = []
+        #expect(probeContent(probe, tree: native, pointer: pointer)
+            == .failure(.subtreeUnreadable(surface: probe.chain.surface)))
+        #expect(probeWithoutFocus(probe, tree: native)
+            == .failure(.subtreeUnreadable(surface: probe.chain.surface)))
+        // The same windowless path on an ordinary window needs no web area.
+        if !isSheet {
+            _ = try probeContent(probe, tree: native, pointer: pointer, modal: false).get()
+        }
+    }
+
+    @Test("a sheet or a modal whose subtree names another window is refused, as a remote panel's is",
+          arguments: [true, false], [true, false])
+    func probeSurfaceNamingAnotherWindowIsRefused(isSheet: Bool, pointer: Bool) {
+        // Resolve's Go to Folder shape: the list beside the field names the panel
+        // service's window, off the field's path. The node is given the
+        // surface's process as the remote view's nodes answer it.
+        let probe   = probeSurface(isSheet: isSheet)
+        let refusal = Result<ResolvedInputEndpoint, InputEndpointRefusal>
+            .failure(.subtreeUnreadable(surface: probe.chain.surface))
+        var sibling = probe.tree
+        sibling.children[1]   = [2, 9, 11]
+        sibling.parents[11]   = 1
+        sibling.frames[11]    = CGRect(x: 518, y: -760, width: 100, height: 20)
+        sibling.windows[11]   = Self.remoteWindow
+        sibling.processes[11] = Self.hostProcessID
+        #expect(probeContent(probe, tree: sibling, pointer: pointer) == refusal)
+        #expect(probeWithoutFocus(probe, tree: sibling) == refusal)
+    }
+
+    @Test("a sheet or a modal whose subtree cannot be read whole is refused",
+          arguments: [true, false], [true, false])
+    func probeSurfaceWithAnUnreadableSubtreeIsRefused(isSheet: Bool, pointer: Bool) {
+        let probe   = probeSurface(isSheet: isSheet)
+        let refusal = Result<ResolvedInputEndpoint, InputEndpointRefusal>
+            .failure(.subtreeUnreadable(surface: probe.chain.surface))
+        // The Close button is off the path; its children refuse to be read.
+        var unreadable = probe.tree
+        unreadable.unreadableChildren = [9]
+        #expect(probeContent(probe, tree: unreadable, pointer: pointer) == refusal)
+        #expect(probeWithoutFocus(probe, tree: unreadable) == refusal)
+
+        // No entry for the surface among the application's windows refuses too.
+        var unlisted = probe.tree
+        unlisted.windowNodes = [:]
+        #expect(probeContent(probe, tree: unlisted, pointer: pointer) == refusal)
+        #expect(probeWithoutFocus(probe, tree: unlisted) == refusal)
+    }
+
+    @Test("the page under the web area is not read for the surface's other windows")
+    func probeWebAreaSubtreeIsNotReadWhole() throws {
+        // A long page: more nodes under the web area than a whole reading admits.
+        let probe = probeSurface(isSheet: false)
+        var long  = probe.tree
+        long.children[5] = [6, 7] + Array(100...1_200)
+        for node in 100...1_200 { long.processes[node] = Self.hostProcessID }
+        let endpoint = try probeContent(probe, tree: long, pointer: true).get()
+        #expect(endpoint.evidence == .windowlessContentOfSurface)
+        #expect(endpoint.identity == probe.chain.surface)
     }
 
     // MARK: Retiring an endpoint

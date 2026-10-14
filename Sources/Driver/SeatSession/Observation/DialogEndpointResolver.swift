@@ -592,17 +592,30 @@ nonisolated package struct DialogEndpointResolver<Node> {
     /// surface's process and names no window or the surface. A node naming
     /// another window or of another process, a read that failed, more than 64
     /// steps or 300 ms all refuse, and so does a hosted surface. The caller asks
-    /// this only of a surface with no attested modal relation, after its
-    /// discovery refused for an unreadable subtree (ADR 0014).
+    /// this after its discovery refused for an unreadable subtree (ADR 0014).
+    ///
+    /// `ofModalSurface` is the caller's word that the surface has an attested
+    /// modal relation: a sheet, whose host is another window, or a modal.
+    /// Measured on 14/10/2026 with a WKWebView in an AppKit sheet and in a
+    /// `runModal` window, the page's nodes answered no Window ID there either.
+    /// The path is then proved the same way and must also cross an `AXWebArea`,
+    /// on the way up or down, and a hosted surface is admitted. Since the
+    /// nodes of a remote view answer the host's PID and no Window ID too, as
+    /// Resolve's Go to Folder field does, the role alone cannot tell the two
+    /// apart: the surface's own subtree must also name no window but the
+    /// surface, `modalSurfaceNamesOnlyItself`, which refuses the measured
+    /// remote panels by the service window their sibling names (ADR 0014,
+    /// amendment of 2026-10-14).
     package func windowlessContentEndpoint(
         at point           : CGPoint?,
         within chain       : SurfaceChain,
-        selectionGeneration: UInt64
+        selectionGeneration: UInt64,
+        ofModalSurface     : Bool = false
     ) -> Result<ResolvedInputEndpoint, InputEndpointRefusal> {
 
         let refusal = InputEndpointRefusal.subtreeUnreadable(surface: chain.surface)
         let (deadline, overflow) = now().addingReportingOverflow(300_000_000)
-        guard !overflow, chain.host == chain.surface else { return .failure(refusal) }
+        guard !overflow, ofModalSurface || chain.host == chain.surface else { return .failure(refusal) }
 
         let start: Node
         if let point {
@@ -620,10 +633,13 @@ nonisolated package struct DialogEndpointResolver<Node> {
 
         var steps = 0
         var node  = start
+        // An ordinary window needs no web area; the role is read only until one is met.
+        var crossedWebArea = !ofModalSurface
         while true {
             guard now() < deadline, steps <= 64,
                   let reachedSurface = namesSurface(node, within: chain)
             else { return .failure(refusal) }
+            crossedWebArea = crossedWebArea || isWebArea(node)
             if reachedSurface { break }
             guard let above = parent(node) else { return .failure(refusal) }
             node   = above
@@ -639,12 +655,15 @@ nonisolated package struct DialogEndpointResolver<Node> {
                     case .children(let values):
                         guard let below = smallestChild(of: values, containing: point) else { break descent }
                         guard namesSurface(below, within: chain) != nil else { return .failure(refusal) }
+                        crossedWebArea = crossedWebArea || isWebArea(below)
                         node   = below
                         steps += 1
                 }
             }
         }
-        guard now() < deadline else { return .failure(refusal) }
+        guard now() < deadline, crossedWebArea,
+              !ofModalSurface || modalSurfaceNamesOnlyItself(within: chain)
+        else { return .failure(refusal) }
 
         let answer = endpoint(
             kind                   : point == nil ? .keyboardContext : .pointer,
@@ -682,20 +701,24 @@ nonisolated package struct DialogEndpointResolver<Node> {
     /// - The two focus readings bracket the walk, so a focus that appeared
     ///   meanwhile refuses.
     ///
-    /// The caller asks this only of a surface with no attested modal relation
-    /// and with no other window of its process above it, which are window
-    /// server facts this resolver does not read. A hosted surface, more than 64
-    /// steps, 300 ms and any failed read refuse. Nothing here activates or
-    /// writes anything.
+    /// The caller asks this only of a surface with no other window of its
+    /// process above it, a window server fact this resolver does not read. A
+    /// hosted surface, more than 64 steps, 300 ms and any failed read refuse.
+    /// With `ofModalSurface`, the caller's word that the surface is a sheet or
+    /// a modal, a hosted surface is admitted: the path already crosses the web
+    /// area, and the surface's own subtree must name no window but the surface,
+    /// as `windowlessContentEndpoint` asks of a modal (ADR 0014, amendment of
+    /// 2026-10-14). Nothing here activates or writes anything.
     package func webAreaKeyboardContext(
         at point           : CGPoint? = nil,
         within chain       : SurfaceChain,
-        selectionGeneration: UInt64
+        selectionGeneration: UInt64,
+        ofModalSurface     : Bool = false
     ) -> Result<ResolvedInputEndpoint, InputEndpointRefusal> {
 
         let refusal = InputEndpointRefusal.subtreeUnreadable(surface: chain.surface)
         let (deadline, overflow) = now().addingReportingOverflow(300_000_000)
-        guard !overflow, chain.host == chain.surface,
+        guard !overflow, ofModalSurface || chain.host == chain.surface,
               case .absent = focusedControl(),
               let window = focusedWindow(),
               focusedWindow(window, matches: chain)
@@ -728,6 +751,7 @@ nonisolated package struct DialogEndpointResolver<Node> {
             steps += 1
         }
         guard now() < deadline,
+              !ofModalSurface || modalSurfaceNamesOnlyItself(within: chain),
               case .absent = focusedControl(),
               let finalWindow = focusedWindow(),
               focusedWindow(finalWindow, matches: chain)
@@ -1249,12 +1273,28 @@ nonisolated package struct DialogEndpointResolver<Node> {
         return candidate
     }
 
+    /// Whether a sheet's or a modal's own subtree names no window but the
+    /// surface, read whole: the one accessibility fact that tells the web
+    /// content of the surface's own process from a remote view, whose nodes
+    /// answer the host's PID and no Window ID just the same. Resolve's Go to
+    /// Folder sheet names the panel service's window in the list beside its
+    /// field, Photoshop's Save As panel names the service's window with the
+    /// panel's frame. The web area's own subtree is not read, so a long page
+    /// cannot exhaust the bound; a surface node that cannot be found, or a
+    /// subtree that cannot be read whole, refuses (ADR 0014, 2026-10-14).
+    private func modalSurfaceNamesOnlyItself(within chain: SurfaceChain) -> Bool {
+        guard let surface = surfaceNode(within: chain) else { return false }
+        return namedWindows(under: surface, within: chain, atMost: 0, belowWebAreas: false) == []
+    }
+
     /// Every window other than the surface that the surface's descendants
     /// name, nil when they name more than `limit` or cannot be read whole.
+    /// Without `belowWebAreas` an `AXWebArea` is read and its subtree is not.
     private func namedWindows(
         under surfaceNode: Node,
         within chain     : SurfaceChain,
-        atMost limit     : Int
+        atMost limit     : Int,
+        belowWebAreas    : Bool = true
     ) -> Set<Int>? {
         let (deadline, overflow) = now().addingReportingOverflow(300_000_000)
         guard !overflow else { return nil }
@@ -1268,6 +1308,7 @@ nonisolated package struct DialogEndpointResolver<Node> {
                 named.insert(window)
                 guard named.count <= limit else { return nil }
             }
+            if !belowWebAreas, isWebArea(node) { continue }
             switch children(node) {
             case .leaf: break
             case .unreadable: return nil

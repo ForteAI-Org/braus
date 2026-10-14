@@ -492,6 +492,140 @@ nonisolated public enum WindowServerProbe {
         return surfaces
     }
 
+    /// Every visible window of another process the window server lists in front
+    /// of `surface` and intersecting its frame, attested. The list runs front to
+    /// back, so the rows before the surface's own row are above it: the window
+    /// server's word on whether another process draws over a surface, which a
+    /// remote view's accessibility nodes never give, since they answer the host's
+    /// PID (ADR 0014, 2026-10-14).
+    ///
+    /// The rows behind the surface are not read: every display carries the
+    /// wallpaper, Finder's desktop and the backstop behind all its windows, each
+    /// of another process and covering the whole display (measured 2026-10-14).
+    /// The rows the window server draws itself (the menu bar, the cursor, the
+    /// status indicators) are left out wherever they are: nothing of another
+    /// process is hosted in them, and the cursor crosses every surface. Such a
+    /// row is told by its owner PID, which the kernel must describe as
+    /// `windowServer`; the owner name a row carries is the application's own
+    /// display name and decides nothing.
+    ///
+    /// `nil` is a reading that failed: no list, no row for the surface, or a row
+    /// in front whose owner, frame or identity could not be read. Such a row is
+    /// not an empty area, and a caller that refuses on `nil` refuses then too.
+    public static func surfaces(
+        inFrontOf surface    : WindowIdentity,
+        allowUnvalidatedBuild: Bool = false,
+        table                : SymbolTable = .shared
+    ) -> [WindowSurface]? {
+
+        let gate = FacilityGate.current(
+            facility             : .windowIdentity,
+            allowUnvalidatedBuild: allowUnvalidatedBuild,
+            table                : table
+        )
+        guard gate.mayAct,
+              let descriptions = CGWindowListCopyWindowInfo(
+                  [.optionOnScreenOnly],
+                  kCGNullWindowID
+              ) as? [[String: Any]]
+        else { return nil }
+
+        var processes = OwnerProcesses()
+        return readSurfaces(
+            inFrontOf   : surface,
+            rows        : descriptions,
+            executableOf: executable(of:),
+            attesting   : { processID, windowNumber, frame in
+                reference(
+                    processID   : processID,
+                    windowNumber: windowNumber,
+                    frame       : frame,
+                    table       : table,
+                    validatedBy : gate,
+                    memoizing   : &processes
+                )
+            }
+        )
+    }
+
+    /// The rule of `surfaces(inFrontOf:)` over the rows the window server
+    /// listed, front to back, so the Unit tier runs the shipping rule on lists
+    /// of its own. `executableOf` is the kernel's description of an owner PID,
+    /// `nil` when it cannot be read: such a row counts, it is never left out.
+    static func readSurfaces(
+        inFrontOf surface: WindowIdentity,
+        rows             : [[String: Any]],
+        executableOf     : (Int32) -> ProcessExecutable?,
+        attesting        : (Int32, Int, CGRect) -> WindowReference?
+    ) -> [WindowSurface]? {
+
+        guard let own = rows.firstIndex(where: { number(of: $0) == surface.windowNumber }),
+              let surfaceFrame = frame(of: rows[own]),
+              attesting(surface.processID, surface.windowNumber, surfaceFrame)?.identity == surface
+        else { return nil }
+
+        // Asked once per owner and forgotten with this reading: a PID handed to
+        // a later process after a window server restart is described afresh.
+        var isWindowServer: [Int32: Bool] = [:]
+        var surfaces: [WindowSurface] = []
+        for row in rows[..<own] {
+            guard let owner = owner(of: row),
+                  let rowFrame = frame(of: row)
+            else { return nil }
+            guard owner != surface.processID,
+                  rowFrame.intersects(surfaceFrame),
+                  isOnScreen(row), alpha(of: row) > 0,
+                  rowFrame.width > 0, rowFrame.height > 0
+            else { continue }
+            if isWindowServer[owner] == nil { isWindowServer[owner] = executableOf(owner) == windowServer }
+            if isWindowServer[owner] == true { continue }
+            guard let windowNumber = number(of: row),
+                  let reference = attesting(owner, windowNumber, rowFrame)
+            else { return nil }
+            surfaces.append(
+                WindowSurface(
+                    reference: reference,
+                    level    : layer(of: row) ?? 0,
+                    isVisible: true
+                )
+            )
+        }
+        return surfaces
+    }
+
+    /// A process as the kernel describes it: the executable it runs and the user
+    /// it runs as. Neither is chosen by the process the way `kCGWindowOwnerName`
+    /// is, which is the application's own display name.
+    struct ProcessExecutable: Equatable, Sendable {
+        var path  : String
+        var userID: uid_t
+    }
+
+    /// The window server itself: SkyLight's `WindowServer` run by the
+    /// `_windowserver` user, uid 88. Read on this build on 2026-10-14 for the
+    /// owner of the cursor and menu bar rows, PID 169, and `id -u _windowserver`
+    /// agrees. A row whose owner the kernel describes as anything else, or
+    /// cannot describe, is another process's and counts.
+    static let windowServer = ProcessExecutable(
+        path  : "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/Resources/WindowServer",
+        userID: 88
+    )
+
+    /// The kernel's description of one PID, `nil` when either read fails. Two
+    /// calls per PID, so a reading asks it once per owner and never keeps it.
+    static func executable(of processID: Int32) -> ProcessExecutable? {
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        var info = proc_bsdshortinfo()
+        let size = Int32(MemoryLayout<proc_bsdshortinfo>.size)
+        guard proc_pidpath(processID, &path, UInt32(path.count)) > 0,
+              proc_pidinfo(processID, PROC_PIDT_SHORTBSDINFO, 0, &info, size) == size
+        else { return nil }
+        return ProcessExecutable(
+            path  : String(decoding: path.prefix { $0 != 0 }.map(UInt8.init(bitPattern:)), as: UTF8.self),
+            userID: info.pbsi_uid
+        )
+    }
+
     /// The WindowServer rows matching application windows already named by AX,
     /// including hidden and minimised windows, with every matched row
     /// identity-attested.
