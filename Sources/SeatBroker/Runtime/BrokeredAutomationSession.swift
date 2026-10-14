@@ -59,6 +59,13 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// which let the window elapse when they choose; the public init sleeps on the task's clock.
     typealias IdleWaiting = @MainActor (_ window: Duration) async throws -> Void
 
+    /// Reads the dialog the application `pid` has open. A seam for the controlled tests; the public
+    /// init reads it through accessibility.
+    typealias DialogReading = @MainActor (_ pid: pid_t) -> DialogButtonPress.OpenDialog?
+
+    /// Escape quits DaVinci Resolve instead of closing its dialog, so it is never suggested there.
+    static let quitsOnEscape: Set<String> = ["com.blackmagic-design.DaVinciResolve"]
+
     /// How long a worker keeps the seat after its turn ends with no other turn, Eliomar's choice:
     /// a quick follow-up ("and what is the first one called?") still finds the session and its
     /// context, and the window comes back to the person's screen soon after the worker goes quiet.
@@ -87,6 +94,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private let perceiving: Perceiving
     @ObservationIgnored private let idleWindow: Duration
     @ObservationIgnored private let waitIdle: IdleWaiting
+    @ObservationIgnored private let readDialog: DialogReading
 
     /// Whether the seat a held target borrows stopped for good, which ends this session.
     @ObservationIgnored private let stoppedForGood: @MainActor (SeatTarget) -> Bool
@@ -166,6 +174,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         perceiving        : @escaping Perceiving,
         idleWindow        : Duration = idleWindow,
         waitIdle          : @escaping IdleWaiting = { try await Task.sleep(for: $0) },
+        readDialog        : @escaping DialogReading = { DialogButtonPress.openDialog(of: $0) },
         stoppedForGood    : @escaping @MainActor (SeatTarget) -> Bool = {
             SeatAdmission.stoppedForGood(try? $0.agentSeat())
         }
@@ -180,6 +189,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         self.perceiving         = perceiving
         self.idleWindow         = idleWindow
         self.waitIdle           = waitIdle
+        self.readDialog         = readDialog
         self.stoppedForGood     = stoppedForGood
     }
 
@@ -281,14 +291,69 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             application = running
             phase = .holding(application: seated.opened.name)
             id = UUID()
-            let scene = try await observe()
+            let scene = try await perceivedScene()
             lastOpened = (seated.opened.name, seated.opened.bundleID, scene.windowTitle)
             watchQueue(for: lease)
             return scene
         } catch {
+            // A modal the application has open keeps the first observation off the adopted window.
+            var blocking: String?
+            if case .initialWindowChanged? = error as? SeatDrivingFailure, let running = application {
+                blocking = readDialog(running.processIdentifier).map {
+                    Self.blocking(
+                        $0,
+                        application: running.localizedName ?? "the application",
+                        bundleID   : running.bundleIdentifier
+                    )
+                }
+            }
             await close()
-            throw Self.refusal(for: error)
+            throw Self.refusal(for: error, blocking: blocking)
         }
+    }
+
+    /// The refusal for `error`, with the sentence naming a blocking dialog after it when there is one.
+    static func refusal(for error: any Error, blocking: String?) -> any Error {
+        let refusal = refusal(for: error)
+        guard let blocking, let failure = refusal as? AutomationFailure else { return refusal }
+        return AutomationFailure(failure.description + " " + blocking)
+    }
+
+    /// Names `dialog`, open in `application`, and how the agent can close it and open again.
+    static func blocking(
+        _ dialog   : DialogButtonPress.OpenDialog,
+        application: String,
+        bundleID   : String?
+    ) -> String {
+        let named   = dialog.title.isEmpty ? "an untitled \(dialog.role)" : "the \(dialog.role) \"\(dialog.title)\""
+        let buttons = dialog.buttons.isEmpty
+            ? "Accessibility cannot read its buttons."
+            : "Its buttons: \(dialog.buttons.joined(separator: ", "))."
+        let fact = "\(application) has \(named) open, which blocks the window the session adopted. " + buttons
+        let cancel  = dialog.buttons.first { ActionPolicy.normalizedLabel($0) == "cancel" }
+        let escapes = dialog.buttons.isEmpty && !quitsOnEscape.contains(bundleID ?? "")
+        // Only a titled modal dialog is listed among the windows open_session can adopt.
+        guard dialog.isListed, !dialog.title.isEmpty, !dialog.buttons.isEmpty || escapes else {
+            let way = if let cancel {
+                " with its \"\(cancel)\" button"
+            } else if !dialog.buttons.isEmpty {
+                " with one of its buttons"
+            } else if escapes {
+                " with Escape"
+            } else {
+                ""
+            }
+            return fact + " Ask the person to close it\(way), then open \(application) again."
+        }
+        let answer = if let cancel {
+            "press \"\(cancel)\""
+        } else if !dialog.buttons.isEmpty {
+            "press one of its buttons"
+        } else {
+            "press_key escape"
+        }
+        return fact + " To close it, open_session on \(application) with window \"\(dialog.title)\", \(answer), "
+            + "then close_session and open \(application) again; or ask the person to close it."
     }
 
     /// The installed and running applications `query` names, ranked as `open` resolves a name, so
@@ -327,6 +392,15 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func observe() async throws -> SceneSnapshot {
+        do {
+            return try await perceivedScene()
+        } catch {
+            throw Self.refusal(for: error)
+        }
+    }
+
+    /// The scene `observe` returns, with the seat's error as it came, so `open` can tell which it was.
+    private func perceivedScene() async throws -> SceneSnapshot {
         let (application, runtime, _) = try current()
         let observingSession = id
         do {
@@ -343,7 +417,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                     + "Earlier effects may remain. Do not replay input automatically."
                 throw AutomationFailure(message + (closeWarning.map { " " + $0 } ?? ""))
             }
-            throw Self.refusal(for: error)
+            throw error
         }
     }
 

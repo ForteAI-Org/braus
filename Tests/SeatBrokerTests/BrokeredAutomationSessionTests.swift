@@ -67,6 +67,7 @@ struct BrokeredAutomationSessionTests {
             .perceivedThroughTheEngine,
         idleWindow: Duration = BrokeredAutomationSession.idleWindow,
         waitIdle  : @escaping BrokeredAutomationSession.IdleWaiting = { try await Task.sleep(for: $0) },
+        dialog    : DialogButtonPress.OpenDialog? = nil,
         seating   : @escaping BrokeredAutomationSession.Seating
     ) -> BrokeredAutomationSession {
         BrokeredAutomationSession(
@@ -80,7 +81,8 @@ struct BrokeredAutomationSessionTests {
             seating           : seating,
             perceiving        : perceiving,
             idleWindow        : idleWindow,
-            waitIdle          : waitIdle
+            waitIdle          : waitIdle,
+            readDialog        : { _ in dialog }
         )
     }
 
@@ -486,6 +488,135 @@ struct BrokeredAutomationSessionTests {
         #expect(String(describing: refusal).contains("adopted identity of window 777"))
         #expect(String(describing: refusal).contains("reported window: 778"))
         #expect(String(describing: refusal).contains("No scene from that window was returned and no input was sent"))
+    }
+
+    /// What `open` answers when its first observation fails with `failure`, the seating naming the
+    /// Dock as the running application and `dialog` read as the one it has open.
+    private static func openRefusal(
+        _ failure: @escaping @MainActor (ProcessIdentity) -> any Error,
+        dialog   : DialogButtonPress.OpenDialog
+    ) async throws -> (message: String, holds: Bool) {
+        let dock = try #require(
+            NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first?.processIdentifier
+        )
+        let process = ProcessIdentity(
+            processID       : dock,
+            serialNumberHigh: 1,
+            serialNumberLow : 1
+        )
+        let desktop = Self.session(
+            SeatBroker(),
+            perceiving: { _, _ in throw failure(process) },
+            dialog    : dialog
+        ) { _, _, _ in
+            let opened = TargetApp(
+                pid      : dock,
+                bundleID : "test.process",
+                name     : "Test",
+                bundleURL: nil,
+                windows  : []
+            )
+            return (opened, SeatTarget())
+        }
+        do {
+            try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
+        } catch {
+            return (String(describing: error), desktop.holdsComputer)
+        }
+        Issue.record("the open succeeded")
+        return ("", desktop.holdsComputer)
+    }
+
+    static let newDocument = DialogButtonPress.OpenDialog(
+        title   : "New Document",
+        role    : "dialog",
+        buttons : ["Close", "Cancel"],
+        isListed: true
+    )
+
+    @Test("an open blocked by a dialog names it, its buttons and how to close it, and gives the seat back")
+    func anOpenBlockedByADialogNamesIt() async throws {
+        let refused = try await Self.openRefusal(
+            { process in
+                SeatDrivingFailure.initialWindowChanged(
+                    expected: WindowIdentity(process: process, windowNumber: 777, ownerConnectionID: 1),
+                    observed: WindowIdentity(process: process, windowNumber: 778, ownerConnectionID: 1)
+                )
+            },
+            dialog: Self.newDocument
+        )
+        #expect(refused.message.contains("adopted identity of window 777"))
+        #expect(refused.message.contains(
+            "has the dialog \"New Document\" open, which blocks the window the session adopted. "
+                + "Its buttons: Close, Cancel."
+        ))
+        #expect(refused.message.contains(
+            "open_session on Dock with window \"New Document\", press \"Cancel\", then close_session"
+        ))
+        #expect(!refused.holds)
+    }
+
+    @Test("an open that fails for another reason does not blame an open dialog")
+    func anOpenFailingOtherwiseNamesNoDialog() async throws {
+        let refused = try await Self.openRefusal(
+            { _ in ObservationUnavailable.suspended([.noEligibleTarget]) },
+            dialog: Self.newDocument
+        )
+        #expect(refused.message.hasPrefix("The seat cannot observe while suspended"))
+        #expect(!refused.message.contains("New Document"))
+        #expect(!refused.holds)
+    }
+
+    @Test("a dialog with no readable buttons is closed with Escape, never in DaVinci Resolve")
+    func aBlockingDialogWithoutButtons() {
+        let dialog = DialogButtonPress.OpenDialog(
+            title   : "New Project",
+            role    : "dialog",
+            buttons : [],
+            isListed: true
+        )
+        let photoshop = BrokeredAutomationSession.blocking(
+            dialog,
+            application: "Photoshop",
+            bundleID   : "com.adobe.Photoshop"
+        )
+        #expect(photoshop.contains("Accessibility cannot read its buttons."))
+        #expect(photoshop.contains("with window \"New Project\", press_key escape, then close_session"))
+        let resolve = BrokeredAutomationSession.blocking(
+            dialog,
+            application: "DaVinci Resolve",
+            bundleID   : "com.blackmagic-design.DaVinciResolve"
+        )
+        #expect(!resolve.lowercased().contains("escape"))
+        #expect(resolve.hasSuffix("Ask the person to close it, then open DaVinci Resolve again."))
+    }
+
+    @Test("a dialog the window list does not offer is left to the person, with the way to close it")
+    func anUnlistedDialogIsLeftToThePerson() {
+        let untitled = BrokeredAutomationSession.blocking(
+            DialogButtonPress.OpenDialog(
+                title   : "",
+                role    : "sheet",
+                buttons : ["OK"],
+                isListed: false
+            ),
+            application: "Notes",
+            bundleID   : nil
+        )
+        #expect(untitled.hasPrefix("Notes has an untitled sheet open"))
+        #expect(untitled.hasSuffix("Ask the person to close it with one of its buttons, then open Notes again."))
+        let modeless = BrokeredAutomationSession.blocking(
+            DialogButtonPress.OpenDialog(
+                title   : "Find",
+                role    : "dialog",
+                buttons : ["Cancel", "Next"],
+                isListed: false
+            ),
+            application: "Notes",
+            bundleID   : nil
+        )
+        #expect(!modeless.contains("open_session"))
+        #expect(modeless.hasSuffix("Ask the person to close it with its \"Cancel\" button, then open Notes again."))
     }
 
     @Test("a holder idle between turns gives the seat back as soon as another entry waits",
