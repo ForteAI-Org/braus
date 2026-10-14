@@ -171,6 +171,35 @@ func engineTests(
     )
 }
 
+func web(
+    _ name        : String,
+    _ dependencies: [String]       = [],
+      settings    : [SwiftSetting] = pure
+) -> Target {
+
+    .target(
+        name         : name,
+        dependencies : dependencies.map { .target(name: $0) },
+        path         : "Sources/Web/\(name)",
+        swiftSettings: settings
+    )
+}
+
+func webTests(
+    _ name        : String,
+    _ dependencies: [String],
+      resources   : [Resource]? = nil
+) -> Target {
+
+    .testTarget(
+        name         : "\(name)Tests",
+        dependencies : dependencies.map { .target(name: $0) },
+        path         : "Tests/Web/\(name)Tests",
+        resources    : resources,
+        swiftSettings: suite
+    )
+}
+
 func broker(
     _ name        : String,
     _ dependencies: [String]
@@ -218,6 +247,7 @@ let package = Package(
             targets: ["EngineCore", "Engine", "HIDActuation", "AccessibilityActions", "WorkspaceActivation",
                       "Memory", "FileKnowledge", "LiveScenes", "LocalEmbedding"]
         ),
+        .library(name: "BrausWeb", targets: ["WebDriver"]),
         .library(name: "UserInteractions", targets: ["InteractionListener", "InteractionObservation"]),
         .library(name: "SeatBroker", targets: ["SeatBroker"]),
         .library(name: "ModelTransports", targets: ["ModelTransports"]),
@@ -514,6 +544,11 @@ let package = Package(
         perceptionTests("PerceptionBoundary",
                         ["Perception", "PerceptionCore", "VisionText", "AccessibilityFacts", "WindowServerListing"],
                         resources: [.copy("Fixtures/NewPathsMono.png")]),
+
+        // MARK: Web
+        // Chrome over its DevTools pipe: the process, the protocol connection, pages. Foundation only.
+        web("WebDriver"),
+        webTests("WebDriver", ["WebDriver"], resources: [.copy("Fixtures/web-fixture.html")]),
 
         // MARK: Engine tests
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
