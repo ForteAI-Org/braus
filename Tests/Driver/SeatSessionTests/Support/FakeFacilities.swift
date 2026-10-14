@@ -288,6 +288,48 @@ final class FakeSensing: SeatSensing, @unchecked Sendable {
         guard let surfaces else { return nil }
         return surfaces.filter { processIDs.contains($0.reference.processID) }
     }
+
+    /// One row of the fake's on-screen list: a window, a row the window server
+    /// draws itself (the menu bar, the cursor), or one whose owner or frame
+    /// cannot be read.
+    enum WindowRow {
+        case window(WindowSurface)
+        case drawnByWindowServer
+        case unreadable
+    }
+
+    /// The fake's on-screen list, front to back, with the surface's own row and
+    /// the desktop rows behind it; `nil` is the reading that failed.
+    var windowList: [WindowRow]?
+
+    /// The probe's rule on the fake's list: the rows before the surface's own
+    /// row, of another process, visible and intersecting; the window server's
+    /// rows left out; a missing surface or an unreadable row in front is `nil`.
+    func windowSurfaces(inFrontOf surface: WindowIdentity) -> [WindowSurface]? {
+        guard let windowList,
+              let own = windowList.firstIndex(where: {
+                  if case .window(let row) = $0 { return row.reference.identity == surface }
+                  return false
+              }),
+              case .window(let surfaceRow) = windowList[own]
+        else { return nil }
+        var inFront: [WindowSurface] = []
+        for row in windowList[..<own] {
+            switch row {
+                case .drawnByWindowServer:
+                    continue
+                case .unreadable:
+                    return nil
+                case .window(let other):
+                    guard other.reference.processID != surface.processID,
+                          other.isVisible,
+                          other.reference.frame.intersects(surfaceRow.reference.frame)
+                    else { continue }
+                    inFront.append(other)
+            }
+        }
+        return inFront
+    }
 }
 
 /// The menu window the fakes hand back: a window of the target's process with a

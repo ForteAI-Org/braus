@@ -73,26 +73,37 @@ struct RemoteSheetContentTests {
         )!
     }
 
+    /// With `webAreaOverField`, an `AXWebArea` (6) is inserted between the sheet
+    /// and the field, as a remote view hosting a web page would show it.
     private func resolver(
         windows: [Int: Int] = [1: sheetWindow, 4: remoteWindow, 5: remoteWindow],
         focusedWindow: Node? = sheet,
         focused: Node? = field,
         focusedControl: (() -> DialogEndpointResolver<Node>.FocusedControlReading)? = nil,
-        focusedNodes: Set<Int> = []
+        focusedNodes: Set<Int> = [],
+        webAreaOverField: Bool = false
     ) -> DialogEndpointResolver<Node> {
-        let children: [Int: DialogEndpointResolver<Node>.ChildReading] = [
+        var children: [Int: DialogEndpointResolver<Node>.ChildReading] = [
             1: .children([Node(identifier: 2), Node(identifier: 3), Node(identifier: 4)]),
             4: .children([Node(identifier: 5)]),
         ]
-        let frames: [Int: CGRect] = [
+        var frames: [Int: CGRect] = [
             1: Self.sheetFrame,
             2: Self.fieldFrame,
             3: CGRect(x: 511, y: 99, width: 50, height: 38),
             4: CGRect(x: 100, y: 136, width: 460, height: 309),
             5: CGRect(x: 100, y: 136, width: 460, height: 309),
         ]
+        var parents: [Int: Int] = [2: 1, 3: 1, 4: 1, 5: 4]
+        if webAreaOverField {
+            children[1] = .children([Node(identifier: 6), Node(identifier: 3), Node(identifier: 4)])
+            children[6] = .children([Node(identifier: 2)])
+            frames[6]   = Self.fieldFrame
+            parents[2]  = 6
+            parents[6]  = 1
+        }
         return DialogEndpointResolver<Node>(
-            nodeAtPoint: { _ in Self.sheet },
+            nodeAtPoint: { _ in webAreaOverField ? Self.field : Self.sheet },
             focusedNode: { focused },
             children: { children[$0.identifier] ?? .leaf },
             nodeFrame: { frames[$0.identifier] },
@@ -123,8 +134,30 @@ struct RemoteSheetContentTests {
             focusedControl: focusedControl,
             focusedWindow: { focusedWindow },
             windowNode: { $0 == Self.sheetWindow ? Self.sheet : nil },
-            descendantFocus: { focusedNodes.contains($0.identifier) ? .focused : .unfocused }
+            descendantFocus: { focusedNodes.contains($0.identifier) ? .focused : .unfocused },
+            parent: { parents[$0.identifier].map(Node.init) },
+            windowReading: { windows[$0.identifier].map { .window($0) } ?? .windowless },
+            isWebArea: { webAreaOverField && $0.identifier == 6 }
         )
+    }
+
+    @Test("a web area on the windowless field's path does not make the sheet's content its own")
+    func aWebAreaOverTheFieldKeepsTheModalWebRouteRefused() {
+        // The list beside the field still names the service's window: the
+        // sheet's content is drawn by another process, whatever the role says.
+        let refused = Result<ResolvedInputEndpoint, InputEndpointRefusal>.failure(.subtreeUnreadable(surface: sheet))
+        let point   = resolver(webAreaOverField: true)
+        #expect(point.windowlessContentEndpoint(
+            at: Self.fieldPoint, within: chain, selectionGeneration: 1, ofModalSurface: true
+        ) == refused)
+        let focus = resolver(webAreaOverField: true)
+        #expect(focus.windowlessContentEndpoint(
+            at: nil, within: chain, selectionGeneration: 1, ofModalSurface: true
+        ) == refused)
+        let unfocused = resolver(focusedControl: { .absent }, webAreaOverField: true)
+        #expect(unfocused.webAreaKeyboardContext(
+            within: chain, selectionGeneration: 1, ofModalSurface: true
+        ) == refused)
     }
 
     @Test("keys for a windowless focused field go to the one remote window its sheet names")

@@ -1,7 +1,9 @@
 # An ordinary window takes the events of its windowless content
 
 Accepted on 2026-10-02 at the owner's request. It adds one route to endpoint
-discovery, for a surface with no attested modal relation only.
+discovery, for a surface with no attested modal relation only. Amended on
+2026-10-14 for the web content of a sheet or a modal, see
+[the amendment](#amendment-web-content-of-a-sheet-or-a-modal-2026-10-14).
 
 ## What was measured
 
@@ -136,19 +138,136 @@ is missing, in `WebAreaKeyRoutingTests` and `DialogEndpointResolverTests`.
 The keys' delivery to a Safari page that is not active is a separate question, measured
 in [ADR 0038](Adr0038SafariPreparationAndBriefNewWindow.md).
 
+## Amendment: web content of a sheet or a modal (2026-10-14)
+
+Decided by the owner on 2026-10-14 after the measurement below. It widens the route to a
+sheet and a modal, for web content only.
+
+**What was measured.** A fixture application, WebPopupProbe (AppKit, signed ad hoc, one
+`WKWebView` showing a local page with a button, a link, a text field and a checkbox), was
+driven through the seat in the background with click, link, `type_text`, `insert_text`,
+Tab, scroll and drag, 5 times each. In a sheet (`AXSheet` on the main window) and in a
+`runModal` window (`AXWindow`, subrole `AXDialog`, `AXModal` true) all 70 Commands were
+refused before delivery with `subtreeUnreadable`; the page saw no event and the frontmost
+application never changed. A read-only dump found Safari's shape inside both surfaces:
+the surface and its first `AXGroup` answer the surface's Window ID, while the next
+`AXGroup`, the `AXScrollArea`, the `AXWebArea` and every node under it answer none, all
+with the application's PID. The modal's discovery, its keyboard routes and its leaf route
+refused; this route was never asked, because the surface had an attested modal relation.
+
+**The decision.** The web content of a sheet or a modal is that surface's own when the path
+from the element up to its window crosses an `AXWebArea`, every node on the path belongs to
+the seated process, the first node naming a window names the sheet or the modal the seat
+attested, and two more facts hold that the path cannot give. The nodes of a remote view
+answer the host's PID and no Window ID just as a page's do (Resolve's Go to Folder field,
+`RemoteSheetContentTests`; the view services under Safari and Photoshop in the follow-ups
+below and in ADR 0031), so the process on the path and the role of one node do not tell a
+page of the seated process from content another process draws. What does, measured on
+those panels, is a window of another process: the one a sibling names in accessibility
+(Resolve, Photoshop), and the one the window server lists in front of the surface. Both
+are required:
+
+- the surface's own subtree, read whole without descending below an `AXWebArea`, names no
+  window other than the surface (`namedWindows(... atMost: 0) == []`); a surface node not
+  found, a named window, or a subtree that cannot be read whole refuses;
+- the window server lists no visible window of another process in front of the surface
+  and intersecting its frame, read before and after the path proof, with the seat's
+  decorations and tooltips left out as `surfaceIsTopmost` leaves them out. The on-screen
+  list runs front to back, so only the rows before the surface's own row are read: a
+  read-only dump on 2026-10-14 showed every display carrying, behind all its windows and
+  covering it whole, Finder's desktop, WindowManager's wallpaper and the window server's
+  backstop, each of another process at alpha 1, which a reading of every intersecting row
+  refused on. The rows the window server draws itself (the menu bar, the cursor and the
+  status indicators in front of every window) are left out: nothing of another process
+  is hosted in them, and the cursor crosses every surface at some point. Such a row is
+  told by its owner PID, which the kernel must describe as the window server itself,
+  `proc_pidpath` answering SkyLight's `WindowServer` executable and `proc_pidinfo` the
+  `_windowserver` user, uid 88 (read on 2026-10-14: PID 169 on this Mac). A PID the
+  kernel describes as anything else, or cannot describe, counts as another process's.
+  The owner name a row carries is the application's own display name and decides
+  nothing. A list that cannot be read, a surface not listed, or a row in front whose
+  owner, frame or identity cannot be read refuses; such a row is never skipped.
+
+- `DialogEndpointResolver.windowlessContentEndpoint(..., ofModalSurface: true)` proves the
+  path as above, up from the node the hit test answered and down to the innermost node
+  under the point, or up from the focused control, requires an `AXWebArea` on it, and then
+  the subtree fact. A hosted surface, the sheet, is admitted. Evidence
+  `windowlessContentOfSurface`, relation `logicalSurface`.
+- `webAreaKeyboardContext(..., ofModalSurface: true)` admits a hosted surface, climbs
+  through the web area as before, and requires the subtree fact. Evidence
+  `windowlessContentWithoutFocus`. The window order condition is unchanged: no visible
+  window of the process above the surface, decorations and tooltips aside.
+- `AgentSeat.inputEndpoint` asks these variants, `EndpointDiscovery.modalWebContent` and
+  `modalWebAreaKeyboardContext`, only when the observation has an attested modal relation
+  and only after the routes before them answered `subtreeUnreadable`. A modal whose keys
+  the discovery already sent to a remote content window keeps that window: the override of
+  a `remoteContentOfSurface` answer by the surface's own content stays what the 2026-10-03
+  follow-up made it, for a surface with no modal relation only. The ordinary routes, which
+  need no web area, are still never asked of a modal. The seat reads the window server
+  fact around each of these proofs, `SeatSensing.windowSurfaces(inFrontOf:)`.
+- At the boundary the key proofs are taken again with the variant the surface's relation
+  selects at that moment (a sheet on a host, a modal naming its host, an application
+  modal), with the same two facts. A surface that a modal blocks still retires the context.
+
+**The recipe.** The endpoint is the sheet or the modal window itself, of the driven process,
+so the Command takes the application's own family (`SurfaceInputClassification`
+`drivenApplication`): `AppKitPlatform` for the fixture, which prepares nothing and makes no
+window key. No activation and no `AXPress` were added. Whether a `WKWebView` in a host
+that is not active acts on events nobody prepared is the separate question of [ADR
+0038](Adr0038SafariPreparationAndBriefNewWindow.md) and of the web popup recipe ticket.
+
+**What stays refused, and on which fact.** Slack's panel controls name the service's
+Window ID on the path (measured, 2026-10-02). Resolve's Go to Folder sheet and Photoshop's
+Save As panel name the service's window in a sibling of the control, and the service's
+window is listed in front of the sheet with the sheet's frame (both measured, 2026-09-29
+and 2026-09-30): the subtree fact and the window server fact each refuse them, whatever
+the roles on the path. Whether any of those paths carries an `AXWebArea` was not measured and
+is not relied on; `RemoteSheetContentTests` puts one on Resolve's field's path and the
+route still refuses. The same web tree with another process's PID, or naming another
+process's window, refuses, and so do a failed read, more than 64 steps and 300 ms.
+
+**Residual risk.** A remote view drawn by another process whose nodes answer the host's PID
+and no Window ID, with no window of that process named anywhere in the surface's subtree and
+none listed by the window server in front of the surface, would pass both facts and be
+addressed to the host's sheet or modal. No such shape has been measured: every remote view
+measured so far showed its process's window in at least one of the two readings. The window
+server fact tells the window server's own rows by the kernel's description of their owner
+PID, the SkyLight `WindowServer` executable run as uid 88, which no application chooses: a
+process named "Window Server" is read as the application it is, and its windows in front
+count. Where the events then go is not established either way: they are posted to
+a window of the seated process, and a host window can forward what it receives into a remote
+view it hosts, which is what ADR 0031's routed clicks into remote content rely on.
+
+**What stays unproven.**
+
+- Delivery on the live fixture. The Driver unit tests cover the fixture's own trees in
+  `DialogEndpointResolverTests` and the routing in `ModalWebContentRoutingTests`.
+- A sheet that was already open when the application was handed over. The seat holds no
+  record for it (the take-in of pre-existing members skips a surface drawn inside a host,
+  and the window follower keeps it in its baseline), so every Command on it is refused
+  with `subtreeUnreadable` before any discovery runs, and this amendment does not change
+  that. The measured sheet was one. A sheet opened from inside the seat is owned by the
+  follower and takes this route.
+- On the measured modal the window server listed the main window before the modal on the
+  seat display, over part of the modal's frame. A hit test there answers the main window's
+  node and refuses, and the keys route without a focused control refuses on the order.
+
 ## Why remote panel content stays refused
 
 Remote panel content draws inside a modal: Slack's open panel, DaVinci Resolve's
 Go to Folder sheet and Photoshop's Save As panel were all reached through a sheet
-or an application-modal panel the seat attests, and this route is never asked
-there. On the path itself, Slack's panel controls named the panel service's
-Window ID, which refuses.
-
-The path proof alone would not refuse every shape. On Resolve's sheet the text
-field answered no Window ID and the list beside it named the remote window: a
-sibling is not on the path. For a surface like that the protection is the modal
-attestation, not this proof. A standalone panel proxy whose modal relation the
-seat failed to attest remains the residual risk.
+or an application-modal panel the seat attests. Until 2026-10-14 this route was
+never asked there, and the modal attestation alone was the protection. Since the
+amendment above it is asked of a sheet or a modal, after every other route
+refused, and the protection is the two facts the amendment names, because the
+path proof alone would not refuse every shape: on Resolve's sheet the text field
+answered no Window ID with the host's PID, and the list beside it, not on the
+path, named the remote window. The subtree fact reads that sibling; the window
+server fact reads the service's window in front of the sheet. On the path itself,
+Slack's panel controls named the panel service's Window ID, which refuses as it
+always did. A standalone panel proxy whose modal relation the seat failed to
+attest remains outside the modal routes, and the residual risk of the amendment
+is the one it states.
 
 ## What stays unproven
 

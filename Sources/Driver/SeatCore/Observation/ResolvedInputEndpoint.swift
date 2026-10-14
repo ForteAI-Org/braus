@@ -80,7 +80,8 @@ nonisolated public enum InputEndpointEvidence: Sendable, Equatable {
     /// accessibility gives no Window ID, such as a web page. The node under the
     /// point, or the focused control, belongs to the assigned process, and so
     /// does every node between it and the nearest one naming a window, which is
-    /// the surface. Only for a surface with no attested modal relation (ADR 0014).
+    /// the surface. For a surface with no attested modal relation, or for a sheet
+    /// or a modal when that path crosses an `AXWebArea` (ADR 0014, 2026-10-14).
     case windowlessContentOfSurface
 
     /// The surface the seat already holds, for keys, when accessibility reports
@@ -90,8 +91,9 @@ nonisolated public enum InputEndpointEvidence: Sendable, Equatable {
     /// every node on that path of the surface's process. Nothing was focused, so
     /// `focusedNodeWindowNumber` is nil and the whole proof is taken again at
     /// the boundary, where a focus a preparation exposed is accepted only if it
-    /// resolves back to this surface. Only for a surface with no attested modal
-    /// relation and no other window of its process above it (ADR 0014).
+    /// resolves back to this surface. Only for a surface with no other window of
+    /// its process above it, and with no attested modal relation unless it is
+    /// itself the sheet or the modal (ADR 0014, 2026-10-14).
     case windowlessContentWithoutFocus
 }
 
