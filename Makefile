@@ -79,7 +79,7 @@ QT_PYTHON ?= $(shell command -v python3)
 BENCH ?= fence-callback fence-clamp input-trace-overhead send-click display-lifecycle \
          monitor-60 monitor-120 stage seat-idle window-watch focus-refresh recovery
 
-.PHONY: all test native-test-runner host-tests live-tests uxp-live-tests qt-live-tests qt-editor-live-tests qt-fixture-live-tests qt-ime-live-tests qt-panel-birth-live-tests qt-geometry-live-tests chromium-live-tests bench compat-report promote-build clean help
+.PHONY: all test native-test-runner host-tests live-tests uxp-live-tests qt-live-tests qt-editor-live-tests qt-fixture-live-tests qt-ime-live-tests qt-panel-birth-live-tests qt-geometry-live-tests chromium-live-tests web-popup-probe bench compat-report promote-build clean help
 
 all: test
 
@@ -95,6 +95,7 @@ help:
 	@echo 'make qt-panel-birth-live-tests QT_PYTHON=<PySide6 Python>  Strict native panel visibility'
 	@echo 'make qt-geometry-live-tests QT_PYTHON=<PySide6 Python>  Qt settled return geometry with Stage Manager'
 	@echo 'make chromium-live-tests  Owned Chrome matrix, two windows, native picker, composition and Print'
+	@echo 'make web-popup-probe  Build the ad hoc signed WebPopupProbe.app fixture into .build/web-popup-probe'
 	@echo 'make bench          the measurements of spec section 8, each one a gate'
 	@echo 'make compat-report  runs the tiers and writes Documentation/Driver/compatibility/Build<build>.{md,json}'
 	@echo 'make promote-build BUILD=26A5425a   copies that draft into the ledger'
@@ -223,6 +224,10 @@ chromium-live-tests:
 	    AGENTSEAT_LIVE_TESTS=1 AGENTSEAT_CHROMIUM_TESTS=1 $(TIER) "chromium-$$row" 1 $(SWIFT) test --filter "$$row" --no-parallel \
 	        || exit $$?; \
 	done
+
+# A WKWebView fixture that shows one local page in a panel, sheet, modal and popover.
+web-popup-probe:
+	@Tools/Driver/WebPopupProbe/build.sh
 
 # MARK: The measurements
 
