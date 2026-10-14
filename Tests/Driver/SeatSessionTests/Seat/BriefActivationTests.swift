@@ -103,6 +103,46 @@ struct BriefActivationTests {
         #expect(states == [.acting, before], "acting for the length of it, like a Command")
     }
 
+    @Test("a menu item that enables a few reads after the activation is pressed once, after it enabled")
+    func aMenuItemIsPressedOnceItEnables() async throws {
+        let sensing = FakeSensing()
+        let (seat, record, _) = try await Self.seat(sensing: sensing)
+        let target = try #require(seat.currentTarget).reference
+        // Chrome revalidates its menus a few ms after it becomes active: the first reads say disabled.
+        var reads = 0
+        var pressedAtRead: [Int] = []
+        let outcome = await seat.performMenuCommandBrieflyInFront(
+            when       : { reads += 1; return reads >= 4 },
+            performOnce: { pressedAtRead.append(reads) }
+        )
+        guard case .ready = outcome else { Issue.record("not ready: \(outcome)"); return }
+        #expect(pressedAtRead == [4], "pressed once, on the first enabled read")
+        #expect(record.requested == [target, Self.user])
+        #expect(sensing.frontmostProcessID == Self.user.processID)
+        #expect(seat.inputPauseReasons.isEmpty)
+    }
+
+    @Test("a menu item that never enables is never pressed, and the front still goes back")
+    func aMenuItemThatNeverEnablesIsNotPressed() async throws {
+        let sensing = FakeSensing()
+        let (seat, record, _) = try await Self.seat(sensing: sensing)
+        let target = try #require(seat.currentTarget).reference
+        var reads = 0
+        var presses = 0
+        let outcome = await seat.performMenuCommandBrieflyInFront(
+            when       : { reads += 1; return false },
+            performOnce: { presses += 1 }
+        )
+        guard case .notReady(let after) = outcome else { Issue.record("not refused: \(outcome)"); return }
+        #expect(after >= 1_900, "the wait is bounded by the brief activation limit, not by one read")
+        #expect(reads > 1)
+        #expect(presses == 0)
+        #expect(record.requested == [target, Self.user])
+        #expect(sensing.frontmostProcessID == Self.user.processID)
+        #expect(record.reports.isEmpty)
+        #expect(seat.inputPauseReasons.isEmpty)
+    }
+
     @Test("Enabled readiness cannot succeed when an acknowledged front request never activates the target")
     func readinessRequiresTheObservedForeground() async throws {
         let sensing = FakeSensing()

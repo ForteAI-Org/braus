@@ -538,7 +538,16 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             throw AutomationFailure(sentence)
         }
         let processID = application.processIdentifier
-        let command = menuCommand(application, runtime, agentSeat, inFront: Self.preparesMenuInFront(application))
+        let platform = TargetPlatform.chosen(
+            bundleURL       : application.bundleURL,
+            bundleIdentifier: application.bundleIdentifier
+        )
+        let inFront = Self.pressesMenuInFront(
+            platform,
+            bundleIdentifier     : application.bundleIdentifier,
+            isEnabledInBackground: { MenuBarCommand.isEnabled(path, processID: processID) }
+        )
+        let command = menuCommand(application, runtime, agentSeat, inFront: inFront)
         return try await PerceivedCommand.perform(
             bundleID: application.bundleIdentifier ?? "pid.\(processID)",
             recorder: Self.recorder(runtime, sessionID: id),
@@ -627,9 +636,28 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// Whether a menu command of this application is read and pressed during a verified brief
     /// activation. Adobe's UXP hosts and TextEdit leave menus disabled while driven in the
     /// background (ADR 0013, 0029); Safari opens no window from File > New Window until it is
-    /// active (ADR 0038). Other native hosts remain separately qualified.
+    /// active (ADR 0038). A browser found by Chrome's renderer helper keeps its window items
+    /// disabled until it has a key window (ADR 0029, 14/10/2026); Electron and CEF hosts, found
+    /// by their framework, are not measured. Other native hosts remain separately qualified.
     nonisolated static func preparesMenuInFront(_ platform: TargetPlatform, bundleIdentifier: String?) -> Bool {
-        platform == .adobeUXP || platform == .webKitBrowser || bundleIdentifier == "com.apple.TextEdit"
+        platform == .adobeUXP || platform == .webKitBrowser || platform == .embeddedRenderer(.rendererHelper)
+            || bundleIdentifier == "com.apple.TextEdit"
+    }
+
+    /// Whether this one menu command is pressed in the brief activation. A Chromium browser
+    /// presses an item that reads enabled in the background where it is, with no activation, and
+    /// pays the activation only for a disabled one (ADR 0029, 14/10/2026). The other in-front
+    /// applications always pay it: Adobe's enabled items are stale (ADR 0020), TextEdit's titles
+    /// validate only in front (ADR 0029), and Safari's enabled New Window opens nothing (ADR 0038).
+    /// `isEnabledInBackground` is read once, and only for a Chromium browser.
+    nonisolated static func pressesMenuInFront(
+        _ platform           : TargetPlatform,
+        bundleIdentifier     : String?,
+        isEnabledInBackground: () -> Bool
+    ) -> Bool {
+        guard preparesMenuInFront(platform, bundleIdentifier: bundleIdentifier) else { return false }
+        guard platform == .embeddedRenderer(.rendererHelper) else { return true }
+        return !isEnabledInBackground()
     }
 
     /// `preparesMenuInFront` for `application`, its platform read now.
