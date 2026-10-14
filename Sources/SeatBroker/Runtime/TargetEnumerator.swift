@@ -47,7 +47,9 @@ enum TargetEnumerator {
                                     bundleURL: launchable, windows: windows, bundleName: installed?.bundleName,
                                     version: installed?.version, lastUsed: installed?.lastUsed)
         }
-        return byPath.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return byPath.values
+            .filter { !ApplicationOpening.isOwn($0, processID: me) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     // MARK: Which applications are installed

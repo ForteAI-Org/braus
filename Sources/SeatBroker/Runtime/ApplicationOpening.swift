@@ -25,6 +25,20 @@ enum ApplicationOpening {
     /// one file and nothing else has to know.
     static func isOpenable(_ app: TargetApp) -> Bool { true }
 
+    /// The product's bundle identifiers: Braus and the name it had before. A second build of the
+    /// app carries one of them too, so it is as untargetable as the running one.
+    private static let ownBundleIDs: Set<String> = ["dev.forte.Braus", "dev.forte.Mecum"]
+
+    /// The names the product answers to, which `open` refuses.
+    private static let ownNames = ["Braus", "Mecum"]
+
+    /// Whether `app` is this product, running here or any other copy of it.
+    static func isOwn(_ app: TargetApp, processID: pid_t = ProcessInfo.processInfo.processIdentifier) -> Bool {
+        app.pid == processID
+            || ownBundleIDs.contains(app.bundleID)
+            || app.bundleID == Bundle.main.bundleIdentifier
+    }
+
     /// How many names a prompt carries. Measured on this machine: 94 installed
     /// applications are 92 distinct names and 1025 characters, roughly 260
     /// tokens, repeated in every prompt of every decision. 150 stops a large
@@ -93,6 +107,11 @@ enum ApplicationOpening {
         let wanted = requested(name)
         guard !wanted.isEmpty else {
             throw SeatBrokerError.applicationNotResolved("No application was named to open.")
+        }
+        if (ownNames + ownBundleIDs).contains(where: { same($0, wanted) }) {
+            throw SeatBrokerError.applicationNotResolved(
+                "\"\(wanted)\" is the application you run in, and you cannot drive it. "
+                    + "Opening it would take the person's own window; choose another application.")
         }
         let candidates = ranked(wanted, in: apps)
         guard let best = candidates.first.flatMap({ match(wanted, $0) }) else {
