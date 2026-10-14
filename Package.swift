@@ -247,7 +247,7 @@ let package = Package(
             targets: ["EngineCore", "Engine", "HIDActuation", "AccessibilityActions", "WorkspaceActivation",
                       "Memory", "FileKnowledge", "LiveScenes", "LocalEmbedding"]
         ),
-        .library(name: "BrausWeb", targets: ["WebDriver"]),
+        .library(name: "BrausWeb", targets: ["WebDriver", "WebDriving"]),
         .library(name: "UserInteractions", targets: ["InteractionListener", "InteractionObservation"]),
         .library(name: "SeatBroker", targets: ["SeatBroker"]),
         .library(name: "ModelTransports", targets: ["ModelTransports"]),
@@ -549,6 +549,12 @@ let package = Package(
         // Chrome over its DevTools pipe: the process, the protocol connection, pages. Foundation only.
         web("WebDriver"),
         webTests("WebDriver", ["WebDriver"], resources: [.copy("Fixtures/web-fixture.html")]),
+
+        // A page as the engine sees a window: the scene from the accessibility tree and the layout, and the
+        // roles that act on it over the DevTools protocol. Synthetic process ids name the tabs.
+        web("WebDriving", ["WebDriver", "EngineCore", "PerceptionCore"]),
+        webTests("WebDriving", ["WebDriving", "WebDriver", "EngineCore", "PerceptionCore"],
+                 resources: [.copy("Fixtures/web-scene.html")]),
 
         // MARK: Engine tests
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",

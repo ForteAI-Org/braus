@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Braus web scene</title></head>
+<body>
+  <header><h1>Braus web fixture</h1></header>
+  <nav aria-label="Sections"><a href="#form">Form</a> <a href="#list">List</a></nav>
+  <main>
+    <form id="form" aria-label="Message">
+      <label for="name">Name</label> <input id="name" type="text">
+      <label for="note">Note</label> <textarea id="note"></textarea>
+      <label><input id="agree" type="checkbox"> Agree</label>
+      <select id="color" aria-label="Color"><option>Red</option><option>Blue</option></select>
+      <button id="send" type="button">Send</button>
+    </form>
+    <p id="status" role="status">Idle</p>
+    <ul id="list"><li>First</li><li>Second</li></ul>
+    <div style="height: 2000px"></div>
+    <button id="far" type="button">Far away</button>
+  </main>
+  <script>
+    document.getElementById('send').addEventListener('click', () => {
+      document.getElementById('status').textContent = 'Sent ' + document.getElementById('name').value;
+    });
+  </script>
+</body>
+</html>
