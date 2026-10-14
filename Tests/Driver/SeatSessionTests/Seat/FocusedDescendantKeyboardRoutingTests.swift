@@ -180,6 +180,55 @@ struct FocusedDescendantKeyboardRoutingTests {
         try seat.release(turn)
     }
 
+    @Test("a standalone panel the panel service draws takes the remote keyboard route a modal takes, read once")
+    func aStandaloneRemotePanelTakesTheRemoteKeys() async throws {
+        // Preview's Open panel at launch has no modal relation, so its keys were refused
+        // `subtreeUnreadable` and Go to Folder never opened (14/10/2026).
+        let sensing = FakeSensing()
+        let sender = FakeSender()
+        let discovery = Fixture.Discovery()
+        let seat = makeSeat(
+            sensing: sensing, sender: sender, marker: 3_812,
+            reader: ControlledSurfaceReader(sensing: sensing),
+            source: ControlledObservationSource(sensing: sensing),
+            clock: ControlledContentClock(), endpoints: discovery.discovery
+        )
+        let window = try await seat.adopt(
+            FakeGeometry.reference(frame: FakeGeometry.userSeatWindow.frame),
+            platform: AppKitPlatform()
+        )
+        let identity = try #require(window.reference.identity)
+        let content = try #require(WindowGeometryObservation(
+            window: FakeGeometry.reference(
+                frame: window.reference.frame,
+                processID: FakeGeometry.distinctProcessID(),
+                windowNumber: Fixture.remoteWindowNumber
+            ),
+            scaleFactor: 2,
+            version: GeometryObservationVersion(observerGeneration: 3, sequence: 9)
+        ))
+        discovery.keyboardAnswer = .failure(.subtreeUnreadable(surface: identity))
+        discovery.remotePanelContentWindow = Fixture.remoteWindowNumber
+        discovery.identities[Fixture.remoteWindowNumber] = content.window.identity
+        discovery.identities[window.id] = identity
+        discovery.focusedWindowNumber = window.id
+        let observation = try await observedReference(seat)
+        discovery.remoteContentKeyboardAnswer = .success(try endpoint(
+            content, surface: identity, generation: observation.selectionGeneration,
+            evidence: .remoteContentOfSurface, lifetimeNanoseconds: 60_000_000_000
+        ))
+        let turn = try await seat.acquire()
+        let receipt = try await seat.send(
+            KeyboardEndpointRoutingTests.escapeKey, observation: observation, turn: turn
+        )
+        #expect(discovery.remoteContentKeyboardResolutions >= 1)
+        #expect(sender.addressed.last?.window.identity == content.window.identity, "the keys go to the panel's content")
+        #expect(sender.sent.count == 1)
+        #expect(discovery.remotePanelReadings == 1, "a window's panel reading is kept for its lifetime")
+        try seat.confirm(receipt, .unknown)
+        try seat.release(turn)
+    }
+
     // MARK: A modal with no focused control inside it
 
     /// A modal whose surface names one remote content window, with the keyboard

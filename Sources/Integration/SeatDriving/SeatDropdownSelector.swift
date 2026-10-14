@@ -58,8 +58,21 @@ public struct SeatDropdownSelector {
         } catch {
             do { try seat.release(turn) }
             catch let cleanup { throw DropdownFailure.cleanup(primary: String(describing: error), cleanup: String(describing: cleanup)) }
-            throw error
+            throw Self.worded(error)
         }
+    }
+
+    /// The seat's stop in words, as the agent reads it: Preview's Save As, 14/10/2026, answered a selection with
+    /// "SeatInterruption(issues: [SeatCore.SeatIssue.geometryChanged], beforeAnyEvent: true)". A selection is several
+    /// Commands, so a stop before one of them never says that nothing of the selection went out. Any other error
+    /// is returned as it is.
+    static func worded(_ error: any Error) -> any Error {
+        guard let stop = error as? SeatInterruption else { return error }
+        let why = stop.issues.map(SeatActuator.words).joined(separator: "; ")
+        return GestureInterrupted(sentence: why.prefix(1).uppercased() + why.dropFirst() + (stop.beforeAnyEvent
+            ? ". The seat stopped this step of the selection before sending it; an earlier step, such as opening the "
+                + "menu, may have gone out"
+            : ". It may have taken effect"))
     }
 
     private func perform(

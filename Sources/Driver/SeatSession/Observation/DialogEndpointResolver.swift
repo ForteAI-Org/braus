@@ -1175,6 +1175,50 @@ nonisolated package struct DialogEndpointResolver<Node> {
         return only
     }
 
+    /// The one window of another process every child of the surface's own
+    /// `AXWindows` entry names, read without any focus and without geometry:
+    /// what says that a standalone panel draws another process's content,
+    /// before that content is aligned with the panel.
+    ///
+    /// Measured on 14/10/2026 with Preview's Open panel at launch, which AppKit
+    /// shows without a modal session (`AXModal` false, `AXStandardWindow`,
+    /// identifier `open-panel`): the panel's window node has one child, a split
+    /// group naming the panel service's window, and every control below it
+    /// names that window too; the service's window read 316,144 to the window
+    /// server while the panel stood at -1177,144. Only the window node's
+    /// children are read, so an ordinary window answers nil after one read: its
+    /// children name the window itself, or no window.
+    package func remotePanelContentWindow(within chain: SurfaceChain) -> RemotePanelReading {
+        guard let window = windowNode(chain.surface.windowNumber) else { return .unreadable }
+        let values: [Node]
+        switch children(window) {
+            case .unreadable: return .unreadable
+            case .leaf: return .notPanel
+            case .children(let found): values = found
+        }
+        // A panel being born may list no content yet, or content that names no window yet: unknown, not "no".
+        guard !values.isEmpty else { return .unreadable }
+        guard values.count <= 64 else { return .notPanel }
+        var named: Set<Int> = []
+        for value in values {
+            guard let number = nodeWindow(value) else { return .unreadable }
+            guard number != chain.surface.windowNumber else { return .notPanel }
+            named.insert(number)
+        }
+        guard named.count == 1, let only = named.first else { return .notPanel }
+        guard let owner = identity(only) else { return .unreadable }
+        return owner.process != chain.surface.process ? .panel(contentWindow: only) : .notPanel
+    }
+
+    /// What `remotePanelContentWindow` read: the one foreign content window, a
+    /// window that is no such panel, or a reading that could not be taken and
+    /// says nothing either way.
+    package enum RemotePanelReading: Equatable {
+        case panel(contentWindow: Int)
+        case notPanel
+        case unreadable
+    }
+
     /// The surface's own node: its `AXWindows` entry, or for a sheet, the one
     /// child of its host's entry that names it.
     private func surfaceNode(within chain: SurfaceChain) -> Node? {

@@ -23,6 +23,13 @@ nonisolated public enum BriefActivationOutcome: Sendable, Equatable {
     /// the person's side all the same.
     case notReady(afterMilliseconds: Int)
 
+    /// The condition did not hold, and when the moment ended the front was
+    /// with an application that is neither the target nor the person's own,
+    /// which keeps it: the person's choice. Nothing was handed back over it. Kept
+    /// apart from `notReady` so that the caller can say why (Preview, while
+    /// the person brought ChatGPT forward, 14/10/2026).
+    case frontElsewhere(afterMilliseconds: Int)
+
     /// The seat refused, and says why. Nothing was brought in front, except for
     /// `frontRequestRefused`, whose front is handed back if it moved anyway.
     case refused(Refusal)

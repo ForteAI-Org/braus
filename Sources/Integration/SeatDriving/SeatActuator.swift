@@ -42,6 +42,96 @@ public actor SeatActuator: Actuating {
     }
 
     public func perform(_ gesture: Gesture, in processID: pid_t) async throws {
+        do {
+            try await deliver(gesture)
+        } catch {
+            throw Self.unsent(error) ?? Self.interrupted(error) ?? error
+        }
+    }
+
+    /// The refusal as `GestureNotSent` when the seat refused before posting any event of the gesture, and nil
+    /// for every other error, which stays a delivery whose effect is unknown: the input endpoint discovery's
+    /// refusals (`AgentSeat.send` resolves the endpoint before preflight and before any post), the preflight's
+    /// own stop (`SeatInterruption.beforeAnyEvent`, such as a sheet that changed size since the scene), a remote
+    /// panel's refusal that cannot have taken effect, and a point or a gesture this actuator refuses itself.
+    static func unsent(_ error: any Error) -> GestureNotSent? {
+        switch error {
+            case let refusal as InputEndpointRefusal:
+                return GestureNotSent(reason: "endpoint_refused", sentence: sentence(for: refusal))
+            case let refusal as RemoteContentActuationRefusal where !refusal.mayHaveTakenEffect:
+                return GestureNotSent(reason: "remote_content_refused", sentence: refusal.description)
+            case SeatDrivingFailure.pointOutsideTarget:
+                return GestureNotSent(reason: "point_outside_window", sentence:
+                    "That point is outside the window the seat holds. Act on an element of the scene.")
+            case SeatDrivingFailure.gestureUnsupported(let gesture):
+                return GestureNotSent(reason: "gesture_unsupported", sentence: "The seat has no delivery for \(gesture).")
+            case let stop as SeatInterruption where stop.beforeAnyEvent:
+                let why = stop.issues.map(Self.words).joined(separator: "; ")
+                return GestureNotSent(reason: "seat_preflight", sentence: why.prefix(1).uppercased() + why.dropFirst()
+                    + ". Observe again and act on the new scene.")
+            default:
+                return nil
+        }
+    }
+
+    /// The seat's stop once a gesture's first event may have gone out, in words: its effect stays unknown, and the
+    /// engine still reports the gesture as delivered. Nil for any other error.
+    static func interrupted(_ error: any Error) -> GestureInterrupted? {
+        guard let stop = error as? SeatInterruption else { return nil }
+        return GestureInterrupted(sentence: "the seat stopped it: " + stop.issues.map(Self.words).joined(separator: "; ")
+            + "; it may have taken effect, so observe before any retry")
+    }
+
+    /// An Issue as the model reads it. `SeatIssue` carries no prose and leaves the sentence to its consumer, as
+    /// `SeatErrorMapper` and `SeatAdmission` write theirs.
+    static func words(_ issue: SeatIssue) -> String {
+        switch issue {
+            case .geometryChanged       : "the window moved or changed size since that scene"
+            case .windowStashed         : "the window is a Stage Manager thumbnail and stayed one"
+            case .windowUnavailable     : "the window could not be read just then"
+            case .snapshotChanged       : "two readings of the window disagreed and have to be confirmed again"
+            case .identityChanged       : "the window or its process is not the one that was observed"
+            case .processUnavailable    : "the application is gone"
+            case .targetActivated       : "the application came to the front of the person's screen, and it is left there"
+            case .displayChanged        : "the background display or the screens around it changed"
+            case .fenceUnavailable      : "the cursor fence is not active"
+            case .cursorInterference    : "the pointer moved in a way the person's input does not explain"
+            case .ambiguousEffect       : "the effect of the last input is unknown, and repeating it could do it twice"
+            case .recoveryExhausted     : "the seat's recovery ran out of attempts"
+            case .monitorUnavailable    : "the preview of the background display is unavailable"
+            case .preparationNotRestored: "the application's internal state did not go back after the input"
+            case .keysNotReleased       : "held keys could not be released safely"
+            case .contextMenuLeftOpen   : "a contextual menu the seat opened stayed on the screen"
+        }
+    }
+
+    /// What an input endpoint refusal means to the model, in words: the enum's own text names types.
+    static func sentence(for refusal: InputEndpointRefusal) -> String {
+        switch refusal {
+            case .noNodeAtPoint:
+                "Accessibility answers no element at that point of the window. Observe again and name a control."
+            case .pointOutsideSurface:
+                "That point is outside the window the seat is operating. Act on an element of its scene."
+            case .subtreeUnreadable:
+                "The window's accessibility gave the seat no control to send it to: its content may be drawn by "
+                    + "another process, as a file panel's is. Observe again; click the field or the button you "
+                    + "mean first, or take another route."
+            case .identityUnattested:
+                "The window that would receive it has no complete identity in the window server. Observe again."
+            case .identityChangedDuringDiscovery:
+                "The window that would receive it changed while it was being read. Observe again."
+            case .geometryUnavailable:
+                "The window's geometry could not be read. Observe again."
+            case .notContainedInSurface:
+                "The window that would receive it is not drawn inside the one the seat is operating."
+            case .recipientModallyBlocked:
+                "That window is blocked by a dialog in front of it: answer the dialog first."
+            case .incoherentEndpoint:
+                "The window's facts do not name one recipient for it. Observe again."
+        }
+    }
+
+    private func deliver(_ gesture: Gesture) async throws {
         #if BRAUS_PHASES
         let preparing = PhaseInterval.begin("delivery.prepare")
         #endif
@@ -171,3 +261,13 @@ public actor SeatActuator: Actuating {
         return held
     }
 }
+
+/// A seat's stop that may have followed an event of the gesture: a delivery whose effect is unknown, said in
+/// words, because the engine prints the error it is given.
+public struct GestureInterrupted: Error, Sendable, Equatable, CustomStringConvertible {
+
+    public let sentence: String
+
+    public var description: String { sentence }
+}
+

@@ -396,6 +396,58 @@ struct RemoteContentActuationTests {
         #expect(resolver.foreignContentWindow(within: chain) == nil)
     }
 
+    @Test("a standalone panel names one foreign window under every child of its window node; an ordinary one does not")
+    func aStandalonePanelsContentWindow() throws {
+        // Preview's Open panel at launch (14/10/2026): one child, a split group naming the service's window.
+        let panel   = FakeGeometry.identity(processID: 74_803, windowNumber: 111_504)
+        let content = FakeGeometry.identity(processID: 74_816, windowNumber: 111_505)
+        let own     = FakeGeometry.identity(processID: 74_803, windowNumber: 111_510)
+        let windowNode = Element(kAXWindowRole, window: .window(111_504), processID: panel.processID)
+        var kids: [ObjectIdentifier: DialogEndpointResolver<Element>.ChildReading] = [:]
+        var identities = [111_504: panel, 111_505: content, 111_510: own]
+        func resolver() -> DialogEndpointResolver<Element> {
+            DialogEndpointResolver<Element>(
+                nodeAtPoint: { _ in nil },
+                focusedNode: { nil },
+                children   : { kids[ObjectIdentifier($0)] ?? .leaf },
+                nodeFrame  : { _ in nil },
+                nodeWindow : { if case .window(let number) = $0.window { number } else { nil } },
+                nodeProcess: { $0.processID },
+                identity   : { identities[$0] },
+                geometry   : { _, _ in nil },
+                windowNode : { $0 == 111_504 ? windowNode : nil }
+            )
+        }
+        let chain = DialogEndpointResolver<Element>.SurfaceChain(
+            host: panel, surface: panel, surfaceFrame: CGRect(x: 0, y: 0, width: 880, height: 448)
+        )
+        let split = Element(kAXSplitGroupRole, window: .window(111_505), processID: panel.processID)
+        kids[ObjectIdentifier(windowNode)] = .children([split])
+        #expect(resolver().remotePanelContentWindow(within: chain) == .panel(contentWindow: 111_505))
+
+        // A child of the window itself: an ordinary window.
+        let toolbar = Element(kAXToolbarRole, window: .window(111_504), processID: panel.processID)
+        kids[ObjectIdentifier(windowNode)] = .children([split, toolbar])
+        #expect(resolver().remotePanelContentWindow(within: chain) == .notPanel)
+
+        // A window of the application's own: not another process's content.
+        let accessory = Element(kAXGroupRole, window: .window(111_510), processID: panel.processID)
+        kids[ObjectIdentifier(windowNode)] = .children([accessory])
+        #expect(resolver().remotePanelContentWindow(within: chain) == .notPanel)
+
+        // Nothing read says nothing either way, and neither does a panel still being born.
+        kids[ObjectIdentifier(windowNode)] = .unreadable
+        #expect(resolver().remotePanelContentWindow(within: chain) == .unreadable)
+        kids[ObjectIdentifier(windowNode)] = .children([])
+        #expect(resolver().remotePanelContentWindow(within: chain) == .unreadable)
+        let unnamed = Element(kAXGroupRole, window: .windowless, processID: panel.processID)
+        kids[ObjectIdentifier(windowNode)] = .children([unnamed])
+        #expect(resolver().remotePanelContentWindow(within: chain) == .unreadable)
+        kids[ObjectIdentifier(windowNode)] = .children([split])
+        identities[111_505] = nil
+        #expect(resolver().remotePanelContentWindow(within: chain) == .unreadable)
+    }
+
     @Test("a point on a sheet wider than its host is kept for the seat, inside the picture's region only")
     func aPointOnAWideSheetIsRouted() throws {
         // Measured on 05/10/2026: TextEdit's expanded Save sheet, its sidebar left of the document window.
@@ -413,6 +465,36 @@ struct RemoteContentActuationTests {
         #expect(SeatActuator.location(of: downloads, in: host, region: nil) == nil,
                 "a picture of one window still refuses a point outside it")
         #expect(SeatActuator.location(of: CGPoint(x: 2100, y: 1500), in: host, region: region) == nil)
+    }
+
+    @Test("a refusal the seat raised before any event reaches the engine as a gesture not sent; one that may have acted does not")
+    func refusalsBeforeAnyEventAreNotSent() throws {
+        let surface = WindowIdentity(process: ProcessIdentity(processID: 85414, serialNumberHigh: 0, serialNumberLow: 1),
+                                     windowNumber: 111000, ownerConnectionID: 7)
+        let unreadable = try #require(SeatActuator.unsent(InputEndpointRefusal.subtreeUnreadable(surface: surface)))
+        #expect(unreadable.reason == "endpoint_refused")
+        #expect(!unreadable.sentence.contains("WindowIdentity"), "the model reads words, never a type")
+        let remote = try #require(SeatActuator.unsent(RemoteContentActuationRefusal.unreadable))
+        #expect(remote.reason == "remote_content_refused")
+        #expect(SeatActuator.unsent(RemoteContentActuationRefusal.selectedNotOpened(code: -25205)) == nil,
+                "a refusal after an action that may have taken effect stays a delivery whose effect is unknown")
+        #expect(SeatActuator.unsent(SeatDrivingFailure.pointOutsideTarget(CGPoint(x: 1, y: 1)))?.reason == "point_outside_window")
+        #expect(SeatActuator.unsent(SeatDrivingFailure.notAdopted) == nil)
+        // A sheet that changed size after its scene (Preview's Save As, 14/10/2026): the preflight's stop.
+        let resized = try #require(SeatActuator.unsent(SeatInterruption(issues: [.geometryChanged], beforeAnyEvent: true)))
+        #expect(resized.reason == "seat_preflight")
+        #expect(resized.sentence.hasPrefix("The window moved or changed size") && resized.sentence.contains("Observe again")
+            && !resized.sentence.contains("SeatIssue"), "\(resized.sentence)")
+        #expect(SeatActuator.unsent(SeatInterruption(issues: [.geometryChanged])) == nil,
+                "a stop that may follow an event stays a delivery whose effect is unknown")
+        let after = try #require(SeatActuator.interrupted(SeatInterruption(issues: [.ambiguousEffect])))
+        #expect(after.description.contains("may have taken effect") && !after.description.contains("SeatIssue"))
+        #expect(SeatActuator.interrupted(SeatDrivingFailure.notAdopted) == nil)
+        // A selection is several Commands: a stop before one of them is worded, never called "nothing sent".
+        let selection = "\(SeatDropdownSelector.worded(SeatInterruption(issues: [.geometryChanged], beforeAnyEvent: true)))"
+        #expect(selection.hasPrefix("The window moved or changed size") && selection.contains("may have gone out")
+            && !selection.contains("SeatIssue") && !selection.contains("nothing was sent"), "\(selection)")
+        #expect(SeatDropdownSelector.worded(SeatDrivingFailure.notAdopted) as? SeatDrivingFailure == .notAdopted)
     }
 
     // MARK: 4. Text reaches a remembered field through accessibility
@@ -1039,6 +1121,17 @@ struct RemoteContentActuationTests {
         #expect(throws: RemoteContentActuationRefusal.unsupportedRole(kAXRowRole)) {
             try actuator.actuate(click(3), endpoint: endpoint).get()
         }
+        // Go to Folder's suggestion rows, 14/10/2026: type_text's triple click on a row read as a label.
+        let rowRefusal = RemoteContentActuationRefusal.unsupportedRole(kAXRowRole).description
+        #expect(rowRefusal.contains("list row") && rowRefusal.contains("insert_text")
+            && !rowRefusal.contains("Nothing clickable"), "a row is clickable: its refusal says what it takes")
+        // A search button typed into, Preview's Export sheet, 14/10/2026; and a text field clicked twice.
+        let buttonRefusal = RemoteContentActuationRefusal.unsupportedRole(kAXButtonRole).description
+        #expect(buttonRefusal.contains("single click") && buttonRefusal.contains("insert_text")
+            && !buttonRefusal.contains("Nothing clickable"), "\(buttonRefusal)")
+        let fieldRefusal = RemoteContentActuationRefusal.unsupportedRole(kAXTextFieldRole).description
+        #expect(fieldRefusal.contains("three to select") && !fieldRefusal.contains("Nothing clickable"), "\(fieldRefusal)")
+        #expect(RemoteContentActuationRefusal.unsupportedRole("AXSlider").description.contains("Nothing clickable"))
         #expect(try actuator.actuate(click(1, .right), endpoint: endpoint).get().action == kAXShowMenuAction)
         #expect(content.performed == [kAXShowMenuAction])
 

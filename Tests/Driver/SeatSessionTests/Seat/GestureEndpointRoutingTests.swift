@@ -85,6 +85,11 @@ struct GestureEndpointRoutingTests {
         /// without any focus.
         var foreignContentWindow: Int?
 
+        /// The one foreign window every child of a standalone surface's window
+        /// node names, and how many times it was read.
+        var remotePanelContentWindow: Int?
+        var remotePanelReadings = 0
+
         /// Applied the moment a resolution is answered, which is how a helper
         /// replaced between the discovery and the boundary is expressed.
         var afterResolving: (() -> Void)?
@@ -135,6 +140,10 @@ struct GestureEndpointRoutingTests {
                         ?? .failure(.subtreeUnreadable(surface: chain.surface))
                 },
                 foreignContentWindow: { [self] _, _ in foreignContentWindow },
+                remotePanelContentWindow: { [self] _, _ in
+                    remotePanelReadings += 1
+                    return remotePanelContentWindow.map { .panel(contentWindow: $0) } ?? .notPanel
+                },
                 clicksThroughAccessibility: { [self] _ in clicksThroughAccessibility },
                 remoteActuation: { [self] _, command, endpoint in
                     actuated.append((command, endpoint))
@@ -748,6 +757,44 @@ struct GestureEndpointRoutingTests {
 
         panel.discovery.qualifiesRemotePanelService = false
         #expect(!panel.seat.holdsRemoteFilePanel, "another process's content is not the panel service")
+    }
+
+    @Test("a standalone window whose whole content the qualified service draws is a remote file panel too")
+    func aStandalonePanelIsARemoteFilePanel() async throws {
+
+        // Preview's Open panel at launch: an AXStandardWindow with no modal relation (14/10/2026).
+        let sensing   = FakeSensing()
+        let discovery = Discovery()
+        let seat      = makeSeat(
+            sensing: sensing, sender: FakeSender(), marker: 1_905,
+            reader: ControlledSurfaceReader(sensing: sensing),
+            source: ControlledObservationSource(sensing: sensing),
+            clock: ControlledContentClock(), endpoints: discovery.discovery
+        )
+        let window = try await seat.adopt(
+            FakeGeometry.reference(frame: FakeGeometry.userSeatWindow.frame), platform: AppKitPlatform()
+        )
+        let content = try #require(WindowGeometryObservation(
+            window: FakeGeometry.reference(
+                frame: window.reference.frame, processID: FakeGeometry.distinctProcessID(),
+                windowNumber: Self.remoteWindowNumber
+            ),
+            scaleFactor: 2,
+            version: GeometryObservationVersion(observerGeneration: 3, sequence: 9)
+        ))
+        discovery.identities[Self.remoteWindowNumber] = content.window.identity
+        #expect(seat.openDialogs.isEmpty, "no dialog: the panel has no modal relation")
+        #expect(!seat.holdsRemoteFilePanel, "an ordinary window's children name the window itself")
+
+        // A window's reading is kept for its lifetime: a new window, here a fresh reading, is read again.
+        seat.standaloneRemotePanelReadings = [:]
+        discovery.remotePanelContentWindow = Self.remoteWindowNumber
+        discovery.foreignContentWindow = Self.remoteWindowNumber
+        #expect(seat.holdsRemoteFilePanel)
+
+        discovery.qualifiesRemotePanelService = false
+        seat.standaloneRemotePanelReadings = [:]
+        #expect(!seat.holdsRemoteFilePanel, "another process's content is not the panel service")
     }
 
     // MARK: The classification on its own

@@ -516,16 +516,19 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     /// Whether a menu command of this application is read and pressed during a verified brief
-    /// activation. Adobe's UXP hosts and TextEdit leave menus disabled while driven in the
-    /// background (ADR 0013, 0029); Safari opens no window from File > New Window until it is
+    /// activation. Adobe's UXP hosts, TextEdit and Preview leave menus disabled while driven in the
+    /// background (ADR 0013, 0029, 0042); Safari opens no window from File > New Window until it is
     /// active (ADR 0038). Other native hosts remain separately qualified.
     nonisolated static func preparesMenuInFront(_ platform: TargetPlatform, bundleIdentifier: String?) -> Bool {
-        platform == .adobeUXP || platform == .webKitBrowser || bundleIdentifier == "com.apple.TextEdit"
+        platform == .adobeUXP || platform == .webKitBrowser
+            || bundleIdentifier == "com.apple.TextEdit" || bundleIdentifier == "com.apple.Preview"
     }
 
     private static func briefMenuFailure(_ outcome: BriefActivationOutcome) -> String {
         switch refresh(after: outcome) {
-            case .stillDisabled(let reason): return reason ?? "The admitted menu command was not dispatched."
+            case .stillDisabled(let reason):
+                return reason ?? "It was brought forward for a moment, and the item did not read enabled before the "
+                    + "moment ended, so nothing was pressed."
             case .blockedByDialog: return "A dialog is open; answer it before another menu command."
             case .readAgain: return "The admitted menu command was not dispatched."
         }
@@ -541,6 +544,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 return .readAgain
             case .notReady:
                 return .stillDisabled(reason: nil)
+            case .frontElsewhere:
+                return .stillDisabled(reason: "It was brought forward for a moment, but another application came to "
+                    + "the front meanwhile and was left there, so nothing was pressed. The command can be tried again.")
             case .handbackNotVerified:
                 return .stillDisabled(reason: "It was brought forward for a moment, but the return to "
                     + "the person's own window was not verified.")

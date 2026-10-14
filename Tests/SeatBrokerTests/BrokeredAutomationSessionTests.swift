@@ -807,6 +807,10 @@ struct BrokeredAutomationSessionTests {
         #expect(BrokeredAutomationSession.refresh(after: .ready(afterMilliseconds: 1050)) == .readAgain)
         #expect(BrokeredAutomationSession.refresh(after: .notReady(afterMilliseconds: 2000))
             == .stillDisabled(reason: nil), "the disabled refusal stands as it is")
+        guard case .stillDisabled(let elsewhere?) = BrokeredAutomationSession.refresh(after: .frontElsewhere(afterMilliseconds: 822)),
+              elsewhere.contains("another application came to the front") else {
+            Issue.record("a front taken during the moment was not explained"); return
+        }
         #expect(BrokeredAutomationSession.refresh(after: .refused(.noUserWindow)) == .stillDisabled(
             reason: "It could not be brought forward for a moment, because no window of the person's own "
                 + "is in front to come back to."

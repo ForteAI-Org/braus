@@ -95,6 +95,16 @@ nonisolated extension RemoteContentActuationRefusal: CustomStringConvertible, Lo
             case .unreadable:
                 "The window's accessibility could not be read there, so nothing was sent. Observe "
                     + "again before retrying."
+            case .unsupportedRole(let role) where role == kAXRowRole:
+                "A list row is at that point, which takes one click to select it or two to open it, so "
+                    + "nothing was sent. It is not a text field: to type, name the field, or use insert_text "
+                    + "where the keyboard focus already is."
+            case .unsupportedRole(let role) where RemoteContentActuator<AXUIElement>.pressedRoles.contains(role):
+                "A control (\(role)) is at that point, which takes a single click, so nothing was sent. It is not "
+                    + "a text field: to type, name the field, or use insert_text where the keyboard focus already is."
+            case .unsupportedRole(let role) where RemoteContentActuator<AXUIElement>.textRoles.contains(role):
+                "A text field (\(role)) is at that point, which takes one click for a caret or three to select "
+                    + "its text, so nothing was sent."
             case .unsupportedRole(let role):
                 "Nothing clickable is at that point (\(role)), so nothing was sent. "
                     + "Name a button, a row or a field."

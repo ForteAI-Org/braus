@@ -193,10 +193,11 @@ struct TargetPlatformTests {
             == .embeddedRenderer(.framework))
     }
 
-    @Test("a menu command is pressed in a brief activation for Adobe, TextEdit and Safari only")
+    @Test("a menu command is pressed in a brief activation for Adobe, TextEdit, Preview and Safari only")
     func menuCommandsArePressedInFrontForQualifiedApplications() {
         #expect(BrokeredAutomationSession.preparesMenuInFront(.adobeUXP, bundleIdentifier: "com.adobe.Photoshop"))
         #expect(BrokeredAutomationSession.preparesMenuInFront(.appleNative, bundleIdentifier: "com.apple.TextEdit"))
+        #expect(BrokeredAutomationSession.preparesMenuInFront(.appleNative, bundleIdentifier: "com.apple.Preview"))
         #expect(BrokeredAutomationSession.preparesMenuInFront(.webKitBrowser, bundleIdentifier: "com.apple.Safari"))
         #expect(!BrokeredAutomationSession.preparesMenuInFront(.appleNative, bundleIdentifier: "com.apple.finder"))
         #expect(!BrokeredAutomationSession.preparesMenuInFront(.embeddedRenderer(.framework),

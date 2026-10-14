@@ -14,8 +14,14 @@ public struct SeatInterruption: Error, Sendable, Equatable {
     /// The Issues that stopped the operation, in detection order.
     public let issues: [SeatIssue]
 
-    public init(issues: [SeatIssue]) {
+    /// True when the preflight stopped the Command before any of its events
+    /// went out, so nothing it would have done can have happened. False says
+    /// nothing either way: an Issue read after an event is never this one.
+    public let beforeAnyEvent: Bool
+
+    public init(issues: [SeatIssue], beforeAnyEvent: Bool = false) {
         self.issues = issues
+        self.beforeAnyEvent = beforeAnyEvent
     }
 
     /// True when at least one Issue is critical. A recoverable Issue hidden in

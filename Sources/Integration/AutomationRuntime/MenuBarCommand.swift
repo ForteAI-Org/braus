@@ -364,9 +364,9 @@ public enum MenuBarCommand {
             case .list:
                 let result = run(initial, press: press)
                 return (nil, ActOutcome(result.outcome.kind, result.outcome.message
-                    + " This listing was read without activating the application; enabled flags and editing history "
-                    + "may be stale. Use the full command path for the intended operation; menu preparation reads "
-                    + "its current item again."), result.disabled)
+                    + " This listing was read without activating the application; enabled flags, titles and editing "
+                    + "history may be stale. Use the full command path for the intended operation; menu preparation "
+                    + "reads its current item again."), result.disabled)
             case .outcome:
                 return run(initial, press: press)
         }
@@ -376,6 +376,13 @@ public enum MenuBarCommand {
             result = run(read(), press: press)
         }
         guard let result else {
+            // A moment in front retitles stale items too: Preview read "Esporta come…" in the background and
+            // "Esporta…" once active (14/10/2026). Read again after it, an item that is gone answers with what
+            // the menu holds now instead of the moment's refusal.
+            if case .outcome(let missing) = read(), missing.kind == .honestMiss {
+                return (nil, ActOutcome(.honestMiss, missing.message
+                    + " The menu was read again after a moment in front, which can rename its items."), nil)
+            }
             return (nil, ActOutcome(.refused, issue ?? "Menu preparation did not dispatch the command."), nil)
         }
         guard let issue else { return result }

@@ -270,6 +270,37 @@ public final class AgentSeat {
         generation: UInt64
     )?
 
+    /// Whether a held window is a standalone panel the panel service draws, read
+    /// once per window lifetime (`isStandaloneRemotePanel`).
+    var standaloneRemotePanelReadings: [WindowIdentity: Bool] = [:]
+
+    /// The assigned application whose last held window was destroyed while it
+    /// kept running, so its next window is still the seat's to take in; nil
+    /// once a window is released on purpose (`forgetRecord`). See
+    /// `followedProcesses`.
+    var awaitedSuccessorProcess: ProcessIdentity?
+
+    /// The processes the window follower reads: those of the windows the seat
+    /// holds, or, while it holds none because the last one was destroyed with
+    /// its application still running, that application's.
+    ///
+    /// Measured on 14/10/2026 with Preview launched by the seat: its only
+    /// window, the Open panel, closed on Cancel, the follower stood down with
+    /// "the seat holds no process", and the panel File > Open… opened next was
+    /// selected but never taken in ("selected surface is not owned") until the
+    /// session closed. A panel that closes on Open and the document it opens
+    /// are the same case. The baseline of the process is kept through the gap,
+    /// so only windows born after the destroyed one are candidates; a window
+    /// released on purpose ends the wait, so nothing given back is taken again.
+    var followedProcesses: Set<ProcessIdentity> {
+        let held = session.processIdentities
+        guard held.isEmpty, let awaited = awaitedSuccessorProcess,
+              assignmentKit.lifecycle.current?.instance == awaited,
+              !isTearingDown
+        else { return held }
+        return [awaited]
+    }
+
     /// Why the seat stopped for good: the Issues of its transition to `failed`, with the causes the
     /// host found for them, such as a screen connected. Empty while it has not failed.
     public private(set) var failureIssues: [SeatIssue] = []
@@ -1504,8 +1535,10 @@ public final class AgentSeat {
     /// exception: that wait is its own, and its verified end or its stop is
     /// what brings the seat out of it.
     @discardableResult
-    func forgetRecord(_ windowNumber: Int) -> Int? {
+    func forgetRecord(_ windowNumber: Int, awaitingSuccessorOf process: ProcessIdentity? = nil) -> Int? {
 
+        // A release on purpose ends any wait for a successor; a destruction may begin one.
+        awaitedSuccessorProcess = process
         let successor = session.forget(windowNumber)
         // The inventory forgets a process the seat no longer holds a window of,
         // so driving it again takes a fresh baseline (ADR 0040).
@@ -2307,7 +2340,9 @@ public final class AgentSeat {
     /// content back. Only when both sources read the same size: a window Stage
     /// Manager stashed reads smaller on the server, and that is not this.
     private func realignReportedPosition(of observation: SeatObservationReference) async {
-        guard let modal = attestedModalSurface(for: observation) else { return }
+        // A standalone panel the panel service draws lays its content out as a modal one does (14/10/2026).
+        let standalone = attestedModalSurface(for: observation) == nil && isStandaloneRemotePanel(observation.surface)
+        guard let modal = attestedModalSurface(for: observation) ?? (standalone ? observation.surface : nil) else { return }
         // A sheet follows its host, so the window written is the outermost one held.
         let outer = observationPicture(for: modal).surface
         guard let record   = session[outer.windowNumber],
@@ -3690,9 +3725,9 @@ public final class AgentSeat {
     private func refreshWindowFollowing() {
 
         guard let windowWatch else { return }
-        windowWatch.follow(session.processIDs)
+        let processes = followedProcesses
+        windowWatch.follow(Set(processes.map(\.processID)))
 
-        let processes = session.processIdentities
         windowInventory.baseline(
             surfaces : sensing.windowSurfaces(ownedBy: Set(processes.map(\.processID))),
             processes: processes
@@ -3813,7 +3848,7 @@ public final class AgentSeat {
         // above — a click or an app-switch shortcut in the last third of a
         // second — and that guard is unchanged, as are the hold, the action in
         // flight, a teardown, and a focus recovery still restoring.
-        let processes = session.processIdentities
+        let processes = followedProcesses
         windowFollowPassInFlight = true
         defer { windowFollowPassInFlight = false }
         windowFollowScanCount += 1
@@ -3870,6 +3905,20 @@ public final class AgentSeat {
                     // One missing reading is not a destruction, and the proof
                     // is the recovery budget, which is the target's own.
                     if session.currentTargetNumber == windowNumber, !isHiddenInPlace(windowNumber) {
+                        // Unless the window server, asked for it by name, already names no row for it:
+                        // a panel its own button closed (Preview's Open, 14/10/2026) read as missing 6 ms
+                        // before that proof arrived, and the recovery failed the seat on the Command that
+                        // closed it, as an input of unknown effect. Destroyed, it takes the destruction path,
+                        // which keeps following the application for its next window.
+                        if let reference = session[windowNumber]?.window.reference,
+                           sensing.windowIsDestroyed(reference) {
+                            Self.log.notice("""
+                                the operating target \(windowNumber, privacy: .public) is missing and the \
+                                window server names no row for it: it is let go as destroyed, not recovered
+                                """)
+                            dropDestroyedRecord(windowNumber)
+                            continue
+                        }
                         report([.windowUnavailable], cause: .windowClosure(.absentFromReading))
                     }
             }
@@ -3894,7 +3943,7 @@ public final class AgentSeat {
     private func sightWindowsDuringAdoption() {
 
         guard adoptionInFlight, windowWatch != nil, !isTearingDown else { return }
-        let processes = session.processIdentities
+        let processes = followedProcesses
         guard !processes.isEmpty else { return }
         windowInventory.sight(
             surfaces : sensing.windowSurfaces(ownedBy: Set(processes.map(\.processID))),
@@ -4238,11 +4287,23 @@ public final class AgentSeat {
                 takenInPlace: true
             )
         } catch {
-            refuseTransfer(fresh, Self.refusal(for: error))
+            let refusal = Self.refusal(for: error)
+            refuseTransfer(fresh, refusal)
             Self.log.error("""
                 window \(fresh.windowNumber, privacy: .public) was born on the virtual display \
                 and could not be adopted: \(String(describing: error), privacy: .public)
                 """)
+            // An application that puts a new window where it remembers it, right after its birth, takes it off
+            // the display before it is confirmed in place: Preview's document window, born beside its Open panel
+            // and moved to the person's display (14/10/2026). It is then a window born outside, so it is offered
+            // again, and the pass that finds it settled there transfers it under the attempt budget.
+            if refusal == .placementNotConfirmed {
+                windowInventory.offerAgain(fresh.windowNumber)
+                Self.log.notice("""
+                    window \(fresh.windowNumber, privacy: .public) left the virtual display while it was \
+                    confirmed in place: it is offered again, as a window to transfer
+                    """)
+            }
         }
     }
 
@@ -4423,7 +4484,8 @@ public final class AgentSeat {
     // MARK: The preflight
 
     /// Everything that has to be true before an event goes out, in the order it
-    /// has to be true in.
+    /// has to be true in. What it throws is marked `beforeAnyEvent`: a consumer
+    /// answers it as nothing sent, never as an input whose effect is unknown.
     ///
     /// The stash is answered before the guard of Core, because it is the finer
     /// fact about the same reading: a window Stage Manager stashed also reads at
@@ -4464,7 +4526,7 @@ public final class AgentSeat {
             // this is a refusal and not a silent stage: staging is half a
             // second of animation and the caller has to know it happened.
             report([.windowStashed])
-            throw SeatInterruption(issues: [.windowStashed])
+            throw SeatInterruption(issues: [.windowStashed], beforeAnyEvent: true)
         }
 
         let verificationStart = DispatchTime.now().uptimeNanoseconds
@@ -4477,7 +4539,7 @@ public final class AgentSeat {
             // Refused either way; a sheet that settled in place takes the reading instead of
             // sending a recovery after a host that did not move.
             if !acceptSettledAttachedSurface(record, issues: issues) { report(issues) }
-            throw SeatInterruption(issues: issues)
+            throw SeatInterruption(issues: issues, beforeAnyEvent: true)
         }
 
         beginObservationIfNeeded(for: record, turn: turn)
@@ -4718,7 +4780,11 @@ public final class AgentSeat {
     /// content opens (ADR 0031).
     var remoteFilePanelContent: [WindowIdentity] {
         guard let instance = assignmentKit.lifecycle.current?.instance else { return [] }
-        return openDialogs.compactMap { dialog in
+        // A standalone panel the panel service draws is a file panel too, though no dialog (14/10/2026).
+        let standalone = adoptedWindows.compactMap(\.reference.identity).filter {
+            !openDialogs.contains($0) && isStandaloneRemotePanel($0)
+        }
+        return (openDialogs + standalone).compactMap { dialog in
             guard let frame = sensing.windowGeometry(of: dialog.windowNumber)?.frame else { return nil }
             let chain = DialogEndpointResolver<AXUIElement>.SurfaceChain(
                 host        : selectionKit.attachedHost(of: dialog)
@@ -5584,7 +5650,7 @@ public final class AgentSeat {
         if transfersInFlight != 0                 { return .standDown(reason: "a transfer is in flight") }
         if windowFollowPassInFlight               { return .standDown(reason: "a pass is already running") }
         if sensing.userMayBeSwitchingApplications { return .standDown(reason: "the person's own intent is recent") }
-        if session.processIdentities.isEmpty      { return .standDown(reason: "the seat holds no process") }
+        if followedProcesses.isEmpty              { return .standDown(reason: "the seat holds no process") }
 
         // The two focus suspensions, and only those two: every other state that
         // refuses Commands refuses the reading with it, as it did before.

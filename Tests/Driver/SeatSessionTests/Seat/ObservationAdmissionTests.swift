@@ -879,7 +879,7 @@ struct ObservationAdmissionTests {
         seat.refreshTargetReadings()
 
         let turn = try await seat.acquire()
-        await #expect(throws: SeatInterruption(issues: [.windowStashed])) {
+        await #expect(throws: SeatInterruption(issues: [.windowStashed], beforeAnyEvent: true)) {
             try await seat.send(Self.click, observation: reference, turn: turn)
         }
         #expect(sender.sent.isEmpty, "nothing is posted into a window that is a thumbnail")
