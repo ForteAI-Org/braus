@@ -55,10 +55,14 @@ Likewise, `--allow-destructive` belongs to this invocation, not the saved model 
 - **FileConversations:** private atomic transcripts and exclusive conversation leases.
 - **LocalMCP:** JSON-RPC stdio bridge, authenticated ephemeral loopback host and
   serialized tool router. No application behavior.
-- **AutomationRuntime:** the shared engine composition and persistent Seat session.
-  Ordinary CLI actions and chat use the same EngineRuntime.
+- **AutomationRuntime:** the shared engine composition. Ordinary CLI actions and
+  chat use the same EngineRuntime.
+- **SeatBroker:** the application session the tools drive, `BrokeredAutomationSession`,
+  on a `SeatBroker` of the chat process: the composition of the app's workers and of
+  the benchmark server. The whole chat is one turn of it, so the Seat is held between
+  messages and never released for idling.
 - **AutomationMCP:** validation, tool schemas and result formatting over
-  AutomationSession. No provider, terminal or conversation-store dependency.
+  `AutomationSessionOperating`. No provider, terminal or conversation-store dependency.
 - **CLI composition:** menus, signals, paths, explicit policy flags and the event
   wiring between modules.
 
@@ -141,8 +145,10 @@ ChatGPT connections remain separate work.
 
 Run from the terminal that has the necessary macOS permissions. This CLI phase
 does not solve the signed application identity/deployment work. Opening a Seat
-checks Screen Recording, Accessibility and posting access without prompting.
-Missing access is reported; the model cannot grant it.
+checks Screen Recording, Accessibility and posting access, as the app does: a
+missing one is asked for, so macOS may show its prompt for the terminal, and the
+open is refused with a sentence that names the terminal launching Braus as the
+one to allow. The model cannot grant it.
 
 Claude runs with built-in tools disabled, strict MCP configuration and only
 Braus tools allowed. Codex ignores user MCP configuration, disables shell, browser,

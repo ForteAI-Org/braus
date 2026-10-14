@@ -437,7 +437,7 @@ let package = Package(
                            "WorkspaceActivation", "Memory", "FileKnowledge", "SQLiteMemory", "LiveScenes",
                            "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "AutomationRuntime",
                            "ChatCore", "CLIProviders", "FileConversations", "LocalMCP", "AutomationMCP", "SceneOverlay", "InteractionListener", "InteractionObservation",
-                           "LocalEmbedding"].map { .target(name: $0) },
+                           "LocalEmbedding", "SeatBroker"].map { .target(name: $0) },
             path: "Tools/Engine/braus",
             swiftSettings: facility
         ),
@@ -481,7 +481,7 @@ let package = Package(
         .testTarget(
             name: "BrausCLITests",
             dependencies: ["braus", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
-                           "Memory", "SQLiteMemory"],
+                           "Memory", "SQLiteMemory", "SeatBroker", "SeatDriving"],
             path: "Tests/Engine/BrausCLITests",
             swiftSettings: facility
         ),

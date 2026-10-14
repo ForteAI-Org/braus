@@ -15,8 +15,8 @@ import PerceptionCore
 ///
 /// `open` refuses in a sentence the agent can repeat, and every other call
 /// answers as when no session is open. The app supplies SeatBroker's own
-/// conformer instead (§22.3); building the command line's `AutomationSession`
-/// anywhere in the app would start a seat outside the broker.
+/// conformer instead (§22.3), as the command line now does too; no session of
+/// the app may start a seat outside the broker.
 @MainActor
 final class DesktopUnavailableSession: AutomationSessionOperating {
 

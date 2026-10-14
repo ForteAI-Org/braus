@@ -81,6 +81,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private let label: String
     @ObservationIgnored private let knowledgeDirectory: URL
     @ObservationIgnored private let allowsDestructive: Bool
+    /// Who macOS gives the grants to, as a missing grant's refusal names it: Braus, or the terminal
+    /// that runs the command line, which holds them for it.
+    @ObservationIgnored let grantee: String
     @ObservationIgnored private let missingGrant: @MainActor () -> PermissionKind?
     @ObservationIgnored private let requestGrants: @MainActor () -> Void
     @ObservationIgnored private let seating: Seating
@@ -107,18 +110,21 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// `workerID` labels this session's entry in `SeatQueue.entries` as its `uuidString`, so two
     /// workers with one name still read their own position; no view shows that label.
     /// `knowledgeDirectory` is the Brain's, the command line's own, so what either learns applies
-    /// to both. The broker is retained for the life of this session.
+    /// to both. The broker is retained for the life of this session. `grantee` is who the person
+    /// grants a missing permission to: the command line passes its terminal.
     public convenience init(
         broker            : SeatBroker,
         workerID          : UUID,
         knowledgeDirectory: URL,
-        allowsDestructive : Bool = false
+        allowsDestructive : Bool = false,
+        grantee           : String = "Braus"
     ) {
         self.init(
             broker            : broker,
             workerID          : workerID,
             knowledgeDirectory: knowledgeDirectory,
             allowsDestructive : allowsDestructive,
+            grantee           : grantee,
             missingGrant      : { Permissions.firstMissing(of: [.screenRecording, .accessibility, .postEvent]) },
             requestGrants     : { _ = broker.requestMissingPermissions() },
             seating           : Self.seatedByTheBroker,
@@ -160,6 +166,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         workerID          : UUID,
         knowledgeDirectory: URL,
         allowsDestructive : Bool,
+        grantee           : String = "Braus",
         missingGrant      : @escaping @MainActor () -> PermissionKind?,
         requestGrants     : @escaping @MainActor () -> Void,
         seating           : @escaping Seating,
@@ -174,6 +181,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         self.label              = workerID.uuidString
         self.knowledgeDirectory = knowledgeDirectory
         self.allowsDestructive  = allowsDestructive
+        self.grantee            = grantee
         self.missingGrant       = missingGrant
         self.requestGrants      = requestGrants
         self.seating            = seating
@@ -257,7 +265,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         }
         if let missing = missingGrant() {
             requestGrants()
-            throw AutomationFailure(Self.refusal(missing: missing))
+            throw AutomationFailure(Self.refusal(missing: missing, grantee: grantee))
         }
         phase = .waiting
         let lease: SeatLease
@@ -355,6 +363,17 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
 
     public func act(target: String, verb: ActionVerb, section: String?, desiredState: ControlState?) async throws
         -> ActOutcome {
+        try await act(target: target, verb: verb, section: section, desiredState: desiredState, isDryRun: false)
+    }
+
+    /// `act`, or with `isDryRun` resolved and reported without acting, as the command line's `--dry-run` asks.
+    package func act(
+        target      : String,
+        verb        : ActionVerb,
+        section     : String?,
+        desiredState: ControlState?,
+        isDryRun    : Bool
+    ) async throws -> ActOutcome {
         let (application, runtime, seat) = try current()
         if case .refuse(let sentence) = try await SeatAdmission.awaited(
             seat.agentSeat(),
@@ -369,7 +388,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             processID: application.processIdentifier,
             bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)",
             appName: application.localizedName ?? "application",
-            target: target, verb: verb, section: section, desiredState: desiredState
+            target: target, verb: verb, section: section, desiredState: desiredState, isDryRun: isDryRun
         )
         let remotePanel = try seat.agentSeat().holdsRemoteFilePanel
         return await enriched(runtime.engine(
@@ -583,6 +602,18 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func select(control: String, item: String) async throws -> ActOutcome {
+        try await select(control: control, item: item, dryRun: false).outcome
+    }
+
+    /// `select` with what the command line asks of it: a dry run, the opened menu and the captures it
+    /// saves as evidence, and the menu's receipt returned beside the outcome.
+    package func select(
+        control  : String,
+        item     : String,
+        dryRun   : Bool,
+        onMenu   : @escaping @MainActor @Sendable (ContextMenu) -> Void = { _ in },
+        onCapture: @escaping @MainActor @Sendable (String, CGImage) throws -> Void = { _, _ in }
+    ) async throws -> (outcome: ActOutcome, receipt: PopupMenuReceipt?) {
         let (application, runtime, target) = try current()
         let selector = SeatDropdownSelector(target: target, pipeline: ProductionPerception.pipeline())
         let result = try await selector.select(
@@ -592,13 +623,15 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 name: application.localizedName ?? "application"
             ),
             permissions: ActionPermissions(allowsDestructive: allowsDestructive),
-            dryRun: false,
+            dryRun: dryRun,
+            onMenu: onMenu,
+            onCapture: onCapture,
             report: SelectorReporting.reporting(
                 to: CallRecorder.current,
                 bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)"
             )
         )
-        return await enriched(result.outcome, by: runtime)
+        return (await enriched(result.outcome, by: runtime), result.receipt)
     }
 
     /// Flushes the Brain, ends the borrow, finishes with the application and gives the seat back.
@@ -728,6 +761,10 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The window the seat's latest observation captured: the latest scene's, or the one under its pop-up.
     public var observedWindowNumber: Int? { target?.lastCapturedWindow?.id }
 
+    /// The seat the held target borrows, nil while none is held: for the command line, which says the
+    /// seat's state when a selection stops and checks a batch's window between its steps.
+    package var heldSeat: AgentSeat? { try? target?.agentSeat() }
+
     /// The windows of the application the latest scene saw on the person's screen, outside the seat,
     /// each named by its window server title and the kind the seat read, in the worker's sentence.
     public var seatNotice: String? {
@@ -762,17 +799,21 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         return "window \(number)" + (title.isEmpty ? "" : " \"\(title)\"") + (kind.map { " (\($0))" } ?? "")
     }
 
-    /// The refusal for a missing grant: which one, that nothing was opened, and what to do.
-    static func refusal(missing kind: PermissionKind) -> String {
+    /// The refusal for a missing grant: which one, that nothing was opened, and what to do, naming
+    /// `grantee` as the one to allow in System Settings.
+    static func refusal(
+        missing kind: PermissionKind,
+        grantee     : String = "Braus"
+    ) -> String {
         let (name, pane) = switch kind {
             case .screenRecording: ("Screen Recording", "Screen & System Audio Recording")
             case .accessibility  : ("Accessibility", "Accessibility")
             case .postEvent      : ("Keyboard and Mouse Control", "Accessibility")
         }
         return "Braus is missing the macOS \(name) permission, so this worker cannot use the computer, "
-            + "and nothing was opened. macOS was asked to show its prompt; if none appears, allow Braus in "
+            + "and nothing was opened. macOS was asked to show its prompt; if none appears, allow \(grantee) in "
             + "System Settings > Privacy & Security > \(pane)"
-            + (kind == .screenRecording ? ", then quit and reopen Braus" : "")
+            + (kind == .screenRecording ? ", then quit and reopen \(grantee)" : "")
             + ". Do not retry until it is granted."
     }
 

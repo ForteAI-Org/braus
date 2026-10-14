@@ -61,7 +61,6 @@ enum UsageError: Error, CustomStringConvertible {
     case missing(String)
     case invalid(option: String, value: String, expected: String)
     case noSuchApplication(String)
-    case windowSelection(title: String, count: Int, available: [String])
 
     var description: String {
         switch self {
@@ -71,11 +70,6 @@ enum UsageError: Error, CustomStringConvertible {
                 "--\(option) \(value): expected \(expected)"
             case .noSuchApplication(let word):
                 "no running application matches '\(word)' by bundle id or name"
-            case .windowSelection(let title, let count, let available):
-                "--window \(title): "
-                    + (count == 0 ? "no open window has that title. Open the requested window first, then rerun."
-                        : "\(count) open windows share that title; the target must be unique.")
-                    + " Available windows: " + (available.isEmpty ? "none" : available.joined(separator: ", "))
         }
     }
 }

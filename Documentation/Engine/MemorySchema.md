@@ -1133,7 +1133,7 @@ The Brain's applications are asked for at the instant the recorder was made
 | `braus scene`, `act`, and a `batch`'s `act` steps (`commandLineRecorder`) | `cli` | `braus-<pid>` | one per process | no: an `action` event, its samples and the Brain's learning |
 | A session's call outside a recorded tool call | `system` | `session-<session id>` | none | no: an `action` event, its samples and the Brain's learning |
 
-The last row is the fallback `AutomationSession` and `BrokeredAutomationSession` use when no
+The last row is the fallback `BrokeredAutomationSession` uses when no
 `CallRecorder.current` is set, for example during a tool call the contract could not represent. The
 command line's `select`, alone or in a batch, writes nothing.
 

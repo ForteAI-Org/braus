@@ -2,14 +2,14 @@ import AutomationRuntime
 import EngineCore
 import Foundation
 import Memory
-import SeatDriving
 
-/// Runtime keeps terminal parsing in the CLI while all consumers share EngineRuntime's composition.
+/// Runtime keeps terminal parsing in the CLI while all consumers share EngineRuntime's composition. The
+/// command line builds it only for the foreground; a `--seat` command drives the brokered session's own.
 typealias Runtime = EngineRuntime
 
 extension EngineRuntime {
-    init(invocation: Invocation, seat: SeatTarget? = nil) {
-        self.init(knowledgeDirectory: Self.knowledgeDirectory(invocation), seat: seat)
+    init(invocation: Invocation) {
+        self.init(knowledgeDirectory: Self.knowledgeDirectory(invocation))
     }
 
     /// Where memory lives for this invocation: `--knowledge`, used as given, or the user's one Knowledge
@@ -37,10 +37,15 @@ extension EngineRuntime {
 
     /// A command line recorder over the memory of `knowledge`, for a command that builds no runtime.
     static func commandLineRecorder(knowledge: URL) -> CallRecorder {
+        recorder(knowledge: knowledge, context: CommandLineTrace.context())
+    }
+
+    /// A recorder of `context` over the memory of `knowledge`, such as a batch's step under its batch.
+    static func recorder(knowledge: URL, context: ActionContext) -> CallRecorder {
         let service = MemoryService.shared(for: knowledge)
         return CallRecorder(memory: service, brain: BrainMemory(brains: service, applications: service, relations: service,
                                                                 clock: { service.clock.brainNow() }),
-                            context: CommandLineTrace.context())
+                            context: context)
     }
 }
 

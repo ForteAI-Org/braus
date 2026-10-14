@@ -142,8 +142,8 @@ final class LearningSession: AutomationSessionOperating {
     }
 
     /// The recorder of the call this task performs, or one of the session's own over the directory's
-    /// memory, as the production sessions have (`AutomationSession.recorder`): what is observed is always
-    /// enriched, and says when the memory cannot be read.
+    /// memory, as the production session has (`BrokeredAutomationSession.recorder`): what is observed is
+    /// always enriched, and says when the memory cannot be read.
     private var recorder: CallRecorder {
         if let current = CallRecorder.current { return current }
         let memory = MemoryService.shared(for: directory)
