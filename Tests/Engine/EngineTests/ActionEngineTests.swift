@@ -104,6 +104,19 @@ struct ActionEngineTests {
         func record(_ input: InputRecord) async { inputs.append(input) }
     }
 
+    /// A menu bar that answers a scripted outcome, nil when nothing was dispatched, and observes after a press.
+    final class FakeMenus: MenuCommanding, @unchecked Sendable {
+        var pressed: [String] = []
+        var answer: ActOutcome?
+        init(answer: ActOutcome?) { self.answer = answer }
+        func performMenuItem(_ path: String, in processID: pid_t,
+                             observe: @Sendable () async throws -> SceneSnapshot) async -> ActOutcome? {
+            pressed.append(path)
+            guard let answer else { return nil }
+            return answer.with(scene: try? await observe())
+        }
+    }
+
     struct FixedExpectation: EffectExpecting {
         var effect: SceneEffect?
         func expectedEffect(of verb: ActionVerb, on element: SceneElement, in window: PerceivedWindow) async -> SceneEffect? { effect }
@@ -144,11 +157,12 @@ struct ActionEngineTests {
     private func engine(scenes: ScriptedScenes, actuator: RecordingActuator = RecordingActuator(),
                         windows: ScriptedWindows? = nil, controls: FakeControls? = nil, activation: FakeActivation? = nil,
                         expectations: FixedExpectation? = nil, observer: RecordingObserver? = nil,
-                        permissions: ActionPermissions = ActionPermissions()) -> ActionEngine {
+                        permissions: ActionPermissions = ActionPermissions(), menus: FakeMenus? = nil) -> ActionEngine {
         ActionEngine(
             ActionEngine.Dependencies(
                 scenes: scenes, actuator: actuator, windows: windows ?? ScriptedWindows([[mainWindow]]),
-                controls: controls, activation: activation, expectations: expectations, observer: observer
+                controls: controls, activation: activation, expectations: expectations, observer: observer,
+                menus: menus
             ),
             permissions: permissions, pause: { _ in }
         )
@@ -433,6 +447,136 @@ struct ActionEngineTests {
         #expect(outcome.kind == .actedUnverified)
         #expect(outcome.message.contains("delivery failed"))
         #expect(actuator.confirmations == [.unknown], "a failed delivery is still closed, as unknown")
+    }
+
+    // MARK: Format toggles
+
+    private let boldOff = SceneElement(id: "control|bold", kind: .control, label: "bold", bounds: NormalizedRect(x: 0.01, y: 0.05, width: 0.03, height: 0.02), role: "AXCheckBox", state: .off)
+    private let boldOn  = SceneElement(id: "control|bold", kind: .control, label: "bold", bounds: NormalizedRect(x: 0.01, y: 0.05, width: 0.03, height: 0.02), role: "AXCheckBox", state: .on)
+
+    @Test("a format toggle whose own state flipped is unverified and names the menu command")
+    func formatToggleClick() async throws {
+        let actuator = RecordingActuator()
+        let outcome = await engine(scenes: ScriptedScenes([scene([boldOff]), scene([boldOn])]), actuator: actuator)
+            .act(request("bold"))
+        #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
+        #expect(outcome.message.contains("menu \"Format > Font > Bold\""), Comment(rawValue: outcome.message))
+        let check = try #require(outcome.check)
+        #expect(check.verdict == .passed, "the flip itself was attributed to the click")
+        #expect(check.limits.contains(.commandEffectUnchecked))
+        #expect(actuator.confirmations == [.observed], "the click was delivered and its flip observed")
+    }
+
+    @Test("set_toggle on a format toggle reads its state back but does not claim the text's format")
+    func formatToggleSet() async {
+        let outcome = await engine(scenes: ScriptedScenes([scene([boldOff]), scene([boldOn])]), controls: FakeControls(toggle: .on))
+            .act(request("bold", verb: .setToggle, desired: .on))
+        #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
+        #expect(outcome.message.hasPrefix("set 'bold':"))
+        #expect(outcome.message.contains("menu \"Format > Font > Bold\""))
+        #expect(outcome.check?.limits.contains(.commandEffectUnchecked) == true)
+    }
+
+    /// What the menu tool answers for a press that opened no window (TextEdit's Format > Font > Bold).
+    private func menuPressed(_ path: String) -> ActOutcome {
+        ActOutcome(.actedUnverified, "pressed \(path): no window opened, closed or was retitled; the scene shows "
+            + "whether it took effect.", check: OperationCheck(
+                condition: .windowSetChanged, method: .windowSignature, verdict: .unknown,
+                limits: [.commandEffectUnchecked], performed: .requested))
+    }
+
+    @Test("a format toggle's click is carried out through its menu item, and the click is not sent")
+    func formatToggleThroughMenu() async throws {
+        let actuator = RecordingActuator()
+        let observer = RecordingObserver()
+        let menus    = FakeMenus(answer: menuPressed("Format > Font > Bold"))
+        let outcome  = await engine(scenes: ScriptedScenes([scene([boldOff]), scene([boldOn], title: "After")]),
+                                    actuator: actuator, observer: observer, menus: menus).act(request("bold"))
+        #expect(menus.pressed == ["Format > Font > Bold"])
+        #expect(actuator.gestures.isEmpty, "the toolbar click would toggle the format a second time")
+        #expect(outcome.kind == .actedUnverified, "the verdict is the menu command's own")
+        #expect(outcome.message.hasPrefix("'bold' applied through Format > Font > Bold, not by clicking the control: "
+            + "pressed Format > Font > Bold"), Comment(rawValue: outcome.message))
+        #expect(outcome.scene?.windowTitle == "After", "the scene after the menu command is attached")
+        let check = try #require(outcome.check)
+        #expect(check.condition == .windowSetChanged)
+        #expect(check.performed == .substitute)
+        #expect(check.substitute == "menu_command")
+        #expect(check.target?.label == "bold")
+        #expect(observer.records.first?.after?.scene.windowTitle == "After", "the call keeps the window after it")
+    }
+
+    @Test("a format toggle whose menu item was not dispatched is clicked and answered as before")
+    func formatToggleMenuMissing() async {
+        let actuator = RecordingActuator()
+        let menus    = FakeMenus(answer: nil)
+        let outcome  = await engine(scenes: ScriptedScenes([scene([boldOff]), scene([boldOn])]), actuator: actuator,
+                                    menus: menus).act(request("bold"))
+        #expect(menus.pressed == ["Format > Font > Bold"])
+        #expect(actuator.gestures.count == 1, "the click goes out once")
+        #expect(outcome.kind == .actedUnverified)
+        #expect(outcome.message.hasPrefix("clicked 'bold': only the control's own state changed"))
+        #expect(outcome.message.contains("menu \"Format > Font > Bold\""), Comment(rawValue: outcome.message))
+    }
+
+    @Test("an ordinary checkbox is clicked and never sent through a menu")
+    func ordinaryCheckboxSkipsMenu() async {
+        let actuator = RecordingActuator()
+        let menus    = FakeMenus(answer: menuPressed("Format > Font > Bold"))
+        let outcome  = await engine(scenes: ScriptedScenes([scene([toggleOff]), scene([toggleOn])]), actuator: actuator,
+                                    menus: menus).act(request("Facebook"))
+        #expect(menus.pressed.isEmpty)
+        #expect(actuator.gestures.count == 1)
+        #expect(outcome.kind == .foundActed)
+        #expect(outcome.message == "clicked 'Facebook': toggles")
+    }
+
+    @Test("an element named Bold that shows no state is clicked and never sent through a menu")
+    func statelessBoldSkipsMenu() async {
+        let button = SceneElement(id: "control|bold", kind: .control, label: "Bold", bounds: rect(0.3, 0.3),
+                                  role: "AXButton")
+        let text   = SceneElement(id: "text|bold", kind: .text, label: "Bold", bounds: rect(0.3, 0.3),
+                                  role: "AXStaticText")
+        let row    = SceneElement(id: "control|bold-row", kind: .control, label: "Bold", bounds: rect(0.3, 0.3),
+                                  role: "AXRow", container: "list view")
+        for element in [button, text, row] {
+            for verb in [ActionVerb.click, .setToggle] {
+                let actuator = RecordingActuator()
+                let menus    = FakeMenus(answer: menuPressed("Format > Font > Bold"))
+                let outcome  = await engine(scenes: ScriptedScenes([scene([element])]), actuator: actuator,
+                                            menus: menus)
+                    .act(request("Bold", verb: verb, desired: verb == .setToggle ? .on : nil))
+                #expect(menus.pressed.isEmpty, Comment(rawValue: "\(element.role ?? "") \(verb): \(outcome.message)"))
+                #expect(actuator.gestures.count == 1, Comment(rawValue: "\(element.role ?? "") \(verb)"))
+            }
+        }
+    }
+
+    @Test("an Italian format toggle is carried out through the Italian menu path")
+    func italianFormatToggleThroughMenu() async {
+        let grassetto = SceneElement(id: "control|grassetto", kind: .control, label: "grassetto", bounds: NormalizedRect(x: 0.01, y: 0.05, width: 0.03, height: 0.02), role: "AXCheckBox", state: .off)
+        let actuator  = RecordingActuator()
+        let menus     = FakeMenus(answer: menuPressed("Formato > Font > Grassetto"))
+        let outcome   = await engine(scenes: ScriptedScenes([scene([grassetto])]), actuator: actuator, menus: menus)
+            .act(request("grassetto"))
+        #expect(menus.pressed == ["Formato > Font > Grassetto"])
+        #expect(actuator.gestures.isEmpty)
+        #expect(outcome.message.hasPrefix("'grassetto' applied through Formato > Font > Grassetto"))
+    }
+
+    @Test("set_toggle on a format toggle goes through its menu item, unless the control already shows the state")
+    func formatToggleSetThroughMenu() async {
+        let actuator = RecordingActuator()
+        let menus    = FakeMenus(answer: menuPressed("Format > Font > Bold"))
+        let set      = await engine(scenes: ScriptedScenes([scene([boldOff])]), actuator: actuator, menus: menus)
+            .act(request("bold", verb: .setToggle, desired: .on))
+        #expect(menus.pressed == ["Format > Font > Bold"])
+        #expect(actuator.gestures.isEmpty)
+        #expect(set.message.hasPrefix("'bold' applied through Format > Font > Bold"), Comment(rawValue: set.message))
+        let already = await engine(scenes: ScriptedScenes([scene([boldOn])]), menus: menus)
+            .act(request("bold", verb: .setToggle, desired: .on))
+        #expect(already.kind == .actedNoop, "no reader of the selection's format: the current answer stands")
+        #expect(menus.pressed.count == 1)
     }
 
     // MARK: set_toggle

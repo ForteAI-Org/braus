@@ -72,7 +72,8 @@ public struct EngineRuntime {
         contextMenusOnTextFieldsOnly: Bool = false,
         selectsFieldsByTripleClick  : Bool = false,
         refusesMenuOpeningClicks    : Bool = false,
-        windowClosure               : WindowClosureGuard = WindowClosureGuard()
+        windowClosure               : WindowClosureGuard = WindowClosureGuard(),
+        menus                       : (any MenuCommanding)? = nil
     ) -> ActionEngine {
         ActionEngine(
             ActionEngine.Dependencies(
@@ -83,7 +84,8 @@ public struct EngineRuntime {
                 activation  : activation,
                 expectations: memory,
                 observer    : recorder,
-                settling    : settling
+                settling    : settling,
+                menus       : menus
             ),
             permissions: ActionPermissions(
                 allowsDestructive           : allowsDestructive,

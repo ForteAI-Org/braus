@@ -46,6 +46,22 @@ struct ActVerificationTests {
         #expect(outcome.scene == after)
     }
 
+    @Test("a format toggle's own flip is not its effect, and an ordinary checkbox keeps its verdict")
+    func formatToggle() {
+        let italicOff = SceneElement(id: "sw", kind: .control, label: "Italic", bounds: rect(0.2, 0.2), state: .off)
+        let italicOn  = SceneElement(id: "sw", kind: .control, label: "Italic", bounds: rect(0.2, 0.2), state: .on)
+        let after = scene([italicOn])
+        let verdict = ActVerification.verdict(before: scene([italicOff]), after: after, targetID: "sw")
+        let outcome = ActVerification.outcome(for: verdict, label: "Italic", after: after)
+        #expect(outcome.kind == .actedUnverified)
+        #expect(outcome.message.contains("menu \"Format > Font > Italic\""), Comment(rawValue: outcome.message))
+        #expect(outcome.scene == after)
+        #expect(ActVerification.formatToggleOutcome("clicked", label: "Facebook", after: after) == nil)
+        let italian = ActVerification.formatToggleOutcome("clicked", label: "grassetto", after: after)
+        #expect(italian?.kind == .actedUnverified)
+        #expect(italian?.message.contains("menu \"Formato > Font > Grassetto\"") == true)
+    }
+
     @Test("a different token with no structural effect is unattributable")
     func unattributable() {
         let before = scene([toggleOff])

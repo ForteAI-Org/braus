@@ -129,7 +129,8 @@ public enum MenuBarCommand {
             })
         }
         // Before the enabled state, so the answer does not depend on it. Every step counts: Layer > Delete > Layer is destructive in its middle, not at its end.
-        if !allowsDestructive, trail.contains(where: { ActionPolicy.isDestructive(label: $0) }) {
+        // The menu-bar title (File, Format) names a place, not an action, so it is the one step skipped.
+        if !allowsDestructive, trail.dropFirst().contains(where: { ActionPolicy.isDestructive(label: $0) }) {
             return .outcome(ActOutcome(.refused, "\(path) reads as destructive, and the person has not allowed it."))
         }
         // A Close command may end the application; the caller reads whether it does only for one.
