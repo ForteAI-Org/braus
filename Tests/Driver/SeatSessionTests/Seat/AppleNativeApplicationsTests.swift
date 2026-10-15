@@ -44,6 +44,39 @@ struct AppleNativeApplicationsTests {
         #expect(count.signatures == 1)
     }
 
+    // MARK: Extension content
+
+    private static let host      = URL(fileURLWithPath: "/System/Applications/Host.app")
+    private static let appleExt  = URL(fileURLWithPath: "/System/Library/ExtensionKit/Apple.appex")
+    private static let otherExt  = URL(fileURLWithPath: "/Applications/Other.app/Contents/Extension.appex")
+
+    private static func extensions(appleHost: Bool = true) -> AppleNativeApplications {
+        AppleNativeApplications(
+            isAppleSigned: { $0 == appleExt || ($0 == host && appleHost) },
+            isMacCatalyst: { _ in false }
+        )
+    }
+
+    @Test("an Apple extension in an Apple application qualifies, any other pairing does not")
+    func theExtensionDecision() {
+        #expect( Self.extensions().contains(extensionBundleAt: Self.appleExt, hostedBy: Self.host))
+        #expect(!Self.extensions().contains(extensionBundleAt: Self.otherExt, hostedBy: Self.host))
+        #expect(!Self.extensions(appleHost: false).contains(extensionBundleAt: Self.appleExt, hostedBy: Self.host))
+    }
+
+    @Test("an extension whose signature cannot be read is not Apple's, and is read once")
+    func anUnreadableExtensionIsRefused() {
+        final class Count: @unchecked Sendable { var reads = 0 }
+        let count = Count()
+        let check = AppleNativeApplications(
+            isAppleSigned: { $0 == Self.host ? true : { count.reads += 1; return false }() },
+            isMacCatalyst: { _ in false }
+        )
+        #expect(!check.contains(extensionBundleAt: Self.otherExt, hostedBy: Self.host))
+        #expect(!check.contains(extensionBundleAt: Self.otherExt, hostedBy: Self.host))
+        #expect(count.reads == 1)
+    }
+
     // MARK: Mach-O
 
     /// One thin 64 bit slice: a load command that names no platform, and the build version's if any.

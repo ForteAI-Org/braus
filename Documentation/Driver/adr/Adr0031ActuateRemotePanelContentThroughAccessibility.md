@@ -346,6 +346,27 @@ worker's tool activity) found two faults and one cost.
   nothing in the instructions telling it text goes in one call: the instructions, the
   `press_key` description and its reply (while a field has the focus) now say so.
 
+## Follow-up: Apple extension content in an Apple application (owner decision, 2026-10-15)
+
+A live trial on System Settings, Appearance, answered a click on "Light" with
+`surfaceFamilyUnclassified`. The pane is a remote view of an extension process hosted by System
+Settings, and the classification took it for unknown because only the Open and Save panel
+service qualified remote content, so the Command was refused before the accessibility route above
+was reached. The owner chose all Apple extension panes.
+
+- Remote content is also qualified when its host is an Apple native application (ADR 0031's
+  2026-10-15 scope: `anchor apple`, not Mac Catalyst) and the remote process's bundle satisfies
+  `anchor apple` too. The signature is the evidence, never the bundle identifier; an unreadable
+  signature or bundle is not qualified. The answer is kept per bundle path.
+- The qualification is `RemoteContentQualification`: `filePanelService` keeps everything above,
+  its posted recipes included; `appleExtension` is accessibility only. A click, or the text of a
+  remembered field, is actuated through `RemoteContentActuator`; a drag, a scroll and a right click
+  are refused, keys keep the routes they had (the qualified keyboard recipe stays the file
+  panel service's), and nothing is posted into the extension. The destructive and closing guards are unchanged. A third-party extension, or any
+  extension in a third-party host, is refused as before.
+- Not measured live: that the click on a pane's control resolves through `AXPress` in the
+  extension's tree. Test: GestureEndpointRoutingTests, AppleNativeApplicationsTests.
+
 ## Limits
 
 - No live run was made for this change. The table above is the probe's, on one

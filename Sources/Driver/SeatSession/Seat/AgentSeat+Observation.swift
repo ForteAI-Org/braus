@@ -108,10 +108,12 @@ struct EndpointDiscovery {
         _ deadlineNanoseconds: UInt64
     ) -> FocusedWindowReading
 
-    /// A remote WindowServer owner may use the AppKit panel recipe only when it
-    /// identifies as the platform panel service. A distinct PID establishes a
-    /// transport relation, not a backend or an input capability.
-    var qualifiedAppKitPanelService: (WindowIdentity) -> Bool = { _ in false }
+    /// What a remote WindowServer owner, drawn inside `host`, is qualified for: the AppKit panel
+    /// recipe only for the platform panel service, accessibility only for an Apple extension in an
+    /// Apple application. A distinct PID establishes a transport relation, not an input capability.
+    var qualifiedRemoteContent: (
+        _ remote: WindowIdentity, _ host: WindowIdentity
+    ) -> RemoteContentQualification = { _, _ in .none }
 
     /// Window-level keys need no focused control when a complete reading proves
     /// that the selected ordinary window has no foreign content underneath it.
@@ -250,9 +252,17 @@ struct EndpointDiscovery {
                 .accessibility(assignedProcessID: processID)
                 .focusedNodeWindowReading(deadlineNanoseconds: deadline)
         },
-        qualifiedAppKitPanelService: { identity in
-            NSRunningApplication(processIdentifier: pid_t(identity.processID))?.bundleIdentifier
-                == "com.apple.appkit.xpc.openAndSavePanelService"
+        qualifiedRemoteContent: { remote, host in
+            let remoteApp = NSRunningApplication(processIdentifier: pid_t(remote.processID))
+            if remoteApp?.bundleIdentifier == "com.apple.appkit.xpc.openAndSavePanelService" {
+                return .filePanelService
+            }
+            guard let remoteURL = remoteApp?.bundleURL,
+                  let hostURL   = NSRunningApplication(processIdentifier: pid_t(host.processID))?.bundleURL
+            else { return .none }
+            return AppleNativeApplications.shipping.contains(extensionBundleAt: remoteURL, hostedBy: hostURL)
+                ? .appleExtension
+                : .none
         },
         ordinaryKeyboardContext: { processID, chain, generation in
             DialogEndpointResolver<AXUIElement>
@@ -1158,7 +1168,7 @@ extension AgentSeat {
         }
         guard case .success(let remote) = route,
               remote.identity.process != remote.logicalSurface.process,
-              endpoints.qualifiedAppKitPanelService(remote.identity)
+              endpoints.qualifiedRemoteContent(remote.identity, remote.logicalSurface) == .filePanelService
         else { return nil }
         return remote
     }

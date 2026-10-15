@@ -25,6 +25,7 @@ nonisolated final class AppleNativeApplications: Sendable {
     private let isAppleSigned: @Sendable (URL) -> Bool
     private let isMacCatalyst: @Sendable (URL) -> Bool
     private let answers = Mutex<[String: Bool]>([:])
+    private let signatures = Mutex<[String: Bool]>([:])
 
     init(
         isAppleSigned: @escaping @Sendable (URL) -> Bool,
@@ -39,6 +40,18 @@ nonisolated final class AppleNativeApplications: Sendable {
         if let known = answers.withLock({ $0[path] }) { return known }
         let answer = isAppleSigned(url) && !isMacCatalyst(url)
         answers.withLock { $0[path] = answer }
+        return answer
+    }
+
+    /// Whether `remote`, the bundle of a process drawn inside a window of `host`, is Apple's extension
+    /// content: the host is an Apple native application and the remote bundle also satisfies
+    /// `anchor apple`. Catalyst is not asked of the remote, which only answers accessibility.
+    func contains(extensionBundleAt remote: URL, hostedBy host: URL) -> Bool {
+        guard contains(bundleAt: host) else { return false }
+        let path = remote.path
+        if let known = signatures.withLock({ $0[path] }) { return known }
+        let answer = isAppleSigned(remote)
+        signatures.withLock { $0[path] = answer }
         return answer
     }
 

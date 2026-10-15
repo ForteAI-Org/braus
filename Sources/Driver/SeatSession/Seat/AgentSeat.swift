@@ -2480,9 +2480,9 @@ public final class AgentSeat {
         let classification = textField != nil ? .remotePanelContent : SurfaceInputClassification.of(
             observation,
             endpoint: endpoint,
-            remoteAppKitPanelServiceQualified: endpoint.map {
-                endpoints.qualifiedAppKitPanelService($0.identity)
-            } ?? false
+            remoteContent: endpoint.map {
+                endpoints.qualifiedRemoteContent($0.identity, $0.logicalSurface)
+            } ?? .none
         )
         let isModalSurface = attestedModalSurface(for: observation) != nil
         if nativeTextInputContext != nil, isModalSurface {
@@ -2496,7 +2496,10 @@ public final class AgentSeat {
             window     : window,
             observation: observation
         )
-        guard let resolved = platform ?? (menuTakesKeys ? AppKitPlatform() : nil) ?? classification.platform(
+        // An Apple extension's pointer Commands only name the recipe: the accessibility route
+        // answers or throws, and nothing is posted into the extension.
+        let accessibilityOnly = classification == .appleExtensionContent && routed.hasMouseLocation
+        guard let resolved = platform ?? (menuTakesKeys || accessibilityOnly ? AppKitPlatform() : nil) ?? classification.platform(
             for                : routed,
             ofDrivenApplication: record.platform,
             host               : window.reference,
@@ -2580,7 +2583,8 @@ public final class AgentSeat {
             // A click posted into a remote panel's content activates its host, so
             // it and a remembered field's text go through accessibility instead.
             let byAccessibility = textField != nil || ownContent != nil
-                || classification == .remotePanelContent && routed.hasMouseLocation
+                || (classification == .remotePanelContent || classification == .appleExtensionContent)
+                    && routed.hasMouseLocation
             // An ordinary window's unprepared keys read the focus once, just before
             // the first post: a second reading of a busy application only aged them.
             let readsFocusOnlyBeforeFirstPost = endpoint.map(isOrdinaryKeyboardEndpoint) == true
@@ -3128,9 +3132,9 @@ public final class AgentSeat {
         let classification = SurfaceInputClassification.of(
             observation,
             endpoint: endpoint,
-            remoteAppKitPanelServiceQualified: endpoint.map {
-                endpoints.qualifiedAppKitPanelService($0.identity)
-            } ?? false
+            remoteContent: endpoint.map {
+                endpoints.qualifiedRemoteContent($0.identity, $0.logicalSurface)
+            } ?? .none
         )
         guard let openerPlatform = classification.platform(
             for                : opener,
@@ -4820,7 +4824,7 @@ public final class AgentSeat {
                   SurfaceInputClassification.isRemotePanelContent(
                       owner,
                       of       : dialog,
-                      qualified: endpoints.qualifiedAppKitPanelService(owner)
+                      qualified: endpoints.qualifiedRemoteContent(owner, dialog) == .filePanelService
                   )
             else { return nil }
             return owner

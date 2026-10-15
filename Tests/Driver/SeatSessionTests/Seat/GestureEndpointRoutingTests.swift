@@ -81,6 +81,10 @@ struct GestureEndpointRoutingTests {
         /// not enough to select the AppKit panel recipe.
         var qualifiesRemotePanelService = true
 
+        /// Whether the content is an Apple extension drawn inside an Apple application, as a
+        /// System Settings pane is. Only read when the panel service did not qualify it.
+        var qualifiesAppleExtension = false
+
         /// The one foreign content window the modal's descendants name, read
         /// without any focus.
         var foreignContentWindow: Int?
@@ -115,7 +119,10 @@ struct GestureEndpointRoutingTests {
                 identity: { [self] number in identities[number] },
                 focusedWindowNumber: { [self] _ in focusedWindowNumber },
                 focusedWindowReading: { [self] _, _ in focusedWindowNumber.map { .window($0) } ?? .noWindow },
-                qualifiedAppKitPanelService: { [self] _ in qualifiesRemotePanelService },
+                qualifiedRemoteContent: { [self] _, _ in
+                    qualifiesRemotePanelService ? .filePanelService
+                        : qualifiesAppleExtension ? .appleExtension : .none
+                },
                 focusedDescendantKeyboardContext: { [self] _, chain, _ in
                     descendantKeyboardResolutions += 1
                     return descendantKeyboardAnswer
@@ -734,6 +741,72 @@ struct GestureEndpointRoutingTests {
         try panel.seat.release(turn)
     }
 
+    // MARK: An Apple extension inside an Apple application
+
+    @Test("a click on an Apple extension's content is actuated through accessibility, posting nothing")
+    func anAppleExtensionIsActedOnThroughAccessibility() async throws {
+
+        let panel       = try await Self.panel()
+        let observation = try await observedReference(panel.seat)
+        let sheet       = try #require(panel.sheet.reference.identity)
+        let content     = try Self.remoteContent(of: panel)
+        let remote      = try #require(content.window.identity)
+        panel.discovery.answer = .success(try Self.endpoint(
+            content,
+            relation      : .remoteContent,
+            logicalSurface: sheet,
+            generation    : observation.selectionGeneration,
+            hostProcessID : panel.host.reference.processID
+        ))
+        panel.discovery.qualifiesRemotePanelService = false
+        panel.discovery.qualifiesAppleExtension     = true
+        panel.discovery.identities[Self.remoteWindowNumber] = remote
+
+        let turn    = try await panel.seat.acquire()
+        let receipt = try await panel.seat.send(
+            Self.click(at: Self.insideSheet(panel)),
+            observation: observation,
+            turn       : turn
+        )
+        #expect(panel.sender.sent.isEmpty, "no event reaches either process")
+        #expect(receipt.route.poster == .accessibilityAction)
+        #expect(panel.discovery.actuated.count == 1)
+        #expect(panel.discovery.actuated.last?.endpoint.identity == remote)
+        try panel.seat.confirm(receipt, .unknown)
+        try panel.seat.release(turn)
+    }
+
+    @Test("a drag over an Apple extension's content is refused and nothing is posted")
+    func anAppleExtensionTakesNoDrag() async throws {
+
+        let panel       = try await Self.panel()
+        let observation = try await observedReference(panel.seat)
+        let sheet       = try #require(panel.sheet.reference.identity)
+        let content     = try Self.remoteContent(of: panel)
+        let remote      = try #require(content.window.identity)
+        panel.discovery.answer = .success(try Self.endpoint(
+            content,
+            relation      : .remoteContent,
+            logicalSurface: sheet,
+            generation    : observation.selectionGeneration,
+            hostProcessID : panel.host.reference.processID
+        ))
+        panel.discovery.qualifiesRemotePanelService = false
+        panel.discovery.qualifiesAppleExtension     = true
+        panel.discovery.identities[Self.remoteWindowNumber] = remote
+
+        let from = Self.insideSheet(panel)
+        let drag = InputCommand.drag(points: [from, CGPoint(x: from.x + 10, y: from.y + 10)].map {
+            InputLocation(screenPoint: $0, windowPointFromTop: .zero)
+        })
+        let turn = try await panel.seat.acquire()
+        await #expect(throws: RemoteContentActuationRefusal.gestureUnmeasured) {
+            try await panel.seat.send(drag, observation: observation, turn: turn)
+        }
+        #expect(panel.sender.sent.isEmpty)
+        try panel.seat.release(turn)
+    }
+
     @Test("a held modal is a remote file panel only when its one foreign content is the qualified service's")
     func aRemoteFilePanelIsTheQualifiedServicesContent() async throws {
 
@@ -785,7 +858,10 @@ struct GestureEndpointRoutingTests {
             hostProcessID: surface.processID
         )
         #expect(SurfaceInputClassification.of(
-            observation, endpoint: endpoint, remoteAppKitPanelServiceQualified: true
+            observation, endpoint: endpoint, remoteContent: .appleExtension
+        ) == .drivenApplication)
+        #expect(SurfaceInputClassification.of(
+            observation, endpoint: endpoint, remoteContent: .filePanelService
         ) == .drivenApplication)
     }
 
@@ -803,6 +879,11 @@ struct GestureEndpointRoutingTests {
         #expect(SurfaceInputClassification.remotePanelContent
             .platform(for: key, ofDrivenApplication: host) is RemoteKeyboardPlatform,
                 "a key on a remote endpoint takes the keyboard recipe, not the mouse's")
+        #expect(SurfaceInputClassification.appleExtensionContent
+            .platform(for: click, ofDrivenApplication: host) == nil,
+                "an extension is only ever acted on through accessibility")
+        #expect(SurfaceInputClassification.appleExtensionContent
+            .platform(for: key, ofDrivenApplication: host) == nil)
         #expect(SurfaceInputClassification.unknown
             .platform(for: click, ofDrivenApplication: host) == nil)
         #expect(SurfaceInputClassification.unknown
