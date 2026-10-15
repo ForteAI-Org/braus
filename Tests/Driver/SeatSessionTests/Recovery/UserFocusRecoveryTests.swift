@@ -1132,7 +1132,10 @@ struct UserFocusRecoveryTests {
             performOnce: { commands += 1; return true }
         )
         #expect(commands == 0)
-        guard case .notReady = run.outcome else { Issue.record("False readiness: \(run.outcome)"); return }
+        switch run.outcome {
+            case .notReady where !losesForeground, .frontElsewhere where losesForeground: break
+            default: Issue.record("False readiness: \(run.outcome)"); return
+        }
         #expect(fixture.sensing.frontmostProcessID == (losesForeground ? Self.other.processID : Self.user.processID))
         #expect(fixture.requested.count == (losesForeground ? 1 : 2))
         fixture.recovery.stop()
@@ -1222,7 +1225,8 @@ struct UserFocusRecoveryTests {
             },
             atMost: 1_000_000_000
         )
-        #expect(run.outcome == .notReady(afterMilliseconds: 0), "A changed foreground invalidates the predicate")
+        #expect(run.outcome == .frontElsewhere(afterMilliseconds: 0),
+                "A changed foreground invalidates the predicate, and the outcome says where the front went")
         #expect(reads == 1, "the poll stops once the front is no longer the target's")
         #expect(fixture.requested == [FakeGeometry.adoptedWindow], "nothing is handed back over the person")
         #expect(fixture.reports.isEmpty)

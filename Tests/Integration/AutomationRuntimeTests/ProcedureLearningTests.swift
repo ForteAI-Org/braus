@@ -144,8 +144,14 @@ struct ProcedureLearningTests {
         #expect(candidate["blocks"].array?.map { $0["part"].string ?? "" } == ["b1", "b2", "b3"], "Finder, Preview, Finder")
         #expect(candidate["blocks"].array?.map { $0["app"].string ?? "" } == [Self.finder, Self.preview, Self.finder])
         #expect(candidate["steps"].array?[7]["check"].string == "requested_state_already_present passed")
+        // The answer leads with the interpretation as the next call, and a host asks for it once (canary, 14/10/2026).
+        #expect(checkpoint["next"].string?.contains("memory_task interpret with candidate \(candidateID)") == true)
+        #expect(tools.pendingCandidate == candidateID)
+        #expect(tools.takeInterpretationReminder()?.contains(candidateID) == true)
+        #expect(tools.takeInterpretationReminder() == nil, "the host asks once per candidate")
 
         let interpreted = try await Self.task(tools, Self.photoInterpretation(candidateID))
+        #expect(tools.pendingCandidate == nil, "an interpretation takes the candidate")
         #expect(interpreted["status"].string == "interpreted" && interpreted["revision"] == .number(1), "\(interpreted)")
         #expect(interpreted["findings"] == .null, "every use reproduces the recorded argument")
         let parts = try #require(interpreted["parts"].array)
@@ -158,6 +164,11 @@ struct ProcedureLearningTests {
         let ended = try await Self.task(tools, #"{"operation":"end","outcome":"completed","outputs":[{"name":"exported","value":"foto_web.jpg","kind":"file"}]}"#)
         #expect(ended["candidate"]["id"].string == candidateID, "the same facts are the same candidate")
         #expect(ended["candidate"]["new"].bool == false)
+        #expect(ended["next"] == .null && tools.pendingCandidate == nil,
+                "a candidate interpreted at the checkpoint is not asked for again at the end")
+        // The end, and only the end, asks to close a document changed and kept as a copy (PhotoCraft, 14/10/2026).
+        #expect(ended["before_answering"].string == AutomationTools.closeChangedCopies)
+        #expect(checkpoint["before_answering"] == .null)
 
         let memory = MemoryService.shared(for: session.directory)
         #expect(await memory.flush(within: .seconds(10)))
@@ -406,6 +417,22 @@ extension ProcedureLearningTests {
             {"operation":"interpret","candidate":"\#(first)","procedure":{"label":"x"},"steps":[{"step":9,"label":"none"}]}
             """#)
         #expect(unknown["error"].string == "unknown_reference")
+        // The canary's two refusals (14/10/2026), in words: an output without its part, a value named as an argument.
+        let output = try await Self.task(tools, #"""
+            {"operation":"interpret","candidate":"\#(first)","procedure":{"label":"x"},
+             "parameters":[{"name":"exported","role":"exported photo","kind":"file","direction":"output"}]}
+            """#)
+        let outputMessage = output["message"].string ?? ""
+        #expect(output["error"].string == "invalid_interpretation" && outputMessage.contains("needs produced_by")
+                && !outputMessage.contains("ProcedureError"), "\(output)")
+        let valueAsArgument = try await Self.task(tools, #"""
+            {"operation":"interpret","candidate":"\#(first)","procedure":{"label":"x"},
+             "parameters":[{"name":"criterion","role":"what the photo is found by"}],
+             "uses":[{"step":1,"argument":"foto_demo","template":"{criterion}"}]}
+            """#)
+        #expect(valueAsArgument["error"].string == "unknown_reference"
+                && valueAsArgument["message"].string?.contains("a use names one of that step's arguments (") == true,
+                "\(valueAsArgument)")
         // A new action makes a new candidate; the earlier one is stale.
         _ = try await Self.call(tools, "act", #"{"session":"\#(id)","target":"Markup"}"#)
         let later = try await Self.task(tools, #"{"operation":"checkpoint","note":"marked up"}"#)

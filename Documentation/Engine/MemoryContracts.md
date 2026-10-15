@@ -86,7 +86,7 @@ call keeping its source and stream, each task private to its producer; the clien
 | --- | --- | --- | --- |
 | `AutomationTools`, for every call it can represent, through `CallRecorder.begin`, `end`, `begin(batch:)`, `startStep`, `skip` | `AgentCallStoring.record`, `record(batch:steps:)`, `advance` | `memory_events` (kind `action`), `memory_agent_actions`, `memory_operation_arguments`, `memory_agent_action_effect_labels` and the five result tables (`status`, listings, applications, windows, observations) | tests (`MemoryService.call`, `calls(inTrace:)`); no screen or command shows them |
 | `CallRecorder`, as the engine's observer and the session's observation | `CaptureStoring.record(sample)` for the `current`, `before`, `menu` and `after` samples; `record(event)` for the event of a call that wrote none (the command line, a session's own call) and for a session's own observation, with `origin_event_id` | `memory_event_observations`; `memory_events` (kinds `action` and `observation`); `brain_apps`, `brain_app_contexts` | tests |
-| `CallRecorder` | `SceneStoring.associate` for every sample but `menu` | `brain_scenes`, `brain_scene_elements`, `brain_scene_roles`, `brain_scene_labels`, `memory_event_scenes` | structure-v3 inside the next association; tests |
+| `CallRecorder` | `SceneStoring.associate` for every sample but `menu` | `brain_scenes`, `brain_scene_elements`, `brain_scene_roles`, `brain_scene_labels`, `memory_event_scenes` | structure-v4 inside the next association; tests |
 | `CallRecorder` | `BrainApplicationStoring.apply`, once per observed sample and once per action with an effect | `brain_applications` with its arguments, the projection (`brain_app_window_epochs`, `brain_anchors` and its aliases and states, `brain_groups` and members, `brain_transitions` and menu items), `brain_evidence` | `BrainMemory.expectedEffect` and `.enrich` (`BrainReading`) during the next calls; the app's Brain page (`BrainLibrary`, through `overview()` and `brain(of:)`); `braus memory <app>` |
 | `MemoryService`, once, when its open created the archive beside JSON Brains; `braus memory --import-json <dir>` by hand (`JSONBrainImport`) | `SQLiteBrainRepository.importAdmitted` (credential shapes withheld first) | the projection tables only: no application, no evidence | the same readers |
 | `MemoryService`'s unification, for an earlier client directory's JSON Brains (`JSONBrainImport.merge`) | `SQLiteBrainRepository.merge` (`BrainMerge`) | the projection tables, by identity, with no evidence; `memory_origin_brain_contributions` | the same readers; [MemoryFacts](MemoryFacts.md#one-archive-per-user) |
@@ -120,7 +120,7 @@ included, is refused untouched, never migrated: see [The resource](MemorySchema.
   [Agent calls](MemorySchema.md#agent-calls) and [Identity](MemorySchema.md#identity).
 - **Observation.** Contract version 1 (`CaptureSample`), with explicit capture statuses, label origins
   (`title`, `description`, `value`, `column`, `row_content`, `identifier`, or none) and the scene kept in
-  structure-v3. See [Observation contract, version 1](MemorySchema.md#observation-contract-version-1).
+  structure-v4. See [Observation contract, version 1](MemorySchema.md#observation-contract-version-1).
 - **Action.** `AgentCallRecord` with an `AgentCallRequest` of the seventeen signatures, and the states
   `planned`, `started`, `completed`, `failed`, `cancelled`, `interrupted` and `skipped`, moving only forward.
   Production writes `planned`, `started`, `completed`, `failed` and `skipped`. `completed` means the call
@@ -136,7 +136,7 @@ included, is refused untouched, never migrated: see [The resource](MemorySchema.
   difference of calendar instants.
 - **Verification.** `VerificationRecord`, attributed explicitly to a step occurrence. See
   [Verifications](MemorySchema.md#verifications).
-- **Scene.** `SceneDefinition` and the Brain's projection. See [Scenes and structure-v3](MemorySchema.md#scenes-and-structure-v3)
+- **Scene.** `SceneDefinition` and the Brain's projection. See [Scenes and structure-v4](MemorySchema.md#scenes-and-structure-v4)
   and [The brain's projection](MemorySchema.md#the-brains-projection).
 - **Step and Route.**
   - `RouteDefinition` in `RouteState` `draft`, `active` or `retired`, with steps, checks, operations of any of

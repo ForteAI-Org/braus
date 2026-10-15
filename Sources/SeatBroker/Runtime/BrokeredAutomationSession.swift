@@ -634,21 +634,21 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     /// Whether a menu command of this application is read and pressed during a verified brief
-    /// activation. Adobe's UXP hosts and TextEdit leave menus disabled while driven in the
-    /// background (ADR 0013, 0029); Safari opens no window from File > New Window until it is
+    /// activation. Adobe's UXP hosts, TextEdit and Preview leave menus disabled while driven in the
+    /// background (ADR 0013, 0029, 0042); Safari opens no window from File > New Window until it is
     /// active (ADR 0038). A browser found by Chrome's renderer helper keeps its window items
     /// disabled until it has a key window (ADR 0029, 14/10/2026); Electron and CEF hosts, found
     /// by their framework, are not measured. Other native hosts remain separately qualified.
     nonisolated static func preparesMenuInFront(_ platform: TargetPlatform, bundleIdentifier: String?) -> Bool {
         platform == .adobeUXP || platform == .webKitBrowser || platform == .embeddedRenderer(.rendererHelper)
-            || bundleIdentifier == "com.apple.TextEdit"
+            || bundleIdentifier == "com.apple.TextEdit" || bundleIdentifier == "com.apple.Preview"
     }
 
     /// Whether this one menu command is pressed in the brief activation. A Chromium browser
     /// presses an item that reads enabled in the background where it is, with no activation, and
     /// pays the activation only for a disabled one (ADR 0029, 14/10/2026). The other in-front
     /// applications always pay it: Adobe's enabled items are stale (ADR 0020), TextEdit's titles
-    /// validate only in front (ADR 0029), and Safari's enabled New Window opens nothing (ADR 0038).
+    /// validate only in front (ADR 0029), Preview's are disabled in the background (ADR 0042), and Safari's enabled New Window opens nothing (ADR 0038).
     /// `isEnabledInBackground` is read once, and only for a Chromium browser.
     nonisolated static func pressesMenuInFront(
         _ platform           : TargetPlatform,
@@ -670,7 +670,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
 
     private static func briefMenuFailure(_ outcome: BriefActivationOutcome) -> String {
         switch refresh(after: outcome) {
-            case .stillDisabled(let reason): return reason ?? "The admitted menu command was not dispatched."
+            case .stillDisabled(let reason):
+                return reason ?? "It was brought forward for a moment, and the item did not read enabled before the "
+                    + "moment ended, so nothing was pressed."
             case .blockedByDialog: return "A dialog is open; answer it before another menu command."
             case .readAgain: return "The admitted menu command was not dispatched."
         }
@@ -686,6 +688,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 return .readAgain
             case .notReady:
                 return .stillDisabled(reason: nil)
+            case .frontElsewhere:
+                return .stillDisabled(reason: "It was brought forward for a moment, but another application came to "
+                    + "the front meanwhile and was left there, so nothing was pressed. The command can be tried again.")
             case .handbackNotVerified:
                 return .stillDisabled(reason: "It was brought forward for a moment, but the return to "
                     + "the person's own window was not verified.")

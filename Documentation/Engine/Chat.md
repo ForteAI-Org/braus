@@ -38,9 +38,57 @@ Saved conversations:
 .build/debug/braus --chat --resume <conversation-UUID> --allow-unvalidated-build
 ```
 
-Inside chat: `/model`, `/status`, `/release`, `/help`, `/quit`.
+A script runs its requests one conversation each, on one archive, with the Seat
+and the application session released between requests, so each starts from the
+applications as they are, with the knowledge the earlier ones left in the memory:
+
+```sh
+.build/debug/braus chat --script tasks.txt --provider claude --model haiku \
+  --knowledge /private/tmp/braus-live/AppSupport/Knowledge \
+  --preflight expected.json --evidence /private/tmp/braus-live/Evidence/run-1
+```
+
+`tasks.txt` holds blocks of lines separated by empty lines; `#` starts a comment;
+a block whose first line starts with `>` continues the previous conversation
+instead of opening a new one (a request that depends on the one before it).
+`expected.json` names the keys of `memory_task status` the run depends on
+(`archive`, `recall.channel`, `recall.model`, `recall.owns_index`, …): the process
+answers before any turn and a difference stops the chat. The evidence folder keeps
+the preflight's answer and, per request, the conversation as saved, the tasks it
+named, each task's diagnosis as `braus memory --task` prints it, and a summary with
+the times, the outcome and the request's token counts (every provider run of it added:
+the interpretation reminder is a second run). A failed request stops the script unless
+`--continue`. A reopening of Braus between two requests is two runs of the script
+command on the same archive.
+
+The summary (`NN/summary.json`) says in fields what a run of many tasks needs, so it
+never parses a message. New fields are added; none is renamed or removed.
+
+| Field | What it says |
+| --- | --- |
+| `outcome` | `ok`, `error`, or `interrupted` (stopped by a signal) |
+| `failure` | null, or `{source, kind, retryable, …}`: `source` is `provider` (with `kind` among `rate_limited`, `auth`, `unavailable`, `api_error`, `turn_error`, `no_result`, `exited`, `malformed`, read from the provider's fields, and `api_status`, `subtype`, `exit_status`, `resets_at`), `signal` (with `signal`), or `braus` |
+| `task_states` | per task the request named: `status`, `versions`, `candidates`, `uninterpreted`, `result` (Braus's verdict from the checks it read: `passed`, `failed`, `unknown`, `none`, `missing`) and `guards_failed` |
+| `braus_closed` | the task Braus closed as abandoned because the conversation did not end it, and whether the archive recorded it |
+| `braus_interpreted` | the candidate of a completed task Braus interpreted itself because the agent left it uninterpreted after its reminder (`ProcedureProducer.brausInterpretation`) |
+| `tool_calls` | the agent's own calls, Braus's status and closing calls left out |
+| `repeated_calls` | the longest run of identical consecutive calls and its tool: shown, never acted on |
+| `rate_limits` | the provider's usage windows, when it reported them |
+
+The process exits 0 when every request succeeded, 3 when the script stopped on a provider
+failure, 1 on any other failure, and 128 plus the signal's number when stopped (130 for
+SIGINT, 143 for SIGTERM). Before it ends, the Recall's index takes what the requests
+learned (`RecallService.waitAllIdle`, at most 10 s), so the next process finds it; a
+search also catches the index up first (`RecallService.catchUp`, at most 5 s).
+
+Inside chat: `/model`, `/status`, `/memory` (the archive this process records into
+and the Recall it runs, as `memory_task status` answers), `/release`, `/help`, `/quit`.
 Ctrl+C or SIGTERM stops further tool calls, cancels the provider, drains the
-active tool operation, releases the Seat and saves an interrupted entry.
+active tool operation, releases the Seat and saves an interrupted entry. In a script,
+whose task no one resumes, the stop first closes the open task as abandoned with the
+signal as its note, writes the request's evidence and saves the memory: a run stopped
+at its time limit left the task open and no summary until 14 October 2026. An
+interactive chat keeps the task open for `--resume`.
 
 The explicit research flag is still required on a macOS build not validated by
 the Driver ledger. It is never inferred from a prior chat or silently enabled.
@@ -55,12 +103,15 @@ Likewise, `--allow-destructive` belongs to this invocation, not the saved model 
 - **FileConversations:** private atomic transcripts and exclusive conversation leases.
 - **LocalMCP:** JSON-RPC stdio bridge, authenticated ephemeral loopback host and
   serialized tool router. No application behavior.
-- **AutomationRuntime:** the shared engine composition. Ordinary CLI actions and
-  chat use the same EngineRuntime.
-- **SeatBroker:** the application session the tools drive, `BrokeredAutomationSession`,
-  on a `SeatBroker` of the chat process: the composition of the app's workers and of
-  the benchmark server. The whole chat is one turn of it, so the Seat is held between
-  messages and never released for idling.
+- **AutomationRuntime:** the shared engine composition and the living memory. Ordinary
+  CLI actions and chat use the same EngineRuntime.
+- **SeatBroker:** the chat's application session is the app's,
+  `BrokeredAutomationSession` over a `SeatBroker` of the chat process, as the app's
+  workers and the benchmark server compose it: `apps` lists the installed applications,
+  `open_session` launches one that is not running on the Seat's display and records that
+  the agent opened it, the Seat is held for the whole turn and kept warm between turns,
+  and the run's frames go to `Runs` beside the knowledge. So what the agent can open in
+  the chat is what a worker can open in the app.
 - **AutomationMCP:** validation, tool schemas and result formatting over
   `AutomationSessionOperating`. No provider, terminal or conversation-store dependency.
 - **CLI composition:** menus, signals, paths, explicit policy flags and the event
@@ -180,7 +231,8 @@ conversation or automatic replay. After restarting Braus, old Seat IDs are inval
 
 Local tests cover provider argv/stream parsing, complete-vs-truncated responses,
 concurrent pipe draining, process cancellation, MCP authentication/reconnection,
-serialized calls and draining, transcript round trips/locks, and CLI parsing.
+serialized calls and draining, transcript round trips/locks, CLI parsing, and the
+script's requests, task ids and preflight differences (`ChatScriptTests`).
 
 Real signed-in provider tests are opt-in and return only invented MCP data.
 They do not enumerate or capture real apps:

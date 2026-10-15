@@ -67,13 +67,11 @@ public enum SceneElementKey {
         return "control|\(element.containerPath)|\(element.role)|\(name(of: element))"
     }
 
-    /// The normalized caption a skeleton keeps for an element: its label when its role carries a caption
-    /// and its origin is a title or a description, the empty text otherwise. An item template uses it,
-    /// so a row's content never multiplies templates.
+    /// The normalized caption a skeleton keeps for an element: its label when its role carries a caption,
+    /// its origin is a title or a description and it names no file, the empty text otherwise. An item
+    /// template uses it, so a row's content never multiplies templates.
     public static func caption(of element: CaptureElement) -> String {
-        let isCaption = SceneSkeleton.captionRoles.contains(element.role)
-            && element.labelOrigin.map(SceneSkeleton.captionOrigins.contains) == true
-        return isCaption ? LabelText.normalize(element.label) : ""
+        SceneSkeleton.isCaption(element) ? LabelText.normalize(element.label) : ""
     }
 
     /// The origins a control's name may come from: what the toolkit calls it, its help text, or the

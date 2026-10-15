@@ -623,7 +623,11 @@ final class UserFocusRecovery {
             let front = sensing.frontmostProcessID.map { "process \($0)" } ?? "no process"
             summary += ", and the front is with \(front), where it was left"
             await refreshPreparation()
-            return (readyAfter == nil ? outcome : .handbackNotVerified, summary)
+            if readyAfter != nil { return (.handbackNotVerified, summary) }
+            // A front still with the person's own process is a target that never came forward: not ready.
+            guard frontRefusal == nil, let holder = sensing.frontmostProcessID, holder != person.processID
+            else { return (outcome, summary) }
+            return (.frontElsewhere(afterMilliseconds: Int(inFront / 1_000_000)), summary)
         }
         let handbackStart = now()
         let handback = await giveFrontBack(to: person, targets: adopted())

@@ -224,7 +224,7 @@ package enum SQLiteMemoryRecovery {
             if thorough, try connection.query("PRAGMA quick_check", [], { try $0.text(0) ?? "" }) != ["ok"] { return false }
             // A copy of an earlier schema is sound too: the next open migrates it, after its own copy.
             switch try SQLiteMemoryStore.inspect(connection, expected: expected) {
-                case .current, .previous: return true
+                case .current, .previous, .historical: return true
                 case .empty             : return false
             }
         } catch {

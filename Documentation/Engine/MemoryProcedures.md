@@ -13,13 +13,13 @@ in [MemoryFacts](MemoryFacts.md); the tables of schemas 1 and 2 in [MemorySchema
 
 ```text
 calls of an attempt ──segmentation──▶ candidate ──agent's interpretation──▶ version (parts, parameters,
- (D1 facts)            app-blocks-1    steps, blocks    memory_task interpret     contracts, bindings,
+ (D1 facts)            app-blocks-2    steps, blocks    memory_task interpret     contracts, bindings,
      │                                                                          variant prefix)
      │                                                                              │
      │                                                                   qualification A per part
      │                                                                              │
      └──verification──▶ evaluation of a call ──▶ relation of a functional    catalogue (D3)
-                         brain-relations-2         state ──▶ expectation,
+                         brain-relations-3         state ──▶ expectation,
                          (history, recovery)                 scene a model reads
 ```
 
@@ -150,10 +150,13 @@ the divergence.
 **Problem.** A procedure must be cut from what happened, not from what the agent says happened; the agent
 cannot be trusted to list its own steps, and a split by time or focus breaks on a passing change of window.
 
-**Choice.** `ProcedureSegmentation` (`app-blocks-1`) makes one step per UI operation that started (`act`,
+**Choice.** `ProcedureSegmentation` (`app-blocks-2`) makes one step per UI operation that started (`act`,
 `select`, the six inputs, `menu`, `press`, neither planned nor skipped), in the order the attempt started
 them. A batch is a container whose started children are the steps; context tools (`open_session`,
-`observe`, the listings, `close_session`) and `memory_task` are no step. A block is a run of consecutive
+`observe`, the listings, `close_session`) and `memory_task` are no step, and neither is a `menu` whose
+path ended on a menu: it listed the items and pressed nothing (`acted_noop`), a read of the application
+that a reuse never repeats and no check could judge, so it is read as context (since `app-blocks-2`, 13
+October 2026; the candidates `app-blocks-1` made stay as they were). A block is a run of consecutive
 steps on one application, the application of the call's session, so Finder, Preview, Finder is three
 blocks. Each step is one occurrence (`occurrence-<call id>`), written once in `memory_step_occurrences`
 with the call as its `action` member and every verification of the call attributed to it.
@@ -186,6 +189,7 @@ checkpoint or an end answered (`memory_task candidate` gives it again). Contract
 | `procedure`, `parts` (`b1`…), `steps` (1…) | A label (at most 512 bytes, refused rather than cut) and a declared outcome (`completed`, `failed`, `not_completed`) per part |
 | `parameters` | Name, role, kind, direction, unit, secret, and the value in this attempt with its source; no value takes the task input of the same name with its source |
 | `uses` | Step, argument and position, and a template over the argument's recorded text: `{name}` is a parameter, `{{` and `}}` literal braces |
+| `phases` | Since 14 October 2026: the task's own stages, each a run of consecutive steps (`from`, `to`) with a label and an outcome; they become the subprocedures ([The method, phases, result and repeated runs](#the-method-phases-result-and-repeated-runs)) |
 | `variant_of`, `divergence_step` | The version this one varies and the first step that differs, both or neither; the system checks the version exists, the step is within it, and the steps before it are the same operations ([Variant prefixes](#variant-prefixes)); a variant supersedes nothing |
 
 The system checks every reference against the candidate and its calls and refuses what does not exist
@@ -215,10 +219,11 @@ stated per position.
 ## Versions and parts
 
 Each interpretation revision builds a version (`ProcedureAssembly`, pure: the same inputs give the same
-rows) over the Route tables: one definition step per candidate step, one operation each, whose arguments
-are the call's as recorded, or a parameter, or a template where a use was confirmed. The parts are the
-procedure, one subprocedure per block when there are several (a procedure of one block is that block),
-and one part per step. Each part's contract lists the parameters its steps read (propagated to the parts
+rows) over the Route tables: one definition step per candidate step of the method (every step when the
+procedure is not taken to be completed, [below](#the-method-phases-result-and-repeated-runs)), one
+operation each, whose arguments are the call's as recorded, or a parameter, or a template where a use was
+confirmed. The parts are the procedure; the phases the agent named, else one subprocedure per block when
+there are several (a procedure of one block is that block); and one part per step. Each part's contract lists the parameters its steps read (propagated to the parts
 that contain them), the outputs it or a contained part produces, its application, and the structural
 state its first step started from (the scene the call's `before` sample was confirmed in, or stated
 unknown). A new version of an attempt supersedes the previous one (`memory_routes.supersedes_route_id`);
@@ -276,6 +281,10 @@ is not compared past the divergence, where the steps differ anyway.
 
 ## Qualification A
 
+Since 14 October 2026 the policy in force is version B (`qualification-b-1`), which keeps A for steps and
+adds the task's result check and the evidence of an identical earlier run
+([below](#the-method-phases-result-and-repeated-runs)). Evaluations made under A stay as written.
+
 **Problem.** A label and a declared completion are statements; reuse needs proof that each operation did
 what was asked, within what the method could see.
 
@@ -294,9 +303,10 @@ A part's outcome is the one the agent stated; else, for the procedure, the attem
 (`abandoned` is not completed), and for another part, completed when its parent is. So the procedure of a
 version interpreted at a checkpoint is refused (`completion_not_declared`) until the end, then admitted
 by the evaluation every later checkpoint, end or `candidate` request runs again. An interpretation given
-after an attempt was interrupted may label and never complete (`declared_late`). Nothing is pruned: a
-failed or retried step keeps its parent out, and a step may still be admitted alone, with its entry state
-as its prerequisite. Evaluations are appended only when a decision changes, with the policy's version.
+after an attempt was interrupted may label and never complete (`declared_late`). Under A nothing was
+pruned: a failed or retried step kept its parent out, and a step could still be admitted alone, with its
+entry state as its prerequisite. Since 14 October 2026 a completed procedure's version holds the method
+only, so its retries are no part of it. Evaluations are appended only when a decision changes, with the policy's version.
 
 A says the method's checks passed; it does not say the user's goal was reached: closing an Export dialog
 is not a file on disk. A child's completion derived from its parent's declaration is the agent's statement
@@ -314,7 +324,8 @@ procedure with it, so it never comes back through its parent. It reads the autho
 built from it is derived and can be rebuilt.
 
 **Alternatives.** Admission from the agent's declaration (refused: a declaration is no verification);
-pruning failed steps from an admitted parent (refused: a method with a retry is not the method without it);
+pruning failed steps from an admitted parent (refused under A: a method with a retry is not the method without
+it; taken on 14 October 2026 for a completed procedure, whose mistakes stay as evidence in its candidate);
 a numeric score (refused: the reasons are what a reader acts on).
 
 **Limit.** Evidence is the check of each path within its limits (`windowWide`, `noExpectation`…); a
@@ -325,9 +336,9 @@ check that passed on the wrong window region passes here too.
 **Problem.** The projection's transitions predicted effects per anchor across a whole application, learned
 from effects no check verified, and loaded the application's whole Brain to answer one click.
 
-**States.** A functional state is a structural scene of structure-v3 (`SceneStructureMatcher`): the same
-surfaces, paths, roles, captions and collections; documents, values, titles and positions are no part of
-it. A capture is placed in a state only when it is complete and exactly one stored scene is the same and
+**States.** A functional state is a structural scene of structure-v4 (`SceneStructureMatcher`): the same
+surfaces, paths, roles, captions and collections; documents, values, titles, positions and captions that name
+a file are no part of it ([Structure-v4](MemorySchema.md#scenes-and-structure-v4)). A capture is placed in a state only when it is complete and exactly one stored scene is the same and
 none is uncertain. `brain_scene_shapes` keeps each scene's role key (`SceneSkeleton.roleKey`, its roles
 sorted and joined), so a capture is compared with the scenes of its own roles only.
 
@@ -342,7 +353,7 @@ identity on purpose: a click on any file's row is a click on the list's rows. A 
 among the physical elements of its `before` capture, counted before any key is deduplicated
 (`SceneElementKey.target(role:label:in:)`): none, several (`ambiguous`), or one with its identity.
 
-**Relations.** `BrainRelationPolicy` (`brain-relations-2`) turns one concluded operation into at most one
+**Relations.** `BrainRelationPolicy` (`brain-relations-3`) turns one concluded operation into at most one
 relation, keyed by application, context, the state before, the identified element (nil for an operation
 on the focus or the window), the precise verb with its fixed arguments, the state after, the outcome and
 the effect's family. Per family, every argument of the request has a role (`argumentRoles`): fixed, in the
@@ -362,6 +373,11 @@ or the element:
 | `context_menu` | `item=<normalized item>` | none | `target` |
 | `menu` | `path=<normalized titles>` | none | the window |
 | `press` | `button=<normalized title>` | none | the window |
+
+Version 3 (14 October 2026) gives one family to what a command chosen in the menu bar or a dialog's button
+pressed leaves on screen: `elementsAppeared`, never `menuOpened`, whatever pop-ups the dialog holds (a submenu keeps
+its own condition). On PhotoCraft, Image Size, Black and White and Close had each been learned under both families,
+which split one command's relation in two.
 
 The summary a model reads says the parameters a relation does not hold (`type_text [replace=true] (any
 text)`). An item chosen is fixed because two choices of one pop-up lead to different effects; a typed text
@@ -448,8 +464,8 @@ command that fails for another reason only leaves its sample out, and the comman
 still learns, only from a structural effect its check verified as the requested gesture's.
 
 **Alternatives.** Keeping the projection's transitions as expectations (refused: unverified and
-application-wide); a similarity threshold to place captures (refused by structure-v3: an uncertain capture
-is no state); one relation per value (refused: the method, not the episode); a value or a position as part
+application-wide); a similarity threshold to place captures (refused: an uncertain capture is no state; structure-v4 takes a
+complete capture's captions as proof instead); one relation per value (refused: the method, not the episode); a value or a position as part
 of an element's identity (refused: a field would change identity with what it holds); attributing a
 relation learned on an indistinct template to every instance (refused: a false attribution); a cache of the
 whole projection on the ordinary path (refused: any write empties it, and its first read is still the
@@ -458,6 +474,190 @@ whole application).
 **Limit.** Two states that differ only by a caption stay uncertain and teach nothing (measured below: with
 captions alone, 376 of 400 operations taught nothing). Controls of one role and one container with no name
 are indistinct and teach nothing. Contexts (version, locale) are mostly unknown.
+
+## The method, phases, result and repeated runs
+
+Decided on 14 October 2026 by the product owner, after the PhotoCraft runs of that day: nine completed tasks
+made nine procedures, none admitted whole, six of them two operations repeated three times each; a third of
+their steps were mistakes and retries; recall proposed the raw traces and the agent never chose one. Four
+choices change what a completed task teaches. None changes the schema: they use the tables of schema 3 as
+they are.
+
+**The method, not the trace** (`ProcedureAssembly.leftOut`). A version of a procedure taken to be completed
+(its stated outcome, else the attempt's end) keeps only the candidate's steps that did their part: a call
+that did not conclude (`not_concluded`), a gesture that never went out, a refusal or a miss
+(`nothing_sent`), a check that failed (`check_failed`) and a step the agent declared failed or not completed
+(`declared_failed`) are left out. They stay in the candidate and its calls as evidence; the interpretation's
+answer lists them (`left_out`). The definition is numbered again from 0; `ProcedureVersion.candidatePositions`
+keeps each step's candidate position, which the findings and the agent's statements use. A procedure not taken
+to be completed keeps every step, as before. A state already present (a toggle already on) sent no gesture
+and verified the state, so it stays.
+
+**Phases** (`PartReference.phase`). The agent names the task's stages in `phases`, each a run of consecutive
+steps with a label (open the file, apply the change, save the copy). They become the subprocedures, each
+covering the method's steps inside it; without phases the blocks are, as before. Before, a task in one
+application had no part between the procedure and its steps, so no stage of it could be reused alone.
+
+**The result Braus reads itself** (`TaskResultCheck`). A task names what its result is in `result_check`, one check
+or a list, at its end, at a checkpoint (a stage's own result, read before what shows it goes away) or in the
+interpretation that follows an end that named none. Braus reads the disk or the screen itself, so the verdict is
+never the agent's word. The kinds, as the evening's revision of 14 October 2026 has them:
+
+| Kind | Passed when | Stored with method |
+| --- | --- | --- |
+| `file_written` (or `file` alone) | the file exists and was written once the attempt had opened (two seconds of tolerance between the clocks) | `file_check` |
+| `file_changed` | written during the attempt with another content than when the task declared it (SHA-256 read at `begin` or `update`); by time alone, and said, when it was not read | `file_check` |
+| `file_unchanged` | the same content as at the start (by time when it was not read) | `file_check` |
+| `file_absent` | no file at the path; unknown when there was none at the start either | `file_check` |
+| `file_moved {to}` | nothing left at the path and, at `to`, the content the path had at the start (a rename keeps the time) | `file_check` |
+| `file_copied {to}` | at `to` the content the path still has | `file_check` |
+| `file {contains}` | a text file written during the attempt holding the text | `file_check` |
+| `window {app, open}` | a window of the application whose title contains the text is open (or none is) | `window_census` |
+| `element {value / state / present}` | the session's scene, read at the check, shows the element by its label with the value, the state, or at all (or not) | `control_value`, `control_state`, `scene_text` |
+| `none` | never: the task says it leaves nothing to read, and why; it proves nothing and takes nothing from the other checks | `none` |
+
+At a completed end Braus completes what the task named with what it reads on disk itself (`AutomationTools.completed`;
+in test runs of 14 October 2026 agents checked «Salvato: <path>» on screen, or gave `none`, for files Braus
+could read, and one `none` hid a file saved without its text):
+- a file a screen check names by an absolute path is read too: `file_changed` when it was a file input read at the start,
+  `file_written` otherwise;
+- every file the outputs declare by an absolute path is checked written;
+- guards, recorded with method `guard` and shown in the answer, never read by a part's qualification: every file input
+  read at the start that no check or output names stays `file_unchanged` when the task writes a file (an export that also
+  rewrote its original); and a folder listed at the start (a folder input, or the one a file input lies in) that the task
+  wrote in holds no new file but those named (`no_other_files`: `ordine_57.txt.rtf` beside `ordine_57.txt`). Blocking, the
+  folder's guard kept a right procedure out for a temporary file TextEdit's save left behind (test runs, 14 October
+  2026); a new condition is informative before it decides anything.
+An end with no check at all is recorded and its answer asks for one in the interpretation (`result_check: {status:
+missing}`). Every check is a verification of scope `task` in `memory_verifications`, its expectation kept as JSON in
+`expected_text` (the first version's plain path reads as `file_written`), a `verification` member of the attempt in
+`memory_task_events` at its position among the calls; the attempt's current version is qualified again when one is
+written. A path or a text is read as the agent gave it, in memory only, and kept minimized as every text of the task
+is. What was found is kept in words, never the content read.
+
+**Qualification B** (`qualification-b-1`). A's rule stands for steps. A procedure or a subprocedure of a
+completed attempt whose result passed is not kept out by a step that is only unproven: its own check unknown or
+missing or its delivery uncertain, never failed, never another gesture than the one asked, the call concluded with
+no recording gap (PhotoCraft answers a double click on a save panel's folder with an error and opens the folder). A
+step of an offered procedure or subprocedure is offered with it (`SQLiteRecallRows`): a method admitted on its result
+is chosen and reused whole. A
+result that failed keeps it out (`verification_failed`, with no step) whatever its steps say. Which result a part
+reads: the procedure, every check of the attempt but Braus's guards; a subprocedure, the first checks recorded after its last step (those
+with no step of the method between them), so a stage checked at a checkpoint stands on its own check and a failed end
+does not keep it out; a subprocedure no check follows reads none, and A's rule. Several checks pass together only when
+each that could read something passed (`TaskResultCheck.combined`). On PhotoCraft 44% of the checks were unknown, a
+menu opening a remote panel or a field that cannot be read back, though every output was right on disk.
+
+**A repeated method is a new run** (`ProcedureMethod`). The first version of a completed attempt that has the
+same method as the current version of another attempt ended completed replaces it in the catalogue: its route
+supersedes that one (`memory_routes.supersedes_route_id`), and the interpretation's answer names it
+(`repeats`). Two steps are one method when they have the same application and tool, the same fixed choices (a
+menu path, a key, an item, a button, a toggle's value, replace or append), a parameter wherever the other has
+one, any typed text, and the same element, read by its role alone when its label names a file (a row of a file
+list) or when it is a pop-up a selection is made in. A section is a search hint and never compared. Under B, a
+step of the repeating version whose own check is only unproven is verified by the evidence its counterpart was
+admitted on, which names the earlier run's call. A declared variant (`variant_of`) keeps its own lineage and is
+never taken for a repeat. Before, every run made a procedure of its own and the evidence of one run helped no
+other. Since the test runs of that evening, which left five of fifteen repeats apart for no difference of method,
+three more things are the same method: an element the interpretation made a parameter and the same content item named
+literally (a file's row); `press` on a dialog's button and a click on it; the fields of one form set in another order
+(consecutive steps that type, insert, select or set a switch). A fixed argument made a parameter covers any value at
+it. Replayed on that archive, 14 of the 15 pairs are one method (the fifteenth took another path), and none of the 420
+pairs of runs of different tasks is.
+
+**What a step keeps of its run.** An element the agent clicked by its id mark (`control|foto1png`) and stated as the
+task's file is kept by its name, the parameter whole (`{input_name}`), since `control|foto_3.png` would mark nothing at
+a reuse. A section that names a day, an hour or a file (`list view / Today at 15:52`, `content (foto_1.png …)`) is left
+out of the definition and of what a reuse receives (`ProcedureAssembly.isStableSection`): another run would not find it.
+
+**The result a procedure carries** (`RecallSource.results`). A source's result checks reach a proposal as templates
+over its parameters (`file_written {output_folder}/{output_name}.jpg`: a value that is a whole leading path, a whole
+component or a component's name before its extension is written as its parameter, and inside any text a value that is
+a path or a file's name, `Salvato: {folder}/{file_name}`), with the kind of result the source makes and when it was
+made: at the end, or after a step, at a checkpoint before what shows it goes away. A choice whose tract carries out that
+step delivers them bound to the new task's values (`resultCheck`). Braus's own guards and `none` are not delivered. The
+evidence a proposal names says whether the source's result was checked.
+
+**Reuse that is counted.** Each need of a proposal carries `readyPlan`, the plan item that chooses the suggestion (the
+need covered `all` only when the suggestion covers it whole, else `part`), else the runs of its first source's steps a
+choice admits (`RecallChoice.admissibleRuns`: offered, in the need's application,
+not excluded), covering the need in part and naming in `uncovered` the steps left to the agent, so that following a
+source is one call and is recorded; a source with none gives no plan. Until 14 October 2026 the plan was the whole
+source, and Braus refused the plan it had written when a step of it was not offered (review R3). A run that repeats a source a proposal
+offered to its attempt, with no choice made, is said in the interpretation's answer (`reuse`) and counted as followed
+without a choice (`InterpretationOutcome.followedUnchosen`), derivable from the proposal's sources and the version's
+`supersedes_route_id`.
+
+**Phases procedures share** (`ProcedureFamilies`). Parts of different versions that hold one method form a family: the
+subprocedures that open a file, save a copy or close a window in twenty procedures are one family, with the labels
+their members were given and the one most share. A candidate's answer names the runs of its steps that hold the method
+of an admitted phase of another task (`known_phases`, with that label), among the steps the method would keep: a retried
+miss does not hide a phase, and the instructions ask the agent to make each
+a phase with that label. `braus memory --consolidation` measures, read only, what a consolidation would share and the
+goal families (tasks that chose a source and reached its goal another way); on an archive of 15 PhotoCraft test tasks, 81
+subprocedures form 20 families and 220 steps 24. Sharing them as one procedure called by the others (`route_call`,
+which the schema has) and summing their evidence is the next step, not taken here.
+
+**What the audit of 14 October 2026 added** (flexibility of learning and recall, failures of unattended runs).
+Mechanisms only: no sentence was added to the agent's instructions and no condition made stricter.
+- *Uses Braus infers* (`InferredUses`). A value the agent typed, chose in a pop-up or set that is exactly one of the
+  task's inputs (or that input and a file extension: `foto_mail.jpg` for `foto_mail`) is read as that input's parameter,
+  stated or added with the input's name, role and kind, and checked by the assembly like a stated use. It reads values
+  only, never an element's label: a button Export and a file named Export keep their roles, and a row clicked by a
+  file's name is still the agent's to state. Before, such a value stayed a literal and a reuse delivered the old one (D7).
+- *Braus's interpretation* (`ProcedureProducer.brausInterpretation`). A completed task whose candidate the agent left
+  uninterpreted after its reminder is interpreted by Braus at the end of a script's request: the task's goal as the
+  procedure's label, the phases already known where its steps hold them, the uses inferred. The qualification decides
+  as for any interpretation; no step is labelled, so none is offered alone. A failed or abandoned task is not.
+- *A weaker repeat* (`SQLiteProcedureRepository.WeakerRepeat`). A run that repeats an admitted procedure but whose own
+  procedure is refused (its result failed or was not read) does not replace it: it is written as a version of its own,
+  and the admitted one stays offered. Before, a second run with a failed result took the first out of the Recall.
+- *Variants Braus records*. A completed run that chose a learned source (`memory_task choose`) and did the work another
+  way is that source's variant (`variant_of_route_id`), from the first step where the operations part, its prefix
+  checked as a declared one's (`VariantPrefix`). None was declared in any test run.
+- *The result read* (`hasReadResult`). A check that read something, never a guard Braus added nor a `none`, is the
+  attempt's result: an end whose result a checkpoint already read is not asked for it, and a `none` at the end no longer
+  makes the interpretation skip the check it names.
+- *A pass that proves less* (`QualificationPolicy.StepFacts.isOnlyUnproven`). A step whose check passed on a condition
+  that does not prove the request (a pop-up closed after a choice) is unproven, like an unknown one, not a contradiction:
+  a method whose result Braus read is admitted over it.
+- *Inputs guarded in every task* (`AutomationTools.guards`). Every file input read at the beginning that no check names
+  is guarded at a completed end, also when the task writes nothing: an application that saved over its input by itself
+  is shown. Guards stay informative.
+- *An application not read* (`TaskResultCheck.Reading.unread`). A window check whose application name is ambiguous or
+  whose windows cannot be listed is unknown; only a name no running application answers to says it is not running.
+- *A use that names no query* is answered (`use_not_recorded`) and no longer keeps the end from being recorded, which left
+  the task open and then abandoned.
+
+| Proof | Test |
+| --- | --- |
+| The method left out and said, phases as subprocedures, the file checked | `ProcedureMethodTests.theMethodOnly` |
+| Uses Braus infers; a label equal to a value keeps its role | `ProcedureMethodTests.usesBrausInfers`, `ProcedureLearningTests` (file named Export) |
+| Braus interprets a completed task the agent left, never a failed one | `ProcedureMethodTests.brausInterpretsWhatTheAgentLeft` |
+| A refused repeat leaves the admitted version offered | `ProcedureMethodTests.aWeakerRepeat` |
+| A chosen source adapted is its variant | `ProcedureResultTemplateTests.aChosenSourceAdapted` |
+| A `none` at the end, then a file named at the interpretation, is read; a checkpoint's reading is the result | `TaskResultKindsTests.noneAtTheEndThenAFile`, `.aSwitchCheckedAtACheckpoint` |
+| An in-app task's input guarded; a bad use answered, the end recorded | `TaskResultKindsTests.anInAppTaskKeepsItsInput`, `.aBadUseDoesNotKeepTheTaskOpen` |
+| A ready plan of admitted runs, accepted | `RecallLifecycleTests.readyPlanOfferedStepsOnly` |
+| B admits a procedure over an unknown step when the result passed, refuses it when the result failed | `ProcedureMethodTests.resultAdmitsTheProcedure`, `ProcedureMethodRuleTests.policyB` |
+| A repeated method replaces the first version and inherits its verified step | `ProcedureMethodTests.aRepeatedMethod` |
+| What a method is | `ProcedureMethodRuleTests.signature` |
+| The result's verdict | `ProcedureMethodRuleTests.resultVerdict` |
+| Every kind of result, judged and kept | `TaskResultJudgmentTests` |
+| A file changed in place, an original kept, a switch checked at a checkpoint for its phase, a result from the outputs or the interpretation, the guard | `TaskResultKindsTests` |
+| The same method despite order, press and parameters; stable sections | `ProcedureMethodRuleTests.tolerance`, `ProcedureMethodRuleTests.stableSections` |
+| A procedure's result as a template, proposed and delivered bound; the ready plan; a source followed without a choice | `ProcedureResultTemplateTests` |
+| Families of parts and the phases a candidate shares | `ProcedureFamiliesTests` |
+
+**Limits.** A repeat is recognized only at the same number of steps: a run that took another path to the same
+result (Go to Folder against the sidebar) is another procedure, linked to the source it chose as its variant when it
+chose one, else only in the goal families the consolidation reports. A repeat is looked for only on an attempt's
+first version: an agent that interpreted at a checkpoint makes no repeat at the end (review A7-2, open). A file's row
+clicked by its name is a literal unless the agent states the use. A screen check reads the session's scene at that moment: an element the window
+no longer shows cannot be checked after it closes, and an element that exposes no value reads unknown. Application
+settings stored on disk (`defaults`), the pasteboard and effects outside the Mac have no reader yet. An element's
+label that is content without naming a file (a person's name on a button) still distinguishes two methods. Versions
+built before 14 October 2026 keep their whole traces.
 
 ## Producers and their guarantees
 
@@ -687,6 +887,20 @@ page's tables record its index work.
   unknown check, as a menu command already did, instead of throwing the perception's error.
 - Tests pinned to schema 2, 3 or 4 (versions, shapes, migration rows) follow schema 5.
 
+On 14 October 2026, after the PhotoCraft runs:
+
+- A menu command or a dialog button whose application's windows did not change is judged again on its own
+  window (`PerceivedCommand.checkedInWindow`): an attributable difference between the scenes before and after
+  is a `structural_effect` passed, window-wide and with no expectation. A sheet, a dialog an application draws
+  in its window and a panel that slides in were unknown: 21 of PhotoCraft's 28 menu commands.
+- `type_text` reads the field back from the scene after it at the field's own place when its id moved with its
+  value and no focus answers (`ActionEngine.sameField`): the name field of PhotoCraft's save panel, 9 of 9
+  unknown before.
+- Structure-v4 replaces structure-v3 ([Structure-v4](MemorySchema.md#scenes-and-structure-v4)).
+- A completed procedure's version holds its method, the agent's phases are subprocedures, the end may name a
+  result Braus checks on disk, qualification B is in force and a repeated method is a new run
+  ([The method, phases, result and repeated runs](#the-method-phases-result-and-repeated-runs)).
+
 ## Known limits
 
 - No live desktop run: the GUI, Seat and live tiers were not run for D2. The Seat's `menu` and `press`
@@ -695,8 +909,9 @@ page's tables record its index work.
   dispatched, which `MenuBarCommand` and `DialogButtonPress` do; a command that threw between its gesture
   and that request would leave no sample. A menu command whose window cannot be perceived after it says the
   perception's error in its message, as it did before D2.
-- Captures that differ only by captions stay uncertain and teach no relation; an incomplete capture is
-  never a state (the first load: 24 of 400 learned).
+- Captures that differ only by captions were uncertain under structure-v3 and taught no relation; since
+  structure-v4 they are different states. An incomplete capture is never a state (the first load: 24 of 400
+  learned).
 - Unnamed controls of one role in one container are indistinct and teach nothing; a control whose only
   label is its value has no name.
 - Calls of archives written before these corrections keep what they recorded: `menu` and `press` calls with

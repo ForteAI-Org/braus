@@ -121,7 +121,7 @@ struct RecallChoiceEvaluationTests {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let lines = output.appendingPathComponent("choice-cases.jsonl")
         if !FileManager.default.fileExists(atPath: lines.path) { FileManager.default.createFile(atPath: lines.path, contents: nil) }
-        let instructions = AgentChoiceExperiment.$enabled.withValue(true) { AutomationTools.instructions }
+        let instructions = AutomationTools.instructions
         // Cases already answered in this folder are kept, not run again: a run stopped by an outage of the provider resumes.
         let done = Set((try String(contentsOf: lines, encoding: .utf8)).split(separator: "\n").compactMap { line -> String? in
             guard let record = try? JSONDecoder().decode(CaseRecord.self, from: Data(line.utf8)), record.providerFailure == nil else { return nil }
@@ -190,7 +190,7 @@ struct RecallChoiceEvaluationTests {
         guard case .object(var begin) = RecallCorpus.begin(query) else { return record }
         begin["recall_mode"] = .string("propose")
         var clock = ContinuousClock.now
-        let answer = try await AgentChoiceExperiment.$enabled.withValue(true) { try await tools.call("memory_task", .object(begin)) }.payload
+        let answer = try await tools.call("memory_task", .object(begin)).payload
         record.proposalMS = E.milliseconds(clock.duration(to: .now))
         record.exchanges = 1
         let proposal = answer["recall_proposal"]
@@ -238,7 +238,7 @@ struct RecallChoiceEvaluationTests {
                 if arguments["operation"] == nil { arguments["operation"] = .string("choose") }
                 record.plans.append(String(decoding: (try? encoder.encode(JSONValue.object(arguments))) ?? Data(), as: UTF8.self))
                 clock = .now
-                let result = try await AgentChoiceExperiment.$enabled.withValue(true) { try await tools.call("memory_task", .object(arguments)) }
+                let result = try await tools.call("memory_task", .object(arguments))
                 record.chooseMS += E.milliseconds(clock.duration(to: .now))
                 record.exchanges += 1
                 if result["isError"] == .bool(true) {
@@ -285,9 +285,7 @@ struct RecallChoiceEvaluationTests {
     /// The outcomes Engine admitted for the plan, read through the same validation the tool ran, for the judge.
     static func outcomes(of plan: JSONValue, proposalID: String, taskID: String, attemptID: String, stream: String,
                          memory: MemoryService) async throws -> ([NeedOutcome], [String: RecallSource]) {
-        let request = try AgentChoiceExperiment.$enabled.withValue(true) {
-            try MemoryTaskTool.decode(plan, minimization: ValueMinimization(), messageRef: nil)
-        }
+        let request = try MemoryTaskTool.decode(plan, minimization: ValueMinimization(), messageRef: nil)
         guard case .choose(let decoded) = request,
               let recorded = try await memory.perform({ try await $0.recall.proposal(proposalID) }) else { return ([], [:]) }
         let producer = try TaskProducer(source: .app, streamID: stream)

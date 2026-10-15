@@ -5,6 +5,7 @@
 //  Created by Tommaso Mazzarini on 02/10/2026.
 //
 
+import CryptoKit
 import Foundation
 import Memory
 
@@ -19,18 +20,118 @@ import Memory
 enum SQLiteMemorySchema {
 
     /// The schema version this build bootstraps and opens. A file at version 0 with no tables is empty
-    /// and is bootstrapped; a file at a version of `migrations` is migrated; any other is refused,
-    /// versions 2 to 6 among them: development steps of the G76 plans, never released.
-    static let version: Int32 = 7
+    /// and is bootstrapped; a file at a version of `migrations`, or at a historical shape (`historicalShapes`), is
+    /// migrated; any other is refused, versions 2 to 6 among them: development steps of the G76 plans, never released.
+    /// Version 8 is the shape version 7 had since the merge of D1–D3 into rename-app, with the origins of the product's
+    /// earlier name admitted in `memory_archive_origins`. Its own number tells it apart from both versions 7, the D3
+    /// build's (`d3-7`, four tables without the value change) and rename-app's (`rename-app-7`), so that every migration
+    /// records the version it came from (`memory_schema_migrations` keeps one row per version reached).
+    static let version: Int32 = 8
 
     /// The resource of the current schema, the one text a new archive runs.
     static let resourceName      = "brain-living-memory-schema"
     static let resourceExtension = "sql"
 
-    /// The earlier schemas an archive migrates from, by version, each the part of the one text that is that
-    /// schema whole: version 1 is part 1, the base. Only its exact shape is read from it, to recognize such an
-    /// archive; what the migration creates comes from the later parts.
+    /// The earlier schemas an archive migrates from, by version, each the parts of the one text that are that
+    /// schema whole, from part 1 to the part named: version 1 is part 1, the base. Only its exact shape is read from it,
+    /// to recognize such an archive; what the migration creates comes from the later parts.
     static let migrations: [Int32: Int] = [1: 1]
+
+    /// HistoricalShape is the exact shape of an archive an earlier released or tested build bootstrapped, which this build
+    /// recognizes by the digest of its objects and migrates by rebuilding the tables the current text writes otherwise
+    /// (`rebuild`): `main-1`, schema 1 as main shipped it before the value change; `d3-7`, version 7 of the D3 build
+    /// before the value change, which the live run R01 and its fixtures were made with; `rename-app-7`, version 7 as
+    /// rename-app wrote it from the merge of D1–D3 to the origins of the earlier name. The digests are those of the texts
+    /// those builds ran, taken from their commits (Documentation/Engine/MemorySchema.md#historical-shapes); a file whose
+    /// objects differ by one statement is none of them and is refused as before.
+    struct HistoricalShape: Sendable, Equatable {
+        let name   : String
+        let version: Int32
+        let digest : String
+        /// The derived rows of this version, written when the migration creates the tables they fill.
+        let derivedFrom: Int32?
+    }
+
+    static let historicalShapes = [
+        // a9a7f8c..f44fb67, brain-living-memory-schema.sql sha256 9df535ab…: main before the value change.
+        HistoricalShape(name: "main-1", version: 1, digest: "858ba5c594ed0e5d9a2c8c18167658282c93e8dc687ecf0a5ed6c5120b227f93",
+                        derivedFrom: 1),
+        // e600a65..7ee2552, the seven texts (sha256 c34e4c39…) or the one text (cb8debcd…), the same objects.
+        HistoricalShape(name: "d3-7", version: 7, digest: "c5b10b676fa08c80697f8973f1e3e0d76c83d7144c65f533fc82fca735139825",
+                        derivedFrom: nil),
+        // d30a16b..7a64595, the one text (sha256 60189583… at 7a64595, 8ad0d557… at d30a16b), the same objects.
+        HistoricalShape(name: "rename-app-7", version: 7, digest: "aee1cd5dcd45884a4488c2e4290ed3754230ce6e27f83b5add866a824cf196f4",
+                        derivedFrom: nil),
+    ]
+
+    /// The digest of a set of objects: sorted by type and name, `type|name|sql` on one line each, sha256.
+    static func digest(of objects: Set<SchemaObject>) -> String {
+        let canonical = objects.sorted { ($0.type, $0.name) < ($1.type, $1.name) }
+            .map { "\($0.type)|\($0.name)|\($0.sql ?? "")" }.joined(separator: "\n")
+        return SHA256.hash(data: Data(canonical.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Brings an archive at a historical shape to the current one, inside the caller's write transaction, on a connection
+    /// whose foreign keys are off (a pragma that a transaction cannot change). Nothing is guessed: the archive must hold no
+    /// object the current text does not; each table the current text writes otherwise is rebuilt under that text, its rows
+    /// copied column by column, the columns it lacks left NULL as the current text allows (a field no earlier build knew
+    /// stays unknown); every index and trigger written otherwise, or on a rebuilt table, is dropped and written again; then
+    /// every object the archive lacks is created as the migration from version 1 creates them, with the rows derived from
+    /// its own when the tables they fill are new. A row an earlier constraint admitted and the current one refuses, or a
+    /// reference left dangling, fails the statement or the check that follows, and the caller rolls everything back.
+    /// Answers the tables it created.
+    static func rebuild(_ connection: SQLiteConnection, from shape: HistoricalShape) throws -> [String] {
+        let current = try orderedObjects(of: try text())
+        let wanted = Dictionary(uniqueKeysWithValues: current.map { ("\($0.type)|\($0.name)", $0) })
+        let found = try connection.query(
+            "SELECT type, name, sql, tbl_name FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY rowid"
+        ) { (object: SchemaObject(type: try $0.text(0) ?? "", name: try $0.text(1) ?? "", sql: try $0.text(2)), table: try $0.text(3) ?? "") }
+        let foreign = found.filter { wanted["\($0.object.type)|\($0.object.name)"] == nil }.map(\.object.label)
+        guard foreign.isEmpty else {
+            throw MemoryStoreError.schema(.differentShape(foreign))
+        }
+        let rebuilt = found.filter { $0.object.type == "table" && wanted["table|\($0.object.name)"]?.sql != $0.object.sql }.map(\.object.name)
+        // Names are this module's own: those of the current text, which every found object matched.
+        for item in found where item.object.type != "table" {
+            guard wanted["\(item.object.type)|\(item.object.name)"]?.sql != item.object.sql || rebuilt.contains(item.table) else { continue }
+            try connection.execute("DROP \(item.object.type == "index" ? "INDEX" : "TRIGGER") \(item.object.name)")
+        }
+        // A renamed table keeps the references other tables and triggers make to its name: they name the rebuilt one.
+        try connection.execute("PRAGMA legacy_alter_table = ON")
+        defer { try? connection.execute("PRAGMA legacy_alter_table = OFF") }
+        for table in rebuilt {
+            let aside = "\(table)__before_rebuild"
+            func columns(_ name: String) throws -> [String] {
+                try connection.query("PRAGMA table_info(\(name))") { try $0.text(1) ?? "" }
+            }
+            let kept = try columns(table)
+            try connection.execute("ALTER TABLE \(table) RENAME TO \(aside)")
+            try connection.execute(wanted["table|\(table)"]?.sql ?? "")
+            let now = try columns(table)
+            let lost = kept.filter { !now.contains($0) }
+            guard lost.isEmpty else {
+                throw MemoryStoreError.schema(.differentShape(lost.map { "column \(table).\($0)" }))
+            }
+            let list = kept.joined(separator: ", ")
+            try connection.execute("INSERT INTO \(table) (\(list)) SELECT \(list) FROM \(aside)")
+            try connection.execute("DROP TABLE \(aside)")
+        }
+        let present = Set(try connection.query("SELECT type || '|' || name FROM sqlite_schema") { try $0.text(0) ?? "" })
+        let added = current.filter { !present.contains("\($0.type)|\($0.name)") }
+        let tables = added.filter { $0.type == "table" }
+        for object in tables { try connection.execute(object.sql ?? "") }
+        if let version = shape.derivedFrom, let rows = derivedRows[version],
+           tables.contains(where: { rows.contains("INSERT INTO \($0.name) ") }) {
+            try connection.execute(rows)
+        }
+        for object in added where object.type == "index" { try connection.execute(object.sql ?? "") }
+        for object in added where object.type == "trigger" { try connection.execute(object.sql ?? "") }
+        let dangling = try connection.query("PRAGMA foreign_key_check") { try $0.text(0) ?? "" }
+        guard dangling.isEmpty else {
+            throw MemoryStoreError.schema(.differentShape(Array(Set(dangling)).sorted().map { "references of \($0)" }))
+        }
+        return tables.map(\.name)
+    }
 
     /// The line that opens and closes the header of each part of the one text.
     static let partRule = "-- " + String(repeating: "=", count: 109) + "\n"
@@ -55,10 +156,11 @@ enum SQLiteMemorySchema {
     /// an earlier one this build migrates from.
     static func text(of version: Int32) throws -> String {
         if version == Self.version { return try text() }
-        guard let part = migrations[version] else {
+        guard let last = migrations[version] else {
             throw MemoryStoreError.unavailable(.resourceMissing("schema \(version)"))
         }
-        return try self.part(part, of: try text())
+        let whole = try text()
+        return try (1...last).map { try self.part($0, of: whole) }.joined()
     }
 
     /// Part `number` of the one text, its statements without its header: the text holds a header, then for

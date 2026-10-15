@@ -233,6 +233,34 @@ public struct RecallSource: Sendable {
     public let parts: [Part]
     public let parameters: [Parameter]
     public let confirmedUses: Int
+    /// Result is one check of the source's result as a reuse receives it: a template over the source's parameters
+    /// (`TaskResultCheck.Expectation.template`) and when it was made, after which step of the version; at the end when it
+    /// followed the last one.
+    public struct Result: Sendable, Equatable {
+        public let expectation: TaskResultCheck.Expectation
+        /// The version's step the check followed, nil when it followed none.
+        public let afterStep: Int?
+        public let atEnd: Bool
+
+        public init(expectation: TaskResultCheck.Expectation, afterStep: Int?, atEnd: Bool) {
+            self.expectation = expectation
+            self.afterStep   = afterStep
+            self.atEnd       = atEnd
+        }
+
+        /// The check in one line with when to make it: `at the end: file_written …`, `after step 2, at a checkpoint: element …`.
+        public func line(_ expectation: TaskResultCheck.Expectation? = nil) -> String {
+            let when = atEnd ? "at the end" : afterStep.map { "after step \($0 + 1), at a checkpoint before what shows it goes away" }
+                ?? "at the end"
+            return "\(when): \((expectation ?? self.expectation).line)"
+        }
+    }
+
+    /// What the source's attempt checked its result by (`TaskResultCheck`), as templates over its parameters with when each
+    /// was made: how a reuse verifies the same kind of result. Empty when the attempt named none.
+    public var results: [Result] = []
+    /// The verdict those checks gave the procedure, nil when there were none.
+    public var resultVerdict: VerificationVerdict?
 
     /// The blocks of consecutive steps on one application, as intervals: the subprocedures, or the whole
     /// procedure when it is one block.

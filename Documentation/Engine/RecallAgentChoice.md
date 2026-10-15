@@ -1,16 +1,39 @@
-# Recall by the agent's choice (experiment A)
+# Recall by the agent's choice
 
-An experimental path of the Recall, approved on 2026-10-12 as an experiment, not as the default. Engine retrieves a few
-relevant sources. The agent that runs the task chooses the tracts it needs, using what it knows of the conversation.
-Engine checks the choice against the facts and delivers the details. The automatic selector
-([RecallSelection](RecallSelection.md)) stays the default and the control the experiment is compared with.
+The product's one path of the Recall since 2026-10-13, when the product owner chose it over the automatic selector
+(it was approved on 2026-10-12 as experiment A). Engine retrieves a few relevant sources. The agent that runs the task
+chooses the tracts it needs, using what it knows of the conversation. Engine checks the choice against the facts and
+delivers the details. The automatic selector ([RecallSelection](RecallSelection.md)) stays only as the control of the
+comparisons and the regression tests. The choice of the path is made; that it works on real tasks with the models of
+the next live runs (Haiku, Luna) and what it costs are still to be shown.
 
-## Activation
+## The one path
 
-The path exists only in a process started with `BRAUS_RECALL_AGENT_CHOICE=1`. In that process `memory_task` accepts
-`recall_mode: "propose"` on `begin` and `recall`, and the operation `choose`; its description and instructions say
-so. Without the variable those arguments are unknown and refused, and nothing changes for any client. Even when the
-path is enabled, a `begin` without `recall_mode` answers the automatic selection.
+`memory_task` offers `choose` and answers `begin` and `recall` with a proposal in every process: the app's workers, its
+external MCP clients and `braus chat`, with no variable or setting. `recall_mode: "propose"`, which the experiment's
+clients sent, is accepted and changes nothing; any other mode is refused. The tool's description and instructions
+describe the exchange (`MemoryTaskTool.choiceInstructions`), with the rules the holdout measured.
+
+- **Nothing to choose from.** An archive that never learned anything answers a complete search with no source
+  (`index.status: empty`, "nothing has been learned on this Mac yet", the catalogue's tables proving it without an
+  index); an index with nothing relevant answers no source either. The guidance says to carry on with the tools and
+  not to call `choose`: the agent is never asked for an empty choice.
+- **A search that could not run** (no index although something was learned, an index that cannot be read) answers
+  `unavailable` or `failed` with the reason. The guidance says it is no proof that nothing was learned and to carry on;
+  a `choose` from it is refused (`stale`), recording nothing.
+- **A degraded search** (the semantic model missing, index work pending) answers `limited` with a note, and the index's
+  state (`index`: generation, model, vectors and work pending, why the model is not loaded).
+- **A proposal not chosen** is kept as proposed. The task goes on and ends as usual. A `use` that names the proposal
+  instead of the query is refused with what to name instead, recording nothing (live run R01).
+- **The automatic selector** answers `begin` and `recall` only inside a test or a benchmark that sets
+  `RecallSelectionControl.automatic` for the task it runs. Nothing reaches it from a client, and no failure falls
+  back to it. A proposal still shows its suggestion, marked as such, as the holdout measured it.
+
+`RecallProductPathTests` proves each of these through the tool and SQLite, and the producers in both directions (an app
+worker's procedure chosen by an MCP client with its own task and values, and the other way round), and a reopened
+archive. The configuration is the measured one: hybrid, Granite 107m, weight 0.2, labelled documents, the uniform
+weighting, the hybrid thresholds of `recall-calibration-v3.json`, which shape only the suggestion
+(`RecallConfiguration.chosen`).
 
 ## Contract
 
@@ -176,11 +199,12 @@ trigger once, as schema 7 did; an archive of version 1 gets it in its migration 
 - **Invalidation.** Everything is read again when the agent chooses: the versions, what is offered, the task's current
   revision and values. A proposal's own text is never trusted. A version superseded, or a step retired between the
   proposal and the choice, refuses the tracts concerned.
-- **Cost.** The experiment adds one tool exchange before the first operation, plus the proposal's text. The proposal's
+- **Cost.** A adds one tool exchange before the first operation, plus the proposal's text. The proposal's
   size is recorded with it, and the comparison measures tokens and time. No budget is assumed: the earlier estimate of
   80–200 tokens per need is not a measure, and a shortlisted version is sent whole (all its steps, one line each)
   within the channel's limit.
-- **Compatibility.** The automatic path, its records and its comparisons are unchanged.
+- **Compatibility.** The automatic path's records and comparisons are unchanged; the path itself runs only as the
+  control of the tests (`RecallSelectionControl.automatic`), never in the product.
 
 ## Measured (development, 2026-10-12)
 
@@ -247,6 +271,15 @@ final.
   (recreating it), complete. Sonnet chose the two right steps. No Engine check covers a tract too wide within a
   compatible version.
 
-**Status.** A stays an experiment behind `BRAUS_RECALL_AGENT_CHOICE=1`; the automatic selector is the default. The two
-proposed corrections are not applied. Whether A is corrected, adopted or postponed is a decision for review, and an
-independent holdout must follow any correction.
+**Status then.** A stayed an experiment; the two proposed corrections were applied by the review rounds that followed
+(F13/F14, R2–R5), and an independent holdout was run.
+
+## Independent holdout (2026-10-12)
+
+On 16 new requests (19 conditions) frozen before the answers, with `claude-sonnet-5-5` at effort `max` and the hybrid
+Granite configuration, A met K1–K6: 14/16 and 3/3 conditions right on every expectation, 8/8 exact positive tracts,
+0 incompatible deliveries, 0 critical false completes; the automatic selector on the same search 2/16 and 1/3. The two
+misses (H10: one variant missing from the shortlist, the ambiguity shown as partial; H16: an equivalent source the gold
+did not admit) stay in the score. Cost per condition: two tool exchanges, a model call of 11.1 s p50, the proposal
+85 ms p50 in Engine. The review is in the project notes (`revisione-D3-F14-holdout-2026-10-12.md`). Haiku and Luna were
+not measured; the live runs measure them.

@@ -14,14 +14,28 @@ public struct InterpretationOutcome: Sendable {
     public let routeID: String
     public let findings: [InterpretationFinding]
     public let qualifications: [PartQualification]
+    /// The candidate's position of each step of the version (`ProcedureVersion.candidatePositions`): the
+    /// qualification's step positions are the version's, the agent's are the candidate's.
+    public let candidatePositions: [Int]?
+    /// The candidate's steps the method left out, with why.
+    public let leftOut: [Int: ProcedureAssembly.LeftOut]
+    /// The version of another attempt this one repeats and replaces in the catalogue (`ProcedureMethod`), or nil.
+    public let repeats: String?
+    /// The source key of a proposal made to this task whose version this run repeats though the agent chose nothing: a
+    /// reuse that was followed without a choice (14 October 2026), nil otherwise.
+    public var followedUnchosen: String? = nil
 
     public init(receipt: MemoryReceipt, revision: Int, routeID: String, findings: [InterpretationFinding],
-                qualifications: [PartQualification]) {
-        self.receipt        = receipt
-        self.revision       = revision
-        self.routeID        = routeID
-        self.findings       = findings
-        self.qualifications = qualifications
+                qualifications: [PartQualification], candidatePositions: [Int]? = nil, leftOut: [Int: ProcedureAssembly.LeftOut] = [:],
+                repeats: String? = nil) {
+        self.receipt            = receipt
+        self.revision           = revision
+        self.routeID            = routeID
+        self.findings           = findings
+        self.qualifications     = qualifications
+        self.candidatePositions = candidatePositions
+        self.leftOut            = leftOut
+        self.repeats            = repeats
     }
 }
 

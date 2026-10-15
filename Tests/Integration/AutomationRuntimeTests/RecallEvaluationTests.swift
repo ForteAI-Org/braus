@@ -30,7 +30,7 @@ import Testing
 ///   configuration is measured on the final split with its frozen thresholds, through the service and through
 ///   `memory_task begin`, whose deliveries must agree with the service's selections.
 @MainActor
-@Suite("Recall comparison on the quality corpus", .serialized)
+@Suite("Recall comparison on the quality corpus", .serialized, .automaticSelection)
 struct RecallEvaluationTests {
 
     nonisolated static let environment = ProcessInfo.processInfo.environment

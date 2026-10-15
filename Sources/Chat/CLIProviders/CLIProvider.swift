@@ -85,7 +85,9 @@ public final class CLIProvider {
         do {
             for try await chunk in stdout {
                 pending.append(chunk)
-                guard pending.count <= 8 * 1_024 * 1_024 else { throw failure("Provider event exceeded 8 MB.") }
+                guard pending.count <= 8 * 1_024 * 1_024 else {
+                    throw ProviderFailure(kind: .malformed, message: "Provider event exceeded 8 MB.")
+                }
                 while let newline = pending.firstIndex(of: 10) {
                     let line = Data(pending[..<newline])
                     pending.removeSubrange(...newline)
@@ -108,10 +110,18 @@ public final class CLIProvider {
             while child.isRunning { try await Task.sleep(for: .milliseconds(25)) }
             let diagnostics = try await errorTask.value
             if cancelled { throw CancellationError() }
-            if let providerFailure { throw failure(providerFailure) }
+            if let providerFailure {
+                let stated = decoder.failure ?? ProviderFailure(kind: .turnError, message: providerFailure)
+                throw ProviderFailure(kind: stated.kind, message: stated.message, apiStatus: stated.apiStatus,
+                                      subtype: stated.subtype, exitStatus: child.terminationStatus, resetsAt: stated.resetsAt)
+            }
             guard child.terminationStatus == 0, completed else {
-                throw failure("Provider exited with status \(child.terminationStatus) without a successful turn. "
-                              + String(diagnostics.suffix(4_000)))
+                // No result and no error: a failing status says the command line failed, a clean one that the stream was cut.
+                throw ProviderFailure(
+                    kind: child.terminationStatus == 0 ? .noResult : .exited,
+                    message: "Provider exited with status \(child.terminationStatus) without a successful turn. "
+                        + String(diagnostics.suffix(4_000)),
+                    exitStatus: child.terminationStatus)
             }
         } catch {
             cancel()

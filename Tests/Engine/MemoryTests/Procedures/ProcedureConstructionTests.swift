@@ -20,24 +20,29 @@ struct ProcedureConstructionTests {
     static let finder = "com.apple.finder", preview = "com.apple.Preview"
 
     static func call(_ id: String, _ tool: AgentTool, _ status: AgentCallStatus = .completed,
-                     _ bundle: String? = finder) -> ProcedureSegmentation.Call {
-        ProcedureSegmentation.Call(callEventID: id, tool: tool, status: status, bundleID: bundle)
+                     _ bundle: String? = finder, result: ActOutcomeKind? = nil) -> ProcedureSegmentation.Call {
+        ProcedureSegmentation.Call(callEventID: id, tool: tool, status: status, bundleID: bundle, resultKind: result)
     }
 
     // MARK: Segmentation
 
-    @Test("one step per started UI operation: context tools, a batch's container, planned and skipped steps are no step; a no-op that ran is one")
+    @Test("one step per started UI operation: context tools, a batch's container, planned and skipped steps are no step; a no-op that ran is one, a menu that only listed is none")
     func stepsAreStartedOperations() throws {
         let calls = [
             Self.call("open", .openSession), Self.call("look", .observe), Self.call("batch", .batch),
             Self.call("s1", .typeText), Self.call("s2", .select, .failed), Self.call("s3", .act, .skipped),
-            Self.call("s4", .act, .planned), Self.call("noop", .act), Self.call("crashed", .act, .started),
-            Self.call("menu", .menu), Self.call("press", .press), Self.call("list", .windows), Self.call("close", .closeSession),
+            Self.call("s4", .act, .planned), Self.call("noop", .act, result: .actedNoop), Self.call("crashed", .act, .started),
+            Self.call("listing", .menu, result: .actedNoop), Self.call("menu", .menu, result: .foundActed),
+            Self.call("press", .press), Self.call("list", .windows), Self.call("close", .closeSession),
         ]
         let steps = ProcedureSegmentation.steps(of: calls)
         #expect(steps.map(\.callEventID) == ["s1", "s2", "noop", "crashed", "menu", "press"])
         #expect(steps.map(\.position) == Array(0..<6))
         #expect(steps.allSatisfy { $0.stepOccurrenceID == ProcedureCandidate.occurrenceID(of: $0.callEventID) })
+        #expect(ProcedureSegmentation.isListing(tool: .menu, resultKind: .actedNoop))
+        #expect(!ProcedureSegmentation.isListing(tool: .act, resultKind: .actedNoop), "a toggle already in its state is a step")
+        #expect(!ProcedureSegmentation.isListing(tool: .menu, resultKind: nil), "a menu that did not conclude is not a listing")
+        #expect(ProcedureSegmentation.policyVersion == "app-blocks-2")
     }
 
     @Test("blocks are runs of consecutive operations on one application: Finder, Preview, Finder is three blocks")

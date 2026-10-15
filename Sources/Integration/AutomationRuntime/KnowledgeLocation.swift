@@ -61,19 +61,67 @@ nonisolated public enum KnowledgeLocation {
         let root  = support.appendingPathComponent("MCP/Knowledge", isDirectory: true)
         let names = ((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []).sorted()
         return names.compactMap { name -> LegacyKnowledge? in
-            let directory = root.appendingPathComponent(name, isDirectory: true)
-            var isDirectory: ObjCBool = false
-            guard !name.hasPrefix("."),
-                  FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else { return nil }
-            let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-            let hasArchive = files.contains("memory.sqlite")
-            let json = files.filter {
-                $0.hasSuffix(".json") && $0 != "allowlist.json" && !$0.contains(".corrupt-")
-            }.count
-            guard hasArchive || json > 0 else { return nil }
-            return LegacyKnowledge(originID: "mcp-profile:\(name)", directory: directory,
-                                   location: "MCP/Knowledge/\(name)", hasArchive: hasArchive, jsonBrains: json)
+            guard !name.hasPrefix(".") else { return nil }
+            return inventory(root.appendingPathComponent(name, isDirectory: true), originID: "mcp-profile:\(name)",
+                             location: "MCP/Knowledge/\(name)")
         }
+    }
+
+    /// One Knowledge directory as an origin: whether it holds an archive, and how many JSON Brains; nil when it is not a
+    /// directory or holds neither.
+    static func inventory(_ directory: URL, originID: String, location: String) -> LegacyKnowledge? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        let hasArchive = files.contains("memory.sqlite")
+        let json = files.filter {
+            $0.hasSuffix(".json") && $0 != "allowlist.json" && !$0.contains(".corrupt-")
+        }.count
+        guard hasArchive || json > 0 else { return nil }
+        return LegacyKnowledge(originID: originID, directory: directory, location: location, hasArchive: hasArchive,
+                               jsonBrains: json)
+    }
+
+    // MARK: The product's earlier name
+
+    /// The origin of the Knowledge directory of the product's earlier name: an archive there is adopted whole by an open
+    /// that finds none of its own (`MemoryService`), else taken in like an external client's.
+    public static let previousKnowledgeOrigin = "previous-product:knowledge"
+
+    /// The environment variable naming the support folder of the product's earlier name whose knowledge the user's one
+    /// archive takes in, for a check run or a test; set and empty, none is read.
+    public static let previousSupportOverride = "BRAUS_PREVIOUS_SUPPORT_DIR"
+
+    /// The support folder of the product's earlier name, read only: only the one `BRAUS_PREVIOUS_SUPPORT_DIR` names, and
+    /// none by default, so no folder of the person's is read unless someone names it (a check run, a test, a migration
+    /// decided). The earlier name is kept nowhere in the product.
+    public static func previousSupport(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        guard let named = environment[previousSupportOverride], !named.isEmpty else { return nil }
+        return URL(fileURLWithPath: (named as NSString).expandingTildeInPath, isDirectory: true)
+    }
+
+    /// The knowledge the product kept under its earlier name, as origins of the user's one archive, inventoried without
+    /// opening or changing anything: its Knowledge directory (`previous-product:knowledge`: the archive of the app, the
+    /// MCP server and the command line, and its JSON Brains) and its external clients' private ones
+    /// (`previous-product:mcp-profile:<name>`). None when that folder is the support folder itself. Profiles,
+    /// conversations, credentials and settings of the earlier name are not knowledge and are never read here.
+    public static func previousProductOrigins(environment: [String: String] = ProcessInfo.processInfo.environment)
+        -> [LegacyKnowledge] {
+        guard let previous = previousSupport(environment: environment) else { return [] }
+        func resolved(_ url: URL) -> String { url.standardizedFileURL.resolvingSymlinksInPath().path }
+        guard resolved(previous) != resolved(support(environment: environment)) else { return [] }
+        let name = previous.lastPathComponent
+        var origins: [LegacyKnowledge] = []
+        if let own = inventory(knowledge(under: previous), originID: previousKnowledgeOrigin, location: "\(name)/Knowledge") {
+            origins.append(own)
+        }
+        for profile in legacyProfiles(under: previous) {
+            origins.append(LegacyKnowledge(originID: "previous-product:" + profile.originID, directory: profile.directory,
+                                           location: "\(name)/" + profile.location, hasArchive: profile.hasArchive,
+                                           jsonBrains: profile.jsonBrains))
+        }
+        return origins
     }
 }

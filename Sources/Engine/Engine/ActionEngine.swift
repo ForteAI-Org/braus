@@ -357,8 +357,11 @@ public struct ActionEngine: Sendable {
             await dependencies.actuator.confirm(.unknown, in: pid)
             await dependencies.observer?.record(ActionRecord(
                 bundleID: request.bundleID, element: element, verb: request.verb, effect: nil, windowTitleAfter: nil,
-                before: perceived, attempt: .deliveryFailed("\(error)")
+                before: perceived, attempt: Self.attempt(after: error)
             ))
+            if let refused = Self.notSent(error, "\(request.verb.performed) '\(element.label)'", scene: perceived.scene) {
+                return refused
+            }
             return ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)': delivery failed: "
                 + "\(error)", scene: nil, check: OperationCheck(
                     condition: .structuralEffect, method: .sceneDifference, verdict: .unknown,
@@ -536,8 +539,9 @@ public struct ActionEngine: Sendable {
             await dependencies.actuator.confirm(.unknown, in: pid)
             await dependencies.observer?.record(ActionRecord(
                 bundleID: request.bundleID, element: element, verb: .setToggle, effect: nil, windowTitleAfter: nil,
-                before: perceived, attempt: .deliveryFailed("\(error)")
+                before: perceived, attempt: Self.attempt(after: error)
             ))
+            if let refused = Self.notSent(error, "set '\(element.label)'", scene: perceived.scene) { return refused }
             return ActOutcome(.actedUnverified, "set '\(element.label)': delivery failed: \(error)",
                               check: OperationCheck(condition: .stateAfterGesture, method: .controlState,
                                                     verdict: .unknown, expected: desired.rawValue,
@@ -823,6 +827,15 @@ public struct ActionEngine: Sendable {
         + "Verify the intended effect; prefer the menu tool or the target's contextual menu for an unsupported "
         + "shortcut. Do not repeat an unconfirmed command."
 
+    /// What a key that changed nothing is answered with in a file panel the system draws out of process. Measured
+    /// in Preview's Save As and Export sheets on 14/10/2026: Command-Shift-G opened Go to Folder 3 times in 20, each
+    /// about 3 s after a click that selected the name field or a sidebar row, and many such clicks were followed by
+    /// nothing; after typing the name or pressing a button it never did. The cause is the seat's delivery into an
+    /// attached sheet, not yet qualified, so the answer bounds the retries instead of promising a remedy.
+    static let filePanelKeyGhost = "In a file panel drawn by the system a key from the background often has no "
+        + "effect. Press it at most once more, a few seconds after a click on the name field or a sidebar row; if it "
+        + "still does nothing, that way is closed: say so instead of trying more keys."
+
     /// Preserves a caller-established focus and selection. Pixel text alone cannot verify the
     /// resulting value, and an uncertain insertion must never be replayed automatically.
     private func insertText(
@@ -839,6 +852,7 @@ public struct ActionEngine: Sendable {
         }
         let pid = request.processID
         if let error = await send([.insert(text)], to: pid) {
+            if let refused = Self.notSent(error, "inserting text") { return refused }
             return ActOutcome(.actedUnverified, "inserting text: delivery failed: \(error); observe before any retry",
                               check: Self.undelivered(expecting == nil ? .none : .valueReadBack, method: .controlValue,
                                                       expected: expecting))
@@ -914,6 +928,7 @@ public struct ActionEngine: Sendable {
         // in between would forget.
         let endOfField = Self.textFieldRoles.contains(element.role ?? "") ? Self.endOfField : nil
         if let error = await send(gestures, to: pid, redundantAfterAccessibilityClick: endOfField) {
+            if let refused = Self.notSent(error, "typing into '\(element.label)'", scene: perceived.scene) { return refused }
             return ActOutcome(.actedUnverified, "typing into '\(element.label)': delivery failed: \(error)",
                               check: Self.undelivered(.valueReadBack, method: .controlValue, expected: typed,
                                                       target: element))
@@ -922,6 +937,7 @@ public struct ActionEngine: Sendable {
         let after = await perceive(pid)?.scene
         let readBack = await dependencies.controls?.focusedFieldValue(in: pid)
             ?? after?.elements.first(where: { $0.id == element.id })?.value
+            ?? after.flatMap { Self.sameField(as: element, in: $0) }?.value
         let wanted = replacing ? typed : element.value.map { $0 + text }
         await dependencies.actuator.confirm(readBack != nil && readBack == wanted ? .observed : .unknown, in: pid)
         let composing = inserts ? " This text is inserted as one event; an active input method may reject it." : ""
@@ -951,6 +967,23 @@ public struct ActionEngine: Sendable {
                     + "read afterwards, so the text cannot be confirmed; observe before typing again.\(composing)",
                     scene: after, check: check)
         }
+    }
+
+    /// The field of the scene after typing that is the one typed into, when its id moved with its value: the
+    /// one element of the same role and kind whose centre lies within the field's place before typing, widened by
+    /// half a percent of the window. A field named by what it holds ("foto_3 copy.psd" in a save panel whose
+    /// accessibility answers no focus, as in PhotoCraft's, 14 October 2026) takes a new id once it holds the typed
+    /// name, and while it is edited it may report a smaller frame inside its own (0.153 wide before, 0.090 after,
+    /// live); nil for none or several.
+    static func sameField(as element: SceneElement, in after: SceneSnapshot) -> SceneElement? {
+        let margin = 0.005, place = element.bounds
+        let matches = after.elements.filter {
+            let x = $0.bounds.x + $0.bounds.width / 2, y = $0.bounds.y + $0.bounds.height / 2
+            return $0.role == element.role && $0.kind == element.kind
+                && place.x - margin <= x && x <= place.x + place.width + margin
+                && place.y - margin <= y && y <= place.y + place.height + margin
+        }
+        return matches.count == 1 ? matches.first : nil
     }
 
     private func pressKey(
@@ -986,6 +1019,7 @@ public struct ActionEngine: Sendable {
         }
         await raiseIfNeeded(pid, isPopupOpen: (await surfaces(pid)).hasOpenPopup)
         if let error = await send(Array(repeating: chord.gesture, count: times), to: pid) {
+            if let refused = Self.notSent(error, pressed, scene: perceived.scene) { return refused }
             return ActOutcome(.actedUnverified, "\(pressed): delivery failed: \(error)",
                               check: Self.undelivered(.structuralEffect, method: .sceneDifference))
         }
@@ -993,7 +1027,9 @@ public struct ActionEngine: Sendable {
         let note = dependencies.activation == nil && chord.modifiers.contains(.command) ? Self.menuShortcutNote : ""
         let outcome = await judged(
             pressed, in: request, before: perceived.scene, targetID: nil,
-            ghost: "If you expected an effect, the key likely reached a control that ignores it: click the "
+            // `selectsFieldsByTripleClick` is set exactly while the seat holds a file panel drawn out of process.
+            ghost: permissions.selectsFieldsByTripleClick ? Self.filePanelKeyGhost + note
+                : "If you expected an effect, the key likely reached a control that ignores it: click the "
                 + "control that should receive it first.\(note)",
             repaint: "A key's effect is often only a moved focus or caret, which the scene cannot attribute: "
                 + "observe before pressing again.\(note)",
@@ -1077,6 +1113,7 @@ public struct ActionEngine: Sendable {
         let scrolled = "scrolled \(amount)"
         await raiseIfNeeded(pid, isPopupOpen: (await surfaces(pid)).hasOpenPopup)
         if let error = await send([.scroll(at: point, deltaY: lines)], to: pid) {
+            if let refused = Self.notSent(error, scrolled, scene: perceived.scene) { return refused }
             return ActOutcome(.actedUnverified, "\(scrolled): delivery failed: \(error)",
                               check: Self.undelivered(.structuralEffect, method: .sceneDifference, target: element))
         }
@@ -1136,6 +1173,7 @@ public struct ActionEngine: Sendable {
         }
         await raiseIfNeeded(pid, isPopupOpen: (await surfaces(pid)).hasOpenPopup)
         if let error = await send([.drag(from: start, to: finish)], to: pid) {
+            if let refused = Self.notSent(error, dragged, scene: scene) { return refused }
             return ActOutcome(.actedUnverified, "\(dragged): delivery failed: \(error)",
                               check: Self.undelivered(.structuralEffect, method: .sceneDifference, target: element))
         }
@@ -1182,6 +1220,7 @@ public struct ActionEngine: Sendable {
         let before = await surfaces(pid)
         await raiseIfNeeded(pid, isPopupOpen: before.hasOpenPopup)
         if let error = await send([.click(at: point, button: .right)], to: pid) {
+            if let refused = Self.notSent(error, "right-clicking '\(element.label)'", scene: perceived.scene) { return refused }
             return ActOutcome(.actedUnverified, "right-clicking '\(element.label)': delivery failed: \(error)",
                               check: Self.undelivered(.menuItemChosen, method: .windowCensus, expected: item,
                                                       target: element))
@@ -1299,6 +1338,7 @@ public struct ActionEngine: Sendable {
         to processID: pid_t,
         redundantAfterAccessibilityClick redundant: Gesture? = nil
     ) async -> (any Error)? {
+        var sent = 0
         do {
             // One reference before the first gesture: any effect of the whole input then counts.
             if !gestures.isEmpty { await dependencies.settling?.prepare(in: processID) }
@@ -1308,12 +1348,35 @@ public struct ActionEngine: Sendable {
                     continue
                 }
                 try await dependencies.actuator.perform(gesture, in: processID)
+                sent += 1
             }
             return nil
         } catch {
             await dependencies.actuator.confirm(.unknown, in: processID)
+            // A gesture refused unsent after others went out leaves the effect of those others unknown.
+            if sent > 0, error is GestureNotSent { return SentBefore(refusal: error) }
             return error
         }
+    }
+
+    /// A refusal that came after earlier gestures of the same input went out: the input as a whole was sent in
+    /// part, so it is a delivery whose effect is unknown, never "nothing was sent".
+    private struct SentBefore: Error, CustomStringConvertible {
+        let refusal: any Error
+        var description: String { "\(refusal)" }
+    }
+
+    /// The answer to an input the actuator refused before any event of it went out (`GestureNotSent`): refused,
+    /// nothing performed, in the actuator's words, so the model reads that nothing happened and what to do
+    /// instead. Nil for any other failure, which stays a delivery whose effect is unknown.
+    static func notSent(_ error: any Error, _ action: String, scene: SceneSnapshot? = nil) -> ActOutcome? {
+        guard let refusal = error as? GestureNotSent else { return nil }
+        return ActOutcome(.refused, "\(action): nothing was sent. \(refusal.sentence)", scene: scene)
+    }
+
+    /// The attempt a failed delivery records: not attempted, with the actuator's reason, when nothing went out.
+    static func attempt(after error: any Error) -> ActionAttempt {
+        (error as? GestureNotSent).map { .notAttempted(reason: $0.reason) } ?? .deliveryFailed("\(error)")
     }
 
     /// An input with no reading of its own is judged by the two scenes alone, and its delivery closed

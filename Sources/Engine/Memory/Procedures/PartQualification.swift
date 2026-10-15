@@ -87,16 +87,29 @@ public struct PartQualification: Sendable, Equatable {
     }
 }
 
-/// QualificationPolicy is version 1 of the rule A, a pure function of what the archive keeps about a
-/// part: its label and declared outcome, the attempt's end, when the interpretation was made, and for
-/// every step of it the call's state, its recording gaps, its verifications, the findings of the
-/// interpretation and the bindings of the parameters it reads. Nothing is pruned: a failed or retried
-/// step inside a part keeps the part out, and a step part may still be admitted on its own, with its
-/// observed entry state as its prerequisite.
+/// QualificationPolicy is the rule that admits a part, a pure function of what the archive keeps about a
+/// part: its label and declared outcome, the attempt's end and its result check, when the interpretation was
+/// made, and for every step of it the call's state, its recording gaps, its verifications, the findings of
+/// the interpretation, the bindings of the parameters it reads and the evidence an identical earlier run of
+/// the same method gives it. A step part may still be admitted on its own, with its observed entry state as
+/// its prerequisite.
+///
+/// **Version B (`qualification-b-1`, 14 October 2026).** A asked every operation of a part to be positively
+/// verified on its own. On PhotoCraft 44% of the checks were unknown (a menu opening a remote panel, a field
+/// that cannot be read back), so no procedure of nine was admitted and recall offered only loose steps,
+/// though every output was right on disk. B keeps A's rule for steps and adds two kinds of evidence:
+/// - the attempt's result check (`TaskResultCheck`): when Braus found on disk the file a completed task said it
+///   produced, a procedure or subprocedure of it is not kept out by a step whose check is unknown or missing or
+///   whose delivery was uncertain; another gesture than the one asked, a failed check, a call that did not
+///   conclude still keep it out, and a result check that failed keeps it out whatever its steps say;
+/// - an identical earlier run (`StepFacts.inherited`): a step whose own check is unknown is verified by the
+///   positive check of the same step in the version this one repeats.
+/// A version built since 14 October 2026 holds the method only (`ProcedureAssembly.leftOut`), so the retries A
+/// refused a parent for are no part of it.
 public enum QualificationPolicy {
 
     /// The version of the rule, kept with every evaluation.
-    public static let version = "qualification-a-1"
+    public static let version = "qualification-b-1"
 
     /// The conditions whose pass verifies the operation that was requested, within the method's scope:
     /// the state already present (no gesture), the state after the gesture, the value read back, a
@@ -148,10 +161,14 @@ public enum QualificationPolicy {
         public let keepsWithheldLiteral: Bool
         /// The parameters the step reads whose binding in the attempt is missing.
         public let missingInputs: [String]
+        /// The positive check of the same step in the identical version this one repeats, when the step's own
+        /// check is not positive: the call and verification of that earlier run.
+        public let inherited: (callEventID: String, verificationEventID: String)?
 
         public init(position: Int, callEventID: String, status: AgentCallStatus, hasRecordingGap: Bool,
                     verifications: [VerificationFact], findings: [InterpretationFinding.Kind] = [],
-                    keepsWithheldLiteral: Bool = false, missingInputs: [String] = []) {
+                    keepsWithheldLiteral: Bool = false, missingInputs: [String] = [],
+                    inherited: (callEventID: String, verificationEventID: String)? = nil) {
             self.position             = position
             self.callEventID          = callEventID
             self.status               = status
@@ -160,6 +177,28 @@ public enum QualificationPolicy {
             self.findings             = findings
             self.keepsWithheldLiteral = keepsWithheldLiteral
             self.missingInputs        = missingInputs
+            self.inherited            = inherited
+        }
+
+        public static func == (lhs: StepFacts, rhs: StepFacts) -> Bool {
+            lhs.position == rhs.position && lhs.callEventID == rhs.callEventID && lhs.status == rhs.status
+                && lhs.hasRecordingGap == rhs.hasRecordingGap && lhs.verifications == rhs.verifications
+                && lhs.findings == rhs.findings && lhs.keepsWithheldLiteral == rhs.keepsWithheldLiteral
+                && lhs.missingInputs == rhs.missingInputs && lhs.inherited?.callEventID == rhs.inherited?.callEventID
+                && lhs.inherited?.verificationEventID == rhs.inherited?.verificationEventID
+        }
+
+        /// Whether the step's own checks leave its operation unproven without contradicting it: unknown or
+        /// missing, passed on a condition that does not prove the request (a pop-up closed after a choice), or a gesture
+        /// whose delivery was uncertain, never a failed check and never another gesture than the one asked. An uncertain
+        /// delivery is unproven, not refuted: PhotoCraft answers a double click on a folder of its save panel with an
+        /// error and opens the folder (14 October 2026). A pass that proves less is no contradiction either: counted as one,
+        /// it kept out a method an unknown check in its place would not have (review A5-5).
+        var isOnlyUnproven: Bool {
+            guard status == .completed, !hasRecordingGap else { return false }
+            return verifications.allSatisfy { fact in
+                fact.verdict != .failed && fact.performed != .substitute && fact.condition != .recoveryInsteadOfRequest
+            }
         }
     }
 
@@ -172,14 +211,17 @@ public enum QualificationPolicy {
         public let parentOutcome: DeclaredPartOutcome?
         /// The steps the part covers, in order.
         public let steps: [StepFacts]
+        /// The attempt's result check, when its end named a result Braus could check (`TaskResultCheck`).
+        public let result: VerificationVerdict?
 
         public init(part: ProcedurePart, attemptEnd: DeclaredTaskStatus?, interpretationState: InterpretationState,
-                    parentOutcome: DeclaredPartOutcome? = nil, steps: [StepFacts]) {
+                    parentOutcome: DeclaredPartOutcome? = nil, steps: [StepFacts], result: VerificationVerdict? = nil) {
             self.part                = part
             self.attemptEnd          = attemptEnd
             self.interpretationState = interpretationState
             self.parentOutcome       = parentOutcome
             self.steps               = steps
+            self.result              = result
         }
     }
 
@@ -227,7 +269,31 @@ public enum QualificationPolicy {
             case .notCompleted, .notDeclared:
                 add(.completionNotDeclared)
         }
+        // A procedure or a subprocedure of a completed attempt whose result Braus found on disk is not kept out by a
+        // step that is only unproven; a result that failed keeps it out (version B).
+        let isMethod = part.kind != .step
+        let resultProves = isMethod && facts.result == .passed
+        if isMethod, facts.result == .failed { add(.verificationFailed) }
         for step in facts.steps {
+            // A step only unproven by its own check and proven by an identical earlier run counts as verified.
+            if let inherited = step.inherited, step.isOnlyUnproven, !step.verifications.contains(where: \.isPositive) {
+                for finding in step.findings { add(finding == .useMismatch ? .useMismatch : .unverifiableUse, step) }
+                if step.keepsWithheldLiteral { add(.withheldLiteral, step) }
+                if !step.missingInputs.isEmpty { add(.missingInput, step) }
+                evidence.append(PartQualification.Evidence(stepPosition: step.position, callEventID: inherited.callEventID,
+                                                          verificationEventID: inherited.verificationEventID))
+                continue
+            }
+            if resultProves, step.isOnlyUnproven {
+                for finding in step.findings { add(finding == .useMismatch ? .useMismatch : .unverifiableUse, step) }
+                if step.keepsWithheldLiteral { add(.withheldLiteral, step) }
+                if !step.missingInputs.isEmpty { add(.missingInput, step) }
+                if let positive = step.verifications.first(where: \.isPositive), step.verifications.allSatisfy(\.isPositive) {
+                    evidence.append(PartQualification.Evidence(stepPosition: step.position, callEventID: step.callEventID,
+                                                              verificationEventID: positive.eventID))
+                }
+                continue
+            }
             switch step.status {
                 case .completed: break
                 case .started: add(.callIncomplete, step)

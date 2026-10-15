@@ -5,6 +5,7 @@
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
 
+import CryptoKit
 import EngineCore
 import Foundation
 import Memory
@@ -42,6 +43,9 @@ nonisolated public enum ProcedureProducer {
         public let candidate: ProcedureCandidate
         public let steps: [StepSummary]
         public let isNew: Bool
+        /// Runs of the candidate's steps that hold the method of a phase learned in other procedures, with its label
+        /// (`ProcedureFamilies.knownPhases`): what the agent is offered so that procedures share phases and labels.
+        public var knownPhases: [ProcedureFamilies.KnownPhase] = []
     }
 
     /// The candidate of the attempt now, after the derived queue drained within its budget, with what
@@ -55,7 +59,9 @@ nonisolated public enum ProcedureProducer {
             try await $0.procedures.buildCandidate(attemptID: attemptID, for: producer, at: now)
         }) else { return nil }
         _ = try await memory.perform { try await $0.procedures.requalifyCurrent(attemptID: attemptID, at: now) }
-        return try await summary(of: candidate, isNew: receipt == .committed, memory: memory)
+        var built = try await summary(of: candidate, isNew: receipt == .committed, memory: memory)
+        built.knownPhases = (try? await memory.perform { try await $0.procedures.knownPhases(candidateID: candidate.candidateID) }) ?? []
+        return built
     }
 
     /// The candidate of the last attempt of one of the producer's tasks, built again from the facts: for an
@@ -78,6 +84,125 @@ nonisolated public enum ProcedureProducer {
         let interpretation = try await admitting(interpretation, producer: producer, memory: memory)
         let now = memory.clock.calendarMS()
         return try await memory.perform { try await $0.procedures.interpret(interpretation, by: producer, at: now) }
+    }
+
+    /// The largest file whose content a result check reads to compare it with the start: above it, size and time of last
+    /// writing stand for the content.
+    public static let digestLimit: Int64 = 256 << 20
+
+    /// The largest text file a check of what it holds reads.
+    public static let textLimit: Int64 = 8 << 20
+
+    /// The most names a folder's listing keeps.
+    public static let listingLimit = 5_000
+
+    /// What the disk says of a path now, as a result check reads it (`TaskResultCheck.FileFacts`): whether something is
+    /// there, when it was last written, its size, the SHA-256 of a file up to `digestLimit`, and whether a text file up
+    /// to `textLimit` holds `text`. Read only.
+    public static func read(path: String, holding text: String? = nil) -> TaskResultCheck.FileFacts {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return .missing }
+        let modified = (attributes[.modificationDate] as? Date).map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) }
+        let size = (attributes[.size] as? NSNumber)?.int64Value
+        guard attributes[.type] as? FileAttributeType == .typeRegular else {
+            // A folder is listed by its files' names, hidden ones left out, up to `listingLimit`.
+            let names = attributes[.type] as? FileAttributeType == .typeDirectory
+                ? (try? FileManager.default.contentsOfDirectory(atPath: path)).map { names in
+                    Array(names.filter { !$0.hasPrefix(".") }.sorted().prefix(listingLimit)) } : nil
+            return TaskResultCheck.FileFacts(exists: true, modifiedAtMS: modified, size: size, listing: names)
+        }
+        var digest: String?
+        if let size, size <= digestLimit, let handle = FileHandle(forReadingAtPath: path) {
+            defer { try? handle.close() }
+            var hasher = SHA256()
+            while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
+            digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        }
+        var holds: Bool?
+        if let text, let size, size <= textLimit, let data = FileManager.default.contents(atPath: path) {
+            let content = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16)
+            holds = content.map { $0.contains(text) || $0.precomposedStringWithCanonicalMapping.contains(text.precomposedStringWithCanonicalMapping) }
+        }
+        return TaskResultCheck.FileFacts(exists: true, modifiedAtMS: modified, size: size, digest: digest, holdsText: holds)
+    }
+
+    /// Records Braus's check of one thing an attempt says its result is, from what was read (`TaskResultCheck`): the
+    /// disk for a file, read here at `read`'s path with `before` as the reading from the task's beginning, or the screen
+    /// as the caller read it. `read` is the expectation as the agent gave it, judged and never stored; `kept` is the one
+    /// the archive keeps, minimized. The attempt's current version is qualified again.
+    public static func checkResult(_ kept: TaskResultCheck.Expectation, read: TaskResultCheck.Expectation,
+                                   before: TaskResultCheck.FileFacts? = nil, screen: TaskResultCheck.Reading? = nil,
+                                   asGuard: Bool = false, attemptID: String, producer: TaskProducer,
+                                   memory: MemoryService) async throws -> TaskResultCheck {
+        let reading: TaskResultCheck.Reading
+        if let path = read.path {
+            var text: String?
+            if case .fileContains(_, let wanted) = read { text = wanted }
+            var other: TaskResultCheck.FileFacts?
+            switch read {
+                case .fileMoved(_, let to), .fileCopied(_, let to): other = Self.read(path: to)
+                default: break
+            }
+            reading = .disk(before: before, now: Self.read(path: path, holding: text), other: other)
+        } else {
+            reading = screen ?? .nothing
+        }
+        let now = memory.clock.calendarMS()
+        return try await memory.perform {
+            try await $0.procedures.recordResult(kept, judgedAs: read, reading: reading, asGuard: asGuard, attemptID: attemptID,
+                                                 eventID: UUID().uuidString, by: producer, at: now)
+        }
+    }
+
+    /// BrausInterpretation is what Braus states of a candidate the agent left uninterpreted: the procedure's label and
+    /// phases, by the candidate's positions.
+    public struct BrausInterpretation: Sendable, Equatable {
+        public let label: String
+        public let phases: [(first: Int, last: Int, label: String)]
+
+        public static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.label == rhs.label && lhs.phases.elementsEqual(rhs.phases) { $0 == $1 }
+        }
+    }
+
+    /// The interpretation Braus makes of a completed task's candidate that the agent left uninterpreted after it was
+    /// reminded (review I1, 14 October 2026; BUG-11: Haiku answered the person and nothing of a completed task was learned):
+    /// the task's goal as the procedure's label, and the phases other procedures learned where the candidate's steps hold
+    /// them (`ProcedureFamilies.knownPhases`), the first of overlapping ones. It names no step and no parameter: the version's
+    /// assembly infers the uses the calls show (`InferredUses`), and the qualification decides as for any interpretation,
+    /// so a step is offered alone only when an agent named it. Nil for a candidate not of a completed task of the producer.
+    public static func brausInterpretation(candidateID: String, producer: TaskProducer,
+                                           memory: MemoryService) async throws -> BrausInterpretation? {
+        guard let candidate = try await memory.perform({ try await $0.procedures.candidate(candidateID) }),
+              let task = try await memory.perform({ try await $0.tasks.task(candidate.taskID, for: producer) }),
+              task.status == .completed,
+              let revision = try await memory.perform({ try await $0.tasks.revision(task.currentRevision, of: task.taskID, for: producer) })
+        else { return nil }
+        let goal = revision.content.goal.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !goal.isEmpty else { return nil }
+        let known = (try? await memory.perform { try await $0.procedures.knownPhases(candidateID: candidateID) }) ?? []
+        var phases: [(first: Int, last: Int, label: String)] = []
+        var last = -1
+        for phase in known.sorted(by: { ($0.firstPosition, -$0.lastPosition) < ($1.firstPosition, -$1.lastPosition) })
+        where phase.firstPosition > last {
+            phases.append((phase.firstPosition, phase.lastPosition, phase.label))
+            last = phase.lastPosition
+        }
+        return BrausInterpretation(label: goal, phases: phases)
+    }
+
+    /// The attempt of a candidate of one of the producer's tasks and whether a result of it was checked already; nil for
+    /// a candidate the producer does not own.
+    public static func resultState(candidateID: String, producer: TaskProducer,
+                                   memory: MemoryService) async throws -> (attemptID: String, checked: Bool)? {
+        guard let candidate = try await memory.perform({ try await $0.procedures.candidate(candidateID) }),
+              try await memory.perform({ try await $0.tasks.task(candidate.taskID, for: producer) }) != nil else { return nil }
+        let read = try await memory.perform { try await $0.procedures.hasReadResult(ofAttempt: candidate.attemptID) }
+        return (candidate.attemptID, read)
+    }
+
+    /// Whether Braus read the attempt's result: a check that read something, neither a guard nor a `none`.
+    public static func hasReadResult(attemptID: String, memory: MemoryService) async throws -> Bool {
+        try await memory.perform { try await $0.procedures.hasReadResult(ofAttempt: attemptID) }
     }
 
     /// The interpretation with each structural reference of its parameters kept only when it resolves: to an output of an

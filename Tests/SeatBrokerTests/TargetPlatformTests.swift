@@ -223,10 +223,11 @@ struct TargetPlatformTests {
             == .embeddedRenderer(.framework))
     }
 
-    @Test("a menu command is pressed in a brief activation for Adobe, TextEdit, Safari and Chromium browsers only")
+    @Test("a menu command is pressed in a brief activation for Adobe, TextEdit, Preview, Safari and Chromium browsers only")
     func menuCommandsArePressedInFrontForQualifiedApplications() throws {
         #expect(BrokeredAutomationSession.preparesMenuInFront(.adobeUXP, bundleIdentifier: "com.adobe.Photoshop"))
         #expect(BrokeredAutomationSession.preparesMenuInFront(.appleNative, bundleIdentifier: "com.apple.TextEdit"))
+        #expect(BrokeredAutomationSession.preparesMenuInFront(.appleNative, bundleIdentifier: "com.apple.Preview"))
         #expect(BrokeredAutomationSession.preparesMenuInFront(.webKitBrowser, bundleIdentifier: "com.apple.Safari"))
         #expect(!BrokeredAutomationSession.preparesMenuInFront(.appleNative, bundleIdentifier: "com.apple.finder"))
         #expect(!BrokeredAutomationSession.preparesMenuInFront(.unmeasured, bundleIdentifier: nil))
@@ -261,11 +262,12 @@ struct TargetPlatformTests {
         }
     }
 
-    @Test("Adobe, TextEdit and Safari always press in front, and the others never, whatever the item reads")
+    @Test("Adobe, TextEdit, Preview and Safari always press in front, and the others never, whatever the item reads")
     func theOtherApplicationsKeepTheirRoute() {
         let cases: [(TargetPlatform, String?, Bool)] = [
             (.adobeUXP                    , "com.adobe.Photoshop"      , true ),
             (.appleNative                 , "com.apple.TextEdit"       , true ),
+            (.appleNative                 , "com.apple.Preview"        , true ),
             (.webKitBrowser               , "com.apple.Safari"         , true ),
             (.appleNative                 , "com.apple.finder"         , false),
             (.embeddedRenderer(.framework), "com.tinyspeck.slackmacgap", false),

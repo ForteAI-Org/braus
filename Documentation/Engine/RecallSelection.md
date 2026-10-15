@@ -3,9 +3,11 @@
 How the Recall goes from a task's request to the few steps it proposes, which data each decision rests on, what that
 data proves, and what it leaves unknown. Selector `recall-selector-4` (2026-10-12, after the third review), in
 [RecallSelector.swift](../../Sources/Engine/Memory/Recall/RecallSelector.swift). The rest of the Recall (index,
-lifecycle, delivery, use) is in [MemoryRecall.md](MemoryRecall.md). The experiment in which the agent that runs the
-task chooses the tracts itself, and Engine validates its choice with these same rules, is in
-[RecallAgentChoice.md](RecallAgentChoice.md).
+lifecycle, delivery, use) is in [MemoryRecall.md](MemoryRecall.md). Since 2026-10-13 the product's path is the agent's
+choice ([RecallAgentChoice.md](RecallAgentChoice.md)), which validates the agent's tracts with these same rules
+(exclusions, conditions, bindings, coverage) and shows this selector's selection as a suggestion. The automatic
+selection is no longer an answer of the product: it is the control of the comparisons and the regression tests
+(`RecallSelectionControl`).
 
 The rule of the design: **facts decide what they can; the request's words decide the extent only where they name the
 work unambiguously; similarity says whether a version is about the need, never how much of it to select or that the
@@ -96,7 +98,7 @@ defines it.
 | A need that shares only the object with the version ("Move the event …") | No work recognized: nothing from the version | Safe; a need worded only with synonyms of the labels is lost the same way |
 | Steps whose entry state was not recorded (a window the learning did not recognize as a scene) | Each is an uncertain episode; the selection has a gap | `partial` with `unknown_entry_state`; the corpus check lists such versions before a final |
 | Work before the selection, not named (creating the note a title is typed in) | `prepared_before` | When it was needed, the agent must do it from the condition |
-| Synonyms and derivations ("resize"/"size", "write"/"create", "turn … clockwise"/"rotate … right") | Not named; a clause whose verb the version knows nowhere leaves the need partial, the verb named | The episode is missed or the version answers absent or partial, never complete; the agent's choice (experiment A) can read the synonym |
+| Synonyms and derivations ("resize"/"size", "write"/"create", "turn … clockwise"/"rotate … right") | Not named; a clause whose verb the version knows nowhere leaves the need partial, the verb named | The episode is missed or the version answers absent or partial, never complete; the agent's choice (A, the product's path) can read the synonym |
 | Unrelated work inside a tract inside one application (an edit between two named steps of one app) | Kept: the rule cannot tell it from a needed step | A step more than asked; across applications the tract is cut instead |
 | An object word one episode alone holds ("image" in "Save the exported image") | It names that episode | A wrong episode may join the tract |
 | Near methods in other applications (a Pages export for "export the document in Preview") | Ranked by preparations | A simpler method of another application may come first |
@@ -177,7 +179,8 @@ implemented as the agent's choice among shortlisted sources, Engine validating i
 shortlist that keeps versions the rule names nothing in. Schema 7 holds proposals, choices, declarations and tract
 links. C's provenance is fixed at the typed boundary (`TaskOutputReference`, review F12). Measured on development cases
 with a real agent, A finds the right tract far more often than this page's rules but fails the safety and negative
-criteria ([RecallAgentChoice](RecallAgentChoice.md#measured-development-2026-10-12)); it stays an experiment. The text
+criteria ([RecallAgentChoice](RecallAgentChoice.md#measured-development-2026-10-12)); it stayed an experiment. **Status, 2026-10-13.** The product owner chose A as the product's one Recall path; this
+page's rules are now its control in the comparisons and the regression tests (`RecallSelectionControl`). The text
 below is the proposal as it was written.
 
 **A. Extent confirmed by the agent (contract change, recommended to try first).** When the selection's extent rests on

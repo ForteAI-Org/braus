@@ -365,9 +365,9 @@ public enum MenuBarCommand {
             case .list:
                 let result = run(initial, press: press)
                 return (nil, ActOutcome(result.outcome.kind, result.outcome.message
-                    + " This listing was read without activating the application; enabled flags and editing history "
-                    + "may be stale. Use the full command path for the intended operation; menu preparation reads "
-                    + "its current item again."), result.disabled)
+                    + " This listing was read without activating the application; enabled flags, titles and editing "
+                    + "history may be stale. Use the full command path for the intended operation; menu preparation "
+                    + "reads its current item again."), result.disabled)
             case .outcome:
                 return run(initial, press: press)
         }
@@ -377,6 +377,13 @@ public enum MenuBarCommand {
             result = run(read(), press: press)
         }
         guard let result else {
+            // A moment in front retitles stale items too: Preview read "Esporta come…" in the background and
+            // "Esporta…" once active (14/10/2026). Read again after it, an item that is gone answers with what
+            // the menu holds now instead of the moment's refusal.
+            if case .outcome(let missing) = read(), missing.kind == .honestMiss {
+                return (nil, ActOutcome(.honestMiss, missing.message
+                    + " The menu was read again after a moment in front, which can rename its items."), nil)
+            }
             return (nil, ActOutcome(.refused, issue ?? "Menu preparation did not dispatch the command."), nil)
         }
         guard let issue else { return result }
@@ -526,10 +533,14 @@ public enum MenuBarCommand {
         return changed
             ? ActOutcome(.foundActed, "pressed \(pressed): a window of the application opened, closed or was retitled",
                          scene: scene, check: check)
-            : ActOutcome(.actedUnverified, "pressed \(pressed): no window opened, closed or was retitled; "
+            : ActOutcome(.actedUnverified, "pressed \(pressed)" + unchangedWindows + "; "
                          + "the scene shows whether it took effect. Do not press it again blind.",
                          scene: scene, check: check)
     }
+
+    /// What a command whose windows did not change says right after naming what it pressed. `PerceivedCommand`
+    /// keeps what comes before it when the command's own window shows the change.
+    static let unchangedWindows = ": no window opened, closed or was retitled"
 
     /// The check of a menu command or a dialog button: the application's windows compared before and
     /// after, which shows a window opening, closing or retitling and never the command's own effect.

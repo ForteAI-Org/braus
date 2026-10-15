@@ -4,12 +4,18 @@ What the living memory answers a new task since G76 plan D3 (October 2026): a se
 D2 learned, from the agent's statement of the task, that proposes for each need at most one ordered
 interval of one version's steps, with the task's current values bound, what it requires, and the evidence
 it rests on; the derived index that search reads; and the linking of the calls an attempt makes
-afterwards to the steps they carried out. Status on 2026-10-12, after the correction rounds of three independent reviews
-(findings F01–F06, F07–F09, F10–F12) and the third comparison, which failed (no configuration validated), with the
-experiment of the agent's choice implemented beside the automatic selection ([RecallAgentChoice](RecallAgentChoice.md),
-enabled only by `BRAUS_RECALL_AGENT_CHOICE=1`), branch
-`tommaso/brain-memory-recall` on D2 `6a3c01f`, uncommitted until reviewed. How the selector decides, on which data,
-and what it cannot decide is in [RecallSelection](RecallSelection.md).
+afterwards to the steps they carried out. How the selector decides, on which data, and what it cannot decide is in
+[RecallSelection](RecallSelection.md).
+
+**Status on 2026-10-13, branch `rename-app`.** The product's one path is the Recall by the agent's choice
+([RecallAgentChoice](RecallAgentChoice.md)), chosen by the product owner on 2026-10-13: Engine searches a few sources,
+the agent that runs the task chooses the tracts, Engine checks and delivers them. `memory_task` begin and recall answer
+a proposal with no flag in the app, the MCP server and `braus chat` alike; `BRAUS_RECALL_AGENT_CHOICE` is gone. The
+automatic selection described below stays as the control of the comparisons and the regression tests
+(`RecallSelectionControl`, set only inside a test or a benchmark process), never as a second path or a fallback. The
+product's configuration is the one A was measured with: hybrid, Granite 107m, weight 0.2
+([the index](#the-index)); without the model's files the lexical index answers and says so. The sections below record
+the D3 rounds as they were, dated.
 
 The facts and procedures it reads are described in [MemoryFacts](MemoryFacts.md) and
 [MemoryProcedures](MemoryProcedures.md); the tables in [MemorySchema](MemorySchema.md). D4 (sharing) is
@@ -36,9 +42,14 @@ catalogue writes ──triggers──▶ memory_recall_work ──worker after t
 ## The contract
 
 `RecallContract` (version 1, selector `recall-selector-4`) is reached through `memory_task`, the same tool
-for the app's workers, external MCP clients and `braus chat` ([MemoryFacts](MemoryFacts.md)). In a process with the
-experiment of the agent's choice enabled, `begin` and `recall` also take `recall_mode: "propose"`, and `choose`
-answers a proposal ([RecallAgentChoice](RecallAgentChoice.md)); nothing of it exists in any other process.
+for the app's workers, external MCP clients and `braus chat` ([MemoryFacts](MemoryFacts.md)). Since 2026-10-13 `begin`
+and `recall` answer a proposal and `choose` delivers the agent's choice ([RecallAgentChoice](RecallAgentChoice.md));
+`recall_mode: "propose"`, which the experiment's clients sent, is accepted and changes nothing. The delivery described
+in this section is what `choose` answers for each tract, and what the selector's control answers in a test. A need's
+`app` is a name or a bundle ID, resolved before anything filters or records it (`RecallApplications`, live run R01
+LV03): among the applications the index's parts run in, with the names their installed bundles answer to, and those the
+session offers; a bundle ID is a certain identity, a name nothing knows or several answer to excludes nothing and is
+said in the search's note.
 
 - `begin` records the task as before and, unless `recall` is false, searches once before any operation:
   `remaining` is the work still to do (the goal when omitted), `needs` (at most 8, each a text and
@@ -58,7 +69,7 @@ The answer (`RecallDelivery`) separates how far the search went from what it cov
 
 | Field | Meaning |
 |---|---|
-| `index.status` | `ready`, `building` (no complete generation yet), `unavailable` (nothing to search) or `failed` |
+| `index.status` | `ready`, `building` (no complete generation yet), `empty` (nothing learned, so no index is needed: a completed search), `off` (a measure's control, `BRAUS_MEASURE_ABLATION=recall`), `unavailable` (learned parts but nothing to search) or `failed` |
 | `search.status` | `completed` within its perimeter, `limited` (a backlog, a channel unavailable while another answered, the candidate limit reached, index work pending), `unavailable` or `failed`; with a note when not completed |
 | `coverage` | `complete` within its conditions, `partial` (gaps), `ambiguous` (alternatives, an input missing or ambiguous, a value the task still lacks about a choice the method fixes), `absent` (with reason `excluded` when the relevant steps were excluded with a certain reason rather than not found), or `unknown` when the search could not answer |
 | `needs[].selection` | the version, the steps in order with tool and arguments (`fixed`, `parameter`, `element`), the parameters bound (by name, role, a file's derived value, or the output that fed them in the source), missing or ambiguous with the task value's name, the conditions (entry state or observed state, application switch, steps of the block done before, unknown entry state, prerequisite out of the catalogue, input produced by an included part, output already held, compatibility unknown, unbound task input, constraint not checked), and the evidence and its reach |
@@ -98,8 +109,23 @@ rebuilt from it; SQLite stays authoritative.
   catalogue may offer (a version published or superseding another, a part evaluated, a part's state, a
   policy quarantined), one pending row per route or for the whole catalogue. A worker of `RecallService`
   takes it after the commit, in bounded passes, outside any transaction for the model; work that fails three
-  times stays pending, counted, and said in every answer's search note. An archive migrated from schema 1,
-  the only migration left, gets one rebuild queued by the store in the migrating transaction.
+  times stays pending, counted, and said in every answer's search note, and the worker reads past it to the work
+  behind (until 14 October 2026 it took the oldest rows and dropped the exhausted ones, so 64 of them stopped it for
+  good). A route whose work failed three times queues no more work while that row is pending (the triggers look for
+  any pending row of the route): a change of it waits for that row, a limit that needs a trigger of schema 9.
+  A search first catches the index up with the catalogue (`RecallService.catchUp`, at most 5 s): a script runs one
+  process per task, and the version the process before learned may still be pending when the next one's first
+  `begin` searches, which then missed it (review R1). A process waits for its worker before it ends
+  (`RecallService.waitAllIdle`, at most 10 s). An archive migrated from schema 1 or from a
+  historical shape ([MemorySchema](MemorySchema.md#historical-shapes)) gets one rebuild queued by the store in the
+  migrating transaction; one that only takes the number 8 keeps its index.
+- **The product's space.** The product's configuration is hybrid over Granite 107m (since 2026-10-13), so its
+  generation lives in Granite's space. An archive whose current generation is lexical (every archive the provisional
+  configuration indexed) gets a Granite generation built while the lexical one answers; until its vectors exist, or
+  when the model's files are missing or refused, answers come from the lexical channel and say the semantic one is
+  unavailable and why. The files come from an explicit setup step, `Tools/Engine/Scripts/fetch-recall-model.sh`,
+  which downloads them, or with `--from <folder>` copies them from a folder already downloaded, and refuses any file
+  whose sha256 the manifest does not pin; nothing downloads at run time.
 - **Facts of the Recall**: each query (why, the remaining work, generation, channel, search status and
   note, candidates considered, coverage, delivery and its size, selector version, duration), its needs (with
   the reason of a coverage that is not complete, `excluded` for an absence by exclusion), the selections
@@ -275,7 +301,7 @@ answer to `use` separates the steps carried out, those verified, those not carri
 and the undetermined ones; the declared use (followed, adapted, abandoned, not executed) stays beside them. A version's confirmed reuses count only selections whose every step was carried out by a confirmed call; a
 declared `followed` with no call credits nothing, and nothing changes a part's qualification or state.
 
-A need of the agent's choice (experiment A) delivers its tracts in order, each a selected row. Its calls are linked
+A need answered by the agent's choice (A, the product's path) delivers its tracts in order, each a selected row. Its calls are linked
 tract by tract:
 - a call that carried out no step of a tract may carry out one of the next;
 - each call is linked once per query, to the tract (selection position) and step it carried out
@@ -297,6 +323,16 @@ Material only proposed, or a plan refused, delivers nothing and credits nothing.
 - `BRAUS_RECALL=<channel>[:<model>]` and `BRAUS_RECALL_MODELS=<folder>` override the configuration of a
   process, for the comparison and for diagnosis; a configuration other than the product's is a guest of the
   archive's index (see [the index](#the-index)).
+- `memory_task` `operation: status` names what the answering process resolved: `archive` (the store file it opened)
+  and `recall` (`channel`, `model` with its revision, `models_folder`, `format`, `owns_index`, `model_state`), and
+  `measure_ablation` when a measure turned knowledge off. A live run's preflight reads it from the process, not from a
+  shell's variables; the unified log repeats the first two (`memory open: <path>`, `recall of <path>: channel …`,
+  subsystem `dev.forte.Braus`).
+- `BRAUS_MEASURE_ABLATION=recall|brain|recall,brain` (`MeasureAblation`) is the control of a measure, never a mode of
+  the product: with `recall` every search answers that nothing fits and records why; with `brain` scenes are shown
+  without the Brain's enrichment. Everything is still recorded and learned.
+- `BRAUS_SQLITE_PROFILE=<file>` appends every statement's duration in nanoseconds and its text, never its bound
+  values, for a measure of the store's cost (`SQLiteStatementProfile`).
 
 ## The comparison
 
@@ -593,6 +629,31 @@ On an Apple M4 (10 cores, 16 GiB, macOS 27.0), release build. Reports outside th
 `.scratch/brain-memory-recall/` (`scale/` for the first delivery, `corrections/scale/` for the correction round,
 `corrections2/scale/` for the second, `experiment-a/contention/` for the experiment A round).
 
+### Learning to 20,000 procedures again (a3 round, 2026-10-13)
+
+`LearningCostProbeTests` (gated by `BRAUS_LEARNING_PROBE`) learned 20,000 procedures from an empty archive through the
+producers, with the staged load's generator (`BRAUS_LEARNING_PROBE_WORDS=load`), the product's configuration owning the
+index and a release build, as the staged load below did. Report in
+`.scratch/brain-memory-recall/live-r01-corrections/a3-2026-10-13/scale/`.
+
+| Stage | Staged load (D3, `7ee2552`), mean ms a procedure | a3 candidate, mean | a3, p50 of the stage's last thousand |
+|---|---|---|---|
+| up to 5,000 | 59 | 61.5 | 53.1 |
+| 5,000–10,000 | 163 | 71.1 | 56.8 |
+| 10,000–20,000 | 378 | 75.9 | 72.2 |
+
+The archive at the end has the staged load's third stage entities (20,000 versions, 100,000 parts, 80,200 documents
+each with its vector, 200,000 events, 600 scenes, 800 relations; 2.21 GB), the process at most 255 MB resident. The
+growth the staged load met is gone; which change removed it (the index corrections of the D3 rounds, the SQLite
+compiled in, the merge) is not separated. Beyond 20,000 nothing was measured, by decision.
+
+The same archive measured again without learning (`RecallLoadTests.reuse`, p50 / p95 / p99): A's whole proposal through
+`memory_task begin` 105.8 / 114.0 / 181.0 ms (40 queries); warm searches through the service 119.7 / 134.8 / 152.9 ms
+with the hybrid owner and 100.3 / 110.3 / 113.2 ms with the lexical guest, slower than the staged load's corrected
+figures (75 and 28 ms at p50), the exact scoring first, for causes not investigated; 140 / 208 / 733 ms while another
+producer learns; opening 0.6 s, the first search after it 7.4 s, 1,087 MB resident after it; a rebuild of the whole
+catalogue 236 s, the ready generation answering meanwhile at 558 / 1,444 / 2,932 ms.
+
 ### The index worker apart from another producer (experiment A round)
 
 `RecallLoadTests` in mode `contention:8` on a copy of the same staged archive (removed after its run; the original's
@@ -821,10 +882,11 @@ ablations of a task's cost remain to be run in a dedicated session.
   object word one episode alone holds names it; steps whose entry state was not recorded make the selection partial.
 - **Requests in another language than the labels** name no episode in the automatic selection and get nothing, whatever
   the channel finds.
-  - The agent's choice (experiment A, off by default) reads them: on development cases 29 of 32 Italian or mixed
-    positives exact with Sonnet, against 15 for the automatic selector.
-  - A fails the safety and negative criteria as measured, so it is not the default
-    ([RecallAgentChoice](RecallAgentChoice.md#measured-development-2026-10-12)).
+  - The agent's choice, now the product's path, reads them: on development cases 29 of 32 Italian or mixed
+    positives exact with Sonnet, against 15 for the automatic selector; on its independent holdout 5 of 5.
+  - Its development measure failed the safety and negative criteria; after the review's corrections its independent
+    holdout met K1–K6 with Sonnet ([RecallAgentChoice](RecallAgentChoice.md#independent-holdout-2026-10-12)). Haiku
+    and Luna, the models of the next live runs, are not measured on it.
 - **Producers** are known only from outputs D2's contracts declare, and a consumer only from its stated origin.
   - A `source_ref` of the form `<task UUID>/<output>` is kept only when it names an output that the producer's own task
     declared (`TaskOutputReference`). Otherwise it is withheld as any text.
@@ -847,7 +909,7 @@ ablations of a task's cost remain to be run in a dedicated session.
     that campaign.
 - Only `act` calls were sampled whole under contention; the other tools' calls have only their time inside the store
   measured.
-- **The agent's choice** (experiment A) has limits that Engine cannot check:
+- **The agent's choice** (A, the product's one path) has limits that Engine cannot check:
   - an agent can fill a negative with a generic step of a procedure of another action (the instructions ask it not to;
     Engine sees no conflict in such a step);
   - it can take a tract too wide in a compatible version;
@@ -857,8 +919,9 @@ ablations of a task's cost remain to be run in a dedicated session.
   different fixed choice need it settled or the need answered ambiguous.
 
   Its safety depends on the model ([RecallAgentChoice](RecallAgentChoice.md#measured-development-2026-10-12)).
-- Learning through the producers slows with the archive (378 ms a procedure at 20,000 procedures), a growth whose causes
-  the measures do not separate.
+- Learning through the producers slowed with the archive in D3 (378 ms a procedure at 20,000 procedures); on the a3
+  candidate it stays near flat to 20,000 (75.9 ms), with the cause of the change not separated, and nothing is measured
+  beyond 20,000 ([the a3 round](#learning-to-20000-procedures-again-a3-round-2026-10-13)).
 - Index work is taken by the worker of a process that runs the Recall; a guest process never builds the owner's
   generation.
 
@@ -871,6 +934,7 @@ ablations of a task's cost remain to be run in a dedicated session.
 - `RecallService.recall`, `link`, `report` and `status`, `RecallSource` (the version as the selector reads it from the
   authoritative tables) and the index's ownership rule.
 - The index is derived: a generation can be rebuilt from the catalogue at any time, in any space.
-- Not the selection's quality: the configuration is provisional until a comparison validates one.
-- Schema 7's experiment tables exist in every archive and are immutable, but experiment A is off by default and not
-  adopted. Nothing should depend on proposals or choices being recorded.
+- Not the selection's quality: the automatic selector's configuration was never validated, and the agent's choice was
+  measured on one holdout with one model.
+- Schema 7's tables of the agent's choice exist in every archive and are immutable; since 2026-10-13 every search of the
+  product records a proposal, and every choice a query.

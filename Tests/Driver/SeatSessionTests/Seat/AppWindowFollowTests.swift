@@ -286,6 +286,107 @@ struct AppWindowFollowTests {
                 "an owner that gave a window back must not take it straight back")
     }
 
+    @Test("a window born in the seat that its application moves out before it is confirmed is transferred in")
+    func aBornWindowMovedOutAtOnceIsTransferred() async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, _) = try await Self.followingSeat(sensing: sensing, placing: placing, marker: 7_063)
+        let log = MultiWindowTests.EventLog(seat)
+        defer { log.stop() }
+
+        let inside = CGRect(x: FakeGeometry.virtual.minX + 300, y: FakeGeometry.virtual.minY + 200, width: 700, height: 500)
+        let born = Self.offer(Self.secondWindowNumber, to: sensing, placing, frame: inside)
+        // Preview's document window (14/10/2026): born beside its Open panel in the seat, then put where Preview
+        // remembers it, on the person's display, while the seat was confirming it in place.
+        let remembered = born.replacingFrame(CGRect(origin: Self.physicalFrame.origin, size: inside.size))
+        var moved = false
+        sensing.windowGeometryOverride = { number in
+            if number == born.windowNumber, seat.state == .starting, !moved {
+                moved = true
+                sensing.additionalWindows[number] = remembered
+                sensing.surfaces = [Self.surface(FakeGeometry.adoptedWindow), Self.surface(remembered)]
+            }
+            return number == FakeGeometry.windowNumber ? sensing.geometry : sensing.additionalWindows[number]
+        }
+        defer { sensing.windowGeometryOverride = nil }
+
+        await Self.pass(seat)
+        #expect(moved && !seat.adoptedWindows.map(\.id).contains(born.windowNumber), "the adoption in place failed")
+
+        await Self.pass(seat, 3)
+        await log.drain()
+        #expect(seat.adoptedWindows.map(\.id).contains(born.windowNumber),
+                "offered again, the window the application put outside is transferred in")
+        #expect(Self.refusals(log).map(\.1) == [.placementNotConfirmed], "\(Self.refusals(log))")
+        let held = try #require(seat.adoptedWindows.first { $0.id == born.windowNumber })
+        #expect(FakeGeometry.virtual.contains(held.reference.frame))
+    }
+
+    @Test("after the last held window is destroyed with its application running, its next window is taken in")
+    func theNextWindowAfterTheLastDestroyedOneIsTakenIn() async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, first) = try await Self.followingSeat(sensing: sensing, placing: placing, marker: 7_061)
+
+        // Preview's only window, its Open panel, closed on Cancel and the window server confirmed it
+        // gone; the panel File > Open… opened next was never taken in (14/10/2026).
+        sensing.geometry = nil
+        sensing.surfaces = []
+        #expect(seat.dropDestroyedRecord(first.id))
+        #expect(seat.adoptedWindows.isEmpty)
+        #expect(seat.followedProcesses.map(\.processID) == [FakeGeometry.targetPID],
+                "the application runs on, so the seat keeps following it")
+
+        let born = Self.offer(
+            Self.secondWindowNumber, to: sensing, placing,
+            frame: CGRect(x: FakeGeometry.virtual.minX + 300, y: FakeGeometry.virtual.minY + 200, width: 700, height: 500)
+        )
+        await Self.pass(seat)
+        #expect(seat.adoptedWindows.map(\.id) == [born.windowNumber], "the next window is the seat's to take in")
+    }
+
+    @Test("an operating target missing from a pass is let go when the window server proves it destroyed, and recovered otherwise",
+          arguments: [true, false])
+    func aMissingTargetTheServerProvesDestroyedIsLetGo(destroyed: Bool) async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, first) = try await Self.followingSeat(sensing: sensing, placing: placing, marker: 7_064)
+
+        // Preview's Open panel, closed by its own Open button: the pass found it missing 6 ms before the
+        // window server's proof of its destruction reached the seat (14/10/2026).
+        sensing.geometry = nil
+        sensing.surfaces = []
+        if destroyed { sensing.destroyed.insert(first.id) }
+        await Self.pass(seat)
+
+        if destroyed {
+            #expect(seat.state == .ready, "the Command that closed it is not an input of unknown effect")
+            #expect(seat.adoptedWindows.isEmpty)
+            #expect(seat.followedProcesses.map(\.processID) == [FakeGeometry.targetPID],
+                    "the application runs on, so the seat keeps following it for its next window")
+        } else {
+            #expect(seat.state == .recovering, "one missing reading is not a destruction")
+            #expect(seat.adoptedWindows.map(\.id) == [first.id])
+        }
+    }
+
+    @Test("after the last held window is released on purpose, the seat follows nothing and takes nothing in")
+    func nothingIsTakenInAfterTheLastWindowIsReleased() async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, first) = try await Self.followingSeat(sensing: sensing, placing: placing, marker: 7_062)
+
+        _ = await seat.release(first)
+        #expect(seat.followedProcesses.isEmpty, "a window given back ends the following")
+
+        _ = Self.offer(
+            Self.secondWindowNumber, to: sensing, placing,
+            frame: CGRect(x: FakeGeometry.virtual.minX + 300, y: FakeGeometry.virtual.minY + 200, width: 700, height: 500)
+        )
+        await Self.pass(seat)
+        #expect(seat.adoptedWindows.isEmpty)
+    }
+
     @Test("a born-in-seat modal can settle at a new AX-attested size without a resize request")
     func resizedBornModalIsTakenAtItsSettledSize() async throws {
         let sensing = FakeSensing()

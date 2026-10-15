@@ -192,7 +192,7 @@ struct SchemaMigrationTests {
         #expect(earlier.isSubset(of: current), "\(SQLiteMemorySchema.differences(found: earlier.intersection(current), expected: earlier))")
         let migrated = try SQLiteMemorySchema.text(of: 1) + "\n" + (try SQLiteMemorySchema.migrationText(from: 1))
         #expect(SQLiteMemorySchema.differences(found: try SQLiteMemorySchema.objects(of: migrated), expected: current).isEmpty)
-        #expect(SQLiteMemorySchema.migrations.keys.sorted() == [1], "versions 2 to 6 were never released")
+        #expect(SQLiteMemorySchema.migrations.keys.sorted() == [1], "versions 2 to 6 were never released; 7 is a historical shape")
     }
 
     /// The shape of part 1 the archives of version 1 have: schema 1 with the value change, as rename-app's builds

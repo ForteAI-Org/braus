@@ -13,11 +13,11 @@ import PerceptionCore
 @testable import SQLiteMemory
 import Testing
 
-/// The fifteen structure-v3 fixtures of the S0 specification, each a fake tree taken through the
-/// producer, the merge, the pipeline and the store, and the acceptance criteria of the first S2
-/// increment: no arbitrary confirmation, idempotent re-association, the app scope never a
+/// The fifteen fixtures of the S0 specification (structure-v3, taken to structure-v4 on 14 October
+/// 2026) and F16, each a fake tree taken through the producer, the merge, the pipeline and the store,
+/// and the acceptance criteria of the first S2 increment: no arbitrary confirmation, idempotent re-association, the app scope never a
 /// candidate, one scene for two concurrent complete captures, and the signature rebuilt from SQL.
-@Suite("Scene association, structure-v3")
+@Suite("Scene association, structure-v4")
 struct SceneAssociationTests {
 
     private typealias F = SceneFixtures
@@ -189,15 +189,15 @@ struct SceneAssociationTests {
         await memory.store.close()
     }
 
-    @Test("F9: buttons titled after people differ in caption: uncertain, a candidate kept, no new scene")
+    @Test("F9: buttons titled after people differ in caption: since v4 another state, one per name (the declared limit)")
     func f9Captions() async throws {
         let memory = try await F.open()
         _ = try await F.observe(memory, "e1", F.perceive(F.window("Chat", [F.button("Reply to Alice", y: 700)])))
         let bruno = try await F.observe(memory, "e2", F.perceive(F.window("Chat", [F.button("Reply to Bruno", y: 700)])))
-        #expect(bruno.decision == .candidates(["scene-1"]))
-        #expect(try await scenes(in: memory) == 1)
+        #expect(bruno.decision == .newScene)
+        #expect(try await scenes(in: memory) == 2)
         #expect(try await count("SELECT count(*) FROM brain_scene_labels WHERE label_token = 'replytoalice'", in: memory.store) == 1,
-                "the declared limit: a title that is a name is a caption of the first scene")
+                "the declared limit: a title that is a name and no file is a caption")
         await memory.store.close()
     }
 
@@ -234,7 +234,7 @@ struct SceneAssociationTests {
         await memory.store.close()
     }
 
-    @Test("F12: groups titled after people give different paths: uncertain, no new scene")
+    @Test("F12: groups titled after people give different paths: since v4 another state")
     func f12Paths() async throws {
         let memory = try await F.open()
         func chat(_ name: String) -> PerceivedWindow {
@@ -242,8 +242,31 @@ struct SceneAssociationTests {
         }
         _ = try await F.observe(memory, "e1", chat("Alice"))
         let bruno = try await F.observe(memory, "e2", chat("Bruno"))
-        #expect(bruno.decision == .candidates(["scene-1"]))
-        #expect(try await scenes(in: memory) == 1)
+        #expect(bruno.decision == .newScene)
+        #expect(try await scenes(in: memory) == 2)
+        await memory.store.close()
+    }
+
+    @Test("F16: a document's name in a tab is content, one state whatever the document; a dialog drawn in the window is another state (PhotoCraft, 14 October 2026)")
+    func f16DocumentTabAndDrawnDialog() async throws {
+        let memory = try await F.open()
+        func editor(_ document: String, dialog: Bool = false) -> PerceivedWindow {
+            var controls = [F.button("Chiudi", y: 100), F.button("\(document) @ 100% (RGB/8)", y: 100, x: 300), F.button("Crea nuovo livello", y: 900)]
+            if dialog { controls += [F.button("Annulla", y: 500, x: 400), F.button("OK", y: 500, x: 600)] }
+            return F.perceive(F.window("\(document) — PhotoCraft", controls))
+        }
+        let first = try await F.observe(memory, "e1", editor("foto_3.png"))
+        #expect(first.decision == .newScene)
+        let other = try await F.observe(memory, "e2", editor("foto_4.png"))
+        #expect(other.decision == .confirmed(sceneID: "scene-1"), "the tab names a file: the same editor")
+        let sized = try await F.observe(memory, "e3", editor("foto_4.png", dialog: true))
+        #expect(sized.decision == .newScene, "the Image Size dialog adds OK and Annulla: another state, never a candidate for good")
+        let again = try await F.observe(memory, "e4", editor("foto_1.png", dialog: true))
+        #expect(again.decision == .confirmed(sceneID: "scene-2"))
+        #expect(try await count("SELECT count(*) FROM brain_scene_labels WHERE label_token LIKE 'foto%'", in: memory.store) == 0,
+                "no document name is stored as a caption")
+        #expect(try await count("SELECT count(*) FROM brain_scene_elements WHERE role = 'AXButton' AND label IS NULL AND label_origin IS NULL", in: memory.store) == 2,
+                "the tab is kept in each state, with neither its label nor its origin")
         await memory.store.close()
     }
 

@@ -228,7 +228,10 @@ final class WorkerAgentHost {
         let seat = seatLine()
 
         if WorkerAnswer(provider: selection.provider) == .modelLoop {
-            let loop  = ModelToolLoop { [tools] name, arguments in try await tools.call(name, arguments) }
+            let loop  = ModelToolLoop(
+                call    : { [tools] name, arguments in try await tools.call(name, arguments) },
+                reminder: { [tools] in tools.takeInterpretationReminder() }
+            )
             self.loop = loop
             defer { endLoop() }
             do {
@@ -299,6 +302,32 @@ final class WorkerAgentHost {
                 case .usage(let usage): self.reportedUsage = usage
                 case .web:              for line in try web.lines(for: event) { onEvent(.tool(line)) }
                 default:                onEvent(.provider(event))
+                }
+            }
+            // A learning candidate the agent left uninterpreted is never learned: it is asked for once, in the
+            // same session, as `braus chat` does.
+            if let asked = tools.takeInterpretationReminder(), let session = reportedSession ?? sessionID {
+                if isStopRequested { throw CancellationError() }
+                onEvent(.provider(.activity(asked)))
+                let follow = Self.turn(
+                    prompt              : asked,
+                    provider            : chatProvider,
+                    selection           : selection,
+                    sessionID           : session,
+                    role                : role,
+                    bridgeExecutable    : bridgeExecutable,
+                    connectionFile      : connection,
+                    workingDirectory    : workingDirectory,
+                    inheritedEnvironment: inheritedEnvironment,
+                    allowsWebSearch     : allowsWebSearch
+                )
+                try await provider.run(follow, executable: executable, onStart: { onEvent(.processStarted($0)) }) { event in
+                    if case .session(let id) = event { self.reportedSession = id }
+                    switch event {
+                    case .usage(let usage): self.reportedUsage = usage
+                    case .web:              for line in try web.lines(for: event) { onEvent(.tool(line)) }
+                    default:                onEvent(.provider(event))
+                    }
                 }
             }
             if let session = reportedSession ?? sessionID {

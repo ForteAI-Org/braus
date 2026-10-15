@@ -9,6 +9,10 @@ public struct ProviderEventDecoder {
     private var hasAssistant = false
     private var model: String?
     private var rateLimits: [ProviderUsage.RateLimit] = []
+    /// When the latest Claude `rate_limit_event` refused the turn, when its limit resets (or nil when it gave no time).
+    private var rejected: Date??
+    /// The turn's failure with its kind, from the fields the provider stated; nil until it reports one.
+    public private(set) var failure: ProviderFailure?
     /// Claude's web tool calls waiting for their result, by `tool_use` id. Other tools' results are ignored.
     private var webCalls: [String: (kind: ProviderEvent.WebKind, detail: String?)] = [:]
 
@@ -30,6 +34,8 @@ public struct ProviderEventDecoder {
             }
             if object["type"] as? String == "rate_limit_event", let info = object["rate_limit_info"] as? [String: Any] {
                 rateLimits = Self.claudeLimits(info)
+                rejected = info["status"] as? String == "rejected"
+                    ? .some((info["resetsAt"] as? Double).map(Date.init(timeIntervalSince1970:))) : nil
             }
             if object["type"] as? String == "assistant",
                let message = object["message"] as? [String: Any],
@@ -62,7 +68,13 @@ public struct ProviderEventDecoder {
                 if let usage = claudeUsage(object) { events.append(.usage(usage)) }
                 if object["is_error"] as? Bool == true {
                     let errors = (object["errors"] as? [String])?.joined(separator: "\n")
-                    events.append(.failure(errors ?? object["result"] as? String ?? "Claude turn failed."))
+                    let message = errors ?? object["result"] as? String ?? "Claude turn failed."
+                    let status = object["api_error_status"] as? Int
+                    let kind: ProviderFailure.Kind = status.map(ProviderFailure.kind(apiStatus:))
+                        ?? (rejected != nil ? .rateLimited : .turnError)
+                    failure = ProviderFailure(kind: kind, message: message, apiStatus: status,
+                                              subtype: object["subtype"] as? String, resetsAt: rejected ?? nil)
+                    events.append(.failure(message))
                 } else {
                     if !hasAssistant, let text = object["result"] as? String, !text.isEmpty {
                         events.append(.assistant(text))
@@ -102,8 +114,13 @@ public struct ProviderEventDecoder {
                 events.append(.completed)
             case "turn.failed":
                 let error = object["error"] as? [String: Any]
-                events.append(.failure(error?["message"] as? String ?? "Codex turn failed."))
-            case "error": events.append(.failure(object["message"] as? String ?? "Codex error."))
+                let message = error?["message"] as? String ?? "Codex turn failed."
+                failure = ProviderFailure(kind: .turnError, message: message)
+                events.append(.failure(message))
+            case "error":
+                let message = object["message"] as? String ?? "Codex error."
+                failure = ProviderFailure(kind: .turnError, message: message)
+                events.append(.failure(message))
             default: break
             }
         }

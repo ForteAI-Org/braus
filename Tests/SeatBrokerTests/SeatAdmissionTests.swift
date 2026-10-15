@@ -83,9 +83,13 @@ struct SeatAdmissionTests {
 
         for state in [SeatState.unavailable, .starting, .acting] {
             let sentence = SeatAdmission.refusal(for: state, application: "MarkEdit")
-            #expect(SeatAdmission.reading(state: state, recovery: nil, application: "MarkEdit")
-                == .refuse(sentence))
             #expect(sentence == "The seat is not ready for input yet. Observe and try again.")
+        }
+        #expect(SeatAdmission.reading(state: .unavailable, recovery: nil, application: "MarkEdit")
+            == .refuse(SeatAdmission.refusal(for: .unavailable, application: "MarkEdit")))
+        // An adoption or a command in flight ends by itself: waited on, as a recovery is (14 October 2026).
+        for state in [SeatState.starting, .acting] {
+            #expect(SeatAdmission.reading(state: state, recovery: nil, application: "MarkEdit") == .wait)
         }
         // None of them repeats the advice that threw an application away.
         for state in SeatState.allCases where !state.acceptsCommands {

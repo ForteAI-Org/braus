@@ -25,6 +25,11 @@ built and measured against on macOS 27, wherever a default changes SQL or durabi
 - a cache of 2000 pages;
 - Apple's limits on the length of a value and on the number of bound variables.
 
+A debug build compiles this target at `-O2` too (`unsafeFlags`, debug configuration only), because the app the live runs
+use is a debug build and SQLite at `-O0` made learning a procedure about a third slower than with the optimized library
+(the learning probe of the scale campaign, 13 October 2026: p50 63–83 ms against 43–61 ms over the first 1,500
+procedures). The release build keeps the optimization SwiftPM and Xcode give it.
+
 One more Apple default has no compile-time option: persistent WAL. Apple's library keeps `-wal` and `-shm`
 after the last close, and its read-only connections never create them. `SQLiteConnection` sets
 `SQLITE_FCNTL_PERSIST_WAL` on every connection. `SQLiteMemoryInspection` refuses a WAL archive without its

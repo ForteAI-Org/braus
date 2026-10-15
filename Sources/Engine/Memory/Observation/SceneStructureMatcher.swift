@@ -7,23 +7,38 @@
 
 import EngineCore
 
-/// SceneStructureMatcher is structure-v3: the conservative comparison of one observed skeleton with
-/// the known scenes of its application, and the decision the comparison earns. Three outcomes per
-/// known scene, same, different or uncertain, and four decisions: confirmed only when exactly one
-/// scene is the same and none is uncertain; candidates whenever anything is uncertain or more than
-/// one scene is the same; a new scene only when every known scene is different (or none is known)
-/// and the capture is complete, on a window, dialog or sheet, with at least one structural role;
-/// nothing otherwise. No threshold, no score, no first-candidate pick: what the producer cannot
-/// decide stays uncertain, and an uncertain capture never becomes a scene.
+/// SceneStructureMatcher is structure-v4: the comparison of one observed skeleton with the known
+/// scenes of its application, and the decision the comparison earns. Three outcomes per known scene,
+/// same, different or uncertain, and four decisions: confirmed only when exactly one scene is the same
+/// and none is uncertain; candidates whenever anything is uncertain or more than one scene is the same;
+/// a new scene only when every known scene is different (or none is known) and the capture is
+/// complete, on a window, dialog or sheet, with at least one structural role; nothing otherwise. No
+/// threshold, no score, no first-candidate pick.
 ///
-/// Pure. The repository that calls it runs it inside the same transaction that reads the known
-/// scenes and writes the decision, so two complete captures of one skeleton cannot create two
-/// scenes by running at the same time.
+/// Version 4 (14 October 2026) takes a complete capture's own structure as proof. Structure-v3 called
+/// two complete captures with the same roles and different paths, captions or collections uncertain,
+/// so a single-window application whose dialogs are drawn inside its window (PhotoCraft, egui) had one
+/// recognized state, its start screen, and every capture of its editor stayed a candidate for good: the
+/// Brain placed 3 of 106 captures before acting and learned 1 relation from 126 operations. Two causes:
+/// a document's name reached the captions (the editor's tab "foto_3.png @ 100%"), which the skeleton now
+/// keeps out as content (`SceneSkeleton.isContentCaption`); and a dialog drawn in the window adds real
+/// captions (Save, Cancel, OK) that v3 could not tell from content. Replayed on that archive, v4 places 93
+/// of the 109 captures taken before acting (the others are incomplete or on an unknown surface) and finds
+/// ten states (start screen, Open panel, editor, Image Size, the save panel compact and expanded, the save
+/// prompt), each a real one. Only an incomplete capture or an unknown surface stays uncertain.
+///
+/// Version 5 (14 October 2026) reads a caption without the display ordinal perception adds to a label
+/// repeated in one capture (`SceneSkeleton.Caption.withoutOrdinal`): which twin carries " #2" follows the
+/// selection of the moment, so PhotoCraft's units dialog was stored as three scenes. A scene learned under
+/// v4 with an ordinal in a caption is not found again; the first capture under v5 makes its state anew.
+///
+/// Limit: a caption that is content without naming a file (a browser tab's page title, a message's
+/// subject on a button) is still taken as structure, so such a window makes one state per content.
 public enum SceneStructureMatcher {
 
     /// What `memory_event_scenes.matched_by` and `matcher_version` say about a decision of this matcher.
     public static let method = "structure"
-    public static let version = "v3"
+    public static let version = "v5"
 
     /// Comparison is what one known scene is to the observed skeleton.
     public enum Comparison: Sendable, Equatable {
@@ -31,26 +46,26 @@ public enum SceneStructureMatcher {
         /// Complete capture, known and equal surfaces, equal paths, roles, captions and collections.
         case same
 
-        /// Complete capture and a proven structural difference: the surfaces are known and differ,
-        /// or a role present in one skeleton is absent from every path of the other.
+        /// Complete capture and a proven structural difference: the surfaces are known and differ, a
+        /// role present in one skeleton is absent from every path of the other, or the paths, the
+        /// captions or the collections differ.
         case different(Difference)
 
-        /// Everything else: an incomplete capture, an unknown surface, different paths, captions or
-        /// collections on equal roles. Not evidence of a different scene.
+        /// An incomplete capture or an unknown surface: not evidence of a different scene.
         case uncertain(Uncertainty)
     }
 
     public enum Difference: String, Sendable, Equatable {
         case surface
         case roles
+        case paths
+        case captions
+        case collections
     }
 
     public enum Uncertainty: String, Sendable, Equatable {
         case incompleteCapture = "incomplete_capture"
         case surfaceUnknown    = "surface_unknown"
-        case paths
-        case captions
-        case collections
     }
 
     /// Decision is what the repository writes for the sample.
@@ -96,9 +111,9 @@ public enum SceneStructureMatcher {
             && observed.surface != .popupUnion && known.surface != .popupUnion
         if surfacesKnown, observed.surface != known.surface { return .different(.surface) }
         guard surfacesKnown else { return .uncertain(.surfaceUnknown) }
-        if observed.rolesByPath != known.rolesByPath { return .uncertain(.paths) }
-        if observed.captionsByPath != known.captionsByPath { return .uncertain(.captions) }
-        if observed.collections != known.collections { return .uncertain(.collections) }
+        if observed.rolesByPath != known.rolesByPath { return .different(.paths) }
+        if observed.captionsByPath != known.captionsByPath { return .different(.captions) }
+        if observed.collections != known.collections { return .different(.collections) }
         return .same
     }
 

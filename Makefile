@@ -120,6 +120,7 @@ test: native-test-runner
 	@$(PYTHON) Tools/Driver/Scripts/test-compat-report.py
 	@bash Tools/Driver/Scripts/test-seatbench-contract.sh
 	@$(PYTHON) Tools/Engine/Scripts/verify-memory-schema.py
+	@bash Tools/Engine/Scripts/check-product-name.sh
 	@$(PYTHON) Tools/Driver/Phases/test-phase-table.py
 	@TIER_BUNDLES=$(UNIT_BUNDLES) $(TIER) unit - bash Tools/Driver/Scripts/unit-test-command.sh $(SWIFT)
 

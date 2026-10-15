@@ -112,3 +112,44 @@ window was found destroyed is baselined afresh when it is driven again, a window
 during an adoption is adopted by the first pass after it, and that pass is asked for by
 the adoption itself). No
 live run was made, so the Photoshop sequence is not reproduced.
+
+## Follow-up: a window born in the seat that its application moves out (Preview, 2026-10-14)
+
+Proposed by Tommaso from the Brain/Memory canary, for Elio's review with the follow-up of
+[ADR 0031](Adr0031ActuateRemotePanelContentThroughAccessibility.md).
+
+Preview 11.0 on macOS 27.0: after Open was pressed in its standalone Open panel (window
+112209), Preview created the document window 112290 beside the panel, on the virtual
+display, while the panel still lived. The follower reported it as born inside and
+`ownWindowBornInSeat` took it in place; Preview then put it where it remembers its
+documents, (4, 37) on the person's display, and the confirmation ended with
+`placementNotConfirmed` after about 3 s. The inventory had already agreed on the window,
+so no pass proposed it again: it stayed on the person's display for about 10 s, the seat
+read the assigned application as not contained, and only a new session took it in. In the
+run before, the panel died first, and the window was taken in as its successor.
+
+**A window born inside that the application moves out before it is confirmed is offered
+again.** When the in-place adoption ends with `placementNotConfirmed`,
+`ownWindowBornInSeat` calls `AppWindowInventory.offerAgain` for it, and logs it. The pass
+that finds it settled at its new frame proposes it as `appeared`, and the ordinary
+transfer brings it in under the attempt budget of three, so an application that keeps
+putting it back is still given up on. Nothing else changes: a window born inside and
+confirmed is still taken in place with no move and no attempt spent.
+
+Verified offline by `AppWindowFollowTests` ("a window born in the seat that its
+application moves out before it is confirmed is transferred in", which fails without the
+re-offer). The live check is the next canary run.
+
+**A missing operating target the window server proves destroyed is let go, not recovered.**
+The fourth canary round (12:06:17, build `f76ac58`) closed the same panel the other way
+round: Open pressed, the follow pass found the panel missing at 18.431 and reported
+`windowUnavailable` (`absentFromReading`); the recovery began on an input already posted
+with no confirmation and failed the seat with `ambiguousEffect`; 6 ms later the named
+window-server request proved the panel destroyed. The seat stayed failed until the agent
+closed and reopened its session. When the pass finds the operating target missing, it now
+asks the window server for it by name first (`windowIsDestroyed`, the proof the containment
+wait uses): destroyed, the target takes `dropDestroyedRecord`, which keeps following the
+application for its next window; otherwise one missing reading is still not a destruction,
+and the recovery runs as before. Verified offline by `AppWindowFollowTests` ("an operating
+target missing from a pass is let go when the window server proves it destroyed, and
+recovered otherwise", whose destroyed case fails without the change).

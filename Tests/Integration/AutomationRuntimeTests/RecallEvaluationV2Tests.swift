@@ -32,7 +32,7 @@ import Testing
 ///   candidates, threshold, final tract, binding, compatibility, coverage. The operational outcome of a delivery carried
 ///   out is measured by the cycle and sharing suites, not here.
 @MainActor
-@Suite("Recall comparison on the second quality corpus", .serialized)
+@Suite("Recall comparison on the second quality corpus", .serialized, .automaticSelection)
 struct RecallEvaluationV2Tests {
 
     typealias E = RecallEvaluationTests

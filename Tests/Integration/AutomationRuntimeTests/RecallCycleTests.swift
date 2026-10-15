@@ -28,7 +28,7 @@ import Testing
 /// absent by the provisional lexical configuration (a limit); and a part's lexical score is shown independent of the
 /// rest of the archive under the uniform and the version weightings, dependent under the collection's.
 @MainActor
-@Suite("The Recall answers a new request with the tract of a learned procedure, through the tools", .serialized)
+@Suite("The Recall answers a new request with the tract of a learned procedure, through the tools", .serialized, .automaticSelection)
 struct RecallCycleTests {
 
     typealias P = ProcedureLearningTests
@@ -43,10 +43,16 @@ struct RecallCycleTests {
         return nil
     }
 
+    /// The hybrid thresholds the automatic selector was frozen at on the second development split
+    /// (`recall-calibration-v2.json`), which these regressions of the selector keep. The product's configuration has used
+    /// the agent's choice's own since 2026-10-13 (`RecallConfiguration.chosen`), which shape only a proposal's suggestion.
+    static let selectorHybridThresholds = SelectionThresholds(absolute: 0.66, stepMargin: 0.1, partMargin: -0.4, adequacy: 0.05, tie: 0.04)
+
     static func configuration(_ channel: RecallConfiguration.Channel) -> RecallConfiguration {
         var configuration = RecallConfiguration.chosen
         configuration.channel = channel
         configuration.modelsDirectory = models
+        configuration.hybridThresholds = selectorHybridThresholds
         if channel == .lexical { configuration.model = nil }
         return configuration
     }
@@ -117,6 +123,9 @@ struct RecallCycleTests {
 
     static func exportCycle(channel: RecallConfiguration.Channel) async throws {
         let session = P.photoSession(try W.directory())
+        // Preview shows the window the corpus learned the export in: since structure-v4 a window missing one of its
+        // toolbar buttons is another state, and a step is linked only to a call made in the state it was learned in.
+        session.windows[P.preview] = try RecallCorpus.load().window(P.preview, "editing")
         let routeID = try await learnCorpus(session, channel: channel)
         let memory = await reopen(session, channel: channel)
 
@@ -206,7 +215,14 @@ struct RecallCycleTests {
     @Test("the first learned procedure already helps: after reopening an archive of one procedure, the review's request gets the export tract with new values, with the product's configuration")
     func firstLearnedProcedureIsRecalled() async throws {
         let begun = try await Self.firstLearned(Self.exportRequest, channel: RecallConfiguration.chosen.channel)
-        #expect(begun["recall"]["search"]["status"].string == "completed")
+        // The product's channel is hybrid: without the model's files the lexical index answers, and the search says so.
+        let search = begun["recall"]["search"]
+        if Self.models == nil {
+            #expect(search["status"].string == "limited" && search["channel"].string == "lexical", "\(search)")
+            #expect(search["note"].string?.contains("the semantic index is unavailable") == true, "\(search)")
+        } else {
+            #expect(search["status"].string == "completed" && search["channel"].string == "hybrid", "\(search)")
+        }
         #expect(begun["recall"]["coverage"].string == "complete", "the first learned procedure should already help: \(begun)")
         #expect(Self.steps(begun) == [4, 5, 6, 7], "the export, neither the search nor the rotation done before")
     }

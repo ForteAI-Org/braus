@@ -6,19 +6,26 @@
 # missing or refused model leaves the lexical index answering, saying so.
 #
 # Downloading is a setup action someone decides to take: it reaches huggingface.co and writes a few hundred
-# megabytes. --verify-only reads a folder already installed and touches no network.
+# megabytes. --verify-only reads a folder already installed and touches no network. --from copies the files of a
+# folder downloaded earlier (one holding <model>@<revision>/, as this script installs it), touches no network, and
+# verifies the copies as a download is verified.
 #
 # Usage: fetch-recall-model.sh <e5-small|granite-107m> [models-folder]
 #        fetch-recall-model.sh --verify-only <e5-small|granite-107m> [models-folder]
+#        fetch-recall-model.sh --from <downloaded-folder> <e5-small|granite-107m> [models-folder]
 #        The folder defaults to ~/Library/Application Support/Braus/Models, where the app and braus look
 #        when BRAUS_RECALL_MODELS does not name another.
 
 set -euo pipefail
 
 verify_only=0
+from=""
 if [[ "${1:-}" == "--verify-only" ]]; then
     verify_only=1
     shift
+elif [[ "${1:-}" == "--from" ]]; then
+    from=${2:?"usage: fetch-recall-model.sh --from <downloaded-folder> <e5-small|granite-107m> [models-folder]"}
+    shift 2
 fi
 name=${1:?"usage: fetch-recall-model.sh [--verify-only] <e5-small|granite-107m> [models-folder]"}
 folder=${2:-"$HOME/Library/Application Support/Braus/Models"}
@@ -51,7 +58,22 @@ esac
 target="$folder/$directory"
 files=(config.json tokenizer.json tokenizer_config.json special_tokens_map.json model.safetensors)
 
-if [[ $verify_only == 0 ]]; then
+if [[ -n "$from" ]]; then
+    if [[ "$(cd "$from/$directory" 2>/dev/null && pwd -P)" == "$(cd "$target" 2>/dev/null && pwd -P)" ]]; then
+        echo "refused: $from/$directory is the target itself" >&2
+        exit 2
+    fi
+    echo "copying $repo at $revision ($license) from $from/$directory into $target, without the network"
+    mkdir -p "$target"
+    for file in "${files[@]}"; do
+        if [[ ! -f "$from/$directory/$file" ]]; then
+            echo "refused: $from/$directory/$file is missing" >&2
+            exit 1
+        fi
+        cp "$from/$directory/$file" "$target/$file.part"
+        mv "$target/$file.part" "$target/$file"
+    done
+elif [[ $verify_only == 0 ]]; then
     echo "downloading $repo at $revision ($license) into $target"
     mkdir -p "$target"
     for file in "${files[@]}"; do

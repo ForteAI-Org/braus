@@ -15,14 +15,28 @@ import SQLiteMemory
 
 /// MemoryCommand prints what the living memory holds for an application: the Brain's size and clock,
 /// its most established anchors with what they do, and its groups. With `--import-json <dir>` it
-/// copies the Brains of an earlier JSON Knowledge directory into the memory instead; with
-/// `--task <id>` it prints what the procedures and the Brain hold of one task, read only; with
-/// `--recall-status`, `--recall-rebuild` and `--recall-explain <text>` it shows and maintains the Recall's index.
+/// copies the Brains of an earlier JSON Knowledge directory into the memory instead; with `--status` it
+/// says what the archive file is and the Recall this process would run; with `--tasks` it lists the
+/// archive's tasks; with `--task <id>` it prints what the procedures, the Brain and the Recall hold of one
+/// task, read only; with `--recall-status`, `--recall-rebuild` and `--recall-explain <text>` it shows and
+/// maintains the Recall's index.
 enum MemoryCommand {
 
     static func run(_ invocation: Invocation) async throws {
         if invocation.flags.contains("status") {
             printStatus(of: Runtime.knowledgeDirectory(invocation).appendingPathComponent("memory.sqlite"))
+            return
+        }
+        if invocation.flags.contains("tasks") {
+            let limit = invocation.options["last"].flatMap(Int.init) ?? 20
+            guard limit > 0 else { throw UsageError.invalid(option: "last", value: invocation.options["last"] ?? "", expected: "a number above 0") }
+            let producer = invocation.options["producer"]
+            if let producer, MemoryEventSource(rawValue: producer) == nil {
+                throw UsageError.invalid(option: "producer", value: producer,
+                                         expected: MemoryEventSource.allCases.map(\.rawValue).joined(separator: ", "))
+            }
+            printTasks(limit: limit, producer: producer, json: invocation.flags.contains("json"),
+                       in: Runtime.knowledgeDirectory(invocation).appendingPathComponent("memory.sqlite"))
             return
         }
         if let taskID = invocation.options["task"] {
@@ -34,6 +48,10 @@ enum MemoryCommand {
         if invocation.flags.contains("recall-status") || invocation.flags.contains("recall-rebuild")
             || invocation.options["recall-explain"] != nil {
             try await recall(invocation, in: runtime)
+            return
+        }
+        if invocation.flags.contains("consolidation") {
+            try await printConsolidation(json: invocation.flags.contains("json"), in: runtime)
             return
         }
         if invocation.flags.contains("apply-relations") {
@@ -122,8 +140,63 @@ enum MemoryCommand {
         }
         print("copies: " + (report.backups.isEmpty ? "none" : report.backups.joined(separator: ", ")))
         if !report.quarantined.isEmpty { print("moved aside after a recovery: " + report.quarantined.joined(separator: ", ")) }
+        printRecallIdentity()
         print("writes waiting, failed or dropped live in the memory of the process that offered them;")
         print("this command has its own and shows none. The app shows its own on Settings > Brain.")
+    }
+
+    /// Prints the Recall a process of this build would run on this Mac, resolved as the app and the chat
+    /// resolve it (`RecallConfiguration.resolved`, from the environment): the channel, the model and whether
+    /// its files are installed where they are looked for, the document format, whether the process would own
+    /// the archive's index, and what a measure turned off. The same facts `memory_task status` answers from a
+    /// running process; here from the terminal, before any process runs. `--knowledge` moves the archive, not
+    /// the models folder, which `BRAUS_APP_SUPPORT_DIR` or `BRAUS_RECALL_MODELS` moves.
+    private static func printRecallIdentity() {
+        for line in RecallIdentity.resolved().lines { print(line) }
+    }
+
+    /// Prints the archive's tasks, newest first, read only as `--status` reads the file: who opened each,
+    /// its status and times (UTC), the goal of its current revision, and what the procedures and the Recall
+    /// hold of it, counted. With `--json`, the same rows as a JSON array.
+    private static func printTasks(limit: Int, producer: String?, json: Bool, in url: URL) {
+        switch SQLiteMemoryInspection.tasks(in: url, limit: limit, source: producer) {
+            case .unavailable(let why):
+                print("the tasks were not read: \(why)")
+            case .found(let rows):
+                if json {
+                    let objects: [[String: Any]] = rows.map { row in
+                        var object: [String: Any] = [
+                            "task": row.taskID, "producer": "\(row.source):\(row.streamID)", "status": row.status,
+                            "opened_at": Self.instant(row.openedAtMS), "revision": row.currentRevision, "goal": row.goal,
+                            "attempts": row.attempts, "versions": row.versions, "proposals": row.proposals, "chosen": row.choices,
+                            "queries": row.queries, "candidates": row.candidates, "uninterpreted": row.uninterpreted,
+                            "result": row.result, "guards_failed": row.guardsFailed,
+                        ]
+                        object["closed_at"] = row.closedAtMS.map(Self.instant) ?? NSNull()
+                        return object
+                    }
+                    if let data = try? JSONSerialization.data(withJSONObject: objects, options: [.prettyPrinted, .sortedKeys]) {
+                        print(String(decoding: data, as: UTF8.self))
+                    }
+                    return
+                }
+                print("tasks in \(url.path): \(rows.count) shown, newest first" + (producer.map { ", producer \($0)" } ?? "")
+                      + (rows.count == limit ? " (--last \(limit); pass a larger number for more)" : ""))
+                for row in rows {
+                    print("  \(row.taskID)  \(row.source):\(row.streamID)  \(row.status)  \(Self.instant(row.openedAtMS))"
+                          + (row.closedAtMS.map { " → \(Self.instant($0))" } ?? "")
+                          + "  rev \(row.currentRevision)  attempts \(row.attempts)  versions \(row.versions)"
+                          + "  proposals \(row.proposals)  chosen \(row.choices)  queries \(row.queries)")
+                    print("    goal: \(row.goal)")
+                }
+        }
+    }
+
+    /// A calendar instant of the archive (milliseconds since 1970) as ISO 8601 in UTC.
+    private static func instant(_ milliseconds: Int64) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: Date(timeIntervalSince1970: Double(milliseconds) / 1000))
     }
 
     /// Prints one task by its id, read only as `--status` reads the file: its attempts and calls with
@@ -175,6 +248,42 @@ enum MemoryCommand {
             print("not changed: \(error)")
         }
         await runtime.finish()
+    }
+
+    /// Prints what a consolidation of the procedures would share, read only (`ProcedureFamilies`): the current versions of
+    /// completed tasks, their subprocedures and steps against the families of one method they form, and the families held
+    /// by several procedures, largest first, with the labels their members were given; and the goal families, procedures
+    /// that chose a source and reached its goal another way. Nothing is changed. With `--json`, the families as a JSON array.
+    private static func printConsolidation(json: Bool, in runtime: Runtime) async throws {
+        let families = try await runtime.service.perform { try await $0.procedures.families() }
+        func count(_ kind: PartKind) -> (parts: Int, families: Int, shared: Int) {
+            let mine = families.filter { $0.kind == kind }
+            return (mine.reduce(0) { $0 + $1.members.count }, mine.count, mine.filter { $0.procedures > 1 }.count)
+        }
+        if json {
+            let rows: [[String: Any]] = families.map { family in
+                ["kind": family.kind.rawValue, "steps": family.method.count, "procedures": family.procedures,
+                 "members": family.members.count, "label": family.label ?? "",
+                 "labels": family.labels.map { ["label": $0.label, "count": $0.count] }, "method": family.method]
+            }
+            let data = try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys])
+            print(String(decoding: data, as: UTF8.self))
+            return
+        }
+        let procedures = count(.procedure), phases = count(.subprocedure), steps = count(.step)
+        print("procedures: \(procedures.parts) current, \(procedures.families) distinct methods")
+        print("subprocedures: \(phases.parts) → \(phases.families) families (\(phases.shared) held by several procedures)")
+        print("steps: \(steps.parts) → \(steps.families) families (\(steps.shared) held by several procedures)")
+        let adaptations = try await runtime.service.perform { try await $0.procedures.adaptations() }
+        print("goal families: \(adaptations.count) procedures chose a learned source and reached its goal another way"
+            + (adaptations.isEmpty ? "" : " (\(Set(adaptations.map(\.sourceRouteID)).count) sources)"))
+        let shared = families.filter { $0.kind == .subprocedure && $0.procedures > 1 }.sorted { $0.members.count > $1.members.count }
+        if !shared.isEmpty { print("subprocedures held by several procedures, largest first:") }
+        for family in shared.prefix(20) {
+            let variants = family.labels.dropFirst().prefix(4).map { "\"\($0.label)\" ×\($0.count)" }.joined(separator: ", ")
+            print("  ×\(family.members.count) in \(family.procedures) procedures, \(family.method.count) steps: "
+                + "\"\(family.label ?? "(no label)")\"" + (variants.isEmpty ? "" : "; also \(variants)"))
+        }
     }
 
     /// Runs the relation recovery the service runs in the background, to its end, at once: every

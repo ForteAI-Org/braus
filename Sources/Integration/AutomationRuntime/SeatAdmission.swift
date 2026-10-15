@@ -27,12 +27,18 @@ import SeatSession
 /// re-verifying on every activation and heartbeat and publishes `restored` when the readings
 /// agree, which is why the broker's own focus wait treats both as an answer still coming. A seat
 /// that is merely waiting, with nothing running, is answered at once.
+///
+/// **A seat still adopting its window, or finishing a command, is waited on too** (14 October 2026). `.starting` (the
+/// window is being moved, confirmed and staged) and `.acting` (a command is in flight) end by themselves, as a recovery
+/// does. Refusing them sent the agent to observe and retry: on the first input after `open_session` this happened 15 times
+/// in 30 test runs on PhotoCraft. The wait is the same bounded one (`awaited`, 2 s); a seat still not ready
+/// then is refused with the same sentence. Nothing is posted while waiting, and the person's seat is not touched.
 nonisolated public enum SeatAdmission: Equatable, Sendable {
 
     /// The Command goes to the engine.
     case admit
 
-    /// A recovery is running and the seat has not answered yet.
+    /// A recovery, an adoption or a command is running and the seat has not answered yet.
     case wait
 
     /// Refused, with what happened and what to do about it.
@@ -49,6 +55,8 @@ nonisolated public enum SeatAdmission: Equatable, Sendable {
         if state.acceptsCommands { return .admit }
         switch (state, recovery) {
         case (.recovering, _),
+             (.starting, _),
+             (.acting, _),
              (.waiting, .restoring),
              (.waiting, .waitingForUser):
             return .wait

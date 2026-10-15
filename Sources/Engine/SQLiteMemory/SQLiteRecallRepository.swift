@@ -137,11 +137,15 @@ public struct SQLiteRecallRepository: Sendable {
     }
 
     /// The oldest pending work, at most `limit`.
-    public func pendingWork(limit: Int) async throws -> [Work] {
+    /// With `attempts`, only the work that failed fewer times than that: work that failed its last time stays pending
+    /// and said, and no longer hides the work behind it (a worker that took the oldest rows and then dropped the exhausted
+    /// ones stopped for good once they filled its batch, review A8-1, 14 October 2026).
+    public func pendingWork(limit: Int, below attempts: Int? = nil) async throws -> [Work] {
         try await store.read { snapshot in
             try snapshot.query(
-                "SELECT work_id, route_id, reason, attempts FROM memory_recall_work WHERE done_at_ms IS NULL ORDER BY work_id LIMIT ?",
-                [.integer(Int64(max(1, limit)))]
+                "SELECT work_id, route_id, reason, attempts FROM memory_recall_work WHERE done_at_ms IS NULL"
+                    + " AND (?1 IS NULL OR attempts < ?1) ORDER BY work_id LIMIT ?2",
+                [attempts.map { .integer(Int64($0)) } ?? .null, .integer(Int64(max(1, limit)))]
             ) { Work(workID: $0.integer(0) ?? 0, routeID: try $0.text(1), reason: try $0.text(2) ?? "", attempts: Int($0.integer(3) ?? 0)) }
         }
     }
@@ -406,6 +410,14 @@ public struct SQLiteRecallRepository: Sendable {
     }
 
     // MARK: The catalogue, checked again
+
+    /// Whether the archive holds any procedure version, however qualified: without one nothing was ever learned, and an
+    /// index that does not exist yet hides nothing.
+    public func hasVersions() async throws -> Bool {
+        try await store.read { snapshot in
+            try snapshot.query("SELECT EXISTS (SELECT 1 FROM memory_procedure_versions)") { $0.integer(0) ?? 0 }.first == 1
+        }
+    }
 
     /// The parts among `partIDs` the catalogue offers now.
     public func offered(_ partIDs: [String]) async throws -> Set<String> {

@@ -65,6 +65,8 @@ public actor RecallService {
         private(set) var vectorCount: Int
         /// The slots of the entries without a vector, by document.
         private var lacking: [String: Set<Int>]
+        /// How many entries run in each application: the bundle IDs a need's application is resolved among.
+        private(set) var applications: [String: Int]
         /// When the vectors of the entries already held were last read: what a later read of the computed ones waits on.
         private(set) var readAt: ContinuousClock.Instant
 
@@ -75,6 +77,7 @@ public actor RecallService {
             self.mark        = mark
             self.weighting   = weighting
             slots = []; tokens = []; byPart = [:]; byRoute = [:]; free = []; frequencies = [:]; versions = [:]; lacking = [:]
+            applications = [:]
             count = 0; vectorCount = 0
             lexical = LexicalIndex(frequencies: [:], count: 0, weighting: weighting)
             readAt = .now
@@ -116,6 +119,7 @@ public actor RecallService {
             byPart[entry.partID] = slot
             byRoute[entry.routeID, default: []].append(slot)
             for token in set { frequencies[token, default: 0] += 1 }
+            if let bundleID = entry.bundleID { applications[bundleID, default: 0] += 1 }
             count += 1
             if entry.vector != nil { vectorCount += 1 } else { lacking[entry.digest, default: []].insert(slot) }
         }
@@ -127,6 +131,10 @@ public actor RecallService {
                 frequencies[token] = left > 0 ? left : nil
             }
             byPart[entry.partID] = nil
+            if let bundleID = entry.bundleID {
+                let left = (applications[bundleID] ?? 0) - 1
+                applications[bundleID] = left > 0 ? left : nil
+            }
             if entry.vector != nil {
                 vectorCount -= 1
             } else {
@@ -270,6 +278,8 @@ public actor RecallService {
             if let known = services[ObjectIdentifier(memory)] { return known }
             let made = RecallService(memory: memory)
             services[ObjectIdentifier(memory)] = made
+            let c = made.configuration
+            log.info("recall of \(memory.url.path, privacy: .public): channel \(c.channel.rawValue, privacy: .public), model \(c.channel == .lexical ? "none" : (c.model.map { "\($0.modelID)@\($0.revision)" } ?? "none"), privacy: .public), models folder \(c.modelsDirectory?.path ?? "none", privacy: .public), owner \(c.ownsIndex)")
             return made
         }
     }
@@ -285,6 +295,27 @@ public actor RecallService {
 
     package func setBeforeRecord(_ gate: (@Sendable () async -> Void)?) { beforeRecord = gate }
     package func setIndexFault(_ fault: (any Error)?) { indexFault = fault }
+
+    /// The configuration this service runs, as `memory_task status` reports it: the channel, the model and its folder,
+    /// whether this process owns the archive's index, and whether the model is loaded, not tried yet or unavailable and why.
+    public func identity() -> Identity {
+        let model = configuration.channel == .lexical ? nil : configuration.model
+        let state: String = model == nil ? "none" : !embedderLoaded ? "not loaded yet" : embedder != nil ? "loaded"
+            : "unavailable: \(embedderFailure ?? "unknown")"
+        return Identity(channel: configuration.channel.rawValue, model: model.map { "\($0.modelID)@\($0.revision)" },
+                        modelsFolder: configuration.modelsDirectory?.path, format: configuration.format.rawValue,
+                        ownsIndex: configuration.ownsIndex, modelState: state)
+    }
+
+    /// Identity is the configuration a service runs, as a preflight reads it.
+    public struct Identity: Sendable, Equatable {
+        public let channel: String
+        public let model: String?
+        public let modelsFolder: String?
+        public let format: String
+        public let ownsIndex: Bool
+        public let modelState: String
+    }
 
     // MARK: The model
 
@@ -345,6 +376,37 @@ public actor RecallService {
     package func holdWork(_ held: Bool) {
         workPaused = held
         if !held, workWanted, worker == nil { worker = Task { await self.runWorker() } }
+    }
+
+    /// Waits, within a budget, until the index holds every version the catalogue's work names, with its vectors when the
+    /// model is there: what a search does first. A script runs one process per task, and a version learned by the process
+    /// before this one may still be pending when this one's first `begin` searches; the search then missed the procedure
+    /// learned seconds earlier (review R1, 14 October 2026). Answers whether nothing was left pending. Work that failed its
+    /// last time, a held worker and a whole generation being built are not waited for.
+    @discardableResult
+    package func catchUp(within budget: Duration = RecallService.catchUpBudget) async -> Bool {
+        let deadline = ContinuousClock.now + budget
+        while true {
+            if workPaused { return false }
+            let pending = (try? await memory.perform {
+                try await $0.recall.pendingWork(limit: Self.workBatch * 4, below: Self.workAttemptLimit)
+            })?.contains { $0.routeID != nil } ?? false
+            // The versions entered: their vectors follow in the same pass, while the worker runs.
+            guard pending || (worker != nil && !vectorRoutes.isEmpty) else { return true }
+            guard ContinuousClock.now < deadline else { return false }
+            schedule()
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// How long a search waits for the index to catch up with the catalogue (`catchUp`).
+    package static let catchUpBudget: Duration = .seconds(5)
+
+    /// Waits until the worker of every Recall of this process has nothing left to do, within a budget: what a process
+    /// does before it ends, so the next one finds the index current (review R1).
+    public static func waitAllIdle(within budget: Duration) async {
+        let all = services.withLock { Array($0.values) }
+        for service in all { await service.waitUntilIdle(within: budget) }
     }
 
     /// Waits until the worker has nothing left to do, within a budget; true when it finished in time.
@@ -408,8 +470,8 @@ public actor RecallService {
 
         // The work the triggers recorded: a version entered again everywhere; the whole catalogue, a new generation, which
         // only the owner starts, so a guest leaves that work pending for it.
-        let work = try await memory.perform { try await $0.recall.pendingWork(limit: Self.workBatch * 4) }
-            .filter { $0.attempts < Self.workAttemptLimit && (owner || $0.routeID != nil) }.prefix(Self.workBatch)
+        let work = try await memory.perform { try await $0.recall.pendingWork(limit: Self.workBatch * 4, below: Self.workAttemptLimit) }
+            .filter { owner || $0.routeID != nil }.prefix(Self.workBatch)
         var done: [Int64] = []
         for item in work {
             do {
@@ -597,6 +659,13 @@ public actor RecallService {
         var phases: Phases
     }
 
+    /// The bundle IDs of the applications the current generation's parts run in, which a need's application is resolved
+    /// among (`RecallApplications`); empty when no index can be read yet, and the resolution relies on the session's offer.
+    public func learnedApplications() async -> [String] {
+        guard let cache = try? await currentCache() else { return [] }
+        return cache.applications.keys.sorted()
+    }
+
     /// Searches for the request's needs and reads the versions the best parts belong to; `observed` is the state the
     /// latest observation of the task's session showed, when the facts know one.
     package func prepare(_ request: RecallRequest, observed: Set<ObservedState> = []) async throws -> Prepared {
@@ -604,11 +673,18 @@ public actor RecallService {
         let begun = ContinuousClock.now
         let context = RecallSelector.Context(values: request.values, constraints: request.constraints, observed: observed,
                                              needs: request.searchedNeeds)
+        // The versions the catalogue holds and the index does not yet are entered first, within a bound.
+        if !MeasureAblation.active.contains(.recall) { await catchUp() }
         // The status without counting the generation's entries or vectors: the index in memory has both.
         let light = try await memory.perform { try await $0.recall.queryStatus() }
         var status = light
-        var notes: [String] = []
+        var notes = request.notes
         let needs = request.searchedNeeds
+        // A measure's control: nothing searched, which the answer and its record say.
+        if MeasureAblation.active.contains(.recall) {
+            return Prepared(status: status, cache: nil, channel: .none, searchStatus: .completed, notes: notes + [MeasureAblation.recallNote],
+                            needs: needs, context: context, scores: [], sources: [], considered: 0, phases: phases)
+        }
         let cache: IndexCache?
         do {
             cache = try await currentCache()
@@ -623,6 +699,13 @@ public actor RecallService {
         }
         guard let cache else {
             let building = status.generations.contains { $0.status == .building }
+            // With no version in the authoritative tables nothing was ever learned, whatever the index is doing: the search
+            // is complete and finds nothing, which the catalogue proves without an index.
+            if !(try await memory.perform { try await $0.recall.hasVersions() }) {
+                notes.append("nothing has been learned on this Mac yet")
+                return Prepared(status: status, cache: nil, channel: .none, searchStatus: .completed, notes: notes, needs: needs,
+                                context: context, scores: [], sources: [], considered: 0, phases: phases)
+            }
             notes.append(building ? "the index is being built and has no complete generation yet" : "no index exists yet")
             return Prepared(status: status, cache: nil, channel: .none, searchStatus: .unavailable, notes: notes, needs: needs,
                             context: context, scores: [], sources: [], considered: 0, phases: phases)
@@ -719,9 +802,10 @@ public actor RecallService {
     }
 
     /// The versions a prepared query read, each with the relevance of its offered parts to each need; nil when the
-    /// search could not answer.
+    /// search could not answer, none for an archive that never learned anything.
     package nonisolated func scored(_ prepared: Prepared) -> [[ScoredSource]]? {
-        guard let cache = prepared.cache, prepared.searchStatus != .failed, prepared.searchStatus != .unavailable else { return nil }
+        guard prepared.searchStatus != .failed, prepared.searchStatus != .unavailable else { return nil }
+        guard let cache = prepared.cache else { return prepared.needs.map { _ in [] } }
         return prepared.needs.indices.map { index in
             let scores = prepared.scores[index]
             return prepared.sources.map { source -> ScoredSource in
@@ -800,7 +884,7 @@ public actor RecallService {
             queryID: queryID, request: request, producer: producer,
             generationID: prepared.channel == .none ? nil : prepared.cache?.generation.generationID, channel: prepared.channel,
             searchStatus: prepared.searchStatus,
-            searchNote: prepared.searchStatus == .completed ? nil : (note ?? prepared.searchStatus.rawValue),
+            searchNote: note ?? (prepared.searchStatus == .completed ? nil : prepared.searchStatus.rawValue),
             candidatesConsidered: prepared.considered, coverage: coverage, delivery: state, deliveryBytes: bytes,
             durationUS: elapsed.components.seconds * 1_000_000 + elapsed.components.attoseconds / 1_000_000_000_000,
             needs: outcomes
@@ -847,17 +931,31 @@ public actor RecallService {
 
     // MARK: Delivery
 
+    /// Where the index stands for an answer: `ready` with the generation that answered, `building` while none is complete,
+    /// `empty` when nothing was ever learned and no index is needed, `off` when a measure turned the Recall off, `unavailable`
+    /// or `failed` otherwise, with the model of its space, the vectors and the index work still pending, and why the
+    /// semantic model is not loaded when it is not.
+    func index(_ status: SQLiteRecallRepository.Status, searchStatus: SearchStatus,
+               generation: SQLiteRecallRepository.Generation?) -> RecallDelivery.Index {
+        let state: String = switch (generation, status.generations.contains { $0.status == .building }) {
+            case (_, _) where MeasureAblation.active.contains(.recall): "off"
+            case (.some, _): "ready"
+            case (nil, _) where searchStatus == .completed: "empty"
+            case (nil, true): "building"
+            case (nil, false): searchStatus == .failed ? "failed" : "unavailable"
+        }
+        return RecallDelivery.Index(status: state, generation: generation?.generationID,
+                                    model: generation?.spaceID == nil ? nil : configuration.model?.modelID,
+                                    backlog: status.vectorBacklog, pendingWork: status.pendingWork,
+                                    note: embedderFailure.map { "semantic model: \($0)" })
+    }
+
     private func deliver(queryID: String, request: RecallRequest, outcomes: [NeedOutcome], sources: [String: RecallSource],
                          status: SQLiteRecallRepository.Status, channel: RecallChannel, searchStatus: SearchStatus, note: String?,
                          considered: Int, generation: SQLiteRecallRepository.Generation?, state: String) -> RecallDelivery {
         // `nothing`: no selection to deliver; `not_delivered`: selections too large for the channel, withheld.
         let delivered = state != "not_delivered"
         let candidates = RecallBinding.candidates(request.values)
-        let indexStatus: String = switch (generation, status.generations.contains { $0.status == .building }) {
-            case (.some, _): "ready"
-            case (nil, true): "building"
-            case (nil, false): searchStatus == .failed ? "failed" : "unavailable"
-        }
         let needs = outcomes.map { outcome -> RecallDelivery.Need in
             let selection = delivered ? outcome.selected.flatMap { selection in
                 sources[selection.routeID].map {
@@ -903,10 +1001,7 @@ public actor RecallService {
             query   : queryID,
             reason  : request.reason.rawValue,
             revision: request.revision,
-            index   : RecallDelivery.Index(status: indexStatus, generation: generation?.generationID,
-                                           model: generation?.spaceID == nil ? nil : configuration.model?.modelID,
-                                           backlog: status.vectorBacklog, pendingWork: status.pendingWork,
-                                           note: embedderFailure.map { "semantic model: \($0)" }),
+            index   : index(status, searchStatus: searchStatus, generation: generation),
             search  : RecallDelivery.Search(status: searchStatus.rawValue, channel: channel.rawValue, partsConsidered: considered,
                                             versionsRead: max(sources.count, readVersions.count), note: note),
             coverage: NeedOutcome.overall(outcomes).rawValue,
@@ -941,7 +1036,7 @@ public actor RecallService {
             .scroll: ["target": "element"], .drag: ["from": "element", "to": "element"], .contextMenu: ["target": "element"],
         ]
         let steps = source.steps.filter { selection.positions.contains($0.position) }.map { step -> RecallDelivery.Step in
-            let arguments = step.arguments.map { argument -> RecallDelivery.Argument in
+            let arguments = step.arguments.filter(Self.isDelivered).map { argument -> RecallDelivery.Argument in
                 let kind = roles[step.tool]?[argument.name] ?? "fixed"
                 switch argument.value {
                     case .literal(let value):
@@ -1058,10 +1153,34 @@ public actor RecallService {
         }
         let whole = selection.wholePartID.flatMap { id in source.parts.first { $0.partID == id } }
         let evidence = (whole != nil ? "qualified as a whole part" : "a tract of individually qualified steps, not qualified as a whole")
-            + " (qualification A: each operation's own check, not the task's result)"
+            + " (\(Self.evidence(of: source)))"
             + (source.confirmedUses > 0 ? "; carried out and verified in \(source.confirmedUses) earlier reuse(s)" : "")
-        return RecallDelivery.Selection(version: source.routeID, procedure: source.procedureLabel, wholePart: whole?.label, steps: steps,
-                                        parameters: rendered, conditions: conditions, evidence: evidence)
+        var delivered = RecallDelivery.Selection(version: source.routeID, procedure: source.procedureLabel, wholePart: whole?.label,
+                                                 steps: steps, parameters: rendered, conditions: conditions, evidence: evidence)
+        // The source's result checks, with this task's values and when to make them: each whose step the selection carries out.
+        let last = source.parts.first(where: { $0.kind == .procedure })?.lastPosition
+        let reached = source.results.filter { result in
+            (result.atEnd ? last : result.afterStep).map(selection.positions.contains) ?? false
+        }
+        if !reached.isEmpty {
+            var bound: [String: String] = [:]
+            for item in rendered where item.status == "bound" {
+                if let value = item.value, value != "[withheld]" { bound[item.name] = value }
+            }
+            for value in values where value.sensitivity != .secret && bound[value.name] == nil {
+                if case .text(let text) = value.content { bound[value.name] = text }
+            }
+            delivered.resultCheck = reached.map { $0.line($0.expectation.bound(to: bound)) }
+        }
+        return delivered
+    }
+
+    /// Whether an argument of a learned step is delivered: a section that named a day, an hour or a file in the source's run
+    /// (`ProcedureAssembly.isStableSection`) is not, since no scene of another run shows it; the element is looked for
+    /// without it.
+    static func isDelivered(_ argument: OperationArgument) -> Bool {
+        guard argument.name == "section", case .literal(.text(let section)) = argument.value else { return true }
+        return ProcedureAssembly.isStableSection(section)
     }
 
     // MARK: Diagnosis

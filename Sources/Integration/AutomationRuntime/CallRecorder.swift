@@ -373,7 +373,7 @@ public actor CallRecorder: ActionObserving {
             eventID = await observationEvent(for: identity)
         }
         lastPerceived = window
-        guard let eventID else { return await brain.enrich(scene, window: window) }
+        guard let eventID else { return await shown(scene, window: window) }
         let key = CaptureSampleKey(eventID: eventID, phase: .current)
         let (sample, sampleGaps) = minimization.minimize(
             sample: CaptureSample(key: key, of: window, sessionRevision: nil)
@@ -381,7 +381,7 @@ public actor CallRecorder: ActionObserving {
         guard (try? sample.validate()) != nil else {
             recordingGaps.append("the observation's sample was refused by the contract and not kept")
             lastObservation = nil
-            return await brain.enrich(scene, window: window)
+            return await shown(scene, window: window)
         }
         do {
             try await memory.confirm("sample current", afterEffect: tool?.requiresConfirmedStart == true) {
@@ -390,7 +390,7 @@ public actor CallRecorder: ActionObserving {
         } catch {
             recordingGaps.append("the observation was not saved: \(error)")
             lastObservation = nil
-            return await brain.enrich(scene, window: window)
+            return await shown(scene, window: window)
         }
         lastObservation = key
         storedSamples.append(key)
@@ -405,7 +405,7 @@ public actor CallRecorder: ActionObserving {
             }
         }
         await memory.flush(within: Self.observationBudget)
-        return await brain.enrich(scene, window: window)
+        return await shown(scene, window: window)
     }
 
     /// The scene enriched from the Brain, for a result that carries a scene the call did not observe: in
@@ -413,8 +413,16 @@ public actor CallRecorder: ActionObserving {
     /// so), named only otherwise, since a scene without its capture cannot be placed in a state.
     public func enrich(_ scene: SceneSnapshot) async -> SceneSnapshot {
         if let window = lastPerceived, window.scene.token == scene.token, window.scene.bundleID == scene.bundleID {
-            return await brain.enrich(scene, window: window)
+            return await shown(scene, window: window)
         }
+        return await shown(scene)
+    }
+
+    /// The scene the caller shows: enriched from the Brain, or as perceived while a measure turns the Brain off
+    /// (`MeasureAblation`), what it learns unchanged.
+    private func shown(_ scene: SceneSnapshot, window: PerceivedWindow? = nil) async -> SceneSnapshot {
+        guard !MeasureAblation.active.contains(.brain) else { return scene }
+        if let window { return await brain.enrich(scene, window: window) }
         return await brain.enrich(scene)
     }
 

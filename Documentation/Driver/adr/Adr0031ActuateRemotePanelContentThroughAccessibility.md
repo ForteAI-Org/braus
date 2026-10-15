@@ -278,6 +278,70 @@ whether AXPress on its item then compresses the file, and whether a file
 panel's sidebar outline has settable selected rows. Where it does, its rows are
 now selected through `AXSelectedRows` instead of the measured `AXSelected`.
 
+## Follow-up: a standalone Open panel and the window after it (Preview, 2026-10-14)
+
+Written by Tommaso Mazzarini for the Brain and Memory live campaign, to be reviewed
+by the Driver's owner. A worker asked to rotate an image with Preview launched it
+through the broker; Preview showed its Open panel at launch and nothing worked on it.
+Seat log `dev.forte.AgentSeatKit`, three runs, and a read-only accessibility probe of
+the same panel on the person's display:
+
+- The panel is an `AXStandardWindow` with `AXModal` false and identifier
+  `open-panel`: AppKit shows it without a modal session, so the seat's modal relation
+  never names it. Its window node has one child, a split group naming the panel
+  service's window; every control below names that window. The service's window
+  read 316,144 to the window server while the panel stood at -1177,144, and the
+  hit test at a control's reported centre landed in another application.
+- Keys: `press_key` ⇧⌘G and `/` were refused `subtreeUnreadable` by the keyboard
+  discovery, three runs out of three: no focus is readable, and the remote content
+  route is asked only of a modal surface.
+- Text: a click in the search field resolved remote content and its accessibility
+  actuation refused `unreadable`; the position realignment that brings a modal's
+  content back under its panel is asked only of a modal surface.
+- After Cancel (an AXPress the remote route did deliver), the panel was destroyed,
+  the follower stood down with "the seat holds no process", and the panel
+  File > Open… opened next was selected and never taken in ("selected surface is
+  not owned") until the session closed. The document a panel opens after Open is the
+  same case.
+
+Decisions, each circumscribed to what was measured:
+
+- **A standalone remote panel.** `DialogEndpointResolver.remotePanelContentWindow`
+  reads only the children of the surface's own window node: when every child names
+  one window, of another process, the surface draws that process's content. With
+  that window owned by the qualified panel service and no modal relation,
+  `AgentSeat.isStandaloneRemotePanel` answers yes. A panel being born (no child yet,
+  a child naming no window) or a failed read answers nothing and is read again; a
+  yes or a no is kept for the window's lifetime, so an ordinary window pays one read.
+- **What such a panel takes.** The position realignment of a modal remote panel
+  (`realignReportedPosition`), the remote keyboard routes before the focused
+  descendant fallback (`remoteContentKeyboardContext`, `focusedContentKeyboardContext`)
+  in the discovery and at the boundary (`endpointInvalidation`), and the remote file
+  panel facts (`remoteFilePanelContent`, hence `holdsRemoteFilePanel`). It is not a
+  modal relation: the focus recovery's closure expectation, the modal eligibility of
+  recipients and every other modal rule are unchanged.
+- **The window after the last one.** When the last held window of the assigned
+  application is confirmed destroyed while the application runs on,
+  `followedProcesses` keeps that application followed and its inventory baseline, so
+  a window born afterwards is taken in as any born-in-seat window is. A window
+  released on purpose ends the following (`forgetRecord`), so nothing given back is
+  taken again; a teardown stands everything down as before.
+- **Refusals that sent nothing.** `SeatActuator` throws `GestureNotSent` (EngineCore)
+  for an `InputEndpointRefusal`, a `RemoteContentActuationRefusal` that cannot have
+  taken effect and its own point and gesture refusals, with a sentence instead of the
+  enum's text; the engine answers such an action `refused`, nothing performed.
+
+Tests: `RemoteContentActuationTests` (the reading on Preview's shape, an ordinary
+window, an application's own window, a panel being born, failed reads; the mapping of
+refusals), `GestureEndpointRoutingTests` (a standalone panel is a remote file panel
+only with the qualified service), `FocusedDescendantKeyboardRoutingTests` (keys of a
+standalone panel go to its content, read once), `AppWindowFollowTests` (the next
+window after a destroyed last one is taken in; after a release nothing is).
+
+Not measured yet: whether ⇧⌘G, `/` and text reach Preview's panel through these
+routes on a live seat (the canary re-run measures it), and whether the realignment
+write moves the content of a standalone panel as it moved Photoshop's.
+
 ## Follow-up: Apple native applications, accessibility first (owner decision, 2026-10-15)
 
 The scope of "Finder's own windows" is widened from one bundle identifier to every Apple native

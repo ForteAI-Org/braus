@@ -70,6 +70,7 @@ final class SQLiteConnection {
         // in-memory database has no file to keep, so the answer is not checked.
         var persistent: Int32 = 1
         _ = sqlite3_file_control(opened, "main", SQLITE_FCNTL_PERSIST_WAL, &persistent)
+        SQLiteStatementProfile.attach(opened)
         self.path   = path
         self.handle = opened
     }
@@ -190,5 +191,27 @@ final class SQLiteConnection {
             throw Failure(primary: SQLITE_MISUSE, extended: SQLITE_MISUSE, message: "the connection is closed")
         }
         return handle
+    }
+}
+
+/// SQLiteStatementProfile writes, for a measure of the store's cost, every statement's duration and text to the file
+/// `BRAUS_SQLITE_PROFILE` names: one line each, nanoseconds then the statement as this module wrote it, its bound values
+/// never included (`sqlite3_sql`, not the expanded text). Off unless the variable is set when the process starts; a
+/// diagnosis for the scale campaign, never a product's behaviour.
+enum SQLiteStatementProfile {
+    nonisolated(unsafe) static let file: UnsafeMutablePointer<FILE>? = {
+        guard let path = ProcessInfo.processInfo.environment["BRAUS_SQLITE_PROFILE"], !path.isEmpty else { return nil }
+        return fopen(path, "a")
+    }()
+
+    static func attach(_ handle: OpaquePointer) {
+        guard file != nil else { return }
+        sqlite3_trace_v2(handle, UInt32(SQLITE_TRACE_PROFILE), { _, statement, nanoseconds, _ in
+            guard let file = SQLiteStatementProfile.file, let statement, let nanoseconds else { return 0 }
+            let elapsed = nanoseconds.load(as: Int64.self)
+            let text = sqlite3_sql(OpaquePointer(statement)).map { String(cString: $0) } ?? ""
+            fputs("\(elapsed)\t\(text.split(whereSeparator: \.isNewline).joined(separator: " "))\n", file)
+            return 0
+        }, nil)
     }
 }

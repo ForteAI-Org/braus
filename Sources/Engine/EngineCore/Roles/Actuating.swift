@@ -70,10 +70,32 @@ public enum DeliveryRoute: Sendable, Equatable {
     case accessibility
 }
 
+/// GestureNotSent is what an actuator throws when it knows that no event of the gesture went out: it refused
+/// before posting anything, for the reason it names. The engine answers such an action as refused, with
+/// nothing performed, instead of as a delivery whose effect is unknown, so the model reads that nothing
+/// happened and what to do instead, and no memory or Brain fact claims an uncertain delivery. Any other
+/// error an actuator throws stays a delivery that may or may not have landed.
+public struct GestureNotSent: Error, Sendable, Equatable, CustomStringConvertible {
+
+    /// A short code of why, kept with the call as the reason nothing was sent.
+    public let reason: String
+
+    /// What stopped the gesture and what to do instead, in one or two sentences for the model.
+    public let sentence: String
+
+    public init(reason: String, sentence: String) {
+        self.reason   = reason
+        self.sentence = sentence
+    }
+
+    public var description: String { sentence }
+}
+
 public protocol Actuating: Sendable {
 
     /// Delivers one gesture to the process and returns when the events have gone out. Says nothing
-    /// about their effect; the engine verifies by perceiving again.
+    /// about their effect; the engine verifies by perceiving again. Throws `GestureNotSent` only when it
+    /// knows nothing of the gesture went out.
     func perform(_ gesture: Gesture, in processID: pid_t) async throws
 
     /// The same, for a click aimed at the control the scene names `label`: a conformer that acts

@@ -54,17 +54,25 @@ Task { @MainActor in
             case "select" : try await SelectCommand.run(invocation)
             case "batch"  : try await BatchCommand.run(invocation)
             case "memory" : try await MemoryCommand.run(invocation)
+            case "doctor" : try await DoctorCommand.run(invocation)
             case "help", "--help", "-h":
                 print(Usage.text)
             default:
                 FileHandle.standardError.write(Data("unknown command '\(command)'\n\n\(Usage.text)\n".utf8))
                 exit(2)
         }
-        // The process ends here: what the commands left in the memory's queue is saved or counted.
+        // The process ends here: the Recall's index takes what was learned, so the next process finds it, and what the
+        // commands left in the memory's queue is saved or counted.
+        await RecallService.waitAllIdle(within: .seconds(10))
         await MemoryService.closeAll()
         exit(0)
     } catch {
+        await RecallService.waitAllIdle(within: .seconds(10))
         await MemoryService.closeAll()
+        if let stop = error as? ChatCommand.ScriptStop {
+            FileHandle.standardError.write(Data("braus: \(stop.message)\n".utf8))
+            exit(stop.exitStatus)
+        }
         FileHandle.standardError.write(Data("braus: \(error)\n".utf8))
         exit(1)
     }

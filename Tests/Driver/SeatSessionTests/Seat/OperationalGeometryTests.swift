@@ -93,6 +93,29 @@ struct OperationalGeometryTests {
         try? seat.release(turn)
     }
 
+    @Test("an Issue the preflight reads refuses the Command before any event, and the refusal says so")
+    func anIssueReadAtThePreflightIsMarkedBeforeAnyEvent() async throws {
+
+        let sensing = FakeSensing()
+        let sender  = FakeSender()
+        let (seat, _) = try await AgentSeatTests.adopted(sensing: sensing, sender: sender)
+
+        let turn        = try await seat.acquire()
+        let observation = try await observedReference(seat)
+
+        // The admission of the observation does not read it; the preflight's guard does. A resize of a sheet
+        // between its scene and the next Command took the same branch live (Preview's Save As, 14/10/2026).
+        sensing.targetIsActive = true
+        do {
+            try await seat.send(AgentSeatTests.click, observation: observation, turn: turn)
+            Issue.record("a Command was admitted while its application was in front")
+        } catch let stop as SeatInterruption {
+            #expect(stop.beforeAnyEvent && stop.issues.contains(.targetActivated), "\(stop)")
+        }
+        #expect(sender.sent.isEmpty, "no event was posted")
+        try? seat.release(turn)
+    }
+
     /// The window the display cannot hold. The seat adapts it, records the
     /// frame it was found at, and the adoption goes through: the consumer used
     /// to be told to make the window smaller by hand.

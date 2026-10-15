@@ -19,7 +19,7 @@ import Testing
 /// holds the work the request asks for and no more: what the request forbids, work already done and parts whose
 /// output is ready stay out, and what the request needs but cannot be resolved is said rather than certified complete.
 @MainActor
-@Suite("The Recall selects the work requested, within the request's constraints", .serialized)
+@Suite("The Recall selects the work requested, within the request's constraints", .serialized, .automaticSelection)
 struct RecallScopeTests {
 
     typealias P = ProcedureLearningTests

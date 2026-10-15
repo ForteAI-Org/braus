@@ -49,21 +49,23 @@ extension RecallService {
                                              recordedAtMS: memory.clock.calendarMS())
         let search = RecallDelivery.Search(status: prepared.searchStatus.rawValue, channel: prepared.channel.rawValue,
                                            partsConsidered: prepared.considered, versionsRead: prepared.sources.count, note: note)
+        let index = index(prepared.status, searchStatus: prepared.searchStatus, generation: prepared.cache?.generation)
         var delivery = Self.render(proposal, sources: sources, suggestions: suggestions, context: prepared.context, values: request.values,
-                                   search: search)
+                                   search: search, index: index)
         var bytes = (try? JSONEncoder().encode(delivery).count) ?? 0
         if bytes > RecallContract.channelLimitBytes {
             // Over the channel's limit nothing of the sources is sent, and the answer says so: never a silent cut.
-            delivery = RecallProposalDelivery(proposal: proposalID, revision: request.revision, search: search, needs: delivery.needs, sources: [],
-                                              guidance: "The shortlisted sources exceed what one answer can carry, so none is given. Propose "
-                                                + "again with fewer or narrower needs.")
+            delivery = RecallProposalDelivery(proposal: proposalID, revision: request.revision, index: index, search: search,
+                                              needs: delivery.needs, sources: [],
+                                              guidance: "The shortlisted sources exceed what one answer can carry, so none is given. Search "
+                                                + "again with memory_task recall and fewer or narrower needs, or carry on with the tools.")
             bytes = (try? JSONEncoder().encode(delivery).count) ?? 0
         }
         let elapsed = started.duration(to: .now)
         let recorded = SQLiteRecallRepository.RecordedProposal(
             proposal: proposal, generationID: prepared.channel == .none ? nil : prepared.cache?.generation.generationID, channel: prepared.channel,
             searchStatus: prepared.searchStatus,
-            searchNote: prepared.searchStatus == .completed ? nil : (note ?? prepared.searchStatus.rawValue),
+            searchNote: note ?? (prepared.searchStatus == .completed ? nil : prepared.searchStatus.rawValue),
             candidatesConsidered: prepared.considered, bytes: bytes,
             durationUS: elapsed.components.seconds * 1_000_000 + elapsed.components.attoseconds / 1_000_000_000_000)
         let recording = ContinuousClock.now
@@ -165,11 +167,18 @@ extension RecallService {
         return ChoiceAnswer(delivery: delivery, queryID: queryID, recordedNow: true)
     }
 
+    /// Whether `id` names a proposal recorded for the task: what a use that names it instead of a query is told.
+    public func isProposal(_ id: String, of taskID: String) async -> Bool {
+        guard let recorded = try? await memory.perform({ try await $0.recall.proposal(id) }) else { return false }
+        return recorded.proposal.taskID == taskID
+    }
+
     // MARK: Rendering
 
     /// A proposal's text: per need the versions shortlisted and the suggestion; per version every step on one line.
     static func render(_ proposal: RecallChoice.Proposal, sources: [String: RecallSource], suggestions: [NeedOutcome],
-                       context: RecallSelector.Context, values: [TaskValue], search: RecallDelivery.Search) -> RecallProposalDelivery {
+                       context: RecallSelector.Context, values: [TaskValue], search: RecallDelivery.Search,
+                       index: RecallDelivery.Index) -> RecallProposalDelivery {
         let candidates = RecallBinding.candidates(values)
         let needs = proposal.needs.enumerated().map { index, need -> RecallProposalDelivery.Need in
             let mine = proposal.shortlisted.filter { $0.needPosition == index }
@@ -178,8 +187,30 @@ extension RecallService {
                 let coverage = suggestions.indices.contains(index) ? suggestions[index].coverage.rawValue : "unknown"
                 return "\(item.key) steps \(range.lowerBound + 1)–\(range.upperBound + 1) (\(coverage))"
             }
-            return RecallProposalDelivery.Need(need: index + 1, text: need.text, app: need.bundleID.map(RecallDocument.applicationName),
-                                               sources: mine.map(\.key), suggested: suggested)
+            var rendered = RecallProposalDelivery.Need(need: index + 1, text: need.text, app: need.bundleID.map(RecallDocument.applicationName),
+                                                       sources: mine.map(\.key), suggested: suggested)
+            // The plan item that chooses the suggestion, else the first source's steps a choice admits: one call to record
+            // the reuse. A source with steps not offered gives its admitted runs, covering part of the need; one with none
+            // gives no plan.
+            let chosen = mine.first { $0.suggested != nil } ?? mine.first
+            if let chosen, let source = sources[chosen.routeID], let first = source.steps.first?.position, let last = source.steps.last?.position {
+                let runs = chosen.suggested.map { [$0] } ?? RecallChoice.admissibleRuns(of: source, need: need, context: context)
+                if !runs.isEmpty {
+                    // A suggestion covers the need as its coverage says; the source's own runs only when they are all of it.
+                    let whole = chosen.suggested != nil
+                        ? suggestions.indices.contains(index) && suggestions[index].coverage == .complete
+                        : runs == [first...last]
+                    let tracts = runs.map { #"{"source":"\#(chosen.key)","from":\#($0.lowerBound + 1),"to":\#($0.upperBound + 1)}"# }
+                    let left = source.steps.map(\.position).filter { position in !runs.contains { $0.contains(position) } }
+                    // Only the steps a source does not offer are named: a suggestion's other steps are offered, just not suggested.
+                    let uncovered = whole || chosen.suggested != nil || left.isEmpty ? ""
+                        : #","uncovered":"steps \#(left.map { String($0 + 1) }.joined(separator: ", ")) of \#(chosen.key) "#
+                            + #"are not offered: do that work yourself""#
+                    rendered.readyPlan = #"{"need":\#(index + 1),"tracts":[\#(tracts.joined(separator: ","))],"covered":"\#(whole ? "all" : "part")""#
+                        + uncovered + "}"
+                }
+            }
+            return rendered
         }
         var seen: Set<String> = []
         var rendered: [RecallProposalDelivery.Source] = []
@@ -200,8 +231,10 @@ extension RecallService {
             rendered.append(Self.render(source, key: item.key, relevance: proposal.shortlisted.filter { $0.routeID == item.routeID }.map(\.relevance).max() ?? item.relevance,
                                         excluded: excluded, candidates: candidates, values: values))
         }
-        return RecallProposalDelivery(proposal: proposal.proposalID, revision: proposal.revision, search: search, needs: needs, sources: rendered,
-                                      guidance: RecallProposalDelivery.guidance)
+        let guidance = search.status == SearchStatus.unavailable.rawValue || search.status == SearchStatus.failed.rawValue
+            ? RecallProposalDelivery.unsearchedGuidance : rendered.isEmpty ? RecallProposalDelivery.nothingGuidance : RecallProposalDelivery.guidance
+        return RecallProposalDelivery(proposal: proposal.proposalID, revision: proposal.revision, index: index, search: search, needs: needs,
+                                      sources: rendered, guidance: guidance)
     }
 
     /// One shortlisted version, whole: its episodes, each step on one line, its parameters with how they bind, the outputs
@@ -246,17 +279,28 @@ extension RecallService {
             return "{\(output.name)} (\(output.role)): produced at steps \(part.firstPosition + 1)–\(part.lastPosition + 1)"
         }
         let apps = Array(NSOrderedSet(array: source.steps.compactMap { $0.bundleID.map(RecallDocument.applicationName) })).compactMap { $0 as? String }
-        let evidence = "steps individually qualified (qualification A: each operation's own check, not the task's result)"
+        let evidence = Self.evidence(of: source)
             + (source.confirmedUses > 0 ? "; carried out and verified in \(source.confirmedUses) earlier reuse(s)" : "")
-        return RecallProposalDelivery.Source(source: key, version: source.routeID, procedure: source.procedureLabel, apps: apps,
-                                             relevance: (relevance * 1000).rounded() / 1000, episodes: episodes, steps: steps,
-                                             parameters: lines, outputs: outputs.isEmpty ? nil : outputs, evidence: evidence)
+        var rendered = RecallProposalDelivery.Source(source: key, version: source.routeID, procedure: source.procedureLabel, apps: apps,
+                                                     relevance: (relevance * 1000).rounded() / 1000, episodes: episodes, steps: steps,
+                                                     parameters: lines, outputs: outputs.isEmpty ? nil : outputs, evidence: evidence)
+        rendered.result = source.results.isEmpty ? nil : source.results.map { $0.line() }
+        return rendered
+    }
+
+    /// What a source's admission rests on, in words: its result checked by Braus, or its operations' own checks alone.
+    static func evidence(of source: RecallSource) -> String {
+        switch source.resultVerdict {
+            case .passed?: "its result checked by Braus (\(source.results.map(\.expectation.kind).joined(separator: ", "))) and its steps' own checks"
+            case .failed?: "its result checked by Braus failed: only steps verified on their own are offered"
+            default: "steps individually qualified (each operation's own check; the task named no result Braus could read)"
+        }
     }
 
     /// A step's recorded operation as one line: its tool and its arguments, fixed texts quoted, the task's values as
     /// `{parameter}`, menu paths as written.
     static func operation(of step: RecallSource.Step, name: (String) -> String) -> String {
-        let arguments = step.arguments.map { argument -> String in
+        let arguments = step.arguments.filter(RecallService.isDelivered).map { argument -> String in
             let value: String = switch argument.value {
                 case .literal(.text(let text)): "\"\(text)\""
                 case .literal(.integer(let number)): String(number)

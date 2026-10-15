@@ -260,6 +260,28 @@ struct MenuBarCommandTests {
         #expect(result.outcome.kind == .foundActed)
     }
 
+    @Test("An item its moment in front renamed answers with the menu's current items, not a bare refusal")
+    func aRenamedItemListsTheCurrentMenu() async {
+        var activated = false
+        var presses = 0
+        let result = await MenuBarCommand.runInFront(
+            read: { () -> MenuBarCommand.Resolution<Node> in
+                activated
+                    ? .outcome(ActOutcome(.honestMiss, "No item 'Esporta come…' in File. It holds: Apri…, Esporta…."))
+                    : .disabled(path: "File > Esporta come…")
+            },
+            press: { (_: Node) in presses += 1; return .success },
+            withFront: { _ in
+                activated = true
+                return "The item did not read enabled before the moment ended."
+            }
+        )
+        #expect(presses == 0)
+        #expect(result.pressed == nil)
+        #expect(result.outcome.kind == .honestMiss)
+        #expect(result.outcome.message.contains("Esporta…") && result.outcome.message.contains("can rename its items"))
+    }
+
     @Test("A scope refusal dispatches nothing; a failure after dispatch retains its possible effect",
           arguments: [false, true])
     func aScopedFailureRetainsDelivery(_ dispatches: Bool) async {

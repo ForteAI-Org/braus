@@ -177,6 +177,13 @@ struct EndpointDiscovery {
         Int32, DialogEndpointResolver<AXUIElement>.SurfaceChain
     ) -> Int? = { _, _ in nil }
 
+    /// The one window of another process the children of a surface's own
+    /// window node name, read without focus or geometry: what says a standalone
+    /// panel is drawn by another process (`isStandaloneRemotePanel`).
+    var remotePanelContentWindow: (
+        Int32, DialogEndpointResolver<AXUIElement>.SurfaceChain
+    ) -> DialogEndpointResolver<AXUIElement>.RemotePanelReading = { _, _ in .notPanel }
+
     /// An ordinary window's own content with no Window ID, such as a web page,
     /// takes its events itself: a point is proved from the node under it, no
     /// point from the focused control. Asked only without a modal relation.
@@ -315,6 +322,11 @@ struct EndpointDiscovery {
             DialogEndpointResolver<AXUIElement>
                 .accessibility(assignedProcessID: processID)
                 .foreignContentWindow(within: chain)
+        },
+        remotePanelContentWindow: { processID, chain in
+            DialogEndpointResolver<AXUIElement>
+                .accessibility(assignedProcessID: processID)
+                .remotePanelContentWindow(within: chain)
         },
         windowlessContent: { processID, point, chain, generation in
             DialogEndpointResolver<AXUIElement>
@@ -876,7 +888,9 @@ extension AgentSeat {
                 chain,
                 observation.selectionGeneration
             )
-            if hasAttestedModalRelation,
+            // A standalone panel the panel service draws takes the remote routes a modal one takes.
+            let takesRemoteKeys = hasAttestedModalRelation || isStandaloneRemotePanel(sheet)
+            if takesRemoteKeys,
                let remote = remoteContentKeyboardContext(
                    after     : outcome,
                    processID : instance.processID,
@@ -894,7 +908,7 @@ extension AgentSeat {
                 outcome = .success(remote)
             }
             if case .failure(.subtreeUnreadable) = outcome {
-                outcome = hasAttestedModalRelation
+                outcome = takesRemoteKeys
                     ? endpoints.focusedDescendantKeyboardContext(
                         instance.processID, chain, observation.selectionGeneration
                     )
@@ -1145,6 +1159,47 @@ extension AgentSeat {
         return settle + (platform.keyWindowPriming(for: command)?.settle ?? .zero)
     }
 
+    /// Whether `surface`, a window the seat holds with no modal relation, is a
+    /// standalone file panel whose whole content the qualified AppKit panel
+    /// service draws: Preview's Open panel at launch, which AppKit runs without
+    /// a modal session (`AXModal` false). Such a panel takes the position
+    /// realignment and the keyboard routes a modal remote panel takes (ADR 0031,
+    /// follow-up of 14/10/2026). It is not a modal relation: the focus
+    /// recovery's closure expectation and every other modal rule are unchanged.
+    ///
+    /// The answer is kept per window lifetime, since a window's content does not
+    /// change owner: an ordinary window pays one read of its node's children,
+    /// once. A reading that could not be taken is not kept.
+    func isStandaloneRemotePanel(_ surface: WindowIdentity) -> Bool {
+        if let known = standaloneRemotePanelReadings[surface] { return known }
+        guard selectionKit.attachedHost(of: surface) == nil,
+              selectionKit.namedModalHost(of: surface) == nil,
+              !selectionKit.isApplicationModal(surface)
+        else { return false }
+        guard let instance = assignmentKit.lifecycle.current?.instance,
+              let record = session[surface.windowNumber],
+              record.window.reference.identity == surface,
+              let frame = sensing.windowGeometry(of: surface.windowNumber)?.frame
+        else { return false }
+        let chain = DialogEndpointResolver<AXUIElement>.SurfaceChain(host: surface, surface: surface, surfaceFrame: frame)
+        let answer: Bool
+        switch endpoints.remotePanelContentWindow(instance.processID, chain) {
+            case .panel(let content):
+                guard let owner = endpoints.identity(content) else { return false }
+                answer = owner.process != surface.process
+                    && endpoints.qualifiedRemoteContent(owner, surface) == .filePanelService
+            case .notPanel:
+                answer = false
+            case .unreadable:
+                return false
+        }
+        standaloneRemotePanelReadings[surface] = answer
+        if answer {
+            AgentSeat.observationLog.notice("window \(surface.windowNumber, privacy: .public) is a standalone panel the panel service draws: it takes the remote panel's realignment and keyboard routes")
+        }
+        return answer
+    }
+
     /// The one modal-relation predicate shared by endpoint discovery and focus
     /// recovery. Capture may observe an ordinary surface, so it cannot decide
     /// whether a successful speculative endpoint is a dialog closure.
@@ -1260,6 +1315,7 @@ extension AgentSeat {
                   endpoint.evidence == .remoteContentOfSurface
                     || selectionKit.namedModalHost(of: endpoint.logicalSurface) != nil
                     || selectionKit.isApplicationModal(endpoint.logicalSurface)
+                    || isStandaloneRemotePanel(endpoint.logicalSurface)
             else { return .focusedNodeChanged }
 
             let generation = selectionKit.selected?.generation ?? .max
@@ -1275,7 +1331,8 @@ extension AgentSeat {
             var reading = endpoints.keyboardContext(instance.processID, chain, generation)
             // The resolution's own routes for a modal's unreadable or window-node focus.
             if selectionKit.namedModalHost(of: endpoint.logicalSurface) != nil
-                   || selectionKit.isApplicationModal(endpoint.logicalSurface),
+                   || selectionKit.isApplicationModal(endpoint.logicalSurface)
+                   || isStandaloneRemotePanel(endpoint.logicalSurface),
                let remote = remoteContentKeyboardContext(
                    after     : reading,
                    processID : instance.processID,
@@ -1619,8 +1676,19 @@ extension AgentSeat {
     @discardableResult
     func dropDestroyedRecord(_ windowNumber: Int) -> Bool {
 
-        guard session[windowNumber] != nil else { return false }
-        forgetRecord(windowNumber)
+        guard let record = session[windowNumber] else { return false }
+        // The last held window of the assigned application destroyed while the application runs on: its
+        // next window, the panel opened again or the document a panel opened, is still the seat's to take
+        // in (`followedProcesses`, 14/10/2026).
+        var awaited: ProcessIdentity?
+        if session.records.count == 1,
+           let instance = assignmentKit.lifecycle.current?.instance,
+           record.window.reference.identity?.process == instance,
+           sensing.isActive(processID: instance.processID) != nil {
+            awaited = instance
+            AgentSeat.observationLog.notice("the last held window \(windowNumber, privacy: .public) was destroyed while its application runs on: the seat keeps following it for its next window")
+        }
+        forgetRecord(windowNumber, awaitingSuccessorOf: awaited)
         if stagedWindowNumber == windowNumber { stagedWindowNumber = nil }
         releaseLedger[windowNumber] = .vanished
         eventChannel.yield(.windowReleased(windowNumber: windowNumber, outcome: .vanished))

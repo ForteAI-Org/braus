@@ -157,13 +157,13 @@ public enum SQLiteMemoryInspection {
             switch inspection {
             case .empty:
                 return .read(.empty, version: version, counts: [:])
-            case .current, .previous:
+            case .current, .previous, .historical:
                 var counts: [String: Int] = [:]
                 for table in countedTables {
                     // Table names are this module's own literals; nothing from a caller is spliced in.
                     counts[table] = Int(try connection.query("SELECT count(*) FROM \(table)") { $0.integer(0) ?? 0 }.first ?? 0)
                 }
-                if case .previous(let earlier) = inspection {
+                if let earlier = SQLiteMemoryStore.migratedVersion(inspection) {
                     return .read(.migratable(from: earlier), version: version, counts: counts)
                 }
                 return .read(.current, version: version, counts: counts)
@@ -192,6 +192,220 @@ public enum SQLiteMemoryInspection {
     /// migrates and recovers nothing, so an archive of an earlier schema is read by Braus's next open
     /// first.
     public static func task(_ taskID: String, in url: URL) -> TaskReading {
+        switch opened(url, { try SQLiteProcedureRows.inspection($0, taskID: taskID) }) {
+            case .read(let found?):       return .found(found)
+            case .read(nil):              return .notFound
+            case .unavailable(let why):   return .unavailable(why)
+        }
+    }
+
+    /// TaskRow is one task as the listing shows it: who opened it, its status and times, the goal of its
+    /// current revision, and how much the procedures and the Recall hold of it, counted.
+    public struct TaskRow: Sendable, Equatable {
+        public let taskID: String
+        public let source: String
+        public let streamID: String
+        public let status: String
+        public let openedAtMS: Int64
+        public let closedAtMS: Int64?
+        public let currentRevision: Int
+        public let goal: String
+        public let attempts: Int
+        public let versions: Int
+        public let proposals: Int
+        public let choices: Int
+        public let queries: Int
+        /// The candidates the task's attempts built, and those no interpretation took: a completed task with one of
+        /// these and no version learned nothing (`braus chat --script` reports them).
+        public let candidates: Int
+        public let uninterpreted: Int
+        /// Braus's own verdict on the task's result, from the checks it read (`TaskResultCheck`), guards and `none`
+        /// left out: `failed` when one failed, `passed` when one passed and none failed, `unknown` when none could tell,
+        /// `none` when the task said it leaves nothing to read, `missing` when it named no result.
+        public let result: String
+        /// Braus's guards that failed (a file input no check named changed, a file no check named appeared) and that no
+        /// check passed on the same path explains: a task that changed its input on purpose and named it later is not
+        /// counted. Shown, never part of the result.
+        public let guardsFailed: Int
+
+        public init(taskID: String, source: String, streamID: String, status: String, openedAtMS: Int64, closedAtMS: Int64?,
+                    currentRevision: Int, goal: String, attempts: Int, versions: Int, proposals: Int, choices: Int, queries: Int,
+                    candidates: Int = 0, uninterpreted: Int = 0, result: String = "missing", guardsFailed: Int = 0) {
+            self.taskID          = taskID
+            self.source          = source
+            self.streamID        = streamID
+            self.status          = status
+            self.openedAtMS      = openedAtMS
+            self.closedAtMS      = closedAtMS
+            self.currentRevision = currentRevision
+            self.goal            = goal
+            self.attempts        = attempts
+            self.versions        = versions
+            self.proposals       = proposals
+            self.choices         = choices
+            self.queries         = queries
+            self.candidates      = candidates
+            self.uninterpreted   = uninterpreted
+            self.result          = result
+            self.guardsFailed    = guardsFailed
+        }
+    }
+
+    /// TasksReading is what a listing of the tasks found.
+    public enum TasksReading: Sendable, Equatable {
+        /// The tasks, newest first, at most the limit asked.
+        case found([TaskRow])
+        /// Nothing was read, and why (as `TaskReading.unavailable`).
+        case unavailable(String)
+    }
+
+    /// Lists the archive's tasks, newest first, as `task` reads one: read only, from an archive of this
+    /// build's shape. `source` keeps the tasks of one producer kind (`app`, `mcp`, `cli`, …); `limit` caps
+    /// the rows. The goal printed is the current revision's, as the agent stated it.
+    public static func tasks(in url: URL, limit: Int = 20, source: String? = nil) -> TasksReading {
+        rows(in: url, filter: "? IS NULL OR t.source = ?",
+             [source.map(SQLiteValue.text) ?? .null, source.map(SQLiteValue.text) ?? .null], limit: limit)
+    }
+
+    /// The tasks with these ids, newest first, as `tasks(in:)` reads them: what a chat script says of the tasks a
+    /// request opened.
+    public static func tasks(in url: URL, ids: [String]) -> TasksReading {
+        guard !ids.isEmpty else { return .found([]) }
+        return rows(in: url, filter: "t.task_id IN (" + ids.map { _ in "?" }.joined(separator: ", ") + ")",
+                    ids.map(SQLiteValue.text), limit: ids.count)
+    }
+
+    /// The task's result checks, for a subquery over task `t`.
+    private static let taskChecks = "FROM memory_task_attempts a JOIN memory_task_events e ON e.task_occurrence_id = "
+        + "a.task_occurrence_id JOIN memory_verifications v ON v.event_id = e.event_id WHERE a.task_id = t.task_id "
+        + "AND v.scope = 'task'"
+
+    private static func rows(in url: URL, filter: String, _ values: [SQLiteValue], limit: Int) -> TasksReading {
+        switch opened(url, { connection in
+            try connection.query(
+                """
+                SELECT t.task_id, t.source, t.source_stream_id, t.status, t.opened_at_ms, t.closed_at_ms, t.current_revision,
+                       (SELECT r.goal FROM memory_task_revisions r WHERE r.task_id = t.task_id AND r.revision = t.current_revision),
+                       (SELECT count(*) FROM memory_task_attempts a WHERE a.task_id = t.task_id),
+                       (SELECT count(*) FROM memory_procedure_versions v JOIN memory_task_attempts a
+                           ON a.task_occurrence_id = v.task_occurrence_id WHERE a.task_id = t.task_id),
+                       (SELECT count(*) FROM memory_recall_proposals p WHERE p.task_id = t.task_id),
+                       (SELECT count(*) FROM memory_recall_choices c JOIN memory_recall_proposals p ON p.proposal_id = c.proposal_id
+                           WHERE p.task_id = t.task_id),
+                       (SELECT count(*) FROM memory_recall_queries q WHERE q.task_id = t.task_id),
+                       (SELECT count(*) FROM memory_procedure_candidates c WHERE c.task_id = t.task_id),
+                       (SELECT count(*) FROM memory_procedure_candidates c WHERE c.task_id = t.task_id AND NOT EXISTS
+                           (SELECT 1 FROM memory_procedure_interpretations i WHERE i.candidate_id = c.candidate_id)),
+                       (SELECT CASE WHEN sum(v.verdict = 'failed') > 0 THEN 'failed' WHEN sum(v.verdict = 'passed') > 0
+                           THEN 'passed' ELSE 'unknown' END \(Self.taskChecks) AND v.method NOT IN ('none', 'guard')
+                           HAVING count(*) > 0),
+                       (SELECT count(*) \(Self.taskChecks) AND v.method = 'none'),
+                       (SELECT count(*) \(Self.taskChecks) AND v.method = 'guard' AND v.verdict = 'failed' AND NOT EXISTS (
+                           SELECT 1 FROM memory_task_attempts a2 JOIN memory_task_events e2 ON e2.task_occurrence_id =
+                           a2.task_occurrence_id JOIN memory_verifications w ON w.event_id = e2.event_id
+                           WHERE a2.task_id = t.task_id AND w.scope = 'task' AND w.method NOT IN ('none', 'guard')
+                             AND w.verdict = 'passed'
+                             AND json_extract(w.expected_text, '$.path') = json_extract(v.expected_text, '$.path')))
+                FROM memory_tasks t
+                WHERE \(filter)
+                ORDER BY t.opened_at_ms DESC, t.task_id
+                LIMIT ?
+                """,
+                values + [.integer(Int64(max(0, limit)))]
+            ) { row in
+                TaskRow(taskID: try row.text(0) ?? "", source: try row.text(1) ?? "", streamID: try row.text(2) ?? "",
+                        status: try row.text(3) ?? "", openedAtMS: row.integer(4) ?? 0, closedAtMS: row.integer(5),
+                        currentRevision: Int(row.integer(6) ?? 1), goal: try row.text(7) ?? "", attempts: Int(row.integer(8) ?? 0),
+                        versions: Int(row.integer(9) ?? 0), proposals: Int(row.integer(10) ?? 0), choices: Int(row.integer(11) ?? 0),
+                        queries: Int(row.integer(12) ?? 0), candidates: Int(row.integer(13) ?? 0),
+                        uninterpreted: Int(row.integer(14) ?? 0),
+                        result: try row.text(15) ?? ((row.integer(16) ?? 0) > 0 ? "none" : "missing"),
+                        guardsFailed: Int(row.integer(17) ?? 0))
+            }
+        }) {
+            case .read(let rows):       return .found(rows)
+            case .unavailable(let why): return .unavailable(why)
+        }
+    }
+
+    /// RecallIndexReport is the Recall's index as a reader finds it: the live generations (ready or
+    /// building) with their format, space and revision, the entries of the one that answers and the
+    /// vectors it still lacks, and the index work pending. The same facts `braus memory --recall-status`
+    /// prints from a running memory, read here without opening one.
+    public struct RecallIndexReport: Sendable, Equatable {
+        public struct Generation: Sendable, Equatable {
+            public let id: Int64
+            public let status: String
+            public let format: String
+            public let spaceID: String?
+            public let revision: Int64
+            public let isEnumerated: Bool
+
+            public init(id: Int64, status: String, format: String, spaceID: String?, revision: Int64, isEnumerated: Bool) {
+                self.id           = id
+                self.status       = status
+                self.format       = format
+                self.spaceID      = spaceID
+                self.revision     = revision
+                self.isEnumerated = isEnumerated
+            }
+        }
+
+        public let generations: [Generation]
+        public let entries: Int
+        public let vectorBacklog: Int
+        public let pendingWork: Int
+
+        public init(generations: [Generation], entries: Int, vectorBacklog: Int, pendingWork: Int) {
+            self.generations   = generations
+            self.entries       = entries
+            self.vectorBacklog = vectorBacklog
+            self.pendingWork   = pendingWork
+        }
+    }
+
+    /// RecallIndexReading is what a read of the Recall's index found.
+    public enum RecallIndexReading: Sendable, Equatable {
+        case found(RecallIndexReport)
+        case unavailable(String)
+    }
+
+    /// Reads the Recall's index as `task` reads a task: read only, from an archive of this build's shape.
+    public static func recallIndex(in url: URL) -> RecallIndexReading {
+        switch opened(url, { connection in
+            let live = try SQLiteRecallRows.generations(connection, where: "status IN ('ready', 'building')")
+            let pending = Int(try connection.query("SELECT count(*) FROM memory_recall_work WHERE done_at_ms IS NULL") {
+                $0.integer(0) ?? 0
+            }.first ?? 0)
+            let answering = live.first { $0.status == .ready } ?? live.first
+            let entries = try answering.map { generation in
+                Int(try connection.query("SELECT count(*) FROM memory_recall_entries WHERE generation_id = ?",
+                                         [.integer(generation.generationID)]) { $0.integer(0) ?? 0 }.first ?? 0)
+            } ?? 0
+            let backlog = try answering.map { try SQLiteRecallRows.vectorBacklog(connection, $0) } ?? 0
+            return RecallIndexReport(
+                generations: live.map {
+                    RecallIndexReport.Generation(id: $0.generationID, status: $0.status.rawValue, format: $0.format.rawValue,
+                                                 spaceID: $0.spaceID, revision: $0.revision, isEnumerated: $0.isEnumerated)
+                },
+                entries: entries, vectorBacklog: backlog, pendingWork: pending
+            )
+        }) {
+            case .read(let report):     return .found(report)
+            case .unavailable(let why): return .unavailable(why)
+        }
+    }
+
+    /// What one read-only opening of the archive gave: the body's answer, or why nothing was read.
+    private enum Opened<T> {
+        case read(T)
+        case unavailable(String)
+    }
+
+    /// Opens the archive as `inspect` reads it, for one body: read only, under the shared presence lock, in
+    /// one read transaction, only from an archive of exactly this build's shape, with the library's busy
+    /// answers retried. It creates, migrates and recovers nothing.
+    private static func opened<T>(_ url: URL, _ body: (SQLiteConnection) throws -> T) -> Opened<T> {
         let manager = FileManager.default
         guard manager.fileExists(atPath: url.path) else { return .unavailable("no archive at \(url.path)") }
         let presence: SQLiteMemoryPresence
@@ -216,8 +430,7 @@ public enum SQLiteMemoryInspection {
                 guard case .current = try SQLiteMemoryStore.inspect(connection, expected: expected) else {
                     return .unavailable("the archive is not of schema \(supportedVersion); `braus memory --status` says what it is")
                 }
-                guard let found = try SQLiteProcedureRows.inspection(connection, taskID: taskID) else { return .notFound }
-                return .found(found)
+                return .read(try body(connection))
             } catch let failure as SQLiteConnection.Failure where failure.isBusy && attempt < busyAttempts {
                 usleep(busyPauseMicroseconds)
             } catch MemoryStoreError.schema(let mismatch) {

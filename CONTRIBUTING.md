@@ -88,8 +88,10 @@ make test SWIFT=swift
 git diff --check
 ```
 
-`SWIFT=swift` uses the same compiler as the build. Use a terminal without live-test
-opt-ins for local checks. The final `TIER_RESULT` must contain `"status": "passed"`
+`SWIFT=swift` uses the same compiler as the build. `make test` also refuses a tree in
+which any tracked file, binary assets included, names the product by its earlier name:
+the product is Braus everywhere, in code, documents, fixtures and assets. Use a terminal
+without live-test opt-ins for local checks. The final `TIER_RESULT` must contain `"status": "passed"`
 and `"problems": []`; an exit status alone does not prove completion.
 During development, narrow the run with `swift test --filter ActionEngineTests`.
 

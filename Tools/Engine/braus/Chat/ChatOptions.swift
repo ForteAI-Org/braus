@@ -15,6 +15,14 @@ struct ChatOptions {
     var help = false
     var allowUnvalidated = false
     var allowDestructive = false
+    /// A file of requests, one chat each, on one archive (`--script`).
+    var script: String?
+    /// Where a script's run leaves its evidence (`--evidence`).
+    var evidence: String?
+    /// A JSON file with the identity the process must answer to `memory_task status` before any turn (`--preflight`).
+    var preflight: String?
+    /// Whether a script goes on after a request that failed (`--continue`).
+    var continueOnError = false
 
     init(arguments: [String]) throws {
         var index = 0
@@ -40,7 +48,8 @@ struct ChatOptions {
             case "--help": help = true
             case "--allow-unvalidated-build": allowUnvalidated = true
             case "--allow-destructive": allowDestructive = true
-            case "--provider", "--model", "--resume", "--history-dir", "--knowledge":
+            case "--continue": continueOnError = true
+            case "--provider", "--model", "--resume", "--history-dir", "--knowledge", "--script", "--evidence", "--preflight":
                 index += 1
                 guard index < arguments.count, !arguments[index].hasPrefix("--"), !arguments[index].isEmpty else {
                     throw invalid("Missing value for \(word).")
@@ -57,6 +66,9 @@ struct ChatOptions {
                     hasModelOption = true
                 case "--resume": resume = value
                 case "--history-dir": historyDirectory = value
+                case "--script": script = value
+                case "--evidence": evidence = value
+                case "--preflight": preflight = value
                 default: knowledgeDirectory = value
                 }
             default: throw invalid("Unknown chat option: \(word)")
@@ -65,6 +77,12 @@ struct ChatOptions {
         }
         if once && prompt == nil { throw invalid("--once requires a quoted prompt.") }
         if list && (prompt != nil || resume != nil) { throw invalid("--list cannot send or resume a conversation.") }
+        if script != nil && (prompt != nil || once || resume != nil || list) {
+            throw invalid("--script runs the file's requests: no prompt, --once, --resume or --list with it.")
+        }
+        if script != nil && provider == nil { throw invalid("--script needs --provider claude|codex.") }
+        if continueOnError && script == nil { throw invalid("--continue goes with --script.") }
+        if evidence != nil && script == nil { throw invalid("--evidence goes with --script.") }
     }
 
     private func invalid(_ text: String) -> NSError {
@@ -84,8 +102,16 @@ struct ChatOptions {
       --knowledge <directory>      override Braus's application memory
       --allow-unvalidated-build    explicit Driver research opt-in
       --allow-destructive          allow Engine targets classified as destructive
+      --script <file>              one chat per request of the file (blocks of lines, # comments, a block
+                                   starting with > continues the chat before it), on one archive, with
+                                   --provider; the Seat is released between requests
+      --evidence <directory>       with --script: per request its conversation, tasks, each task's
+                                   diagnosis (braus memory --task) and a summary with times and tokens
+      --preflight <file.json>      before any turn, the identity the process must answer to memory_task
+                                   status (archive, recall.channel, …); a difference stops the chat
+      --continue                   with --script: go on after a request that failed
 
-    Interactive: /help, /model, /status, /release, /quit
+    Interactive: /help, /model, /status, /memory, /release, /quit
     Ctrl+C stops the turn, releases the Seat, and saves the conversation for --resume.
     Chat defaults to background Seat actions. No foreground fallback.
     macOS permissions still belong to the terminal launching Braus.

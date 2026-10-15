@@ -288,6 +288,29 @@ struct ModelToolLoopTests {
         #expect(answered.text.contains(#""permissions""#))
     }
 
+    @Test func aFinalAnswerThatLeftACandidateGetsOneRoundAskingForIt() async throws {
+        let transport = ScriptedTransport(
+            supportsTools: true,
+            rounds       : [
+                [.delta("Done."), .completed(usage)],
+                [.delta("Interpreted."), .completed(usage)],
+            ]
+        )
+        var reminders = ["Braus: interpret candidate c1."]
+        var events    = [WorkerAgentEvent]()
+
+        try await ModelToolLoop(
+            call    : { _, _ in MCPRouter.toolResult(.object([:])) },
+            reminder: { reminders.popLast() }
+        ).run(transport: transport, role: nil, history: [], prompt: "Rotate it.") { events.append($0) }
+
+        #expect(transport.sent.count == 2, "one more round, then the end once nothing is pending")
+        #expect(transport.sent.last?.messages.suffix(2).map(\.role) == [.assistant, .user])
+        #expect(transport.sent.last?.messages.last?.text == "Braus: interpret candidate c1.")
+        #expect(events.contains(.provider(.activity("Braus: interpret candidate c1."))))
+        #expect(Array(events.suffix(2)) == [.provider(.assistant("Interpreted.")), .provider(.completed)])
+    }
+
     @Test func theRoundsRecordGoesBackOnTheAssistantMessageThatMadeTheCalls() async throws {
         let record = TurnRecord(
             provider: .anthropic,

@@ -78,7 +78,8 @@ public struct ObservedState: Sendable, Equatable, Hashable {
 /// RecallRequest is one query as the producer offers it: the task, attempt and revision it serves, why it is made,
 /// the remaining work, the needs, the task's values (its inputs, the outputs of earlier work that are ready, the
 /// values still missing), its constraints, and the applications the request imposes. The values are bound to
-/// what is selected by name and role; they are never searched with.
+/// what is selected by name and role; they are never searched with. `notes` are what the request's boundary could not
+/// settle and the answer must say, such as an application a need named that could not be resolved.
 public struct RecallRequest: Sendable {
     public let taskID: String
     public let attemptID: String
@@ -88,9 +89,10 @@ public struct RecallRequest: Sendable {
     public let needs: [RecallNeed]
     public let values: [TaskValue]
     public let constraints: [String]
+    public let notes: [String]
 
     public init(taskID: String, attemptID: String, revision: Int, reason: RecallReason, remainingWork: String, needs: [RecallNeed] = [],
-                values: [TaskValue] = [], constraints: [String] = []) throws {
+                values: [TaskValue] = [], constraints: [String] = [], notes: [String] = []) throws {
         guard !remainingWork.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw TaskContextError.invalid(.emptyText(field: "remaining"))
         }
@@ -106,6 +108,7 @@ public struct RecallRequest: Sendable {
         self.needs         = needs
         self.values        = values
         self.constraints   = constraints
+        self.notes         = notes
     }
 
     /// The needs searched: the ones named, or the remaining work as the only one.

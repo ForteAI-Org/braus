@@ -1,13 +1,14 @@
 import Darwin
 import Foundation
 
-/// ChatSignals translates SIGINT/SIGTERM into one asynchronous shutdown owned by the terminal composition.
+/// ChatSignals translates SIGINT/SIGTERM into one asynchronous shutdown owned by the terminal composition, told which
+/// signal came.
 final class ChatSignals {
     private var sources: [any DispatchSourceSignal] = []
     private var fired = false
-    private let stopAction: () -> Void
+    private let stopAction: (Int32) -> Void
 
-    init(onStop: @escaping () -> Void) {
+    init(onStop: @escaping (Int32) -> Void) {
         stopAction = onStop
         for number in [SIGINT, SIGTERM] {
             signal(number, SIG_IGN)
@@ -16,7 +17,7 @@ final class ChatSignals {
                 Task { @MainActor in
                     guard let self, !self.fired else { return }
                     self.fired = true
-                    self.stopAction()
+                    self.stopAction(number)
                 }
             }
             source.resume()

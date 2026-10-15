@@ -385,7 +385,7 @@ struct PhotoshopProbe {
             print("UXP_MODEL_FIXTURE activation=\(outcome) foreground-restored=\(NSWorkspace.shared.frontmostApplication?.processIdentifier == foreground) admission-checks=\(admissionChecks)")
             switch outcome {
                 case .ready: fixtureReady = true
-                case .notReady: fixtureReady = false
+                case .notReady, .frontElsewhere: fixtureReady = false
                 default:
                     throw LiveFailure.unsupported("The Photoshop document fixture activation did not complete: \(outcome)")
             }

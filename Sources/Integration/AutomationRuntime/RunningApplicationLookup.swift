@@ -23,6 +23,15 @@ public enum RunningApplicationLookup {
         return applications[index]
     }
 
+    /// Whether no running application answers to `word` in any of the tiers of `running`: what lets a reader say an
+    /// application is not running, where a name several applications answer to says nothing.
+    public static func isNotRunning(_ word: String) -> Bool {
+        let wanted = folded(word)
+        return !NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.contains { application in
+            application.bundleIdentifier.map(folded) == wanted || names(of: application).map(folded).contains { $0.contains(wanted) }
+        }
+    }
+
     /// The index of the application `word` names among `applications`, each a bundle id and its names,
     /// by the tiers of `running`. Throws when none matches, or when several share a prefix or containing tier.
     nonisolated public static func chosen(

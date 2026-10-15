@@ -289,6 +289,30 @@ public enum RecallChoice {
         return .success(chosen)
     }
 
+    /// The runs of consecutive steps of a source that a choice for this need admits, as `check` reads them: offered, in
+    /// the need's application, outside what a certain reason excludes and the episode it belongs to. What a ready plan
+    /// proposes when nothing was suggested: the whole source, with a step not offered in it, was refused by Braus itself
+    /// when the agent sent the plan Braus had written (review R3, 14 October 2026).
+    public static func admissibleRuns(of source: RecallSource, need: RecallNeed, context: RecallSelector.Context) -> [ClosedRange<Int>] {
+        let reading = RecallSelector.Reading(ScoredSource(source: source, stepRelevance: [:], partRelevance: [:]), need: need,
+                                             context: context.knowing(need), thresholds: Self.unread)
+        var runs: [ClosedRange<Int>] = []
+        var current: ClosedRange<Int>?
+        for step in source.steps.sorted(by: { $0.position < $1.position }) {
+            let position = step.position
+            let inApplication = need.bundleID == nil || step.bundleID == nil || step.bundleID == need.bundleID
+            let admitted = step.isOffered && inApplication && reading.reasons[position] == nil && !reading.excluded.contains(position)
+            if admitted, let run = current, run.upperBound == position - 1 {
+                current = run.lowerBound...position
+            } else {
+                if let run = current { runs.append(run) }
+                current = admitted ? position...position : nil
+            }
+        }
+        if let run = current { runs.append(run) }
+        return runs
+    }
+
     /// The problems of a need's tracts (or alternatives): each names a source of the proposal, still current, a range of its
     /// steps, every step offered, in the need's application and outside what a certain reason excludes (the excluded step
     /// and the episode it belongs to); tracts of one source go in its order without overlapping.

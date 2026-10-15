@@ -19,6 +19,46 @@ struct AutomationToolsTests {
         #expect(!instructions.contains("Go to Folder opens with / in its field"))
     }
 
+    @Test("the instructions say that document apps save an edit by themselves, and how a panel's Go to Folder takes a path")
+    func autosaveAndPanelPathGuidance() {
+        let instructions = AutomationTools.instructions
+        #expect(instructions.contains("save an edit into the open file by themselves, without Save"))
+        #expect(instructions.contains("the copy where the person asked (File > Save As, its name and its folder)"))
+        #expect(instructions.contains("If the copy cannot be saved there, edit nothing and say so"))
+        #expect(instructions.contains("\"Keep changes in original document\""))
+        #expect(instructions.contains("File > Revert To > Last Opened"))
+        #expect(instructions.contains("otherwise say that it holds the edit"))
+        #expect(instructions.contains("enter the path with insert_text"))
+    }
+
+    @Test("a target copied with the scene's id mark names the element by its id; any other target is kept as written")
+    func elementReferenceOfACopiedMark() async throws {
+        #expect(AutomationTools.elementReference("Text field id:'control|textfield'") == "control|textfield")
+        #expect(AutomationTools.elementReference("id:'control|textfield'") == "control|textfield")
+        #expect(AutomationTools.elementReference("  [field] Name id:'control|name'  ") == "control|name")
+        #expect(AutomationTools.elementReference("id:'?|@4,0'") == "?|@4,0")
+        #expect(AutomationTools.elementReference("Text field") == "Text field")
+        #expect(AutomationTools.elementReference("control|textfield") == "control|textfield")
+        #expect(AutomationTools.elementReference("Paid:'yes'") == "Paid:'yes'", "a label that only ends like a mark is kept")
+        #expect(AutomationTools.elementReference("id:''") == "id:''")
+
+        let session = SyntheticSession()
+        let tools = AutomationTools(session: session)
+        let id = try #require(session.id).uuidString
+        _ = try await tools.call("act", .object(["session": .string(id), "target": .string("Salva id:'control|salva'")]))
+        _ = try await tools.call("type_text", .object([
+            "session": .string(id), "target": .string("id:'control|textfield'"), "text": .string("campione")
+        ]))
+        _ = try await tools.call("act", .object(["session": .string(id), "target": .string("Annulla")]))
+        #expect(session.calls.contains("control|salva"))
+        #expect(session.calls.contains("Annulla"))
+        guard case .typeText(_, let field, _)? = session.inputs.first else {
+            Issue.record("type_text delivered no input: \(session.inputs)")
+            return
+        }
+        #expect(field == "control|textfield")
+    }
+
     @Test("exact native window titles distinguish an omitted selector from an untitled window")
     func nativeWindowTitleIsPreserved() async throws {
         let definition = try #require(AutomationTools.definitions.first { $0["name"].string == "open_session" })

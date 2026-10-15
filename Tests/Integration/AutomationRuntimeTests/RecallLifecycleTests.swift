@@ -25,7 +25,7 @@ import Testing
 /// The thresholds are structural (the best episode alone, never a whole part), so what is proved is the lifecycle,
 /// not a calibration. These are integration proofs, not a live run.
 @MainActor
-@Suite("The Recall's index through faults, changes, new spaces and migrations", .serialized)
+@Suite("The Recall's index through faults, changes, new spaces and migrations", .serialized, .automaticSelection)
 struct RecallLifecycleTests {
 
     typealias P = ProcedureLearningTests
@@ -92,17 +92,34 @@ struct RecallLifecycleTests {
 
     // MARK: Faults
 
-    @Test("an index never built answers unavailable and unknown, recorded as such: never an absence")
+    @Test("an index never built over a learned procedure answers unavailable and unknown, recorded as such: never an absence; an archive that never learned anything answers a complete search that finds nothing")
     func unavailableIsNotAbsent() async throws {
+        let empty = P.photoSession(try W.directory())
+        let emptyMemory = MemoryService.shared(for: empty.directory)
+        let emptyService = RecallService(memory: emptyMemory, configuration: Self.configuration())
+        RecallService.install(emptyService)
+        await emptyService.holdWork(true)
+        let emptyBegun = try await P.task(P.tools(empty), #"{"operation":"begin","goal":"Export the photo as PNG","recall":false}"#)
+        let nothing = try await emptyService.recall(
+            try RecallRequest(taskID: try #require(emptyBegun["task"].string), attemptID: try #require(emptyBegun["attempt"].string),
+                              revision: 1, reason: .initial, remainingWork: "Export the photo as PNG"),
+            producer: try TaskProducer(source: .app, streamID: "worker-1"))
+        #expect(nothing.delivery.search.status == "completed" && nothing.delivery.coverage == "absent", "the catalogue proves the absence")
+        #expect(nothing.delivery.index.status == "empty" && nothing.delivery.search.note == "nothing has been learned on this Mac yet")
+        await Self.close(empty)
+
         let session = P.photoSession(try W.directory())
         let memory = MemoryService.shared(for: session.directory)
         let service = RecallService(memory: memory, configuration: Self.configuration())
         RecallService.install(service)
-        let tools = P.tools(session)
+        // The worker is held: a procedure is learned and nothing of it reaches an index.
+        await service.holdWork(true)
+        _ = try await Self.learnPhoto(session, service: service)
+        let tools = P.tools(session, stream: "worker-2")
         let begun = try await P.task(tools, #"{"operation":"begin","goal":"Export the photo as PNG","recall":false}"#)
         let request = try RecallRequest(taskID: try #require(begun["task"].string), attemptID: try #require(begun["attempt"].string),
                                         revision: 1, reason: .initial, remainingWork: "Export the photo as PNG")
-        let answer = try await service.recall(request, producer: try TaskProducer(source: .app, streamID: "worker-1"))
+        let answer = try await service.recall(request, producer: try TaskProducer(source: .app, streamID: "worker-2"))
         #expect(answer.delivery.search.status == "unavailable" && answer.delivery.coverage == "unknown")
         #expect(answer.delivery.index.status == "unavailable" && answer.delivery.delivery == "nothing")
         #expect(try rawRows("SELECT search_status || ':' || coverage || ':' || delivery || ':' || channel FROM memory_recall_queries",
@@ -166,6 +183,64 @@ struct RecallLifecycleTests {
         let begun = try await P.task(P.tools(session, stream: "worker-2"), RecallCycleTests.exportRequest)
         #expect(begun["recall"]["needs"].array?.first?["selection"]["version"].string == second, "\(begun)")
         #expect(try rawRows("SELECT DISTINCT route_id FROM memory_recall_selections", at: Self.url(session)) == [second])
+        await Self.close(session)
+    }
+
+    @Test("with no suggestion, the ready plan holds only the steps a choice admits; Braus accepts the plan it wrote")
+    func readyPlanOfferedStepsOnly() async throws {
+        let session = P.photoSession(try W.directory())
+        var configuration = Self.configuration()
+        // Nothing reaches the suggestion's threshold: the plan falls back to the source itself.
+        configuration.lexicalThresholds = SelectionThresholds(absolute: 0.99, stepMargin: 0.01, partMargin: -0.5, adequacy: 0, tie: 0)
+        let (_, routeID) = try await Self.learnPhoto(session, configuration: configuration)
+        let memory = MemoryService.shared(for: session.directory)
+        _ = try await memory.perform { try await $0.procedures.setState(.toReevaluate, of: "\(routeID)/step-6", reason: "check the dialog",
+                                                                         by: "test", at: memory.clock.calendarMS()) }
+        #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(30)))
+        let tools = P.tools(session, stream: "asker")
+        let proposal = try await P.task(tools, RecallChoiceToolTests.proposeRequest)["recall_proposal"]
+        let need = try #require(proposal["needs"].array?.first, "\(proposal)")
+        let source = try #require(proposal["sources"].array?.first { $0["version"].string == routeID }, "\(proposal)")
+        #expect(need["suggested"] == nil || need["suggested"] == .null, "\(need)")
+        let plan = try #require(need["readyPlan"].string, "\(need)")
+        #expect(!plan.contains(#""from":1,"to":\#(source["steps"].array?.count ?? 0)"#), "the whole source is not proposed: \(plan)")
+        #expect(plan.contains(#""covered":"part""#) && plan.contains("are not offered"), "\(plan)")
+        let id = try #require(proposal["proposal"].string)
+        let chosen = try await tools.call("memory_task", P.json(#"{"operation":"choose","proposal":"\#(id)","plan":[\#(plan)]}"#))
+        #expect(chosen["isError"] != .bool(true), "Braus accepts the plan it wrote: \(chosen.payload)")
+        await Self.close(session)
+    }
+
+    @Test("work that failed its last time no longer hides the work queued after it")
+    func exhaustedWorkDoesNotBlock() async throws {
+        let session = P.photoSession(try W.directory())
+        let (_, routeID) = try await Self.learnPhoto(session)
+        let memory = MemoryService.shared(for: session.directory)
+        RecallService.forget(memory)
+        _ = try await memory.perform { try await $0.procedures.setState(.toReevaluate, of: "\(routeID)/step-6", reason: "check the dialog",
+                                                                         by: "test", at: memory.clock.calendarMS()) }
+        let stuck = try #require(try await memory.perform { try await $0.recall.pendingWork(limit: 10) }.first)
+        for _ in 0..<RecallService.workAttemptLimit {
+            try await memory.perform { try await $0.recall.failed(stuck.workID, reason: "simulated fault") }
+        }
+        // Another version learned after it queues its own work behind the exhausted row.
+        let service = RecallService(memory: memory, configuration: Self.configuration())
+        RecallService.install(service)
+        await service.holdWork(true)
+        let tools = P.tools(session, stream: "learner-2")
+        _ = try await P.task(tools, #"""
+            {"operation":"begin","goal":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG","recall":false,
+             "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
+            """#)
+        try await P.runPhotoExport(tools, session)
+        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
+        _ = try await P.task(tools, P.photoInterpretation(try #require(ended["candidate"]["id"].string)))
+        let next = try await memory.perform { try await $0.recall.pendingWork(limit: 1, below: RecallService.workAttemptLimit) }
+        #expect(next.count == 1 && next.first?.workID != stuck.workID, "the exhausted row is skipped, not returned first: \(next)")
+        await service.holdWork(false)
+        #expect(await service.waitUntilIdle(within: .seconds(30)))
+        let left = try await memory.perform { try await $0.recall.pendingWork(limit: 10) }
+        #expect(left.map(\.workID) == [stuck.workID], "only the exhausted work is left pending: \(left)")
         await Self.close(session)
     }
 
