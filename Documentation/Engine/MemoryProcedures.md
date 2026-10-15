@@ -19,7 +19,7 @@ calls of an attempt ──segmentation──▶ candidate ──agent's interpre
      │                                                                   qualification A per part
      │                                                                              │
      └──verification──▶ evaluation of a call ──▶ relation of a functional    catalogue (D3)
-                         brain-relations-2         state ──▶ expectation,
+                         brain-relations-3         state ──▶ expectation,
                          (history, recovery)                 scene a model reads
 ```
 
@@ -345,7 +345,7 @@ identity on purpose: a click on any file's row is a click on the list's rows. A 
 among the physical elements of its `before` capture, counted before any key is deduplicated
 (`SceneElementKey.target(role:label:in:)`): none, several (`ambiguous`), or one with its identity.
 
-**Relations.** `BrainRelationPolicy` (`brain-relations-2`) turns one concluded operation into at most one
+**Relations.** `BrainRelationPolicy` (`brain-relations-3`) turns one concluded operation into at most one
 relation, keyed by application, context, the state before, the identified element (nil for an operation
 on the focus or the window), the precise verb with its fixed arguments, the state after, the outcome and
 the effect's family. Per family, every argument of the request has a role (`argumentRoles`): fixed, in the

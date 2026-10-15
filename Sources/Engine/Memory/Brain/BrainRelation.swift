@@ -132,9 +132,13 @@ public struct BrainRelationKey: Sendable, Equatable, Hashable {
 /// item chosen, the count of a key, the destination of a drag. And it tells an exclusion waiting for
 /// evidence that may still arrive (a sample not yet placed, a call not yet concluded, a failure with no
 /// relation yet to contradict) from one that is final.
+///
+/// Version 3 (14 October 2026) names one family for what a command chosen in the menu bar or a dialog's button pressed
+/// leaves on screen: new elements (`elementsAppeared`), never a menu, whatever pop-ups the dialog holds. On PhotoCraft
+/// Image Size, Black and White and Close were each learned as both, so one command's relation was split in two.
 public enum BrainRelationPolicy {
 
-    public static let version = "brain-relations-2"
+    public static let version = "brain-relations-3"
 
     /// Exclusion is why a call teaches no relation.
     public enum Exclusion: String, Sendable, Equatable, Hashable, CaseIterable {
@@ -378,6 +382,11 @@ public enum BrainRelationPolicy {
                 effectKind = verification.verdict == .passed
                     ? facts.observedEffectKind ?? facts.observed.flatMap { effectFamilies.contains($0) ? $0 : nil }
                     : facts.expected
+                // A command chosen in the menu bar, or a dialog's button pressed, that leaves new elements opened a dialog or a
+                // panel, whatever pop-ups it holds: one family, so one command's relation is not split in two (PhotoCraft,
+                // 14 October 2026: Image Size and Close each learned as menuOpened and as elementsAppeared). A submenu has a
+                // condition of its own.
+                if verb == .menu || verb == .press, effectKind == "menuOpened" { effectKind = "elementsAppeared" }
             case .submenuOpened:
                 outcome = .effect
                 effectKind = "menuOpened"
