@@ -180,13 +180,14 @@ public final class SeatBroker {
             if shown.isEmpty, TargetEnumerator.hasWindowOnAnotherDesktop(of: running) {
                 throw SeatBrokerError.windowOnAnotherDesktop(application: app.name)
             }
-            // A running application with no window is asked for one, the way a click on its Dock icon
-            // asks, and is left behind: Finder opens a window, most applications a new document.
-            // Without it the wait below could only run out, since the seat never brings it forward.
-            if shown.isEmpty, let url = app.bundleURL {
-                let configuration = NSWorkspace.OpenConfiguration()
-                configuration.activates = false
-                _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+            if shown.isEmpty {
+                if app.bundleID == "com.avid.ProTools" {
+                    try ProToolsWindowRecovery.request(processID: running)
+                } else if let url = app.bundleURL {
+                    let configuration = NSWorkspace.OpenConfiguration()
+                    configuration.activates = false
+                    _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+                }
             }
         } else {
             guard let url = app.bundleURL else {
