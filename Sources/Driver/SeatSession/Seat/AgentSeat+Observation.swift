@@ -214,12 +214,9 @@ struct EndpointDiscovery {
         .failure(.subtreeUnreadable(surface: chain.surface))
     }
 
-    /// The applications whose ordinary windows take their clicks through
-    /// accessibility, as a remote panel's content does (ADR 0031). The one
-    /// place this scope is decided; add a bundle identifier to widen it.
-    static let accessibilityClickedApplications: Set<String> = ["com.apple.finder"]
-
-    /// Whether `window` belongs to one of `accessibilityClickedApplications`.
+    /// Whether `window` belongs to an Apple native application, whose ordinary windows take their
+    /// clicks through accessibility first, as a remote panel's content does (ADR 0031). The one
+    /// place this scope is decided: `AppleNativeApplications`, by the bundle's signature.
     var clicksThroughAccessibility: (WindowIdentity) -> Bool = { _ in false }
 
     /// A click on a qualified remote panel's content, acted on through the
@@ -328,8 +325,8 @@ struct EndpointDiscovery {
                 )
         },
         clicksThroughAccessibility: { window in
-            NSRunningApplication(processIdentifier: pid_t(window.processID))?.bundleIdentifier
-                .map(accessibilityClickedApplications.contains) ?? false
+            NSRunningApplication(processIdentifier: pid_t(window.processID))?.bundleURL
+                .map(AppleNativeApplications.shipping.contains(bundleAt:)) ?? false
         },
         remoteActuation: { processID, command, endpoint in
             RemoteContentActuator<AXUIElement>

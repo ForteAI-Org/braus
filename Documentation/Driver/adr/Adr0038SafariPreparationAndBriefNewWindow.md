@@ -144,3 +144,9 @@ refuses keys for as long as the popup is up.
 
 No AXPress fallback for clicks, no AX attribute is ever written, nothing is typed on a
 page of the person's. Safari being active is never requested for a Command.
+
+Amended 2026-10-15 (owner decision): Safari is an Apple native application, so its ordinary
+window's controls outside a web area are pressed through accessibility first, and a click that
+accessibility declines before acting is posted with the recipe above. A web area keeps its posted
+click, prepared as measured here. No AX attribute is written inside a web area, and Safari being
+active is still never requested for a Command. See ADR 0031, "Apple native applications".

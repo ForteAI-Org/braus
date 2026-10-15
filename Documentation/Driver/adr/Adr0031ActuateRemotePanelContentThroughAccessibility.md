@@ -278,6 +278,43 @@ whether AXPress on its item then compresses the file, and whether a file
 panel's sidebar outline has settable selected rows. Where it does, its rows are
 now selected through `AXSelectedRows` instead of the measured `AXSelected`.
 
+## Follow-up: Apple native applications, accessibility first (owner decision, 2026-10-15)
+
+The scope of "Finder's own windows" is widened from one bundle identifier to every Apple native
+application, and a click that accessibility declines is posted instead of refused.
+
+- **Which applications.** `AppleNativeApplications` decides by the bundle's code signature, not
+  by its identifier, which anything can claim: the bundle satisfies `anchor apple`
+  (`SecStaticCodeCheckValidity` with `kSecCSBasicValidateOnly`, which names the signer without
+  hashing the resources: 3 to 16 ms on Finder and Safari against 74 to 98 ms in full), and it is
+  not Mac Catalyst (its Info.plist names no `UIDeviceFamily` and no slice of its main executable
+  has an `LC_BUILD_VERSION` for platform 6). A signature or a binary that cannot be read is not
+  Apple's native: the click keeps its posted route. The answer is kept per bundle path.
+  `EndpointDiscovery.accessibilityClickedApplications` is gone. `TargetPlatform.appleNative` keeps
+  its `com.apple.` prefix: it chooses a preparation recipe and a menu preparation, not this.
+- **Which elements.** Only one that offers the action. AXPress is asked only of an element that
+  lists it, a caret only of a field whose `AXSelectedTextRange` is settable, a right click only
+  of one that lists AXShowMenu. A row that neither its list nor its own `AXSelected` can take
+  (the write answers -25205 or -25206 with no write before it) is declined too. An element under
+  an `AXWebArea` keeps its posted click (`RemoteContentActuationRefusal.webContent`). None of
+  this changes a panel's remote content, which still never posts.
+- **The fallback.** A refusal decided before anything was written or performed is posted as the
+  click it was (`RemoteContentActuationRefusal.wasDeclinedBeforeActing`): no element, an
+  unmapped role, a popup, web content, a read that failed, and AXPress or a write answered
+  unsupported (-25206). `AgentSeat` then runs the posted route as it would for any other
+  window, with the recipe the window's platform chose. What may have acted is never posted
+  on top: a success with no visible effect, a selection that did not read back, a double click
+  whose AXOpen was refused, and any other error. Those answer as before, an action whose effect
+  is unknown, and the engine as `acted_unverified`.
+- **The reply.** `Actuating.lastDeliveryRoute` tells the engine a click went out as an
+  accessibility action, and a reply that found no effect says "through accessibility, no click
+  posted", so the worker does not click it again on top of it.
+
+Not measured: whether the gate's preparation, awaited once before the accessibility attempt and
+again before a fallback post, costs anything in the second pass; whether every Apple application
+answers `AXPress` on its toolbar and sidebar controls as Finder's do; and which Apple
+applications ship AppKit controls that list AXPress and ignore it. No live run was made.
+
 ## Limits
 
 - No live run was made for this change. The table above is the probe's, on one

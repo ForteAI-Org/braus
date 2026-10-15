@@ -36,6 +36,7 @@ public actor SeatActuator: Actuating {
     private let target: SeatTarget
     private var turn: Turn?
     private var receipts: [InputReceipt] = []
+    private var lastRoute: DeliveryRoute = .posted
 
     public init(target: SeatTarget) {
         self.target = target
@@ -94,10 +95,13 @@ public actor SeatActuator: Actuating {
                 )
                 receipts.append(try await seat.send(path, observation: observation.reference, turn: turn))
         }
+        lastRoute = receipts.last?.route.poster == .accessibilityAction ? .accessibility : .posted
         // The events are out: the observation they rode has spent its authority and the next
         // gesture needs a new one.
         await target.spendObservation()
     }
+
+    public func lastDeliveryRoute(in processID: pid_t) async -> DeliveryRoute { lastRoute }
 
     /// A seat that refuses a confirmation or a release has already failed its Turn and reports that
     /// on its own event stream; there is nothing more to do from here, so those errors are dropped.
@@ -117,6 +121,7 @@ public actor SeatActuator: Actuating {
             try? await seat.release(turn)
         }
         receipts = []
+        lastRoute = .posted
         self.turn = nil
     }
 

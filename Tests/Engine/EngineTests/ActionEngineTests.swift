@@ -47,6 +47,8 @@ struct ActionEngineTests {
         var gestures: [Gesture] = []
         var confirmations: [DeliveryEffect] = []
         var failure: (any Error)?
+        var route = DeliveryRoute.posted
+        func lastDeliveryRoute(in processID: pid_t) async -> DeliveryRoute { route }
         func perform(_ gesture: Gesture, in processID: pid_t) async throws {
             if let failure { throw failure }
             gestures.append(gesture)
@@ -292,6 +294,19 @@ struct ActionEngineTests {
         #expect(outcome.message.contains("did NOT change"))
         #expect(outcome.message.contains("do not repeat the click solely from this verdict"))
         #expect(outcome.message.contains("No window of X opened, closed or retitled"))
+    }
+
+    @Test("a press through accessibility that changed nothing says it was not clicked, and a posted one does not")
+    func ghostThroughAccessibility() async {
+        let pressed = RecordingActuator()
+        pressed.route = .accessibility
+        let outcome = await engine(scenes: ScriptedScenes([scene([export])]), actuator: pressed).act(request("Export"))
+        #expect(outcome.kind == .actedUnverified)
+        #expect(outcome.message.contains("through accessibility, no click posted"))
+
+        let posted = await engine(scenes: ScriptedScenes([scene([export])]), actuator: RecordingActuator())
+            .act(request("Export"))
+        #expect(!posted.message.contains("accessibility"))
     }
 
     @Test("a repaint is unattributable, and a window that appeared elsewhere is named instead of blaming the click")

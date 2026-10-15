@@ -828,7 +828,7 @@ nonisolated package struct DialogEndpointResolver<Node> {
 
     /// The nodes under one point of the surface's own content, innermost first, up to and without
     /// the surface's own `AXWindows` entry, for an ordinary window whose clicks go through
-    /// accessibility, Finder's (ADR 0031). Every node belongs to the surface's process and names
+    /// accessibility, an Apple native application's (ADR 0031). Every node belongs to the surface's process and names
     /// the surface or no window. Another window, another process, a failed read, more than 64 steps
     /// or 300 ms refuse, and so does a path that never meets the window's entry.
     package func ownContentPath(

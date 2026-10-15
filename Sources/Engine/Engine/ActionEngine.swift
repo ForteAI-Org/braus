@@ -356,6 +356,9 @@ public struct ActionEngine: Sendable {
                     condition: .structuralEffect, method: .sceneDifference, verdict: .unknown,
                     limits: [.deliveryUncertain], performed: .uncertain, target: OperationCheck.Target(element)))
         }
+        // A press through accessibility is never also clicked, so a reply that found no effect says so.
+        let through = await dependencies.actuator.lastDeliveryRoute(in: pid) == .accessibility
+            ? " through accessibility, no click posted" : ""
         await settle(pid)
         guard let afterWindow = await perceive(pid) else {
             await dependencies.actuator.confirm(.unknown, in: pid)
@@ -365,7 +368,7 @@ public struct ActionEngine: Sendable {
             ))
             return ActOutcome(
                 .actedUnverified,
-                "\(request.verb.performed) '\(element.label)': no scene could be read "
+                "\(request.verb.performed) '\(element.label)'\(through): no scene could be read "
                 + "afterwards; observe the window once it is available",
                 check: OperationCheck(condition: .structuralEffect, method: .sceneDifference, verdict: .unknown,
                                       limits: [.noAfterScene], performed: .requested,
@@ -413,7 +416,7 @@ public struct ActionEngine: Sendable {
                 return ActOutcome(.foundActed, "\(request.verb.performed) '\(element.label)': "
                     + "\(effect.summary)\(asExpected)", scene: after, check: check)
             case .landed(let effect, false):
-                return ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)': expected "
+                return ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)'\(through): expected "
                     + "\(expected?.summary ?? "?") but observed \(effect.summary); re-perceive and re-decide. "
                         + "\(elsewhere.sentence)", scene: after, check: check)
             case .ghost, .unattributable:
@@ -423,7 +426,7 @@ public struct ActionEngine: Sendable {
                         + "is not classified"
                 let advice = elsewhere.changed ? "" : " Verify the intended result in a fresh observation "
                     + "before deciding on further input; do not repeat the click solely from this verdict."
-                return ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)': \(why).\(advice) "
+                return ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)'\(through): \(why).\(advice) "
                     + "\(elsewhere.sentence)", scene: after, check: check)
         }
     }

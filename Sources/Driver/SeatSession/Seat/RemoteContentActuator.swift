@@ -20,10 +20,11 @@ import SeatCore
 ///
 /// The element is the one the host application's hit test answers at the
 /// Command's point, proved by `DialogEndpointResolver.remoteContentPath`, or for
-/// an ordinary window of an application listed for it, Finder's, by
-/// `ownContentPath` against the window itself. The
-/// click reaches the nearest element of that path a click is mapped for; every
-/// other Command refuses, and nothing falls back to posting.
+/// an ordinary window of an Apple native application, by `ownContentPath`
+/// against the window itself. The click reaches the nearest element of that
+/// path a click is mapped for; every other Command refuses. Nothing falls back
+/// to posting here: for an ordinary window the seat posts the click itself when
+/// the refusal says nothing was done (`wasDeclinedBeforeActing`).
 ///
 /// It is generic over the node type so the mapping is proved without a panel
 /// on the screen, as the resolver is.
@@ -54,6 +55,9 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         [kAXPopUpButtonRole, kAXMenuButtonRole]
     }
 
+    /// The role of a web page's content, which the SDK names no constant for.
+    package static var webAreaRole: String { "AXWebArea" }
+
     /// The action a file entry offers to be opened, which the SDK names no
     /// constant for.
     package static var openAction: String { "AXOpen" }
@@ -67,6 +71,11 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     package static var itemListRoles: Set<String> {
         [kAXListRole, "AXCollection"]
     }
+
+    /// Set for the one click of an ordinary window being acted on: a control is then used only
+    /// when it offers the action, and a click it cannot take refuses before anything is done, so
+    /// the seat may post it instead. A panel's remote content has no such fallback.
+    private var isOrdinaryWindow = false
 
     let path   : (CGPoint, ResolvedInputEndpoint) -> Result<[Node], RemoteContentActuationRefusal>
     let role   : (Node) -> String?
@@ -133,6 +142,15 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         _ command: InputCommand,
         endpoint : ResolvedInputEndpoint
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
+        var scoped = self
+        scoped.isOrdinaryWindow = endpoint.relation == .logicalSurface
+        return scoped.actuateScoped(command, endpoint: endpoint)
+    }
+
+    private func actuateScoped(
+        _ command: InputCommand,
+        endpoint : ResolvedInputEndpoint
+    ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
 
         guard case .click(let location, let button, let count) = command else {
             return .failure(.gestureUnmeasured)
@@ -144,6 +162,8 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         }
         guard !nodes.isEmpty else { return .failure(.noElementAtPoint) }
         let roles = nodes.map { role($0) ?? kAXUnknownRole }
+        // A page keeps its posted click: its elements are not measured to take accessibility actions.
+        if isOrdinaryWindow, roles.contains(Self.webAreaRole) { return .failure(.webContent) }
 
         if button == .right {
             guard count == 1, let menu = nodes.first(where: { actions($0).contains(kAXShowMenuAction) })
@@ -261,11 +281,14 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
             Self.rowContainerRoles.contains(role($0) ?? "") && selectionIsSettable($0, kAXSelectedRowsAttribute)
         }
         func listHoldsRow() -> Bool { list.map { selection($0, kAXSelectedRowsAttribute) == [target] } ?? false }
-        if let list, writeSelection(list, kAXSelectedRowsAttribute, [target]) == .success, listHoldsRow() {
-            return .success(kAXSelectedRowsAttribute)
-        }
+        let listWritten = list.map { writeSelection($0, kAXSelectedRowsAttribute, [target]) == .success } ?? false
+        if listWritten, listHoldsRow() { return .success(kAXSelectedRowsAttribute) }
         let code = write(target, .selected)
         guard code == .success else {
+            // An ordinary window's row that nothing could write did nothing: its click is posted.
+            if isOrdinaryWindow, !listWritten, code == .attributeUnsupported || code == .actionUnsupported {
+                return .failure(.unsupportedRole(kAXRowRole))
+            }
             return .failure(.actionRefused(action: kAXSelectedAttribute, code: code.rawValue))
         }
         guard isSelected(target) == true || listHoldsRow() else { return .failure(.selectionNotVerified(kAXRowRole)) }
@@ -308,6 +331,10 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         _ node  : Node,
         _ action: String
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
+        // An ordinary window's element that does not offer the action is not asked for it.
+        if isOrdinaryWindow, !actions(node).contains(action) {
+            return .failure(.unsupportedRole(role(node) ?? kAXUnknownRole))
+        }
         let code = perform(node, action)
         guard code == .success || code == .cannotComplete else {
             return .failure(.actionRefused(action: action, code: code.rawValue))
@@ -322,6 +349,9 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         role      : String,
         wholeValue: Bool
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
+        if isOrdinaryWindow, !selectionIsSettable(node, kAXSelectedTextRangeAttribute) {
+            return .failure(.unsupportedRole(role))
+        }
         guard let current = value(node) else { return .failure(.unreadable) }
         let length = current.utf16.count
         let code   = write(node, .selectedTextRange(location: wholeValue ? 0 : length, length: wholeValue ? length : 0))

@@ -62,6 +62,9 @@ nonisolated public enum RemoteContentActuationRefusal: Error, Sendable, Equatabl
     /// (nil), or AXOpen answered this AXError. The selection took effect.
     case selectedNotOpened(code: Int32?)
 
+    /// The click is under an `AXWebArea`, where a click stays posted: nothing was done.
+    case webContent
+
     /// True for a refusal that follows an effect or may: the effect is unknown,
     /// and the caller reports it as an action, not as a refusal. Finder answered
     /// AXOpen with -25205 on 06/10/2026 and its window then showed the folder,
@@ -71,6 +74,16 @@ nonisolated public enum RemoteContentActuationRefusal: Error, Sendable, Equatabl
             case .actionRefused(_, let code): code != AXError.actionUnsupported.rawValue
             case .selectedNotOpened         : true
             default                         : false
+        }
+    }
+
+    /// True when nothing was written or performed, so an ordinary window's click may be posted
+    /// instead. A selection that did not read back and a refused action may have acted.
+    var wasDeclinedBeforeActing: Bool {
+        switch self {
+            case .actionRefused(_, let code)              : code == AXError.actionUnsupported.rawValue
+            case .selectionNotVerified, .selectedNotOpened: false
+            default                                       : true
         }
     }
 }
@@ -112,6 +125,9 @@ nonisolated extension RemoteContentActuationRefusal: CustomStringConvertible, Lo
             case .columnView:
                 "That point is in a column view, where a click cannot select yet, so nothing was sent. "
                     + "Switch the view to list view (select on its view button, \"List\"), then click the row."
+            case .webContent:
+                "That point is web content, which is not acted on through accessibility, so nothing "
+                    + "was done there."
             case .selectedNotOpened(let code?) where code != AXError.actionUnsupported.rawValue:
                 "The row was selected, and the application answered AXOpen with error \(code), so it may "
                     + "or may not have opened. Observe before retrying; do not repeat it blindly."
