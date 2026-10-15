@@ -147,6 +147,13 @@ scene.resolve(target: "Export")               // .found, .ambiguous(n) or .none
   only for a found window and a finished, unstopped walk; a fact nobody observed stays unknown and
   never adds up to complete, and facts that contradict each other are an `inconsistency` every
   consumer refuses. `elements(...)` is the same walk without the quality.
+- A checkbox, switch (`AXCheckBox` with subrole `AXSwitch`) or radio button with no title or
+  description is named, never dropped: by the `AXStaticText` immediately before it among its
+  parent's children (origin `value`; System Settings keeps the caption there), when it fits the
+  label bound; else by its `AXIdentifier` humanised ("auto-hide-dock" is "Auto hide dock", origin
+  `identifier`); else by its role ("Switch", "Checkbox", "Radio button", no origin). An `AXButton`
+  whose `AXSelected` is true carries state `on`, the segmented buttons of the Appearance pane; one
+  that does not answer it has no state (`AccessibilityAugmentationTests`).
 - Each harvested `SceneElement` says where its label came from (`labelOrigin`: title, description,
   value, column, row content, or `identifier` for a text area named by its accessibility
   identifier) and, for a row of a table, list or outline and everything inside it, the structural

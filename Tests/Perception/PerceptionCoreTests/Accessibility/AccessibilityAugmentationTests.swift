@@ -189,6 +189,64 @@ struct AccessibilityAugmentationTests {
         #expect(out[6].role == "AXComboBox")
     }
 
+    // System Settings' Dock pane: a switch has no title or description, only the static text before it.
+    private func settingsSwitch(_ identifier: String, on: Bool, y: CGFloat) -> FakeNode {
+        let node = FakeNode("AXCheckBox", subrole: "AXSwitch", numericValue: on ? 1 : 0, frame: box(700, y, 40, 20))
+        node.identifier = identifier
+        return node
+    }
+
+    private func settingsText(_ text: String, y: CGFloat) -> FakeNode {
+        FakeNode("AXStaticText", value: text, frame: box(300, y, 360, 20))
+    }
+
+    @Test("a switch with no name of its own is captioned by the static text just before it, else its identifier")
+    func switchesTakeTheirCaption() {
+        let hide = settingsSwitch("auto-hide-dock", on: true, y: 300)
+        let long = settingsSwitch("stage-manager-on", on: true, y: 400)
+        let apart = settingsSwitch("show_recents", on: false, y: 500)
+        let bare = FakeNode("AXCheckBox", subrole: "AXSwitch", numericValue: 0, frame: box(700, 600, 40, 20))
+        let group = FakeNode("AXGroup", frame: box(250, 280, 600, 400)).adding(
+            settingsText("Automatically hide and show the Dock", y: 300), hide,
+            settingsText("Stage Manager arranges your recent windows into a single strip for quick access.", y: 400), long,
+            settingsText("Show suggested and recent apps in Dock", y: 450),
+            FakeNode("AXButton", descriptionText: "Options", frame: box(600, 450, 60, 20)), apart,
+            bare
+        )
+        let root = FakeNode("AXWindow", frame: window).adding(group)
+
+        let out = AccessibilityAugmentation.elements(under: root, windowFrame: window, reader: reader)
+            .filter { $0.kind == .control }
+
+        #expect(out.map(\.label) == [
+            "Automatically hide and show the Dock", "Stage manager on", "Options", "Show recents", "Switch",
+        ])
+        #expect(out.map(\.state) == [.on, .on, nil, .off, .off])
+        #expect(out.map(\.labelOrigin) == [.value, .identifier, .description, .identifier, nil])
+        #expect(out[0].role == "AXCheckBox")
+    }
+
+    @Test("a segmented button that reports AXSelected carries the on state, and a button that does not is unchanged")
+    func selectedButtonsAreOn() {
+        func button(_ name: String, selected: Bool?, x: CGFloat) -> FakeNode {
+            let node = FakeNode("AXButton", descriptionText: name, frame: box(x, 300, 80, 60))
+            node.isSelected = selected
+            return node
+        }
+        let group = FakeNode("AXGroup", frame: box(250, 280, 600, 400)).adding(
+            FakeNode("AXStaticText", value: "Appearance", frame: box(300, 285, 100, 20)),
+            button("Light", selected: nil, x: 300), button("Dark", selected: true, x: 400),
+            button("Auto", selected: false, x: 500)
+        )
+        let root = FakeNode("AXWindow", frame: window).adding(group)
+
+        let out = AccessibilityAugmentation.elements(under: root, windowFrame: window, reader: reader)
+            .filter { $0.kind == .control }
+
+        #expect(out.map(\.label) == ["Light", "Dark", "Auto"])
+        #expect(out.map(\.state) == [nil, .on, nil])
+    }
+
     @Test("duplicate handles take ordinals so resolution stays unique")
     func ordinals() {
         let a = FakeNode("AXTextField", descriptionText: "Track Name", frame: box(300, 300, 200, 24))

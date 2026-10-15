@@ -100,6 +100,7 @@ struct GestureEndpointRoutingTests {
                 .success(RemoteContentActuation(action: "AXPress", role: "AXButton", textField: nil))
             }
         var actuated: [(command: InputCommand, endpoint: ResolvedInputEndpoint)] = []
+        var prefersHost: [Bool] = []
 
         /// Whether the window's application takes its clicks through accessibility, as Finder does.
         var clicksThroughAccessibility = false
@@ -143,8 +144,9 @@ struct GestureEndpointRoutingTests {
                 },
                 foreignContentWindow: { [self] _, _ in foreignContentWindow },
                 clicksThroughAccessibility: { [self] _ in clicksThroughAccessibility },
-                remoteActuation: { [self] _, command, endpoint in
+                remoteActuation: { [self] _, command, endpoint, prefersHost in
                     actuated.append((command, endpoint))
+                    self.prefersHost.append(prefersHost)
                     return actuation(command, endpoint)
                 }
             )
@@ -303,6 +305,7 @@ struct GestureEndpointRoutingTests {
         let actuated = try #require(panel.discovery.actuated.last)
         #expect(panel.discovery.actuated.count == 1)
         #expect(actuated.endpoint.identity == remote)
+        #expect(panel.discovery.prefersHost == [false], "a file panel's press keeps its own element")
         #expect(panel.seat.session[panel.sheet.id]?.platform is ChromiumPlatform,
                 "the surface record still carries its own application's family")
 
@@ -772,6 +775,7 @@ struct GestureEndpointRoutingTests {
         #expect(receipt.route.poster == .accessibilityAction)
         #expect(panel.discovery.actuated.count == 1)
         #expect(panel.discovery.actuated.last?.endpoint.identity == remote)
+        #expect(panel.discovery.prefersHost == [true], "an extension's press looks in the host's tree first")
         try panel.seat.confirm(receipt, .unknown)
         try panel.seat.release(turn)
     }

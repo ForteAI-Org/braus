@@ -7,6 +7,7 @@
 
 import ApplicationServices
 import CoreGraphics
+import os
 import SeatCore
 
 /// RemoteContentActuator acts on one click addressed to an out of process
@@ -77,6 +78,10 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     /// the seat may post it instead. A panel's remote content has no such fallback.
     private var isOrdinaryWindow = false
 
+    /// Set for an Apple extension's click: the window number of the host surface whose own tree is
+    /// searched for the pressed control first, and a `cannotComplete` answer is not a delivery.
+    private var hostSurfaceNumber: Int?
+
     let path   : (CGPoint, ResolvedInputEndpoint) -> Result<[Node], RemoteContentActuationRefusal>
     let role   : (Node) -> String?
     let actions: (Node) -> [String]
@@ -99,6 +104,15 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     let children     : (Node) -> [Node]
     let defaultButton: (Node) -> Node?
 
+    /// What finds a control again in the host's own tree: the host's window entry by number, an
+    /// element's frame in screen points, and its title or description.
+    let windowNode: (Int) -> Node?
+    let frame     : (Node) -> CGRect?
+    let label     : (Node) -> String?
+
+    /// Receives one line for every press, with the AXError it answered.
+    let note: (String) -> Void
+
     package init(
         path   : @escaping (CGPoint, ResolvedInputEndpoint) -> Result<[Node], RemoteContentActuationRefusal>,
         role   : @escaping (Node) -> String?,
@@ -112,7 +126,11 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         isSelected         : @escaping (Node) -> Bool? = { _ in nil },
         parent             : @escaping (Node) -> Node? = { _ in nil },
         children           : @escaping (Node) -> [Node] = { _ in [] },
-        defaultButton      : @escaping (Node) -> Node? = { _ in nil }
+        defaultButton      : @escaping (Node) -> Node? = { _ in nil },
+        windowNode         : @escaping (Int) -> Node? = { _ in nil },
+        frame              : @escaping (Node) -> CGRect? = { _ in nil },
+        label              : @escaping (Node) -> String? = { _ in nil },
+        note               : @escaping (String) -> Void = { _ in }
     ) {
         self.path    = path
         self.role    = role
@@ -127,6 +145,10 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         self.parent              = parent
         self.children            = children
         self.defaultButton       = defaultButton
+        self.windowNode          = windowNode
+        self.frame               = frame
+        self.label               = label
+        self.note                = note
     }
 
     /// Acts on `command` at the element under its point, and does nothing when
@@ -138,12 +160,18 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     /// Outside one, a click presses a control or leaves a caret at the end of a
     /// field, and three select the field's whole value. A popup or a menu button
     /// refuses. A right click shows the nearest element's menu.
+    ///
+    /// With `prefersHost`, for an Apple extension's content, a press goes to the same control in the
+    /// host's own tree when it is there (`hostCounterpart`), and `cannotComplete` is no delivery.
     func actuate(
-        _ command: InputCommand,
-        endpoint : ResolvedInputEndpoint
+        _ command  : InputCommand,
+        endpoint   : ResolvedInputEndpoint,
+        prefersHost: Bool = false
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
         var scoped = self
         scoped.isOrdinaryWindow = endpoint.relation == .logicalSurface
+        scoped.hostSurfaceNumber = prefersHost && endpoint.relation == .remoteContent
+            ? endpoint.logicalSurface.windowNumber : nil
         return scoped.actuateScoped(command, endpoint: endpoint)
     }
 
@@ -342,9 +370,12 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         ))
     }
 
-    /// Performs one action. A panel's default button closes the panel before
-    /// answering, -25204, so that answer is a delivery, verified by the panel
-    /// disappearing, as any Receipt is verified by what follows it.
+    /// Performs one action on the node, or for an Apple extension's press on the same control in the
+    /// host's tree, never on both, and logs what the application answered.
+    ///
+    /// A panel's default button closes the panel before answering, -25204, so that answer is a
+    /// delivery there, verified by the panel disappearing. An extension's control has no such
+    /// reason: its -25204 may have done nothing, so it refuses as an action of unknown effect.
     private func press(
         _ node  : Node,
         _ action: String
@@ -353,11 +384,50 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         if isOrdinaryWindow, !actions(node).contains(action) {
             return .failure(.unsupportedRole(role(node) ?? kAXUnknownRole))
         }
-        let code = perform(node, action)
-        guard code == .success || code == .cannotComplete else {
+        let host   = action == kAXPressAction ? hostCounterpart(of: node, action: action) : nil
+        let target = host ?? node
+        let code   = perform(target, action)
+        note("\(action) on \(role(target) ?? kAXUnknownRole) in the \(host == nil ? "path's" : "host's") tree "
+            + "answered AXError \(code.rawValue) (\(code))")
+        let delivered = code == .success || code == .cannotComplete && hostSurfaceNumber == nil
+        guard delivered else {
             return .failure(.actionRefused(action: action, code: code.rawValue))
         }
-        return .success(RemoteContentActuation(action: action, role: role(node) ?? kAXUnknownRole, textField: nil))
+        return .success(RemoteContentActuation(
+            action   : host == nil ? action : action + " in the host's tree",
+            role     : role(target) ?? kAXUnknownRole,
+            textField: nil
+        ))
+    }
+
+    /// The control in the host's own tree that is the one `node` shows: the first element, nearest
+    /// the host window first, of the same role and label, offering the action, whose frame is within
+    /// 2 points of the node's on every side. Only branches whose frame holds the node's centre are
+    /// entered, and at most 512 elements are read. Nil when the host has none, or is not asked.
+    private func hostCounterpart(of node: Node, action: String) -> Node? {
+        guard let number = hostSurfaceNumber, let root = windowNode(number), let target = frame(node) else {
+            return nil
+        }
+        let wanted = role(node)
+        let name   = label(node)
+        let centre = CGPoint(x: target.midX, y: target.midY)
+        var level   = [root]
+        var visited = 0
+        while !level.isEmpty, visited < 512 {
+            var below: [Node] = []
+            for candidate in level {
+                visited += 1
+                if candidate != node, role(candidate) == wanted, label(candidate) == name,
+                   actions(candidate).contains(action), let box = frame(candidate),
+                   abs(box.minX - target.minX) <= 2, abs(box.minY - target.minY) <= 2,
+                   abs(box.width - target.width) <= 2, abs(box.height - target.height) <= 2 {
+                    return candidate
+                }
+                below += children(candidate).filter { frame($0)?.insetBy(dx: -1, dy: -1).contains(centre) ?? true }
+            }
+            level = below
+        }
+        return nil
     }
 
     /// Leaves a caret at the end of the field's value, or selects all of it.
@@ -395,6 +465,8 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
 }
 
 // MARK: - The shipping actuator
+
+private let remoteContentLog = Logger(subsystem: "dev.forte.AgentSeatKit", category: "RemoteContentActuator")
 
 extension RemoteContentActuator where Node == AXUIElement {
 
@@ -469,7 +541,14 @@ extension RemoteContentActuator where Node == AXUIElement {
                 children.forEach { AXUIElementSetMessagingTimeout($0, BoundedAccessibilityRead.fastTimeout) }
                 return children
             },
-            defaultButton   : { attribute($0, kAXDefaultButtonAttribute) }
+            defaultButton   : { attribute($0, kAXDefaultButtonAttribute) },
+            windowNode      : { resolver.windowNode($0) },
+            frame           : { resolver.nodeFrame($0) },
+            label           : { node in
+                [kAXTitleAttribute, kAXDescriptionAttribute]
+                    .lazy.compactMap { attribute(node, $0) as String? }.first { !$0.isEmpty }
+            },
+            note            : { line in remoteContentLog.notice("\(line, privacy: .public)") }
         )
     }
 }

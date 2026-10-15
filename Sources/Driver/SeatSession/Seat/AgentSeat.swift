@@ -2612,7 +2612,8 @@ public final class AgentSeat {
                 turn        : turn,
                 recipient   : recipient,
                 traceContext: traceContext,
-                mayPost     : ownContent != nil
+                mayPost     : ownContent != nil,
+                prefersHost : classification == .appleExtensionContent
             ) : nil
             let receipt = if let actuated { actuated } else {
                 try await sender.send(
@@ -2686,7 +2687,8 @@ public final class AgentSeat {
     /// `PostRoute.accessibilityAction`. A drag or a scroll refuses. A refusal
     /// changes nothing, except `actionRefused`, which may follow an effect and
     /// is never repeated. With `mayPost`, an ordinary window's click refused
-    /// before anything was done answers nil and the caller posts it.
+    /// before anything was done answers nil and the caller posts it. With `prefersHost`, an
+    /// Apple extension's press goes through the host's own tree (`RemoteContentActuator`).
     private func actuateRemoteContent(
         _ command    : InputCommand,
         textField    : RemoteContentActuation.TextField?,
@@ -2695,7 +2697,8 @@ public final class AgentSeat {
         turn         : Turn,
         recipient    : WindowReference,
         traceContext : InputTraceContext,
-        mayPost      : Bool = false
+        mayPost      : Bool = false,
+        prefersHost  : Bool = false
     ) async throws -> InputReceipt? {
 
         var trace = traceContext
@@ -2718,7 +2721,7 @@ public final class AgentSeat {
                 guard let endpoint, let instance = assignmentKit.lifecycle.current?.instance else {
                     throw RemoteContentActuationRefusal.unreadable
                 }
-                let actuation = try endpoints.remoteActuation(instance.processID, command, endpoint).get()
+                let actuation = try endpoints.remoteActuation(instance.processID, command, endpoint, prefersHost).get()
                 remoteTextField = actuation.textField.map {
                     ($0, recipient, endpoint.logicalSurface, endpoint.selectionGeneration)
                 }

@@ -38,6 +38,8 @@ struct RemoteContentActuationTests {
         var processID: Int32
         var parent   : Element?
         var answers  = true
+        var frame    : CGRect?
+        var title    : String?
         var performed: [String] = []
         var writes   : [RemoteContentActuator<Element>.Write] = []
         var children : [Element] = []
@@ -102,8 +104,13 @@ struct RemoteContentActuationTests {
     /// the `AXWindows` entry an ordinary window's own content climbs to.
     static func actuator(
         hitting hit: @escaping () -> Element?,
-        window     : Element? = nil
+        window     : Element? = nil,
+        note       : @escaping (String) -> Void = { _ in }
     ) -> RemoteContentActuator<Element> {
+        let windowNode: (Int) -> Element? = { number in
+            guard let window, case .window(number) = window.window else { return nil }
+            return window
+        }
         let resolver = DialogEndpointResolver<Element>(
             nodeAtPoint  : { _ in hit() },
             focusedNode  : { nil },
@@ -113,10 +120,7 @@ struct RemoteContentActuationTests {
             nodeProcess  : { $0.processID },
             identity     : { _ in nil },
             geometry     : { _, _ in nil },
-            windowNode   : { number in
-                guard let window, case .window(number) = window.window else { return nil }
-                return window
-            },
+            windowNode   : windowNode,
             parent       : { $0.parent },
             windowReading: { $0.window }
         )
@@ -154,7 +158,11 @@ struct RemoteContentActuationTests {
             isSelected         : { $0.selectedFlag },
             parent             : { $0.parent },
             children           : { $0.children },
-            defaultButton      : { $0.defaultButton }
+            defaultButton      : { $0.defaultButton },
+            windowNode         : windowNode,
+            frame              : { $0.frame },
+            label              : { $0.title },
+            note               : note
         )
     }
 

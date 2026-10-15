@@ -367,6 +367,27 @@ was reached. The owner chose all Apple extension panes.
 - Not measured live: that the click on a pane's control resolves through `AXPress` in the
   extension's tree. Test: GestureEndpointRoutingTests, AppleNativeApplicationsTests.
 
+## Follow-up: the press goes to the host's element (2026-10-15, live trial of the above)
+
+A press on "Light" through the extension's own element (its process id, its window) answered
+success and changed nothing. The same pane is also in the host's tree, under the host's hosting
+view, so an Apple extension's `AXPress` now looks there first.
+
+- Matching rule (`RemoteContentActuator.hostCounterpart`): from the host's window entry, nearest
+  level first, the first element other than the one hit whose role and title or description equal
+  the hit element's, that offers the action, and whose frame is within 2 points of it on x, y,
+  width and height. Only branches whose frame holds the hit element's centre are entered, at most
+  512 elements are read. Found: that element alone is pressed. Not found, or the window entry is
+  unreadable: the extension's element, as before. Never both, and a refusal of the host's element
+  is not followed by a press of the other.
+- Only for `appleExtension` content (`prefersHost`); a file panel's press is unchanged.
+- Every press logs the AXError it answered (category `RemoteContentActuator`). `cannotComplete`
+  (-25204) stays a delivery for a file panel, where a default button closes the panel before it
+  answers, and is `actionRefused` (effect unknown, never repeated) for an extension, which has no
+  such reason.
+- Not measured live: that the host's tree returns a distinct element that takes the press.
+  Test: AppleExtensionPressTests.
+
 ## Limits
 
 - No live run was made for this change. The table above is the probe's, on one
