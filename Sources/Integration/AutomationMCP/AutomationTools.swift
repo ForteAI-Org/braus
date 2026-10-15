@@ -91,7 +91,8 @@ public final class AutomationTools {
     never automatically replay an action that may already have happened. Missing permissions require the
     user to fix macOS access; do not retry in another terminal or foreground route.
     The act verbs are click, double_click, triple_click, right_click and set_toggle; select picks a dropdown item.
-    type_text clicks a field and types into it, replacing what it holds unless replace is false.
+    type_text clicks a field and types into it, replacing what it holds unless replace is false. Enter text
+    with one type_text call on its field, never one press_key per character: every key reads the scene twice.
     insert_text preserves the current focus and selection and inserts one payload. Use it only after
     establishing that focus. An initially selected name may lose focus as a dialog settles; when uncertain,
     click the intended field and independently verify the desired selection before inserting. It does not
@@ -234,7 +235,8 @@ public final class AutomationTools {
                   + "field value, verified only by native focused-field readback. Opaque fields remain unverified; "
                   + "verify the committed effect separately. Never replay blindly."),
             input("press_key", "Press one key into the window, optionally with modifiers held and repeated count "
-                  + "times. Command-Q and Command-W are refused. Menu equivalents vary by app and surface: "
+                  + "times. For a shortcut or a navigation key, never for text: use type_text for that. "
+                  + "Command-Q and Command-W are refused. Menu equivalents vary by app and surface: "
                   + "prefer menu or context_menu when background keys have not been qualified for that target. "
                   + "Verify the intended effect after a shortcut; never repeat acted_unverified blindly."),
             input("scroll", "Scroll a target, or the window's centre without one, by wheel lines (default 3) up or "

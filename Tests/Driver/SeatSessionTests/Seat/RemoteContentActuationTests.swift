@@ -51,6 +51,8 @@ struct RemoteContentActuationTests {
         // A list of items: whether its selected children can be written, what they are, every
         // write, and what a write really does in the application.
         var selectionSettable = false
+        // A field's `AXValue`: a file's name in a list is never writable, a field one can edit is.
+        var valueSettable     = false
         var selectedChildren : [Element]?
         var selectionWrites  : [[Element]] = []
         var onSelectChildren : (([Element]) -> Void)?
@@ -130,7 +132,11 @@ struct RemoteContentActuationTests {
             perform: { element, action in element.performed.append(action); return element.performAnswer },
             write  : { element, write in element.apply(write); return element.writeAnswer },
             selectionIsSettable: { node, attribute in
-                attribute == kAXSelectedRowsAttribute ? node.rowsSettable : node.selectionSettable
+                switch attribute {
+                    case kAXSelectedRowsAttribute: node.rowsSettable
+                    case kAXValueAttribute       : node.valueSettable
+                    default                      : node.selectionSettable
+                }
             },
             selection          : { node, attribute in
                 attribute == kAXSelectedRowsAttribute ? node.selectedRows : node.selectedChildren
@@ -949,6 +955,81 @@ struct RemoteContentActuationTests {
         let result = try await Self.click(finder)
         #expect(field.writes == (settable ? [.selectedTextRange(location: 3, length: 0)] : []))
         #expect(result.posted == !settable)
+    }
+
+    @Test("a field drawn in a row takes the caret when it can be edited, and a name that cannot still selects the row",
+          arguments: [true, false])
+    func aFieldInARowTakesTheCaret(editable: Bool) async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: editable ? 3_430 : 3_431)
+        let cell   = Element(kAXCellRole, window: .windowless, processID: finder.element.processID, parent: finder.row)
+        let field  = Element(kAXTextFieldRole, window: .windowless, processID: finder.element.processID,
+                             parent: cell, value: "Buy milk")
+        // Its range can be written either way: only a field one can edit also has a writable value.
+        field.selectionSettable = true
+        field.valueSettable     = editable
+        finder.hit.element      = field
+
+        let result = try await Self.click(finder)
+        #expect(!result.posted && finder.sender.sent.isEmpty)
+        if editable {
+            #expect(field.writes == [.selectedTextRange(location: 8, length: 0)], "the caret, at the end of the text")
+            #expect(finder.outline.rowWrites.isEmpty && finder.row.writes.isEmpty, "the row is not selected")
+            #expect(finder.seat.remoteTextField != nil, "and its text goes through the same field")
+        } else {
+            #expect(field.writes.isEmpty, "no caret goes into a file's name")
+            #expect(finder.outline.rowWrites == [[finder.row]])
+            #expect(finder.seat.remoteTextField == nil)
+        }
+    }
+
+    @Test("a control drawn on a field in its row is pressed, and the field is left alone")
+    func aControlOnTheFieldIsPressed() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_432)
+        let cell   = Element(kAXCellRole, window: .windowless, processID: finder.element.processID, parent: finder.row)
+        let field  = Element(kAXTextFieldRole, window: .windowless, processID: finder.element.processID,
+                             parent: cell, value: "x")
+        let button = Element(kAXButtonRole, window: .windowless, processID: finder.element.processID,
+                             parent: field, actions: [kAXPressAction])
+        field.selectionSettable = true
+        field.valueSettable     = true
+        finder.hit.element      = button
+
+        let result = try await Self.click(finder)
+        #expect(button.performed == [kAXPressAction] && field.writes.isEmpty)
+        #expect(!result.posted)
+    }
+
+    @Test("text after an accessibility click on an ordinary window's field is set through AXSelectedText")
+    func textAfterAnOrdinaryFieldClickIsSetThroughAccessibility() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_433)
+        let field  = Self.control(kAXTextFieldRole, in: finder, actions: [], value: "abc")
+        field.selectionSettable = true
+        let turn  = try await finder.seat.acquire()
+        let click = try await Self.send(1, to: finder, turn: turn)
+        try finder.seat.confirm(click, .unknown)
+
+        let typed = try await finder.seat.send(
+            .text("def"), observation: try await observedReference(finder.seat), turn: turn
+        )
+        #expect(field.writes.last == .selectedText("def"))
+        #expect(field.value == "abcdef")
+        #expect(finder.sender.sent.isEmpty, "no key is posted")
+        #expect(typed.route.poster == .accessibilityAction)
+        try finder.seat.confirm(typed, .unknown)
+
+        // Any key in between, even the engine's end of field, makes the next text a posted one.
+        let again = try await finder.seat.send(
+            .click(Self.point(in: finder.window)), observation: try await observedReference(finder.seat), turn: turn
+        )
+        try finder.seat.confirm(again, .unknown)
+        let key = try await finder.seat.send(
+            Shortcut(.virtualKey(CGKeyCode(125)), holding: .command),
+            observation: try await observedReference(finder.seat),
+            turn       : turn
+        )
+        try finder.seat.confirm(key, .unknown)
+        #expect(finder.seat.remoteTextField == nil, "a key forgets the field: the engine must not send one")
+        try finder.seat.release(turn)
     }
 
     @Test("a row nothing can select is clicked, and one whose list write took but did not read back is not")

@@ -86,7 +86,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
 
     /// The selection a container holds under one attribute, `AXSelectedChildren` of a list of items
     /// or `AXSelectedRows` of an outline or a table: whether it can be written, what it holds, and
-    /// the write.
+    /// the write. `selectionIsSettable` answers for any attribute, a field's range or value too.
     let selectionIsSettable: (Node, String) -> Bool
     let selection          : (Node, String) -> [Node]?
     let writeSelection     : (Node, String, [Node]) -> AXError
@@ -182,6 +182,14 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
             return .failure(.opensMenu(roles[control]))
         }
         if let row {
+            // An editable field drawn in the row takes the caret, where a click used to select the row only.
+            if let field = editableField(in: nodes, roles: roles, before: row), control.map({ field < $0 }) ?? true {
+                switch count {
+                    case 1    : return select(in: nodes[field], role: roles[field], wholeValue: false)
+                    case 3... : return select(in: nodes[field], role: roles[field], wholeValue: true)
+                    default   : return .failure(.unsupportedRole(roles[field]))
+                }
+            }
             if count == 1, let control { return press(nodes[control], kAXPressAction) }
             guard count <= 2 else { return .failure(.unsupportedRole(kAXRowRole)) }
             var selected: String
@@ -219,6 +227,16 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
                 return select(in: nodes[index], role: roles[index], wholeValue: true)
             default:
                 return .failure(.unsupportedRole(roles[index]))
+        }
+    }
+
+    /// The nearest text element above `row` whose caret and value can both be written: a field that
+    /// takes text in place. A file's name in a list can have a writable range and never a value.
+    private func editableField(in nodes: [Node], roles: [String], before row: Int) -> Int? {
+        (0..<row).first {
+            Self.textRoles.contains(roles[$0])
+                && selectionIsSettable(nodes[$0], kAXSelectedTextRangeAttribute)
+                && selectionIsSettable(nodes[$0], kAXValueAttribute)
         }
     }
 

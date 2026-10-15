@@ -250,6 +250,9 @@ struct AutomationToolsTests {
         #expect(AutomationTools.instructions.contains("may need explicit focus before accepting keys"))
         #expect(AutomationTools.instructions.contains("use the browser apps marks as the default"))
         #expect(AutomationTools.instructions.contains("its other visible windows move to the seat's display too"))
+        // Text goes in one type_text: both the instructions and the key's own description say so.
+        #expect(AutomationTools.instructions.contains("never one press_key per character"))
+        #expect(tools["press_key"]?["description"].string?.contains("never for text: use type_text") == true)
     }
 
     @Test

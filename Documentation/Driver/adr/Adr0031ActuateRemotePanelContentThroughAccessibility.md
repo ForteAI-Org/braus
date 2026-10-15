@@ -315,6 +315,37 @@ again before a fallback post, costs anything in the second pass; whether every A
 answers `AXPress` on its toolbar and sidebar controls as Finder's do; and which Apple
 applications ship AppKit controls that list AXPress and ignore it. No live run was made.
 
+## Follow-up: a field in a row, and text after its caret (2026-10-15, live trial of the above)
+
+A trial of the previous section on Reminders and Notes (10:19 to 10:28, the Braus log and the
+worker's tool activity) found two faults and one cost.
+
+- **A field in a row took the row.** Reminders draws a reminder's title as a text field inside a
+  row, and the click mapping let the row win: `AXSelectedRows` was written, its list focused, and
+  no caret was left, so the next text read `''` (10:26:31, "acted ... by accessibility:
+  AXSelectedRows, its list focused on AXRow", and again for a click at 10:26:43). A text element above the row whose
+  `AXSelectedTextRange` and `AXValue` are both settable now takes the caret (one click) or its
+  whole value (three), and is remembered for text; a control nearer than it is still pressed. A
+  file's name in a Finder list keeps the row: it is not editable, so its value is not writable.
+  The value is checked as well as the range because a non-editable text field may still answer
+  its range as settable; that is not measured, the stricter rule keeps ADR 0031's table as it was.
+- **The end key forgot the field.** `type_text` with `replace: false` sends click, Command-Down,
+  then the text, and the seat forgets the remembered field at any Command that is not text
+  (Notes, 10:23:12 to 10:23:35: the caret by `AXSelectedTextRange`, then two posted key Commands).
+  The click already left the caret at the end of the value, so the engine does not send that key
+  after a click that went out through accessibility onto a text field, and the text takes
+  `AXSelectedText`. The conditions of `rememberedRemoteTextField` (same surface, same selection
+  generation, same window identity, the element still answering) were not the cause. Not
+  measured: whether Notes' text area keeps its element between the click and the text; if it
+  does not, the field no longer answers and the text is posted as before.
+- **Cost of a key.** In Reminders and Notes the seat's share of a `press_key` is under 70 ms
+  (the key posts 2 to 6 ms after its log line, no preparation, no admission wait). What an input
+  costs is two scene readings, 0.9 s in Reminders (68 elements) and 1.4 s in Notes (142), and
+  the settle, 0.2 to 0.3 s: 2.1 s per key in the 13-key batch, 3.4 s for a type_text. A text typed
+  by 13 `press_key` steps cost 27 s. The worker did it after `type_text` failed twice, with
+  nothing in the instructions telling it text goes in one call: the instructions, the
+  `press_key` description and its reply (while a field has the focus) now say so.
+
 ## Limits
 
 - No live run was made for this change. The table above is the probe's, on one
