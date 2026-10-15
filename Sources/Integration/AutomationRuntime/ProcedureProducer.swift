@@ -196,8 +196,13 @@ nonisolated public enum ProcedureProducer {
                                    memory: MemoryService) async throws -> (attemptID: String, checked: Bool)? {
         guard let candidate = try await memory.perform({ try await $0.procedures.candidate(candidateID) }),
               try await memory.perform({ try await $0.tasks.task(candidate.taskID, for: producer) }) != nil else { return nil }
-        let results = try await memory.perform { try await $0.procedures.results(ofAttempt: candidate.attemptID) }
-        return (candidate.attemptID, !results.isEmpty)
+        let read = try await memory.perform { try await $0.procedures.hasReadResult(ofAttempt: candidate.attemptID) }
+        return (candidate.attemptID, read)
+    }
+
+    /// Whether Braus read the attempt's result: a check that read something, neither a guard nor a `none`.
+    public static func hasReadResult(attemptID: String, memory: MemoryService) async throws -> Bool {
+        try await memory.perform { try await $0.procedures.hasReadResult(ofAttempt: attemptID) }
     }
 
     /// The interpretation with each structural reference of its parameters kept only when it resolves: to an output of an

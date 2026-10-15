@@ -169,7 +169,8 @@ enum MemoryCommand {
                             "task": row.taskID, "producer": "\(row.source):\(row.streamID)", "status": row.status,
                             "opened_at": Self.instant(row.openedAtMS), "revision": row.currentRevision, "goal": row.goal,
                             "attempts": row.attempts, "versions": row.versions, "proposals": row.proposals, "chosen": row.choices,
-                            "queries": row.queries,
+                            "queries": row.queries, "candidates": row.candidates, "uninterpreted": row.uninterpreted,
+                            "result": row.result, "guards_failed": row.guardsFailed,
                         ]
                         object["closed_at"] = row.closedAtMS.map(Self.instant) ?? NSNull()
                         return object

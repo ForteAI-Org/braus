@@ -215,9 +215,22 @@ public enum SQLiteMemoryInspection {
         public let proposals: Int
         public let choices: Int
         public let queries: Int
+        /// The candidates the task's attempts built, and those no interpretation took: a completed task with one of
+        /// these and no version learned nothing (`braus chat --script` reports them).
+        public let candidates: Int
+        public let uninterpreted: Int
+        /// Braus's own verdict on the task's result, from the checks it read (`TaskResultCheck`), guards and `none`
+        /// left out: `failed` when one failed, `passed` when one passed and none failed, `unknown` when none could tell,
+        /// `none` when the task said it leaves nothing to read, `missing` when it named no result.
+        public let result: String
+        /// Braus's guards that failed (a file input no check named changed, a file no check named appeared) and that no
+        /// check passed on the same path explains: a task that changed its input on purpose and named it later is not
+        /// counted. Shown, never part of the result.
+        public let guardsFailed: Int
 
         public init(taskID: String, source: String, streamID: String, status: String, openedAtMS: Int64, closedAtMS: Int64?,
-                    currentRevision: Int, goal: String, attempts: Int, versions: Int, proposals: Int, choices: Int, queries: Int) {
+                    currentRevision: Int, goal: String, attempts: Int, versions: Int, proposals: Int, choices: Int, queries: Int,
+                    candidates: Int = 0, uninterpreted: Int = 0, result: String = "missing", guardsFailed: Int = 0) {
             self.taskID          = taskID
             self.source          = source
             self.streamID        = streamID
@@ -231,6 +244,10 @@ public enum SQLiteMemoryInspection {
             self.proposals       = proposals
             self.choices         = choices
             self.queries         = queries
+            self.candidates      = candidates
+            self.uninterpreted   = uninterpreted
+            self.result          = result
+            self.guardsFailed    = guardsFailed
         }
     }
 
@@ -246,6 +263,24 @@ public enum SQLiteMemoryInspection {
     /// build's shape. `source` keeps the tasks of one producer kind (`app`, `mcp`, `cli`, …); `limit` caps
     /// the rows. The goal printed is the current revision's, as the agent stated it.
     public static func tasks(in url: URL, limit: Int = 20, source: String? = nil) -> TasksReading {
+        rows(in: url, filter: "? IS NULL OR t.source = ?",
+             [source.map(SQLiteValue.text) ?? .null, source.map(SQLiteValue.text) ?? .null], limit: limit)
+    }
+
+    /// The tasks with these ids, newest first, as `tasks(in:)` reads them: what a chat script says of the tasks a
+    /// request opened.
+    public static func tasks(in url: URL, ids: [String]) -> TasksReading {
+        guard !ids.isEmpty else { return .found([]) }
+        return rows(in: url, filter: "t.task_id IN (" + ids.map { _ in "?" }.joined(separator: ", ") + ")",
+                    ids.map(SQLiteValue.text), limit: ids.count)
+    }
+
+    /// The task's result checks, for a subquery over task `t`.
+    private static let taskChecks = "FROM memory_task_attempts a JOIN memory_task_events e ON e.task_occurrence_id = "
+        + "a.task_occurrence_id JOIN memory_verifications v ON v.event_id = e.event_id WHERE a.task_id = t.task_id "
+        + "AND v.scope = 'task'"
+
+    private static func rows(in url: URL, filter: String, _ values: [SQLiteValue], limit: Int) -> TasksReading {
         switch opened(url, { connection in
             try connection.query(
                 """
@@ -257,19 +292,35 @@ public enum SQLiteMemoryInspection {
                        (SELECT count(*) FROM memory_recall_proposals p WHERE p.task_id = t.task_id),
                        (SELECT count(*) FROM memory_recall_choices c JOIN memory_recall_proposals p ON p.proposal_id = c.proposal_id
                            WHERE p.task_id = t.task_id),
-                       (SELECT count(*) FROM memory_recall_queries q WHERE q.task_id = t.task_id)
+                       (SELECT count(*) FROM memory_recall_queries q WHERE q.task_id = t.task_id),
+                       (SELECT count(*) FROM memory_procedure_candidates c WHERE c.task_id = t.task_id),
+                       (SELECT count(*) FROM memory_procedure_candidates c WHERE c.task_id = t.task_id AND NOT EXISTS
+                           (SELECT 1 FROM memory_procedure_interpretations i WHERE i.candidate_id = c.candidate_id)),
+                       (SELECT CASE WHEN sum(v.verdict = 'failed') > 0 THEN 'failed' WHEN sum(v.verdict = 'passed') > 0
+                           THEN 'passed' ELSE 'unknown' END \(Self.taskChecks) AND v.method NOT IN ('none', 'guard')
+                           HAVING count(*) > 0),
+                       (SELECT count(*) \(Self.taskChecks) AND v.method = 'none'),
+                       (SELECT count(*) \(Self.taskChecks) AND v.method = 'guard' AND v.verdict = 'failed' AND NOT EXISTS (
+                           SELECT 1 FROM memory_task_attempts a2 JOIN memory_task_events e2 ON e2.task_occurrence_id =
+                           a2.task_occurrence_id JOIN memory_verifications w ON w.event_id = e2.event_id
+                           WHERE a2.task_id = t.task_id AND w.scope = 'task' AND w.method NOT IN ('none', 'guard')
+                             AND w.verdict = 'passed'
+                             AND json_extract(w.expected_text, '$.path') = json_extract(v.expected_text, '$.path')))
                 FROM memory_tasks t
-                WHERE ? IS NULL OR t.source = ?
+                WHERE \(filter)
                 ORDER BY t.opened_at_ms DESC, t.task_id
                 LIMIT ?
                 """,
-                [source.map(SQLiteValue.text) ?? .null, source.map(SQLiteValue.text) ?? .null, .integer(Int64(max(0, limit)))]
+                values + [.integer(Int64(max(0, limit)))]
             ) { row in
                 TaskRow(taskID: try row.text(0) ?? "", source: try row.text(1) ?? "", streamID: try row.text(2) ?? "",
                         status: try row.text(3) ?? "", openedAtMS: row.integer(4) ?? 0, closedAtMS: row.integer(5),
                         currentRevision: Int(row.integer(6) ?? 1), goal: try row.text(7) ?? "", attempts: Int(row.integer(8) ?? 0),
                         versions: Int(row.integer(9) ?? 0), proposals: Int(row.integer(10) ?? 0), choices: Int(row.integer(11) ?? 0),
-                        queries: Int(row.integer(12) ?? 0))
+                        queries: Int(row.integer(12) ?? 0), candidates: Int(row.integer(13) ?? 0),
+                        uninterpreted: Int(row.integer(14) ?? 0),
+                        result: try row.text(15) ?? ((row.integer(16) ?? 0) > 0 ? "none" : "missing"),
+                        guardsFailed: Int(row.integer(17) ?? 0))
             }
         }) {
             case .read(let rows):       return .found(rows)

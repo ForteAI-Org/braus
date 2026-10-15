@@ -175,7 +175,7 @@ struct RecallProductPathTests {
 
     // MARK: The agent's part of the exchange
 
-    @Test("a proposal never chosen: the task goes on and ends; a use naming the proposal is refused with what to name instead, recording nothing")
+    @Test("a proposal never chosen: the task goes on and ends; a use naming the proposal is answered with what to name instead, recording no use")
     func choiceMissingAndProposalAsQuery() async throws {
         let session = P.photoSession(try W.directory())
         _ = try await L.learnPhoto(session)
@@ -184,13 +184,13 @@ struct RecallProductPathTests {
         let id = try #require(proposal["proposal"].string)
         _ = try await P.call(tools, "open_session", #"{"app":"\#(P.preview)"}"#)
         _ = try await P.call(tools, "act", #"{"session":"\#(session.id!.uuidString)","target":"Rotate Right"}"#)
-        let refused = try await tools.call("memory_task", P.json(#"""
+        // The use is answered as not recorded; the end itself is recorded (review U2: refused, it left the task open).
+        let ended = try await P.task(tools, #"""
             {"operation":"end","outcome":"completed","use":[{"query":"\#(id)","need":1,"outcome":"followed"}]}
-            """#))
-        #expect(refused["isError"] == .bool(true) && "\(refused.payload)".contains("is a proposal, not a query"), "\(refused.payload)")
-        #expect("\(refused.payload)".contains("Nothing was recorded"))
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        #expect(ended["status"].string == "ended", "the task ends without the use")
+            """#)
+        #expect(ended["status"].string == "ended", "the task ends without the use: \(ended)")
+        let problem = ended["use_not_recorded"].array?.first?.string ?? ""
+        #expect(problem.contains("is a proposal, not a query") && problem.contains("not recorded"), "\(ended)")
         #expect(try Self.count("memory_recall_choices", session) == 0 && Self.count("memory_recall_queries", session) == 0)
         #expect(try Self.count("memory_recall_proposals", session) == 1, "the proposal is kept as proposed, never chosen")
         await L.close(session)

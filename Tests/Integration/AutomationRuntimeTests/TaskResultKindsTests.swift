@@ -96,7 +96,8 @@ struct TaskResultKindsTests {
                     "\(checkpoint)")
             _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Search"}"#)
             let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-            #expect(ended["result_check"]["status"].string == "missing", "the end named no result: \(ended)")
+            #expect(ended["result_check"] == nil || ended["result_check"] == .null,
+                    "the checkpoint read the result: nothing is missing at the end: \(ended)")
             let candidate = try #require(ended["candidate"]["id"].string)
             let interpreted = try await P.task(tools, #"""
                 {"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"Turn off a Finder switch","outcome":"completed"},
@@ -113,6 +114,26 @@ struct TaskResultKindsTests {
             #expect(parts["steps 2–2"] == false, "no check follows the second phase, whose step is unknown: \(interpreted)")
             await MemoryService.shared(for: directory).close()
         }
+    }
+
+    @Test("an end that said it leaves nothing to read is asked for its result, and the check named at the interpretation is read")
+    func noneAtTheEndThenAFile() async throws {
+        let directory = try W.directory()
+        let session = ProcedureMethodTests.session(directory)
+        let tools = P.tools(session)
+        _ = try await P.task(tools, ProcedureMethodTests.begin("foto_web"))
+        try await ProcedureMethodTests.run(tools, session, name: "foto_web", mistakes: false)
+        let file = try ProcedureMethodTests.written(directory, "foto_web")
+        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed","result_check":{"none":"nothing to read"}}"#)
+        #expect(ended["result_check"].array?.first?["verdict"].string == "unknown", "\(ended)")
+        let candidate = try #require(ended["candidate"]["id"].string)
+        var interpretation = ProcedureMethodTests.interpretation(candidate, mistakes: false)
+        interpretation.removeLast()
+        interpretation += #","result_check":{"file":"\#(file.path)"}}"#
+        let interpreted = try await P.task(tools, interpretation)
+        #expect(interpreted["result_check"].array?.first?["verdict"].string == "passed",
+                "a none is no reading: the file named now is read: \(interpreted)")
+        await MemoryService.shared(for: directory).close()
     }
 
     @Test("an end with no result check and a file output by its path checks that file; one named in interpret is read then")
@@ -173,6 +194,68 @@ struct TaskResultKindsTests {
             #expect(procedure?["admitted"].bool == true, "a guard is shown, never what refuses the procedure: \(interpreted)")
             await MemoryService.shared(for: directory).close()
         }
+    }
+
+    @Test("a task that changes only what the app shows still keeps its file input: an original saved over by the app is shown by the guard")
+    func anInAppTaskKeepsItsInput() async throws {
+        for saved in [false, true] {
+            let directory = try W.directory()
+            let original = try Self.workFolder().appendingPathComponent("nota.txt")
+            try Data("originale".utf8).write(to: original)
+            let session = ProcedureMethodTests.session(directory, unknownMarkup: true)
+            let tools = P.tools(session)
+            let id = session.id!.uuidString
+            _ = try await P.task(tools, #"""
+                {"operation":"begin","goal":"Show the markup bar on the open document","recall":false,
+                 "inputs":[{"name":"document","value":"\#(original.path)","kind":"file","role":"the open document"}]}
+                """#)
+            _ = try await P.call(tools, "open_session", #"{"app":"\#(P.preview)"}"#)
+            _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Markup"}"#)
+            if saved { try Data("salvato da solo".utf8).write(to: original) }
+            let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed","result_check":{"none":"the bar is shown only"}}"#)
+            let guards = (ended["result_check"].array ?? []).filter { $0["guard"] != nil && $0["guard"] != .null }
+            #expect(guards.count == 1 && guards.first?["check"].string?.hasPrefix("file_unchanged") == true, "\(ended["result_check"])")
+            #expect(guards.first?["verdict"].string == (saved ? "failed" : "passed"), "\(guards)")
+            let task = try #require(ended["task"].string)
+            let archive = directory.appendingPathComponent("memory.sqlite")
+            _ = await MemoryService.shared(for: directory).flush(within: .seconds(5))
+            guard case .found(let before) = SQLiteMemoryInspection.tasks(in: archive, ids: [task]) else {
+                Issue.record("the task was not read"); return
+            }
+            #expect(before.first?.guardsFailed == (saved ? 1 : 0), "a changed input no check names is counted")
+            if saved {
+                // The change was the task's own: named at the interpretation, it explains the guard.
+                let interpreted = try await P.task(tools, #"""
+                    {"operation":"interpret","candidate":"\#(try #require(ended["candidate"]["id"].string))",
+                     "procedure":{"label":"Show the markup bar","outcome":"completed"},"steps":[{"step":1,"label":"Show the markup bar"}],
+                     "result_check":{"file_changed":"\#(original.path)"}}
+                    """#)
+                #expect(interpreted["result_check"].array?.first?["verdict"].string == "passed", "\(interpreted)")
+                guard case .found(let after) = SQLiteMemoryInspection.tasks(in: archive, ids: [task]) else {
+                    Issue.record("the task was not read"); return
+                }
+                #expect(after.first?.guardsFailed == 0, "a check that passed on the same file explains the guard")
+            }
+            await MemoryService.shared(for: directory).close()
+        }
+    }
+
+    @Test("an end whose use names no query is recorded: the use is answered as not recorded, the task ends and its candidate is built")
+    func aBadUseDoesNotKeepTheTaskOpen() async throws {
+        let directory = try W.directory()
+        let session = ProcedureMethodTests.session(directory)
+        let tools = P.tools(session)
+        _ = try await P.task(tools, ProcedureMethodTests.begin("foto_web"))
+        try await ProcedureMethodTests.run(tools, session, name: "foto_web", mistakes: false)
+        let ended = try await P.task(tools, #"""
+            {"operation":"end","outcome":"completed","use":[{"query":"no-such-query","need":1,"outcome":"followed"}]}
+            """#)
+        #expect(ended["status"].string == "ended", "\(ended)")
+        #expect(ended["use_not_recorded"].array?.count == 1, "\(ended)")
+        #expect(ended["candidate"]["id"].string != nil, "\(ended)")
+        let status = try await P.task(tools, #"{"operation":"status"}"#)
+        #expect(status["status"].string == "no open task", "\(status)")
+        await MemoryService.shared(for: directory).close()
     }
 
     @Test("a screen check naming a file is read on disk too; a stray file in the folder fails the guard, which is shown as one")
@@ -266,6 +349,7 @@ struct TaskResultJudgmentTests {
     }
 
     @Test("the screen: a window by its title, an element's value, state and presence")
+    @MainActor
     func screen() {
         let scene = SceneSnapshot(bundleID: "b", appName: "B", windowTitle: "Impostazioni",
                                   viewportPixelSize: ViewportPixelSize(width: 100, height: 100), elements: [
@@ -281,6 +365,12 @@ struct TaskResultJudgmentTests {
         #expect(judge(.window(app: nil, title: "foto_1", open: false), windows: ["foto_1.png — PhotoCraft"]) == .failed)
         #expect(judge(.window(app: nil, title: "foto_1", open: false), windows: []) == .passed)
         #expect(judge(.window(app: nil, title: "foto_1", open: true), windows: nil) == .failed, "the application is not running")
+        let unread = C.judge(.window(app: "Photo", title: "foto_1", open: false), attemptID: "a", openedAtMS: 0,
+                             reading: .unread("the name given answers to several running applications"))
+        #expect(unread.verdict == .unknown && unread.observed.contains("several"),
+                "an application Braus could not read is never taken as one that is not running")
+        #expect(RunningApplicationLookup.isNotRunning("com.example.never-installed-\(UUID().uuidString)"))
+        #expect(!RunningApplicationLookup.isNotRunning("com.apple.finder"), "the Finder is always running")
         #expect(judge(.element(app: nil, label: "Larghezza", expect: .value("640"))) == .passed)
         #expect(judge(.element(app: nil, label: "larghezza", expect: .value("320"))) == .failed)
         #expect(judge(.element(app: nil, label: "Griglia", expect: .state(.on))) == .passed)
@@ -382,6 +472,11 @@ struct ProcedureResultTemplateTests {
         let proposal = try #require(begun["recall_proposal"]["proposal"].string)
         #expect(begun["recall_proposal"]["needs"].array?.first?["readyPlan"].string?.contains(#""source":"\#(key)""#) == true,
                 "the need carries the plan item that chooses the first source: \(begun["recall_proposal"]["needs"])")
+        // The plan declares the need covered as the suggestion covers it: a partial suggestion is no whole need.
+        if let need = begun["recall_proposal"]["needs"].array?.first, let suggested = need["suggested"].string,
+           let plan = need["readyPlan"].string {
+            #expect(plan.contains(suggested.hasSuffix("(complete)") ? #""covered":"all""# : #""covered":"part""#), "\(need)")
+        }
         let chosen = try await P.task(chooser, RecallChoiceToolTests.choose(proposal, [(key, 1, 5)]))
         let tract = chosen["recall"]["needs"].array?.first?["tracts"].array?.first
         #expect(tract?["resultCheck"].array?.compactMap(\.string) == ["at the end: file_written \(folder.path)/foto_mail.jpg"], "\(chosen)")

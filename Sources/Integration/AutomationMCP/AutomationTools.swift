@@ -607,11 +607,11 @@ public final class AutomationTools {
             case .checkpoint(let draft, let declared, let uses, let checks), .end(let draft, let declared, let uses, let checks):
                 guard let current = openTask else { throw Self.noOpenTask }
                 keep(declared)
-                let reported = try await report(uses, task: current, memory: memory)
+                let (reported, useProblems) = await report(uses, task: current, memory: memory)
                 // The result the task names is read by Braus before the checkpoint or the end is recorded: the procedure's
                 // admission, and its phases', rest on it (`QualificationPolicy` version B).
                 // At a completed end Braus completes what the task named with what it can read on disk itself
-                // (`AutomationTools.completed`); a `none` for a task with files is refused before anything is recorded.
+                // (`AutomationTools.completed`).
                 var checks = checks
                 if case .end(let draft, _, _, _) = request, draft.declared == .completed {
                     checks = Self.completed(checks, fingerprints: fingerprints, outputs: arguments["outputs"],
@@ -629,6 +629,7 @@ public final class AutomationTools {
                 var extra: [String: JSONValue] = ["recorded": recorded]
                 if let used = await linked(current, producer: producer, memory: memory) { extra["recall_use"] = used }
                 if reported > 0 { extra["use_reported"] = .number(Double(reported)) }
+                if !useProblems.isEmpty { extra["use_not_recorded"] = .array(useProblems.map(JSONValue.string)) }
                 // The checkpoint is saved whatever the candidate: a candidate that cannot be built now is
                 // built again from the same facts by `candidate` or the next checkpoint.
                 do {
@@ -649,7 +650,9 @@ public final class AutomationTools {
                     extra["outcome"] = .string(checkpoint.declared?.rawValue ?? "")
                     if let checkedResult {
                         extra["result_check"] = checkedResult
-                    } else if checkpoint.declared == .completed {
+                    } else if checkpoint.declared == .completed,
+                              !((try? await ProcedureProducer.hasReadResult(attemptID: current.attemptID, memory: memory)) ?? false) {
+                        // A result read at a checkpoint is the attempt's result: nothing is missing then.
                         extra["result_check"] = .object(["status": .string("missing"), "next": .string(Self.resultMissing)])
                     }
                     extra["before_answering"] = .string(Self.closeChangedCopies)
@@ -741,8 +744,11 @@ public final class AutomationTools {
                 }
             case .use(let uses):
                 guard let current = openTask else { throw Self.noOpenTask }
-                let reported = try await report(uses, task: current, memory: memory)
+                let (reported, useProblems) = await report(uses, task: current, memory: memory)
+                // A call that only reports uses and recorded none of them failed.
+                if reported == 0, let problem = useProblems.first { throw MemoryTaskTool.Failure(code: "unknown_query", message: problem) }
                 var extra: [String: JSONValue] = ["use_reported": .number(Double(reported))]
+                if !useProblems.isEmpty { extra["use_not_recorded"] = .array(useProblems.map(JSONValue.string)) }
                 if let used = await linked(current, producer: producer, memory: memory) { extra["recall_use"] = used }
                 return open(current, "use recorded", extra)
             case .status:
@@ -839,26 +845,32 @@ public final class AutomationTools {
     }
 
     /// Records the agent's declared uses of the selections it received; answers how many were recorded.
-    private func report(_ uses: [MemoryTaskTool.UseReport], task: OpenTask, memory: MemoryService) async throws -> Int {
+    /// Records each use the agent reported, and answers how many were recorded and why each other one was not. A use
+    /// that names no query of the attempt is answered, never what keeps the checkpoint or the end from being recorded:
+    /// thrown, it left the task open, then abandoned with nothing learned (review U2, 14 October 2026).
+    private func report(_ uses: [MemoryTaskTool.UseReport], task: OpenTask, memory: MemoryService) async -> (recorded: Int, problems: [String]) {
         let service = RecallService.shared(for: memory)
+        var recorded = 0
+        var problems: [String] = []
         for use in uses {
             do {
                 try await service.report(queryID: use.queryID, attemptID: task.attemptID, needPosition: use.needPosition,
                                          declared: use.declared, cause: use.cause, note: use.note)
+                recorded += 1
             } catch RecallUseError.unknownQuery(let id) {
                 // A proposal's id is no query's (live run R01): say which id a use names, and that nothing was recorded.
                 if await service.isProposal(id, of: task.taskID) {
-                    throw MemoryTaskTool.Failure(code: "unknown_query",
-                                                 message: "\(id) is a proposal, not a query: a use names the query that memory_task choose "
-                                                    + "answered (recall.query). A proposal you did not choose from has no use to report. Nothing "
-                                                    + "was recorded.")
+                    problems.append("\(id) is a proposal, not a query: a use names the query that memory_task choose answered "
+                                    + "(recall.query). A proposal you did not choose from has no use to report. This use was not recorded.")
+                } else {
+                    problems.append("No query \(id) with that need was made by this attempt: report the query ids recall answered. "
+                                    + "This use was not recorded.")
                 }
-                throw MemoryTaskTool.Failure(code: "unknown_query",
-                                             message: "No query \(id) with that need was made by this attempt: report the query ids recall answered. "
-                                                + "Nothing was recorded.")
+            } catch {
+                problems.append("The use of query \(use.queryID) was not recorded: \(MemoryService.describe(error))")
             }
         }
-        return uses.count
+        return (recorded, problems)
     }
 
     /// Links the attempt's calls to the steps the Recall delivered to it and answers what each selection was used
@@ -1052,18 +1064,12 @@ public final class AutomationTools {
         return found
     }
 
-    /// The guards Braus adds to a completed task's checks: when the result is a file written or changed at another path,
-    /// every file input it read at the beginning (a regular file whose content it read) and that no check or output names
-    /// stays as it was. An export that also rewrote its original is caught here, which no check of the export shows.
+    /// The guards Braus adds to a completed task's checks: every file input it read at the beginning (a regular file whose
+    /// content it read) and that no check or output names stays as it was. An export that also rewrote its original is
+    /// caught here, which no check of the export shows; so is an application that saved over its input by itself while the
+    /// task changed only what it shows (review A6-4, 14 October 2026). Guards are shown, never part of the result.
     static func guards(for checks: [MemoryTaskTool.ResultCheck], fingerprints: [String: TaskResultCheck.FileFacts], outputs: JSONValue,
                        minimization: ValueMinimization) -> [MemoryTaskTool.ResultCheck] {
-        let writes = checks.compactMap { check -> String? in
-            switch check.read {
-                case .fileWritten(let path), .fileChanged(let path), .fileContains(let path, _), .fileCopied(_, let path): path
-                default: nil
-            }
-        }
-        guard !writes.isEmpty else { return [] }
         let named = Set(checks.flatMap { $0.read.path.map { [$0] } ?? [] } + checks.compactMap { check -> String? in
             if case .fileMoved(_, let to) = check.read { return to }
             if case .fileCopied(_, let to) = check.read { return to }
@@ -1086,7 +1092,7 @@ public final class AutomationTools {
         for named in checks {
             var screen: TaskResultCheck.Reading?
             switch named.read {
-                case .window(let app, _, _): screen = .screen(windows: windowTitles(of: app), scene: nil)
+                case .window(let app, _, _): screen = windowReading(of: app)
                 case .element(let app, _, _): screen = .screen(windows: nil, scene: await currentScene(of: app))
                 default: break
             }
@@ -1109,9 +1115,19 @@ public final class AutomationTools {
 
     /// The titles of the windows of an application the window server lists, the session's own when none is named; nil
     /// when it is not running.
-    private func windowTitles(of app: String?) -> [String]? {
-        guard let word = app ?? session.memoryApplication, let running = try? RunningApplicationLookup.running(word) else { return nil }
-        return (try? session.windowCandidates(ownedBy: running.processIdentifier))?.map { $0.title ?? "" }
+    private func windowReading(of app: String?) -> TaskResultCheck.Reading {
+        guard let word = app ?? session.memoryApplication else {
+            return .unread("no application was named and no session holds one, so no window was listed")
+        }
+        guard let running = try? RunningApplicationLookup.running(word) else {
+            // Only a name no running application answers to says it is not running; an ambiguous one says nothing.
+            return RunningApplicationLookup.isNotRunning(word) ? .screen(windows: nil, scene: nil)
+                : .unread("the name given answers to several running applications")
+        }
+        guard let windows = try? session.windowCandidates(ownedBy: running.processIdentifier) else {
+            return .unread("the application's windows could not be listed")
+        }
+        return .screen(windows: windows.map { $0.title ?? "" }, scene: nil)
     }
 
     /// The scene the session reads now, when it holds the application named (or any, when none is named); nil otherwise.

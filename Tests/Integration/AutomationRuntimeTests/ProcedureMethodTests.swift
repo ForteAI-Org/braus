@@ -440,5 +440,11 @@ struct ProcedureMethodRuleTests {
         #expect(evaluate([fact(.passed, performed: .substitute)], result: .passed).verdict == .refused, "another gesture than the one asked")
         #expect(evaluate([fact(.passed)], result: .failed).findings.map(\.reason) == [.verificationFailed],
                 "a result not on disk keeps out a procedure whose every step passed")
+        let closedAfterChoice = QualificationPolicy.VerificationFact(eventID: "vc", condition: .menuClosedAfterChoice, verdict: .passed,
+                                                                     performed: .requested, limits: [])
+        #expect(evaluate([closedAfterChoice], result: .passed).verdict == .admitted,
+                "a pass that proves less than the request is unproven, as an unknown check would be")
+        #expect(evaluate([closedAfterChoice], result: nil).findings.map(\.reason) == [.verificationNotPositive],
+                "without the result it still proves nothing")
     }
 }

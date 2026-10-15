@@ -384,6 +384,20 @@ public struct SQLiteProcedureRepository: Sendable {
         }
     }
 
+    /// Whether Braus read the attempt's result: a check that read something, neither a guard Braus added nor a `none`.
+    /// What decides whether a result named later (at the interpretation) is still read, and whether an end is told its
+    /// result is missing (review A5-3, 14 October 2026: guards and a `none` counted, so the check the end asked for was
+    /// then skipped as "already checked").
+    public func hasReadResult(ofAttempt attemptID: String) async throws -> Bool {
+        try await store.read { snapshot in
+            try SQLiteProcedureRows.results(snapshot, attemptID: attemptID).contains { row in
+                guard !row.isGuard, let expectation = row.expectation else { return false }
+                if case .nothing = expectation { return false }
+                return true
+            }
+        }
+    }
+
     /// The result checks an attempt recorded, in the order it recorded them (`TaskResultCheck`).
     public func results(ofAttempt attemptID: String) async throws -> [TaskResultCheck] {
         try await store.read { snapshot in

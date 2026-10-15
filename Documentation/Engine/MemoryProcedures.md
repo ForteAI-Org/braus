@@ -598,9 +598,47 @@ goal families (tasks that chose a source and reached its goal another way); on a
 subprocedures form 20 families and 220 steps 24. Sharing them as one procedure called by the others (`route_call`,
 which the schema has) and summing their evidence is the next step, not taken here.
 
+**What the audit of 14 October 2026 added** (flexibility of learning and recall, failures of unattended runs).
+Mechanisms only: no sentence was added to the agent's instructions and no condition made stricter.
+- *Uses Braus infers* (`InferredUses`). A value the agent typed, chose in a pop-up or set that is exactly one of the
+  task's inputs (or that input and a file extension: `foto_mail.jpg` for `foto_mail`) is read as that input's parameter,
+  stated or added with the input's name, role and kind, and checked by the assembly like a stated use. It reads values
+  only, never an element's label: a button Export and a file named Export keep their roles, and a row clicked by a
+  file's name is still the agent's to state. Before, such a value stayed a literal and a reuse delivered the old one (D7).
+- *Braus's interpretation* (`ProcedureProducer.brausInterpretation`). A completed task whose candidate the agent left
+  uninterpreted after its reminder is interpreted by Braus at the end of a script's request: the task's goal as the
+  procedure's label, the phases already known where its steps hold them, the uses inferred. The qualification decides
+  as for any interpretation; no step is labelled, so none is offered alone. A failed or abandoned task is not.
+- *A weaker repeat* (`SQLiteProcedureRepository.WeakerRepeat`). A run that repeats an admitted procedure but whose own
+  procedure is refused (its result failed or was not read) does not replace it: it is written as a version of its own,
+  and the admitted one stays offered. Before, a second run with a failed result took the first out of the Recall.
+- *Variants Braus records*. A completed run that chose a learned source (`memory_task choose`) and did the work another
+  way is that source's variant (`variant_of_route_id`), from the first step where the operations part, its prefix
+  checked as a declared one's (`VariantPrefix`). None was declared in any test run.
+- *The result read* (`hasReadResult`). A check that read something, never a guard Braus added nor a `none`, is the
+  attempt's result: an end whose result a checkpoint already read is not asked for it, and a `none` at the end no longer
+  makes the interpretation skip the check it names.
+- *A pass that proves less* (`QualificationPolicy.StepFacts.isOnlyUnproven`). A step whose check passed on a condition
+  that does not prove the request (a pop-up closed after a choice) is unproven, like an unknown one, not a contradiction:
+  a method whose result Braus read is admitted over it.
+- *Inputs guarded in every task* (`AutomationTools.guards`). Every file input read at the beginning that no check names
+  is guarded at a completed end, also when the task writes nothing: an application that saved over its input by itself
+  is shown. Guards stay informative.
+- *An application not read* (`TaskResultCheck.Reading.unread`). A window check whose application name is ambiguous or
+  whose windows cannot be listed is unknown; only a name no running application answers to says it is not running.
+- *A use that names no query* is answered (`use_not_recorded`) and no longer keeps the end from being recorded, which left
+  the task open and then abandoned.
+
 | Proof | Test |
 | --- | --- |
 | The method left out and said, phases as subprocedures, the file checked | `ProcedureMethodTests.theMethodOnly` |
+| Uses Braus infers; a label equal to a value keeps its role | `ProcedureMethodTests.usesBrausInfers`, `ProcedureLearningTests` (file named Export) |
+| Braus interprets a completed task the agent left, never a failed one | `ProcedureMethodTests.brausInterpretsWhatTheAgentLeft` |
+| A refused repeat leaves the admitted version offered | `ProcedureMethodTests.aWeakerRepeat` |
+| A chosen source adapted is its variant | `ProcedureResultTemplateTests.aChosenSourceAdapted` |
+| A `none` at the end, then a file named at the interpretation, is read; a checkpoint's reading is the result | `TaskResultKindsTests.noneAtTheEndThenAFile`, `.aSwitchCheckedAtACheckpoint` |
+| An in-app task's input guarded; a bad use answered, the end recorded | `TaskResultKindsTests.anInAppTaskKeepsItsInput`, `.aBadUseDoesNotKeepTheTaskOpen` |
+| A ready plan of admitted runs, accepted | `RecallLifecycleTests.readyPlanOfferedStepsOnly` |
 | B admits a procedure over an unknown step when the result passed, refuses it when the result failed | `ProcedureMethodTests.resultAdmitsTheProcedure`, `ProcedureMethodRuleTests.policyB` |
 | A repeated method replaces the first version and inherits its verified step | `ProcedureMethodTests.aRepeatedMethod` |
 | What a method is | `ProcedureMethodRuleTests.signature` |
@@ -612,8 +650,10 @@ which the schema has) and summing their evidence is the next step, not taken her
 | Families of parts and the phases a candidate shares | `ProcedureFamiliesTests` |
 
 **Limits.** A repeat is recognized only at the same number of steps: a run that took another path to the same
-result (Go to Folder against the sidebar) is another procedure, linked to the source it chose only in the goal
-families the consolidation reports. A screen check reads the session's scene at that moment: an element the window
+result (Go to Folder against the sidebar) is another procedure, linked to the source it chose as its variant when it
+chose one, else only in the goal families the consolidation reports. A repeat is looked for only on an attempt's
+first version: an agent that interpreted at a checkpoint makes no repeat at the end (review A7-2, open). A file's row
+clicked by its name is a literal unless the agent states the use. A screen check reads the session's scene at that moment: an element the window
 no longer shows cannot be checked after it closes, and an element that exposes no value reads unknown. Application
 settings stored on disk (`defaults`), the pasteboard and effects outside the Mac have no reader yet. An element's
 label that is content without naming a file (a person's name on a button) still distinguishes two methods. Versions

@@ -321,6 +321,9 @@ public struct TaskResultCheck: Sendable, Equatable {
     public enum Reading: Sendable {
         case disk(before: FileFacts?, now: FileFacts, other: FileFacts? = nil)
         case screen(windows: [String]?, scene: SceneSnapshot?)
+        /// Braus could not read what the check is about, and why: an application named ambiguously, windows that could
+        /// not be listed. Judged unknown, never as an absence (review A5-2, 14 October 2026).
+        case unread(String)
         case nothing
     }
 
@@ -330,6 +333,7 @@ public struct TaskResultCheck: Sendable, Equatable {
             case .disk(let before, let now, let other):
                 judge(expectation, attemptID: attemptID, openedAtMS: openedAtMS, before: before, now: now, other: other)
             case .screen(let windows, let scene): judge(expectation, attemptID: attemptID, windows: windows, scene: scene)
+            case .unread(let why): TaskResultCheck(attemptID: attemptID, expectation: expectation, verdict: .unknown, observed: why)
             case .nothing: judge(expectation, attemptID: attemptID, windows: nil, scene: nil)
         }
     }

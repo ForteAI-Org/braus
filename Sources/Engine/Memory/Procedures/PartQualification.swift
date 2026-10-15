@@ -189,15 +189,15 @@ public enum QualificationPolicy {
         }
 
         /// Whether the step's own checks leave its operation unproven without contradicting it: unknown or
-        /// missing, or a gesture whose delivery was uncertain, never a failed check and never another gesture than the
-        /// one asked. An uncertain delivery is unproven, not refuted: PhotoCraft answers a double click on a folder of
-        /// its save panel with an error and opens the folder (14 October 2026).
+        /// missing, passed on a condition that does not prove the request (a pop-up closed after a choice), or a gesture
+        /// whose delivery was uncertain, never a failed check and never another gesture than the one asked. An uncertain
+        /// delivery is unproven, not refuted: PhotoCraft answers a double click on a folder of its save panel with an
+        /// error and opens the folder (14 October 2026). A pass that proves less is no contradiction either: counted as one,
+        /// it kept out a method an unknown check in its place would not have (review A5-5).
         var isOnlyUnproven: Bool {
             guard status == .completed, !hasRecordingGap else { return false }
             return verifications.allSatisfy { fact in
                 fact.verdict != .failed && fact.performed != .substitute && fact.condition != .recoveryInsteadOfRequest
-                    && (fact.verdict == .unknown || fact.isPositive || fact.performed == .uncertain
-                        || fact.limits.contains(.deliveryUncertain))
             }
         }
     }
