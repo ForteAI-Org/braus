@@ -8,6 +8,7 @@
 import AutomationRuntime
 import Foundation
 import Memory
+import TestScratch
 import Testing
 
 /// PendingRetryTests prove how the facts kept after an effect are retried when several producers want
@@ -64,8 +65,7 @@ struct PendingRetryTests {
     }
 
     private func memory() -> MemoryService {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("pending-retry-\(UUID().uuidString)", isDirectory: true)
+        let directory = Scratch.directory("pending-retry")
         return MemoryService(directory: directory, configuration: .init(essentialAttempts: 1))
     }
 

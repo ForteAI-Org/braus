@@ -9,6 +9,7 @@ import AutomationRuntime
 import EngineCore
 import Foundation
 import Memory
+import TestScratch
 @testable import braus
 @testable import SQLiteMemory
 import Testing
@@ -29,8 +30,7 @@ struct CommandLineBatchTests {
 
     /// A memory of its own, whose lock budget is short so a held lock refuses fast.
     private func memory() -> MemoryService {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("command-line-batch-\(UUID().uuidString)", isDirectory: true)
+        let directory = Scratch.directory("command-line-batch")
         let store = SQLiteMemoryStore.Configuration(
             lockBudget: .milliseconds(100),
             retryPause: .milliseconds(5),

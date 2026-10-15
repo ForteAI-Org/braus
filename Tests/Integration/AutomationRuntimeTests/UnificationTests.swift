@@ -13,6 +13,7 @@ import Foundation
 import Memory
 import PerceptionCore
 @testable import SQLiteMemory
+import TestScratch
 import Testing
 
 /// UnificationTests prove that the user's one archive takes in an external client's earlier private
@@ -32,10 +33,7 @@ struct UnificationTests {
     }
 
     static func place() throws -> Place {
-        let support = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "unification-\(UUID().uuidString)",
-            isDirectory: true
-        )
+        let support = Scratch.directory("unification")
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         return Place(support: support)
     }
@@ -675,9 +673,7 @@ struct UnificationTests {
     }
 
     private func temporaryArchive() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "unification-destination-\(UUID().uuidString)"
-        )
+        let directory = Scratch.directory("unification-destination")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent("memory.sqlite")
     }

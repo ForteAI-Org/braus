@@ -8,12 +8,12 @@
 import Foundation
 import Memory
 @testable import SQLiteMemory
+import TestScratch
 import Testing
 
 /// A fresh database path in a directory of its own, so no test shares a file with another.
 func temporaryDatabase(_ name: String = "memory") throws -> URL {
-    let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("braus-sqlite-\(UUID().uuidString)")
+    let directory = Scratch.directory("braus-sqlite")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     return directory.appendingPathComponent("\(name).sqlite")
 }

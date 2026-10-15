@@ -11,6 +11,7 @@ import CoreGraphics
 import Foundation
 import SeatCore
 import SeatSession
+import TestScratch
 import Testing
 @testable import SeatBroker
 
@@ -110,8 +111,7 @@ struct WindowOnAnotherDesktopTests {
         let desktop = BrokeredAutomationSession(
             broker            : broker,
             workerID          : UUID(),
-            knowledgeDirectory: FileManager.default.temporaryDirectory
-                .appendingPathComponent("braus-desktop-\(UUID().uuidString)", isDirectory: true),
+            knowledgeDirectory: Scratch.directory("braus-desktop"),
             allowsDestructive : false,
             missingGrant      : { nil },
             requestGrants     : {},

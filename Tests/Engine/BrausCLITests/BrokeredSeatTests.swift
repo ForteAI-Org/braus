@@ -7,6 +7,7 @@
 
 import AppKit
 import AutomationRuntime
+import TestScratch
 @testable import braus
 import Foundation
 import PerceptionCore
@@ -52,8 +53,7 @@ struct BrokeredSeatTests {
     }
 
     private static func knowledge() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("braus-brokered-seat-\(UUID().uuidString)", isDirectory: true)
+        Scratch.directory("braus-brokered-seat")
     }
 
     @Test("a --seat command opens the running application by its bundle ID and --window through the brokered session, holds the seat for the body and gives it back")

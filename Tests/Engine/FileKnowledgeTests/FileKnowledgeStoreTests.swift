@@ -10,6 +10,7 @@ import Foundation
 import Memory
 import PerceptionCore
 import Synchronization
+import TestScratch
 import Testing
 
 @Suite("The file-backed knowledge store")
@@ -18,7 +19,7 @@ struct FileKnowledgeStoreTests {
     private let t0 = Date(timeIntervalSince1970: 1_700_000_000)
 
     private func directory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("braus-knowledge-\(UUID().uuidString)")
+        let url = Scratch.directory("braus-knowledge")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

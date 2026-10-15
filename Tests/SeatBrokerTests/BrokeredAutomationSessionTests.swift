@@ -14,6 +14,7 @@ import PerceptionCore
 import SeatCore
 import SeatDriving
 import SeatSession
+import TestScratch
 import Testing
 @testable import SeatBroker
 
@@ -74,8 +75,7 @@ struct BrokeredAutomationSessionTests {
         BrokeredAutomationSession(
             broker            : broker,
             workerID          : workerID,
-            knowledgeDirectory: FileManager.default.temporaryDirectory
-                .appendingPathComponent("braus-brokered-\(UUID().uuidString)", isDirectory: true),
+            knowledgeDirectory: Scratch.directory("braus-brokered"),
             allowsDestructive : false,
             grantee           : grantee,
             missingGrant      : { missing },
@@ -246,8 +246,7 @@ struct BrokeredAutomationSessionTests {
         let desktop = BrokeredAutomationSession(
             broker            : broker,
             workerID          : UUID(),
-            knowledgeDirectory: FileManager.default.temporaryDirectory
-                .appendingPathComponent("braus-brokered-\(UUID().uuidString)", isDirectory: true),
+            knowledgeDirectory: Scratch.directory("braus-brokered"),
             allowsDestructive : false,
             missingGrant      : { nil },
             requestGrants     : {},

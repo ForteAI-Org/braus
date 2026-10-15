@@ -13,6 +13,7 @@ import LocalEmbedding
 import LocalMCP
 import Memory
 @testable import SQLiteMemory
+import TestScratch
 import Testing
 
 /// RecallEvaluationTests run the D3 comparison on the quality corpus, gated by `BRAUS_RECALL_EVAL`, and write their
@@ -163,7 +164,7 @@ struct RecallEvaluationTests {
 
     static func archive(from base: URL, learned: [String: RecallCorpus.Learned], corpus: RecallCorpus,
                         configuration: RecallConfiguration) async throws -> Archive {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("recall-eval-\(UUID().uuidString)", isDirectory: true)
+        let directory = Scratch.directory("recall-eval")
         try FileManager.default.copyItem(at: base, to: directory)
         let memory = MemoryService.shared(for: directory)
         let service = RecallService(memory: memory, configuration: configuration)

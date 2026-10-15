@@ -9,6 +9,7 @@ import CoreGraphics
 import Foundation
 import SeatCore
 import SeatInput
+import TestScratch
 import Testing
 @testable import SeatBroker
 
@@ -21,8 +22,7 @@ struct TargetPlatformTests {
     /// else: the reading is a file existence check, so the files are what a
     /// row has to provide.
     private static func bundle(embedding frameworks: [String] = []) throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
+        let url = Scratch.directory("target-platform")
             .appendingPathComponent("Row.app")
         let container = url.appendingPathComponent("Contents/Frameworks")
         try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)

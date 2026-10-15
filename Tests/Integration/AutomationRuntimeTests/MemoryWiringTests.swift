@@ -15,6 +15,7 @@ import Memory
 import PerceptionCore
 @testable import SQLiteMemory
 import Synchronization
+import TestScratch
 import Testing
 
 /// W is the small world these tests run in: a fresh Knowledge directory, a service of its own, and a
@@ -24,8 +25,7 @@ enum W {
     static let bundle = "com.example.Editor"
 
     static func directory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("memory-wiring-\(UUID().uuidString)", isDirectory: true)
+        let url = Scratch.directory("memory-wiring")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

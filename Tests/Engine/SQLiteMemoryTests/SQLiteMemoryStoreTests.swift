@@ -10,6 +10,7 @@ import Memory
 import SQLiteAmalgamation
 @testable import SQLiteMemory
 import Synchronization
+import TestScratch
 import Testing
 
 @Suite("The SQLite living memory foundation")
@@ -124,8 +125,7 @@ struct SQLiteMemoryStoreTests {
         #expect(fault.phase == .open)
         #expect(!FileManager.default.fileExists(atPath: missing.path))
 
-        let sealed = FileManager.default.temporaryDirectory
-            .appendingPathComponent("braus-sealed-\(UUID().uuidString)")
+        let sealed = Scratch.directory("braus-sealed")
         try FileManager.default.createDirectory(at: sealed, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: sealed.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sealed.path) }

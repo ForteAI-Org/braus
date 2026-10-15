@@ -287,11 +287,13 @@ let package = Package(
         driverTests("TargetReader", ["TargetReader"]),
 
         // MARK: Broker tests
+        // The folders tests write, under one root per test process that the process removes when it exits.
+        .target(name: "TestScratch", path: "Tests/Support/TestScratch", swiftSettings: pure),
         brokerTests(
             "SeatBroker",
             ["SeatBroker", "PerceptionCore", "SeatCore", "SeatCapture",
              "SeatSession", "SeatInput", "TargetReader", "EngineCore", "ModelTransports",
-             "SeatDriving", "AutomationRuntime", "Engine", "AutomationMCP", "LocalMCP", "Memory"]
+             "SeatDriving", "AutomationRuntime", "Engine", "AutomationMCP", "LocalMCP", "Memory", "TestScratch"]
         ),
         brokerTests("ModelTransports", ["ModelTransports"]),
         // The living memory wired to the tools, the sessions and the engine: the queue, the recorder, the
@@ -299,7 +301,7 @@ let package = Package(
         .testTarget(
             name         : "AutomationRuntimeTests",
             dependencies : ["AutomationRuntime", "AutomationMCP", "Memory", "SQLiteMemory", "EngineCore",
-                            "PerceptionCore", "LocalMCP", "LocalEmbedding"].map { .target(name: $0) },
+                            "PerceptionCore", "LocalMCP", "LocalEmbedding", "TestScratch"].map { .target(name: $0) },
             path         : "Tests/Integration/AutomationRuntimeTests",
             // The Recall's quality corpus: knowledge learned through the tools and queries split by family.
             resources    : [.copy("Fixtures/recall-corpus-v1.json"), .copy("Fixtures/recall-calibration-v1.json"),
@@ -488,7 +490,7 @@ let package = Package(
         .testTarget(
             name: "BrausCLITests",
             dependencies: ["braus", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
-                           "Memory", "SQLiteMemory", "SeatBroker", "SeatDriving", "FileConversations"],
+                           "Memory", "SQLiteMemory", "SeatBroker", "SeatDriving", "FileConversations", "TestScratch"],
             path: "Tests/Engine/BrausCLITests",
             swiftSettings: facility
         ),
@@ -497,13 +499,13 @@ let package = Package(
         engineTests("Memory", ["Memory", "EngineCore", "PerceptionCore"],
                     resources: [.copy("Fixtures/route-corpus.json"), .copy("Fixtures/misfire-corpus.json"),
                                 .copy("Fixtures/misfire-corpus.md")]),
-        engineTests("FileKnowledge", ["FileKnowledge", "Memory", "PerceptionCore"]),
+        engineTests("FileKnowledge", ["FileKnowledge", "Memory", "PerceptionCore", "TestScratch"]),
         // The local model's tokenizer and encoder against Hugging Face's own outputs; the model files come from
         // BRAUS_RECALL_MODELS and the suites that need them are skipped, saying so, without it.
         engineTests("LocalEmbedding", ["LocalEmbedding", "Memory"],
                     resources: [.copy("Fixtures/recall-embedding-reference.json")]),
         // The capture and scene fixtures walk a fake accessibility tree through the producer, the merge and
         // the pure pipeline before they reach the store, so the suite imports the perception modules too.
-        engineTests("SQLiteMemory", ["SQLiteMemory", "SQLiteAmalgamation", "Memory", "EngineCore", "PerceptionCore", "Perception"]),
+        engineTests("SQLiteMemory", ["SQLiteMemory", "SQLiteAmalgamation", "Memory", "EngineCore", "PerceptionCore", "Perception", "TestScratch"]),
     ]
 )

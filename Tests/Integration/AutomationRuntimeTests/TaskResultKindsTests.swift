@@ -13,6 +13,7 @@ import LocalMCP
 import Memory
 import PerceptionCore
 @testable import SQLiteMemory
+import TestScratch
 import Testing
 
 /// A task's result is not always a new file (14 October 2026): a file changed in place, an original kept, a switch the
@@ -28,7 +29,7 @@ struct TaskResultKindsTests {
 
     /// A folder of the person's files, apart from the archive's, as on a Mac: what a task reads and writes.
     static func workFolder() throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("braus-lavoro-\(Int.random(in: 100_000...999_999))")
+        let folder = Scratch.directory("braus-lavoro")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
     }
@@ -261,7 +262,7 @@ struct TaskResultKindsTests {
     @Test("a screen check naming a file is read on disk too; a stray file in the folder fails the guard, which is shown as one")
     func whatBrausAdds() async throws {
         let directory = try W.directory()
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("braus-lavoro-\(Int.random(in: 100_000...999_999))")
+        let folder = Scratch.directory("braus-lavoro")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let document = folder.appendingPathComponent("lavoro_A.png")
         try Data("prima".utf8).write(to: document)
@@ -430,7 +431,7 @@ struct ProcedureResultTemplateTests {
     @Test("a learned procedure proposes how its result was checked, and a whole choice delivers it with the new task's values")
     func proposedAndDelivered() async throws {
         let directory = try W.directory()
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("braus-uscite-\(Int.random(in: 100_000...999_999))")
+        let folder = Scratch.directory("braus-uscite")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let session = ProcedureMethodTests.session(directory)
         let memory = MemoryService.shared(for: directory)
