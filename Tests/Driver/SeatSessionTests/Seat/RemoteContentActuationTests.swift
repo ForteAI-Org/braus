@@ -47,6 +47,9 @@ struct RemoteContentActuationTests {
 
         /// What an action answers, and whether an `AXSelected` write is read back as taken.
         var performAnswer        = AXError.success
+        var onPerform            : ((String) -> Void)?
+        /// A checkbox's, switch's or radio button's 0 or 1 `AXValue`.
+        var toggle               : Bool?
         var writeAnswer          = AXError.success
         var ignoresSelectedWrite = false
 
@@ -105,6 +108,7 @@ struct RemoteContentActuationTests {
     static func actuator(
         hitting hit: @escaping () -> Element?,
         window     : Element? = nil,
+        settle     : @escaping () -> Void = {},
         note       : @escaping (String) -> Void = { _ in }
     ) -> RemoteContentActuator<Element> {
         let windowNode: (Int) -> Element? = { number in
@@ -133,7 +137,11 @@ struct RemoteContentActuationTests {
             role   : { $0.answers ? $0.role : nil },
             actions: { $0.actions },
             value  : { $0.value },
-            perform: { element, action in element.performed.append(action); return element.performAnswer },
+            perform: { element, action in
+                element.performed.append(action)
+                element.onPerform?(action)
+                return element.performAnswer
+            },
             write  : { element, write in element.apply(write); return element.writeAnswer },
             selectionIsSettable: { node, attribute in
                 switch attribute {
@@ -162,6 +170,8 @@ struct RemoteContentActuationTests {
             windowNode         : windowNode,
             frame              : { $0.frame },
             label              : { $0.title },
+            toggleValue        : { $0.toggle },
+            settle             : settle,
             note               : note
         )
     }

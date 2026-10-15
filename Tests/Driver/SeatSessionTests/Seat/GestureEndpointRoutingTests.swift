@@ -780,6 +780,51 @@ struct GestureEndpointRoutingTests {
         try panel.seat.release(turn)
     }
 
+    @Test("an extension's press that accessibility left unchanged is posted once, on the host window only",
+          arguments: [true, false])
+    func anIgnoredExtensionPressIsPostedOnTheHost(isExtension: Bool) async throws {
+
+        let panel       = try await Self.panel()
+        let observation = try await observedReference(panel.seat)
+        let sheet       = try #require(panel.sheet.reference.identity)
+        let content     = try Self.remoteContent(of: panel)
+        let remote      = try #require(content.window.identity)
+        panel.discovery.answer = .success(try Self.endpoint(
+            content,
+            relation      : .remoteContent,
+            logicalSurface: sheet,
+            generation    : observation.selectionGeneration,
+            hostProcessID : panel.host.reference.processID
+        ))
+        panel.discovery.qualifiesRemotePanelService = !isExtension
+        panel.discovery.qualifiesAppleExtension     = isExtension
+        panel.discovery.identities[Self.remoteWindowNumber] = remote
+        panel.discovery.actuation = { _, _ in
+            var acted = RemoteContentActuation(action: "AXPress", role: "AXButton", textField: nil)
+            acted.needsPostedClick = true
+            return .success(acted)
+        }
+
+        let turn    = try await panel.seat.acquire()
+        let receipt = try await panel.seat.send(
+            Self.click(at: Self.insideSheet(panel)),
+            observation: observation,
+            turn       : turn
+        )
+
+        if isExtension {
+            #expect(panel.sender.sent.count == 1, "one click")
+            #expect(panel.sender.addressed.first?.window.windowNumber == panel.sheet.reference.windowNumber)
+            #expect(panel.sender.addressed.first?.window.windowNumber != Self.remoteWindowNumber, "never the extension")
+            #expect(receipt.route.poster != .accessibilityAction)
+        } else {
+            #expect(panel.sender.sent.isEmpty, "a file panel is never posted")
+            #expect(receipt.route.poster == .accessibilityAction)
+        }
+        try panel.seat.confirm(receipt, .unknown)
+        try panel.seat.release(turn)
+    }
+
     @Test("a drag over an Apple extension's content is refused and nothing is posted")
     func anAppleExtensionTakesNoDrag() async throws {
 

@@ -7,6 +7,7 @@
 
 import ApplicationServices
 import CoreGraphics
+import Foundation
 import os
 import SeatCore
 
@@ -110,6 +111,12 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     let frame     : (Node) -> CGRect?
     let label     : (Node) -> String?
 
+    /// A checkbox's, switch's or radio button's own 0 or 1 `AXValue`, nil when it is neither.
+    let toggleValue: (Node) -> Bool?
+
+    /// Waits for an application to show what a press did, before it is read again.
+    let settle: () -> Void
+
     /// Receives one line for every press, with the AXError it answered.
     let note: (String) -> Void
 
@@ -130,6 +137,8 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         windowNode         : @escaping (Int) -> Node? = { _ in nil },
         frame              : @escaping (Node) -> CGRect? = { _ in nil },
         label              : @escaping (Node) -> String? = { _ in nil },
+        toggleValue        : @escaping (Node) -> Bool? = { _ in nil },
+        settle             : @escaping () -> Void = {},
         note               : @escaping (String) -> Void = { _ in }
     ) {
         self.path    = path
@@ -148,6 +157,8 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         self.windowNode          = windowNode
         self.frame               = frame
         self.label               = label
+        self.toggleValue         = toggleValue
+        self.settle              = settle
         self.note                = note
     }
 
@@ -386,6 +397,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         }
         let host   = action == kAXPressAction ? hostCounterpart(of: node, action: action) : nil
         let target = host ?? node
+        let before = hostSurfaceNumber != nil && action == kAXPressAction ? readableState(of: target) : nil
         let code   = perform(target, action)
         note("\(action) on \(role(target) ?? kAXUnknownRole) in the \(host == nil ? "path's" : "host's") tree "
             + "answered AXError \(code.rawValue) (\(code))")
@@ -393,11 +405,65 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         guard delivered else {
             return .failure(.actionRefused(action: action, code: code.rawValue))
         }
-        return .success(RemoteContentActuation(
+        var actuation = RemoteContentActuation(
             action   : host == nil ? action : action + " in the host's tree",
             role     : role(target) ?? kAXUnknownRole,
             textField: nil
-        ))
+        )
+        if code == .success, hostSurfaceNumber != nil, action == kAXPressAction {
+            verify(target, before: before, &actuation)
+        }
+        return .success(actuation)
+    }
+
+    /// An extension's press that answered success is read back when the control shows a state.
+    /// Unchanged, it is pressed once through its child or its parent, and when that changes nothing
+    /// either the actuation asks for one posted click. A control with no readable state, before or
+    /// after, is never pressed or clicked again: nothing proves the press did not work.
+    private func verify(_ target: Node, before: Bool?, _ actuation: inout RemoteContentActuation) {
+        let name   = label(target) ?? role(target) ?? kAXUnknownRole
+        let isFlip = role(target) == kAXCheckBoxRole
+        // A segment already on cannot show a press, where a switch can always flip.
+        guard let before, isFlip || !before else {
+            note("AXPress on '\(name)' answered success and its state is "
+                + "\(before.map { $0 ? "on" : "off" } ?? "not readable"): nothing proves it was ignored")
+            return
+        }
+        // Nil when the control stopped answering, which proves nothing either way.
+        func changed() -> Bool? {
+            settle()
+            return readableState(of: target).map { isFlip ? $0 != before : $0 }
+        }
+        guard let first = changed() else { return note("'\(name)' no longer answers its state after AXPress") }
+        guard !first else { return }
+
+        let child  = children(target).first { actions($0).contains(kAXPressAction) }
+        let other  = child ?? parent(target).flatMap { actions($0).contains(kAXPressAction) ? $0 : nil }
+        let helper = child == nil ? "parent" : "child"
+        if let other {
+            let code = perform(other, kAXPressAction)
+            note("AXPress on '\(name)' left its state unchanged, so AXPress on its \(helper) answered "
+                + "AXError \(code.rawValue) (\(code))")
+            guard let second = changed() else { return note("'\(name)' no longer answers its state") }
+            if second {
+                actuation = RemoteContentActuation(
+                    action   : "\(kAXPressAction) on its \(helper)",
+                    role     : role(other) ?? kAXUnknownRole,
+                    textField: nil
+                )
+                return
+            }
+        }
+        note("'\(name)' still shows the same state after accessibility, so one click is posted on the host window")
+        actuation.needsPostedClick = true
+    }
+
+    /// The state a control shows, nil when it shows none or no longer answers: a checkbox's, switch's
+    /// or radio button's 0 or 1 value, else its `AXSelected`.
+    private func readableState(of node: Node) -> Bool? {
+        guard let kind = role(node) else { return nil }
+        if kind == kAXCheckBoxRole || kind == kAXRadioButtonRole, let on = toggleValue(node) { return on }
+        return isSelected(node)
     }
 
     /// The control in the host's own tree that is the one `node` shows: the first element, nearest
@@ -548,6 +614,13 @@ extension RemoteContentActuator where Node == AXUIElement {
                 [kAXTitleAttribute, kAXDescriptionAttribute]
                     .lazy.compactMap { attribute(node, $0) as String? }.first { !$0.isEmpty }
             },
+            toggleValue     : { node in
+                guard let number: NSNumber = attribute(node, kAXValueAttribute), [0, 1].contains(number.intValue)
+                else { return nil }
+                return number.boolValue
+            },
+            // An extension answers its new state after a short round trip.
+            settle          : { Thread.sleep(forTimeInterval: 0.2) },
             note            : { line in remoteContentLog.notice("\(line, privacy: .public)") }
         )
     }

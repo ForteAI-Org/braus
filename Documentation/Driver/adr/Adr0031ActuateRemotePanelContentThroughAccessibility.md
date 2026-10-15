@@ -387,6 +387,12 @@ view, so an Apple extension's `AXPress` now looks there first.
   such reason.
 - Not measured live: that the host's tree returns a distinct element that takes the press.
   Test: AppleExtensionPressTests.
+- Follow-up 2026-10-15 (round 5): an extension's AXPress that answered success on a control with a
+  readable state (`AXSelected`, or the 0/1 `AXValue` of a checkbox, switch or radio button) is read back
+  after 200 ms. Unchanged, it is pressed once on the child (else the parent) offering AXPress and read
+  again; still unchanged, one click is posted on the host window, never into the extension's. A segment
+  already on, a control with no state, or one that stops answering is never retried or clicked.
+  Test: AppleExtensionPressTests, GestureEndpointRoutingTests.
 
 ## Limits
 

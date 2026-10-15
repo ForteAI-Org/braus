@@ -22,7 +22,10 @@ struct AppleExtensionPressTests {
 
     typealias Element = RemoteContentActuationTests.Element
 
-    final class Notes { var lines: [String] = [] }
+    final class Notes {
+        var lines  : [String] = []
+        var settles = 0
+    }
 
     struct Pane {
         let endpoint : ResolvedInputEndpoint
@@ -37,12 +40,16 @@ struct AppleExtensionPressTests {
 
     /// The hit test answers the extension's "Light" button. The host's tree holds a "Light" button
     /// too, under its hosting view, unless `hostHasIt` is false.
-    static func pane(hostHasIt: Bool = true, hostFrame: CGRect = Self.frame) throws -> Pane {
+    static func pane(
+        hostHasIt: Bool = true,
+        hostFrame: CGRect = Self.frame,
+        remoteRole: String = kAXButtonRole
+    ) throws -> Pane {
         let surface  = FakeGeometry.identity(windowNumber: 878)
         let endpoint = try RemoteContentActuationTests.remoteEndpoint(surface: surface)
         let window   = Element("AXWindow", window: .window(878), processID: surface.processID)
         let content  = Element(kAXGroupRole, window: .window(879), processID: 7_001, parent: window)
-        let remote   = Element(kAXButtonRole, window: .window(879), processID: 7_001, parent: content,
+        let remote   = Element(remoteRole, window: .window(879), processID: 7_001, parent: content,
                                actions: [kAXPressAction])
         let hosting  = Element("AXHostingView", window: .windowless, processID: surface.processID, parent: window)
         let local    = Element(kAXButtonRole, window: .windowless, processID: surface.processID, parent: hosting,
@@ -57,7 +64,7 @@ struct AppleExtensionPressTests {
         return Pane(
             endpoint: endpoint, hostWindow: window, remote: remote, host: local, notes: notes,
             actuator: RemoteContentActuationTests.actuator(
-                hitting: { remote }, window: window, note: { notes.lines.append($0) }
+                hitting: { remote }, window: window, settle: { notes.settles += 1 }, note: { notes.lines.append($0) }
             )
         )
     }
@@ -149,6 +156,106 @@ struct AppleExtensionPressTests {
         #expect(pane.notes.lines[0].contains("AXError \(AXError.cannotComplete.rawValue)"))
         pane.remote.performAnswer = .success
         _ = pane.actuator.actuate(click, endpoint: pane.endpoint, prefersHost: isExtension)
-        #expect(pane.notes.lines.last?.contains("AXError 0") == true)
+        #expect(pane.notes.lines[1].contains("AXError 0"))
+    }
+    // MARK: A press the application answered and ignored
+
+    /// A control that did not move after an AXPress that answered success.
+    static func ignoring(
+        role    : String = kAXButtonRole,
+        before  : Bool?,
+        childOffersPress: Bool = true
+    ) throws -> (pane: Pane, child: Element) {
+        let pane  = try Self.pane(hostHasIt: false, remoteRole: role)
+        let child = Element(kAXImageRole, window: .window(879), processID: 7_001, parent: pane.remote,
+                            actions: childOffersPress ? [kAXPressAction] : [])
+        if role == kAXCheckBoxRole { pane.remote.toggle = before } else { pane.remote.selectedFlag = before }
+        return (pane, child)
+    }
+
+    static func press(_ pane: Pane, prefersHost: Bool = true) throws -> RemoteContentActuation {
+        try pane.actuator.actuate(
+            RemoteContentActuationTests.click(count: 1), endpoint: pane.endpoint, prefersHost: prefersHost
+        ).get()
+    }
+
+    @Test("an ignored press of a control with a state tries its child once, then asks for one posted click")
+    func anIgnoredPressIsClickedOnTheHost() throws {
+        let (pane, child) = try Self.ignoring(before: false)
+
+        let outcome = try Self.press(pane)
+
+        #expect(pane.remote.performed == [kAXPressAction])
+        #expect(child.performed == [kAXPressAction], "the child is pressed once")
+        #expect(outcome.needsPostedClick)
+        #expect(pane.notes.settles == 2, "the state is read again after each attempt")
+        #expect(pane.notes.lines.contains { $0.contains("one click is posted on the host window") })
+    }
+
+    @Test("a state that changed after the press, or after the child's, is never posted",
+          arguments: ["the press", "the child"])
+    func aChangedStateIsNotPosted(changedBy: String) throws {
+        let (pane, child) = try Self.ignoring(before: false)
+        (changedBy == "the press" ? pane.remote : child).onPerform = { _ in pane.remote.selectedFlag = true }
+
+        let outcome = try Self.press(pane)
+
+        #expect(!outcome.needsPostedClick)
+        #expect(child.performed.count == (changedBy == "the press" ? 0 : 1))
+        #expect(outcome.action == (changedBy == "the press" ? kAXPressAction : "AXPress on its child"))
+    }
+
+    @Test("without a child that presses, the parent is tried; with neither, the click is asked for")
+    func theParentIsTheOtherHelper() throws {
+        let (pane, child) = try Self.ignoring(before: false, childOffersPress: false)
+        let group = try #require(pane.remote.parent)
+        group.actions = [kAXPressAction]
+        group.onPerform = { _ in pane.remote.selectedFlag = true }
+
+        let outcome = try Self.press(pane)
+
+        #expect(child.performed.isEmpty)
+        #expect(group.performed == [kAXPressAction])
+        #expect(outcome.action == "AXPress on its parent")
+        #expect(!outcome.needsPostedClick)
+
+        let (bare, _) = try Self.ignoring(before: false, childOffersPress: false)
+        #expect(try Self.press(bare).needsPostedClick)
+    }
+
+    @Test("a switch that did not flip is clicked, one that flipped is not",
+          arguments: [true, false])
+    func aSwitchIsReadBack(flips: Bool) throws {
+        let (pane, _) = try Self.ignoring(role: kAXCheckBoxRole, before: true)
+        if flips { pane.remote.onPerform = { _ in pane.remote.toggle = false } }
+
+        #expect(try Self.press(pane).needsPostedClick == !flips)
+    }
+
+    @Test("with no readable state, or one that is gone, or a segment already on, nothing more is tried",
+          arguments: ["no state", "unreadable after", "already on"])
+    func nothingProvesAnIgnoredPress(case reason: String) throws {
+        let (pane, child) = try Self.ignoring(before: reason == "no state" ? nil : reason == "already on")
+        if reason == "unreadable after" {
+            pane.remote.onPerform = { _ in pane.remote.answers = false }
+            pane.remote.selectedFlag = false
+        }
+
+        let outcome = try Self.press(pane)
+
+        #expect(pane.remote.performed == [kAXPressAction], "never a second attempt")
+        #expect(child.performed.isEmpty)
+        #expect(!outcome.needsPostedClick)
+    }
+
+    @Test("a file panel's press is read back by nobody: no retry, no click")
+    func aFilePanelIsNotRetried() throws {
+        let (pane, child) = try Self.ignoring(before: false)
+
+        let outcome = try Self.press(pane, prefersHost: false)
+
+        #expect(pane.remote.performed == [kAXPressAction])
+        #expect(child.performed.isEmpty)
+        #expect(!outcome.needsPostedClick)
     }
 }

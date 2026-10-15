@@ -169,4 +169,8 @@ nonisolated struct RemoteContentActuation {
     let action   : String
     let role     : String
     let textField: TextField?
+
+    /// True when an Apple extension's press answered success, its control shows a state, and the
+    /// state did not change after the press and its child's or parent's: one click is posted.
+    var needsPostedClick = false
 }

@@ -2613,7 +2613,8 @@ public final class AgentSeat {
                 recipient   : recipient,
                 traceContext: traceContext,
                 mayPost     : ownContent != nil,
-                prefersHost : classification == .appleExtensionContent
+                prefersHost : classification == .appleExtensionContent,
+                hostRecipe  : classification == .appleExtensionContent ? (window.reference, resolved) : nil
             ) : nil
             let receipt = if let actuated { actuated } else {
                 try await sender.send(
@@ -2688,7 +2689,9 @@ public final class AgentSeat {
     /// changes nothing, except `actionRefused`, which may follow an effect and
     /// is never repeated. With `mayPost`, an ordinary window's click refused
     /// before anything was done answers nil and the caller posts it. With `prefersHost`, an
-    /// Apple extension's press goes through the host's own tree (`RemoteContentActuator`).
+    /// Apple extension's press goes through the host's own tree (`RemoteContentActuator`), and when
+    /// that proved ignored, `hostRecipe` is the host window and recipe one click is posted with,
+    /// never into the extension's own window.
     private func actuateRemoteContent(
         _ command    : InputCommand,
         textField    : RemoteContentActuation.TextField?,
@@ -2698,7 +2701,8 @@ public final class AgentSeat {
         recipient    : WindowReference,
         traceContext : InputTraceContext,
         mayPost      : Bool = false,
-        prefersHost  : Bool = false
+        prefersHost  : Bool = false,
+        hostRecipe   : (window: WindowReference, platform: any InputPlatform)? = nil
     ) async throws -> InputReceipt? {
 
         var trace = traceContext
@@ -2706,6 +2710,7 @@ public final class AgentSeat {
         let isClick = if case .click = command { true } else { false }
         let started: UInt64
         let done   : String
+        var hostClick: (command: InputCommand, window: WindowReference)?
         do {
             guard textField != nil || isClick else { throw RemoteContentActuationRefusal.gestureUnmeasured }
             try await commandGate?.prepare(correlationID: turn.correlationID)
@@ -2726,6 +2731,11 @@ public final class AgentSeat {
                     ($0, recipient, endpoint.logicalSurface, endpoint.selectionGeneration)
                 }
                 done = "\(actuation.action) on \(actuation.role)"
+                if actuation.needsPostedClick, let hostRecipe, hostRecipe.window.windowNumber != recipient.windowNumber,
+                   hostRecipe.window.identity == endpoint.logicalSurface,
+                   let geometry = sensing.windowGeometryObservation(of: hostRecipe.window) {
+                    hostClick = (command.rebased(onto: geometry), hostRecipe.window)
+                }
             }
             trace.recordSendSystemCall(from: started, through: DispatchTime.now().uptimeNanoseconds)
         } catch let refusal as RemoteContentActuationRefusal where mayPost && refusal.wasDeclinedBeforeActing {
@@ -2737,6 +2747,28 @@ public final class AgentSeat {
         } catch {
             sender.recordCompletedTrace(trace.completed(at: DispatchTime.now().uptimeNanoseconds))
             throw error
+        }
+        if let hostClick, let platform = hostRecipe?.platform {
+            Self.log.notice("""
+                accessibility left the control on window \(recipient.windowNumber, privacy: .public) unchanged \
+                (\(done, privacy: .public)), so one click is posted on host window \
+                \(hostClick.window.windowNumber, privacy: .public)
+                """)
+            return try await sender.send(
+                hostClick.command,
+                to             : hostClick.window,
+                correlationID  : turn.correlationID,
+                platform       : platform,
+                traceContext   : traceContext,
+                beforeFirstPost: { [weak self] in
+                    try await MainActor.run {
+                        guard let self else { throw CancellationError() }
+                        if let refusal = self.admissionRefusal(for: observation, expecting: .ordinaryTarget) {
+                            throw refusal
+                        }
+                    }
+                }
+            )
         }
         Self.log.notice("""
             \(isClick ? "pointer" : "text", privacy: .public) on window \
