@@ -20,8 +20,8 @@ import SeatCore
 ///
 /// The element is the one the host application's hit test answers at the
 /// Command's point, proved by `DialogEndpointResolver.remoteContentPath`, or for
-/// an ordinary window of an application listed for it, Finder's, by
-/// `ownContentPath` against the window itself. The
+/// an ordinary window of an application listed for it, by `ownContentPath` against the window
+/// itself. Pro Tools descends from that window because its Mix hit test omits the track strips. The
 /// click reaches the nearest element of that path a click is mapped for; every
 /// other Command refuses, and nothing falls back to posting.
 ///
@@ -357,7 +357,10 @@ extension RemoteContentActuator where Node == AXUIElement {
     /// The actuator the seat runs, over the assigned application's own
     /// accessibility tree: the remote elements answer there, with true screen
     /// coordinates.
-    package static func accessibility(assignedProcessID: Int32) -> RemoteContentActuator<AXUIElement> {
+    package static func accessibility(
+        assignedProcessID: Int32,
+        searchWindowTree : Bool = false
+    ) -> RemoteContentActuator<AXUIElement> {
         let resolver = DialogEndpointResolver<AXUIElement>.accessibility(assignedProcessID: assignedProcessID)
         func attribute<Value>(_ node: AXUIElement, _ name: String) -> Value? {
             var value: CFTypeRef?
@@ -368,7 +371,7 @@ extension RemoteContentActuator where Node == AXUIElement {
             path   : { point, endpoint in
                 endpoint.relation == .remoteContent
                     ? resolver.remoteContentPath(at: point, of: endpoint)
-                    : resolver.ownContentPath(at: point, of: endpoint)
+                    : resolver.ownContentPath(at: point, of: endpoint, searchWindowTree: searchWindowTree)
             },
             role   : { attribute($0, kAXRoleAttribute) },
             actions: { node in

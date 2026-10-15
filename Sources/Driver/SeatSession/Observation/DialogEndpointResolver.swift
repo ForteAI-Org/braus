@@ -804,12 +804,14 @@ nonisolated package struct DialogEndpointResolver<Node> {
 
     /// The nodes under one point of the surface's own content, innermost first, up to and without
     /// the surface's own `AXWindows` entry, for an ordinary window whose clicks go through
-    /// accessibility, Finder's (ADR 0031). Every node belongs to the surface's process and names
+    /// accessibility (ADR 0031). Pro Tools starts its descent at that window; Finder uses the hit
+    /// test. Every node belongs to the surface's process and names
     /// the surface or no window. Another window, another process, a failed read, more than 64 steps
     /// or 300 ms refuse, and so does a path that never meets the window's entry.
     package func ownContentPath(
-        at point   : CGPoint,
-        of endpoint: ResolvedInputEndpoint
+        at point        : CGPoint,
+        of endpoint     : ResolvedInputEndpoint,
+        searchWindowTree: Bool = false
     ) -> Result<[Node], RemoteContentActuationRefusal> where Node: Equatable {
 
         let surface = endpoint.logicalSurface
@@ -818,7 +820,10 @@ nonisolated package struct DialogEndpointResolver<Node> {
               let window = windowNode(surface.windowNumber)
         else { return .failure(.outsideRemoteContent) }
         var node: Node
-        switch innermostNode(at: point) {
+        let found = searchWindowTree
+            ? innermostWindowNode(at: point, window: window, surface: surface, deadline: deadline)
+            : innermostNode(at: point)
+        switch found {
             case .success(let found): node = found
             case .failure(let refusal): return .failure(refusal)
         }
@@ -837,6 +842,65 @@ nonisolated package struct DialogEndpointResolver<Node> {
             node = above
         }
         return path.isEmpty ? .failure(.noElementAtPoint) : .success(path)
+    }
+
+    /// Pro Tools' Mix hit test can return a scroll area that omits the track strips. Start at
+    /// the attested window instead, retaining one geometric path with matching parent relations.
+    /// Equal smallest frames, cycles, foreign owners and exhausted read budgets refuse.
+    private func innermostWindowNode(
+        at point: CGPoint,
+        window  : Node,
+        surface : WindowIdentity,
+        deadline: UInt64
+    ) -> Result<Node, RemoteContentActuationRefusal> where Node: Equatable {
+        guard let frame = nodeFrame(window), frame.contains(point),
+              nodeProcess(window) == surface.processID,
+              case .window(surface.windowNumber) = windowReading(window)
+        else { return .failure(.outsideRemoteContent) }
+        var node = window
+        var visited = [window]
+        var remaining = 512
+        for _ in 0..<64 {
+            guard now() < deadline else { return .failure(.unreadable) }
+            let values: [Node]
+            switch children(node) {
+                case .leaf: return .success(node)
+                case .unreadable: return .failure(.unreadable)
+                case .children(let children): values = children
+            }
+            var candidate: Node?
+            var smallestArea = CGFloat.infinity
+            var ambiguous = false
+            for child in values {
+                guard now() < deadline, remaining > 0 else { return .failure(.unreadable) }
+                remaining -= 1
+                guard let frame = nodeFrame(child), frame.contains(point) else { continue }
+                let area = frame.width * frame.height
+                guard area.isFinite, area > 0 else { return .failure(.unreadable) }
+                if area < smallestArea {
+                    candidate = child
+                    smallestArea = area
+                    ambiguous = false
+                } else if area == smallestArea, candidate != child {
+                    ambiguous = true
+                }
+            }
+            guard now() < deadline, !ambiguous else { return .failure(.unreadable) }
+            guard let candidate else { return .success(node) }
+            guard !visited.contains(candidate) else { return .failure(.unreadable) }
+            guard parent(candidate) == node, nodeProcess(candidate) == surface.processID else {
+                return .failure(.outsideRemoteContent)
+            }
+            switch windowReading(candidate) {
+                case .window(let number) where number == surface.windowNumber: break
+                case .windowless: break
+                case .window: return .failure(.outsideRemoteContent)
+                case .unreadable: return .failure(.unreadable)
+            }
+            visited.append(candidate)
+            node = candidate
+        }
+        return .failure(.unreadable)
     }
 
     /// The innermost node under a point: the hit test's, then by the smallest containing child, as

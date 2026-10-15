@@ -37,6 +37,7 @@ struct RemoteContentActuationTests {
         var window   : DialogEndpointResolver<Element>.WindowReading
         var processID: Int32
         var parent   : Element?
+        var frame    : CGRect?
         var answers  = true
         var performed: [String] = []
         var writes   : [RemoteContentActuator<Element>.Write] = []
@@ -99,13 +100,14 @@ struct RemoteContentActuationTests {
     /// the `AXWindows` entry an ordinary window's own content climbs to.
     static func actuator(
         hitting hit: @escaping () -> Element?,
-        window     : Element? = nil
+        window     : Element? = nil,
+        searchWindowTree: Bool = false
     ) -> RemoteContentActuator<Element> {
         let resolver = DialogEndpointResolver<Element>(
             nodeAtPoint  : { _ in hit() },
             focusedNode  : { nil },
-            children     : { _ in .leaf },
-            nodeFrame    : { _ in nil },
+            children     : { searchWindowTree ? .children($0.children) : .leaf },
+            nodeFrame    : { $0.frame },
             nodeWindow   : { _ in nil },
             nodeProcess  : { $0.processID },
             identity     : { _ in nil },
@@ -121,7 +123,7 @@ struct RemoteContentActuationTests {
             path   : { point, endpoint in
                 endpoint.relation == .remoteContent
                     ? resolver.remoteContentPath(at: point, of: endpoint)
-                    : resolver.ownContentPath(at: point, of: endpoint)
+                    : resolver.ownContentPath(at: point, of: endpoint, searchWindowTree: searchWindowTree)
             },
             role   : { $0.answers ? $0.role : nil },
             actions: { $0.actions },
@@ -739,7 +741,9 @@ struct RemoteContentActuationTests {
         let hit      : Hit
     }
 
-    static func finder(clicksThroughAccessibility: Bool, marker: Int64) async throws -> Finder {
+    static func finder(
+        clicksThroughAccessibility: Bool, marker: Int64, searchWindowTree: Bool = false
+    ) async throws -> Finder {
         let sensing   = FakeSensing()
         let sender    = FakeSender()
         let discovery = GestureEndpointRoutingTests.Discovery()
@@ -773,7 +777,7 @@ struct RemoteContentActuationTests {
         }
         let hit      = Hit()
         hit.element  = text
-        let actuator = Self.actuator(hitting: { hit.element }, window: windowEl)
+        let actuator = Self.actuator(hitting: { hit.element }, window: windowEl, searchWindowTree: searchWindowTree)
         discovery.actuation = { actuator.actuate($0, endpoint: $1) }
         return Finder(seat: seat, sender: sender, discovery: discovery, window: window, element: windowEl,
                       outline: outline, row: row, text: text, hit: hit)
@@ -944,6 +948,92 @@ struct RemoteContentActuationTests {
         #expect(receipt.route.poster == .publicProcess)
         try finder.seat.confirm(receipt, .unknown)
         try finder.seat.release(turn)
+    }
+
+    @Test("Pro Tools presses the observed control once through the seat, including an AX timeout",
+          arguments: [AXError.success, .cannotComplete])
+    func proToolsClickUsesTheSeat(answer: AXError) async throws {
+        let target = try await Self.finder(
+            clicksThroughAccessibility: EndpointDiscovery.accessibilityClickedApplications.contains("com.avid.ProTools"),
+            marker                    : answer == .success ? 3_420 : 3_421
+        )
+        let button = Element(
+            kAXButtonRole,
+            window   : target.element.window,
+            processID: target.element.processID,
+            parent   : target.element,
+            actions  : [kAXPressAction],
+            value    : "Mute"
+        )
+        button.performAnswer = answer
+        target.hit.element = button
+        let turn = try await target.seat.acquire()
+        let observation = try await observedReference(target.seat)
+        let command = InputCommand.click(Self.point(in: target.window))
+        let receipt = try await target.seat.send(
+            command,
+            observation: observation,
+            turn       : turn,
+            platform   : QtPlatform()
+        )
+        #expect(button.performed == [kAXPressAction])
+        #expect(target.sender.sent.isEmpty)
+        #expect(receipt.eventCount == 0)
+        #expect(receipt.route.poster == .accessibilityAction)
+        await #expect(throws: (any Error).self) {
+            try await target.seat.send(command, observation: observation, turn: turn, platform: QtPlatform())
+        }
+        #expect(button.performed == [kAXPressAction], "an uncertain reply never replays the press")
+        try target.seat.confirm(receipt, .unknown)
+        try target.seat.release(turn)
+    }
+
+    @Test("Pro Tools resolves a track control from its window when the app hit test hides the tracks",
+          arguments: ["valid", "ambiguous", "foreignProcess", "foreignWindow", "outside", "wrongParent", "cycle"])
+    func proToolsWindowTree(fault: String) async throws {
+        let target = try await Self.finder(
+            clicksThroughAccessibility: true, marker: 3_430, searchWindowTree: true
+        )
+        let root = target.element
+        let frame = target.window.reference.frame
+        root.frame = frame
+        root.children = []
+        let track = Element(kAXGroupRole, window: root.window, processID: root.processID, parent: root)
+        track.frame = CGRect(x: frame.minX + 10, y: frame.minY + 120, width: 80, height: 300)
+        let button = Element(kAXButtonRole, window: root.window, processID: root.processID, parent: track,
+                             actions: [kAXPressAction], value: "Mute")
+        button.frame = CGRect(x: frame.minX + 30, y: frame.minY + 190, width: 20, height: 20)
+        let peer = Element(kAXGroupRole, window: root.window, processID: root.processID, parent: root)
+        peer.frame = track.frame?.offsetBy(dx: 100, dy: 0)
+        let peerButton = Element(kAXButtonRole, window: root.window, processID: root.processID, parent: peer,
+                                 actions: [kAXPressAction], value: "Mute")
+        peerButton.frame = button.frame?.offsetBy(dx: 100, dy: 0)
+        let surrogate = Element(kAXScrollAreaRole, window: root.window, processID: root.processID)
+        surrogate.parent = root
+        surrogate.frame = frame
+        target.hit.element = surrogate
+        switch fault {
+            case "ambiguous": peer.frame = track.frame
+            case "foreignProcess": button.processID += 1
+            case "foreignWindow": button.window = .window(target.window.id + 1)
+            case "outside": root.frame = frame.offsetBy(dx: 5_000, dy: 0)
+            case "wrongParent": button.parent = root
+            case "cycle": track.children = [track]
+            default: break
+        }
+        let turn = try await target.seat.acquire()
+        if fault == "valid" {
+            let receipt = try await Self.send(1, to: target, turn: turn)
+            #expect(button.performed == [kAXPressAction])
+            #expect(receipt.route.poster == .accessibilityAction && receipt.eventCount == 0)
+            try target.seat.confirm(receipt, .unknown)
+        } else {
+            await #expect(throws: (any Error).self) { try await Self.send(1, to: target, turn: turn) }
+            #expect(button.performed.isEmpty)
+        }
+        #expect(peerButton.performed.isEmpty && surrogate.performed.isEmpty)
+        #expect(target.sender.sent.isEmpty)
+        try target.seat.release(turn)
     }
 
     @Test("a click on another application's AppKit window is still posted")

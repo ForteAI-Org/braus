@@ -198,7 +198,7 @@ struct EndpointDiscovery {
     /// The applications whose ordinary windows take their clicks through
     /// accessibility, as a remote panel's content does (ADR 0031). The one
     /// place this scope is decided; add a bundle identifier to widen it.
-    static let accessibilityClickedApplications: Set<String> = ["com.apple.finder"]
+    static let accessibilityClickedApplications: Set<String> = ["com.apple.finder", "com.avid.ProTools"]
 
     /// Whether `window` belongs to one of `accessibilityClickedApplications`.
     var clicksThroughAccessibility: (WindowIdentity) -> Bool = { _ in false }
@@ -293,8 +293,9 @@ struct EndpointDiscovery {
                 .map(accessibilityClickedApplications.contains) ?? false
         },
         remoteActuation: { processID, command, endpoint in
-            RemoteContentActuator<AXUIElement>
-                .accessibility(assignedProcessID: processID)
+            let searchesWindow = NSRunningApplication(processIdentifier: processID)?.bundleIdentifier == "com.avid.ProTools"
+            return RemoteContentActuator<AXUIElement>
+                .accessibility(assignedProcessID: processID, searchWindowTree: searchesWindow)
                 .actuate(command, endpoint: endpoint)
         }
     )
