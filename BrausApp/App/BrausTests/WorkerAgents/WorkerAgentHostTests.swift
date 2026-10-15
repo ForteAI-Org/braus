@@ -48,7 +48,8 @@ struct WorkerAgentHostTests {
     never automatically replay an action that may already have happened. Missing permissions require the
     user to fix macOS access; do not retry in another terminal or foreground route.
     The act verbs are click, double_click, triple_click, right_click and set_toggle; select picks a dropdown item.
-    type_text clicks a field and types into it, replacing what it holds unless replace is false.
+    type_text clicks a field and types into it, replacing what it holds unless replace is false. Enter text
+    with one type_text call on its field, never one press_key per character: every key reads the scene twice.
     insert_text preserves the current focus and selection and inserts one payload. Use it only after
     establishing that focus. An initially selected name may lose focus as a dialog settles; when uncertain,
     click the intended field and independently verify the desired selection before inserting. It does not
