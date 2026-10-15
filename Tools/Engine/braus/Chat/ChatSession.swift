@@ -43,6 +43,20 @@ final class ChatSession {
     private(set) var current: ChatTranscript?
     /// The stop a Ctrl+C started; a turn that fails while it runs waits for it and returns.
     private(set) var shutdown: Task<Void, Never>?
+    /// Whether a stop closes the task it cut as abandoned: a script's run has no one to resume it, an interactive chat
+    /// keeps it open for `--resume`.
+    var closesTaskOnStop = false
+    /// What a script writes of the request a stop cut (its evidence), told the signal, what Braus closed and how many of
+    /// the transcript's entries came before Braus's own calls.
+    var interruption: ((Int32, Abandonment?, Int) async -> Void)?
+
+    /// Abandonment is a task Braus closed as abandoned because the conversation did not end it: whether the close was
+    /// recorded, and the archive's answer when it was not.
+    struct Abandonment {
+        let task: String
+        let closed: Bool
+        let problem: String?
+    }
 
     init(options: ChatOptions, history: URL, executable: URL) throws {
         self.executable = executable
@@ -85,11 +99,22 @@ final class ChatSession {
         let endpoint = try await host.start()
         try JSONEncoder().encode(endpoint).write(to: connectionFile, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: connectionFile.path)
-        signals = ChatSignals { [unowned self] in
+        signals = ChatSignals { [unowned self] number in
             router.pause()
             provider.cancel()
             shutdown = Task { [self] in
                 await router.drain()
+                // Unattended, the task the stop cut is closed with the stop as its cause and the request's evidence is
+                // written, before anything slower: a run stopped at its time limit (SIGTERM, then SIGKILL 5 s later) left
+                // the task open and no summary (14 October 2026).
+                if closesTaskOnStop {
+                    let agentEntries = current?.conversation.entries.count ?? 0
+                    let closed = await abandonOpenTask(note: "The process was stopped by signal \(number) before memory_task "
+                                                             + "end: Braus closed the task as abandoned.")
+                    if let closed { print(Self.line(for: closed)) }
+                    await interruption?(number, closed, agentEntries)
+                    await MemoryService.closeAll()
+                }
                 await tools.session.close()
                 await broker.queue.shutdown()
                 await provider.waitUntilStopped()
@@ -103,7 +128,8 @@ final class ChatSession {
                 } else {
                     print("\nStopped.")
                 }
-                exit(130)
+                await MemoryService.closeAll()
+                exit(128 + number)
             }
         }
     }
@@ -123,6 +149,32 @@ final class ChatSession {
         current = transcript
         let id = transcript.conversation.id.uuidString
         tools.producer = CallProducer(source: .cli, streamID: "chat-" + id, traceID: id)
+        tools.forgetConversation()
+    }
+
+    /// Ends as abandoned the task the current conversation left open, and forgets its candidate, so the next conversation of
+    /// a script can begin its own: a conversation that stopped while the Seat waited for the person left its task open, and
+    /// the next one could neither begin a task nor end the one it found, which another producer owned (14 October 2026).
+    /// An abandoned task learns no procedure. Answers the task and whether the archive recorded the end, or nil when
+    /// none was open.
+    func abandonOpenTask(note: String = "The conversation ended without memory_task end: Braus closed the task as "
+                             + "abandoned so the next one can begin.") async -> Abandonment? {
+        guard let status = try? await tools.call("memory_task", .object(["operation": .string("status")])) else { return nil }
+        let found = ChatScript.payload(of: status)
+        guard found["status"].string == "open", let task = found["task"].string else { return nil }
+        let answer = (try? await tools.call("memory_task", .object(["operation": .string("end"), "outcome": .string("abandoned"),
+                                                                   "note": .string(note)]))).map(ChatScript.payload(of:))
+        _ = tools.takeInterpretationReminder()
+        let closed = answer?["status"].string == "ended"
+        return Abandonment(task: task, closed: closed,
+                           problem: closed ? nil : answer.map(ChatScript.text) ?? "memory_task end answered nothing")
+    }
+
+    /// The line the console and the transcript say of an abandonment.
+    static func line(for abandonment: Abandonment) -> String {
+        abandonment.closed
+            ? "Braus closed task \(abandonment.task) as abandoned: the conversation ended without memory_task end."
+            : "Braus could not close task \(abandonment.task) as abandoned: \(abandonment.problem ?? "no answer")"
     }
 
     /// One turn of the provider on the current transcript, with the first scene of the turn sent whole again: a

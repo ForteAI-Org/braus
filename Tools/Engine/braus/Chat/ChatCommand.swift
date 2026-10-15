@@ -165,7 +165,10 @@ enum ChatCommand {
               + " · \(requests.count) requests · archive \(archive.path)"
               + (evidence.map { " · evidence \($0.directory.path)" } ?? ""))
         try await preflight(options, session, evidence: evidence)
+        // A stop by signal closes the task it cut and writes that request's evidence: no one is there to resume it.
+        session.closesTaskOnStop = true
         var failed = 0
+        var providerFailed = false
         // The conversation of the request before, which a `>` request continues; its lease lives as long as it may.
         var previous: (transcript: ChatTranscript, lease: ConversationLease)?
         for (index, request) in requests.enumerated() {
@@ -185,37 +188,89 @@ enum ChatCommand {
             }
             print("You › \(request.text)")
             try transcript.append(.user, request.text)
+            transcript.beginRequest()
             let started = Date()
-            var failure: String?
+            // The agent's own calls, before Braus's calls of its own (a status, an abandoning end) are added.
+            var calls: Int { transcript.conversation.entries.filter { $0.kind == .tool && $0.text.hasPrefix("→ ") }.count }
+            session.interruption = { [evidence] signal, closed, agentEntries in
+                guard let evidence else { return }
+                let flushed = await MemoryService.shared(for: session.knowledge).flush(within: .seconds(2))
+                do {
+                    try evidence.record(number: number, request: request.text, continues: request.continuesPrevious,
+                                        transcript: transcript, started: started, ended: Date(), failure: nil, signal: signal,
+                                        abandonment: closed, toolCalls: calls, agentEntries: agentEntries,
+                                        memoryFlushed: flushed, archive: archive)
+                } catch {
+                    fputs("braus: evidence of the stopped request not written: \(error)\n", stderr)
+                }
+            }
+            var failure: (any Error)?
             do {
                 try await session.turn(request.text)
             } catch {
                 if let shutdown = session.shutdown { await shutdown.value; return }
-                failure = error.localizedDescription
+                failure = error
                 try transcript.append(.error, error.localizedDescription)
                 print("Chat error: \(error.localizedDescription)")
             }
+            let agentCalls = calls
+            let agentEntries = transcript.conversation.entries.count
             await session.releaseSeat()
+            // A completed task the agent left uninterpreted, even after its reminder, is interpreted by Braus from its goal
+            // and the phases already known: unattended, it was lost (review I1, BUG-11).
+            var brausInterpreted: String?
+            if let left = await session.tools.interpretLeftCandidate() {
+                brausInterpreted = left.candidate
+                let line = "Braus interpreted candidate \(left.candidate) itself: the agent left it uninterpreted."
+                print(line)
+                try transcript.append(.tool, line)
+            }
+            // A task the conversation left open would block the next conversation's own: unless the next request continues
+            // this conversation, and the script goes on to it, it is closed as abandoned now, and said in the transcript.
+            let goesOn = failure == nil || options.continueOnError
+            var abandonment: ChatSession.Abandonment?
+            if !(goesOn && requests.indices.contains(index + 1) && requests[index + 1].continuesPrevious),
+               let closed = await session.abandonOpenTask() {
+                abandonment = closed
+                let line = ChatSession.line(for: closed)
+                print(line)
+                try transcript.append(.tool, line)
+            }
             try transcript.save()
             let ended = Date()
             if let evidence {
                 // What the turn recorded reaches the archive before its diagnosis is read.
                 let flushed = await MemoryService.shared(for: session.knowledge).flush(within: .seconds(15))
                 try evidence.record(number: number, request: request.text, continues: request.continuesPrevious, transcript: transcript,
-                                    started: started, ended: ended, failure: failure, memoryFlushed: flushed, archive: archive)
+                                    started: started, ended: ended, failure: failure, abandonment: abandonment,
+                                    brausInterpreted: brausInterpreted, toolCalls: agentCalls, agentEntries: agentEntries,
+                                    memoryFlushed: flushed, archive: archive)
             }
+            session.interruption = nil
             print("[\(number)/\(requests.count)] \(failure == nil ? "done" : "failed") in \(Int(ended.timeIntervalSince(started))) s")
-            if failure != nil {
+            if let failure {
                 failed += 1
+                providerFailed = providerFailed || failure is ProviderFailure
                 if !options.continueOnError {
-                    throw ChatMenu.problem("Request \(number) of \(requests.count) failed; the script stops here (--continue goes on).")
+                    throw ScriptStop(message: "Request \(number) of \(requests.count) failed; the script stops here (--continue goes on).",
+                                     provider: failure is ProviderFailure)
                 }
             }
         }
         withExtendedLifetime(previous) {}
         await session.finish()
         print("\nscript done: \(requests.count) requests, \(failed) failed" + (evidence.map { "; evidence in \($0.directory.path)" } ?? ""))
-        if failed > 0 { throw ChatMenu.problem("\(failed) of \(requests.count) requests failed.") }
+        if failed > 0 { throw ScriptStop(message: "\(failed) of \(requests.count) requests failed.", provider: providerFailed) }
+    }
+
+    /// ScriptStop is a script that ended on a failed request. The process exits with 3 when the provider failed (its
+    /// kind is in the request's `summary.json`): a run of many tasks stops on it without reading the message.
+    struct ScriptStop: Error, LocalizedError {
+        let message: String
+        let provider: Bool
+
+        var errorDescription: String? { message }
+        var exitStatus: Int32 { provider ? 3 : 1 }
     }
 
     /// Compares what this process answers to `memory_task status` with the identity a preflight file expects, before

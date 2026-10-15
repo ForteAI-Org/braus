@@ -56,14 +56,39 @@ instead of opening a new one (a request that depends on the one before it).
 answers before any turn and a difference stops the chat. The evidence folder keeps
 the preflight's answer and, per request, the conversation as saved, the tasks it
 named, each task's diagnosis as `braus memory --task` prints it, and a summary with
-the times, the outcome and the provider's token counts when it gave them. A failed
-request stops the script unless `--continue`. A reopening of Braus between two
-requests is two runs of the script command on the same archive.
+the times, the outcome and the request's token counts (every provider run of it added:
+the interpretation reminder is a second run). A failed request stops the script unless
+`--continue`. A reopening of Braus between two requests is two runs of the script
+command on the same archive.
+
+The summary (`NN/summary.json`) says in fields what a run of many tasks needs, so it
+never parses a message. New fields are added; none is renamed or removed.
+
+| Field | What it says |
+| --- | --- |
+| `outcome` | `ok`, `error`, or `interrupted` (stopped by a signal) |
+| `failure` | null, or `{source, kind, retryable, …}`: `source` is `provider` (with `kind` among `rate_limited`, `auth`, `unavailable`, `api_error`, `turn_error`, `no_result`, `exited`, `malformed`, read from the provider's fields, and `api_status`, `subtype`, `exit_status`, `resets_at`), `signal` (with `signal`), or `braus` |
+| `task_states` | per task the request named: `status`, `versions`, `candidates`, `uninterpreted`, `result` (Braus's verdict from the checks it read: `passed`, `failed`, `unknown`, `none`, `missing`) and `guards_failed` |
+| `braus_closed` | the task Braus closed as abandoned because the conversation did not end it, and whether the archive recorded it |
+| `braus_interpreted` | the candidate of a completed task Braus interpreted itself because the agent left it uninterpreted after its reminder (`ProcedureProducer.brausInterpretation`) |
+| `tool_calls` | the agent's own calls, Braus's status and closing calls left out |
+| `repeated_calls` | the longest run of identical consecutive calls and its tool: shown, never acted on |
+| `rate_limits` | the provider's usage windows, when it reported them |
+
+The process exits 0 when every request succeeded, 3 when the script stopped on a provider
+failure, 1 on any other failure, and 128 plus the signal's number when stopped (130 for
+SIGINT, 143 for SIGTERM). Before it ends, the Recall's index takes what the requests
+learned (`RecallService.waitAllIdle`, at most 10 s), so the next process finds it; a
+search also catches the index up first (`RecallService.catchUp`, at most 5 s).
 
 Inside chat: `/model`, `/status`, `/memory` (the archive this process records into
 and the Recall it runs, as `memory_task status` answers), `/release`, `/help`, `/quit`.
 Ctrl+C or SIGTERM stops further tool calls, cancels the provider, drains the
-active tool operation, releases the Seat and saves an interrupted entry.
+active tool operation, releases the Seat and saves an interrupted entry. In a script,
+whose task no one resumes, the stop first closes the open task as abandoned with the
+signal as its note, writes the request's evidence and saves the memory: a run stopped
+at its time limit left the task open and no summary until 14 October 2026. An
+interactive chat keeps the task open for `--resume`.
 
 The explicit research flag is still required on a macOS build not validated by
 the Driver ledger. It is never inferred from a prior chat or silently enabled.

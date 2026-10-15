@@ -6,6 +6,7 @@
 //
 
 import ChatCore
+import FileConversations
 import Foundation
 import LocalMCP
 import Testing
@@ -84,6 +85,62 @@ struct ChatScriptTests {
         #expect(differences.first { $0.path == "measure_ablation" }?.found == "absent")
         #expect(ChatScript.differences(expected: expected, found: expected).isEmpty, "an answer equal to the expectation differs nowhere")
         #expect(ChatScript.differences(expected: .string("a"), found: .string("b")).map(\.description) == ["value: expected \"a\", found \"b\""])
+    }
+
+    @Test("a summary says where a failure came from in fields: the provider with its kind, a signal, or Braus")
+    @MainActor
+    func failureOfARequest() {
+        #expect(ChatEvidence.failure(nil, signal: nil) == nil)
+        let stopped = ChatEvidence.failure(nil, signal: 15)
+        #expect(stopped?["source"] as? String == "signal" && stopped?["signal"] as? Int == 15)
+        let limited = ChatEvidence.failure(ProviderFailure(kind: .rateLimited, message: "API Error: 429", apiStatus: 429,
+                                                           exitStatus: 1), signal: nil)
+        #expect(limited?["source"] as? String == "provider" && limited?["kind"] as? String == "rate_limited")
+        #expect(limited?["retryable"] as? Bool == true && limited?["api_status"] as? Int == 429 && limited?["exit_status"] as? Int == 1)
+        let other = ChatEvidence.failure(ChatMenu.problem("transcript not saved"), signal: nil)
+        #expect(other?["source"] as? String == "braus" && other?["retryable"] as? Bool == false)
+    }
+
+    @Test("the longest run of identical calls names its tool; a call with other arguments breaks the run; answers do not count")
+    @MainActor
+    func repeatedCalls() {
+        var conversation = Conversation(provider: .claude, model: nil)
+        conversation.append(.tool, #"→ observe {"session":"S"}"#)
+        for _ in 0..<3 {
+            conversation.append(.tool, #"→ act {"session":"S","target":"OK"}"#)
+            conversation.append(.tool, #"← act {"status":"honest_miss"}"#)
+        }
+        conversation.append(.tool, #"→ act {"session":"S","target":"Annulla"}"#)
+        let repeated = ChatEvidence.longestRepeat(in: conversation.entries)
+        #expect(repeated["count"] as? Int == 3 && repeated["tool"] as? String == "act")
+        #expect(ChatEvidence.longestRepeat(in: [])["count"] as? Int == 0)
+    }
+
+    @Test("a request's tokens add its provider runs (the interpretation reminder is a second one); a session total is a difference")
+    @MainActor
+    func tokensOfARequest() throws {
+        let folder = URL.temporaryDirectory.appending(path: "chat-tokens-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = try ConversationStore(directory: folder)
+        let claude = ChatTranscript(conversation: Conversation(provider: .claude, model: nil), store: store)
+        claude.beginRequest()
+        try claude.event(.usage(ProviderUsage(tokens: ProviderUsage.Tokens(input: 100, output: 10))))
+        try claude.event(.usage(ProviderUsage(tokens: ProviderUsage.Tokens(input: 40, output: 5))))
+        #expect(claude.requestTokens == ProviderUsage.Tokens(input: 140, output: 15))
+        claude.beginRequest()
+        #expect(claude.requestTokens == nil)
+        let codex = ChatTranscript(conversation: Conversation(provider: .codex, model: nil), store: store)
+        codex.beginRequest()
+        try codex.event(.usage(ProviderUsage(tokens: ProviderUsage.Tokens(input: 1_000, output: 100), isSessionTotal: true)))
+        codex.beginRequest()
+        try codex.event(.usage(ProviderUsage(tokens: ProviderUsage.Tokens(input: 1_500, output: 130), isSessionTotal: true)))
+        #expect(codex.requestTokens == ProviderUsage.Tokens(input: 500, output: 30))
+    }
+
+    @Test("a script stopped by a provider failure exits 3, by any other failure 1")
+    func exitOfAStoppedScript() {
+        #expect(ChatCommand.ScriptStop(message: "m", provider: true).exitStatus == 3)
+        #expect(ChatCommand.ScriptStop(message: "m", provider: false).exitStatus == 1)
     }
 
     @Test("a tool's answer is read out of the router's wrapping; a value that is not wrapped is itself")

@@ -141,6 +141,58 @@ struct ProviderTests {
                 == [.assistant("Done")])
     }
 
+    @Test("a failed turn's kind comes from the provider's fields: the API's HTTP status, a rejected rate limit, else a turn error")
+    func failureKindsComeFromFields() throws {
+        func kind(_ lines: [String]) throws -> ProviderFailure? {
+            var decoder = ProviderEventDecoder(provider: .claude)
+            for line in lines { _ = try decoder.decode(Data(line.utf8)) }
+            return decoder.failure
+        }
+        let limited = try kind([#"{"type":"result","is_error":true,"api_error_status":429,"result":"API Error: 429"}"#])
+        #expect(limited?.kind == .rateLimited && limited?.apiStatus == 429 && limited?.retryable == true)
+        #expect(try kind([#"{"type":"result","is_error":true,"api_error_status":401,"result":"Please run /login"}"#])?.kind == .auth)
+        #expect(try kind([#"{"type":"result","is_error":true,"api_error_status":529,"result":"Overloaded"}"#])?.kind == .unavailable)
+        #expect(try kind([#"{"type":"result","is_error":true,"api_error_status":400,"result":"bad"}"#])?.kind == .apiError)
+        let rejected = try kind([
+            #"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1790506800,"rateLimitType":"five_hour","utilization":1.0}}"#,
+            #"{"type":"result","is_error":true,"result":"limit reached"}"#,
+        ])
+        #expect(rejected?.kind == .rateLimited && rejected?.resetsAt == Date(timeIntervalSince1970: 1_790_506_800))
+        let warned = try kind([
+            #"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","utilization":0.8}}"#,
+            #"{"type":"result","is_error":true,"subtype":"error_max_turns","result":"stopped"}"#,
+        ])
+        #expect(warned?.kind == .turnError && warned?.subtype == "error_max_turns" && warned?.retryable == false)
+        #expect(try kind([#"{"type":"result","is_error":false,"result":"ok"}"#]) == nil)
+        var codex = ProviderEventDecoder(provider: .codex)
+        _ = try codex.decode(Data(#"{"type":"turn.failed","error":{"message":"limit reached"}}"#.utf8))
+        #expect(codex.failure?.kind == .turnError, "Codex states no status: its words are kept, never read for the kind")
+    }
+
+    @Test("the turn's error is a ProviderFailure: the stated kind with the exit status, a cut stream, a failing exit")
+    func runThrowsTypedFailures() async throws {
+        func failure(_ body: String) async throws -> ProviderFailure? {
+            let fixture = try script(body)
+            defer { try? FileManager.default.removeItem(at: fixture) }
+            do {
+                try await CLIProvider().run(turn(.claude), executable: fixture) { _ in }
+                return nil
+            } catch let failure as ProviderFailure {
+                return failure
+            }
+        }
+        let auth = try await failure("""
+        cat >/dev/null
+        echo '{"type":"result","is_error":true,"api_error_status":401,"result":"Invalid API key"}'
+        exit 1
+        """)
+        #expect(auth?.kind == .auth && auth?.exitStatus == 1 && auth?.message == "Invalid API key")
+        let cut = try await failure("cat >/dev/null\nexit 0")
+        #expect(cut?.kind == .noResult && cut?.retryable == true)
+        let crashed = try await failure("cat >/dev/null\nexit 7")
+        #expect(crashed?.kind == .exited && crashed?.exitStatus == 7)
+    }
+
     @Test
     func processDrainsBothPipesAndRequiresCompletion() async throws {
         let fixture = try script("""

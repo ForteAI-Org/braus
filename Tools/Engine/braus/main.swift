@@ -69,6 +69,10 @@ Task { @MainActor in
     } catch {
         await RecallService.waitAllIdle(within: .seconds(10))
         await MemoryService.closeAll()
+        if let stop = error as? ChatCommand.ScriptStop {
+            FileHandle.standardError.write(Data("braus: \(stop.message)\n".utf8))
+            exit(stop.exitStatus)
+        }
         FileHandle.standardError.write(Data("braus: \(error)\n".utf8))
         exit(1)
     }

@@ -488,7 +488,7 @@ let package = Package(
         .testTarget(
             name: "BrausCLITests",
             dependencies: ["braus", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
-                           "Memory", "SQLiteMemory"],
+                           "Memory", "SQLiteMemory", "FileConversations"],
             path: "Tests/Engine/BrausCLITests",
             swiftSettings: facility
         ),
