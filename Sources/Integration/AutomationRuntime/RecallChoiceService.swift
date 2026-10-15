@@ -189,12 +189,26 @@ extension RecallService {
             }
             var rendered = RecallProposalDelivery.Need(need: index + 1, text: need.text, app: need.bundleID.map(RecallDocument.applicationName),
                                                        sources: mine.map(\.key), suggested: suggested)
-            // The plan item that chooses the suggestion, else the first source whole: one call to record the reuse.
+            // The plan item that chooses the suggestion, else the first source's steps a choice admits: one call to record
+            // the reuse. A source with steps not offered gives its admitted runs, covering part of the need; one with none
+            // gives no plan.
             let chosen = mine.first { $0.suggested != nil } ?? mine.first
             if let chosen, let source = sources[chosen.routeID], let first = source.steps.first?.position, let last = source.steps.last?.position {
-                let range = chosen.suggested ?? first...last
-                rendered.readyPlan = #"{"need":\#(index + 1),"tracts":[{"source":"\#(chosen.key)","from":\#(range.lowerBound + 1),"#
-                    + #""to":\#(range.upperBound + 1)}],"covered":"all"}"#
+                let runs = chosen.suggested.map { [$0] } ?? RecallChoice.admissibleRuns(of: source, need: need, context: context)
+                if !runs.isEmpty {
+                    // A suggestion covers the need as its coverage says; the source's own runs only when they are all of it.
+                    let whole = chosen.suggested != nil
+                        ? suggestions.indices.contains(index) && suggestions[index].coverage == .complete
+                        : runs == [first...last]
+                    let tracts = runs.map { #"{"source":"\#(chosen.key)","from":\#($0.lowerBound + 1),"to":\#($0.upperBound + 1)}"# }
+                    let left = source.steps.map(\.position).filter { position in !runs.contains { $0.contains(position) } }
+                    // Only the steps a source does not offer are named: a suggestion's other steps are offered, just not suggested.
+                    let uncovered = whole || chosen.suggested != nil || left.isEmpty ? ""
+                        : #","uncovered":"steps \#(left.map { String($0 + 1) }.joined(separator: ", ")) of \#(chosen.key) "#
+                            + #"are not offered: do that work yourself""#
+                    rendered.readyPlan = #"{"need":\#(index + 1),"tracts":[\#(tracts.joined(separator: ","))],"covered":"\#(whole ? "all" : "part")""#
+                        + uncovered + "}"
+                }
             }
             return rendered
         }

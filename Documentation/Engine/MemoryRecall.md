@@ -109,7 +109,14 @@ rebuilt from it; SQLite stays authoritative.
   catalogue may offer (a version published or superseding another, a part evaluated, a part's state, a
   policy quarantined), one pending row per route or for the whole catalogue. A worker of `RecallService`
   takes it after the commit, in bounded passes, outside any transaction for the model; work that fails three
-  times stays pending, counted, and said in every answer's search note. An archive migrated from schema 1 or from a
+  times stays pending, counted, and said in every answer's search note, and the worker reads past it to the work
+  behind (until 14 October 2026 it took the oldest rows and dropped the exhausted ones, so 64 of them stopped it for
+  good). A route whose work failed three times queues no more work while that row is pending (the triggers look for
+  any pending row of the route): a change of it waits for that row, a limit that needs a trigger of schema 9.
+  A search first catches the index up with the catalogue (`RecallService.catchUp`, at most 5 s): a script runs one
+  process per task, and the version the process before learned may still be pending when the next one's first
+  `begin` searches, which then missed it (review R1). A process waits for its worker before it ends
+  (`RecallService.waitAllIdle`, at most 10 s). An archive migrated from schema 1 or from a
   historical shape ([MemorySchema](MemorySchema.md#historical-shapes)) gets one rebuild queued by the store in the
   migrating transaction; one that only takes the number 8 keeps its index.
 - **The product's space.** The product's configuration is hybrid over Granite 107m (since 2026-10-13), so its

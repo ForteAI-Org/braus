@@ -378,6 +378,37 @@ public actor RecallService {
         if !held, workWanted, worker == nil { worker = Task { await self.runWorker() } }
     }
 
+    /// Waits, within a budget, until the index holds every version the catalogue's work names, with its vectors when the
+    /// model is there: what a search does first. A script runs one process per task, and a version learned by the process
+    /// before this one may still be pending when this one's first `begin` searches; the search then missed the procedure
+    /// learned seconds earlier (review R1, 14 October 2026). Answers whether nothing was left pending. Work that failed its
+    /// last time, a held worker and a whole generation being built are not waited for.
+    @discardableResult
+    package func catchUp(within budget: Duration = RecallService.catchUpBudget) async -> Bool {
+        let deadline = ContinuousClock.now + budget
+        while true {
+            if workPaused { return false }
+            let pending = (try? await memory.perform {
+                try await $0.recall.pendingWork(limit: Self.workBatch * 4, below: Self.workAttemptLimit)
+            })?.contains { $0.routeID != nil } ?? false
+            // The versions entered: their vectors follow in the same pass, while the worker runs.
+            guard pending || (worker != nil && !vectorRoutes.isEmpty) else { return true }
+            guard ContinuousClock.now < deadline else { return false }
+            schedule()
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// How long a search waits for the index to catch up with the catalogue (`catchUp`).
+    package static let catchUpBudget: Duration = .seconds(5)
+
+    /// Waits until the worker of every Recall of this process has nothing left to do, within a budget: what a process
+    /// does before it ends, so the next one finds the index current (review R1).
+    public static func waitAllIdle(within budget: Duration) async {
+        let all = services.withLock { Array($0.values) }
+        for service in all { await service.waitUntilIdle(within: budget) }
+    }
+
     /// Waits until the worker has nothing left to do, within a budget; true when it finished in time.
     @discardableResult
     public func waitUntilIdle(within budget: Duration) async -> Bool {
@@ -439,8 +470,8 @@ public actor RecallService {
 
         // The work the triggers recorded: a version entered again everywhere; the whole catalogue, a new generation, which
         // only the owner starts, so a guest leaves that work pending for it.
-        let work = try await memory.perform { try await $0.recall.pendingWork(limit: Self.workBatch * 4) }
-            .filter { $0.attempts < Self.workAttemptLimit && (owner || $0.routeID != nil) }.prefix(Self.workBatch)
+        let work = try await memory.perform { try await $0.recall.pendingWork(limit: Self.workBatch * 4, below: Self.workAttemptLimit) }
+            .filter { owner || $0.routeID != nil }.prefix(Self.workBatch)
         var done: [Int64] = []
         for item in work {
             do {
@@ -642,6 +673,8 @@ public actor RecallService {
         let begun = ContinuousClock.now
         let context = RecallSelector.Context(values: request.values, constraints: request.constraints, observed: observed,
                                              needs: request.searchedNeeds)
+        // The versions the catalogue holds and the index does not yet are entered first, within a bound.
+        if !MeasureAblation.active.contains(.recall) { await catchUp() }
         // The status without counting the generation's entries or vectors: the index in memory has both.
         let light = try await memory.perform { try await $0.recall.queryStatus() }
         var status = light

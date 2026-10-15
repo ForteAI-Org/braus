@@ -131,6 +131,33 @@ struct RecallProductPathTests {
         await L.close(session)
     }
 
+    @Test("a version learned by the process before, its index work still pending at its exit, is offered by the next process's first search at once")
+    func learnedJustBefore() async throws {
+        let session = P.photoSession(try W.directory())
+        _ = try await L.learnPhoto(session)
+        let memory = MemoryService.shared(for: session.directory)
+        await RecallService.shared(for: memory).holdWork(true)
+        // The process that learns the second export ends before its worker enters it: the work stays pending in the archive.
+        let tools = P.tools(session, stream: "learner-2")
+        _ = try await P.task(tools, #"""
+            {"operation":"begin","goal":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG","recall":false,
+             "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
+            """#)
+        try await P.runPhotoExport(tools, session)
+        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
+        let candidate = try #require(ended["candidate"]["id"].string)
+        _ = try await P.task(tools, P.photoInterpretation(candidate))
+        let second = ProcedureAssembly.routeID(candidateID: candidate, revision: 1)
+        await L.close(session)
+        // The next process: a Recall that never ran, and a search that does not wait for it first.
+        let reopened = MemoryService.shared(for: session.directory)
+        RecallService.install(RecallService(memory: reopened, configuration: L.configuration()))
+        let proposal = try await P.task(P.tools(session, stream: "asker-next"), C.proposeRequest)["recall_proposal"]
+        #expect(proposal["search"]["status"].string == "completed", "\(proposal["search"])")
+        #expect(Self.source(proposal, second) != nil, "the version learned just before is offered: \(proposal)")
+        await L.close(session)
+    }
+
     @Test("a hybrid search without its model's files: the lexical index answers, the proposal says the semantic channel is unavailable and why")
     func semanticUnavailable() async throws {
         let session = P.photoSession(try W.directory())

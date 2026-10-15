@@ -578,8 +578,12 @@ made: at the end, or after a step, at a checkpoint before what shows it goes awa
 step delivers them bound to the new task's values (`resultCheck`). Braus's own guards and `none` are not delivered. The
 evidence a proposal names says whether the source's result was checked.
 
-**Reuse that is counted.** Each need of a proposal carries `readyPlan`, the plan item that chooses its first source (or
-the suggestion) whole, so that following a source is one call and is recorded. A run that repeats a source a proposal
+**Reuse that is counted.** Each need of a proposal carries `readyPlan`, the plan item that chooses the suggestion (the
+need covered `all` only when the suggestion covers it whole, else `part`), else the runs of its first source's steps a
+choice admits (`RecallChoice.admissibleRuns`: offered, in the need's application,
+not excluded), covering the need in part and naming in `uncovered` the steps left to the agent, so that following a
+source is one call and is recorded; a source with none gives no plan. Until 14 October 2026 the plan was the whole
+source, and Braus refused the plan it had written when a step of it was not offered (review R3). A run that repeats a source a proposal
 offered to its attempt, with no choice made, is said in the interpretation's answer (`reuse`) and counted as followed
 without a choice (`InterpretationOutcome.followedUnchosen`), derivable from the proposal's sources and the version's
 `supersedes_route_id`.

@@ -61,10 +61,13 @@ Task { @MainActor in
                 FileHandle.standardError.write(Data("unknown command '\(command)'\n\n\(Usage.text)\n".utf8))
                 exit(2)
         }
-        // The process ends here: what the commands left in the memory's queue is saved or counted.
+        // The process ends here: the Recall's index takes what was learned, so the next process finds it, and what the
+        // commands left in the memory's queue is saved or counted.
+        await RecallService.waitAllIdle(within: .seconds(10))
         await MemoryService.closeAll()
         exit(0)
     } catch {
+        await RecallService.waitAllIdle(within: .seconds(10))
         await MemoryService.closeAll()
         FileHandle.standardError.write(Data("braus: \(error)\n".utf8))
         exit(1)
