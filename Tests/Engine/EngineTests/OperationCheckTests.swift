@@ -228,6 +228,33 @@ struct OperationCheckTests {
         #expect(inserted.check?.limits == [.noExpectedValue])
     }
 
+    @Test("a field named by what it holds, with no focus to read, is read back from the scene at its own place (PhotoCraft's save panel)")
+    func typedFieldReadAtItsPlace() async throws {
+        let before = SceneElement(id: "field|foto3copypsd", kind: .control, label: "foto_3 copy.psd",
+                                  bounds: NormalizedRect(x: 0.443, y: 0.419, width: 0.153, height: 0.029), role: "AXTextField",
+                                  value: "foto_3 copy.psd")
+        func after(_ value: String, x: Double = 0.443, width: Double = 0.153) -> SceneElement {
+            SceneElement(id: "field|\(value)", kind: .control, label: value,
+                         bounds: NormalizedRect(x: x, y: 0.419, width: width, height: 0.029), role: "AXTextField", value: value)
+        }
+        func type(into scenes: Scenes) async -> ActOutcome {
+            await engine(scenes, controls: Controls()).deliver(InputRequest(
+                processID: pid, bundleID: "com.x", appName: "X",
+                input: .typeText("foto_3_invertita.png", into: "foto_3 copy.psd", replacing: true)
+            ))
+        }
+        let read = await type(into: Scenes([scene([before]), scene([after("foto_3_invertita.png")])]))
+        #expect(read.check?.verdict == .passed && read.check?.observed == "foto_3_invertita.png")
+        #expect(read.check?.limits.contains(.readbackUnavailable) == false)
+        let edited = await type(into: Scenes([scene([before]), scene([after("foto_3_invertita.png", x: 0.448, width: 0.09)])]))
+        #expect(edited.check?.verdict == .passed, "a field that reports a smaller frame inside its own while edited is the same field")
+        let wrong = await type(into: Scenes([scene([before]), scene([after("foto_3_invertita")])]))
+        #expect(wrong.check?.verdict == .failed, "the field at its place reads something else")
+        let moved = await type(into: Scenes([scene([before]), scene([after("foto_3_invertita.png", x: 0.6)])]))
+        #expect(moved.check?.verdict == .unknown && moved.check?.limits.contains(.readbackUnavailable) == true,
+                "a field elsewhere is not taken for the one typed into")
+    }
+
     @Test("a key, a scroll and a drag are judged window-wide by the scene difference, with no expectation")
     func inputSceneDifference() async throws {
         let list = element("l", "Files", role: "AXList")

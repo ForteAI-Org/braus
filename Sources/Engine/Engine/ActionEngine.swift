@@ -832,6 +832,7 @@ public struct ActionEngine: Sendable {
         let after = await perceive(pid)?.scene
         let readBack = await dependencies.controls?.focusedFieldValue(in: pid)
             ?? after?.elements.first(where: { $0.id == element.id })?.value
+            ?? after.flatMap { Self.sameField(as: element, in: $0) }?.value
         let wanted = replacing ? typed : element.value.map { $0 + text }
         await dependencies.actuator.confirm(readBack != nil && readBack == wanted ? .observed : .unknown, in: pid)
         let composing = inserts ? " This text is inserted as one event; an active input method may reject it." : ""
@@ -861,6 +862,23 @@ public struct ActionEngine: Sendable {
                     + "read afterwards, so the text cannot be confirmed; observe before typing again.\(composing)",
                     scene: after, check: check)
         }
+    }
+
+    /// The field of the scene after typing that is the one typed into, when its id moved with its value: the
+    /// one element of the same role and kind whose centre lies within the field's place before typing, widened by
+    /// half a percent of the window. A field named by what it holds ("foto_3 copy.psd" in a save panel whose
+    /// accessibility answers no focus, as in PhotoCraft's, 14 October 2026) takes a new id once it holds the typed
+    /// name, and while it is edited it may report a smaller frame inside its own (0.153 wide before, 0.090 after,
+    /// live); nil for none or several.
+    static func sameField(as element: SceneElement, in after: SceneSnapshot) -> SceneElement? {
+        let margin = 0.005, place = element.bounds
+        let matches = after.elements.filter {
+            let x = $0.bounds.x + $0.bounds.width / 2, y = $0.bounds.y + $0.bounds.height / 2
+            return $0.role == element.role && $0.kind == element.kind
+                && place.x - margin <= x && x <= place.x + place.width + margin
+                && place.y - margin <= y && y <= place.y + place.height + margin
+        }
+        return matches.count == 1 ? matches.first : nil
     }
 
     private func pressKey(

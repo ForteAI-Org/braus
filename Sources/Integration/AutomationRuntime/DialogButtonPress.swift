@@ -176,7 +176,7 @@ public enum DialogButtonPress {
         return changed
             ? ActOutcome(.foundActed, "pressed '\(title)': a window of the application opened, closed or "
                 + "was retitled", scene: scene, check: check)
-            : ActOutcome(.actedUnverified, "pressed '\(title)': no window opened, closed or was retitled; "
+            : ActOutcome(.actedUnverified, "pressed '\(title)'" + MenuBarCommand.unchangedWindows + "; "
                 + "the scene shows whether it took effect. Do not press it again blind.",
                 scene: scene, check: check)
     }

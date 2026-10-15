@@ -6,14 +6,16 @@
 //
 
 import EngineCore
+import Foundation
 import PerceptionCore
 
 /// PerceivedCommand gives a native command with no engine cycle of its own (a menu bar command, a
 /// dialog's button pressed by its title) the perceptions every other operation records: the window as it
 /// was before the command and as it is after, as the call's own `before` and `after` samples, through the
-/// call's recorder. The command's check is unchanged: it compares the application's windows
-/// (`MenuBarCommand.windowSignature`), which is no scene and is never taken for one; the samples are what
-/// the Brain's relations read the command's states from. A command that reached no gesture (a refusal, a
+/// call's recorder. The command's check compares the application's windows
+/// (`MenuBarCommand.windowSignature`), which is no scene and is never taken for one; when they did not
+/// change, the two perceptions judge the command on its own window (`checkedInWindow`). The samples are
+/// what the Brain's relations read the command's states from. A command that reached no gesture (a refusal, a
 /// miss, a listing) records nothing; a perception that failed leaves its sample out, and the relation
 /// the call teaches says why. The command stays one operation: nothing is recorded for its inner steps.
 ///
@@ -66,9 +68,32 @@ public enum PerceivedCommand {
             throw error
         }
         guard outcome.check != nil else { return outcome }
-        guard let recorder else { return outcome }
+        let checked = checkedInWindow(outcome, before: before, after: after)
+        guard let recorder else { return checked }
         await recorder.record(before: before, menu: nil, after: after, bundleID: bundleID)
-        guard let scene = outcome.scene else { return outcome }
-        return outcome.with(scene: await recorder.enrich(scene))
+        guard let scene = checked.scene else { return checked }
+        return checked.with(scene: await recorder.enrich(scene))
+    }
+
+    /// A command whose windows did not change, judged again on its own window. The application's windows
+    /// miss what happens inside one: a sheet attached to it, a dialog an application draws in its window
+    /// (PhotoCraft's Image Size and save prompt), a panel that slides in. On PhotoCraft 21 of 28 menu
+    /// commands stayed unknown that way (14 October 2026), so no procedure that opened a file or saved a
+    /// copy could ever be admitted. When the gesture went out as requested and both perceptions exist, the
+    /// difference of the two scenes decides: an attributable change is a structural effect, passed, said as
+    /// found anywhere in the window and with no expectation; no change leaves the window check unknown as
+    /// it was, since a command may act where no scene shows it (a document's pixels).
+    static func checkedInWindow(_ outcome: ActOutcome, before: PerceivedWindow?, after: PerceivedWindow?) -> ActOutcome {
+        guard let check = outcome.check, check.condition == .windowSetChanged, check.verdict == .unknown,
+              check.performed == .requested, !check.limits.contains(.deliveryUncertain),
+              let before, let after,
+              let effect = SceneDifference.effect(before: before.scene, after: after.scene, targetID: nil)
+        else { return outcome }
+        let inWindow = OperationCheck(condition: .structuralEffect, method: .sceneDifference, verdict: .passed,
+                                      expected: "a change in the window", observed: effect.family,
+                                      limits: [.windowWide, .noExpectation], performed: .requested)
+        let pressed = outcome.message.components(separatedBy: MenuBarCommand.unchangedWindows).first ?? outcome.message
+        return ActOutcome(.foundActed, "\(pressed): no window opened or closed, the window changed in place (\(effect.summary))",
+                          scene: outcome.scene, check: inWindow)
     }
 }

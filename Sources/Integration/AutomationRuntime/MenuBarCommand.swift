@@ -532,10 +532,14 @@ public enum MenuBarCommand {
         return changed
             ? ActOutcome(.foundActed, "pressed \(pressed): a window of the application opened, closed or was retitled",
                          scene: scene, check: check)
-            : ActOutcome(.actedUnverified, "pressed \(pressed): no window opened, closed or was retitled; "
+            : ActOutcome(.actedUnverified, "pressed \(pressed)" + unchangedWindows + "; "
                          + "the scene shows whether it took effect. Do not press it again blind.",
                          scene: scene, check: check)
     }
+
+    /// What a command whose windows did not change says right after naming what it pressed. `PerceivedCommand`
+    /// keeps what comes before it when the command's own window shows the change.
+    static let unchangedWindows = ": no window opened, closed or was retitled"
 
     /// The check of a menu command or a dialog button: the application's windows compared before and
     /// after, which shows a window opening, closing or retitling and never the command's own effect.
