@@ -105,18 +105,23 @@ nonisolated public struct TopologyBaseline: Sendable, Equatable {
         physicalDisplays.reduce(CGRect.null) { $0.union($1.bounds) }
     }
 
-    /// Where a virtual display of `pixelSize` is attached: the bottom right
-    /// corner of the person's arrangement, touching it at a single point.
+    /// The lower right corner of the rightmost physical display. When several displays share
+    /// that edge, the lowest corner leaves only one point of contact with the arrangement.
+    /// The bounding rectangle's corner can lie in empty space when the displays are uneven.
     ///
     /// A single point of contact is the design. The window server needs the
     /// displays to be adjacent, and any edge longer than a point is a corridor
     /// the pointer can walk through; the HID fence decides whether it may, but
     /// the geometry should not hand it a door in the first place.
     public func cornerAttachedOrigin() throws -> CGPoint {
-        let union  = physicalUnion
+        let corner = physicalDisplays.max { left, right in
+            left.bounds.maxX == right.bounds.maxX
+                ? left.bounds.maxY < right.bounds.maxY
+                : left.bounds.maxX < right.bounds.maxX
+        }?.bounds ?? .null
         let origin = CGPoint(
-            x: union.maxX.rounded(.up),
-            y: (union.maxY - 1).rounded(.down)
+            x: corner.maxX.rounded(.up),
+            y: (corner.maxY - 1).rounded(.down)
         )
         guard origin.x >= CGFloat(Int32.min), origin.x <= CGFloat(Int32.max),
               origin.y >= CGFloat(Int32.min), origin.y <= CGFloat(Int32.max)
