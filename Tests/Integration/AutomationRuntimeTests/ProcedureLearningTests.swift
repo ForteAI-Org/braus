@@ -166,6 +166,9 @@ struct ProcedureLearningTests {
         #expect(ended["candidate"]["new"].bool == false)
         #expect(ended["next"] == .null && tools.pendingCandidate == nil,
                 "a candidate interpreted at the checkpoint is not asked for again at the end")
+        // The end, and only the end, asks to close a document changed and kept as a copy (PhotoCraft, 14/10/2026).
+        #expect(ended["before_answering"].string == AutomationTools.closeChangedCopies)
+        #expect(checkpoint["before_answering"] == .null)
 
         let memory = MemoryService.shared(for: session.directory)
         #expect(await memory.flush(within: .seconds(10)))

@@ -121,7 +121,9 @@ struct RecallProductPathTests {
         let behind = try await P.task(P.tools(session, stream: "asker-1"), C.proposeRequest)["recall_proposal"]
         #expect(behind["search"]["status"].string == "limited" && (RecallCycleTests.int(behind["index"]["pendingWork"]) ?? 0) > 0, "\(behind)")
         #expect(behind["search"]["note"].string?.contains("not in the index yet") == true, "\(behind["search"])")
-        #expect(Self.source(behind, first) != nil && Self.source(behind, second) == nil, "the index answers with what it holds")
+        // The second export repeats the first one's method, so its version replaced the first in the catalogue
+        // (`ProcedureMethod`): the index, behind, offers neither the replaced version nor the one it has not indexed yet.
+        #expect(Self.source(behind, first) == nil && Self.source(behind, second) == nil, "the index answers with what it holds")
         await service.holdWork(false)
         #expect(await service.waitUntilIdle(within: .seconds(60)))
         let caught = try await P.task(P.tools(session, stream: "asker-2"), C.proposeRequest)["recall_proposal"]

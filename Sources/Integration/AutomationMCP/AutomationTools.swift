@@ -50,6 +50,9 @@ public final class AutomationTools {
     /// Values withheld from the record so far (the task's secrets, typed secrets), in memory only, so
     /// every later record withholds them too. Never stored, never shown.
     private var secrets: [String] = []
+    /// The disk as the open task's file inputs stood when it declared them, by path: what a check of a file changed,
+    /// kept or removed compares with. In memory only; kept until the next task begins, for the interpretation.
+    private var fingerprints: [String: TaskResultCheck.FileFacts] = [:]
     /// The check the last operation's path reported, for its record.
     private var lastCheck: OperationCheck?
     private var revision = 0
@@ -77,6 +80,14 @@ public final class AutomationTools {
         "Call memory_task interpret with candidate \(candidate) in your next call, before you answer the person: "
             + "until then nothing of this task is learned."
     }
+
+    /// What an end answer asks before the agent answers the person. A document the task changed and kept only as a
+    /// copy is still open with the change; the app quit when the session ends then stops on its save prompt in the
+    /// person's seat, where the next task finds it. In the instructions alone it was not followed (PhotoCraft,
+    /// Sonnet 5.5, 14/10/2026); at the end of the task it is the next thing to do.
+    public static let closeChangedCopies = "Before you answer the person: a document this task changed and saved only as a "
+        + "copy (Save a Copy, Export) is still open with the change. Close it now from the File menu (Close) and "
+        + "choose not to save (Don't Save). Leave any other window or prompt as it is."
 
     /// Forgets every scene the model read, so the next scene of any window is sent whole: for a new
     /// turn or a compacted context, which may no longer hold those scenes.
@@ -140,6 +151,10 @@ public final class AutomationTools {
     holds the copy. If the copy cannot be saved there, edit nothing and say so. After an edit made on the original
     anyway, Save As with its box "Keep changes in original document" turned off, or File > Revert To > Last Opened,
     puts the original back. Call the original unchanged only after one of these; otherwise say that it holds the edit.
+    A document this task opened and changed, then saved only as a copy (Save a Copy, Export), still holds the change
+    in its window: before answering, close it from the File menu (Close) and choose not to save (Don't Save). A save
+    prompt or an unsaved document that was there before the task touched the app is not the task's: leave it as it
+    is and say so.
     A newly opened file panel may need explicit focus before accepting keys: click its observed file name field
     (Save) or a sidebar row with act first. In a Save or Export sheet keys often reach nothing from the background,
     Command-Shift-G included: press it at most twice. When Go to Folder does not open, reach the folder with select
@@ -520,6 +535,7 @@ public final class AutomationTools {
                     )
                 }
                 keep(declared)
+                fingerprints = Self.fingerprints(of: arguments["inputs"])
                 let opened = try await TaskChannel.begin(
                     content,
                     producer: producer,
@@ -557,11 +573,23 @@ public final class AutomationTools {
                     memory   : memory
                 )
                 openTask = revised
+                for (path, facts) in Self.fingerprints(of: arguments["inputs"]) where fingerprints[path] == nil { fingerprints[path] = facts }
                 return open(revised, "revised")
-            case .checkpoint(let draft, let declared, let uses), .end(let draft, let declared, let uses):
+            case .checkpoint(let draft, let declared, let uses, let checks), .end(let draft, let declared, let uses, let checks):
                 guard let current = openTask else { throw Self.noOpenTask }
                 keep(declared)
                 let reported = try await report(uses, task: current, memory: memory)
+                // The result the task names is read by Braus before the checkpoint or the end is recorded: the procedure's
+                // admission, and its phases', rest on it (`QualificationPolicy` version B).
+                // At a completed end Braus completes what the task named with what it can read on disk itself
+                // (`AutomationTools.completed`); a `none` for a task with files is refused before anything is recorded.
+                var checks = checks
+                if case .end(let draft, _, _, _) = request, draft.declared == .completed {
+                    checks = Self.completed(checks, fingerprints: fingerprints, outputs: arguments["outputs"],
+                                            minimization: ValueMinimization(secrets: secrets))
+                }
+                let checkedResult: JSONValue? = checks.isEmpty ? nil
+                    : await check(checks, attemptID: current.attemptID, producer: producer, memory: memory)
                 let (receipt, checkpoint) = try await TaskChannel.checkpoint(
                     current,
                     draft,
@@ -590,9 +618,16 @@ public final class AutomationTools {
                 if draft.kind == .end {
                     openTask = nil
                     extra["outcome"] = .string(checkpoint.declared?.rawValue ?? "")
+                    if let checkedResult {
+                        extra["result_check"] = checkedResult
+                    } else if checkpoint.declared == .completed {
+                        extra["result_check"] = .object(["status": .string("missing"), "next": .string(Self.resultMissing)])
+                    }
+                    extra["before_answering"] = .string(Self.closeChangedCopies)
                     return open(current, "ended", extra)
                 }
                 extra["sequence"] = .number(Double(checkpoint.sequence))
+                if let checkedResult { extra["result_check"] = checkedResult }
                 return open(current, "checkpointed", extra)
             case .resume(let taskID):
                 if let current = openTask, current.taskID != taskID {
@@ -617,14 +652,32 @@ public final class AutomationTools {
                                     "message": .string("The task's last attempt started no app action.")])
                 }
                 return .object(["status": .string("candidate"), "task": .string(taskID), "candidate": Self.candidate(summary)])
-            case .interpret(let interpretation, let declared):
+            case .interpret(let interpretation, let declared, let checks):
                 keep(declared)
+                // A result the end did not name, read now, before the version is built and qualified on it.
+                var checkedResult: JSONValue?
+                if !checks.isEmpty, let state = try await ProcedureProducer.resultState(candidateID: interpretation.candidateID,
+                                                                                         producer: producer, memory: memory) {
+                    if !state.checked {
+                        let completed = Self.completed(checks, fingerprints: fingerprints, outputs: .null,
+                                                       minimization: ValueMinimization(secrets: secrets))
+                        checkedResult = await check(completed, attemptID: state.attemptID, producer: producer, memory: memory)
+                    } else {
+                        checkedResult = .object(["status": .string("already checked"),
+                                                 "message": .string("The attempt's result was checked before: nothing more was read.")])
+                    }
+                }
                 let outcome = try await ProcedureProducer.interpret(interpretation, producer: producer, memory: memory)
                 interpretedCandidates.insert(interpretation.candidateID)
                 if pendingCandidate == interpretation.candidateID { pendingCandidate = nil }
                 // The version and its qualification are committed with their index work: the worker takes it now.
                 await RecallService.shared(for: memory).schedule()
-                return Self.interpreted(outcome, candidateID: interpretation.candidateID)
+                var answer = Self.interpreted(outcome, candidateID: interpretation.candidateID)
+                if let checkedResult, case .object(var fields) = answer {
+                    fields["result_check"] = checkedResult
+                    answer = .object(fields)
+                }
+                return answer
             case .recall(let reason, let plan):
                 guard let current = openTask else { throw Self.noOpenTask }
                 let revision = try await TaskChannel.revision(current.revision, of: current.taskID, producer: producer, memory: memory)
@@ -883,6 +936,164 @@ public final class AutomationTools {
         }
     }
 
+    /// What the end of a completed task that named no result is told: how to name it with the interpretation.
+    static let resultMissing = "No result_check was given, so nothing proves this task's result and its procedure can be "
+        + "admitted only if every step was verified on its own. Give result_check in your interpret call: what Braus can read "
+        + "to verify the result the person asked for ({file_written|file_changed|file_unchanged|file_absent: path}, "
+        + "{file_moved|file_copied: path, to: path}, {file: path, contains: text}, {window: title, app, open}, {element: label, value|state|present} while the app's session "
+        + "is open), or {none: why} when the task leaves nothing to read."
+
+    /// The disk as the task's inputs that name an absolute path stood when it declared them, by path, from the call's own
+    /// arguments (a value the record withholds is still read, in memory only): what a check of a file changed, kept or
+    /// removed compares with. Secret inputs are not read. Read only.
+    static func fingerprints(of inputs: JSONValue) -> [String: TaskResultCheck.FileFacts] {
+        var found: [String: TaskResultCheck.FileFacts] = [:]
+        for input in inputs.array ?? [] where input["secret"].bool != true {
+            guard let text = input["value"].string else { continue }
+            let path = ((text as NSString).expandingTildeInPath as NSString).standardizingPath
+            guard path.hasPrefix("/"), !path.contains("\n"), FileManager.default.fileExists(atPath: path) else { continue }
+            found[path] = ProcedureProducer.read(path: path)
+            // The folder a file input lies in is listed too: where a task saves beside its input.
+            let folder = (path as NSString).deletingLastPathComponent
+            if found[path]?.listing == nil, found[folder] == nil { found[folder] = ProcedureProducer.read(path: folder) }
+        }
+        return found
+    }
+
+    /// A completed task's checks as Braus records them, with what it reads on disk itself added (14 October 2026, after
+    /// test runs where agents checked «Saved: <path>» on screen, or gave `none`, for files Braus could read):
+    /// - a file the screen checks name by an absolute path (a status bar's «Salvato: /…/lavoro_A.png») is read too: changed
+    ///   when it was a file input Braus read at the start, written otherwise;
+    /// - every file the outputs declare by an absolute path is checked written;
+    /// - the guards (`guards`), recorded as guards: shown, never what admits or refuses a procedure (14 October 2026: a
+    ///   stray temporary file of TextEdit's save kept a right procedure out).
+    static func completed(_ named: [MemoryTaskTool.ResultCheck], fingerprints: [String: TaskResultCheck.FileFacts], outputs: JSONValue,
+                          minimization: ValueMinimization) -> [MemoryTaskTool.ResultCheck] {
+        var checks = named
+        func onDisk() -> Set<String> {
+            Set(checks.flatMap { check -> [String] in
+                switch check.read {
+                    case .fileMoved(let from, let to), .fileCopied(let from, let to): [from, to]
+                    default: check.read.path.map { [$0] } ?? []
+                }
+            })
+        }
+        func add(_ read: TaskResultCheck.Expectation) {
+            guard let path = read.path, !onDisk().contains(path) else { return }
+            checks.append(MemoryTaskTool.ResultCheck(read: read, kept: MemoryTaskTool.kept(read, by: minimization)))
+        }
+        for check in named {
+            switch check.read {
+                case .window, .element:
+                    for path in Self.paths(in: check.read.texts) where fingerprints[path] != nil || FileManager.default.fileExists(atPath: path) {
+                        var isFolder: ObjCBool = false
+                        guard FileManager.default.fileExists(atPath: path, isDirectory: &isFolder), !isFolder.boolValue else { continue }
+                        add(fingerprints[path]?.exists == true ? .fileChanged(path: path) : .fileWritten(path: path))
+                    }
+                default: break
+            }
+        }
+        for output in MemoryTaskTool.declaredFiles(outputs, minimization: minimization) { add(output.read) }
+        // A folder listed at the start that the task wrote in holds no new file but those named.
+        let written = onDisk().union((outputs.array ?? []).compactMap { item in
+            item["value"].string.map { (($0 as NSString).expandingTildeInPath as NSString).standardizingPath }
+        })
+        for (folder, facts) in fingerprints.sorted(by: { $0.key < $1.key }) where facts.listing != nil {
+            let named = written.filter { ($0 as NSString).deletingLastPathComponent == folder }.map { ($0 as NSString).lastPathComponent }
+            guard !named.isEmpty else { continue }
+            let read = TaskResultCheck.Expectation.noOtherFiles(folder: folder, named: named.sorted())
+            checks.append(MemoryTaskTool.ResultCheck(read: read, kept: MemoryTaskTool.kept(read, by: minimization), isGuard: true))
+        }
+        return checks + Self.guards(for: checks, fingerprints: fingerprints, outputs: outputs, minimization: minimization)
+    }
+
+    /// The absolute paths written in texts (a home-relative one expanded), standardized, without trailing punctuation.
+    static func paths(in texts: [String]) -> [String] {
+        guard let expression = try? NSRegularExpression(pattern: #"(?:~|/)[^\s"'«»<>|,;]+"#) else { return [] }
+        var found: [String] = []
+        for text in texts {
+            for match in expression.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                guard let range = Range(match.range, in: text) else { continue }
+                var path = String(text[range])
+                while let last = path.last, ".:)]".contains(last) { path.removeLast() }
+                path = ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+                if path.hasPrefix("/"), path.count > 1, !found.contains(path) { found.append(path) }
+            }
+        }
+        return found
+    }
+
+    /// The guards Braus adds to a completed task's checks: when the result is a file written or changed at another path,
+    /// every file input it read at the beginning (a regular file whose content it read) and that no check or output names
+    /// stays as it was. An export that also rewrote its original is caught here, which no check of the export shows.
+    static func guards(for checks: [MemoryTaskTool.ResultCheck], fingerprints: [String: TaskResultCheck.FileFacts], outputs: JSONValue,
+                       minimization: ValueMinimization) -> [MemoryTaskTool.ResultCheck] {
+        let writes = checks.compactMap { check -> String? in
+            switch check.read {
+                case .fileWritten(let path), .fileChanged(let path), .fileContains(let path, _), .fileCopied(_, let path): path
+                default: nil
+            }
+        }
+        guard !writes.isEmpty else { return [] }
+        let named = Set(checks.flatMap { $0.read.path.map { [$0] } ?? [] } + checks.compactMap { check -> String? in
+            if case .fileMoved(_, let to) = check.read { return to }
+            if case .fileCopied(_, let to) = check.read { return to }
+            return nil
+        } + (outputs.array ?? []).compactMap { item in
+            item["value"].string.map { (($0 as NSString).expandingTildeInPath as NSString).standardizingPath }
+        })
+        return fingerprints.filter { path, facts in facts.digest != nil && !named.contains(path) }.keys.sorted().map { path in
+            let read = TaskResultCheck.Expectation.fileUnchanged(path: path)
+            return MemoryTaskTool.ResultCheck(read: read, kept: MemoryTaskTool.kept(read, by: minimization), isGuard: true)
+        }
+    }
+
+    /// Reads and records each result check the agent named for an attempt (`TaskResultCheck`): the disk for a file,
+    /// against its reading from the task's beginning when Braus has one; the window server's titles for a window; the
+    /// session's scene for an element. Answers what Braus found for each, never the content it read.
+    private func check(_ checks: [MemoryTaskTool.ResultCheck], attemptID: String, producer: TaskProducer,
+                       memory: MemoryService) async -> JSONValue {
+        var answers: [JSONValue] = []
+        for named in checks {
+            var screen: TaskResultCheck.Reading?
+            switch named.read {
+                case .window(let app, _, _): screen = .screen(windows: windowTitles(of: app), scene: nil)
+                case .element(let app, _, _): screen = .screen(windows: nil, scene: await currentScene(of: app))
+                default: break
+            }
+            do {
+                let check = try await ProcedureProducer.checkResult(named.kept, read: named.read,
+                                                                    before: named.read.path.flatMap { fingerprints[$0] }, screen: screen,
+                                                                    asGuard: named.isGuard, attemptID: attemptID, producer: producer,
+                                                                    memory: memory)
+                var answer: [String: JSONValue] = ["check": .string(named.kept.line), "verdict": .string(check.verdict.rawValue),
+                                                   "found": .string(check.observed)]
+                if named.isGuard { answer["guard"] = .string("added by Braus and shown; it does not admit or refuse the procedure") }
+                answers.append(.object(answer))
+            } catch {
+                answers.append(.object(["check": .string(named.kept.line),
+                                        "error": .string("The check could not be recorded: \(MemoryService.describe(error)).")]))
+            }
+        }
+        return .array(answers)
+    }
+
+    /// The titles of the windows of an application the window server lists, the session's own when none is named; nil
+    /// when it is not running.
+    private func windowTitles(of app: String?) -> [String]? {
+        guard let word = app ?? session.memoryApplication, let running = try? RunningApplicationLookup.running(word) else { return nil }
+        return (try? session.windowCandidates(ownedBy: running.processIdentifier))?.map { $0.title ?? "" }
+    }
+
+    /// The scene the session reads now, when it holds the application named (or any, when none is named); nil otherwise.
+    private func currentScene(of app: String?) async -> SceneSnapshot? {
+        guard session.id != nil, let held = session.memoryApplication else { return nil }
+        if let app, app != held {
+            guard let running = try? RunningApplicationLookup.running(app), running.bundleIdentifier == held else { return nil }
+        }
+        return try? await session.observe()
+    }
+
     /// A candidate as the agent reads it: its steps with their block, application, tool, arguments as
     /// recorded, how each ended and how its check judged it, and the blocks.
     static func candidate(_ summary: ProcedureProducer.CandidateSummary) -> JSONValue {
@@ -918,6 +1129,13 @@ public final class AutomationTools {
             if let bundle = block.bundleID { fields["app"] = .string(bundle) }
             return .object(fields)
         }
+        var known: [String: JSONValue] = [:]
+        if !summary.knownPhases.isEmpty {
+            known["known_phases"] = .array(summary.knownPhases.map { phase in
+                .object(["from": .number(Double(phase.firstPosition + 1)), "to": .number(Double(phase.lastPosition + 1)),
+                         "label": .string(phase.label), "procedures": .number(Double(phase.procedures))])
+            })
+        }
         return .object([
             "id": .string(summary.candidate.candidateID),
             "new": .bool(summary.isNew),
@@ -926,7 +1144,7 @@ public final class AutomationTools {
             "interpret": .string("Call memory_task interpret with this candidate: labels and outcomes of the procedure, of the "
                 + "blocks when there are several, and of the steps; the parameters with their roles and values; the uses "
                 + "of parameters in steps' arguments as templates. Steps and blocks are fixed."),
-        ])
+        ].merging(known, uniquingKeysWith: { $1 }))
     }
 
     /// The answer to an interpretation: its revision and version, each part's qualification with its
@@ -940,14 +1158,22 @@ public final class AutomationTools {
             if let range = partID.range(of: "/step-", options: .backwards), let index = Int(partID[range.upperBound...]) {
                 return "s\(index + 1)"
             }
+            if let range = partID.range(of: "/phase-", options: .backwards) {
+                let bounds = partID[range.upperBound...].split(separator: "-").compactMap { Int($0) }
+                if bounds.count == 2 { return "steps \(bounds[0] + 1)–\(bounds[1] + 1)" }
+            }
             return partID
+        }
+        // The qualification counts the version's steps; the agent reads the candidate's numbers.
+        func step(_ position: Int) -> Int {
+            (outcome.candidatePositions.flatMap { $0.indices.contains(position) ? $0[position] : nil } ?? position) + 1
         }
         let parts: [JSONValue] = outcome.qualifications.map { qualification in
             var fields: [String: JSONValue] = ["part": .string(reference(qualification.partID)),
                                                "admitted": .bool(qualification.verdict == .admitted)]
             if !qualification.findings.isEmpty {
                 fields["reasons"] = .array(qualification.findings.map { finding in
-                    .string(finding.reason.rawValue + (finding.stepPosition.map { " (step \($0 + 1))" } ?? ""))
+                    .string(finding.reason.rawValue + (finding.stepPosition.map { " (step \(step($0)))" } ?? ""))
                 })
             }
             return .object(fields)
@@ -957,6 +1183,23 @@ public final class AutomationTools {
             "candidate": .string(candidateID), "revision": .number(Double(outcome.revision)), "version": .string(outcome.routeID),
             "parts": .array(parts),
         ]
+        if let repeats = outcome.repeats {
+            answer["repeats"] = .string(repeats)
+            answer["run"] = .string("This task repeated the method of an earlier procedure: this version replaces it in the "
+                + "catalogue, and its steps verified in the earlier run count as verified here.")
+        }
+        if let source = outcome.followedUnchosen {
+            answer["reuse"] = .string("This run repeats source \(source) of the proposal you received without choosing it: it is "
+                + "counted as followed without a choice. When a source does the very work, choose it first (its readyPlan), then "
+                + "adapt it and report adapted.")
+        }
+        if !outcome.leftOut.isEmpty {
+            answer["left_out"] = .array(outcome.leftOut.keys.sorted().map { position in
+                .object(["step": .number(Double(position + 1)), "why": .string(outcome.leftOut[position]?.rawValue ?? "")])
+            })
+            answer["method"] = .string("The procedure keeps the steps that did the work; the steps in left_out stay in the "
+                + "candidate as evidence and are not repeated by a reuse.")
+        }
         if !outcome.findings.isEmpty {
             answer["findings"] = .array(outcome.findings.map { finding in
                 .object(["step": .number(Double(finding.stepPosition + 1)), "argument": .string(finding.argumentName),
@@ -1049,7 +1292,23 @@ public final class AutomationTools {
                                               accessibility: access, postEvent: post))
         case "windows":
             let apps: [NSRunningApplication]
-            if values["app"] != nil { apps = [try RunningApplicationLookup.running(try string(arguments, "app"))] }
+            if values["app"] != nil {
+                let word = try string(arguments, "app")
+                do {
+                    apps = [try RunningApplicationLookup.running(word)]
+                } catch {
+                    // An application installed but not running has no window yet: say so, and how to open it, instead of an
+                    // error the agent answers with another listing (10 of 30 runs on PhotoCraft, 14 October 2026).
+                    let offered = (try? await session.applications(matching: word)) ?? []
+                    guard let first = offered.first else { throw error }
+                    value = .object(["applications": .array([]),
+                                     "not_running": .array(offered.prefix(3).map(Self.candidate)),
+                                     "next": .string("\(first.name) is not running, so it has no window: open it with open_session "
+                                                     + "{app: \"\(first.bundleID)\"}.")])
+                    lastResult = .listing(ListingResult(kind: .windows, applications: []))
+                    break
+                }
+            }
             else { apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular } }
             var listed: [ListedApplication] = []
             value = .object(["applications": .array(try apps.map { app in

@@ -1003,7 +1003,7 @@ public actor RecallService {
             .scroll: ["target": "element"], .drag: ["from": "element", "to": "element"], .contextMenu: ["target": "element"],
         ]
         let steps = source.steps.filter { selection.positions.contains($0.position) }.map { step -> RecallDelivery.Step in
-            let arguments = step.arguments.map { argument -> RecallDelivery.Argument in
+            let arguments = step.arguments.filter(Self.isDelivered).map { argument -> RecallDelivery.Argument in
                 let kind = roles[step.tool]?[argument.name] ?? "fixed"
                 switch argument.value {
                     case .literal(let value):
@@ -1120,10 +1120,34 @@ public actor RecallService {
         }
         let whole = selection.wholePartID.flatMap { id in source.parts.first { $0.partID == id } }
         let evidence = (whole != nil ? "qualified as a whole part" : "a tract of individually qualified steps, not qualified as a whole")
-            + " (qualification A: each operation's own check, not the task's result)"
+            + " (\(Self.evidence(of: source)))"
             + (source.confirmedUses > 0 ? "; carried out and verified in \(source.confirmedUses) earlier reuse(s)" : "")
-        return RecallDelivery.Selection(version: source.routeID, procedure: source.procedureLabel, wholePart: whole?.label, steps: steps,
-                                        parameters: rendered, conditions: conditions, evidence: evidence)
+        var delivered = RecallDelivery.Selection(version: source.routeID, procedure: source.procedureLabel, wholePart: whole?.label,
+                                                 steps: steps, parameters: rendered, conditions: conditions, evidence: evidence)
+        // The source's result checks, with this task's values and when to make them: each whose step the selection carries out.
+        let last = source.parts.first(where: { $0.kind == .procedure })?.lastPosition
+        let reached = source.results.filter { result in
+            (result.atEnd ? last : result.afterStep).map(selection.positions.contains) ?? false
+        }
+        if !reached.isEmpty {
+            var bound: [String: String] = [:]
+            for item in rendered where item.status == "bound" {
+                if let value = item.value, value != "[withheld]" { bound[item.name] = value }
+            }
+            for value in values where value.sensitivity != .secret && bound[value.name] == nil {
+                if case .text(let text) = value.content { bound[value.name] = text }
+            }
+            delivered.resultCheck = reached.map { $0.line($0.expectation.bound(to: bound)) }
+        }
+        return delivered
+    }
+
+    /// Whether an argument of a learned step is delivered: a section that named a day, an hour or a file in the source's run
+    /// (`ProcedureAssembly.isStableSection`) is not, since no scene of another run shows it; the element is looked for
+    /// without it.
+    static func isDelivered(_ argument: OperationArgument) -> Bool {
+        guard argument.name == "section", case .literal(.text(let section)) = argument.value else { return true }
+        return ProcedureAssembly.isStableSection(section)
     }
 
     // MARK: Diagnosis

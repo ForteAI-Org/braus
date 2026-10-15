@@ -185,12 +185,20 @@ enum SQLiteRecallRows {
             """,
             [.text(routeID)]
         ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }, uniquingKeysWith: { first, _ in first })
+        // A step is offered on its own admission or as a step of an offered procedure or subprocedure: since qualification B
+        // a method admitted on its verified result is reused whole, its steps whose own check stayed unknown included
+        // (14 October 2026: the choice of a run's whole method was refused for four such steps).
+        let offeredMethods = version.parts.filter { $0.kind != .step && offered.contains($0.partID) }
+        func isOffered(_ part: ProcedurePart) -> Bool {
+            offered.contains(part.partID)
+                || offeredMethods.contains { $0.firstPosition <= part.firstPosition && part.lastPosition <= $0.lastPosition }
+        }
         let steps = version.definition.steps.compactMap { step -> RecallSource.Step? in
             guard let part = stepParts[step.position], let operation = step.operations.first else { return nil }
             return RecallSource.Step(position: step.position, partID: part.partID, label: part.label, bundleID: step.bundleID,
                                      tool: operation.tool, arguments: operation.arguments, entry: entry(of: part),
                                      exit: exits[step.stepID].map(RecallSource.Entry.state) ?? .unknown,
-                                     isOffered: offered.contains(part.partID), elementKey: keys[step.stepID])
+                                     isOffered: isOffered(part), elementKey: keys[step.stepID])
         }
         let parts = version.parts.map {
             RecallSource.Part(partID: $0.partID, kind: $0.kind, firstPosition: $0.firstPosition, lastPosition: $0.lastPosition,
@@ -237,8 +245,30 @@ enum SQLiteRecallRows {
             """,
             [.text(routeID)]
         ) { Int($0.integer(0) ?? 0) }.first ?? 0
-        return RecallSource(routeID: routeID, procedureLabel: version.definition.name, steps: steps, parts: parts, parameters: parameters,
-                            confirmedUses: uses)
+        var source = RecallSource(routeID: routeID, procedureLabel: version.definition.name, steps: steps, parts: parts, parameters: parameters,
+                                  confirmedUses: uses)
+        // The attempt's result checks, as templates over the values this version bound: how a reuse checks its result.
+        let results = try SQLiteProcedureRows.results(handle, attemptID: version.attemptID)
+        let values = parameters.flatMap { parameter in parameter.observedValues.map { (name: parameter.name, value: $0) } }
+        // When each check was made: after the last step of the version whose call came before it.
+        let calls = try SQLiteProcedureRows.callPositions(handle, version: version)
+        let last = version.definition.steps.indices.last
+        source.results = results.compactMap { row -> RecallSource.Result? in
+            // `none` proves nothing, and a folder's guard is Braus's own, added again at every end: neither is for a reuse to give.
+            guard let expectation = row.expectation, !row.isGuard else { return nil }
+            switch expectation {
+                case .nothing, .noOtherFiles: return nil
+                default: break
+            }
+            let after = calls.filter { $0.value < row.position }.max { $0.value < $1.value }?.key
+            return RecallSource.Result(expectation: expectation.template(over: values), afterStep: after, atEnd: after == nil || after == last)
+        }
+        source.resultVerdict = TaskResultCheck.combined(results.filter { row in
+            if row.isGuard { return false }
+            if case .nothing? = row.expectation { return false }
+            return true
+        }.map(\.verdict))
+        return source
     }
 
     // MARK: Facts

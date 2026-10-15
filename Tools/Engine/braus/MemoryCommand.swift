@@ -50,6 +50,10 @@ enum MemoryCommand {
             try await recall(invocation, in: runtime)
             return
         }
+        if invocation.flags.contains("consolidation") {
+            try await printConsolidation(json: invocation.flags.contains("json"), in: runtime)
+            return
+        }
         if invocation.flags.contains("apply-relations") {
             try await applyRelations(in: runtime)
             return
@@ -243,6 +247,42 @@ enum MemoryCommand {
             print("not changed: \(error)")
         }
         await runtime.finish()
+    }
+
+    /// Prints what a consolidation of the procedures would share, read only (`ProcedureFamilies`): the current versions of
+    /// completed tasks, their subprocedures and steps against the families of one method they form, and the families held
+    /// by several procedures, largest first, with the labels their members were given; and the goal families, procedures
+    /// that chose a source and reached its goal another way. Nothing is changed. With `--json`, the families as a JSON array.
+    private static func printConsolidation(json: Bool, in runtime: Runtime) async throws {
+        let families = try await runtime.service.perform { try await $0.procedures.families() }
+        func count(_ kind: PartKind) -> (parts: Int, families: Int, shared: Int) {
+            let mine = families.filter { $0.kind == kind }
+            return (mine.reduce(0) { $0 + $1.members.count }, mine.count, mine.filter { $0.procedures > 1 }.count)
+        }
+        if json {
+            let rows: [[String: Any]] = families.map { family in
+                ["kind": family.kind.rawValue, "steps": family.method.count, "procedures": family.procedures,
+                 "members": family.members.count, "label": family.label ?? "",
+                 "labels": family.labels.map { ["label": $0.label, "count": $0.count] }, "method": family.method]
+            }
+            let data = try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys])
+            print(String(decoding: data, as: UTF8.self))
+            return
+        }
+        let procedures = count(.procedure), phases = count(.subprocedure), steps = count(.step)
+        print("procedures: \(procedures.parts) current, \(procedures.families) distinct methods")
+        print("subprocedures: \(phases.parts) → \(phases.families) families (\(phases.shared) held by several procedures)")
+        print("steps: \(steps.parts) → \(steps.families) families (\(steps.shared) held by several procedures)")
+        let adaptations = try await runtime.service.perform { try await $0.procedures.adaptations() }
+        print("goal families: \(adaptations.count) procedures chose a learned source and reached its goal another way"
+            + (adaptations.isEmpty ? "" : " (\(Set(adaptations.map(\.sourceRouteID)).count) sources)"))
+        let shared = families.filter { $0.kind == .subprocedure && $0.procedures > 1 }.sorted { $0.members.count > $1.members.count }
+        if !shared.isEmpty { print("subprocedures held by several procedures, largest first:") }
+        for family in shared.prefix(20) {
+            let variants = family.labels.dropFirst().prefix(4).map { "\"\($0.label)\" ×\($0.count)" }.joined(separator: ", ")
+            print("  ×\(family.members.count) in \(family.procedures) procedures, \(family.method.count) steps: "
+                + "\"\(family.label ?? "(no label)")\"" + (variants.isEmpty ? "" : "; also \(variants)"))
+        }
     }
 
     /// Runs the relation recovery the service runs in the background, to its end, at once: every

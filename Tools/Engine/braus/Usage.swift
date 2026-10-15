@@ -44,6 +44,8 @@ enum Usage {
                                               own: operations never evaluated (an archive migrated from an
                                               earlier schema, a write lost on exit), ones whose evidence
                                               arrived, ones evaluated under an earlier policy
+      braus memory  --consolidation [--json]   what a consolidation would share, read only: subprocedures and
+                                              steps grouped by method across procedures, with their labels
       braus memory  --quarantine-policy <version> --reason <text>
                                               stop offering what a qualification policy admitted
       braus memory  --recall-status            the Recall's index: generations, entries, vectors and work pending

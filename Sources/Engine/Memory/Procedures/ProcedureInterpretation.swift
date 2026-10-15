@@ -25,12 +25,18 @@ public enum ProcedureInterpretationContract {
     public static let maximumItems = 512
 }
 
-/// PartReference names a part of a candidate: the procedure, a block by its index or a step by its
-/// position, both from 0. The tool shows them from 1 (`b1`, step 1).
+/// PartReference names a part of a candidate: the procedure, a block by its index, a step by its
+/// position, or a phase by its first and last steps, all from 0. The tool shows them from 1 (`b1`,
+/// step 1, a phase from step 2 to step 5).
+///
+/// A phase is a subprocedure the agent names inside one task: the steps that open a file, those that save
+/// a copy. Blocks split a task only where the application changes, so a task in one application had no
+/// part between the procedure and its steps, and no macro of it could be reused alone (14 October 2026).
 public enum PartReference: Sendable, Equatable, Hashable {
     case procedure
     case block(Int)
     case step(Int)
+    case phase(first: Int, last: Int)
 }
 
 /// DeclaredPartOutcome is what the agent declared a part reached: completed, failed, not completed, or
@@ -246,6 +252,18 @@ public struct ProcedureInterpretation: Sendable, Equatable {
         guard let procedure = parts.first(where: { $0.reference == .procedure }), procedure.label != nil else {
             throw refuse(.label("the procedure needs a label"))
         }
+        let phases = parts.compactMap { part -> (first: Int, last: Int)? in
+            if case .phase(let first, let last) = part.reference { (first, last) } else { nil }
+        }.sorted { $0.first < $1.first }
+        for phase in phases where phase.first < 0 || phase.last < phase.first {
+            throw refuse(.label("a phase runs from a step to the same or a later one"))
+        }
+        for (earlier, later) in zip(phases, phases.dropFirst()) where later.first <= earlier.last {
+            throw refuse(.label("phases do not overlap: steps \(earlier.first + 1)–\(earlier.last + 1) and \(later.first + 1)–\(later.last + 1)"))
+        }
+        for phase in phases where parts.first(where: { $0.reference == .phase(first: phase.first, last: phase.last) })?.label == nil {
+            throw refuse(.label("a phase needs a label: steps \(phase.first + 1)–\(phase.last + 1)"))
+        }
         var names: Set<[UInt8]> = []
         for parameter in parameters where !names.insert(Array(parameter.name.utf8)).inserted {
             throw refuse(.duplicate(field: "parameter \(parameter.name)"))
@@ -281,6 +299,7 @@ public struct ProcedureInterpretation: Sendable, Equatable {
                 case .procedure?: "p"
                 case .block(let index)?: "b\(index)"
                 case .step(let position)?: "s\(position)"
+                case .phase(let first, let last)?: "f\(first)-\(last)"
             }
         }
         var lines = ["candidate " + field(candidateID), "variant " + field(variantOf) + " " + field(divergencePosition.map(String.init))]

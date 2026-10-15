@@ -138,17 +138,42 @@ public struct SQLiteProcedureRepository: Sendable {
                     throw ProcedureError.unknownReference("call \(step.callEventID)")
                 }
                 return ProcedureAssembly.StepFacts(position: step.position, request: call.request,
-                                                   withheldArguments: try SQLiteProcedureRows.withheldArguments(transaction, step.callEventID))
+                                                   withheldArguments: try SQLiteProcedureRows.withheldArguments(transaction, step.callEventID),
+                                                   status: call.progress.status,
+                                                   verifications: try SQLiteProcedureRows.verifications(transaction, call: step.callEventID))
             }
-            let version = try ProcedureAssembly.assemble(
+            // The procedure is taken to be completed by its stated outcome, else by the attempt's end: its
+            // version keeps the method only.
+            let stated = interpretation.statement(of: .procedure)?.outcome
+            let completed = stated == .completed || (stated == nil && end == .completed)
+            let ownPrevious = try SQLiteProcedureRows.currentVersion(transaction, attemptID: candidate.attemptID)
+            var version = try ProcedureAssembly.assemble(
                 candidate     : candidate,
                 interpretation: interpretation,
                 revision      : revision,
                 steps         : facts,
                 taskInputs    : inputs,
-                supersedes    : try SQLiteProcedureRows.currentVersion(transaction, attemptID: candidate.attemptID),
-                builtAtMS     : nowMS
+                supersedes    : ownPrevious,
+                builtAtMS     : nowMS,
+                completed     : completed
             )
+            // A completed attempt's first version that repeats the method of a current version of another attempt is
+            // a new run of it: it replaces that version in the catalogue (`ProcedureMethod`), and its steps inherit
+            // that version's verified ones when it is qualified. A declared variant keeps its own lineage.
+            var repeats: String?
+            if completed, ownPrevious == nil, interpretation.variantOf == nil {
+                let signature = try version.definition.steps.enumerated().map { position, step in
+                    ProcedureMethod.signature(of: step, target: try SQLiteProcedureRows.target(
+                        transaction, call: candidate.steps[version.candidatePositions[position]].callEventID))
+                }
+                repeats = try SQLiteProcedureRows.repeated(transaction, signature: signature, attemptID: candidate.attemptID)
+                if let repeats {
+                    version = try ProcedureAssembly.assemble(
+                        candidate: candidate, interpretation: interpretation, revision: revision, steps: facts, taskInputs: inputs,
+                        supersedes: repeats, builtAtMS: nowMS, completed: completed
+                    )
+                }
+            }
             // A variant's prefix is checked on the operations before anything is written: a prefix they
             // contradict is refused whole, one they cannot decide is kept as suggested.
             var prefix: VariantPrefix.Check?
@@ -160,10 +185,12 @@ public struct SQLiteProcedureRepository: Sendable {
                                                  variantDetails: version.parameterDetails,
                                                  originalDetails: try SQLiteProcedureRows.parameterDetails(transaction, routeID: variant))
             }
+            // Entry states by definition position: a step the method left out is no part's first step.
             var entryStates: [Int: String?] = [:]
-            for step in candidate.steps {
-                entryStates[step.position] = .some(try SQLiteProcedureRows.confirmedScene(transaction, eventID: step.callEventID,
-                                                                                          phase: .before))
+            for (position, candidatePosition) in version.candidatePositions.enumerated() {
+                let step = candidate.steps[candidatePosition]
+                entryStates[position] = .some(try SQLiteProcedureRows.confirmedScene(transaction, eventID: step.callEventID,
+                                                                                    phase: .before))
             }
             let contract = try ProcedureAssembly.contract(of: version, entryStates: entryStates)
             try SQLiteProcedureRows.insertInterpretation(transaction, version, digest: digest, producer: producer,
@@ -182,8 +209,143 @@ public struct SQLiteProcedureRepository: Sendable {
             }
             try SQLiteProcedureRows.ensurePolicy(transaction, at: nowMS)
             let qualifications = try SQLiteProcedureRows.qualify(transaction, routeID: version.routeID, at: nowMS)
-            return InterpretationOutcome(receipt: .committed, revision: revision, routeID: version.routeID,
-                                         findings: version.findings, qualifications: qualifications)
+            var outcome = InterpretationOutcome(receipt: .committed, revision: revision, routeID: version.routeID,
+                                                findings: version.findings, qualifications: qualifications,
+                                                candidatePositions: version.candidatePositions, leftOut: version.leftOut,
+                                                repeats: repeats)
+            // A run that repeats a source a proposal offered this attempt, with no choice made of that proposal, followed it
+            // without choosing it: said, so that the reuse is counted and the agent chooses next time.
+            if let repeats {
+                outcome.followedUnchosen = try transaction.query(
+                    """
+                    SELECT s.source_key FROM memory_recall_proposals p
+                    JOIN memory_recall_proposal_sources s ON s.proposal_id = p.proposal_id
+                    WHERE p.task_occurrence_id = ? AND s.route_id = ?
+                      AND NOT EXISTS (SELECT 1 FROM memory_recall_choices c WHERE c.proposal_id = p.proposal_id)
+                    ORDER BY p.proposal_id LIMIT 1
+                    """,
+                    [.text(candidate.attemptID), .text(repeats)], { try $0.text(0) }
+                ).first ?? nil
+            }
+            return outcome
+        }
+    }
+
+    /// Records Braus's check of one thing an attempt says its result is, in one transaction: the verification event,
+    /// its row (scope `task`, the method of its kind, the expectation and what was found) and its membership of the
+    /// attempt, after the attempt's other members, so its position says which calls it follows. The verdict is judged
+    /// here from `reading`, against the attempt's opening, for the expectation as the agent gave it (`read`); the archive
+    /// keeps `expectation`, its minimized form. The attempt's current version, when it has one, is qualified
+    /// again, since its procedure and phases rest on the result.
+    public func recordResult(_ expectation: TaskResultCheck.Expectation, judgedAs read: TaskResultCheck.Expectation? = nil,
+                             reading: TaskResultCheck.Reading, asGuard: Bool = false, attemptID: String, eventID: String,
+                             by producer: TaskProducer, at nowMS: Int64) async throws -> TaskResultCheck {
+        try await store.write { transaction in
+            guard let attempt = try SQLiteTaskContextRows.attempt(transaction, attemptID) else {
+                throw TaskContextError.unknownAttempt(attemptID: attemptID)
+            }
+            let judged = TaskResultCheck.judge(read ?? expectation, attemptID: attemptID, openedAtMS: attempt.attempt.openedAtMS,
+                                               reading: reading)
+            let check = TaskResultCheck(attemptID: attemptID, expectation: expectation, verdict: judged.verdict, observed: judged.observed)
+            _ = try SQLiteEventRows.record(transaction, MemoryEventRecord(
+                eventID: eventID, source: producer.source, streamID: producer.streamID, kind: .verification,
+                occurredAtMS: nowMS, captureStatus: .notApplicable
+            ))
+            try transaction.execute(
+                "INSERT INTO memory_verifications (event_id, scope, method, verdict, expected_text, observed_text) VALUES (?, ?, ?, ?, ?, ?)",
+                [.text(eventID), .text(VerificationScope.task.rawValue),
+                 .text((asGuard ? VerificationMethod.guardCheck : expectation.method).rawValue),
+                 .text(check.verdict.rawValue), .text(expectation.stored), .text(check.observed)]
+            )
+            let position = try transaction.query(
+                "SELECT ifnull(max(position) + 1, 0) FROM memory_task_events WHERE task_occurrence_id = ?", [.text(attemptID)]
+            ) { $0.integer(0) ?? 0 }.first ?? 0
+            _ = try SQLiteTaskRows.record(transaction, try TaskMembership(taskOccurrenceID: attemptID, eventID: eventID,
+                                                                          position: position, role: .verification))
+            if let routeID = try SQLiteProcedureRows.currentVersion(transaction, attemptID: attemptID) {
+                try SQLiteProcedureRows.ensurePolicy(transaction, at: nowMS)
+                _ = try SQLiteProcedureRows.qualify(transaction, routeID: routeID, at: nowMS)
+            }
+            return check
+        }
+    }
+
+    /// The method of a version, one signature per step (`ProcedureMethod`), or nil for an unknown version: what tells a
+    /// repeated run, and the parts procedures share.
+    public func method(of routeID: String) async throws -> [String]? {
+        try await store.read { snapshot in try SQLiteProcedureRows.signature(snapshot, routeID: routeID) }
+    }
+
+    /// The families of the parts the current versions of completed tasks hold (`ProcedureFamilies`): subprocedures, steps
+    /// and whole procedures grouped by method. Read only: the measure of what a consolidation would share.
+    public func families() async throws -> [ProcedureFamilies.Family] {
+        try await store.read { snapshot in
+            ProcedureFamilies.families(of: try SQLiteProcedureRows.members(snapshot, admittedOnly: false, except: nil))
+        }
+    }
+
+    /// The current versions made by tasks that chose a learned source and do not repeat its method
+    /// (`ProcedureFamilies.Adaptation`): one goal reached by two methods. Read from the choices and the reports the archive
+    /// already keeps; nothing is changed.
+    public func adaptations() async throws -> [ProcedureFamilies.Adaptation] {
+        try await store.read { snapshot in
+            try snapshot.query(
+                """
+                SELECT v.route_id, s.route_id,
+                       (SELECT r.declared FROM memory_recall_reports r WHERE r.query_id = q.query_id AND r.need_position = s.need_position
+                        ORDER BY r.sequence DESC LIMIT 1)
+                FROM memory_procedure_versions v
+                JOIN memory_recall_queries q ON q.task_occurrence_id = v.task_occurrence_id
+                JOIN memory_recall_selections s ON s.query_id = q.query_id AND s.role = 'selected'
+                JOIN memory_routes mine ON mine.route_id = v.route_id
+                WHERE NOT EXISTS (SELECT 1 FROM memory_routes r WHERE r.supersedes_route_id = v.route_id)
+                  AND s.route_id <> v.route_id AND ifnull(mine.supersedes_route_id, '') <> s.route_id
+                ORDER BY v.built_at_ms, v.route_id
+                """,
+                [], { ProcedureFamilies.Adaptation(routeID: try $0.text(0) ?? "", sourceRouteID: try $0.text(1) ?? "", declared: try $0.text(2)) }
+            )
+        }
+    }
+
+    /// The runs of a candidate's steps that hold the method of a phase admitted in a current version of another attempt,
+    /// with the label most of its members were given: what Braus offers the agent that interprets the candidate, so that
+    /// procedures share their phases and labels. Empty for an unknown candidate.
+    public func knownPhases(candidateID: String) async throws -> [ProcedureFamilies.KnownPhase] {
+        try await store.read { snapshot in
+            guard let candidate = try SQLiteProcedureRows.candidate(snapshot, candidateID) else { return [] }
+            let members = try SQLiteProcedureRows.members(snapshot, admittedOnly: true, except: candidate.attemptID)
+            let families = ProcedureFamilies.families(of: members.filter { $0.kind == .subprocedure })
+            guard !families.isEmpty else { return [] }
+            // Only the steps the method would keep: a miss, a refusal or a failed check retried is no part of a phase
+            // (PhotoCraft v2, 14 October 2026: a retried click hid the phase that opens the file).
+            var kept: [(position: Int, signature: String)] = []
+            for step in candidate.steps {
+                guard let call = try SQLiteAgentCallRows.call(snapshot, eventID: step.callEventID) else { continue }
+                let facts = ProcedureAssembly.StepFacts(position: step.position, request: call.request, withheldArguments: [],
+                                                        status: call.progress.status,
+                                                        verifications: try SQLiteProcedureRows.verifications(snapshot, call: step.callEventID))
+                guard ProcedureAssembly.leftOut(facts, declared: nil) == nil else { continue }
+                let operation = StepOperation(operationID: "", position: 0, tool: call.request.tool, arguments: call.request.arguments.map {
+                    OperationArgument(name: $0.name, position: $0.position, value: .literal($0.value))
+                })
+                let definition = ProcedureStep(stepID: "", position: step.position, goalText: "", bundleID: step.bundleID,
+                                               operations: [operation])
+                kept.append((step.position, ProcedureMethod.signature(of: definition,
+                                                                      target: try SQLiteProcedureRows.target(snapshot, call: step.callEventID))))
+            }
+            return ProcedureFamilies.knownPhases(in: kept.map(\.signature), families: families).map { phase in
+                ProcedureFamilies.KnownPhase(firstPosition: kept[phase.firstPosition].position, lastPosition: kept[phase.lastPosition].position,
+                                             label: phase.label, procedures: phase.procedures)
+            }
+        }
+    }
+
+    /// The result checks an attempt recorded, in the order it recorded them (`TaskResultCheck`).
+    public func results(ofAttempt attemptID: String) async throws -> [TaskResultCheck] {
+        try await store.read { snapshot in
+            try SQLiteProcedureRows.results(snapshot, attemptID: attemptID).compactMap { row in
+                row.expectation.map { TaskResultCheck(attemptID: attemptID, expectation: $0, verdict: row.verdict, observed: row.observed) }
+            }
         }
     }
 
@@ -560,8 +722,15 @@ enum SQLiteProcedureRows {
             throw malformed("memory_procedure_versions", routeID, "an interpretation without its version")
         }
         let qualifications = stored.version.parts.compactMap { stored.qualifications[$0.partID] }
+        // The version it supersedes is another attempt's when this one repeated its method.
+        let previous = stored.version.definition.supersedesRouteID
+        let previousAttempt = try previous.flatMap {
+            try handle.query("SELECT task_occurrence_id FROM memory_procedure_versions WHERE route_id = ?", [.text($0)], { try $0.text(0) }).first ?? nil
+        }
+        let repeats = previousAttempt.map { $0.utf8.elementsEqual(stored.version.attemptID.utf8) } == false ? previous : nil
         return InterpretationOutcome(receipt: receipt, revision: revision, routeID: routeID, findings: stored.version.findings,
-                                     qualifications: qualifications)
+                                     qualifications: qualifications, candidatePositions: stored.version.candidatePositions,
+                                     repeats: repeats)
     }
 
     // MARK: Versions
@@ -716,12 +885,17 @@ enum SQLiteProcedureRows {
             [.text(routeID)]
         ) { (stepID: try $0.text(0) ?? "", stepOccurrenceID: try $0.text(1) ?? "") }
         var withheld: Set<Int> = []
+        var candidatePositions: [Int] = []
         for step in route.definition.steps {
-            guard let call = try handle.query(
-                "SELECT call_event_id FROM memory_candidate_steps WHERE candidate_id = ? AND position = ?",
-                [.text(head.candidate), .integer(Int64(step.position))],
-                { try $0.text(0) }
-            ).first ?? nil else { continue }
+            // A definition step stands for its occurrence; the method may have left candidate steps out, so the
+            // candidate's step is found by the occurrence, not by the position.
+            guard let occurrence = occurrences.first(where: { $0.stepID == step.stepID })?.stepOccurrenceID,
+                  let row = try handle.query(
+                      "SELECT call_event_id, position FROM memory_candidate_steps WHERE candidate_id = ? AND step_occurrence_id = ?",
+                      [.text(head.candidate), .text(occurrence)],
+                      { (call: try $0.text(0), position: Int($0.integer(1) ?? -1)) }
+                  ).first, let call = row.call else { continue }
+            candidatePositions.append(row.position)
             let keys = try withheldArguments(handle, call)
             for operation in step.operations {
                 for argument in operation.arguments {
@@ -734,7 +908,8 @@ enum SQLiteProcedureRows {
             taskID: head.task, attemptID: head.attempt, contractVersion: head.contract, variantOf: head.variant,
             divergencePosition: head.divergence, builtAtMS: head.built, definition: route.definition, parts: parts,
             parameterDetails: details, bindings: bindings, findings: findings, stepOccurrences: occurrences,
-            withheldLiteralSteps: withheld
+            withheldLiteralSteps: withheld,
+            candidatePositions: candidatePositions.count == route.definition.steps.count ? candidatePositions : nil
         )
         var qualifications: [String: PartQualification] = [:]
         var states: [String: PartOperationalState] = [:]
@@ -845,6 +1020,185 @@ enum SQLiteProcedureRows {
         )
     }
 
+    /// The element a call resolved, as its check named it, or nil.
+    static func target(_ handle: some SQLiteQuerying, call: String) throws -> OperationCheck.Target? {
+        try handle.query(
+            """
+            SELECT target_element_id, target_role, target_label, target_section FROM memory_operation_verifications
+            WHERE call_event_id = ? AND target_element_id IS NOT NULL ORDER BY event_id LIMIT 1
+            """,
+            [.text(call)]
+        ) { row in
+            OperationCheck.Target(elementID: try row.text(0) ?? "", role: try row.text(1), label: try row.text(2) ?? "",
+                                  section: try row.text(3))
+        }.first
+    }
+
+    /// The method signature of a stored version (`ProcedureMethod.signature`), step by step.
+    static func signature(_ handle: some SQLiteQuerying, routeID: String) throws -> [String]? {
+        guard let route = try SQLiteRouteRows.read(handle, routeID: routeID) else { return nil }
+        return try route.definition.steps.map { step in
+            let call = try handle.query(
+                """
+                SELECT e.event_id FROM memory_procedure_step_occurrences o
+                JOIN memory_step_events e ON e.step_occurrence_id = o.step_occurrence_id AND e.role = 'action'
+                WHERE o.route_id = ? AND o.step_id = ?
+                """,
+                [.text(routeID), .text(step.stepID)], { try $0.text(0) }
+            ).first ?? nil
+            return ProcedureMethod.signature(of: step, target: try call.flatMap { try target(handle, call: $0) })
+        }
+    }
+
+    /// The current version of another attempt, ended completed, whose method is `signature`: the latest built, or nil.
+    static func repeated(_ handle: some SQLiteQuerying, signature: [String], attemptID: String) throws -> String? {
+        let candidates = try handle.query(
+            """
+            SELECT v.route_id FROM memory_procedure_versions v
+            WHERE v.task_occurrence_id <> ?
+              AND NOT EXISTS (SELECT 1 FROM memory_routes r WHERE r.supersedes_route_id = v.route_id)
+              AND (SELECT count(*) FROM memory_route_steps s WHERE s.route_id = v.route_id) = ?
+              AND EXISTS (SELECT 1 FROM memory_task_checkpoints c WHERE c.task_occurrence_id = v.task_occurrence_id
+                          AND c.checkpoint_kind = 'end' AND c.declared_status = 'completed')
+            ORDER BY v.built_at_ms DESC, v.route_id DESC
+            """,
+            [.text(attemptID), .integer(Int64(signature.count))], { try $0.text(0) ?? "" }
+        )
+        for routeID in candidates where ProcedureMethod.same(try self.signature(handle, routeID: routeID) ?? [], signature) {
+            return routeID
+        }
+        return nil
+    }
+
+    /// For a version that repeats another attempt's version (it supersedes it, `repeated`), the verified check of each
+    /// of that version's steps, by position: the evidence its step part was admitted on, which may itself be inherited.
+    static func inheritedEvidence(_ handle: some SQLiteQuerying, version: ProcedureVersion) throws -> [Int: (callEventID: String, verificationEventID: String)] {
+        guard let previous = version.definition.supersedesRouteID,
+              let attempt = try handle.query("SELECT task_occurrence_id FROM memory_procedure_versions WHERE route_id = ?",
+                                             [.text(previous)], { try $0.text(0) }).first ?? nil,
+              !attempt.utf8.elementsEqual(version.attemptID.utf8) else { return [:] }
+        var inherited: [Int: (callEventID: String, verificationEventID: String)] = [:]
+        let rows = try handle.query(
+            """
+            SELECT p.first_position, e.call_event_id, e.verification_event_id FROM memory_procedure_parts p
+            JOIN memory_part_qualifications q ON q.part_id = p.part_id
+             AND q.sequence = (SELECT max(sequence) FROM memory_part_qualifications WHERE part_id = p.part_id)
+            JOIN memory_part_qualification_evidence e ON e.part_id = q.part_id AND e.sequence = q.sequence
+            WHERE p.route_id = ? AND p.part_kind = 'step' AND q.verdict = 'admitted'
+            """,
+            [.text(previous)]
+        ) { (position: Int($0.integer(0) ?? -1), call: try $0.text(1) ?? "", verification: try $0.text(2) ?? "") }
+        for row in rows where version.definition.steps.indices.contains(row.position) {
+            inherited[row.position] = (row.call, row.verification)
+        }
+        return inherited
+    }
+
+    /// The parts of the current versions of completed attempts other than `except`, each with its method: every part,
+    /// or with `admittedOnly` the parts whose latest qualification admitted them.
+    static func members(_ handle: some SQLiteQuerying, admittedOnly: Bool, except attemptID: String?) throws -> [ProcedureFamilies.Member] {
+        let routes = try handle.query(
+            """
+            SELECT v.route_id FROM memory_procedure_versions v
+            WHERE NOT EXISTS (SELECT 1 FROM memory_routes r WHERE r.supersedes_route_id = v.route_id)
+              AND EXISTS (SELECT 1 FROM memory_task_checkpoints c WHERE c.task_occurrence_id = v.task_occurrence_id
+                          AND c.checkpoint_kind = 'end' AND c.declared_status = 'completed')
+              AND v.task_occurrence_id <> ?
+            ORDER BY v.built_at_ms, v.route_id
+            """,
+            [.text(attemptID ?? "")], { try $0.text(0) ?? "" }
+        )
+        var members: [ProcedureFamilies.Member] = []
+        for routeID in routes {
+            guard let stored = try stored(handle, routeID: routeID), let method = try signature(handle, routeID: routeID) else { continue }
+            for part in stored.version.parts where method.indices.contains(part.lastPosition) {
+                if admittedOnly, stored.qualifications[part.partID]?.verdict != .admitted { continue }
+                members.append(ProcedureFamilies.Member(routeID: routeID, partID: part.partID, kind: part.kind, label: part.label,
+                                                        firstPosition: part.firstPosition, lastPosition: part.lastPosition,
+                                                        method: Array(method[part.firstPosition...part.lastPosition])))
+            }
+        }
+        return members
+    }
+
+    /// ResultRow is one result check of an attempt as the qualification reads it: its position among the attempt's
+    /// members, its verdict, its event, and the expectation it kept.
+    struct ResultRow {
+        let position: Int
+        let verdict: VerificationVerdict
+        let eventID: String
+        let expectation: TaskResultCheck.Expectation?
+        let observed: String
+        /// A guard Braus added: recorded and shown, read by no part's qualification.
+        let isGuard: Bool
+    }
+
+    /// The result checks of an attempt (`TaskResultCheck`), by position: every verification of scope `task` it holds.
+    static func results(_ handle: some SQLiteQuerying, attemptID: String) throws -> [ResultRow] {
+        try handle.query(
+            """
+            SELECT t.position, v.verdict, v.event_id, v.method, ifnull(v.expected_text, ''), ifnull(v.observed_text, '')
+            FROM memory_task_events t JOIN memory_verifications v ON v.event_id = t.event_id
+            WHERE t.task_occurrence_id = ? AND t.role = 'verification' AND v.scope = 'task'
+            ORDER BY t.position
+            """,
+            [.text(attemptID)]
+        ) { row -> ResultRow? in
+            guard let verdict = VerificationVerdict(rawValue: try row.text(1) ?? "") else { return nil }
+            let method = VerificationMethod(rawValue: try row.text(3) ?? "") ?? .none
+            return ResultRow(position: Int(row.integer(0) ?? 0), verdict: verdict, eventID: try row.text(2) ?? "",
+                             expectation: TaskResultCheck.Expectation(stored: try row.text(4) ?? "", method: method),
+                             observed: try row.text(5) ?? "", isGuard: method == .guardCheck)
+        }.compactMap { $0 }
+    }
+
+    /// The position among the attempt's members of each step's call of a version, by the step's position in the version.
+    static func callPositions(_ handle: some SQLiteQuerying, version: ProcedureVersion) throws -> [Int: Int] {
+        var positions: [Int: Int] = [:]
+        for (position, mapping) in version.stepOccurrences.enumerated() {
+            guard let call = try handle.query(
+                "SELECT event_id FROM memory_step_events WHERE step_occurrence_id = ? AND role = 'action'",
+                [.text(mapping.stepOccurrenceID)], { try $0.text(0) }
+            ).first ?? nil else { continue }
+            positions[position] = try handle.query(
+                "SELECT min(position) FROM memory_task_events WHERE task_occurrence_id = ? AND event_id = ?",
+                [.text(version.attemptID), .text(call)], { $0.integer(0).map(Int.init) }
+            ).first ?? nil
+        }
+        return positions
+    }
+
+    /// The verdict a part's result checks give it (`TaskResultCheck.combined`): for the procedure every check of the
+    /// attempt; for any other part the first checks recorded after its last step, before any later step of the method,
+    /// else none. `callPositions` are the positions of the version's steps' calls among the attempt's members.
+    static func result(of part: ProcedurePart, results: [ResultRow], callPositions: [Int: Int]) -> VerificationVerdict? {
+        // A task that said it leaves nothing to read proves nothing, and takes nothing from the checks that read something;
+        // a guard Braus added is shown, never read here.
+        let results = results.filter { row in
+            if row.isGuard { return false }
+            if case .nothing? = row.expectation { return false }
+            return true
+        }
+        guard part.kind != .procedure else { return TaskResultCheck.combined(results.map(\.verdict)) }
+        guard let last = callPositions[part.lastPosition] else { return nil }
+        let later = callPositions.values.filter { $0 > last }.sorted()
+        guard let first = results.first(where: { $0.position > last }) else { return nil }
+        // The checks recorded together with the first: no step of the method between them.
+        let bound = later.first { $0 > first.position } ?? Int.max
+        return TaskResultCheck.combined(results.filter { $0.position > last && $0.position < bound }.map(\.verdict))
+    }
+
+    /// The verifications of one call, as the qualification and the method read them.
+    static func verifications(_ handle: some SQLiteQuerying, call: String) throws -> [QualificationPolicy.VerificationFact] {
+        let ids = try handle.query(
+            "SELECT event_id FROM memory_operation_verifications WHERE call_event_id = ? ORDER BY event_id", [.text(call)]
+        ) { try $0.text(0) ?? "" }
+        return try ids.compactMap { try SQLiteOperationFactRows.verification(handle, $0) }.map {
+            QualificationPolicy.VerificationFact(eventID: $0.event.eventID, condition: $0.check.condition, verdict: $0.check.verdict,
+                                                 performed: $0.check.performed, limits: $0.check.limits)
+        }
+    }
+
     /// Evaluates every part of a version from the facts in the transaction and appends an evaluation for
     /// a part whose latest one under this policy decides otherwise; answers the current evaluations.
     static func qualify(_ transaction: SQLiteTransaction, routeID: String, at nowMS: Int64) throws -> [PartQualification] {
@@ -854,6 +1208,9 @@ enum SQLiteProcedureRows {
         let version  = stored.version
         let attempt  = try SQLiteTaskContextRows.checkpoints(transaction, of: version.attemptID).last { $0.kind == .end }?.declared
         let missing  = Set(version.bindings.filter { if case .missing = $0.content { true } else { false } }.map(\.parameterID))
+        let inherited = try inheritedEvidence(transaction, version: version)
+        let results = try self.results(transaction, attemptID: version.attemptID)
+        let callPositions = try self.callPositions(transaction, version: version)
         var steps: [Int: QualificationPolicy.StepFacts] = [:]
         for (position, mapping) in version.stepOccurrences.enumerated() {
             guard let call = try transaction.query(
@@ -864,13 +1221,7 @@ enum SQLiteProcedureRows {
                 throw malformed("memory_procedure_step_occurrences", mapping.stepOccurrenceID, "an occurrence without its call")
             }
             let gaps = try SQLiteOperationFactRows.recordingGaps(transaction, call)
-            let ids = try transaction.query(
-                "SELECT event_id FROM memory_operation_verifications WHERE call_event_id = ? ORDER BY event_id", [.text(call)]
-            ) { try $0.text(0) ?? "" }
-            let verifications = try ids.compactMap { try SQLiteOperationFactRows.verification(transaction, $0) }.map {
-                QualificationPolicy.VerificationFact(eventID: $0.event.eventID, condition: $0.check.condition, verdict: $0.check.verdict,
-                                                     performed: $0.check.performed, limits: $0.check.limits)
-            }
+            let verifications = try verifications(transaction, call: call)
             var reads: [String] = []
             for operation in version.definition.steps[position].operations {
                 for argument in operation.arguments {
@@ -887,9 +1238,10 @@ enum SQLiteProcedureRows {
                 status              : stored.progress.status,
                 hasRecordingGap     : !gaps.isEmpty,
                 verifications       : verifications,
-                findings            : version.findings.filter { $0.stepPosition == position }.map(\.kind),
+                findings            : version.findings.filter { $0.stepPosition == version.candidatePositions[position] }.map(\.kind),
                 keepsWithheldLiteral: version.withheldLiteralSteps.contains(position),
-                missingInputs       : reads.filter(missing.contains)
+                missingInputs       : reads.filter(missing.contains),
+                inherited           : inherited[position]
             )
         }
         var current: [PartQualification] = []
@@ -903,7 +1255,8 @@ enum SQLiteProcedureRows {
                 attemptEnd         : attempt,
                 interpretationState: stored.interpretationState,
                 parentOutcome      : parent,
-                steps              : (part.firstPosition...part.lastPosition).compactMap { steps[$0] }
+                steps              : (part.firstPosition...part.lastPosition).compactMap { steps[$0] },
+                result             : result(of: part, results: results, callPositions: callPositions)
             )
             let evaluation = QualificationPolicy.evaluate(facts)
             if let latest = try latestQualification(transaction, partID: part.partID),

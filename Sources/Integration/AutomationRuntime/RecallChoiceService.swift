@@ -187,8 +187,16 @@ extension RecallService {
                 let coverage = suggestions.indices.contains(index) ? suggestions[index].coverage.rawValue : "unknown"
                 return "\(item.key) steps \(range.lowerBound + 1)–\(range.upperBound + 1) (\(coverage))"
             }
-            return RecallProposalDelivery.Need(need: index + 1, text: need.text, app: need.bundleID.map(RecallDocument.applicationName),
-                                               sources: mine.map(\.key), suggested: suggested)
+            var rendered = RecallProposalDelivery.Need(need: index + 1, text: need.text, app: need.bundleID.map(RecallDocument.applicationName),
+                                                       sources: mine.map(\.key), suggested: suggested)
+            // The plan item that chooses the suggestion, else the first source whole: one call to record the reuse.
+            let chosen = mine.first { $0.suggested != nil } ?? mine.first
+            if let chosen, let source = sources[chosen.routeID], let first = source.steps.first?.position, let last = source.steps.last?.position {
+                let range = chosen.suggested ?? first...last
+                rendered.readyPlan = #"{"need":\#(index + 1),"tracts":[{"source":"\#(chosen.key)","from":\#(range.lowerBound + 1),"#
+                    + #""to":\#(range.upperBound + 1)}],"covered":"all"}"#
+            }
+            return rendered
         }
         var seen: Set<String> = []
         var rendered: [RecallProposalDelivery.Source] = []
@@ -257,17 +265,28 @@ extension RecallService {
             return "{\(output.name)} (\(output.role)): produced at steps \(part.firstPosition + 1)–\(part.lastPosition + 1)"
         }
         let apps = Array(NSOrderedSet(array: source.steps.compactMap { $0.bundleID.map(RecallDocument.applicationName) })).compactMap { $0 as? String }
-        let evidence = "steps individually qualified (qualification A: each operation's own check, not the task's result)"
+        let evidence = Self.evidence(of: source)
             + (source.confirmedUses > 0 ? "; carried out and verified in \(source.confirmedUses) earlier reuse(s)" : "")
-        return RecallProposalDelivery.Source(source: key, version: source.routeID, procedure: source.procedureLabel, apps: apps,
-                                             relevance: (relevance * 1000).rounded() / 1000, episodes: episodes, steps: steps,
-                                             parameters: lines, outputs: outputs.isEmpty ? nil : outputs, evidence: evidence)
+        var rendered = RecallProposalDelivery.Source(source: key, version: source.routeID, procedure: source.procedureLabel, apps: apps,
+                                                     relevance: (relevance * 1000).rounded() / 1000, episodes: episodes, steps: steps,
+                                                     parameters: lines, outputs: outputs.isEmpty ? nil : outputs, evidence: evidence)
+        rendered.result = source.results.isEmpty ? nil : source.results.map { $0.line() }
+        return rendered
+    }
+
+    /// What a source's admission rests on, in words: its result checked by Braus, or its operations' own checks alone.
+    static func evidence(of source: RecallSource) -> String {
+        switch source.resultVerdict {
+            case .passed?: "its result checked by Braus (\(source.results.map(\.expectation.kind).joined(separator: ", "))) and its steps' own checks"
+            case .failed?: "its result checked by Braus failed: only steps verified on their own are offered"
+            default: "steps individually qualified (each operation's own check; the task named no result Braus could read)"
+        }
     }
 
     /// A step's recorded operation as one line: its tool and its arguments, fixed texts quoted, the task's values as
     /// `{parameter}`, menu paths as written.
     static func operation(of step: RecallSource.Step, name: (String) -> String) -> String {
-        let arguments = step.arguments.map { argument -> String in
+        let arguments = step.arguments.filter(RecallService.isDelivered).map { argument -> String in
             let value: String = switch argument.value {
                 case .literal(.text(let text)): "\"\(text)\""
                 case .literal(.integer(let number)): String(number)

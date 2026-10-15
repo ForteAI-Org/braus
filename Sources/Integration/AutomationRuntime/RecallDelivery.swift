@@ -87,6 +87,9 @@ nonisolated public struct RecallDelivery: Encodable, Sendable {
         public let parameters: [Parameter]
         public let conditions: [Condition]
         public let evidence: String
+        /// How the source checked its result, with this task's values in place of its parameters: what to give as
+        /// result_check when the selection is the whole method. A `{name}` left is a value the task lacks.
+        public var resultCheck: [String]? = nil
     }
 
     public struct Alternative: Encodable, Sendable {
@@ -160,6 +163,9 @@ nonisolated public struct RecallProposalDelivery: Encodable, Sendable {
         public let sources: [String]
         /// The automatic selector's suggestion for this need, when it made one: `s1 steps 4–7 (complete)`.
         public let suggested: String?
+        /// The plan item that chooses the first source whole (or the suggestion), ready for `memory_task choose` when that
+        /// source does the very work asked: one call, so that following a source is always recorded as its reuse.
+        public var readyPlan: String? = nil
     }
 
     public struct Source: Encodable, Sendable {
@@ -176,6 +182,9 @@ nonisolated public struct RecallProposalDelivery: Encodable, Sendable {
         public let parameters: [String]
         public let outputs: [String]?
         public let evidence: String
+        /// How the source checked its result, over its parameters: the kind of result it makes (a file written, a file
+        /// changed, a switch the app shows).
+        public var result: [String]? = nil
     }
 
     public let proposal: String
@@ -200,7 +209,9 @@ nonisolated public struct RecallProposalDelivery: Encodable, Sendable {
         alternatives and the question for the person in uncovered; when the person's words do settle it, quote in settled_by \
         only the words that state the choice. Leave out what the person did not ask or what is already done. When no source \
         fits, do not choose: carry on with the tools. Steps keep their source's numbers and are never merged. Braus checks \
-        the choice and delivers the details.
+        the choice and delivers the details. When the first source does the very work asked, its need's readyPlan is the \
+        plan item to choose it whole. Following a source's steps without choosing it is not recorded as its reuse: choose \
+        first, then adapt and report adapted.
         """
 
     /// The guidance of a search that found no source: nothing to choose.

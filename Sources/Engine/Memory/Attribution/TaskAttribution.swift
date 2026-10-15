@@ -11,8 +11,10 @@ import EngineCore
 /// whole task. VerificationMethod is how it was judged: text read in a scene, a control's value or
 /// state read back, a person's answer, and the engine's own oracles (`OperationCheck.Method`): the
 /// scene difference, the window census and signature, the Driver's menu receipt, or nothing read.
-/// Production writes `call` verifications through `OperationVerification`; the step and task scopes
-/// and `person` stay proposals with no producer, and a verification is a fact whoever produced it.
+/// Production writes `call` verifications through `OperationVerification`, and since 14 October 2026 the
+/// `task` scope through the end's result check (`file_check`: the file a completed task says it produced,
+/// read on disk by Braus itself); the step scope and `person` stay proposals with no producer, and a
+/// verification is a fact whoever produced it.
 public enum VerificationScope: String, Sendable, Equatable, Hashable, CaseIterable {
     case call, step, task
 }
@@ -26,6 +28,10 @@ public enum VerificationMethod: String, Sendable, Equatable, Hashable, CaseItera
     case windowCensus    = "window_census"
     case windowSignature = "window_signature"
     case driverReceipt   = "driver_receipt"
+    case fileCheck       = "file_check"
+    /// A guard Braus adds to a task's result checks (an original kept, no stray file in a folder): recorded and shown,
+    /// never what admits or refuses a procedure.
+    case guardCheck      = "guard"
     case none
 
     /// The stored method of an engine oracle's method: the same word.
@@ -42,7 +48,8 @@ public enum VerificationMethod: String, Sendable, Equatable, Hashable, CaseItera
         }
     }
 
-    /// The engine oracle's method this stored method is, nil for `person`, which no oracle reports.
+    /// The engine oracle's method this stored method is, nil for `person`, `file_check` and `guard`, which no oracle of an
+    /// operation reports.
     public var oracleMethod: OperationCheck.Method? {
         switch self {
             case .sceneDifference: .sceneDifference
@@ -53,7 +60,7 @@ public enum VerificationMethod: String, Sendable, Equatable, Hashable, CaseItera
             case .windowSignature: .windowSignature
             case .driverReceipt  : .driverReceipt
             case .none           : OperationCheck.Method.none
-            case .person         : nil
+            case .person, .fileCheck, .guardCheck: nil
         }
     }
 }
