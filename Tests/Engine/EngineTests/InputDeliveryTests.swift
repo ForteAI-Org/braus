@@ -254,6 +254,40 @@ struct InputDeliveryTests {
                                       .type(" 2027")])
     }
 
+    @Test("appending after a click that went through accessibility does not press the end key that would drop the field",
+          arguments: ["AXTextField", "AXTextArea", "AXGroup"])
+    func appendAfterAnAccessibilityClick(role: String) async {
+        let actuator = RecordingActuator()
+        actuator.route = .accessibility
+        var target = field(value: "Budget")
+        target.role = role
+        _ = await engine(scenes: ScriptedScenes([scene([target])]), actuator: actuator)
+            .deliver(request(.typeText(" 2027", into: "Project Name", replacing: false)))
+        // Its caret is already at the end of the text; a group that is no field keeps the key.
+        let isField = role != "AXGroup"
+        #expect(actuator.gestures == (isField
+            ? [.click(at: fieldPoint), .type(" 2027")]
+            : [.click(at: fieldPoint), .key(code: Key.downArrow, modifiers: .command), .type(" 2027")]))
+    }
+
+    @Test("a plain character key pressed while a field has the focus says to use type_text, and a shortcut does not")
+    func aCharacterKeySaysToTypeText() async {
+        let scenes = [scene([field(value: "")]), scene([field(value: "a")])]
+        for (chord, focused, says) in [
+            (KeyChord(.character("a")), "a", true),
+            (KeyChord(.character("a"), modifiers: .shift), "A", true),
+            (KeyChord(.character("a"), modifiers: .command), "a", false),
+            (KeyChord(.return), "a", false),
+            (KeyChord(.character("a")), nil, false),
+        ] as [(KeyChord, String?, Bool)] {
+            let controls = FakeControls(); controls.focused = focused
+            let outcome = await engine(scenes: ScriptedScenes(scenes), controls: controls)
+                .deliver(request(.pressKey(chord, times: 1)))
+            #expect(outcome.message.contains(ActionEngine.typeTextNote) == says,
+                    Comment(rawValue: "\(chord) focused \(focused ?? "nothing"): \(outcome.message)"))
+        }
+    }
+
     @Test("a dry run types nothing, and an empty text is refused")
     func typeDryRunAndEmpty() async {
         let actuator = RecordingActuator()

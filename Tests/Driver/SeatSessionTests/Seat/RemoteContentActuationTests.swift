@@ -38,6 +38,8 @@ struct RemoteContentActuationTests {
         var processID: Int32
         var parent   : Element?
         var answers  = true
+        var frame    : CGRect?
+        var title    : String?
         var performed: [String] = []
         var writes   : [RemoteContentActuator<Element>.Write] = []
         var children : [Element] = []
@@ -45,11 +47,17 @@ struct RemoteContentActuationTests {
 
         /// What an action answers, and whether an `AXSelected` write is read back as taken.
         var performAnswer        = AXError.success
+        var onPerform            : ((String) -> Void)?
+        /// A checkbox's, switch's or radio button's 0 or 1 `AXValue`.
+        var toggle               : Bool?
+        var writeAnswer          = AXError.success
         var ignoresSelectedWrite = false
 
         // A list of items: whether its selected children can be written, what they are, every
         // write, and what a write really does in the application.
         var selectionSettable = false
+        // A field's `AXValue`: a file's name in a list is never writable, a field one can edit is.
+        var valueSettable     = false
         var selectedChildren : [Element]?
         var selectionWrites  : [[Element]] = []
         var onSelectChildren : (([Element]) -> Void)?
@@ -99,8 +107,14 @@ struct RemoteContentActuationTests {
     /// the `AXWindows` entry an ordinary window's own content climbs to.
     static func actuator(
         hitting hit: @escaping () -> Element?,
-        window     : Element? = nil
+        window     : Element? = nil,
+        settle     : @escaping () -> Void = {},
+        note       : @escaping (String) -> Void = { _ in }
     ) -> RemoteContentActuator<Element> {
+        let windowNode: (Int) -> Element? = { number in
+            guard let window, case .window(number) = window.window else { return nil }
+            return window
+        }
         let resolver = DialogEndpointResolver<Element>(
             nodeAtPoint  : { _ in hit() },
             focusedNode  : { nil },
@@ -110,10 +124,7 @@ struct RemoteContentActuationTests {
             nodeProcess  : { $0.processID },
             identity     : { _ in nil },
             geometry     : { _, _ in nil },
-            windowNode   : { number in
-                guard let window, case .window(number) = window.window else { return nil }
-                return window
-            },
+            windowNode   : windowNode,
             parent       : { $0.parent },
             windowReading: { $0.window }
         )
@@ -126,10 +137,18 @@ struct RemoteContentActuationTests {
             role   : { $0.answers ? $0.role : nil },
             actions: { $0.actions },
             value  : { $0.value },
-            perform: { element, action in element.performed.append(action); return element.performAnswer },
-            write  : { element, write in element.apply(write); return .success },
+            perform: { element, action in
+                element.performed.append(action)
+                element.onPerform?(action)
+                return element.performAnswer
+            },
+            write  : { element, write in element.apply(write); return element.writeAnswer },
             selectionIsSettable: { node, attribute in
-                attribute == kAXSelectedRowsAttribute ? node.rowsSettable : node.selectionSettable
+                switch attribute {
+                    case kAXSelectedRowsAttribute: node.rowsSettable
+                    case kAXValueAttribute       : node.valueSettable
+                    default                      : node.selectionSettable
+                }
             },
             selection          : { node, attribute in
                 attribute == kAXSelectedRowsAttribute ? node.selectedRows : node.selectedChildren
@@ -147,7 +166,13 @@ struct RemoteContentActuationTests {
             isSelected         : { $0.selectedFlag },
             parent             : { $0.parent },
             children           : { $0.children },
-            defaultButton      : { $0.defaultButton }
+            defaultButton      : { $0.defaultButton },
+            windowNode         : windowNode,
+            frame              : { $0.frame },
+            label              : { $0.title },
+            toggleValue        : { $0.toggle },
+            settle             : settle,
+            note               : note
         )
     }
 
@@ -815,22 +840,254 @@ struct RemoteContentActuationTests {
         #expect(receipt.route.windowNumber == finder.window.id)
         try finder.seat.confirm(receipt, .unknown)
 
-        // Empty space in the list maps to nothing, and refuses with nothing posted.
-        let empty = try await Self.finder(clicksThroughAccessibility: true, marker: 3_402)
-        empty.discovery.actuation = { command, endpoint in
-            Self.actuator(hitting: { empty.outline }, window: empty.outline.parent)
-                .actuate(command, endpoint: endpoint)
-        }
-        let emptyTurn = try await empty.seat.acquire()
-        await #expect(throws: RemoteContentActuationRefusal.unsupportedRole(kAXOutlineRole)) {
-            try await empty.seat.send(
-                .click(Self.point(in: empty.window)), observation: try await observedReference(empty.seat),
-                turn: emptyTurn
-            )
-        }
-        #expect(empty.sender.sent.isEmpty)
-        try empty.seat.release(emptyTurn)
         try finder.seat.release(turn)
+    }
+
+    // MARK: Apple native windows: accessibility first, a posted click as the fallback
+
+    /// A control drawn directly in the window, which the hit test answers.
+    private static func control(
+        _ role   : String,
+        in finder: Finder,
+        actions  : [String],
+        value    : String? = nil
+    ) -> Element {
+        let control = Element(
+            role,
+            window   : finder.element.window,
+            processID: finder.element.processID,
+            parent   : finder.element,
+            actions  : actions,
+            value    : value
+        )
+        finder.hit.element = control
+        return control
+    }
+
+    /// Sends one click, then closes the Turn as the seat's owner does. Nothing is thrown by a click
+    /// that was declined and posted, and the posting is what the receipt's route says.
+    private static func click(_ finder: Finder) async throws -> (receipt: InputReceipt, posted: Bool) {
+        let turn    = try await finder.seat.acquire()
+        let receipt = try await Self.send(1, to: finder, turn: turn)
+        try finder.seat.confirm(receipt, .unknown)
+        try finder.seat.release(turn)
+        return (receipt, receipt.route.poster == .publicProcess)
+    }
+
+    @Test("a control that offers AXPress is pressed through accessibility and no click is posted")
+    func aControlOfferingPressIsPressed() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_410)
+        let button = Self.control(kAXButtonRole, in: finder, actions: [kAXPressAction])
+        let result = try await Self.click(finder)
+        #expect(button.performed == [kAXPressAction])
+        #expect(!result.posted && finder.sender.sent.isEmpty)
+        #expect(result.receipt.route.poster == .accessibilityAction)
+    }
+
+    @Test("a press that succeeded and changed nothing is never also clicked")
+    func aPressWithoutEffectIsNotClicked() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_411)
+        // The press answers success and the window stays as it was: the seat cannot know, and does not look.
+        let button = Self.control(kAXButtonRole, in: finder, actions: [kAXPressAction])
+        button.performAnswer = .success
+        let result = try await Self.click(finder)
+        #expect(button.performed == [kAXPressAction], "pressed once")
+        #expect(finder.sender.sent.isEmpty, "and not clicked on top of it")
+        #expect(!result.posted)
+    }
+
+    @Test("a control without AXPress, or a role no action maps, is clicked as before")
+    func aControlWithoutPressIsClicked() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_412)
+        let button = Self.control(kAXButtonRole, in: finder, actions: [kAXShowMenuAction])
+        let result = try await Self.click(finder)
+        #expect(button.performed.isEmpty, "AXPress is not asked of an element that does not offer it")
+        #expect(result.posted && finder.sender.sent.count == 1)
+
+        let image = Self.control(kAXImageRole, in: finder, actions: [])
+        let again = try await Self.click(finder)
+        #expect(image.performed.isEmpty)
+        #expect(again.posted && finder.sender.sent.count == 2)
+    }
+
+    @Test("empty space in a list, which accessibility declined before acting, is clicked")
+    func emptySpaceIsClicked() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_402)
+        finder.hit.element = finder.outline
+        let result = try await Self.click(finder)
+        #expect(finder.outline.writes.isEmpty && finder.outline.rowWrites.isEmpty)
+        #expect(result.posted && finder.sender.sent.count == 1)
+    }
+
+    @Test("accessibility that reports the action unsupported did nothing, so the click is posted")
+    func anUnsupportedPressIsClicked() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_413)
+        let button = Self.control(kAXButtonRole, in: finder, actions: [kAXPressAction])
+        button.performAnswer = .actionUnsupported
+        let result = try await Self.click(finder)
+        #expect(button.performed == [kAXPressAction])
+        #expect(result.posted && finder.sender.sent.count == 1)
+    }
+
+    @Test("any other answer to a press may have acted, so it refuses and posts nothing")
+    func aRefusedPressIsNotClicked() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_414)
+        let button = Self.control(kAXButtonRole, in: finder, actions: [kAXPressAction])
+        button.performAnswer = .failure
+        let turn = try await finder.seat.acquire()
+        await #expect(throws: RemoteContentActuationRefusal.actionRefused(
+            action: kAXPressAction, code: AXError.failure.rawValue
+        )) { try await Self.send(1, to: finder, turn: turn) }
+        #expect(finder.sender.sent.isEmpty)
+        try finder.seat.release(turn)
+    }
+
+    @Test("an element under a web area keeps the posted click")
+    func webContentIsClicked() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_415)
+        let page   = Element(
+            RemoteContentActuator<Element>.webAreaRole,
+            window   : .windowless,
+            processID: finder.element.processID,
+            parent   : finder.element
+        )
+        let link = Element(
+            kAXButtonRole,
+            window   : .windowless,
+            processID: finder.element.processID,
+            parent   : page,
+            actions  : [kAXPressAction]
+        )
+        finder.hit.element = link
+        let result = try await Self.click(finder)
+        #expect(link.performed.isEmpty)
+        #expect(result.posted && finder.sender.sent.count == 1)
+    }
+
+    @Test("a text field whose selected range cannot be written is clicked, and one that can takes the caret",
+          arguments: [false, true])
+    func aTextFieldNeedsAWritableRange(settable: Bool) async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: settable ? 3_417 : 3_416)
+        let field  = Self.control(kAXTextFieldRole, in: finder, actions: [], value: "abc")
+        field.selectionSettable = settable
+        let result = try await Self.click(finder)
+        #expect(field.writes == (settable ? [.selectedTextRange(location: 3, length: 0)] : []))
+        #expect(result.posted == !settable)
+    }
+
+    @Test("a field drawn in a row takes the caret when it can be edited, and a name that cannot still selects the row",
+          arguments: [true, false])
+    func aFieldInARowTakesTheCaret(editable: Bool) async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: editable ? 3_430 : 3_431)
+        let cell   = Element(kAXCellRole, window: .windowless, processID: finder.element.processID, parent: finder.row)
+        let field  = Element(kAXTextFieldRole, window: .windowless, processID: finder.element.processID,
+                             parent: cell, value: "Buy milk")
+        // Its range can be written either way: only a field one can edit also has a writable value.
+        field.selectionSettable = true
+        field.valueSettable     = editable
+        finder.hit.element      = field
+
+        let result = try await Self.click(finder)
+        #expect(!result.posted && finder.sender.sent.isEmpty)
+        if editable {
+            #expect(field.writes == [.selectedTextRange(location: 8, length: 0)], "the caret, at the end of the text")
+            #expect(finder.outline.rowWrites.isEmpty && finder.row.writes.isEmpty, "the row is not selected")
+            #expect(finder.seat.remoteTextField != nil, "and its text goes through the same field")
+        } else {
+            #expect(field.writes.isEmpty, "no caret goes into a file's name")
+            #expect(finder.outline.rowWrites == [[finder.row]])
+            #expect(finder.seat.remoteTextField == nil)
+        }
+    }
+
+    @Test("a control drawn on a field in its row is pressed, and the field is left alone")
+    func aControlOnTheFieldIsPressed() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_432)
+        let cell   = Element(kAXCellRole, window: .windowless, processID: finder.element.processID, parent: finder.row)
+        let field  = Element(kAXTextFieldRole, window: .windowless, processID: finder.element.processID,
+                             parent: cell, value: "x")
+        let button = Element(kAXButtonRole, window: .windowless, processID: finder.element.processID,
+                             parent: field, actions: [kAXPressAction])
+        field.selectionSettable = true
+        field.valueSettable     = true
+        finder.hit.element      = button
+
+        let result = try await Self.click(finder)
+        #expect(button.performed == [kAXPressAction] && field.writes.isEmpty)
+        #expect(!result.posted)
+    }
+
+    @Test("text after an accessibility click on an ordinary window's field is set through AXSelectedText")
+    func textAfterAnOrdinaryFieldClickIsSetThroughAccessibility() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_433)
+        let field  = Self.control(kAXTextFieldRole, in: finder, actions: [], value: "abc")
+        field.selectionSettable = true
+        let turn  = try await finder.seat.acquire()
+        let click = try await Self.send(1, to: finder, turn: turn)
+        try finder.seat.confirm(click, .unknown)
+
+        let typed = try await finder.seat.send(
+            .text("def"), observation: try await observedReference(finder.seat), turn: turn
+        )
+        #expect(field.writes.last == .selectedText("def"))
+        #expect(field.value == "abcdef")
+        #expect(finder.sender.sent.isEmpty, "no key is posted")
+        #expect(typed.route.poster == .accessibilityAction)
+        try finder.seat.confirm(typed, .unknown)
+
+        // Any key in between, even the engine's end of field, makes the next text a posted one.
+        let again = try await finder.seat.send(
+            .click(Self.point(in: finder.window)), observation: try await observedReference(finder.seat), turn: turn
+        )
+        try finder.seat.confirm(again, .unknown)
+        let key = try await finder.seat.send(
+            Shortcut(.virtualKey(CGKeyCode(125)), holding: .command),
+            observation: try await observedReference(finder.seat),
+            turn       : turn
+        )
+        try finder.seat.confirm(key, .unknown)
+        #expect(finder.seat.remoteTextField == nil, "a key forgets the field: the engine must not send one")
+        try finder.seat.release(turn)
+    }
+
+    @Test("a row nothing can select is clicked, and one whose list write took but did not read back is not")
+    func aRowNothingSelectsIsClicked() async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_418)
+        finder.outline.rowsSettable = false
+        // The row's own AXSelected is the unsupported write of an element that has none.
+        finder.row.writeAnswer = .attributeUnsupported
+        finder.hit.element     = finder.row
+        let result = try await Self.click(finder)
+        #expect(result.posted && finder.sender.sent.count == 1)
+
+        // The list took the write and nothing read back, then the row's own write failed: acted.
+        let again = try await Self.finder(clicksThroughAccessibility: true, marker: 3_419)
+        again.outline.onSelectRows = { _ in }
+        again.row.writeAnswer      = .attributeUnsupported
+        again.hit.element          = again.row
+        let turn = try await again.seat.acquire()
+        await #expect(throws: RemoteContentActuationRefusal.self) { try await Self.send(1, to: again, turn: turn) }
+        #expect(again.sender.sent.isEmpty)
+        try again.seat.release(turn)
+    }
+
+    @Test("the engine's actuator reports how a click went out, and forgets it once confirmed",
+          arguments: [true, false])
+    func theActuatorReportsTheRoute(offersPress: Bool) async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: offersPress ? 3_420 : 3_421)
+        _ = Self.control(kAXButtonRole, in: finder, actions: offersPress ? [kAXPressAction] : [])
+        _ = try await observedReference(finder.seat)
+        let target   = SeatTarget(borrowing: SeatHost(), seat: finder.seat)
+        let actuator = SeatActuator(target: target)
+        let pid      = finder.window.reference.processID
+        _ = try await target.observe()
+        let frame = finder.window.reference.frame
+        try await actuator.perform(.click(at: CGPoint(x: frame.minX + 40, y: frame.minY + 200)), in: pid)
+        #expect(await actuator.lastDeliveryRoute(in: pid) == (offersPress ? .accessibility : .posted))
+        #expect(finder.sender.sent.isEmpty == offersPress)
+        await actuator.confirm(.unknown, in: pid)
+        #expect(await actuator.lastDeliveryRoute(in: pid) == .posted)
+        await target.stop()
     }
 
     @Test("a row whose list's selected rows cannot be written or do not read back is selected by its own AXSelected",

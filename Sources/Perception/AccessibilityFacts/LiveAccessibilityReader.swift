@@ -42,6 +42,10 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
         attribute(node, kAXFocusedAttribute) as? Bool
     }
 
+    public nonisolated func isSelected(_ node: AXUIElement) -> Bool? {
+        attribute(node, kAXSelectedAttribute) as? Bool
+    }
+
     public nonisolated func numericValue(_ node: AXUIElement) -> Int? {
         (attribute(node, kAXValueAttribute) as? NSNumber)?.intValue
     }

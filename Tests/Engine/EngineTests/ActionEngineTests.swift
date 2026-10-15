@@ -47,9 +47,17 @@ struct ActionEngineTests {
         var gestures: [Gesture] = []
         var confirmations: [DeliveryEffect] = []
         var failure: (any Error)?
+        var route = DeliveryRoute.posted
+        /// The name of the control each aimed click said it was for, in order.
+        var labels: [String] = []
+        func lastDeliveryRoute(in processID: pid_t) async -> DeliveryRoute { route }
         func perform(_ gesture: Gesture, in processID: pid_t) async throws {
             if let failure { throw failure }
             gestures.append(gesture)
+        }
+        func perform(_ gesture: Gesture, expecting label: String, in processID: pid_t) async throws {
+            try await perform(gesture, in: processID)
+            labels.append(label)
         }
         func confirm(_ effect: DeliveryEffect, in processID: pid_t) async {
             confirmations.append(effect)
@@ -294,6 +302,19 @@ struct ActionEngineTests {
         #expect(outcome.message.contains("No window of X opened, closed or retitled"))
     }
 
+    @Test("a press through accessibility that changed nothing says it was not clicked, and a posted one does not")
+    func ghostThroughAccessibility() async {
+        let pressed = RecordingActuator()
+        pressed.route = .accessibility
+        let outcome = await engine(scenes: ScriptedScenes([scene([export])]), actuator: pressed).act(request("Export"))
+        #expect(outcome.kind == .actedUnverified)
+        #expect(outcome.message.contains("through accessibility, no click posted"))
+
+        let posted = await engine(scenes: ScriptedScenes([scene([export])]), actuator: RecordingActuator())
+            .act(request("Export"))
+        #expect(!posted.message.contains("accessibility"))
+    }
+
     @Test("a repaint is unattributable, and a window that appeared elsewhere is named instead of blaming the click")
     func repaintWithElsewhere() async {
         let before = scene([export], token: "a"), after = scene([export], token: "b")
@@ -391,6 +412,14 @@ struct ActionEngineTests {
         let inFront = FakeActivation(frontmost: pid)
         _ = await engine(scenes: ScriptedScenes([scene([export]), scene([export], title: "Q")]), activation: inFront).act(request("Export"))
         #expect(inFront.activated.isEmpty)
+    }
+
+    @Test("a click tells the actuator the name of the control it is aimed at")
+    func aClickNamesItsTarget() async {
+        let actuator = RecordingActuator()
+        _ = await engine(scenes: ScriptedScenes([scene([export]), scene([export], title: "Q")]), actuator: actuator)
+            .act(request("Export"))
+        #expect(actuator.labels == [export.label])
     }
 
     @Test("a triple click is one train of three at the element's point")

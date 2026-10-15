@@ -61,6 +61,10 @@ nonisolated enum SurfaceInputClassification: Sendable, Equatable {
     /// out of process panel, whose measured recipe prepares nothing.
     case remotePanelContent
 
+    /// An Apple extension drawn inside an Apple native application. Only the
+    /// accessibility route acts on it, so no recipe is ever posted into it.
+    case appleExtensionContent
+
     /// Nothing here establishes what draws the surface this Command is
     /// addressed to. It is a refusal and never a default.
     case unknown
@@ -74,7 +78,7 @@ nonisolated enum SurfaceInputClassification: Sendable, Equatable {
     static func of(
         _ observation: SeatObservationReference,
         endpoint     : ResolvedInputEndpoint?,
-        remoteAppKitPanelServiceQualified: Bool = false
+        remoteContent: RemoteContentQualification = .none
     ) -> SurfaceInputClassification {
 
         // An application-modal panel can be captured directly, which gives it
@@ -89,9 +93,13 @@ nonisolated enum SurfaceInputClassification: Sendable, Equatable {
                 where isRemotePanelContent(
                     endpoint.identity,
                     of       : endpoint.logicalSurface,
-                    qualified: remoteAppKitPanelServiceQualified
+                    qualified: remoteContent == .filePanelService
                 ):
                 return .remotePanelContent
+            case .remoteContent
+                where endpoint.identity.process != endpoint.logicalSurface.process
+                    && remoteContent == .appleExtension:
+                return .appleExtensionContent
             case .logicalSurface where endpoint.evidence == .leafSurface:
                 return .leafSurfaceOfDrivenApplication
             case .logicalSurface where endpoint.evidence == .unfocusedModalSurface:
@@ -155,7 +163,7 @@ nonisolated enum SurfaceInputClassification: Sendable, Equatable {
                     ? AppKitPlatform()
                     : RemoteKeyboardPlatform(host: host)
 
-            case .unknown:
+            case .appleExtensionContent, .unknown:
                 return nil
         }
     }

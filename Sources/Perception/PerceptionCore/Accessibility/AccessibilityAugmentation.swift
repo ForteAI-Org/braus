@@ -154,9 +154,26 @@ public enum AccessibilityAugmentation {
             if kind == .text { staticText.append(element) } else { out.append(element) }
         }
 
+        // A switch or checkbox with no name of its own is captioned by the static text just before it
+        // in its parent (System Settings), else by its identifier, else by its role: never dropped.
+        func caption(of node: Reader.Node, after preceding: Reader.Node?) -> (String, LabelOrigin?) {
+            if let preceding, reader.role(preceding) == "AXStaticText",
+               let (text, _) = firstLabel([(reader.value(preceding), .value), (reader.title(preceding), .title)]),
+               text.count <= 48 {
+                return (text, .value)
+            }
+            if let handle = firstText([reader.identifier(node)]) {
+                let words = handle.split { $0 == "-" || $0 == "_" }.joined(separator: " ")
+                return (words.prefix(1).uppercased() + words.dropFirst(), .identifier)
+            }
+            let anonymous = reader.role(node) == "AXRadioButton" ? "Radio button"
+                : reader.subrole(node) == "AXSwitch" ? "Switch" : "Checkbox"
+            return (anonymous, nil)
+        }
+
         func walk(_ node: Reader.Node, _ depth: Int, _ clip: CGRect, _ container: String?,
                   collectionPath: String?, column: String? = nil, rowName: String? = nil,
-                  insideControl: Bool = false, insideWebContent: Bool = false) {
+                  insideControl: Bool = false, insideWebContent: Bool = false, preceding: Reader.Node? = nil) {
             guard depth < limits.maxDepth else { return stop(.depthLimit) }
             guard out.count < limits.maxElements else { return stop(.elementLimit) }
             guard !limits.isPastDeadline() else { return stop(.deadline) }
@@ -267,7 +284,15 @@ public enum AccessibilityAugmentation {
                         default: break
                     }
                 }
-                let labeled = title ?? value.map { ($0, LabelOrigin.value) }
+                if role == "AXButton", reader.isSelected(node) == true { state = .on }
+                var labeled: (String, LabelOrigin?)?
+                if let title {
+                    labeled = title
+                } else if let value {
+                    labeled = (value, .value)
+                } else if role == "AXCheckBox" || role == "AXRadioButton" {
+                    labeled = caption(of: node, after: preceding)
+                }
                 if let (label, origin) = labeled, label.count <= 48, column != nil || rowName != cleanLabel(label) {
                     emit(frame, role: role, label: label, origin: origin, state: state, clip: clip,
                          container: container, collectionPath: collectionPath,
@@ -277,11 +302,13 @@ public enum AccessibilityAugmentation {
                             && (!webContent || reader.isFocused(node) == true) ? reader.selectedRange(node) : nil)
                 }
             }
+            var previous: Reader.Node?
             for child in reader.children(node) {
                 walk(child, depth + 1, childClip, childContainer, collectionPath: collectionPath,
                      column: column, rowName: rowName,
                      insideControl: insideControl || interactiveRoles.contains(role) || role == "AXTextArea",
-                     insideWebContent: webContent)
+                     insideWebContent: webContent, preceding: previous)
+                previous = child
             }
         }
         walk(window, 0, windowFrame, nil, collectionPath: nil)

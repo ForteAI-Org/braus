@@ -33,6 +33,8 @@ public protocol AccessibilityTreeReading: Sendable {
     func isFocused(_ node: Node) -> Bool?
     /// The value as a number, for checkboxes and radios: 0 off, 1 on, 2 mixed.
     func numericValue(_ node: Node) -> Int?
+    /// The node's own `AXSelected`, for a segmented button; nil when it does not answer.
+    func isSelected(_ node: Node) -> Bool?
     func isEnabled(_ node: Node) -> Bool?
     func actions(_ node: Node) -> [String]
     func frame(_ node: Node) -> CGRect?
@@ -42,4 +44,5 @@ public protocol AccessibilityTreeReading: Sendable {
 extension AccessibilityTreeReading {
     public func selectedRange(_ node: Node) -> NSRange? { nil }
     public func isFocused(_ node: Node) -> Bool? { nil }
+    public func isSelected(_ node: Node) -> Bool? { nil }
 }

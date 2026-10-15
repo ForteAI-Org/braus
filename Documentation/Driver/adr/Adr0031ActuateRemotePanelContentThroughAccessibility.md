@@ -278,6 +278,131 @@ whether AXPress on its item then compresses the file, and whether a file
 panel's sidebar outline has settable selected rows. Where it does, its rows are
 now selected through `AXSelectedRows` instead of the measured `AXSelected`.
 
+## Follow-up: Apple native applications, accessibility first (owner decision, 2026-10-15)
+
+The scope of "Finder's own windows" is widened from one bundle identifier to every Apple native
+application, and a click that accessibility declines is posted instead of refused.
+
+- **Which applications.** `AppleNativeApplications` decides by the bundle's code signature, not
+  by its identifier, which anything can claim: the bundle satisfies `anchor apple`
+  (`SecStaticCodeCheckValidity` with `kSecCSBasicValidateOnly`, which names the signer without
+  hashing the resources: 3 to 16 ms on Finder and Safari against 74 to 98 ms in full), and it is
+  not Mac Catalyst (its Info.plist names no `UIDeviceFamily` and no slice of its main executable
+  has an `LC_BUILD_VERSION` for platform 6). A signature or a binary that cannot be read is not
+  Apple's native: the click keeps its posted route. The answer is kept per bundle path.
+  `EndpointDiscovery.accessibilityClickedApplications` is gone. `TargetPlatform.appleNative` keeps
+  its `com.apple.` prefix: it chooses a preparation recipe and a menu preparation, not this.
+- **Which elements.** Only one that offers the action. AXPress is asked only of an element that
+  lists it, a caret only of a field whose `AXSelectedTextRange` is settable, a right click only
+  of one that lists AXShowMenu. A row that neither its list nor its own `AXSelected` can take
+  (the write answers -25205 or -25206 with no write before it) is declined too. An element under
+  an `AXWebArea` keeps its posted click (`RemoteContentActuationRefusal.webContent`). None of
+  this changes a panel's remote content, which still never posts.
+- **The fallback.** A refusal decided before anything was written or performed is posted as the
+  click it was (`RemoteContentActuationRefusal.wasDeclinedBeforeActing`): no element, an
+  unmapped role, a popup, web content, a read that failed, and AXPress or a write answered
+  unsupported (-25206). `AgentSeat` then runs the posted route as it would for any other
+  window, with the recipe the window's platform chose. What may have acted is never posted
+  on top: a success with no visible effect, a selection that did not read back, a double click
+  whose AXOpen was refused, and any other error. Those answer as before, an action whose effect
+  is unknown, and the engine as `acted_unverified`.
+- **The reply.** `Actuating.lastDeliveryRoute` tells the engine a click went out as an
+  accessibility action, and a reply that found no effect says "through accessibility, no click
+  posted", so the worker does not click it again on top of it.
+
+Not measured: whether the gate's preparation, awaited once before the accessibility attempt and
+again before a fallback post, costs anything in the second pass; whether every Apple application
+answers `AXPress` on its toolbar and sidebar controls as Finder's do; and which Apple
+applications ship AppKit controls that list AXPress and ignore it. No live run was made.
+
+## Follow-up: a field in a row, and text after its caret (2026-10-15, live trial of the above)
+
+A trial of the previous section on Reminders and Notes (10:19 to 10:28, the Braus log and the
+worker's tool activity) found two faults and one cost.
+
+- **A field in a row took the row.** Reminders draws a reminder's title as a text field inside a
+  row, and the click mapping let the row win: `AXSelectedRows` was written, its list focused, and
+  no caret was left, so the next text read `''` (10:26:31, "acted ... by accessibility:
+  AXSelectedRows, its list focused on AXRow", and again for a click at 10:26:43). A text element above the row whose
+  `AXSelectedTextRange` and `AXValue` are both settable now takes the caret (one click) or its
+  whole value (three), and is remembered for text; a control nearer than it is still pressed. A
+  file's name in a Finder list keeps the row: it is not editable, so its value is not writable.
+  The value is checked as well as the range because a non-editable text field may still answer
+  its range as settable; that is not measured, the stricter rule keeps ADR 0031's table as it was.
+- **The end key forgot the field.** `type_text` with `replace: false` sends click, Command-Down,
+  then the text, and the seat forgets the remembered field at any Command that is not text
+  (Notes, 10:23:12 to 10:23:35: the caret by `AXSelectedTextRange`, then two posted key Commands).
+  The click already left the caret at the end of the value, so the engine does not send that key
+  after a click that went out through accessibility onto a text field, and the text takes
+  `AXSelectedText`. The conditions of `rememberedRemoteTextField` (same surface, same selection
+  generation, same window identity, the element still answering) were not the cause. Not
+  measured: whether Notes' text area keeps its element between the click and the text; if it
+  does not, the field no longer answers and the text is posted as before.
+- **Cost of a key.** In Reminders and Notes the seat's share of a `press_key` is under 70 ms
+  (the key posts 2 to 6 ms after its log line, no preparation, no admission wait). What an input
+  costs is two scene readings, 0.9 s in Reminders (68 elements) and 1.4 s in Notes (142), and
+  the settle, 0.2 to 0.3 s: 2.1 s per key in the 13-key batch, 3.4 s for a type_text. A text typed
+  by 13 `press_key` steps cost 27 s. The worker did it after `type_text` failed twice, with
+  nothing in the instructions telling it text goes in one call: the instructions, the
+  `press_key` description and its reply (while a field has the focus) now say so.
+
+## Follow-up: Apple extension content in an Apple application (owner decision, 2026-10-15)
+
+A live trial on System Settings, Appearance, answered a click on "Light" with
+`surfaceFamilyUnclassified`. The pane is a remote view of an extension process hosted by System
+Settings, and the classification took it for unknown because only the Open and Save panel
+service qualified remote content, so the Command was refused before the accessibility route above
+was reached. The owner chose all Apple extension panes.
+
+- Remote content is also qualified when its host is an Apple native application (ADR 0031's
+  2026-10-15 scope: `anchor apple`, not Mac Catalyst) and the remote process's bundle satisfies
+  `anchor apple` too. The signature is the evidence, never the bundle identifier; an unreadable
+  signature or bundle is not qualified. The answer is kept per bundle path.
+- The qualification is `RemoteContentQualification`: `filePanelService` keeps everything above,
+  its posted recipes included; `appleExtension` is accessibility only. A click, or the text of a
+  remembered field, is actuated through `RemoteContentActuator`; a drag, a scroll and a right click
+  are refused, keys keep the routes they had (the qualified keyboard recipe stays the file
+  panel service's), and nothing is posted into the extension. The destructive and closing guards are unchanged. A third-party extension, or any
+  extension in a third-party host, is refused as before.
+- Not measured live: that the click on a pane's control resolves through `AXPress` in the
+  extension's tree. Test: GestureEndpointRoutingTests, AppleNativeApplicationsTests.
+
+## Follow-up: the press goes to the host's element (2026-10-15, live trial of the above)
+
+A press on "Light" through the extension's own element (its process id, its window) answered
+success and changed nothing. The same pane is also in the host's tree, under the host's hosting
+view, so an Apple extension's `AXPress` now looks there first.
+
+- Matching rule (`RemoteContentActuator.hostCounterpart`): from the host's window entry, nearest
+  level first, the first element other than the one hit whose role and title or description equal
+  the hit element's, that offers the action, and whose frame is within 2 points of it on x, y,
+  width and height. Only branches whose frame holds the hit element's centre are entered, at most
+  512 elements are read. Found: that element alone is pressed. Not found, or the window entry is
+  unreadable: the extension's element, as before. Never both, and a refusal of the host's element
+  is not followed by a press of the other.
+- Only for `appleExtension` content (`prefersHost`); a file panel's press is unchanged.
+- Every press logs the AXError it answered (category `RemoteContentActuator`). `cannotComplete`
+  (-25204) stays a delivery for a file panel, where a default button closes the panel before it
+  answers, and is `actionRefused` (effect unknown, never repeated) for an extension, which has no
+  such reason.
+- Not measured live: that the host's tree returns a distinct element that takes the press.
+  Test: AppleExtensionPressTests.
+- Follow-up 2026-10-15 (round 5): an extension's AXPress that answered success on a control with a
+  readable state (`AXSelected`, or the 0/1 `AXValue` of a checkbox, switch or radio button) is read back
+  after 200 ms. Unchanged, it is pressed once on the child (else the parent) offering AXPress and read
+  again; still unchanged, one click is posted on the host window, never into the extension's. A segment
+  already on, a control with no state, or one that stops answering is never retried or clicked.
+  A button in a run of contiguous AXPress buttons of one parent where one answers AXSelected (a
+  segmented selector, Appearance's Light, Dark, Auto) shows "off" while it answers nothing, so a
+  selection that did not move to it proves the press ignored; a button apart from the run shows none.
+- Follow-up 2026-10-15 (round 7): a click aimed at a named control (`Gesture.click` through
+  `Actuating.perform(_:expecting:in:)`, `AgentSeat.send(expecting:)`) presses only an element of that
+  name. When the point hit another one (Dark for Light) the same group's element of the requested name is
+  pressed, else the host window's near it, and with none the press refuses (`wrongElement`, never posted
+  instead). An element with no name of its own is pressed. Content hosted in a window shows through the
+  host's tree as the same elements, so the host-copy matching finds no second one.
+  Test: AppleExtensionPressTests, GestureEndpointRoutingTests.
+
 ## Limits
 
 - No live run was made for this change. The table above is the probe's, on one

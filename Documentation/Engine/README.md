@@ -320,6 +320,13 @@ Driver offers is not yet turned on here.
   repaint or a failed delivery. One action's gestures are confirmed together. A foreground
   actuator has nothing to answer; the Seat's answers each receipt and gives its Turn back, which is
   the Seat's own rule that an event that went out is never repeated.
+- `Actuating.lastDeliveryRoute` says whether the last gesture went out posted or as an accessibility
+  action; a conformer that only posts keeps the default, `posted`. The Seat performs a click on an
+  Apple native application's ordinary window through accessibility first (ADR 0031, "Apple native
+  applications"), and a click that did not show its effect answers "through accessibility, no
+  click posted": it is never also clicked, and only a refusal before anything was done is posted.
+  `type_text` into a field with a caret placed that way does not send its End-of-field key, which
+  would make the seat forget the field its text then reaches through `AXSelectedText`.
 - `SceneProviding.currentScene` is a fresh perception at every call, never a cache: an action is
   resolved against this instant's positions. The `PerceivedWindow` it answers states what the
   provider measured about this one capture: the pipeline's `CaptureQuality` and the

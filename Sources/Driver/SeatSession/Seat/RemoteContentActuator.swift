@@ -7,6 +7,8 @@
 
 import ApplicationServices
 import CoreGraphics
+import Foundation
+import os
 import SeatCore
 
 /// RemoteContentActuator acts on one click addressed to an out of process
@@ -20,10 +22,11 @@ import SeatCore
 ///
 /// The element is the one the host application's hit test answers at the
 /// Command's point, proved by `DialogEndpointResolver.remoteContentPath`, or for
-/// an ordinary window of an application listed for it, Finder's, by
-/// `ownContentPath` against the window itself. The
-/// click reaches the nearest element of that path a click is mapped for; every
-/// other Command refuses, and nothing falls back to posting.
+/// an ordinary window of an Apple native application, by `ownContentPath`
+/// against the window itself. The click reaches the nearest element of that
+/// path a click is mapped for; every other Command refuses. Nothing falls back
+/// to posting here: for an ordinary window the seat posts the click itself when
+/// the refusal says nothing was done (`wasDeclinedBeforeActing`).
 ///
 /// It is generic over the node type so the mapping is proved without a panel
 /// on the screen, as the resolver is.
@@ -54,6 +57,9 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         [kAXPopUpButtonRole, kAXMenuButtonRole]
     }
 
+    /// The role of a web page's content, which the SDK names no constant for.
+    package static var webAreaRole: String { "AXWebArea" }
+
     /// The action a file entry offers to be opened, which the SDK names no
     /// constant for.
     package static var openAction: String { "AXOpen" }
@@ -68,6 +74,18 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         [kAXListRole, "AXCollection"]
     }
 
+    /// Set for the one click of an ordinary window being acted on: a control is then used only
+    /// when it offers the action, and a click it cannot take refuses before anything is done, so
+    /// the seat may post it instead. A panel's remote content has no such fallback.
+    private var isOrdinaryWindow = false
+
+    /// Set for an Apple extension's click: the window number of the host surface whose own tree is
+    /// searched for the pressed control first, and a `cannotComplete` answer is not a delivery.
+    private var hostSurfaceNumber: Int?
+
+    /// The label of the control the caller aimed at, which a press refuses to replace by another.
+    private var requestedLabel: String?
+
     let path   : (CGPoint, ResolvedInputEndpoint) -> Result<[Node], RemoteContentActuationRefusal>
     let role   : (Node) -> String?
     let actions: (Node) -> [String]
@@ -77,7 +95,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
 
     /// The selection a container holds under one attribute, `AXSelectedChildren` of a list of items
     /// or `AXSelectedRows` of an outline or a table: whether it can be written, what it holds, and
-    /// the write.
+    /// the write. `selectionIsSettable` answers for any attribute, a field's range or value too.
     let selectionIsSettable: (Node, String) -> Bool
     let selection          : (Node, String) -> [Node]?
     let writeSelection     : (Node, String, [Node]) -> AXError
@@ -89,6 +107,24 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     let parent       : (Node) -> Node?
     let children     : (Node) -> [Node]
     let defaultButton: (Node) -> Node?
+
+    /// What finds a control again in the host's own tree: the host's window entry by number, an
+    /// element's frame in screen points, and its title or description.
+    let windowNode: (Int) -> Node?
+    let frame     : (Node) -> CGRect?
+    let label     : (Node) -> String?
+
+    /// Every name an element answers to: its title, description and value, as the scene may name it.
+    let labels    : (Node) -> [String]
+
+    /// A checkbox's, switch's or radio button's own 0 or 1 `AXValue`, nil when it is neither.
+    let toggleValue: (Node) -> Bool?
+
+    /// Waits for an application to show what a press did, before it is read again.
+    let settle: () -> Void
+
+    /// Receives one line for every press, with the AXError it answered.
+    let note: (String) -> Void
 
     package init(
         path   : @escaping (CGPoint, ResolvedInputEndpoint) -> Result<[Node], RemoteContentActuationRefusal>,
@@ -103,7 +139,14 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         isSelected         : @escaping (Node) -> Bool? = { _ in nil },
         parent             : @escaping (Node) -> Node? = { _ in nil },
         children           : @escaping (Node) -> [Node] = { _ in [] },
-        defaultButton      : @escaping (Node) -> Node? = { _ in nil }
+        defaultButton      : @escaping (Node) -> Node? = { _ in nil },
+        windowNode         : @escaping (Int) -> Node? = { _ in nil },
+        frame              : @escaping (Node) -> CGRect? = { _ in nil },
+        label              : @escaping (Node) -> String? = { _ in nil },
+        labels             : ((Node) -> [String])? = nil,
+        toggleValue        : @escaping (Node) -> Bool? = { _ in nil },
+        settle             : @escaping () -> Void = {},
+        note               : @escaping (String) -> Void = { _ in }
     ) {
         self.path    = path
         self.role    = role
@@ -118,6 +161,13 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         self.parent              = parent
         self.children            = children
         self.defaultButton       = defaultButton
+        self.windowNode          = windowNode
+        self.frame               = frame
+        self.label               = label
+        self.labels              = labels ?? { label($0).map { [$0] } ?? [] }
+        self.toggleValue         = toggleValue
+        self.settle              = settle
+        self.note                = note
     }
 
     /// Acts on `command` at the element under its point, and does nothing when
@@ -129,7 +179,28 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     /// Outside one, a click presses a control or leaves a caret at the end of a
     /// field, and three select the field's whole value. A popup or a menu button
     /// refuses. A right click shows the nearest element's menu.
+    ///
+    /// With `prefersHost`, for an Apple extension's content, a press goes to the same control in the
+    /// host's own tree when it is there (`hostCounterpart`), and `cannotComplete` is no delivery.
+    ///
+    /// With `label`, the control the caller aimed at, a click presses only an element of that name: when
+    /// the hit one is named otherwise the same group's element of the requested name is pressed, and
+    /// none refuses (`wrongElement`).
     func actuate(
+        _ command  : InputCommand,
+        endpoint   : ResolvedInputEndpoint,
+        prefersHost: Bool = false,
+        expecting label: String? = nil
+    ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
+        var scoped = self
+        scoped.requestedLabel = label.flatMap { Self.normalized($0).isEmpty ? nil : $0 }
+        scoped.isOrdinaryWindow = endpoint.relation == .logicalSurface
+        scoped.hostSurfaceNumber = prefersHost && endpoint.relation == .remoteContent
+            ? endpoint.logicalSurface.windowNumber : nil
+        return scoped.actuateScoped(command, endpoint: endpoint)
+    }
+
+    private func actuateScoped(
         _ command: InputCommand,
         endpoint : ResolvedInputEndpoint
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
@@ -144,6 +215,8 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         }
         guard !nodes.isEmpty else { return .failure(.noElementAtPoint) }
         let roles = nodes.map { role($0) ?? kAXUnknownRole }
+        // A page keeps its posted click: its elements are not measured to take accessibility actions.
+        if isOrdinaryWindow, roles.contains(Self.webAreaRole) { return .failure(.webContent) }
 
         if button == .right {
             guard count == 1, let menu = nodes.first(where: { actions($0).contains(kAXShowMenuAction) })
@@ -162,7 +235,15 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
             return .failure(.opensMenu(roles[control]))
         }
         if let row {
-            if count == 1, let control { return press(nodes[control], kAXPressAction) }
+            // An editable field drawn in the row takes the caret, where a click used to select the row only.
+            if let field = editableField(in: nodes, roles: roles, before: row), control.map({ field < $0 }) ?? true {
+                switch count {
+                    case 1    : return select(in: nodes[field], role: roles[field], wholeValue: false)
+                    case 3... : return select(in: nodes[field], role: roles[field], wholeValue: true)
+                    default   : return .failure(.unsupportedRole(roles[field]))
+                }
+            }
+            if count == 1, let control { return pressTarget(nodes[control]) }
             guard count <= 2 else { return .failure(.unsupportedRole(kAXRowRole)) }
             var selected: String
             switch selectRow(at: row, of: nodes) {
@@ -192,13 +273,23 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         }
         switch count {
             case 1 where Self.pressedRoles.contains(roles[index]):
-                return press(nodes[index], kAXPressAction)
+                return pressTarget(nodes[index])
             case 1 where Self.textRoles.contains(roles[index]):
                 return select(in: nodes[index], role: roles[index], wholeValue: false)
             case 3... where Self.textRoles.contains(roles[index]):
                 return select(in: nodes[index], role: roles[index], wholeValue: true)
             default:
                 return .failure(.unsupportedRole(roles[index]))
+        }
+    }
+
+    /// The nearest text element above `row` whose caret and value can both be written: a field that
+    /// takes text in place. A file's name in a list can have a writable range and never a value.
+    private func editableField(in nodes: [Node], roles: [String], before row: Int) -> Int? {
+        (0..<row).first {
+            Self.textRoles.contains(roles[$0])
+                && selectionIsSettable(nodes[$0], kAXSelectedTextRangeAttribute)
+                && selectionIsSettable(nodes[$0], kAXValueAttribute)
         }
     }
 
@@ -261,11 +352,14 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
             Self.rowContainerRoles.contains(role($0) ?? "") && selectionIsSettable($0, kAXSelectedRowsAttribute)
         }
         func listHoldsRow() -> Bool { list.map { selection($0, kAXSelectedRowsAttribute) == [target] } ?? false }
-        if let list, writeSelection(list, kAXSelectedRowsAttribute, [target]) == .success, listHoldsRow() {
-            return .success(kAXSelectedRowsAttribute)
-        }
+        let listWritten = list.map { writeSelection($0, kAXSelectedRowsAttribute, [target]) == .success } ?? false
+        if listWritten, listHoldsRow() { return .success(kAXSelectedRowsAttribute) }
         let code = write(target, .selected)
         guard code == .success else {
+            // An ordinary window's row that nothing could write did nothing: its click is posted.
+            if isOrdinaryWindow, !listWritten, code == .attributeUnsupported || code == .actionUnsupported {
+                return .failure(.unsupportedRole(kAXRowRole))
+            }
             return .failure(.actionRefused(action: kAXSelectedAttribute, code: code.rawValue))
         }
         guard isSelected(target) == true || listHoldsRow() else { return .failure(.selectionNotVerified(kAXRowRole)) }
@@ -301,18 +395,192 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         ))
     }
 
-    /// Performs one action. A panel's default button closes the panel before
-    /// answering, -25204, so that answer is a delivery, verified by the panel
-    /// disappearing, as any Receipt is verified by what follows it.
+    /// Presses the control a click reached, once it is the one the caller aimed at: an element named
+    /// otherwise is replaced by its group's element of the requested name, and with none nothing is
+    /// pressed. An element with no name of its own cannot be told apart and is pressed.
+    private func pressTarget(_ node: Node) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
+        guard let wanted = requestedLabel, case let names = labels(node), !names.isEmpty,
+              !names.contains(where: { Self.sameLabel($0, wanted) })
+        else { return press(node, kAXPressAction) }
+        let found = names[0]
+        guard let other = named(wanted, besides: node) else {
+            note("the element at that point is '\(found)', not '\(wanted)': nothing was pressed")
+            return .failure(.wrongElement(requested: wanted, found: found))
+        }
+        note("the element at that point is '\(found)', so '\(wanted)' is pressed instead")
+        return press(other, kAXPressAction)
+    }
+
+    /// The element of the requested name that offers AXPress: one of the hit element's siblings, else
+    /// for an extension one in the host window's tree near it.
+    private func named(_ wanted: String, besides node: Node) -> Node? {
+        func fits(_ candidate: Node) -> Bool {
+            candidate != node && actions(candidate).contains(kAXPressAction)
+                && labels(candidate).contains { Self.sameLabel($0, wanted) }
+        }
+        if let siblings = parent(node).map(children), let match = siblings.first(where: fits) { return match }
+        return hostSurfaceNumber == nil ? nil : search(near: node, where: fits)
+    }
+
+    /// Whether two names are one, as the scene writes it: trimmed, without the state prefix some
+    /// toolkits add or a " #N" ordinal, and ignoring case and accents.
+    static func sameLabel(_ left: String, _ right: String) -> Bool { normalized(left) == normalized(right) }
+
+    static func normalized(_ raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["Shown. ", "Hidden. ", "Selected. ", "Active. ", "Inactive. "] where text.hasPrefix(prefix) {
+            text = String(text.dropFirst(prefix.count))
+        }
+        if let hash = text.range(of: " #", options: .backwards), !text[hash.upperBound...].isEmpty,
+           text[hash.upperBound...].allSatisfy(\.isNumber) {
+            text = String(text[..<hash.lowerBound])
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
+    /// Performs one action on the node, or for an Apple extension's press on the same control in the
+    /// host's tree, never on both, and logs what the application answered.
+    ///
+    /// A panel's default button closes the panel before answering, -25204, so that answer is a
+    /// delivery there, verified by the panel disappearing. An extension's control has no such
+    /// reason: its -25204 may have done nothing, so it refuses as an action of unknown effect.
     private func press(
         _ node  : Node,
         _ action: String
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
-        let code = perform(node, action)
-        guard code == .success || code == .cannotComplete else {
+        // An ordinary window's element that does not offer the action is not asked for it.
+        if isOrdinaryWindow, !actions(node).contains(action) {
+            return .failure(.unsupportedRole(role(node) ?? kAXUnknownRole))
+        }
+        let host   = action == kAXPressAction ? hostCounterpart(of: node, action: action) : nil
+        let target = host ?? node
+        let before = hostSurfaceNumber != nil && action == kAXPressAction ? readableState(of: target) : nil
+        let code   = perform(target, action)
+        note("\(action) on \(role(target) ?? kAXUnknownRole) in the \(host == nil ? "path's" : "host's") tree "
+            + "answered AXError \(code.rawValue) (\(code))")
+        let delivered = code == .success || code == .cannotComplete && hostSurfaceNumber == nil
+        guard delivered else {
             return .failure(.actionRefused(action: action, code: code.rawValue))
         }
-        return .success(RemoteContentActuation(action: action, role: role(node) ?? kAXUnknownRole, textField: nil))
+        var actuation = RemoteContentActuation(
+            action   : host == nil ? action : action + " in the host's tree",
+            role     : role(target) ?? kAXUnknownRole,
+            textField: nil
+        )
+        if code == .success, hostSurfaceNumber != nil, action == kAXPressAction {
+            verify(target, before: before, &actuation)
+        }
+        return .success(actuation)
+    }
+
+    /// An extension's press that answered success is read back when the control shows a state.
+    /// Unchanged, it is pressed once through its child or its parent, and when that changes nothing
+    /// either the actuation asks for one posted click. A control with no readable state, before or
+    /// after, is never pressed or clicked again: nothing proves the press did not work.
+    private func verify(_ target: Node, before: Bool?, _ actuation: inout RemoteContentActuation) {
+        let name   = label(target) ?? role(target) ?? kAXUnknownRole
+        let isFlip = role(target) == kAXCheckBoxRole
+        // A segment already on cannot show a press, where a switch can always flip.
+        guard let before, isFlip || !before else {
+            note("AXPress on '\(name)' answered success and its state is "
+                + "\(before.map { $0 ? "on" : "off" } ?? "not readable"): nothing proves it was ignored")
+            return
+        }
+        // Nil when the control stopped answering, which proves nothing either way.
+        func changed() -> Bool? {
+            settle()
+            return readableState(of: target).map { isFlip ? $0 != before : $0 }
+        }
+        guard let first = changed() else { return note("'\(name)' no longer answers its state after AXPress") }
+        guard !first else { return }
+
+        let child  = children(target).first { actions($0).contains(kAXPressAction) }
+        let other  = child ?? parent(target).flatMap { actions($0).contains(kAXPressAction) ? $0 : nil }
+        let helper = child == nil ? "parent" : "child"
+        if let other {
+            let code = perform(other, kAXPressAction)
+            note("AXPress on '\(name)' left its state unchanged, so AXPress on its \(helper) answered "
+                + "AXError \(code.rawValue) (\(code))")
+            guard let second = changed() else { return note("'\(name)' no longer answers its state") }
+            if second {
+                actuation = RemoteContentActuation(
+                    action   : "\(kAXPressAction) on its \(helper)",
+                    role     : role(other) ?? kAXUnknownRole,
+                    textField: nil
+                )
+                return
+            }
+        }
+        note("'\(name)' still shows the same state after accessibility, so one click is posted on the host window")
+        actuation.needsPostedClick = true
+    }
+
+    /// The state a control shows, nil when it shows none or no longer answers: a checkbox's, switch's
+    /// or radio button's 0 or 1 value, else its `AXSelected`, else off for a segment of a selector
+    /// whose selected segment answers (`isSegment`).
+    private func readableState(of node: Node) -> Bool? {
+        guard let kind = role(node) else { return nil }
+        if kind == kAXCheckBoxRole || kind == kAXRadioButtonRole, let on = toggleValue(node) { return on }
+        return isSelected(node) ?? (isSegment(node) ? false : nil)
+    }
+
+    /// True for a button in a run of contiguous buttons that offer AXPress, in one parent with no
+    /// other element between them, when one button of the run answers `AXSelected`: a segmented
+    /// selector, where an unselected segment answers nothing. A lone button or one separated by
+    /// other elements shows no state.
+    private func isSegment(_ node: Node) -> Bool {
+        func member(_ candidate: Node) -> Bool {
+            role(candidate) == kAXButtonRole && actions(candidate).contains(kAXPressAction)
+        }
+        guard member(node), let siblings = parent(node).map(children), let at = siblings.firstIndex(of: node)
+        else { return false }
+        var first = at
+        var last  = at
+        while first > 0, member(siblings[first - 1]) { first -= 1 }
+        while last + 1 < siblings.count, member(siblings[last + 1]) { last += 1 }
+        return siblings[first...last].contains { isSelected($0) != nil }
+    }
+
+    /// The control in the host's own tree that is the one `node` shows: the first element, nearest
+    /// the host window first, of the same role and label, offering the action, whose frame is within
+    /// 2 points of the node's on every side. The node is the one asked for by then (`pressTarget`), so
+    /// its copy carries the asked name too. Nil when the host has none, or is not asked. Content hosted
+    /// in a window is reached through the host's tree as the same elements, so there none is found
+    /// and the node itself is pressed.
+    private func hostCounterpart(of node: Node, action: String) -> Node? {
+        guard let target = frame(node) else { return nil }
+        let wanted = role(node)
+        let name   = label(node)
+        return search(near: node) { candidate in
+            candidate != node && role(candidate) == wanted && label(candidate) == name
+                && actions(candidate).contains(action)
+                && frame(candidate).map {
+                    abs($0.minX - target.minX) <= 2 && abs($0.minY - target.minY) <= 2
+                        && abs($0.width - target.width) <= 2 && abs($0.height - target.height) <= 2
+                } ?? false
+        }
+    }
+
+    /// The first element of the host window's tree, nearest the window first, that `fits`. Only
+    /// branches whose frame holds the node's centre are entered, and at most 512 elements are read.
+    private func search(near node: Node, where fits: (Node) -> Bool) -> Node? {
+        guard let number = hostSurfaceNumber, let root = windowNode(number), let target = frame(node) else {
+            return nil
+        }
+        let centre = CGPoint(x: target.midX, y: target.midY)
+        var level   = [root]
+        var visited = 0
+        while !level.isEmpty, visited < 512 {
+            var below: [Node] = []
+            for candidate in level {
+                visited += 1
+                if fits(candidate) { return candidate }
+                below += children(candidate).filter { frame($0)?.insetBy(dx: -1, dy: -1).contains(centre) ?? true }
+            }
+            level = below
+        }
+        return nil
     }
 
     /// Leaves a caret at the end of the field's value, or selects all of it.
@@ -322,6 +590,9 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         role      : String,
         wholeValue: Bool
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
+        if isOrdinaryWindow, !selectionIsSettable(node, kAXSelectedTextRangeAttribute) {
+            return .failure(.unsupportedRole(role))
+        }
         guard let current = value(node) else { return .failure(.unreadable) }
         let length = current.utf16.count
         let code   = write(node, .selectedTextRange(location: wholeValue ? 0 : length, length: wholeValue ? length : 0))
@@ -347,6 +618,8 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
 }
 
 // MARK: - The shipping actuator
+
+private let remoteContentLog = Logger(subsystem: "dev.forte.AgentSeatKit", category: "RemoteContentActuator")
 
 extension RemoteContentActuator where Node == AXUIElement {
 
@@ -421,7 +694,25 @@ extension RemoteContentActuator where Node == AXUIElement {
                 children.forEach { AXUIElementSetMessagingTimeout($0, BoundedAccessibilityRead.fastTimeout) }
                 return children
             },
-            defaultButton   : { attribute($0, kAXDefaultButtonAttribute) }
+            defaultButton   : { attribute($0, kAXDefaultButtonAttribute) },
+            windowNode      : { resolver.windowNode($0) },
+            frame           : { resolver.nodeFrame($0) },
+            label           : { node in
+                [kAXTitleAttribute, kAXDescriptionAttribute]
+                    .lazy.compactMap { attribute(node, $0) as String? }.first { !$0.isEmpty }
+            },
+            labels          : { node in
+                [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute]
+                    .compactMap { attribute(node, $0) as String? }.filter { !$0.isEmpty }
+            },
+            toggleValue     : { node in
+                guard let number: NSNumber = attribute(node, kAXValueAttribute), [0, 1].contains(number.intValue)
+                else { return nil }
+                return number.boolValue
+            },
+            // An extension answers its new state after a short round trip.
+            settle          : { Thread.sleep(forTimeInterval: 0.2) },
+            note            : { line in remoteContentLog.notice("\(line, privacy: .public)") }
         )
     }
 }

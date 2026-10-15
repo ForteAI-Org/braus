@@ -269,6 +269,14 @@ always did. A standalone panel proxy whose modal relation the seat failed to
 attest remains outside the modal routes, and the residual risk of the amendment
 is the one it states.
 
+## Amendment: Apple extension content (2026-10-15)
+
+Decided by the owner. Remote content stays refused above, with one widening: an Apple extension
+drawn inside an Apple native application (System Settings panes) is qualified for the
+accessibility route only, by the signature of both bundles. Its clicks and remembered field text are
+actuated; drags, scrolls and right clicks are refused, keys keep their routes, and nothing is posted into it. The
+rule and its limits are in ADR 0031, follow-up of the same date.
+
 ## What stays unproven
 
 - Safari beyond the controlled owned field and button used by the 2026-10-03

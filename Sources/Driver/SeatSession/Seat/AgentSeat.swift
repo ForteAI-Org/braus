@@ -2348,14 +2348,16 @@ public final class AgentSeat {
         _ command  : InputCommand,
         observation: SeatObservationReference,
         turn       : Turn,
-        platform   : (any InputPlatform)? = nil
+        platform   : (any InputPlatform)? = nil,
+        expecting  label: String? = nil
     ) async throws -> InputReceipt {
         try await send(
             command,
             observation     : observation,
             turn            : turn,
             platform        : platform,
-            layoutGeneration: nil
+            layoutGeneration: nil,
+            expecting       : label
         )
     }
 
@@ -2407,7 +2409,8 @@ public final class AgentSeat {
         observation     : SeatObservationReference,
         turn            : Turn,
         platform        : (any InputPlatform)?,
-        layoutGeneration: UInt64?
+        layoutGeneration: UInt64?,
+        expecting       label: String? = nil
     ) async throws -> InputReceipt {
 
         // While a menu interaction is current, only the menu and its closing may
@@ -2480,23 +2483,26 @@ public final class AgentSeat {
         let classification = textField != nil ? .remotePanelContent : SurfaceInputClassification.of(
             observation,
             endpoint: endpoint,
-            remoteAppKitPanelServiceQualified: endpoint.map {
-                endpoints.qualifiedAppKitPanelService($0.identity)
-            } ?? false
+            remoteContent: endpoint.map {
+                endpoints.qualifiedRemoteContent($0.identity, $0.logicalSurface)
+            } ?? .none
         )
         let isModalSurface = attestedModalSurface(for: observation) != nil
         if nativeTextInputContext != nil, isModalSurface {
             throw InputFailure.nativeTextInputRefused(.unsupported)
         }
-        // An ordinary window of an application that takes its clicks through accessibility, Finder's,
-        // acts on its own content the way a remote panel's is acted on (ADR 0031).
+        // An ordinary window of an Apple native application acts on its own content through
+        // accessibility first, the way a remote panel's is acted on (ADR 0031).
         let ownContent = ownContentEndpoint(
             for        : routed,
             endpoint   : endpoint,
             window     : window,
             observation: observation
         )
-        guard let resolved = platform ?? (menuTakesKeys ? AppKitPlatform() : nil) ?? classification.platform(
+        // An Apple extension's pointer Commands only name the recipe: the accessibility route
+        // answers or throws, and nothing is posted into the extension.
+        let accessibilityOnly = classification == .appleExtensionContent && routed.hasMouseLocation
+        guard let resolved = platform ?? (menuTakesKeys || accessibilityOnly ? AppKitPlatform() : nil) ?? classification.platform(
             for                : routed,
             ofDrivenApplication: record.platform,
             host               : window.reference,
@@ -2580,7 +2586,8 @@ public final class AgentSeat {
             // A click posted into a remote panel's content activates its host, so
             // it and a remembered field's text go through accessibility instead.
             let byAccessibility = textField != nil || ownContent != nil
-                || classification == .remotePanelContent && routed.hasMouseLocation
+                || (classification == .remotePanelContent || classification == .appleExtensionContent)
+                    && routed.hasMouseLocation
             // An ordinary window's unprepared keys read the focus once, just before
             // the first post: a second reading of a busy application only aged them.
             let readsFocusOnlyBeforeFirstPost = endpoint.map(isOrdinaryKeyboardEndpoint) == true
@@ -2599,36 +2606,44 @@ public final class AgentSeat {
                 throw retired
             }
             traceContext.beginQueue(at: DispatchTime.now().uptimeNanoseconds)
-            let receipt = try await byAccessibility ? actuateRemoteContent(
+            // A click an ordinary window's accessibility declined before doing anything is posted.
+            let actuated = try await byAccessibility ? actuateRemoteContent(
                 routed,
                 textField   : textField?.field,
                 endpoint    : ownContent ?? endpoint,
                 observation : observation,
                 turn        : turn,
                 recipient   : recipient,
-                traceContext: traceContext
-            ) : sender.send(
-                routed,
-                to           : recipient,
-                correlationID: turn.correlationID,
-                platform     : resolved,
-                traceContext : traceContext,
-                beforeFirstPost: { [weak self] in
-                    try await MainActor.run {
-                        guard let self else { throw CancellationError() }
-                        if let refusal = self.admissionRefusal(for: observation, expecting: .ordinaryTarget) {
-                            throw refusal
-                        }
-                        // The waits the recipe itself imposed are not the endpoint growing old.
-                        if let endpoint, let retired = self.endpointInvalidation(
-                            of      : endpoint,
-                            allowing: Self.preparationWait(of: resolved, for: routed)
-                        ) {
-                            throw retired
+                traceContext: traceContext,
+                mayPost     : ownContent != nil,
+                prefersHost : classification == .appleExtensionContent,
+                expecting   : label,
+                hostRecipe  : classification == .appleExtensionContent ? (window.reference, resolved) : nil
+            ) : nil
+            let receipt = if let actuated { actuated } else {
+                try await sender.send(
+                    routed,
+                    to           : recipient,
+                    correlationID: turn.correlationID,
+                    platform     : resolved,
+                    traceContext : traceContext,
+                    beforeFirstPost: { [weak self] in
+                        try await MainActor.run {
+                            guard let self else { throw CancellationError() }
+                            if let refusal = self.admissionRefusal(for: observation, expecting: .ordinaryTarget) {
+                                throw refusal
+                            }
+                            // The waits the recipe itself imposed are not the endpoint growing old.
+                            if let endpoint, let retired = self.endpointInvalidation(
+                                of      : endpoint,
+                                allowing: Self.preparationWait(of: resolved, for: routed)
+                            ) {
+                                throw retired
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
             commandPosted = true
             // The Command is complete, so the observation it was decided on is
             // no longer current. It is not a fault: the reason says so.
@@ -2676,7 +2691,11 @@ public final class AgentSeat {
     /// `send` describes. The Receipt counts no event and names
     /// `PostRoute.accessibilityAction`. A drag or a scroll refuses. A refusal
     /// changes nothing, except `actionRefused`, which may follow an effect and
-    /// is never repeated.
+    /// is never repeated. With `mayPost`, an ordinary window's click refused
+    /// before anything was done answers nil and the caller posts it. With `prefersHost`, an
+    /// Apple extension's press goes through the host's own tree (`RemoteContentActuator`), and when
+    /// that proved ignored, `hostRecipe` is the host window and recipe one click is posted with,
+    /// never into the extension's own window.
     private func actuateRemoteContent(
         _ command    : InputCommand,
         textField    : RemoteContentActuation.TextField?,
@@ -2684,14 +2703,19 @@ public final class AgentSeat {
         observation  : SeatObservationReference,
         turn         : Turn,
         recipient    : WindowReference,
-        traceContext : InputTraceContext
-    ) async throws -> InputReceipt {
+        traceContext : InputTraceContext,
+        mayPost      : Bool = false,
+        prefersHost  : Bool = false,
+        expecting    label: String? = nil,
+        hostRecipe   : (window: WindowReference, platform: any InputPlatform)? = nil
+    ) async throws -> InputReceipt? {
 
         var trace = traceContext
         trace.beginExecution(at: DispatchTime.now().uptimeNanoseconds)
         let isClick = if case .click = command { true } else { false }
         let started: UInt64
         let done   : String
+        var hostClick: (command: InputCommand, window: WindowReference)?
         do {
             guard textField != nil || isClick else { throw RemoteContentActuationRefusal.gestureUnmeasured }
             try await commandGate?.prepare(correlationID: turn.correlationID)
@@ -2707,16 +2731,51 @@ public final class AgentSeat {
                 guard let endpoint, let instance = assignmentKit.lifecycle.current?.instance else {
                     throw RemoteContentActuationRefusal.unreadable
                 }
-                let actuation = try endpoints.remoteActuation(instance.processID, command, endpoint).get()
+                let actuation = try endpoints.remoteActuation(
+                    instance.processID, command, endpoint, prefersHost, label
+                ).get()
                 remoteTextField = actuation.textField.map {
                     ($0, recipient, endpoint.logicalSurface, endpoint.selectionGeneration)
                 }
                 done = "\(actuation.action) on \(actuation.role)"
+                if actuation.needsPostedClick, let hostRecipe, hostRecipe.window.windowNumber != recipient.windowNumber,
+                   hostRecipe.window.identity == endpoint.logicalSurface,
+                   let geometry = sensing.windowGeometryObservation(of: hostRecipe.window) {
+                    hostClick = (command.rebased(onto: geometry), hostRecipe.window)
+                }
             }
             trace.recordSendSystemCall(from: started, through: DispatchTime.now().uptimeNanoseconds)
+        } catch let refusal as RemoteContentActuationRefusal where mayPost && refusal.wasDeclinedBeforeActing {
+            Self.log.notice("""
+                accessibility declined the click on window \(recipient.windowNumber, privacy: .public) \
+                before acting, so it is posted: \(String(describing: refusal), privacy: .public)
+                """)
+            return nil
         } catch {
             sender.recordCompletedTrace(trace.completed(at: DispatchTime.now().uptimeNanoseconds))
             throw error
+        }
+        if let hostClick, let platform = hostRecipe?.platform {
+            Self.log.notice("""
+                accessibility left the control on window \(recipient.windowNumber, privacy: .public) unchanged \
+                (\(done, privacy: .public)), so one click is posted on host window \
+                \(hostClick.window.windowNumber, privacy: .public)
+                """)
+            return try await sender.send(
+                hostClick.command,
+                to             : hostClick.window,
+                correlationID  : turn.correlationID,
+                platform       : platform,
+                traceContext   : traceContext,
+                beforeFirstPost: { [weak self] in
+                    try await MainActor.run {
+                        guard let self else { throw CancellationError() }
+                        if let refusal = self.admissionRefusal(for: observation, expecting: .ordinaryTarget) {
+                            throw refusal
+                        }
+                    }
+                }
+            )
         }
         Self.log.notice("""
             \(isClick ? "pointer" : "text", privacy: .public) on window \
@@ -2742,8 +2801,8 @@ public final class AgentSeat {
         )
     }
 
-    /// The endpoint a click on an ordinary window of `EndpointDiscovery.accessibilityClickedApplications`
-    /// is actuated through: the one discovery answered for the window itself, or the window read now.
+    /// The endpoint a click on an ordinary window of an Apple native application is actuated
+    /// through: the one discovery answered for the window itself, or the window read now.
     /// Nil for any other Command, window or application, and for a modal or remote recipient. A
     /// scroll or a drag keeps its route: no activation is known for them, and a drag moves files.
     private func ownContentEndpoint(
@@ -3115,9 +3174,9 @@ public final class AgentSeat {
         let classification = SurfaceInputClassification.of(
             observation,
             endpoint: endpoint,
-            remoteAppKitPanelServiceQualified: endpoint.map {
-                endpoints.qualifiedAppKitPanelService($0.identity)
-            } ?? false
+            remoteContent: endpoint.map {
+                endpoints.qualifiedRemoteContent($0.identity, $0.logicalSurface)
+            } ?? .none
         )
         guard let openerPlatform = classification.platform(
             for                : opener,
@@ -4807,7 +4866,7 @@ public final class AgentSeat {
                   SurfaceInputClassification.isRemotePanelContent(
                       owner,
                       of       : dialog,
-                      qualified: endpoints.qualifiedAppKitPanelService(owner)
+                      qualified: endpoints.qualifiedRemoteContent(owner, dialog) == .filePanelService
                   )
             else { return nil }
             return owner

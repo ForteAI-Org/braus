@@ -62,13 +62,39 @@ public enum DeliveryEffect: Sendable, Equatable {
     case unknown
 }
 
+/// DeliveryRoute is how a gesture reached its process: posted as an event, or performed as an
+/// accessibility action, which is never also posted.
+public enum DeliveryRoute: Sendable, Equatable {
+
+    case posted
+    case accessibility
+}
+
 public protocol Actuating: Sendable {
 
     /// Delivers one gesture to the process and returns when the events have gone out. Says nothing
     /// about their effect; the engine verifies by perceiving again.
     func perform(_ gesture: Gesture, in processID: pid_t) async throws
 
+    /// The same, for a click aimed at the control the scene names `label`: a conformer that acts
+    /// through the element under the point may refuse an element named otherwise. The default
+    /// ignores the label.
+    func perform(_ gesture: Gesture, expecting label: String, in processID: pid_t) async throws
+
     /// Closes the gestures delivered since the last confirmation with what the engine saw. Called
     /// once per action, after the verdict, and also when delivery itself failed.
     func confirm(_ effect: DeliveryEffect, in processID: pid_t) async
+
+    /// How the last gesture delivered since the last confirmation reached the process. A conformer
+    /// that only posts events keeps the default.
+    func lastDeliveryRoute(in processID: pid_t) async -> DeliveryRoute
+}
+
+public extension Actuating {
+
+    func perform(_ gesture: Gesture, expecting label: String, in processID: pid_t) async throws {
+        try await perform(gesture, in: processID)
+    }
+
+    func lastDeliveryRoute(in processID: pid_t) async -> DeliveryRoute { .posted }
 }

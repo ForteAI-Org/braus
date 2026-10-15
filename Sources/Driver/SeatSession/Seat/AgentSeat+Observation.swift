@@ -108,10 +108,12 @@ struct EndpointDiscovery {
         _ deadlineNanoseconds: UInt64
     ) -> FocusedWindowReading
 
-    /// A remote WindowServer owner may use the AppKit panel recipe only when it
-    /// identifies as the platform panel service. A distinct PID establishes a
-    /// transport relation, not a backend or an input capability.
-    var qualifiedAppKitPanelService: (WindowIdentity) -> Bool = { _ in false }
+    /// What a remote WindowServer owner, drawn inside `host`, is qualified for: the AppKit panel
+    /// recipe only for the platform panel service, accessibility only for an Apple extension in an
+    /// Apple application. A distinct PID establishes a transport relation, not an input capability.
+    var qualifiedRemoteContent: (
+        _ remote: WindowIdentity, _ host: WindowIdentity
+    ) -> RemoteContentQualification = { _, _ in .none }
 
     /// Window-level keys need no focused control when a complete reading proves
     /// that the selected ordinary window has no foreign content underneath it.
@@ -214,19 +216,18 @@ struct EndpointDiscovery {
         .failure(.subtreeUnreadable(surface: chain.surface))
     }
 
-    /// The applications whose ordinary windows take their clicks through
-    /// accessibility, as a remote panel's content does (ADR 0031). The one
-    /// place this scope is decided; add a bundle identifier to widen it.
-    static let accessibilityClickedApplications: Set<String> = ["com.apple.finder"]
-
-    /// Whether `window` belongs to one of `accessibilityClickedApplications`.
+    /// Whether `window` belongs to an Apple native application, whose ordinary windows take their
+    /// clicks through accessibility first, as a remote panel's content does (ADR 0031). The one
+    /// place this scope is decided: `AppleNativeApplications`, by the bundle's signature.
     var clicksThroughAccessibility: (WindowIdentity) -> Bool = { _ in false }
 
     /// A click on a qualified remote panel's content, acted on through the
     /// assigned application's accessibility instead of posted (ADR 0031).
+    /// The fourth argument asks an Apple extension's press to go through the host's own tree, the
+    /// last names the control the caller aimed at, which a press refuses to replace.
     var remoteActuation: (
-        Int32, InputCommand, ResolvedInputEndpoint
-    ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> = { _, _, _ in
+        Int32, InputCommand, ResolvedInputEndpoint, Bool, String?
+    ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> = { _, _, _, _, _ in
         .failure(.unreadable)
     }
 
@@ -253,9 +254,17 @@ struct EndpointDiscovery {
                 .accessibility(assignedProcessID: processID)
                 .focusedNodeWindowReading(deadlineNanoseconds: deadline)
         },
-        qualifiedAppKitPanelService: { identity in
-            NSRunningApplication(processIdentifier: pid_t(identity.processID))?.bundleIdentifier
-                == "com.apple.appkit.xpc.openAndSavePanelService"
+        qualifiedRemoteContent: { remote, host in
+            let remoteApp = NSRunningApplication(processIdentifier: pid_t(remote.processID))
+            if remoteApp?.bundleIdentifier == "com.apple.appkit.xpc.openAndSavePanelService" {
+                return .filePanelService
+            }
+            guard let remoteURL = remoteApp?.bundleURL,
+                  let hostURL   = NSRunningApplication(processIdentifier: pid_t(host.processID))?.bundleURL
+            else { return .none }
+            return AppleNativeApplications.shipping.contains(extensionBundleAt: remoteURL, hostedBy: hostURL)
+                ? .appleExtension
+                : .none
         },
         ordinaryKeyboardContext: { processID, chain, generation in
             DialogEndpointResolver<AXUIElement>
@@ -328,13 +337,13 @@ struct EndpointDiscovery {
                 )
         },
         clicksThroughAccessibility: { window in
-            NSRunningApplication(processIdentifier: pid_t(window.processID))?.bundleIdentifier
-                .map(accessibilityClickedApplications.contains) ?? false
+            NSRunningApplication(processIdentifier: pid_t(window.processID))?.bundleURL
+                .map(AppleNativeApplications.shipping.contains(bundleAt:)) ?? false
         },
-        remoteActuation: { processID, command, endpoint in
+        remoteActuation: { processID, command, endpoint, prefersHost, label in
             RemoteContentActuator<AXUIElement>
                 .accessibility(assignedProcessID: processID)
-                .actuate(command, endpoint: endpoint)
+                .actuate(command, endpoint: endpoint, prefersHost: prefersHost, expecting: label)
         }
     )
 }
@@ -1161,7 +1170,7 @@ extension AgentSeat {
         }
         guard case .success(let remote) = route,
               remote.identity.process != remote.logicalSurface.process,
-              endpoints.qualifiedAppKitPanelService(remote.identity)
+              endpoints.qualifiedRemoteContent(remote.identity, remote.logicalSurface) == .filePanelService
         else { return nil }
         return remote
     }

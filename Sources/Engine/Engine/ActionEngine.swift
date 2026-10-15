@@ -339,11 +339,19 @@ public struct ActionEngine: Sendable {
         }
         do {
             switch request.verb {
-                case .doubleClick: try await dependencies.actuator.perform(.click(at: point, count: 2), in: pid)
-                case .tripleClick: try await dependencies.actuator.perform(.click(at: point, count: 3), in: pid)
+                case .doubleClick:
+                    try await dependencies.actuator.perform(
+                        .click(at: point, count: 2), expecting: element.label, in: pid
+                    )
+                case .tripleClick:
+                    try await dependencies.actuator.perform(
+                        .click(at: point, count: 3), expecting: element.label, in: pid
+                    )
                 case .rightClick : try await dependencies.actuator.perform(.click(at: point, button: .right), in: pid)
                 default:
-                    if !openedByPress { try await dependencies.actuator.perform(.click(at: point), in: pid) }
+                    if !openedByPress {
+                        try await dependencies.actuator.perform(.click(at: point), expecting: element.label, in: pid)
+                    }
             }
         } catch {
             await dependencies.actuator.confirm(.unknown, in: pid)
@@ -356,6 +364,9 @@ public struct ActionEngine: Sendable {
                     condition: .structuralEffect, method: .sceneDifference, verdict: .unknown,
                     limits: [.deliveryUncertain], performed: .uncertain, target: OperationCheck.Target(element)))
         }
+        // A press through accessibility is never also clicked, so a reply that found no effect says so.
+        let through = await dependencies.actuator.lastDeliveryRoute(in: pid) == .accessibility
+            ? " through accessibility, no click posted" : ""
         await settle(pid)
         guard let afterWindow = await perceive(pid) else {
             await dependencies.actuator.confirm(.unknown, in: pid)
@@ -365,7 +376,7 @@ public struct ActionEngine: Sendable {
             ))
             return ActOutcome(
                 .actedUnverified,
-                "\(request.verb.performed) '\(element.label)': no scene could be read "
+                "\(request.verb.performed) '\(element.label)'\(through): no scene could be read "
                 + "afterwards; observe the window once it is available",
                 check: OperationCheck(condition: .structuralEffect, method: .sceneDifference, verdict: .unknown,
                                       limits: [.noAfterScene], performed: .requested,
@@ -413,7 +424,7 @@ public struct ActionEngine: Sendable {
                 return ActOutcome(.foundActed, "\(request.verb.performed) '\(element.label)': "
                     + "\(effect.summary)\(asExpected)", scene: after, check: check)
             case .landed(let effect, false):
-                return ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)': expected "
+                return ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)'\(through): expected "
                     + "\(expected?.summary ?? "?") but observed \(effect.summary); re-perceive and re-decide. "
                         + "\(elsewhere.sentence)", scene: after, check: check)
             case .ghost, .unattributable:
@@ -423,7 +434,7 @@ public struct ActionEngine: Sendable {
                         + "is not classified"
                 let advice = elsewhere.changed ? "" : " Verify the intended result in a fresh observation "
                     + "before deciding on further input; do not repeat the click solely from this verdict."
-                return ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)': \(why).\(advice) "
+                return ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)'\(through): \(why).\(advice) "
                     + "\(elsewhere.sentence)", scene: after, check: check)
         }
     }
@@ -520,7 +531,7 @@ public struct ActionEngine: Sendable {
             return ActOutcome(.dryRun, "would click '\(element.label)' to set it \(desired.rawValue)")
         }
         await dependencies.settling?.prepare(in: pid)
-        do { try await dependencies.actuator.perform(.click(at: point), in: pid) }
+        do { try await dependencies.actuator.perform(.click(at: point), expecting: element.label, in: pid) }
         catch {
             await dependencies.actuator.confirm(.unknown, in: pid)
             await dependencies.observer?.record(ActionRecord(
@@ -899,7 +910,10 @@ public struct ActionEngine: Sendable {
             replacing    : replacing,
             byTripleClick: permissions.selectsFieldsByTripleClick
         ) + [inserts ? .insert(typed) : .type(typed)]
-        if let error = await send(gestures, to: pid) {
+        // Text kept in a field the click placed its caret in goes through accessibility too, which a key
+        // in between would forget.
+        let endOfField = Self.textFieldRoles.contains(element.role ?? "") ? Self.endOfField : nil
+        if let error = await send(gestures, to: pid, redundantAfterAccessibilityClick: endOfField) {
             return ActOutcome(.actedUnverified, "typing into '\(element.label)': delivery failed: \(error)",
                               check: Self.undelivered(.valueReadBack, method: .controlValue, expected: typed,
                                                       target: element))
@@ -977,7 +991,7 @@ public struct ActionEngine: Sendable {
         }
         // A background chord's unchanged scene does not qualify the target's menu support.
         let note = dependencies.activation == nil && chord.modifiers.contains(.command) ? Self.menuShortcutNote : ""
-        return await judged(
+        let outcome = await judged(
             pressed, in: request, before: perceived.scene, targetID: nil,
             ghost: "If you expected an effect, the key likely reached a control that ignores it: click the "
                 + "control that should receive it first.\(note)",
@@ -988,6 +1002,25 @@ public struct ActionEngine: Sendable {
             ignoresTextRereads: true,
             movesFocus: chord.key == .tab && chord.modifiers.subtracting(.shift).isEmpty
         )
+        // A character typed key by key costs two scene reads each: the text goes in one type_text.
+        guard Self.isTypedCharacter(chord), await dependencies.controls?.focusedFieldValue(in: pid) != nil else {
+            return outcome
+        }
+        return outcome.with(message: outcome.message + " " + Self.typeTextNote)
+    }
+
+    /// Said after a plain character key pressed while a field has the focus.
+    static let typeTextNote = "press_key is one keystroke, not for text: enter text with one type_text call "
+        + "on the field, which clicks it and types it all at once."
+
+    /// A letter, a digit, `/`, `~` or space, alone or with Shift: what a person types, not a shortcut.
+    private static func isTypedCharacter(_ chord: KeyChord) -> Bool {
+        guard chord.modifiers.subtracting(.shift).isEmpty else { return false }
+        return switch chord.key {
+            case .character, .space                        : true
+            case .return, .tab, .escape, .delete,
+                 .left, .right, .up, .down                 : false
+        }
     }
 
     /// The refusal for an input that would close the only window of the application, or nil when
@@ -1259,11 +1292,23 @@ public struct ActionEngine: Sendable {
 
     /// Delivers the gestures in order and answers the error that stopped them, nil when all went out.
     /// A failure closes the delivery as unknown: what went out before it is never repeated.
-    private func send(_ gestures: [Gesture], to processID: pid_t) async -> (any Error)? {
+    /// A `redundantAfterAccessibilityClick` gesture right after a click that went through accessibility
+    /// is not delivered: that click left its caret where the gesture would have moved it.
+    private func send(
+        _ gestures: [Gesture],
+        to processID: pid_t,
+        redundantAfterAccessibilityClick redundant: Gesture? = nil
+    ) async -> (any Error)? {
         do {
             // One reference before the first gesture: any effect of the whole input then counts.
             if !gestures.isEmpty { await dependencies.settling?.prepare(in: processID) }
-            for gesture in gestures { try await dependencies.actuator.perform(gesture, in: processID) }
+            for (index, gesture) in gestures.enumerated() {
+                if gesture == redundant, index > 0, case .click = gestures[index - 1],
+                   await dependencies.actuator.lastDeliveryRoute(in: processID) == .accessibility {
+                    continue
+                }
+                try await dependencies.actuator.perform(gesture, in: processID)
+            }
             return nil
         } catch {
             await dependencies.actuator.confirm(.unknown, in: processID)
