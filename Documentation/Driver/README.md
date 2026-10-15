@@ -37,6 +37,9 @@ The [Qt driver guide](platforms/Qt.md) records the command policy and the live
 qualification of DaVinci Resolve's Project Manager, including the commands
 whose target-side effect still needs a witness.
 
+The [Pro Tools guide](platforms/ProTools.md) records window-scoped accessibility clicks,
+recovery after Dashboard cancellation, and the measured controls and remaining limits.
+
 The [Braus application flow checks](reports/ApplicationFlowChecks.md) record effects,
 failures and corrections from the full app path across AppKit, UXP, Qt,
 Chromium, Electron and an unqualified hybrid CEF candidate.
