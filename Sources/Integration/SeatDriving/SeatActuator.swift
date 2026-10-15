@@ -43,6 +43,14 @@ public actor SeatActuator: Actuating {
     }
 
     public func perform(_ gesture: Gesture, in processID: pid_t) async throws {
+        try await deliver(gesture, expecting: nil, in: processID)
+    }
+
+    public func perform(_ gesture: Gesture, expecting label: String, in processID: pid_t) async throws {
+        try await deliver(gesture, expecting: label, in: processID)
+    }
+
+    private func deliver(_ gesture: Gesture, expecting label: String?, in processID: pid_t) async throws {
         #if BRAUS_PHASES
         let preparing = PhaseInterval.begin("delivery.prepare")
         #endif
@@ -67,7 +75,8 @@ public actor SeatActuator: Actuating {
                 receipts.append(try await seat.send(
                     .click(location, button: mouse, count: count),
                     observation: observation.reference,
-                    turn       : turn
+                    turn       : turn,
+                    expecting  : label
                 ))
             case .scroll(let point, let deltaY, _):
                 let location = try routed(point, in: observation)

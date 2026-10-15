@@ -76,6 +76,11 @@ public protocol Actuating: Sendable {
     /// about their effect; the engine verifies by perceiving again.
     func perform(_ gesture: Gesture, in processID: pid_t) async throws
 
+    /// The same, for a click aimed at the control the scene names `label`: a conformer that acts
+    /// through the element under the point may refuse an element named otherwise. The default
+    /// ignores the label.
+    func perform(_ gesture: Gesture, expecting label: String, in processID: pid_t) async throws
+
     /// Closes the gestures delivered since the last confirmation with what the engine saw. Called
     /// once per action, after the verdict, and also when delivery itself failed.
     func confirm(_ effect: DeliveryEffect, in processID: pid_t) async
@@ -86,6 +91,10 @@ public protocol Actuating: Sendable {
 }
 
 public extension Actuating {
+
+    func perform(_ gesture: Gesture, expecting label: String, in processID: pid_t) async throws {
+        try await perform(gesture, in: processID)
+    }
 
     func lastDeliveryRoute(in processID: pid_t) async -> DeliveryRoute { .posted }
 }

@@ -357,4 +357,97 @@ struct AppleExtensionPressTests {
 
         #expect(try !Self.press(shape).needsPostedClick)
     }
+    // MARK: A press on the element that was asked for
+
+    static func press(
+        _ shape: Appearance,
+        expecting label: String
+    ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
+        shape.actuator.actuate(
+            RemoteContentActuationTests.click(count: 1),
+            endpoint   : shape.pane.endpoint,
+            prefersHost: true,
+            expecting  : label
+        )
+    }
+
+    @Test("Light was asked for and the point hit Dark: Light is pressed, Dark never")
+    func theNamedSegmentReplacesTheWrongOne() throws {
+        let shape = try Self.appearance(pressing: "Dark")
+        shape.light.onPerform = { _ in
+            shape.dark.selectedFlag = false
+            shape.light.selectedFlag = true
+        }
+
+        let outcome = try Self.press(shape, expecting: "Light").get()
+
+        #expect(shape.light.performed == [kAXPressAction])
+        #expect(shape.dark.performed.isEmpty, "the element that was not asked for is never pressed")
+        #expect(outcome.role == kAXButtonRole)
+        #expect(!outcome.needsPostedClick)
+        #expect(shape.pane.notes.lines.contains { $0.contains("'Dark'") && $0.contains("'Light' is pressed instead") })
+    }
+
+    @Test("a name nothing near the point answers to refuses without pressing anything")
+    func aMissingNameRefuses() throws {
+        let shape = try Self.appearance(pressing: "Dark")
+
+        #expect(throws: RemoteContentActuationRefusal.wrongElement(requested: "Sepia", found: "Dark")) {
+            try Self.press(shape, expecting: "Sepia").get()
+        }
+        for element in [shape.light, shape.dark, shape.auto, shape.capsule] { #expect(element.performed.isEmpty) }
+        #expect(!RemoteContentActuationRefusal.wrongElement(requested: "a", found: "b").wasDeclinedBeforeActing,
+                "an ordinary window's refusal is never posted instead")
+    }
+
+    @Test("the hit element is the asked one, however it is written: the press is unchanged",
+          arguments: ["Dark", " dark ", "Dark #2", "Selected. Dark"])
+    func aMatchingNamePressesTheHitElement(asked: String) throws {
+        let shape = try Self.appearance(pressing: "Dark")
+
+        let outcome = try Self.press(shape, expecting: asked).get()
+
+        #expect(shape.dark.performed == [kAXPressAction])
+        #expect(shape.light.performed.isEmpty)
+        #expect(outcome.action == kAXPressAction)
+        #expect(!shape.pane.notes.lines.contains { $0.contains("pressed instead") })
+    }
+
+    @Test("an element with no name of its own cannot be told apart, so it is pressed")
+    func anUnnamedElementIsPressed() throws {
+        let shape = try Self.appearance(pressing: "Auto")
+        shape.auto.title = nil
+
+        _ = try Self.press(shape, expecting: "Light").get()
+
+        #expect(shape.auto.performed == [kAXPressAction])
+    }
+
+    @Test("with the name only in the host's tree, that element is pressed")
+    func theHostTreeIsSearchedForTheName() throws {
+        let pane = try Self.pane()
+        pane.remote.title = "Dark"
+
+        let outcome = try pane.actuator.actuate(
+            RemoteContentActuationTests.click(count: 1), endpoint: pane.endpoint, prefersHost: true, expecting: "Light"
+        ).get()
+
+        #expect(pane.host.performed == [kAXPressAction])
+        #expect(pane.remote.performed.isEmpty)
+        #expect(outcome.action == "AXPress")
+    }
+
+    @Test("a host copy named otherwise than the pressed element is not its copy")
+    func theHostCopyIsNotNamedOtherwise() throws {
+        let pane = try Self.pane(hostFrame: Self.frame)
+        pane.host.title = "Dark"
+        pane.remote.title = "Light"
+
+        _ = try pane.actuator.actuate(
+            RemoteContentActuationTests.click(count: 1), endpoint: pane.endpoint, prefersHost: true, expecting: "Light"
+        ).get()
+
+        #expect(pane.host.performed.isEmpty, "a copy named otherwise than asked is not pressed")
+        #expect(pane.remote.performed == [kAXPressAction])
+    }
 }

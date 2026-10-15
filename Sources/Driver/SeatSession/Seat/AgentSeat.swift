@@ -2348,14 +2348,16 @@ public final class AgentSeat {
         _ command  : InputCommand,
         observation: SeatObservationReference,
         turn       : Turn,
-        platform   : (any InputPlatform)? = nil
+        platform   : (any InputPlatform)? = nil,
+        expecting  label: String? = nil
     ) async throws -> InputReceipt {
         try await send(
             command,
             observation     : observation,
             turn            : turn,
             platform        : platform,
-            layoutGeneration: nil
+            layoutGeneration: nil,
+            expecting       : label
         )
     }
 
@@ -2407,7 +2409,8 @@ public final class AgentSeat {
         observation     : SeatObservationReference,
         turn            : Turn,
         platform        : (any InputPlatform)?,
-        layoutGeneration: UInt64?
+        layoutGeneration: UInt64?,
+        expecting       label: String? = nil
     ) async throws -> InputReceipt {
 
         // While a menu interaction is current, only the menu and its closing may
@@ -2614,6 +2617,7 @@ public final class AgentSeat {
                 traceContext: traceContext,
                 mayPost     : ownContent != nil,
                 prefersHost : classification == .appleExtensionContent,
+                expecting   : label,
                 hostRecipe  : classification == .appleExtensionContent ? (window.reference, resolved) : nil
             ) : nil
             let receipt = if let actuated { actuated } else {
@@ -2702,6 +2706,7 @@ public final class AgentSeat {
         traceContext : InputTraceContext,
         mayPost      : Bool = false,
         prefersHost  : Bool = false,
+        expecting    label: String? = nil,
         hostRecipe   : (window: WindowReference, platform: any InputPlatform)? = nil
     ) async throws -> InputReceipt? {
 
@@ -2726,7 +2731,9 @@ public final class AgentSeat {
                 guard let endpoint, let instance = assignmentKit.lifecycle.current?.instance else {
                     throw RemoteContentActuationRefusal.unreadable
                 }
-                let actuation = try endpoints.remoteActuation(instance.processID, command, endpoint, prefersHost).get()
+                let actuation = try endpoints.remoteActuation(
+                    instance.processID, command, endpoint, prefersHost, label
+                ).get()
                 remoteTextField = actuation.textField.map {
                     ($0, recipient, endpoint.logicalSurface, endpoint.selectionGeneration)
                 }

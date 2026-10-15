@@ -223,10 +223,11 @@ struct EndpointDiscovery {
 
     /// A click on a qualified remote panel's content, acted on through the
     /// assigned application's accessibility instead of posted (ADR 0031).
-    /// The last argument asks an Apple extension's press to go through the host's own tree.
+    /// The fourth argument asks an Apple extension's press to go through the host's own tree, the
+    /// last names the control the caller aimed at, which a press refuses to replace.
     var remoteActuation: (
-        Int32, InputCommand, ResolvedInputEndpoint, Bool
-    ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> = { _, _, _, _ in
+        Int32, InputCommand, ResolvedInputEndpoint, Bool, String?
+    ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> = { _, _, _, _, _ in
         .failure(.unreadable)
     }
 
@@ -339,10 +340,10 @@ struct EndpointDiscovery {
             NSRunningApplication(processIdentifier: pid_t(window.processID))?.bundleURL
                 .map(AppleNativeApplications.shipping.contains(bundleAt:)) ?? false
         },
-        remoteActuation: { processID, command, endpoint, prefersHost in
+        remoteActuation: { processID, command, endpoint, prefersHost, label in
             RemoteContentActuator<AXUIElement>
                 .accessibility(assignedProcessID: processID)
-                .actuate(command, endpoint: endpoint, prefersHost: prefersHost)
+                .actuate(command, endpoint: endpoint, prefersHost: prefersHost, expecting: label)
         }
     )
 }

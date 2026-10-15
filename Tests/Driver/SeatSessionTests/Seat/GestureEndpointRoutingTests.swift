@@ -101,6 +101,7 @@ struct GestureEndpointRoutingTests {
             }
         var actuated: [(command: InputCommand, endpoint: ResolvedInputEndpoint)] = []
         var prefersHost: [Bool] = []
+        var labels: [String?] = []
 
         /// Whether the window's application takes its clicks through accessibility, as Finder does.
         var clicksThroughAccessibility = false
@@ -144,9 +145,10 @@ struct GestureEndpointRoutingTests {
                 },
                 foreignContentWindow: { [self] _, _ in foreignContentWindow },
                 clicksThroughAccessibility: { [self] _ in clicksThroughAccessibility },
-                remoteActuation: { [self] _, command, endpoint, prefersHost in
+                remoteActuation: { [self] _, command, endpoint, prefersHost, label in
                     actuated.append((command, endpoint))
                     self.prefersHost.append(prefersHost)
+                    self.labels.append(label)
                     return actuation(command, endpoint)
                 }
             )
@@ -769,8 +771,10 @@ struct GestureEndpointRoutingTests {
         let receipt = try await panel.seat.send(
             Self.click(at: Self.insideSheet(panel)),
             observation: observation,
-            turn       : turn
+            turn       : turn,
+            expecting  : "Light"
         )
+        #expect(panel.discovery.labels == ["Light"], "the aimed control's name reaches the actuation")
         #expect(panel.sender.sent.isEmpty, "no event reaches either process")
         #expect(receipt.route.poster == .accessibilityAction)
         #expect(panel.discovery.actuated.count == 1)

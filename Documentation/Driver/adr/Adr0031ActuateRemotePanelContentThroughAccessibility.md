@@ -395,6 +395,12 @@ view, so an Apple extension's `AXPress` now looks there first.
   A button in a run of contiguous AXPress buttons of one parent where one answers AXSelected (a
   segmented selector, Appearance's Light, Dark, Auto) shows "off" while it answers nothing, so a
   selection that did not move to it proves the press ignored; a button apart from the run shows none.
+- Follow-up 2026-10-15 (round 7): a click aimed at a named control (`Gesture.click` through
+  `Actuating.perform(_:expecting:in:)`, `AgentSeat.send(expecting:)`) presses only an element of that
+  name. When the point hit another one (Dark for Light) the same group's element of the requested name is
+  pressed, else the host window's near it, and with none the press refuses (`wrongElement`, never posted
+  instead). An element with no name of its own is pressed. Content hosted in a window shows through the
+  host's tree as the same elements, so the host-copy matching finds no second one.
   Test: AppleExtensionPressTests, GestureEndpointRoutingTests.
 
 ## Limits

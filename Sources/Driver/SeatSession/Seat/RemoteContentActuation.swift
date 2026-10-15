@@ -62,6 +62,10 @@ nonisolated public enum RemoteContentActuationRefusal: Error, Sendable, Equatabl
     /// (nil), or AXOpen answered this AXError. The selection took effect.
     case selectedNotOpened(code: Int32?)
 
+    /// The control a click reached is named `found` and the caller aimed at `requested`, and nothing
+    /// of that name is near it to press instead: nothing was pressed.
+    case wrongElement(requested: String, found: String)
+
     /// The click is under an `AXWebArea`, where a click stays posted: nothing was done.
     case webContent
 
@@ -82,7 +86,7 @@ nonisolated public enum RemoteContentActuationRefusal: Error, Sendable, Equatabl
     var wasDeclinedBeforeActing: Bool {
         switch self {
             case .actionRefused(_, let code)              : code == AXError.actionUnsupported.rawValue
-            case .selectionNotVerified, .selectedNotOpened: false
+            case .selectionNotVerified, .selectedNotOpened, .wrongElement: false
             default                                       : true
         }
     }
@@ -125,6 +129,9 @@ nonisolated extension RemoteContentActuationRefusal: CustomStringConvertible, Lo
             case .columnView:
                 "That point is in a column view, where a click cannot select yet, so nothing was sent. "
                     + "Switch the view to list view (select on its view button, \"List\"), then click the row."
+            case .wrongElement(let requested, let found):
+                "The element at that point is '\(found)', not '\(requested)', and nothing of that name is "
+                    + "near it, so nothing was pressed. Observe again and name the control by its label."
             case .webContent:
                 "That point is web content, which is not acted on through accessibility, so nothing "
                     + "was done there."

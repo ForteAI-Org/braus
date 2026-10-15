@@ -48,10 +48,16 @@ struct ActionEngineTests {
         var confirmations: [DeliveryEffect] = []
         var failure: (any Error)?
         var route = DeliveryRoute.posted
+        /// The name of the control each aimed click said it was for, in order.
+        var labels: [String] = []
         func lastDeliveryRoute(in processID: pid_t) async -> DeliveryRoute { route }
         func perform(_ gesture: Gesture, in processID: pid_t) async throws {
             if let failure { throw failure }
             gestures.append(gesture)
+        }
+        func perform(_ gesture: Gesture, expecting label: String, in processID: pid_t) async throws {
+            try await perform(gesture, in: processID)
+            labels.append(label)
         }
         func confirm(_ effect: DeliveryEffect, in processID: pid_t) async {
             confirmations.append(effect)
@@ -406,6 +412,14 @@ struct ActionEngineTests {
         let inFront = FakeActivation(frontmost: pid)
         _ = await engine(scenes: ScriptedScenes([scene([export]), scene([export], title: "Q")]), activation: inFront).act(request("Export"))
         #expect(inFront.activated.isEmpty)
+    }
+
+    @Test("a click tells the actuator the name of the control it is aimed at")
+    func aClickNamesItsTarget() async {
+        let actuator = RecordingActuator()
+        _ = await engine(scenes: ScriptedScenes([scene([export]), scene([export], title: "Q")]), actuator: actuator)
+            .act(request("Export"))
+        #expect(actuator.labels == [export.label])
     }
 
     @Test("a triple click is one train of three at the element's point")

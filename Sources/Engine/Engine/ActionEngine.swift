@@ -339,11 +339,19 @@ public struct ActionEngine: Sendable {
         }
         do {
             switch request.verb {
-                case .doubleClick: try await dependencies.actuator.perform(.click(at: point, count: 2), in: pid)
-                case .tripleClick: try await dependencies.actuator.perform(.click(at: point, count: 3), in: pid)
+                case .doubleClick:
+                    try await dependencies.actuator.perform(
+                        .click(at: point, count: 2), expecting: element.label, in: pid
+                    )
+                case .tripleClick:
+                    try await dependencies.actuator.perform(
+                        .click(at: point, count: 3), expecting: element.label, in: pid
+                    )
                 case .rightClick : try await dependencies.actuator.perform(.click(at: point, button: .right), in: pid)
                 default:
-                    if !openedByPress { try await dependencies.actuator.perform(.click(at: point), in: pid) }
+                    if !openedByPress {
+                        try await dependencies.actuator.perform(.click(at: point), expecting: element.label, in: pid)
+                    }
             }
         } catch {
             await dependencies.actuator.confirm(.unknown, in: pid)
@@ -523,7 +531,7 @@ public struct ActionEngine: Sendable {
             return ActOutcome(.dryRun, "would click '\(element.label)' to set it \(desired.rawValue)")
         }
         await dependencies.settling?.prepare(in: pid)
-        do { try await dependencies.actuator.perform(.click(at: point), in: pid) }
+        do { try await dependencies.actuator.perform(.click(at: point), expecting: element.label, in: pid) }
         catch {
             await dependencies.actuator.confirm(.unknown, in: pid)
             await dependencies.observer?.record(ActionRecord(

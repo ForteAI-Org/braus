@@ -83,6 +83,9 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     /// searched for the pressed control first, and a `cannotComplete` answer is not a delivery.
     private var hostSurfaceNumber: Int?
 
+    /// The label of the control the caller aimed at, which a press refuses to replace by another.
+    private var requestedLabel: String?
+
     let path   : (CGPoint, ResolvedInputEndpoint) -> Result<[Node], RemoteContentActuationRefusal>
     let role   : (Node) -> String?
     let actions: (Node) -> [String]
@@ -111,6 +114,9 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     let frame     : (Node) -> CGRect?
     let label     : (Node) -> String?
 
+    /// Every name an element answers to: its title, description and value, as the scene may name it.
+    let labels    : (Node) -> [String]
+
     /// A checkbox's, switch's or radio button's own 0 or 1 `AXValue`, nil when it is neither.
     let toggleValue: (Node) -> Bool?
 
@@ -137,6 +143,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         windowNode         : @escaping (Int) -> Node? = { _ in nil },
         frame              : @escaping (Node) -> CGRect? = { _ in nil },
         label              : @escaping (Node) -> String? = { _ in nil },
+        labels             : ((Node) -> [String])? = nil,
         toggleValue        : @escaping (Node) -> Bool? = { _ in nil },
         settle             : @escaping () -> Void = {},
         note               : @escaping (String) -> Void = { _ in }
@@ -157,6 +164,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         self.windowNode          = windowNode
         self.frame               = frame
         self.label               = label
+        self.labels              = labels ?? { label($0).map { [$0] } ?? [] }
         self.toggleValue         = toggleValue
         self.settle              = settle
         self.note                = note
@@ -174,12 +182,18 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     ///
     /// With `prefersHost`, for an Apple extension's content, a press goes to the same control in the
     /// host's own tree when it is there (`hostCounterpart`), and `cannotComplete` is no delivery.
+    ///
+    /// With `label`, the control the caller aimed at, a click presses only an element of that name: when
+    /// the hit one is named otherwise the same group's element of the requested name is pressed, and
+    /// none refuses (`wrongElement`).
     func actuate(
         _ command  : InputCommand,
         endpoint   : ResolvedInputEndpoint,
-        prefersHost: Bool = false
+        prefersHost: Bool = false,
+        expecting label: String? = nil
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
         var scoped = self
+        scoped.requestedLabel = label.flatMap { Self.normalized($0).isEmpty ? nil : $0 }
         scoped.isOrdinaryWindow = endpoint.relation == .logicalSurface
         scoped.hostSurfaceNumber = prefersHost && endpoint.relation == .remoteContent
             ? endpoint.logicalSurface.windowNumber : nil
@@ -229,7 +243,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
                     default   : return .failure(.unsupportedRole(roles[field]))
                 }
             }
-            if count == 1, let control { return press(nodes[control], kAXPressAction) }
+            if count == 1, let control { return pressTarget(nodes[control]) }
             guard count <= 2 else { return .failure(.unsupportedRole(kAXRowRole)) }
             var selected: String
             switch selectRow(at: row, of: nodes) {
@@ -259,7 +273,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         }
         switch count {
             case 1 where Self.pressedRoles.contains(roles[index]):
-                return press(nodes[index], kAXPressAction)
+                return pressTarget(nodes[index])
             case 1 where Self.textRoles.contains(roles[index]):
                 return select(in: nodes[index], role: roles[index], wholeValue: false)
             case 3... where Self.textRoles.contains(roles[index]):
@@ -381,6 +395,50 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         ))
     }
 
+    /// Presses the control a click reached, once it is the one the caller aimed at: an element named
+    /// otherwise is replaced by its group's element of the requested name, and with none nothing is
+    /// pressed. An element with no name of its own cannot be told apart and is pressed.
+    private func pressTarget(_ node: Node) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
+        guard let wanted = requestedLabel, case let names = labels(node), !names.isEmpty,
+              !names.contains(where: { Self.sameLabel($0, wanted) })
+        else { return press(node, kAXPressAction) }
+        let found = names[0]
+        guard let other = named(wanted, besides: node) else {
+            note("the element at that point is '\(found)', not '\(wanted)': nothing was pressed")
+            return .failure(.wrongElement(requested: wanted, found: found))
+        }
+        note("the element at that point is '\(found)', so '\(wanted)' is pressed instead")
+        return press(other, kAXPressAction)
+    }
+
+    /// The element of the requested name that offers AXPress: one of the hit element's siblings, else
+    /// for an extension one in the host window's tree near it.
+    private func named(_ wanted: String, besides node: Node) -> Node? {
+        func fits(_ candidate: Node) -> Bool {
+            candidate != node && actions(candidate).contains(kAXPressAction)
+                && labels(candidate).contains { Self.sameLabel($0, wanted) }
+        }
+        if let siblings = parent(node).map(children), let match = siblings.first(where: fits) { return match }
+        return hostSurfaceNumber == nil ? nil : search(near: node, where: fits)
+    }
+
+    /// Whether two names are one, as the scene writes it: trimmed, without the state prefix some
+    /// toolkits add or a " #N" ordinal, and ignoring case and accents.
+    static func sameLabel(_ left: String, _ right: String) -> Bool { normalized(left) == normalized(right) }
+
+    static func normalized(_ raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["Shown. ", "Hidden. ", "Selected. ", "Active. ", "Inactive. "] where text.hasPrefix(prefix) {
+            text = String(text.dropFirst(prefix.count))
+        }
+        if let hash = text.range(of: " #", options: .backwards), !text[hash.upperBound...].isEmpty,
+           text[hash.upperBound...].allSatisfy(\.isNumber) {
+            text = String(text[..<hash.lowerBound])
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
     /// Performs one action on the node, or for an Apple extension's press on the same control in the
     /// host's tree, never on both, and logs what the application answered.
     ///
@@ -486,14 +544,30 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
 
     /// The control in the host's own tree that is the one `node` shows: the first element, nearest
     /// the host window first, of the same role and label, offering the action, whose frame is within
-    /// 2 points of the node's on every side. Only branches whose frame holds the node's centre are
-    /// entered, and at most 512 elements are read. Nil when the host has none, or is not asked.
+    /// 2 points of the node's on every side. The node is the one asked for by then (`pressTarget`), so
+    /// its copy carries the asked name too. Nil when the host has none, or is not asked. Content hosted
+    /// in a window is reached through the host's tree as the same elements, so there none is found
+    /// and the node itself is pressed.
     private func hostCounterpart(of node: Node, action: String) -> Node? {
+        guard let target = frame(node) else { return nil }
+        let wanted = role(node)
+        let name   = label(node)
+        return search(near: node) { candidate in
+            candidate != node && role(candidate) == wanted && label(candidate) == name
+                && actions(candidate).contains(action)
+                && frame(candidate).map {
+                    abs($0.minX - target.minX) <= 2 && abs($0.minY - target.minY) <= 2
+                        && abs($0.width - target.width) <= 2 && abs($0.height - target.height) <= 2
+                } ?? false
+        }
+    }
+
+    /// The first element of the host window's tree, nearest the window first, that `fits`. Only
+    /// branches whose frame holds the node's centre are entered, and at most 512 elements are read.
+    private func search(near node: Node, where fits: (Node) -> Bool) -> Node? {
         guard let number = hostSurfaceNumber, let root = windowNode(number), let target = frame(node) else {
             return nil
         }
-        let wanted = role(node)
-        let name   = label(node)
         let centre = CGPoint(x: target.midX, y: target.midY)
         var level   = [root]
         var visited = 0
@@ -501,12 +575,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
             var below: [Node] = []
             for candidate in level {
                 visited += 1
-                if candidate != node, role(candidate) == wanted, label(candidate) == name,
-                   actions(candidate).contains(action), let box = frame(candidate),
-                   abs(box.minX - target.minX) <= 2, abs(box.minY - target.minY) <= 2,
-                   abs(box.width - target.width) <= 2, abs(box.height - target.height) <= 2 {
-                    return candidate
-                }
+                if fits(candidate) { return candidate }
                 below += children(candidate).filter { frame($0)?.insetBy(dx: -1, dy: -1).contains(centre) ?? true }
             }
             level = below
@@ -631,6 +700,10 @@ extension RemoteContentActuator where Node == AXUIElement {
             label           : { node in
                 [kAXTitleAttribute, kAXDescriptionAttribute]
                     .lazy.compactMap { attribute(node, $0) as String? }.first { !$0.isEmpty }
+            },
+            labels          : { node in
+                [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute]
+                    .compactMap { attribute(node, $0) as String? }.filter { !$0.isEmpty }
             },
             toggleValue     : { node in
                 guard let number: NSNumber = attribute(node, kAXValueAttribute), [0, 1].contains(number.intValue)
