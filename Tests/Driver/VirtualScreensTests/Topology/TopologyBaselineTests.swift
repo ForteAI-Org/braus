@@ -56,15 +56,60 @@ struct TopologyBaselineGeometryTests {
         )
     }
 
-    @Test("the corner origin is the bottom right of the union, one point up")
+    @Test("the corner origin touches the lower right display, one point up")
     func cornerOrigin() throws {
-        // maxX of the union, and maxY minus one: the minus one is what turns an
-        // edge into a single point of contact.
+        // One point above the lower corner leaves one point of contact.
         #expect(try SyntheticTopology.laptop.cornerAttachedOrigin() == CGPoint(x: 1512, y: 981))
         #expect(
             try SyntheticTopology.laptopWithExternalRight.cornerAttachedOrigin()
                 == CGPoint(x: 4072, y: 1439)
         )
+    }
+
+    @Test("an uneven arrangement attaches to a physical corner, not empty bounding-box space",
+          arguments: [false, true])
+    func unevenCornerTouchesADisplay(reversed: Bool) throws {
+        let displays = [
+            PhysicalDisplay(
+                displayID: SyntheticTopology.laptopID,
+                bounds   : CGRect(x: 0, y: 0, width: 1512, height: 982)
+            ),
+            PhysicalDisplay(
+                displayID: SyntheticTopology.externalID,
+                bounds   : CGRect(x: 1512, y: -403, width: 1920, height: 1080)
+            ),
+        ]
+        let baseline = TopologyBaseline(
+            mainDisplayID   : SyntheticTopology.laptopID,
+            physicalDisplays: reversed ? Array(displays.reversed()) : displays
+        )
+        let origin = try baseline.cornerAttachedOrigin()
+        let virtual = CGRect(origin: origin, size: CGSize(width: 800, height: 600))
+        #expect(origin == CGPoint(x: 3432, y: 676))
+        #expect(baseline.overlapArea(with: virtual) == 0)
+        #expect(baseline.maximumPortalLength(with: virtual) == 1)
+    }
+
+    @Test("displays sharing the right edge leave only the lowest corner attached")
+    func sharedRightEdgeHasOnePointOfContact() throws {
+        let baseline = TopologyBaseline(
+            mainDisplayID   : SyntheticTopology.laptopID,
+            physicalDisplays: [
+                PhysicalDisplay(
+                    displayID: SyntheticTopology.laptopID,
+                    bounds   : CGRect(x: 0, y: 0, width: 1512, height: 982)
+                ),
+                PhysicalDisplay(
+                    displayID: SyntheticTopology.externalID,
+                    bounds   : CGRect(x: 312, y: 982, width: 1200, height: 900)
+                ),
+            ]
+        )
+        let origin = try baseline.cornerAttachedOrigin()
+        let virtual = CGRect(origin: origin, size: CGSize(width: 800, height: 2000))
+        #expect(origin == CGPoint(x: 1512, y: 1881))
+        #expect(baseline.overlapArea(with: virtual) == 0)
+        #expect(baseline.maximumPortalLength(with: virtual) == 1)
     }
 
     @Test("a corner origin outside Int32 is refused rather than truncated")

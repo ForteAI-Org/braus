@@ -218,8 +218,18 @@ struct EndpointDiscovery {
 
     /// Whether `window` belongs to an Apple native application, whose ordinary windows take their
     /// clicks through accessibility first, as a remote panel's content does (ADR 0031). The one
-    /// place this scope is decided: `AppleNativeApplications`, by the bundle's signature.
+    /// place this scope is decided: `AppleNativeApplications`, by the bundle's signature, and
+    /// `windowTreeClickedApplications`.
     var clicksThroughAccessibility: (WindowIdentity) -> Bool = { _ in false }
+
+    /// The applications outside Apple's whose ordinary windows also take their clicks through
+    /// accessibility, from the observed window down: Pro Tools repeats control labels across
+    /// tracks and its Mix hit test can omit the track strips. Add a bundle identifier to widen it.
+    static let windowTreeClickedApplications: Set<String> = ["com.avid.ProTools"]
+
+    /// Whether a click accessibility declined before acting on `window` may be posted instead.
+    /// `windowTreeClickedApplications` refuse: a posted click there could reach another track.
+    var postsDeclinedClicks: (WindowIdentity) -> Bool = { _ in true }
 
     /// A click on a qualified remote panel's content, acted on through the
     /// assigned application's accessibility instead of posted (ADR 0031).
@@ -337,12 +347,19 @@ struct EndpointDiscovery {
                 )
         },
         clicksThroughAccessibility: { window in
-            NSRunningApplication(processIdentifier: pid_t(window.processID))?.bundleURL
-                .map(AppleNativeApplications.shipping.contains(bundleAt:)) ?? false
+            let app = NSRunningApplication(processIdentifier: pid_t(window.processID))
+            return app?.bundleIdentifier.map(windowTreeClickedApplications.contains) == true
+                || app?.bundleURL.map(AppleNativeApplications.shipping.contains(bundleAt:)) == true
+        },
+        postsDeclinedClicks: { window in
+            NSRunningApplication(processIdentifier: pid_t(window.processID))?.bundleIdentifier
+                .map(windowTreeClickedApplications.contains) != true
         },
         remoteActuation: { processID, command, endpoint, prefersHost, label in
-            RemoteContentActuator<AXUIElement>
-                .accessibility(assignedProcessID: processID)
+            let searchesWindow = NSRunningApplication(processIdentifier: processID)?.bundleIdentifier
+                .map(windowTreeClickedApplications.contains) == true
+            return RemoteContentActuator<AXUIElement>
+                .accessibility(assignedProcessID: processID, searchWindowTree: searchesWindow)
                 .actuate(command, endpoint: endpoint, prefersHost: prefersHost, expecting: label)
         }
     )

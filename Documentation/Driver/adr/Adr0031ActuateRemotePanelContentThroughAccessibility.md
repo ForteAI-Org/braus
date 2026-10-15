@@ -418,3 +418,16 @@ view, so an Apple extension's `AXPress` now looks there first.
   as a popup's press would; it is kept as specified and not measured.
 - The closure expectation of `UserFocusRecovery` is still armed for every
   Command on a modal surface, including actions that cannot close it.
+
+## Follow-up: Pro Tools beside the Apple native applications (2026-10-15)
+
+Pro Tools' ordinary windows also take their clicks through accessibility
+(`EndpointDiscovery.windowTreeClickedApplications`, by bundle identifier, the one place it is
+decided), with two differences from the Apple native scope above, both from
+[the Pro Tools guide](../platforms/ProTools.md):
+
+- The path starts at the observed window's `AXWindows` entry and descends by the smallest
+  containing child frame (`ownContentPath(searchWindowTree:)`), because Pro Tools' Mix hit test
+  can answer a scroll area that omits the track strips.
+- A click declined before acting is refused, never posted (`EndpointDiscovery.postsDeclinedClicks`):
+  a posted click could activate Pro Tools or land on another track with the same label.

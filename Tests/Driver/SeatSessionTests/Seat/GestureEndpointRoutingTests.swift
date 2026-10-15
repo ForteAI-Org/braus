@@ -105,6 +105,8 @@ struct GestureEndpointRoutingTests {
 
         /// Whether the window's application takes its clicks through accessibility, as Finder does.
         var clicksThroughAccessibility = false
+        /// Whether a click accessibility declined before acting may be posted instead.
+        var postsDeclinedClicks        = true
 
         var discovery: EndpointDiscovery {
             EndpointDiscovery(
@@ -145,6 +147,7 @@ struct GestureEndpointRoutingTests {
                 },
                 foreignContentWindow: { [self] _, _ in foreignContentWindow },
                 clicksThroughAccessibility: { [self] _ in clicksThroughAccessibility },
+                postsDeclinedClicks: { [self] _ in postsDeclinedClicks },
                 remoteActuation: { [self] _, command, endpoint, prefersHost, label in
                     actuated.append((command, endpoint))
                     self.prefersHost.append(prefersHost)

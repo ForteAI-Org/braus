@@ -127,6 +127,12 @@ transitions recorded from two verified clicks.
 
 ## Driving on the Seat
 
+For Pro Tools, `SeatControls` delegates clicks to the Seat's observed window and point
+instead of searching repeated track labels across the application. When the broker opens
+PT already running without a window, it requests Edit for an open session or Dashboard
+for a closed session and waits for the resulting window. See the
+[Pro Tools guide](../Driver/platforms/ProTools.md) for the action contract and live evidence.
+
 Text containing supplementary Unicode or line breaks uses one intact insertion
 payload, even below the 128-character typing threshold. App-flow checks found
 per-character input dropping emoji in Qt, Chrome and Electron, while insertion

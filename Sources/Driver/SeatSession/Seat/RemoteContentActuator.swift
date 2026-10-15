@@ -22,11 +22,12 @@ import SeatCore
 ///
 /// The element is the one the host application's hit test answers at the
 /// Command's point, proved by `DialogEndpointResolver.remoteContentPath`, or for
-/// an ordinary window of an Apple native application, by `ownContentPath`
-/// against the window itself. The click reaches the nearest element of that
-/// path a click is mapped for; every other Command refuses. Nothing falls back
-/// to posting here: for an ordinary window the seat posts the click itself when
-/// the refusal says nothing was done (`wasDeclinedBeforeActing`).
+/// an ordinary window of an Apple native application or of Pro Tools, by `ownContentPath`
+/// against the window itself. Pro Tools descends from that window because its Mix hit test omits
+/// the track strips. The click reaches the nearest element of that path a click is mapped for;
+/// every other Command refuses. Nothing falls back to posting here: for an ordinary window the
+/// seat posts the click itself when the refusal says nothing was done (`wasDeclinedBeforeActing`)
+/// and the application allows it (`EndpointDiscovery.postsDeclinedClicks`).
 ///
 /// It is generic over the node type so the mapping is proved without a panel
 /// on the screen, as the resolver is.
@@ -630,7 +631,10 @@ extension RemoteContentActuator where Node == AXUIElement {
     /// The actuator the seat runs, over the assigned application's own
     /// accessibility tree: the remote elements answer there, with true screen
     /// coordinates.
-    package static func accessibility(assignedProcessID: Int32) -> RemoteContentActuator<AXUIElement> {
+    package static func accessibility(
+        assignedProcessID: Int32,
+        searchWindowTree : Bool = false
+    ) -> RemoteContentActuator<AXUIElement> {
         let resolver = DialogEndpointResolver<AXUIElement>.accessibility(assignedProcessID: assignedProcessID)
         func attribute<Value>(_ node: AXUIElement, _ name: String) -> Value? {
             var value: CFTypeRef?
@@ -641,7 +645,7 @@ extension RemoteContentActuator where Node == AXUIElement {
             path   : { point, endpoint in
                 endpoint.relation == .remoteContent
                     ? resolver.remoteContentPath(at: point, of: endpoint)
-                    : resolver.ownContentPath(at: point, of: endpoint)
+                    : resolver.ownContentPath(at: point, of: endpoint, searchWindowTree: searchWindowTree)
             },
             role   : { attribute($0, kAXRoleAttribute) },
             actions: { node in

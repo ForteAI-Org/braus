@@ -2615,7 +2615,7 @@ public final class AgentSeat {
                 turn        : turn,
                 recipient   : recipient,
                 traceContext: traceContext,
-                mayPost     : ownContent != nil,
+                mayPost     : ownContent.map { endpoints.postsDeclinedClicks($0.logicalSurface) } ?? false,
                 prefersHost : classification == .appleExtensionContent,
                 expecting   : label,
                 hostRecipe  : classification == .appleExtensionContent ? (window.reference, resolved) : nil
