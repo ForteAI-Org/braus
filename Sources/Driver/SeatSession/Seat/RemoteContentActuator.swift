@@ -459,11 +459,29 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     }
 
     /// The state a control shows, nil when it shows none or no longer answers: a checkbox's, switch's
-    /// or radio button's 0 or 1 value, else its `AXSelected`.
+    /// or radio button's 0 or 1 value, else its `AXSelected`, else off for a segment of a selector
+    /// whose selected segment answers (`isSegment`).
     private func readableState(of node: Node) -> Bool? {
         guard let kind = role(node) else { return nil }
         if kind == kAXCheckBoxRole || kind == kAXRadioButtonRole, let on = toggleValue(node) { return on }
-        return isSelected(node)
+        return isSelected(node) ?? (isSegment(node) ? false : nil)
+    }
+
+    /// True for a button in a run of contiguous buttons that offer AXPress, in one parent with no
+    /// other element between them, when one button of the run answers `AXSelected`: a segmented
+    /// selector, where an unselected segment answers nothing. A lone button or one separated by
+    /// other elements shows no state.
+    private func isSegment(_ node: Node) -> Bool {
+        func member(_ candidate: Node) -> Bool {
+            role(candidate) == kAXButtonRole && actions(candidate).contains(kAXPressAction)
+        }
+        guard member(node), let siblings = parent(node).map(children), let at = siblings.firstIndex(of: node)
+        else { return false }
+        var first = at
+        var last  = at
+        while first > 0, member(siblings[first - 1]) { first -= 1 }
+        while last + 1 < siblings.count, member(siblings[last + 1]) { last += 1 }
+        return siblings[first...last].contains { isSelected($0) != nil }
     }
 
     /// The control in the host's own tree that is the one `node` shows: the first element, nearest

@@ -392,6 +392,9 @@ view, so an Apple extension's `AXPress` now looks there first.
   after 200 ms. Unchanged, it is pressed once on the child (else the parent) offering AXPress and read
   again; still unchanged, one click is posted on the host window, never into the extension's. A segment
   already on, a control with no state, or one that stops answering is never retried or clicked.
+  A button in a run of contiguous AXPress buttons of one parent where one answers AXSelected (a
+  segmented selector, Appearance's Light, Dark, Auto) shows "off" while it answers nothing, so a
+  selection that did not move to it proves the press ignored; a button apart from the run shows none.
   Test: AppleExtensionPressTests, GestureEndpointRoutingTests.
 
 ## Limits

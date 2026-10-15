@@ -258,4 +258,103 @@ struct AppleExtensionPressTests {
         #expect(child.performed.isEmpty)
         #expect(!outcome.needsPostedClick)
     }
+    // MARK: A segmented selector (Appearance: Light, Dark, Auto)
+
+    struct Appearance {
+        let pane   : Pane
+        let light  : Element
+        let dark   : Element
+        let auto   : Element
+        let capsule: Element
+        let actuator: RemoteContentActuator<Element>
+    }
+
+    /// The Appearance group as the 15/10/2026 dump shows it: a caption, the run Light, Dark (the
+    /// only one answering AXSelected), Auto, then a caption and a button apart from the run.
+    static func appearance(pressing name: String) throws -> Appearance {
+        let pane    = try Self.pane(hostHasIt: false)
+        let group   = try #require(pane.remote.parent)
+        func button() -> Element {
+            Element(kAXButtonRole, window: .window(879), processID: 7_001, parent: group, actions: [kAXPressAction])
+        }
+        let dark    = button()
+        let auto    = button()
+        _ = Element(kAXStaticTextRole, window: .window(879), processID: 7_001, parent: group)
+        let capsule = button()
+        dark.selectedFlag = true
+        for (element, title) in [(dark, "Dark"), (auto, "Auto"), (capsule, "Capsule Shape")] {
+            element.title = title
+            element.frame = Self.frame
+        }
+        let hit = ["Light": pane.remote, "Auto": auto, "Dark": dark, "Capsule": capsule][name]!
+        let notes = pane.notes
+        let actuator = RemoteContentActuationTests.actuator(
+            hitting: { hit }, window: pane.hostWindow, settle: { notes.settles += 1 }, note: { notes.lines.append($0) }
+        )
+        return Appearance(pane: pane, light: pane.remote, dark: dark, auto: auto, capsule: capsule, actuator: actuator)
+    }
+
+    static func press(_ shape: Appearance) throws -> RemoteContentActuation {
+        try shape.actuator.actuate(
+            RemoteContentActuationTests.click(count: 1), endpoint: shape.pane.endpoint, prefersHost: true
+        ).get()
+    }
+
+    @Test("a segment whose press left the selection on another is proven ignored and clicked once",
+          arguments: ["Light", "Auto"])
+    func anIgnoredSegmentIsClicked(name: String) throws {
+        let shape = try Self.appearance(pressing: name)
+
+        let outcome = try Self.press(shape)
+
+        #expect(outcome.needsPostedClick)
+        #expect(shape.dark.selectedFlag == true)
+        #expect(shape.pane.notes.settles == 1, "read again once: nothing to press but the segment")
+    }
+
+    @Test("a segment the press selected is not clicked", arguments: ["Light", "Auto"])
+    func aSelectedSegmentIsNotClicked(name: String) throws {
+        let shape = try Self.appearance(pressing: name)
+        let pressed = name == "Light" ? shape.light : shape.auto
+        pressed.onPerform = { _ in
+            shape.dark.selectedFlag = false
+            pressed.selectedFlag = true
+        }
+
+        let outcome = try Self.press(shape)
+
+        #expect(!outcome.needsPostedClick)
+        #expect(pressed.performed == [kAXPressAction])
+    }
+
+    @Test("the segment already selected is pressed once and never retried or clicked")
+    func theSelectedSegmentIsLeftAlone() throws {
+        let shape = try Self.appearance(pressing: "Dark")
+
+        let outcome = try Self.press(shape)
+
+        #expect(!outcome.needsPostedClick)
+        #expect(shape.dark.performed == [kAXPressAction])
+        #expect(shape.pane.notes.settles == 0)
+    }
+
+    @Test("a button apart from the run shows no state: no retry and no click")
+    func aButtonOutsideTheRunShowsNoState() throws {
+        let shape = try Self.appearance(pressing: "Capsule")
+
+        let outcome = try Self.press(shape)
+
+        #expect(!outcome.needsPostedClick)
+        #expect(shape.capsule.performed == [kAXPressAction])
+        #expect(shape.pane.notes.settles == 0)
+        #expect(shape.pane.notes.lines.contains { $0.contains("not readable") })
+    }
+
+    @Test("a run where no segment answers AXSelected shows no state")
+    func aRunWithNoSelectionShowsNoState() throws {
+        let shape = try Self.appearance(pressing: "Light")
+        shape.dark.selectedFlag = nil
+
+        #expect(try !Self.press(shape).needsPostedClick)
+    }
 }
