@@ -153,6 +153,43 @@ nonisolated public enum ProcedureProducer {
         }
     }
 
+    /// BrausInterpretation is what Braus states of a candidate the agent left uninterpreted: the procedure's label and
+    /// phases, by the candidate's positions.
+    public struct BrausInterpretation: Sendable, Equatable {
+        public let label: String
+        public let phases: [(first: Int, last: Int, label: String)]
+
+        public static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.label == rhs.label && lhs.phases.elementsEqual(rhs.phases) { $0 == $1 }
+        }
+    }
+
+    /// The interpretation Braus makes of a completed task's candidate that the agent left uninterpreted after it was
+    /// reminded (review I1, 14 October 2026; BUG-11: Haiku answered the person and nothing of a completed task was learned):
+    /// the task's goal as the procedure's label, and the phases other procedures learned where the candidate's steps hold
+    /// them (`ProcedureFamilies.knownPhases`), the first of overlapping ones. It names no step and no parameter: the version's
+    /// assembly infers the uses the calls show (`InferredUses`), and the qualification decides as for any interpretation,
+    /// so a step is offered alone only when an agent named it. Nil for a candidate not of a completed task of the producer.
+    public static func brausInterpretation(candidateID: String, producer: TaskProducer,
+                                           memory: MemoryService) async throws -> BrausInterpretation? {
+        guard let candidate = try await memory.perform({ try await $0.procedures.candidate(candidateID) }),
+              let task = try await memory.perform({ try await $0.tasks.task(candidate.taskID, for: producer) }),
+              task.status == .completed,
+              let revision = try await memory.perform({ try await $0.tasks.revision(task.currentRevision, of: task.taskID, for: producer) })
+        else { return nil }
+        let goal = revision.content.goal.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !goal.isEmpty else { return nil }
+        let known = (try? await memory.perform { try await $0.procedures.knownPhases(candidateID: candidateID) }) ?? []
+        var phases: [(first: Int, last: Int, label: String)] = []
+        var last = -1
+        for phase in known.sorted(by: { ($0.firstPosition, -$0.lastPosition) < ($1.firstPosition, -$1.lastPosition) })
+        where phase.firstPosition > last {
+            phases.append((phase.firstPosition, phase.lastPosition, phase.label))
+            last = phase.lastPosition
+        }
+        return BrausInterpretation(label: goal, phases: phases)
+    }
+
     /// The attempt of a candidate of one of the producer's tasks and whether a result of it was checked already; nil for
     /// a candidate the producer does not own.
     public static func resultState(candidateID: String, producer: TaskProducer,

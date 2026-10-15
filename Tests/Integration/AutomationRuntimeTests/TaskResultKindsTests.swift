@@ -389,6 +389,43 @@ struct ProcedureResultTemplateTests {
         try? FileManager.default.removeItem(at: folder)
     }
 
+    @Test("a run that chose a learned source and did the work another way is that source's variant, from the step where they part")
+    func aChosenSourceAdapted() async throws {
+        let directory = try W.directory()
+        let session = ProcedureMethodTests.session(directory, unknownMarkup: true)
+        let memory = MemoryService.shared(for: directory)
+        RecallService.install(RecallService(memory: memory, configuration: RecallLifecycleTests.configuration()))
+        let learner = P.tools(session, stream: "learner")
+        _ = try await P.task(learner, ProcedureMethodTests.begin("foto_web"))
+        try await ProcedureMethodTests.run(learner, session, name: "foto_web", mistakes: false)
+        let ended = try await P.task(learner, ProcedureMethodTests.end(result: try ProcedureMethodTests.written(directory, "foto_web")))
+        let interpreted = try await P.task(learner, ProcedureMethodTests.interpretation(try #require(ended["candidate"]["id"].string),
+                                                                                         mistakes: false))
+        let source = try #require(interpreted["version"].string, "\(interpreted)")
+        #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
+
+        // The second run chooses the learned source and then adds a step of its own after the export.
+        let adapter = P.tools(session, stream: "adapter")
+        let begun = try await P.task(adapter, #"""
+            {"operation":"begin","goal":"Rotate the open image and export it as foto_mail.jpg in JPEG, then show the markup bar",
+             "inputs":[{"name":"output_name","value":"foto_mail","role":"name of the exported file without extension"}]}
+            """#)
+        let offered = try #require(begun["recall_proposal"]["sources"].array?.first { $0["version"].string == source }, "\(begun)")
+        let proposal = try #require(begun["recall_proposal"]["proposal"].string)
+        _ = try await P.task(adapter, RecallChoiceToolTests.choose(proposal, [(try #require(offered["source"].string), 1, 5)]))
+        try await ProcedureMethodTests.run(adapter, session, name: "foto_mail", mistakes: false, unknownStep: true)
+        let adapted = try await P.task(adapter, ProcedureMethodTests.end(result: try ProcedureMethodTests.written(directory, "foto_mail")))
+        let second = try await P.task(adapter, ProcedureMethodTests.interpretation(try #require(adapted["candidate"]["id"].string),
+                                                                                   mistakes: false, markup: true))
+        let variant = try #require(second["version"].string, "\(second)")
+        #expect(second["repeats"] == nil || second["repeats"] == .null, "another method is no repeat: \(second)")
+        let stored = try #require(try await memory.perform { try await $0.procedures.version(variant) })
+        #expect(stored.version.variantOf == source, "the chosen source is its origin")
+        #expect(stored.version.divergencePosition == 5, "the five steps of the source, then its own")
+        #expect(try P.rows("SELECT status FROM memory_variant_prefix_checks WHERE route_id = '\(variant)'", in: session) == ["verified"])
+        await RecallLifecycleTests.close(session)
+    }
+
     @Test("a run that repeats a proposed source without choosing it is said to have followed it unchosen")
     func followedWithoutAChoice() async throws {
         let directory = try W.directory()

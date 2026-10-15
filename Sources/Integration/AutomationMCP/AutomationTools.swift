@@ -89,6 +89,35 @@ public final class AutomationTools {
         + "copy (Save a Copy, Export) is still open with the change. Close it now from the File menu (Close) and "
         + "choose not to save (Don't Save). Leave any other window or prompt as it is."
 
+    /// Interprets, as Braus, the candidate of a completed task the agent left uninterpreted after its reminder
+    /// (`ProcedureProducer.brausInterpretation`), through the same `memory_task interpret` as the agent's, so the
+    /// transcript shows it. Answers the candidate and the answer, or nil when nothing was left or the task did not complete.
+    public func interpretLeftCandidate() async -> (candidate: String, answer: JSONValue)? {
+        guard let candidate = pendingCandidate, let directory = session.memoryDirectory,
+              let producer = try? TaskProducer(source: self.producer.source, streamID: self.producer.streamID),
+              let stated = try? await ProcedureProducer.brausInterpretation(
+                  candidateID: candidate, producer: producer, memory: MemoryService.shared(for: directory)) else { return nil }
+        var arguments: [String: JSONValue] = [
+            "operation": .string("interpret"), "candidate": .string(candidate),
+            "procedure": .object(["label": .string(stated.label), "outcome": .string("completed")]),
+        ]
+        if !stated.phases.isEmpty {
+            arguments["phases"] = .array(stated.phases.map { phase in
+                .object(["from": .number(Double(phase.first + 1)), "to": .number(Double(phase.last + 1)), "label": .string(phase.label)])
+            })
+        }
+        guard let answer = try? await call(MemoryTaskTool.name, .object(arguments)) else { return nil }
+        return (candidate, answer)
+    }
+
+    /// Forgets the candidate the last conversation left uninterpreted, so a new conversation is reminded only of its
+    /// own: the earlier one's interpretation would be refused as another producer's (14 October 2026). The candidate
+    /// stays in the archive, uninterpreted, as the earlier conversation's.
+    public func forgetConversation() {
+        pendingCandidate = nil
+        remindedCandidate = nil
+    }
+
     /// Forgets every scene the model read, so the next scene of any window is sent whole: for a new
     /// turn or a compacted context, which may no longer hold those scenes.
     public func forgetScene() {

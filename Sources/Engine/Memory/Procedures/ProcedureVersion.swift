@@ -406,6 +406,8 @@ public enum ProcedureAssembly {
         if let divergence = interpretation.divergencePosition, divergence > candidate.steps.count {
             throw unknown("divergence position \(divergence + 1)")
         }
+        // The uses the calls show and the agent did not state: a task's value recorded as it is (`InferredUses`).
+        let interpretation = try InferredUses.completing(interpretation, steps: steps, taskInputs: taskInputs)
 
         // The method: every step of a procedure not taken to be completed, else the steps that did their part.
         var leftOut: [Int: LeftOut] = [:]

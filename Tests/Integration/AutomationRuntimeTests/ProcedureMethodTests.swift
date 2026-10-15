@@ -10,7 +10,7 @@ import AutomationMCP
 import EngineCore
 import Foundation
 import LocalMCP
-import Memory
+@testable import Memory
 @testable import SQLiteMemory
 import Testing
 
@@ -181,6 +181,108 @@ struct ProcedureMethodTests {
             }
             await MemoryService.shared(for: directory).close()
         }
+    }
+
+    @Test("a task's value typed as it is, with no use stated, is read as its parameter; a label equal to a value keeps its role")
+    func usesBrausInfers() async throws {
+        let directory = try W.directory()
+        let session = Self.session(directory)
+        let tools = P.tools(session)
+        _ = try await P.task(tools, #"""
+            {"operation":"begin","goal":"Rotate the open image and export it as foto_web.jpg in JPEG","recall":false,
+             "inputs":[{"name":"output_name","value":"foto_web","role":"name of the exported file without extension"},
+                       {"name":"format","value":"JPEG","role":"format chosen in the Export dialog"}]}
+            """#)
+        try await Self.run(tools, session, name: "foto_web", mistakes: false)
+        let ended = try await P.task(tools, Self.end(result: try Self.written(directory, "foto_web")))
+        var interpretation = Self.interpretation(try #require(ended["candidate"]["id"].string), mistakes: false)
+        interpretation = interpretation.replacingOccurrences(of: #","uses":[{"step":3,"argument":"text","template":"{output_name}.jpg"}]"#, with: "")
+        let interpreted = try await P.task(tools, interpretation)
+        let routeID = try #require(interpreted["version"].string, "\(interpreted)")
+        let memory = MemoryService.shared(for: directory)
+        let stored = try #require(try await memory.perform { try await $0.procedures.version(routeID) })
+        let steps = stored.version.definition.steps
+        let names = Dictionary(uniqueKeysWithValues: stored.version.definition.parameters.map { ($0.parameterID, $0.name) })
+        func argument(_ step: Int, _ name: String) -> OperationValue? {
+            steps[step].operations[0].arguments.first { $0.name == name }?.value
+        }
+        guard case .template(let segments)? = argument(2, "text") else {
+            Issue.record("the typed name is a template: \(String(describing: argument(2, "text")))"); return
+        }
+        #expect(segments.count == 2, "{output_name} then .jpg: \(segments)")
+        if case .parameter(let id) = segments.first { #expect(names[id] == "output_name") } else { Issue.record("\(segments)") }
+        guard case .parameter(let format)? = argument(3, "item") else {
+            Issue.record("the format chosen is the task's: \(String(describing: argument(3, "item")))"); return
+        }
+        #expect(names[format] == "format")
+        if case .literal(.text("Format"))? = argument(3, "control") {} else { Issue.record("the pop-up keeps its label: \(String(describing: argument(3, "control")))") }
+        #expect(InferredUses.extensionAfter("foto_web", in: "foto_web.jpg") == ".jpg")
+        #expect(InferredUses.extensionAfter("foto_web", in: "foto_web copia.jpg") == nil)
+        await memory.close()
+    }
+
+    @Test("a completed task left uninterpreted is interpreted by Braus from its goal, with the uses its calls show; a failed one is not")
+    func brausInterpretsWhatTheAgentLeft() async throws {
+        for completed in [true, false] {
+            let directory = try W.directory()
+            let session = Self.session(directory)
+            let tools = P.tools(session)
+            _ = try await P.task(tools, Self.begin("foto_web"))
+            try await Self.run(tools, session, name: "foto_web", mistakes: false)
+            let file = try Self.written(directory, "foto_web")
+            let ended = try await P.task(tools, completed ? Self.end(result: file)
+                                                          : #"{"operation":"end","outcome":"failed","note":"not exported"}"#)
+            #expect(ended["candidate"]["id"].string != nil, "\(ended)")
+            let left = await tools.interpretLeftCandidate()
+            guard completed else {
+                #expect(left == nil, "a failed task is not interpreted by Braus")
+                await MemoryService.shared(for: directory).close()
+                continue
+            }
+            let answer = try #require(left?.answer.payload, "Braus interprets the completed task")
+            let routeID = try #require(answer["version"].string, "\(answer)")
+            #expect((answer["parts"].array ?? []).first { $0["part"].string == "procedure" }?["admitted"].bool == true, "\(answer)")
+            let memory = MemoryService.shared(for: directory)
+            let stored = try #require(try await memory.perform { try await $0.procedures.version(routeID) })
+            #expect(stored.version.definition.name == "Rotate the open image and export it as foto_web.jpg in JPEG")
+            #expect(stored.version.definition.parameters.map(\.name) == ["output_name"], "the typed name is the task's value")
+            #expect(await tools.interpretLeftCandidate() == nil, "nothing is left once interpreted")
+            await memory.close()
+        }
+    }
+
+    @Test("a repeat whose procedure is refused does not replace the admitted one it repeats: both stay current, the admitted one offered")
+    func aWeakerRepeat() async throws {
+        let directory = try W.directory()
+        let first = Self.session(directory)
+        let learner = P.tools(first, stream: "learner-1")
+        _ = try await P.task(learner, Self.begin("foto_web"))
+        try await Self.run(learner, first, name: "foto_web")
+        let firstEnd = try await P.task(learner, Self.end(result: try Self.written(directory, "foto_web")))
+        let firstInterpreted = try await P.task(learner, Self.interpretation(try #require(firstEnd["candidate"]["id"].string)))
+        let firstVersion = try #require(firstInterpreted["version"].string)
+        #expect((firstInterpreted["parts"].array ?? []).first { $0["part"].string == "procedure" }?["admitted"].bool == true)
+
+        // The second run names a result that is not on disk: its check fails and its procedure is refused.
+        let second = Self.session(directory)
+        let repeater = P.tools(second, stream: "learner-2")
+        _ = try await P.task(repeater, Self.begin("foto_mail"))
+        try await Self.run(repeater, second, name: "foto_mail", mistakes: false)
+        let secondEnd = try await P.task(repeater, Self.end(result: directory.appendingPathComponent("foto_mail.jpg")))
+        #expect(secondEnd["result_check"].array?.first?["verdict"].string == "failed", "\(secondEnd["result_check"])")
+        let interpreted = try await P.task(repeater, Self.interpretation(try #require(secondEnd["candidate"]["id"].string),
+                                                                         mistakes: false))
+        let secondVersion = try #require(interpreted["version"].string)
+        #expect(interpreted["repeats"] == nil || interpreted["repeats"] == .null, "\(interpreted)")
+        #expect((interpreted["parts"].array ?? []).first { $0["part"].string == "procedure" }?["admitted"].bool == false)
+
+        let memory = MemoryService.shared(for: directory)
+        let kept = try #require(try await memory.perform { try await $0.procedures.version(firstVersion) })
+        #expect(kept.isCurrent, "the admitted version stays in the catalogue")
+        let catalogue = try await memory.perform { try await $0.procedures.catalogue() }
+        #expect(catalogue.contains { $0.part.routeID == firstVersion && $0.part.kind == .procedure })
+        #expect(!catalogue.contains { $0.part.routeID == secondVersion && $0.part.kind == .procedure })
+        await memory.close()
     }
 
     @Test("a task that repeats a learned method with other values is a new run of it: its version replaces the first and inherits the step the first one verified")

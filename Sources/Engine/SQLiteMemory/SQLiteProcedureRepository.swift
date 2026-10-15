@@ -90,6 +90,21 @@ public struct SQLiteProcedureRepository: Sendable {
     /// nothing written; a use the calls contradict is kept as a finding.
     public func interpret(_ interpretation: ProcedureInterpretation, by producer: TaskProducer,
                           at nowMS: Int64) async throws -> InterpretationOutcome {
+        do {
+            return try await interpret(interpretation, by: producer, at: nowMS, repeating: true)
+        } catch is WeakerRepeat {
+            return try await interpret(interpretation, by: producer, at: nowMS, repeating: false)
+        }
+    }
+
+    /// WeakerRepeat undoes a repeat's transaction whose procedure was refused while the version it would replace had its
+    /// procedure admitted: replaced, the admitted method would leave the catalogue for a refused one (review A7-1, 14
+    /// October 2026: a second run with no result check, or a failed one, took the first run's admitted procedure out of
+    /// the Recall). The run is then written again as a version of its own, beside the one it repeats.
+    private struct WeakerRepeat: Error {}
+
+    private func interpret(_ interpretation: ProcedureInterpretation, by producer: TaskProducer, at nowMS: Int64,
+                           repeating: Bool) async throws -> InterpretationOutcome {
         try await store.write { transaction in
             guard let candidate = try SQLiteProcedureRows.candidate(transaction, interpretation.candidateID) else {
                 throw ProcedureError.unknownCandidate(candidateID: interpretation.candidateID)
@@ -161,7 +176,7 @@ public struct SQLiteProcedureRepository: Sendable {
             // a new run of it: it replaces that version in the catalogue (`ProcedureMethod`), and its steps inherit
             // that version's verified ones when it is qualified. A declared variant keeps its own lineage.
             var repeats: String?
-            if completed, ownPrevious == nil, interpretation.variantOf == nil {
+            if repeating, completed, ownPrevious == nil, interpretation.variantOf == nil {
                 let signature = try version.definition.steps.enumerated().map { position, step in
                     ProcedureMethod.signature(of: step, target: try SQLiteProcedureRows.target(
                         transaction, call: candidate.steps[version.candidatePositions[position]].callEventID))
@@ -173,6 +188,30 @@ public struct SQLiteProcedureRepository: Sendable {
                         supersedes: repeats, builtAtMS: nowMS, completed: completed
                     )
                 }
+            }
+            // A completed attempt that chose a learned source and reached its goal another way is a variant of that source,
+            // from the first step where they part: the agent never declared one (review U3, 14 October 2026: 0 of 25 versions
+            // were variants, every adaptation an unlinked procedure). A prefix is never contradicted here: it stops where the
+            // operations part.
+            var interpretation = interpretation
+            if repeats == nil, completed, ownPrevious == nil, interpretation.variantOf == nil,
+               let chosen = try SQLiteProcedureRows.chosenSource(transaction, attemptID: candidate.attemptID),
+               let origin = try SQLiteRouteRows.read(transaction, routeID: chosen) {
+                let originDetails = try SQLiteProcedureRows.parameterDetails(transaction, routeID: chosen)
+                let bound = min(version.definition.steps.count, origin.definition.steps.count)
+                var parted = 0
+                while parted < bound, (try? VariantPrefix.check(variant: version.definition, of: origin.definition, divergence: parted + 1,
+                                                                variantDetails: version.parameterDetails,
+                                                                originalDetails: originDetails)) != nil {
+                    parted += 1
+                }
+                interpretation = try ProcedureInterpretation(
+                    candidateID: interpretation.candidateID, revision: interpretation.revision, parts: interpretation.parts,
+                    parameters: interpretation.parameters, uses: interpretation.uses, variantOf: chosen, divergencePosition: parted)
+                version = try ProcedureAssembly.assemble(
+                    candidate: candidate, interpretation: interpretation, revision: revision, steps: facts, taskInputs: inputs,
+                    supersedes: ownPrevious, builtAtMS: nowMS, completed: completed
+                )
             }
             // A variant's prefix is checked on the operations before anything is written: a prefix they
             // contradict is refused whole, one they cannot decide is kept as suggested.
@@ -209,6 +248,11 @@ public struct SQLiteProcedureRepository: Sendable {
             }
             try SQLiteProcedureRows.ensurePolicy(transaction, at: nowMS)
             let qualifications = try SQLiteProcedureRows.qualify(transaction, routeID: version.routeID, at: nowMS)
+            if let repeats, let procedure = version.parts.first(where: { $0.kind == .procedure }),
+               qualifications.contains(where: { $0.partID == procedure.partID && $0.verdict == .refused }),
+               try SQLiteProcedureRows.procedureAdmitted(transaction, routeID: repeats) {
+                throw WeakerRepeat()
+            }
             var outcome = InterpretationOutcome(receipt: .committed, revision: revision, routeID: version.routeID,
                                                 findings: version.findings, qualifications: qualifications,
                                                 candidatePositions: version.candidatePositions, leftOut: version.leftOut,
@@ -1197,6 +1241,38 @@ enum SQLiteProcedureRows {
             QualificationPolicy.VerificationFact(eventID: $0.event.eventID, condition: $0.check.condition, verdict: $0.check.verdict,
                                                  performed: $0.check.performed, limits: $0.check.limits)
         }
+    }
+
+    /// The version an attempt chose its first selected tract from (`memory_task choose`), when it chose one, still current.
+    static func chosenSource(_ transaction: SQLiteTransaction, attemptID: String) throws -> String? {
+        try transaction.query(
+            """
+            SELECT s.route_id FROM memory_recall_queries q
+            JOIN memory_recall_choices c ON c.query_id = q.query_id
+            JOIN memory_recall_selections s ON s.query_id = q.query_id AND s.role = 'selected'
+            WHERE q.task_occurrence_id = ?
+              AND NOT EXISTS (SELECT 1 FROM memory_routes r WHERE r.supersedes_route_id = s.route_id)
+            ORDER BY c.recorded_at_ms, s.need_position, s.position LIMIT 1
+            """,
+            [.text(attemptID)], { try $0.text(0) }
+        ).first ?? nil
+    }
+
+    /// Whether a version's procedure is admitted now: its latest qualification admits it and no state retired it or
+    /// asked for it to be evaluated again.
+    static func procedureAdmitted(_ transaction: SQLiteTransaction, routeID: String) throws -> Bool {
+        try transaction.query(
+            """
+            SELECT q.verdict = 'admitted' AND NOT EXISTS (
+                SELECT 1 FROM memory_part_states s WHERE s.part_id = p.part_id
+                  AND s.sequence = (SELECT max(sequence) FROM memory_part_states WHERE part_id = p.part_id)
+                  AND s.state <> 'usable')
+            FROM memory_procedure_parts p JOIN memory_part_qualifications q ON q.part_id = p.part_id
+            WHERE p.route_id = ? AND p.part_kind = 'procedure'
+            ORDER BY q.sequence DESC LIMIT 1
+            """,
+            [.text(routeID)], { $0.integer(0) == 1 }
+        ).first ?? false
     }
 
     /// Evaluates every part of a version from the facts in the transaction and appends an evaluation for
