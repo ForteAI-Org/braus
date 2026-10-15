@@ -123,6 +123,9 @@ struct RecallCycleTests {
 
     static func exportCycle(channel: RecallConfiguration.Channel) async throws {
         let session = P.photoSession(try W.directory())
+        // Preview shows the window the corpus learned the export in: since structure-v4 a window missing one of its
+        // toolbar buttons is another state, and a step is linked only to a call made in the state it was learned in.
+        session.windows[P.preview] = try RecallCorpus.load().window(P.preview, "editing")
         let routeID = try await learnCorpus(session, channel: channel)
         let memory = await reopen(session, channel: channel)
 

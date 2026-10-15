@@ -445,7 +445,7 @@ knowledge containers and their legacy JSON, the brain (anchors, groups, ordinal 
 hygiene from measured Premiere failures, enrichment, the naming ledger, decay and the observation
 clock), routes and route earning against the real `route-corpus.json`, recall against the real
 `misfire-corpus.json` and its human table, the in-memory store's serialization, the `BrainMemory`
-seam over a stored Brain, structure-v3 on synthetic skeletons, the brain's two seams for its stored
+seam over a stored Brain, structure-v4 on synthetic skeletons, the brain's two seams for its stored
 projection, and the contracts of calls, results, sample keys and content, menu commands, inputs
 and attributions, and procedures. `FileKnowledgeTests` (7) proves the file adapter at its boundary:
 round-trip, write-behind and scheduled flush, two hundred concurrent increments, daily backups with

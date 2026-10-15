@@ -639,7 +639,7 @@ pixel-only elements; `brain_scene_elements.source`, `bounds` and `anchor_id`; a 
 `window_title_pattern`. The dropdown and contextual menu selectors (`select`, `context_menu`) take
 their own captures and report none of them, so those calls have no sample.
 
-### Scenes and structure-v3
+### Scenes and structure-v4
 
 `SQLiteSceneRepository.associate` reads the stored sample, rebuilds its skeleton, reads the scenes
 of the sample's application (`scene_kind <> 'app'`, the app scope is never a candidate), runs
@@ -655,7 +655,11 @@ the digest as a search hint, `brain_scene_roles` as presence (`count_bucket` NUL
 `container|<path>`, `control|<path>|<role>|<normalized caption or nothing>`, `collection|<path>`,
 `item_template|<path>` (role `AXRow`). A control whose label was content keeps its origin and no
 label, so nobody's name enters the structure. The skeleton rebuilt from these rows after reopening
-equals the produced one, structural key included (`SceneAssociationTests.f15RoundTrip`).
+equals the produced one, structural key included (`SceneAssociationTests.f15RoundTrip`). Since
+matcher v5 (14 October 2026) a caption loses the display ordinal perception adds to a label repeated
+in one capture (" #2") before it is normalized: which twin carries it follows the selection, and one
+dialog was three scenes. A scene stored before keeps its caption (`pollici2`), so the first capture
+under v5 makes that state anew.
 
 The skeleton's authority is `brain_scene_elements`: the matcher, `scenes(of:)` and the graph's
 `elements(ofScene:)` rebuild everything from those rows. `brain_scene_roles` (the skeleton's role
@@ -666,10 +670,21 @@ observation of the scene does not rewrite them, and no reader of this build cons
 rebuild, byte for byte, and that rows and values never enter them. They stay written hints for a
 later index; matching does not read them and no count is added to it.
 
-Declared limits of structure-v3, as the S0 specification states them: two dialogs with one skeleton
+Declared limits of structure-v3, as the S0 specification stated them: two dialogs with one skeleton
 are one scene; captions that are names and containers titled after content stay uncertain and
 never create a scene; without an accessibility read there is no scene; a partial capture certifies
 no absence and keeps every candidate; promoting a candidate is a later policy, not this one.
+
+**Structure-v4 (14 October 2026).** On PhotoCraft (a single window, egui) structure-v3 recognized 3 of 106
+captures taken before acting, so the Brain learned 1 relation from 126 operations: a document's name reached
+the captions (the editor's tab "foto_3.png @ 100%"), and a dialog drawn in the window differs from the window
+only by its captions. Version 4 keeps a caption that names a file out of the structure as content
+(`SceneSkeleton.isContentCaption`; the control stays, stored with neither label nor origin) and takes a
+complete capture's other paths, captions or collections as a different state rather than an uncertain one.
+Only an incomplete capture or an unknown surface stays uncertain. Replayed on that archive it places 93 of
+109 captures and finds ten real states. The limits that change: captions that are names (not files) and
+containers titled after content now make one state per content (F9, F12); the others stand. Rows of
+`memory_event_scenes` keep the matcher version that decided them (`v3` or `v4`).
 
 ## The brain's projection
 
@@ -1855,7 +1870,7 @@ Counts from `swift test list` and the scripts on 2026-10-07, this branch.
     `SQLiteCheckpointTests`, `SQLiteRecoveryTests`, `SQLiteFailedLifecycleTests`); two real processes
     (`SQLiteProcessTests`); and the shipped resource (`SchemaResourceTests`);
   - the observation contract, 57 tests in 7 suites: `ObservationContractTests`,
-    `CaptureRepositoryTests`, `SceneAssociationTests` (the fifteen structure-v3 fixtures through the
+    `CaptureRepositoryTests`, `SceneAssociationTests` (the fifteen S0 fixtures, now under structure-v4, and F16, through the
     real producer), `CaptureContractCorrectionTests`, `CaptureContractCorrectionDetailTests`,
     `CaptureIdentityBytesTests`, `CaptureSampleContentBytesTests`;
   - the brain, 29 tests in 7 suites: the canonical clock (`BrainClockTests`), refusals and the

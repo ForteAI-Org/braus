@@ -6,6 +6,7 @@
 //
 
 import EngineCore
+import Foundation
 import PerceptionCore
 
 /// SceneSkeleton is the structure of one capture or one stored scene as structure-v3 reads it: the
@@ -16,9 +17,10 @@ import PerceptionCore
 /// collection below the collection itself (rows repeat content, not structure).
 ///
 /// A caption is a label whose origin is a title or a description, on a role that carries one; a
-/// value is content. Even a caption does not prove stability ("Reply to Alice" is a title), which
-/// is why the matcher treats differing captions as uncertainty, never as proof of a different
-/// scene.
+/// value is content. A caption that names a file is content too (`isContentCaption`): a document's
+/// tab titled "foto_3.png @ 100%" is the same control whatever the document, so a document's name
+/// never makes a state of its own. Since structure-v4 the matcher takes the remaining captions as
+/// structure.
 public struct SceneSkeleton: Sendable, Equatable, Hashable {
 
     /// Caption is one stable label on one role, normalized the way labels are compared.
@@ -29,7 +31,16 @@ public struct SceneSkeleton: Sendable, Equatable, Hashable {
 
         public init(role: String, label: String) {
             self.role  = role
-            self.label = LabelText.normalize(label)
+            self.label = LabelText.normalize(Self.withoutOrdinal(label))
+        }
+
+        /// The label without the display ordinal perception gives a label repeated in a capture (" #2"): which of the
+        /// twins carries it follows the state of the moment, not the structure. PhotoCraft's units dialog was three
+        /// scenes, one per unit selected, until 14 October 2026 (review S1); two twins are one caption here.
+        static func withoutOrdinal(_ label: String) -> String {
+            guard let hash = label.range(of: " #", options: .backwards), hash.upperBound < label.endIndex,
+                  label[hash.upperBound...].allSatisfy(\.isNumber) else { return label }
+            return String(label[..<hash.lowerBound])
         }
     }
 
@@ -74,13 +85,33 @@ public struct SceneSkeleton: Sendable, Equatable, Hashable {
             }
             guard !Self.excludedRoles.contains(element.role) else { continue }
             roles[element.containerPath, default: []].insert(element.role)
-            if Self.captionRoles.contains(element.role),
-               let origin = element.labelOrigin, Self.captionOrigins.contains(origin) {
+            if Self.isCaption(element) {
                 captions[element.containerPath, default: []].insert(Caption(role: element.role, label: element.label))
             }
         }
         self.init(surface: surface, rolesByPath: roles, captionsByPath: captions, collections: collections)
     }
+
+    /// Whether an element's label is a caption of the skeleton: a role that carries one, a title or a
+    /// description, and no file named in it.
+    public static func isCaption(_ element: CaptureElement) -> Bool {
+        guard captionRoles.contains(element.role), let origin = element.labelOrigin, captionOrigins.contains(origin) else {
+            return false
+        }
+        return !isContentCaption(element.label)
+    }
+
+    /// Whether a caption names a file, and is then the content of a document rather than structure: a
+    /// word of letters or digits, a dot, and an extension that starts with a letter and has one to five
+    /// letters or digits ("foto_3.png @ 100% (RGB/8)", "Report.pdf"). A version ("v1.2") or an ellipsis
+    /// ("Apri…") names none.
+    public static func isContentCaption(_ label: String) -> Bool {
+        guard let fileName else { return false }
+        return fileName.firstMatch(in: label, range: NSRange(label.startIndex..., in: label)) != nil
+    }
+
+    /// A constant pattern: it compiles, and a pattern that did not would only keep every caption as v3 did.
+    private static let fileName = try? NSRegularExpression(pattern: #"(?<![\w.])[^\s/\\:]*[\p{L}\p{N}]\.\p{L}[\p{L}\p{N}]{0,4}(?![\w])"#)
 
     /// The skeleton of a sample.
     public init(sample: CaptureSample) {

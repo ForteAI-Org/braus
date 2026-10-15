@@ -376,16 +376,19 @@ enum SQLiteSceneRows {
         for element in sample.elements where !element.isUnderCollection
             && !SceneSkeleton.excludedRoles.contains(element.role) {
             let parent    = try container(element.containerPath)
-            let isCaption = SceneSkeleton.captionRoles.contains(element.role)
+            let carries   = SceneSkeleton.captionRoles.contains(element.role)
                 && element.labelOrigin.map(SceneSkeleton.captionOrigins.contains) == true
+            let isCaption = SceneSkeleton.isCaption(element)
             guard let key = SceneElementKey.key(of: element) else { continue }
+            // A caption that names a file is content: kept with neither its label nor its origin, so the
+            // stored skeleton leaves it out as the capture's does (structure-v4).
             _ = try insert(
                 key   : key,
                 scope : "control",
                 parent: parent,
                 role  : element.role,
                 label : isCaption ? element.label : nil,
-                origin: element.labelOrigin,
+                origin: carries && !isCaption ? nil : element.labelOrigin,
                 kind  : element.kind.rawValue
             )
         }
