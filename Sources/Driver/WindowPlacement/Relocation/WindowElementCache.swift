@@ -57,8 +57,12 @@ import SeatCore
 /// call paid before this type existed, and an age-ordered structure is not
 /// worth that.
 ///
-/// One instance per placing witness, held by `SystemWindowPlacing` and
-/// therefore scoped to one seat. `WindowRelocator` is a `nonisolated` enum of
+/// Discovery also retains at most 32 recent handles, shared with placement by the Host. They are
+/// candidates only: the relocator checks PID, Window ID, server identity and window role on a miss.
+/// This preserves a handle when `AXWindows` omits a window on an inactive desktop.
+///
+/// One instance per Host, shared with `SystemWindowPlacing` and therefore scoped to one seat.
+/// `WindowRelocator` is a `nonisolated` enum of
 /// statics, so a cache there would be both a data race and shared across every
 /// seat in the process; the lock and the ownership follow
 /// `AccessibilityWindowNumberCache`.
@@ -69,8 +73,25 @@ nonisolated public final class WindowElementCache: @unchecked Sendable {
 
     private let lock = NSLock()
     private var entries: [WindowIdentity: AXUIElement] = [:]
+    private var offered: [AXUIElement] = []
 
     public init() {}
+
+    /// Retains a discovery handle without treating a notification as identity or visibility evidence.
+    package func remember(_ element: AXUIElement) {
+        lock.lock()
+        defer { lock.unlock() }
+        offered.removeAll { CFEqual($0, element) }
+        offered.append(element)
+        if offered.count > 32 { offered.removeFirst() }
+    }
+
+    /// Handles that still require native identity and state checks before use.
+    package var rememberedElements: [AXUIElement] {
+        lock.lock()
+        defer { lock.unlock() }
+        return offered.reversed() + entries.values.filter { value in !offered.contains { CFEqual($0, value) } }
+    }
 
     /// How many windows the cache holds. The unit tier reads it to hold the
     /// cache to its bound.
@@ -121,5 +142,6 @@ nonisolated public final class WindowElementCache: @unchecked Sendable {
         defer { lock.unlock() }
 
         entries.removeAll()
+        offered.removeAll()
     }
 }

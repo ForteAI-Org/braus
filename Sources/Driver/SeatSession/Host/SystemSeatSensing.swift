@@ -22,7 +22,7 @@ import WindowPlacement
 /// and it is `@unchecked Sendable` for the honest reason: it is read from the
 /// watchdog's heartbeat, from the observer's timer and from the recovery loop,
 /// and every one of those is already on the main actor. What makes it safe is
-/// that it stores only two references and mutates nothing.
+/// that its display and fence are references and its shared window handles use their own lock.
 ///
 /// The one idiom worth naming is `virtualDisplayIsOnline`: membership of
 /// `CGGetOnlineDisplayList` and never `CGDisplayIsOnline`. For a display that
@@ -35,6 +35,7 @@ nonisolated final class SystemSeatSensing: SeatSensing, @unchecked Sendable {
 
     private let display: VirtualDisplay
     private let fence  : CursorFence
+    let windowElements = WindowElementCache()
 
     init(display: VirtualDisplay, fence: CursorFence) {
         self.display = display
@@ -258,7 +259,11 @@ nonisolated final class SystemSeatSensing: SeatSensing, @unchecked Sendable {
     }
 
     func windowSurfaces(ownedBy processIDs: Set<Int32>) -> [WindowSurface]? {
-        WindowServerProbe.surfaces(ownedBy: processIDs)
+        guard let visible = WindowServerProbe.surfaces(ownedBy: processIDs) else { return nil }
+        let identities = Set(visible.compactMap(\.reference.identity))
+        let inactive = InactiveSpaceWindows.read(ownedBy: processIDs, cache: windowElements)
+            .map(\.surface).filter { $0.reference.identity.map { !identities.contains($0) } == true }
+        return visible + inactive
     }
 
     func windowSurfaces(inFrontOf surface: WindowIdentity) -> [WindowSurface]? {

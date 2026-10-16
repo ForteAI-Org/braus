@@ -718,6 +718,22 @@ struct CrossCheckedSurfaceReaderTests {
         #expect(state(filter.filter(pass(visible: false), at: grace + 2)) == .uncertain)
     }
 
+    @Test("a modal on an inactive Space does not become withdrawn after the off-screen grace")
+    func inactiveSpaceDoesNotEstablishWithdrawal() {
+        let ordinary = surface(42, visible: false)
+        let inactive = WindowSurface(reference: ordinary.reference, level: ordinary.level,
+                                     isVisible: false, isOnInactiveSpace: true)
+        let snapshot = CrossCheckedSurfaceReader.assemble(
+            windowServer: [inactive],
+            accessibility: [record(42, role: .dialog, minimised: false, modal: true)]
+        )
+        let filter = ApplicationTargetTransitionFilter()
+        _ = filter.filter(snapshot, at: 0)
+        let later = filter.filter(snapshot, at: ApplicationTargetTransitionFilter.offScreenGraceNanoseconds * 2)
+        #expect(later.claims.visibilities.first?.state == .uncertain)
+        #expect(later.withdrawnByApplication.isEmpty)
+    }
+
     @Test("a surface that comes back inside the application's scope is never confirmed")
     func withdrawalIsForgottenWhenTheWindowReturns() {
         let retained = identity(42)

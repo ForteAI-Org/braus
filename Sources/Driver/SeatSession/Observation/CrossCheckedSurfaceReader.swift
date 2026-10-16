@@ -248,18 +248,21 @@ nonisolated package enum CrossCheckedSurfaceReader {
     package static func snapshot(
         ownedBy processIDs: Set<Int32>,
         retaining retainedIdentities: Set<WindowIdentity> = [],
-        windowNumbers: AccessibilityWindowNumberCache
+        windowNumbers: AccessibilityWindowNumberCache,
+        windowElements: WindowElementCache? = nil
     ) -> Result<AssignedSurfaceSnapshot, CrossCheckedSurfaceReadFailure> {
 
         AXPassSignpost.measure("crossCheckedPass") {
-            read(ownedBy: processIDs, retaining: retainedIdentities, windowNumbers: windowNumbers)
+            read(ownedBy: processIDs, retaining: retainedIdentities, windowNumbers: windowNumbers,
+                 windowElements: windowElements)
         }
     }
 
     private static func read(
         ownedBy processIDs: Set<Int32>,
         retaining retainedIdentities: Set<WindowIdentity>,
-        windowNumbers: AccessibilityWindowNumberCache
+        windowNumbers: AccessibilityWindowNumberCache,
+        windowElements: WindowElementCache?
     ) -> Result<AssignedSurfaceSnapshot, CrossCheckedSurfaceReadFailure> {
 
         guard Permissions.preflight(.accessibility) else {
@@ -271,7 +274,8 @@ nonisolated package enum CrossCheckedSurfaceReader {
         switch accessibilityRecords(
             ownedBy: processIDs,
             deadlineNanoseconds: deadline,
-            windowNumbers: windowNumbers
+            windowNumbers: windowNumbers,
+            windowElements: windowElements
         ) {
             case .success(let records): accessibility = records
             case .failure(let failure): return .failure(failure)
@@ -569,13 +573,15 @@ nonisolated package enum CrossCheckedSurfaceReader {
     private static func accessibilityRecords(
         ownedBy processIDs : Set<Int32>,
         deadlineNanoseconds: UInt64,
-        windowNumbers      : AccessibilityWindowNumberCache
+        windowNumbers      : AccessibilityWindowNumberCache,
+        windowElements     : WindowElementCache?
     ) -> Result<[AccessibilitySurfaceRecord], CrossCheckedSurfaceReadFailure> {
 
         // Whatever this pass resolved becomes the whole cache, on the way out
         // of a complete pass and of one that gave up partway alike.
         defer { windowNumbers.endPass() }
 
+        let inactive = windowElements.map { InactiveSpaceWindows.read(ownedBy: processIDs, cache: $0) } ?? []
         var records: [AccessibilitySurfaceRecord] = []
         for processID in processIDs.sorted() {
             guard let running = NSRunningApplication(processIdentifier: processID),
@@ -644,6 +650,7 @@ nonisolated package enum CrossCheckedSurfaceReader {
                 // Not a window server window at all, so not a window of this
                 // application: out of the scope, and the reading carries on.
                 guard let facts else { return .success(nil) }
+                windowElements?.remember(element)
                 return .success(
                     AccessibilitySurfaceRecord(
                         processID   : processID,
@@ -689,6 +696,14 @@ nonisolated package enum CrossCheckedSurfaceReader {
                    $0.processID == processID && $0.windowNumber == focusedWindowNumber
                }) {
                 switch record(for: focusedElement, index: windows.count) {
+                    case .success(let value): value.map { records.append($0) }
+                    case .failure(let failure): return .failure(failure)
+                }
+            }
+            for candidate in inactive where candidate.surface.reference.processID == processID {
+                let number = candidate.surface.reference.windowNumber
+                guard !records.contains(where: { $0.processID == processID && $0.windowNumber == number }) else { continue }
+                switch record(for: candidate.element, index: windows.count) {
                     case .success(let value): value.map { records.append($0) }
                     case .failure(let failure): return .failure(failure)
                 }

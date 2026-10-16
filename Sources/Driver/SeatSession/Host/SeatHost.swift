@@ -274,7 +274,7 @@ public final class SeatHost {
         // WindowServer Mach timestamp. The menu surface remains unqualified.
         let created = AgentSeat(
             sensing              : systemSensing,
-            placing              : SystemWindowPlacing(),
+            placing              : SystemWindowPlacing(elementCache: systemSensing.windowElements),
             sender               : driver,
             fence                : installedFence,
             displayID            : display.displayID,
@@ -286,7 +286,8 @@ public final class SeatHost {
                 liveFrames       : liveFrames
             ),
             contentClock         : MachAbsoluteContentClock(),
-            observationProfile   : configuration.observationProfile
+            observationProfile   : configuration.observationProfile,
+            windowElements       : systemSensing.windowElements
         )
 
         created.hiddenReturns               = .shared

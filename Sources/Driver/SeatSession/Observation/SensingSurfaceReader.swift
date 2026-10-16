@@ -8,6 +8,7 @@
 import Dispatch
 import OSLog
 import SeatCore
+import WindowPlacement
 
 /// SensingSurfaceReader is the shipped conformer. It first asks the cross-checked
 /// AX and WindowServer adapter for a complete inventory and qualified role and
@@ -73,13 +74,17 @@ nonisolated package struct SensingSurfaceReader: AssignedSurfaceReading {
     /// window server refuse.
     package init(
         sensing   : any SeatSensing,
-        nativePass: @escaping NativeSurfacePass =
-            CrossCheckedSurfaceReader.snapshot(ownedBy:retaining:windowNumbers:)
+        windowElements: WindowElementCache? = nil,
+        nativePass: NativeSurfacePass? = nil
     ) {
         self.sensing = sensing
         self.targetTransitions = ApplicationTargetTransitionFilter()
         self.windowNumbers = AccessibilityWindowNumberCache()
-        self.nativePass = nativePass
+        self.nativePass = nativePass ?? { processes, retained, numbers in
+            CrossCheckedSurfaceReader.snapshot(
+                ownedBy: processes, retaining: retained, windowNumbers: numbers, windowElements: windowElements
+            )
+        }
     }
 
     package func snapshot(ownedBy processIDs: Set<Int32>) -> AssignedSurfaceSnapshot {

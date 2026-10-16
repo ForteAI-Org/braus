@@ -671,6 +671,7 @@ nonisolated public enum WindowServerProbe {
             table                : table
         )
         var processes = OwnerProcesses()
+        let layout = WindowSpaceProbe.layout(allowUnvalidatedBuild: allowUnvalidatedBuild, table: table)
         return readSurfaces(
             matching : windowNumbersByProcess,
             gate     : gate,
@@ -684,6 +685,11 @@ nonisolated public enum WindowServerProbe {
                     validatedBy     : gate,
                     memoizing       : &processes
                 )
+            },
+            inactiveSpace: { number in
+                layout?.containsOnlyInactive(WindowSpaceProbe.spaces(
+                    of: number, allowUnvalidatedBuild: allowUnvalidatedBuild, table: table
+                )) == true
             }
         )
     }
@@ -694,7 +700,8 @@ nonisolated public enum WindowServerProbe {
         matching windowNumbersByProcess: [Int32: Set<Int>],
         gate     : FacilityGate,
         read     : ([CGWindowID]) -> [[String: Any]]?,
-        attesting: (Int32, Int, CGRect) -> WindowReference?
+        attesting: (Int32, Int, CGRect) -> WindowReference?,
+        inactiveSpace: (Int) -> Bool = { _ in false }
     ) -> Result<[WindowSurface], SurfaceReadFailure> {
         guard gate.mayAct else { return .failure(.facilityUnavailable(gate.readiness)) }
         guard !windowNumbersByProcess.isEmpty else { return .success([]) }
@@ -737,7 +744,9 @@ nonisolated public enum WindowServerProbe {
                 reference: reference,
                 level    : layer(of: description) ?? 0,
                 isVisible: reportedOnScreen(description) == true && alpha(of: description) > 0
-                    && frame.width > 0 && frame.height > 0
+                    && frame.width > 0 && frame.height > 0,
+                isOnInactiveSpace: reportedOnScreen(description) != true && alpha(of: description) > 0
+                    && frame.width > 0 && frame.height > 0 && inactiveSpace(windowNumber)
             ))
         }
         return .success(result)

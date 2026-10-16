@@ -134,6 +134,20 @@ struct WindowElementCacheTests {
         #expect(cache.count >= 1)
     }
 
+    @Test("discovery handles stay bounded and do not become attested entries")
+    func discoveryIsNotAttestation() {
+        let cache = WindowElementCache()
+        let element = AXUIElementCreateApplication(4_242)
+        cache.remember(element)
+        cache.remember(element)
+        #expect(cache.rememberedElements.count == 1)
+        #expect(cache.count == 0)
+        for number in 1...100 { cache.remember(AXUIElementCreateApplication(Int32(number))) }
+        #expect(cache.rememberedElements.count == 32)
+        cache.removeAll()
+        #expect(cache.rememberedElements.isEmpty)
+    }
+
     @Test("windows of two processes with the same Window ID are two entries")
     func theKeyIsTheWholeAttestedIdentity() {
         let cache    = WindowElementCache()

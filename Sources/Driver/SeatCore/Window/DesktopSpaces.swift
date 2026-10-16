@@ -58,6 +58,12 @@ nonisolated public struct DesktopLayout: Sendable, Equatable {
     public func isShown(_ space: Int) -> Bool {
         displays.contains { $0.current == space }
     }
+
+    /// Unknown or empty membership cannot establish that a window is on another desktop.
+    package func containsOnlyInactive(_ spaces: [Int]?) -> Bool {
+        guard let spaces, !spaces.isEmpty else { return false }
+        return spaces.allSatisfy { display(holding: $0) != nil && !isShown($0) }
+    }
 }
 
 /// SpaceReturnTarget is the desktop a window that goes back to the User Seat is

@@ -69,6 +69,28 @@ struct AppWindowInventoryTests {
 
     // MARK: The baseline
 
+    @Test("a known inactive desktop supplies a transfer candidate after two agreeing readings")
+    func inactiveDesktopCanTransfer() {
+        var inventory = AppWindowInventory()
+        inventory.baseline(surfaces: [Self.surface(700)], processes: Self.driven)
+        let ordinary = Self.surface(701)
+        let inactive = WindowSurface(reference: ordinary.reference, level: ordinary.level,
+                                     isVisible: false, isOnInactiveSpace: true)
+        #expect(Self.fold(&inventory, [[inactive]]).isEmpty)
+        #expect(Self.fold(&inventory, [[inactive]]) == [.appeared(ordinary.reference)])
+        #expect(Self.fold(&inventory, [[inactive]]).isEmpty)
+    }
+
+    @Test("an ineligible row does not consume its later appearance")
+    func hiddenCandidateCanBecomeVisible() {
+        var inventory = AppWindowInventory()
+        inventory.baseline(surfaces: [Self.surface(700)], processes: Self.driven)
+        let hidden = Self.surface(701, isVisible: false)
+        #expect(Self.fold(&inventory, [[hidden], [hidden]]).isEmpty)
+        let visible = Self.surface(701)
+        #expect(Self.fold(&inventory, [[visible]]) == [.appeared(visible.reference)])
+    }
+
     @Test("the first reading is a baseline and transfers nothing")
     func firstReadingIsABaseline() {
         var inventory = AppWindowInventory()

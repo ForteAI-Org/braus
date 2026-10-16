@@ -62,6 +62,21 @@ struct ScopedSurfaceReadingTests {
         )
     }
 
+    @Test("inactive Space evidence handles an omitted on-screen flag but rejects transparent helpers",
+          arguments: [0.0, 1.0], [false, nil] as [Bool?])
+    func inactiveSpacePreservesVisibility(alpha: Double, onScreen: Bool?) throws {
+        var description = row(7)
+        description[kCGWindowIsOnscreen as String] = onScreen
+        description[kCGWindowAlpha as String] = NSNumber(value: alpha)
+        let surfaces = try WindowServerProbe.readSurfaces(
+            matching: [42: [7]], gate: gate(), read: { _ in [description] },
+            attesting: { reference(processID: $0, number: $1, frame: $2) },
+            inactiveSpace: { _ in true }
+        ).get()
+        #expect(surfaces.first?.isVisible == false)
+        #expect(surfaces.first?.isOnInactiveSpace == (alpha > 0))
+    }
+
     @Test("failed self checks and missing permissions never read or attest a list")
     func refusedBeforeReading() throws {
         for gate in [try gate(failure: "unresolved primitive"), try gate(permission: .accessibility)] {

@@ -37,9 +37,14 @@ nonisolated public struct WindowSurface: Sendable, Equatable {
     /// invisible, which is a helper surface and not something to move.
     public let isVisible: Bool
 
-    public init(reference: WindowReference, level: Int, isVisible: Bool) {
+    /// Positive evidence that the window belongs to existing Spaces none of its displays currently show.
+    /// This is not visibility and does not by itself authorize transfer.
+    public let isOnInactiveSpace: Bool
+
+    public init(reference: WindowReference, level: Int, isVisible: Bool, isOnInactiveSpace: Bool = false) {
         self.reference = reference
         self.level     = level
         self.isVisible = isVisible
+        self.isOnInactiveSpace = isOnInactiveSpace
     }
 }

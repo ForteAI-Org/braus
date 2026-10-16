@@ -330,7 +330,7 @@ nonisolated struct AppWindowInventory {
                 continue
             }
 
-            record.agreed       = true
+            record.agreed       = isTransferable(surface, menuLevel: menuLevel)
             known[windowNumber] = record
 
             guard isPrimed, isTransferable(surface, menuLevel: menuLevel) else { continue }
@@ -415,7 +415,7 @@ nonisolated struct AppWindowInventory {
     /// screen-saver level surfaces. Qt draws its drag image at level 1000 at the
     /// real cursor, on the person's screen, and moving it failed a seat.
     private func isTransferable(_ surface: WindowSurface, menuLevel: Int) -> Bool {
-        surface.isVisible && surface.level < menuLevel
+        (surface.isVisible || surface.isOnInactiveSpace) && surface.level < menuLevel
             && surface.reference.frame.width > 0 && surface.reference.frame.height > 0
     }
 }

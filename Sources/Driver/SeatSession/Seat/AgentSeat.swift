@@ -350,6 +350,7 @@ public final class AgentSeat {
     package var restoresFullScreenOnRelease = false
 
     private var windowWatch    : AppWindowWatch?
+    private let windowElements: WindowElementCache?
     private var windowInventory = AppWindowInventory()
     private var windowFollowTask: Task<Void, Never>?
     private var windowFollowAgain = false
@@ -488,9 +489,11 @@ public final class AgentSeat {
         observationSource    : any ObservedSurfaceSourcing = UnqualifiedObservationSource(),
         contentClock         : any ContentClockQualifying = UnqualifiedContentClock(),
         observationProfile   : ObservationProfile = .initialLab,
-        endpoints            : EndpointDiscovery = .shipping
+        endpoints            : EndpointDiscovery = .shipping,
+        windowElements       : WindowElementCache? = nil
     ) {
         self.endpoints             = endpoints
+        self.windowElements        = windowElements
         self.sensing               = sensing
         self.placing               = placing
         self.sender                = sender
@@ -503,7 +506,7 @@ public final class AgentSeat {
         let assignment = SeatAssignmentKit()
         self.assignmentKit      = assignment
         self.selectionKit       = SeatTargetSelectionKit(assignment: assignment)
-        self.surfaceReader      = surfaceReader ?? SensingSurfaceReader(sensing: sensing)
+        self.surfaceReader      = surfaceReader ?? SensingSurfaceReader(sensing: sensing, windowElements: windowElements)
         self.observationSource  = observationSource
         self.sampleQualifier    = FrameSampleQualifier(clock: contentClock)
         self.observationProfile = observationProfile
@@ -3840,7 +3843,8 @@ public final class AgentSeat {
     func enableWindowFollowing() {
 
         guard windowWatch == nil, !isTearingDown else { return }
-        windowWatch = AppWindowWatch(created: { [weak self] in
+        windowWatch = AppWindowWatch(created: { [weak self] element in
+            self?.windowElements?.remember(element)
             self?.requestWindowFollow()
             self?.refreshFocusPreparation()
         })

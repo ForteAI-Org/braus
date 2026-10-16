@@ -71,4 +71,18 @@ struct WindowSpaceProbeTests {
         #expect(WindowSpaceProbe.spaces(of: 0) == nil)
         #expect(WindowSpaceProbe.spaces(of: -1) == nil)
     }
+
+    @Test("only known desktops absent from every display establish inactive membership")
+    func inactiveMembershipNeedsPositiveEvidence() {
+        let layout = DesktopLayout(displays: [
+            .init(displayID: 1, spaces: [6, 62], current: 62),
+            .init(displayID: 3, spaces: [170, 171], current: 170)
+        ])
+        #expect(layout.containsOnlyInactive([6]))
+        #expect(layout.containsOnlyInactive([6, 171]))
+        #expect(!layout.containsOnlyInactive([6, 170]))
+        #expect(!layout.containsOnlyInactive([99]))
+        #expect(!layout.containsOnlyInactive([]))
+        #expect(!layout.containsOnlyInactive(nil))
+    }
 }

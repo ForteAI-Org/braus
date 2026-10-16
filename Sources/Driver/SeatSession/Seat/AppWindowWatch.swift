@@ -10,8 +10,8 @@ import CoreFoundation
 import Foundation
 
 /// AppWindowWatch is the wake-up: it tells the seat that one of the processes
-/// it is driving has just created a window. It reads nothing, decides nothing
-/// and moves nothing.
+/// it is driving has just created a window. It retains the delivered handle for later checks,
+/// but reads nothing, decides nothing and moves nothing.
 ///
 /// ## Why accessibility is the wake-up and not the evidence
 ///
@@ -55,9 +55,9 @@ final class AppWindowWatch {
 
     /// Dropped by `stop`, which is what makes a late callback inert rather than
     /// a call into a seat that has given the person their windows back.
-    private var created: (() -> Void)?
+    private var created: ((AXUIElement) -> Void)?
 
-    init(created: @escaping () -> Void) {
+    init(created: @escaping (AXUIElement) -> Void) {
         self.created = created
     }
 
@@ -89,10 +89,10 @@ final class AppWindowWatch {
     private func add(_ processID: Int32) {
 
         var observer: AXObserver?
-        guard AXObserverCreate(processID, { _, _, _, context in
+        guard AXObserverCreate(processID, { _, element, _, context in
             guard let context else { return }
             MainActor.assumeIsolated {
-                Unmanaged<AppWindowWatch>.fromOpaque(context).takeUnretainedValue().windowCreated()
+                Unmanaged<AppWindowWatch>.fromOpaque(context).takeUnretainedValue().windowCreated(element)
             }
         }, &observer) == .success, let observer else { return }
 
@@ -132,7 +132,7 @@ final class AppWindowWatch {
         )
     }
 
-    private func windowCreated() { created?() }
+    private func windowCreated(_ element: AXUIElement) { created?(element) }
 
     isolated deinit { stop() }
 }

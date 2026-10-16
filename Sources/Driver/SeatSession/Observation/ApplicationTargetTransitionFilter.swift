@@ -193,7 +193,7 @@ nonisolated package final class ApplicationTargetTransitionFilter: @unchecked Se
         at now  : UInt64
     ) -> [SurfaceVisibilityClaim] {
         var offScreen: Set<WindowIdentity> = []
-        for row in rows where !row.surface.isVisible {
+        for row in rows where !row.surface.isVisible && !row.surface.isOnInactiveSpace {
             if let identity = row.surface.reference.identity { offScreen.insert(identity) }
         }
         let uncertain = Set(claims.filter { $0.state == .uncertain }.map(\.surface)).intersection(offScreen)

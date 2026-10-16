@@ -471,8 +471,8 @@ nonisolated public enum WindowRelocator {
     /// window" is never accepted as "the window the caller means".
     ///
     /// The limit is stated rather than papered over: a window that is neither
-    /// focused nor main and is not in `AXWindows` is not reachable by any
-    /// public route, and this throws for it.
+    /// focused nor main, absent from `AXWindows` and never retained by discovery cannot be resolved.
+    /// A retained discovery handle still has to prove its owner, Window ID and window role.
     ///
     /// A caller that holds a `WindowElementCache` skips the **search** and not
     /// the check: the cached element is put through the same
@@ -492,7 +492,20 @@ nonisolated public enum WindowRelocator {
         return try cache.element(
             for        : identity,
             confirmedBy: { windowNumber(of: $0) },
-            otherwise  : { try resolveWindowElement(for: window) }
+            otherwise  : {
+                if WindowServerProbe.identity(of: window.windowNumber) == identity {
+                    for element in cache.rememberedElements {
+                        AXUIElementSetMessagingTimeout(element, 0.05)
+                        var processID: pid_t = 0
+                        guard AXUIElementGetPid(element, &processID) == .success,
+                              processID == identity.processID,
+                              windowNumber(of: element) == identity.windowNumber,
+                              isWindowElement(element) else { continue }
+                        return element
+                    }
+                }
+                return try resolveWindowElement(for: window)
+            }
         )
     }
 
@@ -512,6 +525,19 @@ nonisolated public enum WindowRelocator {
             if windowNumber(of: candidate) == window.windowNumber { return candidate }
         }
         throw DisplayFailure.windowElementUnavailable(windowNumber: window.windowNumber)
+    }
+
+    /// A discovery notification may carry a child whose Window ID is its owner's, not a window handle.
+    package static func isWindowElement(_ element: AXUIElement) -> Bool {
+        func string(_ name: String) -> String? {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
+            return value as? String
+        }
+        if let role = string(kAXRoleAttribute), ["AXWindow", "AXSheet", "AXDrawer"].contains(role) { return true }
+        guard let subrole = string(kAXSubroleAttribute) else { return false }
+        return ["AXStandardWindow", "AXDialog", "AXSystemDialog", "AXFloatingWindow", "AXSystemFloatingWindow"]
+            .contains(subrole)
     }
 
     private static func windowElements(ofProcess processID: Int32) throws -> [AXUIElement] {

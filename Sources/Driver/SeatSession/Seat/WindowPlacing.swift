@@ -277,9 +277,11 @@ nonisolated public struct SystemWindowPlacing: WindowPlacing {
     /// It lives here and not on `WindowRelocator`, which is a `nonisolated`
     /// enum of statics: a cache there would be shared by every seat in the
     /// process and would be a data race besides.
-    private let elementCache = WindowElementCache()
+    private let elementCache: WindowElementCache
 
-    public init() {}
+    public init() { elementCache = WindowElementCache() }
+
+    package init(elementCache: WindowElementCache) { self.elementCache = elementCache }
 
     public func frame(of window: WindowReference) throws -> CGRect? {
         try WindowRelocator.frame(of: window, cache: elementCache)
