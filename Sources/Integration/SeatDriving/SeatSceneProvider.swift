@@ -161,7 +161,8 @@ public struct SeatSceneProvider: SceneProviding {
             title       : currentTitle,
             processID   : processID,
             frame       : frame,
-            windowNumber: observedWindow.id
+            windowNumber: observedWindow.id,
+            occludingFrames: popups
         )
         // The union with an open pop-up is two windows in one picture, not a structural surface.
         func perceived(_ capture: SceneCapture) -> PerceivedWindow {

@@ -26,6 +26,42 @@ struct ScenePipelineTests {
         }
     }
 
+    struct MenuText: TextRecognizing {
+        var scale: CGFloat
+
+        func recognizeText(in image: CGImage, accuracy: TextRecognitionAccuracy) throws -> [RecognizedText] {
+            if image.width == Int(150 * scale) {
+                return [RecognizedText(text: "bus", pixelBox: CGRect(
+                    x: 35 * scale, y: 90 * scale, width: 22 * scale, height: 12 * scale
+                ))]
+            }
+            return [
+                RecognizedText(text: "snq", pixelBox: CGRect(
+                    x: 209 * scale, y: 186 * scale, width: 22 * scale, height: 12 * scale
+                )),
+                RecognizedText(text: "Outside", pixelBox: CGRect(
+                    x: 500 * scale, y: 300 * scale, width: 70 * scale, height: 16 * scale
+                ))
+            ]
+        }
+    }
+
+    @Test("a popup is recognized separately from dense surrounding content", arguments: [1, 2])
+    func popupTextUsesItsOwnPixels(scale: Int) async throws {
+        var captured = window
+        captured.frame = CGRect(x: 2100, y: 1200, width: 1298, height: 821)
+        captured.occludingFrames = [CGRect(x: 2274, y: 1296, width: 150, height: 214)]
+        let scene = try await ScenePipeline(text: MenuText(scale: CGFloat(scale))).perceive(
+            try blank(1298 * scale, 821 * scale), of: captured
+        )
+        #expect(!scene.elements.contains { $0.label == "snq" })
+        #expect(scene.elements.contains { $0.label == "Outside" })
+        let bus = try #require(scene.elements.first { $0.label == "bus" })
+        let bounds = bus.bounds.pixelBox(in: CGSize(width: 1298 * scale, height: 821 * scale))
+        #expect(abs(bounds.minX - CGFloat(209 * scale)) < CGFloat(scale))
+        #expect(abs(bounds.minY - CGFloat(186 * scale)) < CGFloat(scale))
+    }
+
     struct FixedRegions: RegionSegmenting {
         var boxes: [CGRect]
 
@@ -242,6 +278,29 @@ struct ScenePipelineTests {
         #expect(recorder.calls.count == 1)
         #expect(recorder.calls.first?.0 == 4242)
         #expect(augmented.token != plain.token)
+    }
+
+    @Test("a popup's pixels are not relabeled by native controls in the window behind it")
+    func popupOccludesNativeControls() async throws {
+        let native = SceneElement(id: "under-menu", kind: .control, label: "Underlying control",
+                                  bounds: NormalizedRect(x: 0.16, y: 0.22, width: 0.1, height: 0.05), role: "AXButton")
+        let outside = SceneElement(id: "outside", kind: .control, label: "Outside",
+                                   bounds: NormalizedRect(x: 0.7, y: 0.2, width: 0.1, height: 0.05), role: "AXButton")
+        let pipeline = ScenePipeline(
+            text: MenuText(scale: 1),
+            augmentation: FixedAugmentation(elements: [native, outside], seen: FixedAugmentation.Recorder())
+        )
+        var captured = window
+        captured.processID = 4242
+        captured.frame = CGRect(x: 2100, y: 1200, width: 1298, height: 821)
+        captured.occludingFrames = [CGRect(x: 2274, y: 1296, width: 150, height: 214)]
+        let image = try blank(1298, 821)
+        let first = try await pipeline.capture(image, of: captured, reusing: nil)
+        #expect(first.capture.scene.elements.contains { $0.label == "bus" })
+        #expect(!first.capture.scene.elements.contains { $0.id == native.id })
+        #expect(first.capture.scene.elements.contains { $0.id == outside.id })
+        let reused = try await pipeline.capture(image, of: captured, reusing: first.visual)
+        #expect(reused.capture.scene.elements == first.capture.scene.elements)
     }
 
     @Test("a harvested element takes the panel it lands in")

@@ -37,6 +37,8 @@ struct SeatSceneProviderTests {
     }
 
     private struct CaptureAugmentation: SceneAugmenting {
+        var y: Double = 0.2
+
         func augmentation(for processID: pid_t, windowFrame: CGRect) async throws -> AccessibilityHarvest {
             AccessibilityHarvest(elements: [element(value: "geometry-only")], quality: .unknown)
         }
@@ -50,7 +52,7 @@ struct SeatSceneProviderTests {
         private func element(value: String) -> SceneElement {
             SceneElement(
                 id: "native-field", kind: .control, label: "Probe Text",
-                bounds: NormalizedRect(x: 0.2, y: 0.2, width: 0.2, height: 0.05),
+                bounds: NormalizedRect(x: 0.2, y: y, width: 0.2, height: 0.05),
                 role: "AXTextField", value: value
             )
         }
@@ -108,7 +110,8 @@ struct SeatSceneProviderTests {
         ]
         var displayReads = 0
         let provider = SeatSceneProvider(
-            target: target, pipeline: ScenePipeline(text: EmptyText(), augmentation: CaptureAugmentation()),
+            // Keep the identity probe above the menu; native controls behind it are excluded.
+            target: target, pipeline: ScenePipeline(text: EmptyText(), augmentation: CaptureAugmentation(y: 0.05)),
             windows: windows, identity: { _ in ApplicationIdentity(bundleID: "com.test", name: "Test") },
             freshStill: { _ in throw SeatDrivingFailure.frameUnusable },
             displayBounds: { _ in FakeGeometry.virtual },

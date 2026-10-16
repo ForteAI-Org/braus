@@ -41,6 +41,8 @@ public struct ScenePipeline: Sendable {
         public var frame: CGRect?
         /// The actual captured recipient, when the capture adapter attests it.
         public var windowNumber: Int?
+        /// Other surfaces drawn over this window, in global points. Its native tree cannot label their pixels.
+        public var occludingFrames: [CGRect]
 
         public init(
             bundleID    : String,
@@ -50,7 +52,8 @@ public struct ScenePipeline: Sendable {
             sectionRects: [NormalizedRect] = [],
             processID   : pid_t? = nil,
             frame       : CGRect? = nil,
-            windowNumber: Int? = nil
+            windowNumber: Int? = nil,
+            occludingFrames: [CGRect] = []
         ) {
             self.bundleID     = bundleID
             self.appName      = appName
@@ -60,6 +63,7 @@ public struct ScenePipeline: Sendable {
             self.processID    = processID
             self.frame        = frame
             self.windowNumber = windowNumber
+            self.occludingFrames = occludingFrames
         }
     }
 
@@ -159,16 +163,16 @@ public struct ScenePipeline: Sendable {
 
     @concurrent
     private func recognize(_ image: CGImage, of window: Window) async throws -> VisualScene {
-        let text = self.text, regions = self.regions, sections = self.sections, accuracy = self.accuracy
+        let regions = self.regions, sections = self.sections
         #if BRAUS_PHASES
         async let recognized = PhaseInterval.measure("pipeline.ocr") {
-            try text.recognizeText(in: image, accuracy: accuracy)
+            try recognizeText(in: image, of: window)
         }
         async let segmented = PhaseInterval.measure("pipeline.segments") {
             try regions?.segments(in: image) ?? []
         }
         #else
-        async let recognized = text.recognizeText(in: image, accuracy: accuracy)
+        async let recognized = recognizeText(in: image, of: window)
         async let segmented = regions?.segments(in: image) ?? []
         #endif
         let (runs, segments) = try await (recognized, segmented)
@@ -258,14 +262,60 @@ public struct ScenePipeline: Sendable {
         )
     }
 
+    /// Reads each known popup in isolation. Dense surrounding content can make the recognizer
+    /// misorient otherwise legible menu labels. Crop results replace only text painted inside that
+    /// popup, with their coordinates translated back into the captured image at its backing scale.
+    private func recognizeText(in image: CGImage, of window: Window) throws -> [RecognizedText] {
+        var runs = try text.recognizeText(in: image, accuracy: accuracy)
+        guard let frame = window.frame, frame.width > 0, frame.height > 0,
+              [frame.minX, frame.minY, frame.width, frame.height].allSatisfy(\.isFinite) else { return runs }
+        let pixels = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        let scaleX = CGFloat(image.width) / frame.width
+        let scaleY = CGFloat(image.height) / frame.height
+        var covered: [CGRect] = []
+        for overlay in window.occludingFrames {
+            try Task.checkCancellation()
+            guard overlay.width > 0, overlay.height > 0,
+                  [overlay.minX, overlay.minY, overlay.width, overlay.height].allSatisfy(\.isFinite) else { continue }
+            let crop = CGRect(
+                x: (overlay.minX - frame.minX) * scaleX,
+                y: (overlay.minY - frame.minY) * scaleY,
+                width: overlay.width * scaleX,
+                height: overlay.height * scaleY
+            ).integral.intersection(pixels)
+            guard crop.width >= 2, crop.height >= 2,
+                  let cropped = image.cropping(to: crop) else { continue }
+            let local = try text.recognizeText(in: cropped, accuracy: accuracy)
+            func belongs(_ box: CGRect) -> Bool {
+                let point = CGPoint(x: box.midX, y: box.midY)
+                return crop.contains(point) && !covered.contains { $0.contains(point) }
+            }
+            runs.removeAll { belongs($0.pixelBox) }
+            runs += local.compactMap { run in
+                let box = run.pixelBox.offsetBy(dx: crop.minX, dy: crop.minY)
+                return belongs(box) ? RecognizedText(text: run.text, pixelBox: box) : nil
+            }
+            covered.append(crop)
+        }
+        return runs
+    }
+
     private func augmentationElements(for window: Window) async throws -> AccessibilityHarvest {
         guard let augmentation, let processID = window.processID, let frame = window.frame else { return .none }
+        var harvest: AccessibilityHarvest
         if let windowNumber = window.windowNumber {
-            return try await augmentation.augmentation(
+            harvest = try await augmentation.augmentation(
                 for: processID, windowNumber: windowNumber, windowFrame: frame
             )
+        } else {
+            harvest = try await augmentation.augmentation(for: processID, windowFrame: frame)
         }
-        return try await augmentation.augmentation(for: processID, windowFrame: frame)
+        // The window's native tree describes controls behind an overlay, not that overlay's rows.
+        harvest.elements.removeAll { element in
+            let box = element.bounds.pixelBox(in: frame.size).offsetBy(dx: frame.minX, dy: frame.minY)
+            return window.occludingFrames.contains { $0.width > 0 && $0.height > 0 && $0.intersects(box) }
+        }
+        return harvest
     }
 
     /// Reads one region before text recognition and grouping, so nearby captions cannot become
