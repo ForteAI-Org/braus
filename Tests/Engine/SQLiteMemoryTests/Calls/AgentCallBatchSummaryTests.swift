@@ -128,6 +128,18 @@ struct AgentCallBatchSummaryTests {
         await memory.store.close()
     }
 
+    @Test("a step never attempted and its batch take no capture of their own: both read not applicable once concluded, while a step that ran keeps what its samples say")
+    func capturesOfStepsNeverAttempted() async throws {
+        let memory = try await F.open()
+        try await run(memory, [Self.click, Self.click, Self.click], [.ambiguous])
+        #expect(try await memory.calls.advance([summary(true, 1, 0)]) == .committed)
+        #expect(try await memory.captures.event("b.1")?.captureStatus == .notApplicable, "a skipped step")
+        #expect(try await memory.captures.event("b.2")?.captureStatus == .notApplicable, "a skipped step")
+        #expect(try await memory.captures.event("b")?.captureStatus == .notApplicable, "the batch perceives through its steps")
+        #expect(try await memory.captures.event("b.0")?.captureStatus == .unknown, "a step that ran and wrote no sample is not explained away")
+        await memory.store.close()
+    }
+
     @Test("cancellation and interruption keep their states and carry no summary")
     func cancelledAndInterrupted() async throws {
         let memory = try await F.open()

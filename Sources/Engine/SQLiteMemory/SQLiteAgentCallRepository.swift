@@ -251,6 +251,12 @@ enum SQLiteAgentCallRows {
             }
         }
         if let result = progress.result { try writeResult(transaction, eventID: eventID, result) }
+        // A call that ends without ever starting, a batch step skipped or cancelled while planned, takes
+        // no capture, and a batch perceives only through its steps: their summary leaves `unknown` for
+        // what their samples say, `not_applicable` when there are none. A call that ran keeps `unknown`.
+        if progress.status.isTerminal, stored.progress.status == .planned || stored.tool == .batch {
+            try SQLiteEventRows.refreshCaptureStatus(transaction, eventID: eventID)
+        }
         return true
     }
 
