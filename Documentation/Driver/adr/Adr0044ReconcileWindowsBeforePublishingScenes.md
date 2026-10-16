@@ -8,7 +8,10 @@ a physical display and was adopted during perception.
 
 The scene provider now observes through the Seat before enumerating surfaces.
 That observation supplies the window identity and the frame used by either
-capture path. A display crop refuses a different selected identity. Menu and
+capture path. A display crop checks the exact outstanding observation reference after capture.
+The recipient may be an auxiliary window while the session keeps its primary
+window selected. A superseded, consumed or invalidated observation still refuses
+the crop. Menu and
 dialog commands bracket perception with window signatures, including window
 numbers, and reread at most twice if those signatures change. No command is
 repeated. A continually changing census returns an unverified action without
@@ -50,5 +53,19 @@ With Output already open, a separate run returned I/O Setup in the menu command'
 immediate scene and in the following observation. Cancel and release preserved
 foreground application and cursor position. The first combined run stopped with
 `frameUnusable` after Output opened; it did not reach I/O Setup. That intermittent
-capture refusal remains unqualified. This does not establish every popup or
+capture path was not qualified by that run. This does not establish every popup or
 third-party plug-in as supported.
+
+The Output capture refusal was reproduced offline with an auxiliary recipient and
+an unchanged primary window. Its untitled layer-three palette also matched the
+geometric dropdown heuristic. That heuristic now applies only to normal-layer
+windows; floating windows remain windows, and menu-layer detection is unchanged.
+An existing popup cannot overwrite an observed window-title change, a control
+state change or a closure with a fabricated menu-opening effect.
+
+Every modal input can arm an expected closure, including editing a field. A later
+command replaces that unused expectation with fresh pre-command evidence. Once
+activation recovery or disappearance starts, its deadline and two-request budget
+remain shared across the episode, including across returns during a Turn. No
+command is replayed. Controlled regressions cover the recorded timing; this
+change still needs a live run to measure application focus behavior.
