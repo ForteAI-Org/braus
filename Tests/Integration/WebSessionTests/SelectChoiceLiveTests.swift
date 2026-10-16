@@ -94,8 +94,8 @@ struct SelectChoiceLiveTests {
         }
     }
 
-    @Test("a disabled option, an option of a disabled group, a replaced select, reordered options on Chrome: refused, no change, no key",
-          arguments: ["disabled", "group", "replaced", "reordered"])
+    @Test("a disabled option, an option of a disabled group, reordered options, a select replaced before the choice's scene read or between that read and the dispatch, on Chrome: one expected outcome each, no change, no key",
+          arguments: ["disabled", "group", "reordered", "replacedBeforeTheRead", "replacedAfterTheRead"])
     func refusals(kind: String) async throws {
         try await Self.withPage { tabs, id, page in
             let engine = Self.engine(tabs)
@@ -106,20 +106,30 @@ struct SelectChoiceLiveTests {
             }
             let opened = await engine.act(ActionRequest(processID: id, bundleID: "web:file", appName: "fixture", target: name, verb: .click))
             #expect(opened.kind != .refused, Comment(rawValue: opened.message))
-            if kind == "replaced" {
-                _ = try await page.evaluate("document.getElementById('color').replaceWith(document.getElementById('color').cloneNode(true))")
-            }
+            let replace = "document.getElementById('color').replaceWith(document.getElementById('color').cloneNode(true))"
             if kind == "reordered" {
                 _ = try await page.evaluate("const c = document.getElementById('color'); c.insertBefore(c.options[3], c.options[0])")
             }
+            if kind == "replacedBeforeTheRead" { _ = try await page.evaluate(replace) }
             let before = try await Self.index(select, on: page)
-            let chosen = await engine.act(ActionRequest(processID: id, bundleID: "web:file", appName: "fixture", target: row, verb: .click))
-            #expect(chosen.kind == .refused, Comment(rawValue: chosen.message))
+            if kind == "replacedAfterTheRead" {
+                // The scene is read with the list open, the select replaced after it: the row the choice names is stale.
+                let scene = try await WebScenes(tabs: tabs).currentScene(of: id).scene
+                let stale = try #require(scene.elements.first { $0.role == "AXMenuItem" && $0.label == row })
+                _ = try await page.evaluate(replace)
+                let receipt = await WebControls(tabs: tabs).chooseMenuItem(stale, within: .zero, in: id)
+                if case .refused = receipt {} else { Issue.record("replaced after the read: \(receipt)") }
+            } else {
+                let chosen = await engine.act(ActionRequest(processID: id, bundleID: "web:file", appName: "fixture", target: row, verb: .click))
+                // Replaced before the read, the fresh scene no longer shows the list's rows: there is nothing to choose.
+                let expected: ActOutcomeKind = kind == "replacedBeforeTheRead" ? .honestMiss : .refused
+                #expect(chosen.kind == expected, Comment(rawValue: chosen.message))
+            }
             let after = try await Self.index(select, on: page)
             let changes = try await Self.count(select, "change", on: page)
             let keys = try await page.evaluate("window.__keys").intValue ?? -1
             #expect(after == before, "the value as it was")
-            #expect(changes == 0, "no change event")
+            #expect(changes == 0, "no change event, on the select or its replacement")
             #expect(keys == 0, "no key reached the page")
         }
     }

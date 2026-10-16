@@ -107,7 +107,10 @@ chooses by index, and only when:
 - the option has the value and full text read then;
 - the option and its group are enabled.
 
-Otherwise the choice is refused and no event is sent.
+Otherwise the choice is refused and no event is sent. A select replaced before the choice's scene is read loses its
+rows there (every scene reads the open list again, and a select no longer on the page has none), so the engine
+finds nothing to choose and answers a miss, with no effect; a select replaced between that read and the dispatch is
+refused by the page.
 
 **What the choice did (W3).** The choice is focus, selection by index, `input`, `change`, blur. Then the page
 watches the select every 25 ms until its selected option node, index, value and full text held one state for 300 ms,

@@ -6,9 +6,9 @@
 </head>
 <body>
 <!-- W2, W3 fixture: native selects with twins, long and empty options, disabled options and groups, and selects
-     whose change handler puts the value back synchronously, in a microtask or on a timer. Each select counts its
-     change and keydown events (__counts), the document every key event (__keys, a replaced select's included); a
-     test reads indices, booleans and counts only. Synthetic values; no network. -->
+     whose change handler puts the value back synchronously, in a microtask or on a timer. The document counts, in
+     the capture phase, each select's change and keydown events by id (__counts, a replacement's included) and every
+     key event (__keys); a test reads indices, booleans and counts only. Synthetic values; no network. -->
 <form aria-label="Choices">
   <select id="color" aria-label="Color">
     <option value="r">Red</option><option value="b1">Blue</option><option value="b2">Blue</option><option value="g">Green</option>
@@ -30,14 +30,19 @@
   <select id="twin" aria-label="Gemella"><option value="r">Red</option><option value="b1">Blue</option><option value="b2">Blue</option></select>
 </form>
 <script>
+// Counted on the document, in the capture phase, so a select that replaced another (a clone keeps no listener) is
+// counted under its id too.
 window.__counts = {};
 window.__keys = 0;
-document.addEventListener('keydown', () => { window.__keys += 1; }, true);
-for (const select of document.querySelectorAll('select')) {
-  window.__counts[select.id] = { change: 0, keydown: 0 };
-  select.addEventListener('change', () => { window.__counts[select.id].change += 1; });
-  select.addEventListener('keydown', () => { window.__counts[select.id].keydown += 1; });
-}
+for (const select of document.querySelectorAll('select')) { window.__counts[select.id] = { change: 0, keydown: 0 }; }
+const counted = (event, kind) => {
+  const id = event.target && event.target.id;
+  if (!id) return;
+  window.__counts[id] = window.__counts[id] || { change: 0, keydown: 0 };
+  window.__counts[id][kind] += 1;
+};
+document.addEventListener('change', event => counted(event, 'change'), true);
+document.addEventListener('keydown', event => { window.__keys += 1; counted(event, 'keydown'); }, true);
 const back = (id, restore) => document.getElementById(id).addEventListener('change', event => restore(event.target));
 back('sync', s => { s.selectedIndex = 0; });
 back('micro', s => { Promise.resolve().then(() => { s.selectedIndex = 0; }); });
