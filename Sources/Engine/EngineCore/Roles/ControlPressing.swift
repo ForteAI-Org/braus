@@ -49,6 +49,39 @@ public protocol ControlPressing: Sendable {
     /// menu. True when a press was made, even one the application refused, because it may have
     /// acted; false when no such item exists, and only then may the keyboard choose instead.
     func pressMenuItem(titled title: String, within menuFrame: CGRect, in processID: pid_t) async -> Bool
+
+    /// Chooses `item`, an element of the open menu painted inside `menuFrame` as the scene showed it, and says
+    /// what that did (`MenuItemPress`). A conformer that knows the menu's items by more than their title (an
+    /// option's node and index) chooses by those; the default presses the item by its title.
+    func chooseMenuItem(_ item: SceneElement, within menuFrame: CGRect, in processID: pid_t) async -> MenuItemPress
+}
+
+/// MenuItemPress is the receipt of choosing an item of an open menu: whether anything went out, and what the
+/// conformer could read of the choice afterwards.
+public enum MenuItemPress: Sendable, Equatable {
+    /// The conformer has no such menu or item: nothing was sent, and another way may be tried.
+    case notHandled
+    /// The item is there but cannot be chosen safely (replaced, reordered, disabled, ambiguous): nothing was
+    /// sent, and no other way may be tried.
+    case refused(String)
+    /// The choice was applied; `readBack` is what was read of it after settling.
+    case sent(MenuChoiceReadBack)
+    /// The choice went out but its answer did not come back (a timeout, a disconnection, a cancellation): its
+    /// effect is possible, unknown.
+    case possiblySent(String)
+}
+
+/// MenuChoiceReadBack is what a conformer read of a choice it applied, after the page or the application
+/// settled.
+public enum MenuChoiceReadBack: Sendable, Equatable {
+    /// The control reads the chosen item.
+    case confirmed(expected: String, observed: String)
+    /// The control reads another item: the choice did not hold.
+    case contradicted(expected: String, observed: String?)
+    /// The control could not be read in time.
+    case unread(expected: String, reason: String)
+    /// The conformer reads nothing back: only the menu's closing can be judged.
+    case unattested
 }
 
 extension ControlPressing {
@@ -69,6 +102,12 @@ extension ControlPressing {
     /// A conformer that cannot read menu items presses none; the keyboard chooses.
     public func pressMenuItem(titled title: String, within menuFrame: CGRect, in processID: pid_t) async -> Bool {
         false
+    }
+
+    /// A menu item chosen by its title, as before: a press is an applied choice nothing reads back, and no
+    /// press leaves the engine its other ways.
+    public func chooseMenuItem(_ item: SceneElement, within menuFrame: CGRect, in processID: pid_t) async -> MenuItemPress {
+        await pressMenuItem(titled: item.label, within: menuFrame, in: processID) ? .sent(.unattested) : .notHandled
     }
 }
 

@@ -633,6 +633,82 @@ public struct ActionEngine: Sendable {
         }
     }
 
+    /// The outcome of a menu choice by its receipt (`MenuItemPress`), nil when the controls did not handle it. An
+    /// applied choice is judged by what was read back after settling, never by the menu's closing, which a list
+    /// Braus draws does by itself; only a conformer that reads nothing back is judged by the census, as before.
+    /// Nothing is chosen again after anything went out.
+    private func judged(
+        _ receipt : MenuItemPress,
+        _ request : ActionRequest,
+        element   : SceneElement,
+        perceived : PerceivedWindow
+    ) async -> ActOutcome? {
+        let pid = request.processID
+        let target = OperationCheck.Target(element)
+        switch receipt {
+            case .notHandled:
+                return nil
+            case .refused(let reason):
+                await recordPick(request, element: element, before: perceived, after: nil,
+                                 attempt: .notAttempted(reason: reason))
+                return ActOutcome(.refused, "'\(element.label)' was not chosen, nothing was sent: \(reason). Observe "
+                    + "the list again before choosing.", scene: perceived.scene)
+            case .possiblySent(let reason):
+                let afterWindow = await perceive(pid)
+                await recordPick(request, element: element, before: perceived, after: afterWindow,
+                                 attempt: .deliveryFailed(reason))
+                return ActOutcome(.actedUnverified, "choosing '\(element.label)': \(reason), so the choice may have "
+                    + "been applied: observe the control before anything else, and never choose it again blindly.",
+                    scene: afterWindow?.scene, check: OperationCheck(
+                        condition: .valueReadBack, method: .controlValue, verdict: .unknown,
+                        limits: [.deliveryUncertain], performed: .uncertain, target: target))
+            case .sent(.unattested):
+                await pause(timing.popupCommit)
+                let stillOpen = await surfaces(pid).hasOpenPopup
+                let afterWindow = await perceive(pid)
+                let after = afterWindow?.scene
+                await recordPick(request, element: element, before: perceived, after: afterWindow)
+                let check = OperationCheck(
+                    condition: .menuClosedAfterChoice, method: .windowCensus, verdict: stillOpen ? .failed : .passed,
+                    expected: "menu closed", observed: stillOpen ? "menu open" : "menu closed",
+                    limits: [.commandEffectUnchecked], performed: .requested, target: target
+                )
+                if stillOpen {
+                    return ActOutcome(.actedUnverified, "pressed '\(element.label)' in the open menu, but the "
+                        + "menu is still open: observe before choosing again.", scene: after, check: check)
+                }
+                return ActOutcome(.foundActed, "chose '\(element.label)' in the open menu through its accessibility "
+                    + "item; the menu closed. Check the command's own effect before going on.", scene: after, check: check)
+            case .sent(let readBack):
+                let afterWindow = await perceive(pid)
+                let after = afterWindow?.scene
+                await recordPick(request, element: element, before: perceived, after: afterWindow)
+                switch readBack {
+                    case .confirmed(let expected, let observed):
+                        return ActOutcome(.foundActed, "chose '\(element.label)': after the page settled the control "
+                            + "reads it", scene: after, check: OperationCheck(
+                                condition: .valueReadBack, method: .controlValue, verdict: .passed, expected: expected,
+                                observed: observed, performed: .requested, target: target))
+                    case .contradicted(let expected, let observed):
+                        return ActOutcome(.actedUnverified, "chose '\(element.label)', but after the page settled the "
+                            + "control reads \(observed.map { "'\(Self.shortened($0))'" } ?? "no option"): the page did "
+                            + "not keep it. Observe and re-decide; do not choose it again blindly.", scene: after,
+                            check: OperationCheck(condition: .valueReadBack, method: .controlValue, verdict: .failed,
+                                                  expected: expected, observed: observed,
+                                                  limits: observed == nil ? [.readbackUnavailable] : [],
+                                                  performed: .requested, target: target))
+                    case .unread(let expected, let reason):
+                        return ActOutcome(.actedUnverified, "chose '\(element.label)', but the control could not be "
+                            + "read back (\(reason)): observe it before anything else; do not choose it again blindly.",
+                            scene: after, check: OperationCheck(
+                                condition: .valueReadBack, method: .controlValue, verdict: .unknown, expected: expected,
+                                limits: [.readbackUnavailable], performed: .requested, target: target))
+                    case .unattested:
+                        return nil
+                }
+        }
+    }
+
     private func pickInPopup(
         _ request  : ActionRequest,
         element    : SceneElement,
@@ -652,25 +728,12 @@ public struct ActionEngine: Sendable {
                                          navigation: navigation, perceived: perceived)
             }
         }
-        // A native menu names its items: the one of that title is pressed, and keys pick only otherwise.
+        // A menu the controls know is chosen through them, by the element the scene showed; keys pick only when
+        // they do not handle it, never after anything was sent or refused.
         if !request.isDryRun, let controls = dependencies.controls,
-           await controls.pressMenuItem(titled: element.label, within: popupFrame, in: pid) {
-            await pause(timing.popupCommit)
-            let stillOpen = await surfaces(pid).hasOpenPopup
-            let afterWindow = await perceive(pid)
-            let after = afterWindow?.scene
-            await recordPick(request, element: element, before: perceived, after: afterWindow)
-            let check = OperationCheck(
-                condition: .menuClosedAfterChoice, method: .windowCensus, verdict: stillOpen ? .failed : .passed,
-                expected: "menu closed", observed: stillOpen ? "menu open" : "menu closed",
-                limits: [.commandEffectUnchecked], performed: .requested, target: OperationCheck.Target(element)
-            )
-            if stillOpen {
-                return ActOutcome(.actedUnverified, "pressed '\(element.label)' in the open menu, but the "
-                    + "menu is still open: observe before choosing again.", scene: after, check: check)
-            }
-            return ActOutcome(.foundActed, "chose '\(element.label)' in the open menu through its accessibility "
-                + "item; the menu closed. Check the command's own effect before going on.", scene: after, check: check)
+           let outcome = await judged(await controls.chooseMenuItem(element, within: popupFrame, in: pid),
+                                      request, element: element, perceived: perceived) {
+            return outcome
         }
         let rows = PopupRowPick.rows(in: perceived.scene, windowFrame: perceived.frame, popupFrame: popupFrame)
         let labels = Set(rows.flatMap { $0.map { LabelText.normalize($0.label) } }.filter { !$0.isEmpty })

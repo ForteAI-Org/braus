@@ -103,6 +103,16 @@ struct ActionEngineTests {
         }
         var menuItemPresses = false
         var pressedMenuItems: [(title: String, frame: CGRect)] = []
+        /// The receipt `chooseMenuItem` answers; nil keeps the protocol's default, a press by title.
+        var choice: MenuItemPress?
+        var chosenItems: [SceneElement] = []
+        func chooseMenuItem(_ item: SceneElement, within menuFrame: CGRect, in processID: pid_t) async -> MenuItemPress {
+            guard let choice else {
+                return await pressMenuItem(titled: item.label, within: menuFrame, in: processID) ? .sent(.unattested) : .notHandled
+            }
+            chosenItems.append(item)
+            return choice
+        }
         func pressMenuItem(titled title: String, within menuFrame: CGRect, in processID: pid_t) async -> Bool {
             pressedMenuItems.append((title, menuFrame)); return menuItemPresses
         }
