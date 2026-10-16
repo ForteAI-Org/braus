@@ -161,6 +161,14 @@ an element ID when no section exists instead of suggesting the unusable `section
 Pro Tools' native audio Send selectors are scoped by bundle, AX role and their Sends bank.
 They open routing menus without the generic message-send refusal. Selection tools also allow
 the exact `no send` item from those controls; other destructive items retain the normal rule.
+
+A Pro Tools send's assignment button opens its panel after assignment; the adjacent
+native selector opens the routing menu. An exact `no send` click is allowed only in
+Pro Tools when the painted native menu has a unique enabled `no send` leaf and
+unique `output` and `bus` submenus. Text alone never supplies that permission.
+The flat `select` tool refuses these native send controls before input and directs the
+caller to observed `act` steps; its generic dropdown route is not qualified for them.
+
 The broker includes already-held floating palettes in `windows` after verifying their current
 identity, including untitled Output panels. See the [Pro Tools guide](../Driver/platforms/ProTools.md)
 for the boundaries and live checks.
@@ -312,6 +320,9 @@ Driver offers is not yet turned on here.
 
 - `ActVerification.verdict` compares a remembered expectation by effect family, never by exact
   string: a flip's direction or a menu's items may vary, the kind of effect should not.
+- A toggle state flip belongs to the resolved control's scope: kind, native role, label,
+  container and collection path must identify one control before and after in the same window.
+  Repeated IDs, such as Mute on several tracks, do not select the first matching control.
 - A text format toggle (`bold`, `italic`, `underline`, and the Italian `grassetto`, `corsivo`,
   `sottolineato`) is never `found_acted` from its own state:
   a click or `set_toggle` that only flips it is `acted_unverified` with `commandEffectUnchecked`,
@@ -385,8 +396,14 @@ Driver offers is not yet turned on here.
 - A pop-up is a window of its own. A target inside an open pop-up is chosen with the keyboard from
   `PopupRowPick`'s plan over the scene's rows (the highlight starts on the control's value, the arrows
   wrap, Return chooses), verified by reading the control's value back. An item of an open native menu
-  is pressed through its accessibility element first; only when none answers is the menu's own
-  type-ahead used, committed only while the list is still open, and that pick answers
+  is pressed through its accessibility element first when it is a final choice. A native submenu
+  parent is entered with Home, Down over enabled named rows, and Right, without AXPress or Return.
+  Ambiguous row geometry refuses navigation. Success requires the parent's own child frame to
+  appear as a new popup while the original menu remains open. `AXMenu` children and menu-bearing
+  `AXWindow` children are recognized. Repeated paths to the same native element count once;
+  distinct elements with the same title remain ambiguous. A readable native menu without one enabled matching item
+  refuses the request before any input; an OCR error is never typed into that menu. Only when no
+  native menu can be read is its type-ahead used, committed while the list remains open; that pick answers
   `acted_unverified`: the menu closing does not confirm the command ran. A target outside an
   open pop-up closes it first and answers `acted_noop`, because clicking through a menu hits the menu.
 - A closed dropdown is opened by its own press action when the application exposes one, so a painted

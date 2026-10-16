@@ -222,10 +222,20 @@ never wrong ones, and a quality that says the walk stopped at its deadline. With
 Accessibility grant it answers an empty harvest whose quality says the grant was absent; a capture
 whose frame matches no window of the tree answers `windowFound` false, which is not a denied grant.
 
+When a capture includes popup windows over its recipient, the adapter supplies their global frames
+as `ScenePipeline.Window.occludingFrames`. Native controls from the recipient that intersect those
+frames are excluded before merging: a control behind a menu cannot replace the menu's visible label.
+Each popup is also recognized from its own crop: surrounding content can make OCR misorient a
+legible menu. Those local text runs replace the whole-image runs inside that popup, translated back
+to the capture's pixel coordinates. Occlusion filtering also applies when visual recognition is reused.
+
 ## Limits
 
 `PopupRowSegmenter` caps rows at 240. The map tier shows up to 8 notable elements per section, 60
-for an open menu. `AccessibilityAugmentation.Limits` defaults to depth 16, 24 tables, 400 elements.
+for an open menu. `AccessibilityAugmentation.Limits` defaults to depth 32, 24 tables, 1,024 elements.
+The former 400-element ceiling truncated a visible Pro Tools Mix window before its last tracks:
+577 native elements completed the same window, including the final track's 35 controls.
+The live walk retains its 1.5-second deadline, and incomplete reads still report their limit.
 The depth includes renderer window containers; Chrome fields measured at depth 10 were excluded
 by the previous ceiling. The deadline and element limits still bound the walk.
 `PopupRowHarvest.Limits` defaults to depth 8, 8 candidate menus, 400 rows.
