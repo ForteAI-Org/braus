@@ -458,3 +458,34 @@ func anOffscreenDialogRefusesIncompleteNativeEvidence() {
         #expect(windows.isEmpty)
     }
 }
+
+@Test("held floating palettes are listed only while their current identity still matches",
+      arguments: ["valid", "reused", "foreign", "missing", "unattested", "menu", "tiny"])
+func heldPaletteIdentity(fault: String) throws {
+    let process = ProcessIdentity(processID: 42, serialNumberHigh: 1, serialNumberLow: 2)
+    let identity = WindowIdentity(process: process, windowNumber: 7, ownerConnectionID: 3)
+    let frame = CGRect(x: 200, y: 300, width: 89, height: 533)
+    let held = fault == "unattested"
+        ? WindowReference(processID: 42, windowNumber: 7, frame: frame)
+        : WindowReference(identity: identity, frame: frame)
+    let current = WindowReference(
+        identity: fault == "reused"
+            ? WindowIdentity(process: process, windowNumber: 7, ownerConnectionID: 4) : identity,
+        frame: fault == "tiny" ? CGRect(x: 200, y: 300, width: 66, height: 20) : frame
+    )
+    var row = windowInfo(pid: fault == "foreign" ? 43 : 42,
+                         layer: fault == "menu" ? 101 : 3, frame: frame)
+    row[kCGWindowName as String] = ""
+    let rows = TargetEnumerator.heldWindows(
+        of: 42, references: [held], in: [row, row],
+        readCurrent: { _ in fault == "missing" ? nil : current }
+    )
+    if fault == "valid" {
+        #expect(rows.count == 1)
+        #expect(rows.first?.windowNumber == 7)
+        #expect(rows.first?.frame == frame)
+        #expect(rows.first?.title == "")
+    } else {
+        #expect(rows.isEmpty)
+    }
+}

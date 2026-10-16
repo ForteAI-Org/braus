@@ -159,7 +159,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     static func switchWindow(_ target: SeatTarget, processID: pid_t, title: String) async throws {
         let seat = try target.agentSeat()
         _ = try await target.observe()
-        let candidates = TargetEnumerator.windows(of: processID).filter { $0.title == title }
+        let candidates = TargetEnumerator.windows(
+            of: processID, includingHeld: seat.adoptedWindows.map(\.reference)
+        ).filter { $0.title == title }
         guard candidates.count == 1, let candidate = candidates.first else {
             throw AutomationFailure("The window title is missing or ambiguous. Read windows and use one exact title.")
         }
@@ -403,7 +405,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func windowCandidates(ownedBy processID: pid_t) throws -> [WindowRow] {
-        TargetEnumerator.windows(of: processID).map {
+        let held = (try? target?.agentSeat().adoptedWindows.map(\.reference)) ?? []
+        return TargetEnumerator.windows(of: processID, includingHeld: held).map {
             WindowRow(layer: 0, frame: $0.frame, title: $0.title, number: $0.windowNumber)
         }
     }

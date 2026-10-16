@@ -196,13 +196,55 @@ enum TargetEnumerator {
     /// Onscreen windows, or positively identified fullscreen/native windows
     /// when Stage Manager or another Space keeps every candidate offscreen.
     @MainActor
-    static func windows(of pid: pid_t, minimumSize: CGFloat = 120, maximumLayer: Int = 0) -> [TargetWindow] {
-        windows(
+    static func windows(
+        of pid        : pid_t,
+        minimumSize   : CGFloat = 120,
+        maximumLayer  : Int = 0,
+        includingHeld : [WindowReference] = []
+    ) -> [TargetWindow] {
+        let ordinary = windows(
             of          : pid,
             onScreen    : onScreenWindows(minimumSize: minimumSize, maximumLayer: maximumLayer)[pid] ?? [],
             minimumSize : minimumSize,
             maximumLayer: maximumLayer
         )
+        let held = includingHeld.filter { $0.processID == pid && $0.identity != nil }
+        guard !held.isEmpty else { return ordinary }
+        let known = Set(ordinary.map(\.windowNumber))
+        return ordinary + heldWindows(
+            of: pid,
+            references: held,
+            in: serverRows(held.map(\.windowNumber)),
+            readCurrent: { WindowServerProbe.geometry(of: $0) }
+        ).filter { !known.contains($0.windowNumber) }
+    }
+
+    /// Lists a held palette even when it is narrower or higher than a launch candidate.
+    /// A current server identity must still match the adoption; a reused number is not that window.
+    static func heldWindows(
+        of pid      : pid_t,
+        references  : [WindowReference],
+        in rows     : [[String: Any]],
+        readCurrent : (Int) -> WindowReference?
+    ) -> [TargetWindow] {
+        var listed = Set<Int>()
+        return rows.compactMap { row in
+            guard row[kCGWindowOwnerPID as String] as? pid_t == pid,
+                  let number = row[kCGWindowNumber as String] as? Int,
+                  let layer = row[kCGWindowLayer as String] as? Int, (0...20).contains(layer),
+                  let held = references.first(where: { $0.processID == pid && $0.windowNumber == number }),
+                  let identity = held.identity,
+                  let current = readCurrent(number), current.identity == identity,
+                  usableNativeBody(current.frame, minimumSize: 50),
+                  listed.insert(number).inserted
+            else { return nil }
+            return TargetWindow(
+                pid: pid,
+                windowNumber: number,
+                title: row[kCGWindowName as String] as? String ?? "",
+                frame: current.frame
+            )
+        }
     }
 
     @MainActor
