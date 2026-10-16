@@ -140,6 +140,8 @@ final class UserFocusRecovery {
         /// stays posted while the recovery is still running, and nothing here
         /// posts it again.
         var posted = false
+        /// Once recovery starts, later Commands cannot renew this episode's budget.
+        var activationStarted = false
 
         /// When the dialog stopped being listed by accessibility.
         var surfaceGoneAt: UInt64?
@@ -439,8 +441,15 @@ final class UserFocusRecovery {
     /// person's. Nothing is adopted, attributed or given input by being passed
     /// here, and a service's other windows are not the seat's to pass.
     func expectClosure(dialog: WindowIdentity?, helpers: [WindowReference] = []) {
-        guard !isPaused, closure == nil else { return }
+        guard !isPaused, canPrepareAnotherClosure else { return }
+        if closure != nil { endClosureTransition() }
         expectedClosure = (dialog, helpers)
+    }
+
+    /// Editing a modal arms recovery too. A new command replaces only an unused or expired transition.
+    private var canPrepareAnotherClosure: Bool {
+        guard let closure else { return true }
+        return now() >= closure.deadline || (!closure.activationStarted && closure.surfaceGoneAt == nil)
     }
 
     /// Drops an expectation whose Command never reached its preparation. An
@@ -763,10 +772,13 @@ final class UserFocusRecovery {
         guard allowed else { throw InputFailure.inputPaused([.holdEnded]) }
         guard !isPaused else { throw InputFailure.inputPaused([.activationUnverified]) }
         guard sensing.fenceIsActive else { throw InputFailure.inputPaused([.fenceInactive]) }
-        if let action { prepared = action }
-        // The last reading before the post is what a closure transition is
-        // opened on, and this is where it lands.
-        openExpectedClosure()
+        if let action {
+            prepared = action
+            // Only fresh evidence may start the next Command's closure budget.
+            openExpectedClosure()
+        } else {
+            dropClosureExpectation()
+        }
     }
 
     /// Rebuilds the preparation outside the input path, so that an application
@@ -1097,6 +1109,7 @@ final class UserFocusRecovery {
         guard !isPaused else { return }
 
         // Close the posting gate before any validation or private call.
+        closure?.activationStarted = true
         started = detected
         sampledNanoseconds = 0
         lastSampleAt = detected
@@ -1306,7 +1319,7 @@ final class UserFocusRecovery {
 
                 // A closure transition is explicit and keeps its count: the
                 // distinct steal after a return spends the second of its two.
-                if holdIsArmed { restoreRequests = 0 }
+                if holdIsArmed, closure == nil { restoreRequests = 0 }
                 else if operationIsArmed, !operationHasTransfer { operationRestoredAt = now() }
                 requestedThisActivation = false
                 gate.resume(.focusRecovery)

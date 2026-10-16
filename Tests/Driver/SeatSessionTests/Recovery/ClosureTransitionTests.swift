@@ -521,6 +521,78 @@ struct ClosureTransitionTests {
         #expect(fixture.reports.last?.outcome == .restored)
     }
 
+    @Test("editing a modal does not spend the next command's closure deadline")
+    func aLaterModalCommandGetsItsOwnPreparation() async throws {
+        let fixture = Harness()
+        defer { fixture.recovery.stop() }
+        try await fixture.openTransition()
+        fixture.recovery.noteClosureCommandPosted()
+        fixture.time += 1_180_000_000
+        fixture.expectClosure()
+        try await fixture.recovery.prepareBeforeAction()
+        fixture.recovery.noteClosureCommandPosted()
+        fixture.activate(FakeGeometry.targetPID)
+        fixture.time += 7_000_000
+        fixture.sensing.frontmostProcessID = Self.user.processID
+        fixture.sensing.focusedUserWindow = Self.user
+        fixture.recovery.verify()
+        fixture.time += 476_000_000
+        fixture.recovery.noteClosureSurfaceGone(Self.sheet.windowNumber)
+        fixture.recovery.verify()
+        #expect(!fixture.reports.contains { $0.outcome == .unrecoverable })
+        fixture.time += UserFocusRecovery.closureProtectionNanoseconds
+        fixture.returnUser()
+        #expect(!fixture.gate.isPaused)
+        #expect(fixture.requested == [Self.user])
+        #expect(fixture.reports.last?.outcome == .restored)
+    }
+
+    @Test("another modal command cannot renew an episode that already restored focus")
+    func aLaterCommandKeepsTheSpentBudget() async throws {
+        let fixture = Harness()
+        defer { fixture.recovery.stop() }
+        try await fixture.openTransition()
+        fixture.activate(FakeGeometry.targetPID)
+        fixture.returnUser()
+        fixture.time += 1_000_000_000
+        fixture.expectClosure()
+        try await fixture.recovery.prepareBeforeAction()
+        fixture.activate(FakeGeometry.targetPID)
+        #expect(fixture.requested.count == 2)
+        fixture.time += 500_000_001
+        fixture.recovery.verify()
+        #expect(fixture.reports.last?.outcome == .unrecoverable)
+        #expect(fixture.requested.count == 2)
+    }
+
+    @Test("a closure inside a Turn still has only two restoration requests")
+    func aTurnDoesNotResetTheClosureBudget() async throws {
+        let fixture = Harness()
+        defer { fixture.recovery.stop() }
+        try await fixture.openTransition()
+        for _ in 0..<3 {
+            await fixture.recovery.refreshPreparation()
+            fixture.activate(FakeGeometry.targetPID)
+            fixture.returnUser()
+        }
+        #expect(fixture.requested == [Self.user, Self.user])
+        #expect(fixture.recovery.restoreRequests == 2)
+    }
+
+    @Test("a new modal command cannot open a closure on a failed fresh preparation")
+    func aFailedPreparationCannotRenewTheClosure() async throws {
+        let fixture = Harness()
+        defer { fixture.recovery.stop() }
+        try await fixture.openTransition()
+        fixture.recovery.noteClosureCommandPosted()
+        fixture.time += 100_000_000
+        fixture.expectClosure()
+        fixture.sensing.snapshotPreparation = { nil }
+        try await fixture.recovery.prepareBeforeAction()
+        #expect(!fixture.recovery.isInClosureTransition)
+        #expect(fixture.requested.isEmpty)
+    }
+
     // MARK: The end of the fight
 
     @Test("the transition's deadline names the impossibility once and stops asking")
