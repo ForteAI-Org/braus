@@ -108,7 +108,57 @@ public struct ScenePipeline: Sendable {
     /// took place and the quality is `unknown`, never a complete read that did not happen.
     @concurrent
     public func capture(_ image: CGImage, of window: Window) async throws -> SceneCapture {
+        try await capture(image, of: window, reusing: nil).capture
+    }
+
+    /// Pixel-derived facts only. The caller may reuse them after proving equal pixels and window facts.
+    package struct VisualScene: Sendable {
+        fileprivate let scene: SceneSnapshot
+        fileprivate let segments: [CGRect]
+        fileprivate let window: Window
+    }
+
+    /// Reuses recognition while reading native facts again, including their current quality.
+    @concurrent
+    package func capture(
+        _ image: CGImage, of window: Window, reusing visual: VisualScene?
+    ) async throws -> (capture: SceneCapture, visual: VisualScene) {
         try Task.checkCancellation()
+        #if BRAUS_PHASES
+        async let harvested = PhaseInterval.measure("pipeline.ax") { try await augmentationElements(for: window) }
+        #else
+        async let harvested = augmentationElements(for: window)
+        #endif
+        let pixels: VisualScene
+        if let visual, visual.window == window,
+           visual.scene.viewportPixelSize == ViewportPixelSize(width: image.width, height: image.height) {
+            pixels = visual
+        } else {
+            pixels = try await recognize(image, of: window)
+        }
+        #if BRAUS_PHASES
+        let waiting = PhaseInterval.begin("pipeline.axWait")
+        #endif
+        let harvest = try await harvested
+        #if BRAUS_PHASES
+        waiting.end()
+        let merging = PhaseInterval.begin("pipeline.merge")
+        #endif
+        try Task.checkCancellation()
+        let merged = Self.augmented(pixels.scene, with: harvest.elements)
+        #if BRAUS_PHASES
+        merging.end()
+        let stating = controlState == nil ? nil : PhaseInterval.begin("pipeline.controlState")
+        defer { stating?.end() }
+        #endif
+        let scene = controlState.map {
+            Self.stated(merged, from: image, segments: pixels.segments, reader: $0)
+        } ?? merged
+        return (SceneCapture(scene: scene, quality: harvest.quality), pixels)
+    }
+
+    @concurrent
+    private func recognize(_ image: CGImage, of window: Window) async throws -> VisualScene {
         let text = self.text, regions = self.regions, sections = self.sections, accuracy = self.accuracy
         #if BRAUS_PHASES
         async let recognized = PhaseInterval.measure("pipeline.ocr") {
@@ -117,13 +167,9 @@ public struct ScenePipeline: Sendable {
         async let segmented = PhaseInterval.measure("pipeline.segments") {
             try regions?.segments(in: image) ?? []
         }
-        async let harvested = PhaseInterval.measure("pipeline.ax") {
-            try await augmentationElements(for: window)
-        }
         #else
         async let recognized = text.recognizeText(in: image, accuracy: accuracy)
         async let segmented = regions?.segments(in: image) ?? []
-        async let harvested = augmentationElements(for: window)
         #endif
         let (runs, segments) = try await (recognized, segmented)
         try Task.checkCancellation()
@@ -149,29 +195,8 @@ public struct ScenePipeline: Sendable {
         )
         #if BRAUS_PHASES
         composing.end()
-        let waiting = PhaseInterval.begin("pipeline.axWait")
         #endif
-        let harvest = try await harvested
-        #if BRAUS_PHASES
-        waiting.end()
-        #endif
-        try Task.checkCancellation()
-        #if BRAUS_PHASES
-        let merging = PhaseInterval.begin("pipeline.merge")
-        #endif
-        let merged = Self.augmented(scene, with: harvest.elements)
-        #if BRAUS_PHASES
-        merging.end()
-        #endif
-        guard let controlState else { return SceneCapture(scene: merged, quality: harvest.quality) }
-        #if BRAUS_PHASES
-        let stating = PhaseInterval.begin("pipeline.controlState")
-        defer { stating.end() }
-        #endif
-        return SceneCapture(
-            scene  : Self.stated(merged, from: image, segments: visual.icons, reader: controlState),
-            quality: harvest.quality
-        )
+        return VisualScene(scene: scene, segments: visual.icons, window: window)
     }
 
     /// Asks the control state reader about every switch, checkbox and radio the grouper's candidate

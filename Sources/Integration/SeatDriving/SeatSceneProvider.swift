@@ -27,15 +27,11 @@ import SeatSession
 /// frames that do not intersect the captured rectangle, and on the Seat the application's own child
 /// frames still point at the window's old place.
 ///
-/// A window still whose pixels are byte for byte those the last scene was read from, of the same
-/// window with the same census facts, answers that scene again without the pipeline (ADR 0034), so
-/// the layer above answers "Unchanged since revision N." through its own baseline. The trade-off,
-/// accepted by the owner: a change that draws nothing (an accessibility value or focus) is not seen.
-/// Every call still takes a fresh observation, but a running stream's frame displayed after a Command
-/// can still repeat the window's pixels from before it (a Qt window did for seconds). So a kept scene
-/// answers again only when its own frame was displayed after the last Command; otherwise a still from
-/// a stream started now decides, and the scene is reused only when that still matches too. The
-/// display path never reuses.
+/// Byte-identical pixels of the same window reuse recognition and grouping (ADR 0034).
+/// Native values, roles and read quality are refreshed on every observation: a control can change
+/// without drawing, including when its track is outside the visible viewport. After a Command,
+/// the existing fresh-still check still prevents an old stream frame from proving equal pixels.
+/// Display crops are always recognized again.
 public struct SeatSceneProvider: SceneProviding {
 
     private let target: SeatTarget
@@ -174,7 +170,7 @@ public struct SeatSceneProvider: SceneProviding {
                 : CaptureSurface.popupUnion
             return PerceivedWindow(scene: capture.scene, frame: frame, capture: capture.quality, surface: surface)
         }
-        // ADR 0034: the same window and census over byte-identical pixels is the scene already read.
+        // Equal pixels can reuse recognition, never the native facts merged into the previous scene.
         if let still = comparable, let kept = await lastScene.kept, kept.window == window,
            kept.frame.showsSameContent(as: still) {
             let keptDisplayedAt = kept.frame.displayTime.flatMap {
@@ -185,7 +181,7 @@ public struct SeatSceneProvider: SceneProviding {
                 reusing.end()
                 #endif
                 await MainActor.run { target.lastSceneImage = image }
-                return perceived(kept.capture)
+                return perceived(try await pipeline.capture(image, of: window, reusing: kept.visual).capture)
             }
             #if BRAUS_PHASES
             let confirming = PhaseInterval.begin("capture.freshStill")
@@ -200,9 +196,9 @@ public struct SeatSceneProvider: SceneProviding {
                 #endif
                 await MainActor.run {
                     target.lastSceneImage = image
-                    lastScene.kept = LastScene.Kept(frame: fresh, window: window, capture: kept.capture)
+                    lastScene.kept = LastScene.Kept(frame: fresh, window: window, visual: kept.visual)
                 }
-                return perceived(kept.capture)
+                return perceived(try await pipeline.capture(image, of: window, reusing: kept.visual).capture)
             }
             // The fresh pixels are read only at the observed rectangle, which the next Command maps through.
             if let fresh, fresh.geometry.screenRect == frame, let pixels = fresh.makeCGImage() {
@@ -213,15 +209,15 @@ public struct SeatSceneProvider: SceneProviding {
         #if BRAUS_PHASES
         let perceiving = PhaseInterval.begin("pipeline")
         #endif
-        let capture = try await pipeline.capture(image, of: window)
+        let reading = try await pipeline.capture(image, of: window, reusing: nil)
         #if BRAUS_PHASES
         perceiving.end()
         #endif
         await MainActor.run {
             target.lastSceneImage = image
-            if let comparable { lastScene.kept = LastScene.Kept(frame: comparable, window: window, capture: capture) }
+            if let comparable { lastScene.kept = LastScene.Kept(frame: comparable, window: window, visual: reading.visual) }
         }
-        return perceived(capture)
+        return perceived(reading.capture)
     }
 
     /// Whether a kept scene may answer a still whose pixels equal its frame's, from the uptime
@@ -233,8 +229,8 @@ public struct SeatSceneProvider: SceneProviding {
         return keptDisplayedAt > lastCommandAt
     }
 
-    /// LastScene keeps the window still the last scene was built from, with the window facts and the
-    /// scene, so the next still can be compared to it. Only the latest is kept, and replacing it
+    /// LastScene keeps the window still with its window facts and pixel-derived scene, so the next
+    /// still can reuse recognition. Only the latest is kept, and replacing it
     /// releases the Frame, which owns its surface (a stopped Still's, or a detached copy).
     @MainActor
     private final class LastScene {
@@ -242,7 +238,7 @@ public struct SeatSceneProvider: SceneProviding {
         struct Kept: Sendable {
             let frame  : SeatFrame
             let window : ScenePipeline.Window
-            let capture: SceneCapture
+            let visual : ScenePipeline.VisualScene
         }
 
         var kept: Kept?

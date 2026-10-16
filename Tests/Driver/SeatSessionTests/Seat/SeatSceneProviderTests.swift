@@ -204,6 +204,7 @@ struct SeatSceneProviderTests {
 
     private func reuse(
         marker    : Int64,
+        augmentation: (any SceneAugmenting)? = nil,
         freshStill: @escaping @MainActor @Sendable (SeatTarget) async throws -> SeatFrame = { _ in
             throw ObservationUnavailable.captureFailed(reason: "no fresh still in this test")
         }
@@ -217,7 +218,7 @@ struct SeatSceneProviderTests {
         let target = SeatTarget(borrowing: SeatHost(), seat: context.seat)
         let provider = SeatSceneProvider(
             target    : target,
-            pipeline  : ScenePipeline(text: text),
+            pipeline  : ScenePipeline(text: text, augmentation: augmentation),
             windows   : windows,
             identity  : { _ in ApplicationIdentity(bundleID: "com.test", name: "Test") },
             freshStill: freshStill
@@ -247,7 +248,54 @@ struct SeatSceneProviderTests {
         #expect(context.source.requested.count == captures + 1)
     }
 
-    @Test("byte-identical pixels of the same window answer the last scene without the pipeline")
+    private actor ChangingAugmentation: SceneAugmenting {
+        var reads = 0
+
+        func augmentation(
+            for processID: pid_t, windowNumber: Int, windowFrame: CGRect
+        ) async throws -> AccessibilityHarvest {
+            try await augmentation(for: processID, windowFrame: windowFrame)
+        }
+
+        func augmentation(for processID: pid_t, windowFrame: CGRect) async throws -> AccessibilityHarvest {
+            reads += 1
+            if reads == 4 {
+                return AccessibilityHarvest(elements: [], quality: CaptureQuality(windowFound: false))
+            }
+            let element = SceneElement(
+                id: "control|mute", kind: .control, label: "Mute",
+                bounds: NormalizedRect(x: 0.5, y: 0.5, width: 0.05, height: 0.05),
+                role: "AXButton", state: reads == 2 ? .on : .off, container: "Kick"
+            )
+            return AccessibilityHarvest(
+                elements: [element], quality: CaptureQuality(walkCompleted: true, windowFound: true)
+            )
+        }
+    }
+
+    @Test("identical pixels refresh native states and drop facts from an unavailable window",
+          arguments: [false, true])
+    func identicalPixelsRefreshNativeFacts(afterCommand: Bool) async throws {
+        let augmentation = ChangingAugmentation()
+        let stills = FreshStills()
+        let context = try await reuse(
+            marker: 971, augmentation: augmentation, freshStill: { _ in try stills.still() }
+        )
+        stills.window = context.window
+        let processID = context.window.reference.processID
+        var scenes: [PerceivedWindow] = []
+        for _ in 0..<4 {
+            scenes.append(try await context.provider.currentScene(of: processID))
+            if afterCommand { context.target.spendObservation() }
+        }
+        #expect(scenes.map { $0.scene.elements.first { $0.container == "Kick" }?.state } == [.off, .on, .off, nil])
+        #expect(scenes.last?.capture.windowFound == false)
+        #expect(context.text.count == 1, "only pixel work is reused")
+        #expect(await augmentation.reads == 4)
+        #expect(scenes[0].scene.token != scenes[1].scene.token)
+    }
+
+    @Test("byte-identical pixels of the same window reuse pixel recognition")
     func samePixelsReuseTheScene() async throws {
         let context = try await reuse(marker: 960)
         let processID = context.window.reference.processID
