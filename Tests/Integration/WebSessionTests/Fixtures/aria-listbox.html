@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Braus ARIA lists</title>
+<style>
+  body { font: 14px sans-serif; margin: 20px; }
+  .box { position: relative; display: inline-block; margin: 0 24px 40px 0; vertical-align: top; }
+  .box > button { width: 160px; height: 28px; text-align: left; }
+  [role=listbox] { position: absolute; top: 30px; left: 0; width: 160px; margin: 0; padding: 0; list-style: none;
+                   border: 1px solid #888; background: #fff; z-index: 2; }
+  [role=listbox][hidden] { display: none; }
+  [role=option] { height: 26px; line-height: 26px; padding: 0 6px; cursor: default; }
+  [role=option][aria-disabled=true] { color: #aaa; }
+</style>
+</head>
+<body>
+<!-- W05 fixture: ARIA combo boxes whose lists open in the page itself, as a component library draws them: no native
+     select and no window of their own. Each list's options are chosen by a click, which sets aria-selected, writes
+     the option's name on the control and closes the list. One list has twins, one a disabled option, one control
+     puts its value back 100 ms after a choice, and one button opens no list. The page counts the option clicks by
+     list (__clicks) and every key (__keys), and keeps the index of each control's chosen option (__chosen); a test reads those
+     only. Synthetic values; no network. -->
+<main aria-label="Ordine">
+  <div class="box">
+    <button id="colore" role="combobox" aria-label="Colore" aria-haspopup="listbox" aria-expanded="false"
+            aria-controls="colori">Rosso</button>
+    <ul id="colori" role="listbox" aria-label="Colori" hidden>
+      <li role="option" aria-selected="true">Rosso</li><li role="option">Blu</li><li role="option">Verde</li>
+    </ul>
+  </div>
+  <div class="box">
+    <button id="gemelli" role="combobox" aria-label="Gemelli" aria-haspopup="listbox" aria-expanded="false"
+            aria-controls="gemelli-list">Red</button>
+    <ul id="gemelli-list" role="listbox" aria-label="Gemelli list" hidden>
+      <li role="option" aria-selected="true">Red</li><li role="option">Blue</li><li role="option">Blue</li>
+    </ul>
+  </div>
+  <div class="box">
+    <button id="taglia" role="combobox" aria-label="Taglia" aria-haspopup="listbox" aria-expanded="false"
+            aria-controls="taglie">S</button>
+    <ul id="taglie" role="listbox" aria-label="Taglie" hidden>
+      <li role="option" aria-selected="true">S</li><li role="option" aria-disabled="true">M</li><li role="option">L</li>
+    </ul>
+  </div>
+  <div class="box">
+    <button id="ripristino" role="combobox" aria-label="Ripristino" aria-haspopup="listbox" aria-expanded="false"
+            aria-controls="ripristini" data-restores="100">Rosso</button>
+    <ul id="ripristini" role="listbox" aria-label="Ripristini" hidden>
+      <li role="option" aria-selected="true">Rosso</li><li role="option">Blu</li>
+    </ul>
+  </div>
+  <div class="box">
+    <button id="aiuto">Aiuto</button>
+  </div>
+</main>
+<script>
+window.__clicks = {};
+window.__chosen = {};
+window.__keys = 0;
+document.addEventListener('keydown', () => { window.__keys += 1; }, true);
+for (const control of document.querySelectorAll('[role=combobox]')) {
+  const list = document.getElementById(control.getAttribute('aria-controls'));
+  window.__clicks[list.id] = 0;
+  window.__chosen[control.id] = [...list.querySelectorAll('[role=option]')].findIndex(o => o.getAttribute('aria-selected') === 'true');
+  const close = () => { list.hidden = true; control.setAttribute('aria-expanded', 'false'); };
+  control.addEventListener('click', () => {
+    const opening = list.hidden;
+    list.hidden = !opening;
+    control.setAttribute('aria-expanded', String(opening));
+  });
+  list.addEventListener('click', event => {
+    const option = event.target.closest('[role=option]');
+    if (!option) return;
+    window.__clicks[list.id] += 1;
+    if (option.getAttribute('aria-disabled') === 'true') return;
+    const before = control.textContent;
+    for (const other of list.querySelectorAll('[role=option]')) other.setAttribute('aria-selected', String(other === option));
+    control.textContent = option.textContent;
+    window.__chosen[control.id] = [...list.querySelectorAll('[role=option]')].indexOf(option);
+    close();
+    const restores = Number(control.dataset.restores || 0);
+    if (restores) setTimeout(() => { control.textContent = before; }, restores);
+  });
+}
+</script>
+</body>
+</html>

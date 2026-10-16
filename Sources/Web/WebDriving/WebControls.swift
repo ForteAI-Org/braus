@@ -204,6 +204,97 @@ public struct WebControls: ControlPressing {
                               anchor: CGRect(x: rect[0], y: rect[1], width: rect[2], height: rect[3]), options: options)
     }
 
+    // MARK: ARIA lists in the page (W05)
+
+    /// AriaOption is what the ARIA list a control opened in the page itself offers for one item: no window is
+    /// drawn for it, unlike a native select's list, so the choice cannot depend on a window appearing.
+    public enum AriaOption: Sendable, Equatable {
+        /// No ARIA list is open in the page: nothing to choose in.
+        case noList
+        /// A list is open, and none of its options is named so: nothing is sent.
+        case missing(String)
+        /// The option cannot be chosen safely (several lists open, several options of that name, a disabled
+        /// option): nothing is sent.
+        case refused(String)
+        /// The one option to click, by the identity `WebScenes` gives its node.
+        case option(WebNodeIdentity)
+    }
+
+    /// The option named `item` of the one ARIA list open in the page: the list the expanded control names by
+    /// `aria-controls` or `aria-owns`, else the only list shown. A trailing ` #n` picks the n-th option of that
+    /// name, as the scene reads twins apart; with several and no ordinal, it refuses. The control and the option
+    /// are kept on the isolated world's window for `ariaReadBack`, out of the DOM and of the page's globals.
+    public func ariaOption(named item: String, in processID: pid_t) async -> AriaOption {
+        guard let page = try? tabs.page(for: processID) else { return .noList }
+        let (name, ordinal) = Self.explicitOrdinal(item)
+        let script = Self.render(Self.ariaOptionScript, ["LABEL": Self.jsString(LabelText.normalize(name)),
+                                                         "ORDINAL": String(ordinal ?? 0)])
+        guard let answer = await evaluate(script, in: processID) else { return .noList }
+        let reason = answer["reason"]?.stringValue ?? ""
+        switch answer["kind"]?.stringValue {
+            case "found"?:
+                break
+            case "missing"?:
+                return .missing(reason)
+            case "refused"?:
+                return .refused(reason)
+            default:
+                return .noList
+        }
+        // The option is kept on the isolated world's window, so it is named from there.
+        guard let backend = (try? await tabs.node(of: "window.__brausAriaOption", in: processID)) ?? nil,
+              let document = try? await WebScenes.documentNode(of: page)
+        else { return .refused("the option could not be named in the page") }
+        return .option(WebScenes.identity(page: page, document: document, node: backend))
+    }
+
+    /// AriaReadBack is what the control of an ARIA list reads after an option was clicked and the page settled.
+    public enum AriaReadBack: Sendable, Equatable {
+        /// It reads the option's name.
+        case confirmed(String)
+        /// It reads something else.
+        case contradicted(String)
+        /// It could not be read (gone, or a secure field), or did not hold one value before the deadline.
+        case unread(String)
+    }
+
+    /// What the control `ariaOption` kept reads, once it has held one value for `choiceWindow`, within
+    /// `choiceBudget`: its input's value, else its `aria-valuetext`, else its text. A secure field
+    /// (`WebSecureFields`) is never read.
+    /// The limit, stated: a twin (an option of the same name) reads the same, so the read-back cannot tell twins
+    /// apart; a change after the window is not seen.
+    public func ariaReadBack(expecting item: String, in processID: pid_t) async -> AriaReadBack {
+        guard (try? tabs.page(for: processID)) != nil else { return .unread("the tab is gone") }
+        let expected = LabelText.normalize(Self.explicitOrdinal(item).0)
+        let clock = ContinuousClock()
+        let deadline = clock.now + choiceBudget
+        var last: JSONValue?
+        var since = clock.now
+        while clock.now < deadline {
+            let read = try? await tabs.evaluate(Self.ariaValueScript, in: processID, timeoutSeconds: 2)
+            let now = clock.now
+            if let read, read == last {
+                if now - since >= choiceWindow {
+                    guard let value = read.stringValue else { return .unread("the control is gone or cannot be read") }
+                    return LabelText.normalize(value) == expected ? .confirmed(value) : .contradicted(value)
+                }
+            } else {
+                last  = read
+                since = now
+            }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        return .unread("the control did not hold one value before the deadline")
+    }
+
+    /// A label and the ordinal its trailing ` #n` names, nil when it names none.
+    static func explicitOrdinal(_ label: String) -> (String, Int?) {
+        guard let hash = label.range(of: " #", options: .backwards),
+              let ordinal = Int(label[hash.upperBound...]), ordinal > 0
+        else { return (label, nil) }
+        return (String(label[..<hash.lowerBound]), ordinal)
+    }
+
     /// A label and the ordinal its trailing ` #n` names, 1 when it has none.
     static func splitOrdinal(_ label: String) -> (String, Int) {
         guard let hash = label.range(of: " #", options: .backwards),
@@ -350,6 +441,60 @@ public struct WebControls: ControlPressing {
 
     // One expression, not two statements: a world's script is evaluated as the value of a function.
     static let closeScript = "delete window.__brausSelect, delete window.__brausOptions"
+
+    /// The option `$LABEL` (normalized like `LabelText.normalize`) of the one ARIA list open in the page, `$ORDINAL`
+    /// the n-th of that name or 0 for the only one. The open list is the one an expanded combo box or pop-up
+    /// control names by `aria-controls` or `aria-owns`, else the only list shown. Answers what it found, and keeps
+    /// the control and the option on the window when it found one. Shadow roots and frames are not searched.
+    static let ariaOptionScript = """
+    (() => {
+      /* braus:aria-options */
+      const norm = s => (s || '').toLowerCase().replace(/[^\\p{L}\\p{M}\\p{N}]/gu, '');
+      const visible = e => { const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1
+        && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth; };
+      const owners = [...document.querySelectorAll('[aria-expanded="true"]')].filter(e => {
+        const popup = e.getAttribute('aria-haspopup');
+        return (e.getAttribute('role') === 'combobox' || (popup && popup !== 'false')) && visible(e);
+      });
+      if (!owners.length) return { kind: 'none' };
+      if (owners.length > 1) return { kind: 'refused', reason: 'more than one list is open in the page' };
+      const owner = owners[0];
+      const named = ((owner.getAttribute('aria-controls') || '') + ' ' + (owner.getAttribute('aria-owns') || ''))
+        .split(/\\s+/).filter(Boolean).map(id => document.getElementById(id)).filter(e => e && visible(e));
+      const shown = [...document.querySelectorAll('[role=listbox], [role=menu]')].filter(visible);
+      const lists = named.length ? named : shown;
+      if (lists.length !== 1) return { kind: 'refused', reason: 'the open list cannot be told from another' };
+      const options = [...lists[0].querySelectorAll('[role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox]')]
+        .filter(visible);
+      const nameOf = o => o.getAttribute('aria-label') || o.textContent || '';
+      const matches = options.filter(o => norm(nameOf(o)) === $LABEL);
+      if (!matches.length) return { kind: 'missing', reason: 'the open list has no option of that name' };
+      if (matches.length > 1 && $ORDINAL === 0) {
+        return { kind: 'refused', reason: 'several options have that name; name one as the scene shows it, with its ordinal' };
+      }
+      const chosen = matches[Math.max($ORDINAL, 1) - 1];
+      if (!chosen) return { kind: 'missing', reason: 'the open list has fewer options of that name' };
+      if (chosen.closest('[aria-disabled="true"]')) return { kind: 'refused', reason: 'that option is disabled' };
+      Object.defineProperty(window, '__brausAriaOwner', { value: owner, configurable: true, writable: true });
+      Object.defineProperty(window, '__brausAriaOption', { value: chosen, configurable: true, writable: true });
+      return { kind: 'found' };
+    })()
+    """
+
+    /// What the control `ariaOptionScript` kept reads now: its input's value (its own, or the one it holds), else its
+    /// `aria-valuetext`, else its text; null when it is gone or is a secure field (`WebSecureFields`).
+    static let ariaValueScript = """
+    (() => {
+      /* braus:aria-value */
+      const secure = \(WebSecureFields.function);
+      const o = window.__brausAriaOwner;
+      if (!o || !o.isConnected) return null;
+      const input = o.matches('input, textarea') ? o : o.querySelector('input, textarea');
+      if (input && secure(input)) return null;
+      const shown = input ? input.value : (o.getAttribute('aria-valuetext') || o.textContent || '');
+      return shown.trim();
+    })()
+    """
 
     /// The current value of every select, combo box and text field in the main document; a secure
     /// field's value (`WebSecureFields`) is never read.

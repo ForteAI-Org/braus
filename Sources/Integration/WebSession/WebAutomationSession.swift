@@ -134,14 +134,75 @@ public final class WebAutomationSession: AutomationSessionOperating {
         )
     }
 
-    /// Opens `control`'s list and chooses `item` in it: two engine clicks, each verified, the second
-    /// only when the first opened a list.
+    /// Opens `control`'s list and chooses `item` in it: two engine clicks, each verified, the second only when the
+    /// first opened a list. A native select's list is drawn as a window over the page, and its item is chosen in it.
+    /// An ARIA list opens in the page itself (W05), so no window is waited for: the open list's option of that name
+    /// is clicked by its node, and the control is read back after the page settled, which decides the check.
     public func select(control: String, item: String) async throws -> ActOutcome {
-        let opened = try await act(target: control, verb: .click, section: nil, desiredState: nil)
-        guard let processID, let runtime, (try? runtime.windows.windows(ownedBy: processID).count) ?? 0 > 1 else {
-            return opened
+        let (processID, runtime) = try current()
+        return try await Self.select(control: control, item: item, processID: processID, runtime: runtime) { target in
+            try await self.act(target: target, verb: .click, section: nil, desiredState: nil)
         }
-        return try await act(target: item, verb: .click, section: nil, desiredState: nil)
+    }
+
+    /// `select`'s choice in the tab `processID`, every click through `click`, which acts as the session's `act` does.
+    static func select(
+        control  : String,
+        item     : String,
+        processID: pid_t,
+        runtime  : WebEngineRuntime,
+        click    : (String) async throws -> ActOutcome
+    ) async throws -> ActOutcome {
+        let opened = try await click(control)
+        if (try? runtime.windows.windows(ownedBy: processID).count) ?? 0 > 1 {
+            return try await click(item)
+        }
+        guard opened.kind == .foundActed || opened.kind == .actedUnverified else { return opened }
+        switch await runtime.controls.ariaOption(named: item, in: processID) {
+            case .noList:
+                return opened
+            case .missing(let reason):
+                return ActOutcome(.honestMiss, "'\(item)' is not in the list '\(control)' opened: \(reason). Observe the "
+                    + "list before choosing again.", scene: opened.scene)
+            case .refused(let reason):
+                return ActOutcome(.refused, "'\(item)' was not chosen, nothing was sent: \(reason).", scene: opened.scene)
+            case .option(let identity):
+                let (perceived, option) = try await runtime.scenes.currentScene(of: processID, naming: identity)
+                guard let id = option else {
+                    return ActOutcome(.refused, "'\(item)' was not chosen, nothing was sent: the option is not in the "
+                        + "scene (outside the view, or covered). Observe the list before choosing again.",
+                        scene: perceived.scene)
+                }
+                let chosen = try await click(id)
+                guard chosen.kind == .foundActed || chosen.kind == .actedUnverified else { return chosen }
+                return Self.judged(chosen, item: item, control: control,
+                                   readBack: await runtime.controls.ariaReadBack(expecting: item, in: processID))
+        }
+    }
+
+    /// The outcome of a click on an ARIA list's option, judged by what its control reads back, never by the list's
+    /// closing or the scene's difference alone. Nothing is chosen again after the click went out.
+    static func judged(_ chosen: ActOutcome, item: String, control: String, readBack: WebControls.AriaReadBack) -> ActOutcome {
+        let target = chosen.check?.target
+        switch readBack {
+            case .confirmed(let value):
+                return ActOutcome(.foundActed, "chose '\(item)' in '\(control)': after the page settled the control "
+                    + "reads it", scene: chosen.scene, check: OperationCheck(
+                        condition: .valueReadBack, method: .controlValue, verdict: .passed, expected: item,
+                        observed: value, performed: .requested, target: target))
+            case .contradicted(let value):
+                return ActOutcome(.actedUnverified, "clicked '\(item)' in '\(control)', but after the page settled the "
+                    + "control reads '\(value)': the choice did not hold. Observe and re-decide; do not choose it again "
+                    + "blindly.", scene: chosen.scene, check: OperationCheck(
+                        condition: .valueReadBack, method: .controlValue, verdict: .failed, expected: item,
+                        observed: value, performed: .requested, target: target))
+            case .unread(let reason):
+                return ActOutcome(.actedUnverified, "clicked '\(item)' in '\(control)', but the control could not be "
+                    + "read back (\(reason)): observe it before anything else; do not choose it again blindly.",
+                    scene: chosen.scene, check: OperationCheck(
+                        condition: .valueReadBack, method: .controlValue, verdict: .unknown, expected: item,
+                        limits: [.readbackUnavailable], performed: .requested, target: target))
+        }
     }
 
     public func close() async {

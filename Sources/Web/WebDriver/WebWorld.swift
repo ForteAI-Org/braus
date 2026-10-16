@@ -76,20 +76,65 @@ extension WebPage {
         let answer = try await send(
             "Runtime.callFunctionOn",
             [
-                "functionDeclaration": .string("function () {\nreturn (\n" + expression + "\n);\n}"),
+                "functionDeclaration": .string(Self.function(returning: expression)),
                 "objectId"           : .string(world.objectID),
                 "returnByValue"      : true,
                 "awaitPromise"       : true,
             ],
             timeoutSeconds: timeoutSeconds
         )
-        if let exception = answer["exceptionDetails"] {
-            let detail = exception["exception"]?["description"]?.stringValue
-                ?? exception["text"]?.stringValue
-                ?? "exception"
-            throw CDPError.scriptFailed(detail)
-        }
+        try Self.rethrow(answer)
         return answer["result"]?["value"] ?? .null
+    }
+
+    /// The backend id of the DOM node `expression` evaluates to in `world`; nil when it evaluates to anything
+    /// that is not a node. The handle Chrome makes for it is released before this returns.
+    ///
+    /// Throws as `evaluate(_:in:timeoutSeconds:)`, and `CDPError.protocolError` when Chrome cannot describe
+    /// the node.
+    public func node(of expression: String, in world: WebWorld) async throws -> Int? {
+        let group = "braus-node-\(UUID().uuidString)"
+        let found = try await send(
+            "Runtime.callFunctionOn",
+            [
+                "functionDeclaration": .string(Self.function(returning: expression)),
+                "objectId"           : .string(world.objectID),
+                "returnByValue"      : false,
+                "objectGroup"        : .string(group),
+            ]
+        )
+        try Self.rethrow(found)
+        guard found["result"]?["subtype"]?.stringValue == "node",
+              let object = found["result"]?["objectId"]?.stringValue
+        else { return nil }
+        do {
+            let described = try await send("DOM.describeNode", ["objectId": .string(object)])
+            await release(group)
+            return described["node"]?["backendNodeId"]?.intValue
+        } catch {
+            await release(group)
+            throw error
+        }
+    }
+
+    /// The function a world calls on its global object to evaluate `expression`.
+    private static func function(returning expression: String) -> String {
+        "function () {\nreturn (\n" + expression + "\n);\n}"
+    }
+
+    /// Throws `CDPError.scriptFailed` with the exception's description when `answer` reports one.
+    private static func rethrow(_ answer: JSONValue) throws {
+        guard let exception = answer["exceptionDetails"] else { return }
+        let detail = exception["exception"]?["description"]?.stringValue
+            ?? exception["text"]?.stringValue
+            ?? "exception"
+        throw CDPError.scriptFailed(detail)
+    }
+
+    /// Releases the handles of `group`. A release fails only when the world's document went, which took the
+    /// handles with it.
+    private func release(_ group: String) async {
+        _ = try? await send("Runtime.releaseObjectGroup", ["objectGroup": .string(group)])
     }
 
     /// The main frame and the document it holds now.

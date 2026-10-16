@@ -76,10 +76,29 @@ public final class WebTabs: Sendable {
         in processID  : pid_t,
         timeoutSeconds: Double? = nil
     ) async throws -> JSONValue {
+        try await inWorld(of: processID) { page, world in
+            try await page.evaluate(script, in: world, timeoutSeconds: timeoutSeconds)
+        }
+    }
+
+    /// The backend id of the DOM node `expression` evaluates to in the tab's isolated world, nil for anything
+    /// else: how a node a script found there is named to the DevTools protocol. Retried and thrown as `evaluate`.
+    func node(of expression: String, in processID: pid_t) async throws -> Int? {
+        try await inWorld(of: processID) { page, world in
+            try await page.node(of: expression, in: world)
+        }
+    }
+
+    /// Runs `call` with the tab's world, made for the document there now when the tab has none or Chrome
+    /// refused the kept one, as `evaluate` says.
+    private func inWorld<Value>(
+        of processID: pid_t,
+        _ call      : (WebPage, WebWorld) async throws -> Value
+    ) async throws -> Value {
         let page = try page(for: processID)
         if let world = state.withLock({ $0.tabs[processID]?.world }) {
             do {
-                return try await page.evaluate(script, in: world, timeoutSeconds: timeoutSeconds)
+                return try await call(page, world)
             } catch CDPError.protocolError {
                 state.withLock { state in
                     if state.tabs[processID]?.world == world { state.tabs[processID]?.world = nil }
@@ -88,7 +107,7 @@ public final class WebTabs: Sendable {
         }
         let world = try await page.makeWorld(named: Self.worldName)
         state.withLock { $0.tabs[processID]?.world = world }
-        return try await page.evaluate(script, in: world, timeoutSeconds: timeoutSeconds)
+        return try await call(page, world)
     }
 
     func note(viewport: CGSize, title: String, for processID: pid_t) {

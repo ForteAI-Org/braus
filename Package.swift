@@ -373,7 +373,7 @@ let package = Package(
                             "SQLiteMemory", "EngineCore", "PerceptionCore", "LocalMCP"].map { .target(name: $0) },
             path         : "Tests/Integration/WebSessionTests",
             resources    : [.copy("Fixtures/web-session.html"), .copy("Fixtures/web-secure.html"),
-                            .copy("Fixtures/select-choices.html")],
+                            .copy("Fixtures/select-choices.html"), .copy("Fixtures/aria-listbox.html")],
             swiftSettings: suite
         ),
 

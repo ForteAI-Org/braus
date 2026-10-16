@@ -35,17 +35,21 @@ public enum WebSceneBuilder {
         build(nodes: nodes, layout: layout, popup: popup).scene
     }
 
-    /// The scene and the quality of the read behind it: Chrome's tree is read whole, so the walk is
-    /// complete unless the element limit stopped it, and the window is the page's root.
+    /// The scene, the quality of the read behind it, and the DOM node each element stands for by its id in
+    /// the scene (`backendNodes`): Chrome's tree is read whole, so the walk is complete unless the element limit
+    /// stopped it, and the window is the page's root. An element with no node (an option of an open list), or
+    /// whose id another element shares, has none.
     public static func build(
         nodes : [WebAXNode],
         layout: WebLayout,
         popup : WebSelectPopup? = nil
-    ) -> (scene: SceneSnapshot, capture: CaptureQuality) {
+    ) -> (scene: SceneSnapshot, capture: CaptureQuality, backendNodes: [String: Int]) {
         var visited = 0
         let byID     = Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let viewport = CGRect(origin: .zero, size: layout.viewport)
         var elements: [SceneElement]                       = []
+        // The DOM node of each element, in the elements' order.
+        var elementNodes: [Int?]                           = []
         var sections: [(name: String, rect: NormalizedRect)] = []
 
         func visibleBounds(of node: WebAXNode) -> NormalizedRect? {
@@ -83,6 +87,7 @@ public enum WebSceneBuilder {
                         element.id = SceneIdentity.key(kind: element.kind, label: element.label, bounds: bounds,
                                                        isUnlabeled: element.isUnlabeled)
                         elements.append(element)
+                        elementNodes.append(node.backendNodeID)
                     }
                     if element.kind != .text || node.role == "heading" { textCovered = true }
                 }
@@ -101,8 +106,12 @@ public enum WebSceneBuilder {
 
         if let popup {
             let cover = NormalizedRect(pixelBox: popup.frame(in: layout.viewport), in: layout.viewport).cgRect
-            elements.removeAll { cover.contains($0.bounds.center) }
-            elements += popup.elements(in: layout.viewport)
+            let kept = elements.indices.filter { !cover.contains(elements[$0].bounds.center) }
+            elements     = kept.map { elements[$0] }
+            elementNodes = kept.map { elementNodes[$0] }
+            let options  = popup.elements(in: layout.viewport)
+            elements     += options
+            elementNodes += Array(repeating: nil, count: options.count)
         }
 
         // Duplicates read apart by ordinal, as the desktop harvest does: same kind, place and name.
@@ -150,7 +159,18 @@ public enum WebSceneBuilder {
             elements         : elements,
             sections         : named
         )
-        return (scene, capture)
+        // An id two elements share names neither physically.
+        var backendNodes: [String: Int] = [:]
+        var shared: Set<String> = []
+        for (element, node) in zip(elements, elementNodes) {
+            if backendNodes[element.id] != nil || shared.contains(element.id) {
+                backendNodes[element.id] = nil
+                shared.insert(element.id)
+            } else if let node {
+                backendNodes[element.id] = node
+            }
+        }
+        return (scene, capture, backendNodes)
     }
 
     // MARK: Roles
