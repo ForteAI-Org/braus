@@ -132,6 +132,24 @@ struct SeatSceneProviderTests {
         #expect(displayReads == 1)
     }
 
+    @Test("a dropdown result names the captured window from the current census")
+    func dropdownUsesCapturedTitle() async throws {
+        let context = try await BorrowedSeatTargetTests.borrowed()
+        let windows = Windows()
+        windows.rows = [WindowRow(
+            layer: 0, frame: context.window.reference.frame,
+            title: "Renamed dialog", number: context.window.id
+        )]
+        let selector = SeatDropdownSelector(
+            target: context.target, pipeline: ScenePipeline(text: EmptyText()), windows: windows
+        )
+        let result = try await selector.select(
+            control: "Missing", item: "MP3",
+            identity: ApplicationIdentity(bundleID: "com.test", name: "Test"), dryRun: true
+        )
+        #expect(result.outcome.scene?.windowTitle == "Renamed dialog")
+    }
+
     @Test("a document change updates the title of the exact captured window")
     func documentTitleChanges() async throws {
         let context = try await BorrowedSeatTargetTests.borrowed()

@@ -18,15 +18,22 @@ public struct SeatDropdownSelector {
     private let target: SeatTarget
     private let pipeline: ScenePipeline
     private let popupRows: (any PopupRowReading)?
+    private let windows: (any WindowListing)?
 
     /// Creates a selector. `popupRows` is optional and nil by default: with a reader the arrow-key
     /// route is counted over the rows the application named for itself, scrolled-out ones included,
     /// and without one it is counted over the rows the pixels cut out of the painted page, which is
     /// what this always did.
-    public init(target: SeatTarget, pipeline: ScenePipeline, popupRows: (any PopupRowReading)? = nil) {
+    public init(
+        target: SeatTarget,
+        pipeline: ScenePipeline,
+        popupRows: (any PopupRowReading)? = nil,
+        windows: (any WindowListing)? = nil
+    ) {
         self.target = target
         self.pipeline = pipeline
         self.popupRows = popupRows
+        self.windows = windows
     }
 
     /// Selects one item in a flat native dropdown. Success requires the requested value to be
@@ -91,6 +98,7 @@ public struct SeatDropdownSelector {
         let beforeDelivery = try await target.observe()
         let beforeStill = beforeDelivery.frame
         let capturedWindow = beforeDelivery.geometry.window
+        let beforeTitle = try title(of: beforeStill)
         let nativeWindow = DropdownOpening.Window(
             processID: capturedWindow.processID,
             number: capturedWindow.windowNumber,
@@ -98,7 +106,7 @@ public struct SeatDropdownSelector {
             resolveNumber: { WindowRelocator.windowNumber(of: $0) }
         )
         let before = try await perceive(
-            beforeStill, identity: identity, title: window.title,
+            beforeStill, identity: identity, title: beforeTitle,
             stage: "before", onCapture: onCapture
         )
         perception.before = before
@@ -114,7 +122,7 @@ public struct SeatDropdownSelector {
                   let frame = try? DropdownOpening.frame(control: control, in: nativeWindow),
                   before.frame.contains(frame),
                   let bounds = AccessibilityFrameTrust.normalized(frame, in: before.frame),
-                  let scoped = try await controlScene(beforeStill, bounds: bounds, identity: identity, title: window.title),
+                  let scoped = try await controlScene(beforeStill, bounds: bounds, identity: identity, title: beforeTitle),
                   case .found(let value) = scoped.resolve(target: control, preferNativeControls: true) {
             scopedBounds = bounds
             opener = SceneElement(id: value.id, kind: .control, label: value.label, bounds: bounds, role: "AXPopUpButton")
@@ -228,8 +236,12 @@ public struct SeatDropdownSelector {
             }
         }
         let afterStill = try await target.windowStill()
+        let afterTitle = try title(of: afterStill)
+        let sameWindow = capturedWindow.identity.map {
+            afterStill.geometry.windowObservation?.window.identity == $0
+        } ?? false
         let after = try await perceive(
-            afterStill, identity: identity, title: window.title,
+            afterStill, identity: identity, title: afterTitle,
             stage: "after", onCapture: onCapture
         )
         perception.menu  = menuWindow
@@ -261,7 +273,11 @@ public struct SeatDropdownSelector {
         let method: OperationCheck.Method
         var read: String?
         var readable = true
-        if remotePanel {
+        if !sameWindow {
+            verified = false
+            method = .controlValue
+            readable = false
+        } else if remotePanel {
             // The popup's own value, by its label or, once changed, by the value it now holds.
             let value = (try? DropdownOpening.value(control: opener.label, in: nativeWindow))
                 ?? (try? DropdownOpening.value(control: item, in: nativeWindow))
@@ -270,7 +286,7 @@ public struct SeatDropdownSelector {
             read     = value
             readable = value != nil
         } else if let scopedBounds {
-            let scoped = try await controlScene(afterStill, bounds: scopedBounds, identity: identity, title: window.title)
+            let scoped = try await controlScene(afterStill, bounds: scopedBounds, identity: identity, title: afterTitle)
             if let scoped, case .found(let value) = scoped.resolve(target: item) {
                 verified = LabelText.normalize(value.label) == LabelText.normalize(item)
                     && after.frame.size == before.frame.size
@@ -301,6 +317,18 @@ public struct SeatDropdownSelector {
             ActOutcome(verified ? .foundActed : .actedUnverified, message, scene: after.scene, check: check),
             receipt
         )
+    }
+
+    /// Names the captured recipient, which can be a dialog above the held document.
+    private func title(of still: SeatFrame) throws -> String {
+        guard let window = still.geometry.windowObservation?.window else { return "" }
+        if let windows {
+            let rows = try windows.windows(ownedBy: window.processID).filter { $0.number == window.windowNumber }
+            return rows.count == 1 ? rows[0].title ?? "" : ""
+        }
+        guard let captured = target.lastCapturedWindow,
+              captured.reference.identity == window.identity else { return "" }
+        return captured.title
     }
 
     private func controlScene(

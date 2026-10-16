@@ -778,7 +778,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         onCapture: @escaping @MainActor @Sendable (String, CGImage) throws -> Void = { _, _ in }
     ) async throws -> (outcome: ActOutcome, receipt: PopupMenuReceipt?) {
         let (application, runtime, target) = try current()
-        let selector = SeatDropdownSelector(target: target, pipeline: ProductionPerception.pipeline())
+        let selector = SeatDropdownSelector(target: target, pipeline: ProductionPerception.pipeline(), windows: runtime.windows)
         let result = try await selector.select(
             control: control, item: item,
             identity: SeatDriving.ApplicationIdentity(
