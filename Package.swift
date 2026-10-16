@@ -470,6 +470,7 @@ let package = Package(
 
         // MARK: Perception tests
         perceptionTests("PerceptionCore", ["PerceptionCore"]),
+        perceptionTests("AccessibilityFacts", ["AccessibilityFacts", "PerceptionCore"]),
         perceptionTests("Perception", ["Perception", "PerceptionCore"]),
         perceptionTests("IncrementalText", ["IncrementalText", "PerceptionCore"]),
         perceptionTests("PixelSections", ["PixelSections", "PerceptionCore"]),

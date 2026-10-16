@@ -247,6 +247,45 @@ struct AccessibilityAugmentationTests {
         #expect(out.map(\.state) == [nil, .on, nil])
     }
 
+    @Test("reader button states reach scene text, tokens and changes")
+    func buttonStatesReachScene() throws {
+        let mute = FakeNode("AXButton", title: "Mute", frame: box(300, 300, 30, 30))
+        mute.isSelected = false
+        let root = FakeNode("AXWindow", frame: window).adding(mute)
+        func scene(_ state: ControlState?) -> SceneSnapshot {
+            mute.buttonState = state
+            mute.value = state.map { $0 == .on ? "on" : "" }
+            let harvest = AccessibilityAugmentation.harvest(
+                under      : root,
+                windowFrame: window,
+                reader     : reader
+            )
+            return SceneSnapshot(
+                bundleID         : "test.app",
+                appName          : "Test",
+                windowTitle      : "Mixer",
+                viewportPixelSize: .init(width: 1000, height: 800),
+                elements         : harvest.elements
+            )
+        }
+        let off = scene(.off)
+        let on = scene(.on)
+        let unknown = scene(nil)
+
+        #expect(try #require(off.elements.first).state == .off)
+        #expect(try #require(on.elements.first).state == .on)
+        #expect(try #require(unknown.elements.first).state == nil)
+        #expect(off.text().contains("[off]"))
+        #expect(on.text().contains("[on]"))
+        #expect(off.mapText().contains("[off]"))
+        #expect(on.mapText().contains("[on]"))
+        #expect(on.token != off.token)
+        #expect(unknown.token != off.token)
+        let changes = SceneChanges.text(from: off, to: on, since: 1)
+        #expect(changes.contains("[on]"))
+        #expect(changes.contains("was [off]"))
+    }
+
     @Test("duplicate handles take ordinals so resolution stays unique")
     func ordinals() {
         let a = FakeNode("AXTextField", descriptionText: "Track Name", frame: box(300, 300, 200, 24))

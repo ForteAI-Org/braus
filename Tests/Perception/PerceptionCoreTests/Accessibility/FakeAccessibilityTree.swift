@@ -22,6 +22,7 @@ final class FakeNode: @unchecked Sendable {
     var selectedRange: NSRange?
     var isFocused: Bool?
     var isSelected: Bool?
+    var buttonState: ControlState?
     var numericValue: Int?
     var isEnabled: Bool?
     var frame: CGRect?
@@ -67,6 +68,10 @@ struct FakeReader: AccessibilityTreeReading {
     func selectedRange(_ node: FakeNode) -> NSRange? { node.selectedRange }
     func isFocused(_ node: FakeNode) -> Bool? { node.isFocused }
     func isSelected(_ node: FakeNode) -> Bool? { node.isSelected }
+    func buttonState(_ node: FakeNode, value: String?) -> ControlState? {
+        guard value == node.value else { return nil }
+        return node.buttonState ?? (node.isSelected == true ? .on : nil)
+    }
     func numericValue(_ node: FakeNode) -> Int? { node.numericValue }
     func isEnabled(_ node: FakeNode) -> Bool? { node.isEnabled }
     func actions(_ node: FakeNode) -> [String] { [] }

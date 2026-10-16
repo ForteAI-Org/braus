@@ -24,7 +24,7 @@ public protocol AccessibilityTreeReading: Sendable {
     func title(_ node: Node) -> String?
     func descriptionText(_ node: Node) -> String?
     func identifier(_ node: Node) -> String?
-    /// The value as text, for fields, static text and combo boxes.
+    /// The exact text value, including button values. Empty is a successful read; nil is unavailable.
     func value(_ node: Node) -> String?
     /// The node's own selection in UTF-16 units; nil when the provider cannot read it.
     func selectedRange(_ node: Node) -> NSRange?
@@ -35,6 +35,9 @@ public protocol AccessibilityTreeReading: Sendable {
     func numericValue(_ node: Node) -> Int?
     /// The node's own `AXSelected`, for a segmented button; nil when it does not answer.
     func isSelected(_ node: Node) -> Bool?
+    /// Reads a button's state using its exact text value, including an empty string.
+    /// Nil means unknown. The default recognizes only a positive native selection.
+    func buttonState(_ node: Node, value: String?) -> ControlState?
     func isEnabled(_ node: Node) -> Bool?
     func actions(_ node: Node) -> [String]
     func frame(_ node: Node) -> CGRect?
@@ -45,4 +48,7 @@ extension AccessibilityTreeReading {
     public func selectedRange(_ node: Node) -> NSRange? { nil }
     public func isFocused(_ node: Node) -> Bool? { nil }
     public func isSelected(_ node: Node) -> Bool? { nil }
+    public func buttonState(_ node: Node, value: String?) -> ControlState? {
+        isSelected(node) == true ? .on : nil
+    }
 }

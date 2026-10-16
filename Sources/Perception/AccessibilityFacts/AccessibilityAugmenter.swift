@@ -5,6 +5,7 @@
 //  Created by Ronaldo Zefi on 15/09/2026.
 //
 
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
@@ -63,7 +64,9 @@ public struct AccessibilityAugmenter: SceneAugmenting {
             guard windowNumber == nil || resolve != nil else {
                 return AccessibilityHarvest(elements: [], quality: CaptureQuality(isGrantAvailable: trusted))
             }
-            let reader = LiveAccessibilityReader()
+            let reader = LiveAccessibilityReader(
+                applicationBundleID: NSRunningApplication(processIdentifier: processID)?.bundleIdentifier
+            )
             let application = reader.application(processID: processID)
             reader.setMessagingTimeout(application, seconds: timeout)
             guard let window = reader.window(

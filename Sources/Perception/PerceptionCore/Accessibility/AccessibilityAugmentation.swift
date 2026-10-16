@@ -284,7 +284,7 @@ public enum AccessibilityAugmentation {
                         default: break
                     }
                 }
-                if role == "AXButton", reader.isSelected(node) == true { state = .on }
+                if role == "AXButton" { state = reader.buttonState(node, value: rawValue) }
                 var labeled: (String, LabelOrigin?)?
                 if let title {
                     labeled = title

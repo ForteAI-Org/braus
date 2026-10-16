@@ -154,6 +154,16 @@ scene.resolve(target: "Export")               // .found, .ambiguous(n) or .none
   `identifier`); else by its role ("Switch", "Checkbox", "Radio button", no origin). An `AXButton`
   whose `AXSelected` is true carries state `on`, the segmented buttons of the Appearance pane; one
   that does not answer it has no state (`AccessibilityAugmentationTests`).
+- Button state interpretation belongs to the accessibility reader. The core passes the exact
+  string value, preserving empty versus unavailable, and carries the result into scene text,
+  tokens and changes. The default reader contract recognizes only `AXSelected == true`.
+  `AccessibilityAugmenter` supplies the process's bundle ID to the live reader. For Pro Tools
+  (`com.avid.ProTools`), the `mute` button reports `on` in Mix and `on state` in Edit; both become
+  `[on]`. A successful empty value becomes `[off]`. Missing or unrecognized values stay unknown,
+  even if `AXSelected` answers. This rule applies only to that native identifier in that app;
+  ordinary buttons and other Pro Tools controls retain the existing selection rule.
+  `NativeButtonStateTests` and `AccessibilityAugmentationTests` cover the mapping and its scene
+  output, including a token change and a reported state transition.
 - Each harvested `SceneElement` says where its label came from (`labelOrigin`: title, description,
   value, column, row content, or `identifier` for a text area named by its accessibility
   identifier) and, for a row of a table, list or outline and everything inside it, the structural
@@ -232,6 +242,14 @@ Premiere with Screen Recording and Accessibility granted. Measured 2026-09-17 on
 main window 1512×869 pt: 170 harvested elements in 0.07 to 0.20 s, a 189-element merged scene in
 0.43 to 0.91 s including Vision at 2×. The suite is named apart from the Driver Live tier on
 purpose: `make live-tests` filters on `LiveTests` and asserts a count.
+
+Pro Tools native state: measured 2026-10-16 with Pro Tools 26.4.1.179 on macOS 27.0.1
+(build 26A434), Apple M4 (Mac16,1). A single audio track's Mute was changed on/off/on
+and restored. `AccessibilityAugmenter` completed all six reads across Mix and Edit;
+both scene text tiers carried the state, tokens changed, and `SceneChanges` reported
+`[off] (was [on])` and `[on] (was [off])`. The frontmost application and cursor were
+unchanged. This validates native augmentation and scene rendering; it is not an
+end-to-end agent action test or coverage of other Pro Tools toggles.
 
 ## Not here yet, in porting order
 

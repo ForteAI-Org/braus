@@ -12,16 +12,22 @@ import PerceptionCore
 
 /// LiveAccessibilityReader fills `AccessibilityTreeReading` over the system's `AXUIElement` handles.
 ///
-/// Stateless, and every read happens on the main actor: the C API is not safe to call elsewhere, and
-/// the handles it returns are not Sendable. A `.cannotComplete` answer (a messaging timeout) is
-/// transient and retried once; anything else is a genuine absence and reads as nil. The per-app
+/// Retains only the application bundle ID used to interpret native button values. Reads use the
+/// main actor: the C API is not safe to call elsewhere, and its handles are not Sendable. A
+/// `.cannotComplete` answer (a messaging timeout) is transient and retried once; anything else is a
+/// genuine absence and reads as nil. The per-app
 /// messaging timeout bounds a pathological tree so one slow app cannot hang the caller.
 @MainActor
 public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
     public typealias Node = AXUIElement
 
-    public init() {}
+    private let applicationBundleID: String?
+
+    /// Creates a reader. An absent bundle ID uses only standard accessibility state attributes.
+    public init(applicationBundleID: String? = nil) {
+        self.applicationBundleID = applicationBundleID
+    }
 
     public nonisolated func role(_ node: AXUIElement) -> String? { string(node, kAXRoleAttribute) }
     public nonisolated func subrole(_ node: AXUIElement) -> String? { string(node, kAXSubroleAttribute) }
@@ -44,6 +50,15 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
     public nonisolated func isSelected(_ node: AXUIElement) -> Bool? {
         attribute(node, kAXSelectedAttribute) as? Bool
+    }
+
+    public nonisolated func buttonState(_ node: AXUIElement, value: String?) -> ControlState? {
+        NativeButtonState.read(
+            bundleID  : applicationBundleID,
+            identifier: applicationBundleID == "com.avid.ProTools" ? identifier(node) : nil,
+            value     : value,
+            isSelected: isSelected(node)
+        )
     }
 
     public nonisolated func numericValue(_ node: AXUIElement) -> Int? {
