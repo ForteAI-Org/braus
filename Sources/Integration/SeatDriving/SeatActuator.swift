@@ -25,7 +25,8 @@ import SeatSession
 /// A Command is addressed by the observation it was decided on, never by a window, and a complete
 /// Command consumes it. So the first gesture of an action rides the observation the scene was
 /// perceived from, and each gesture after it takes a new one: the engine's actions are successions
-/// of gestures, and the succession is the consumer's to orchestrate.
+/// of gestures, and the succession is the consumer's to orchestrate. The first recipient and
+/// frame bind that succession until confirmation; a changed target stops the remaining gestures.
 ///
 /// A click is routed only through that observation's own window geometry, so a point outside the
 /// observed window, or outside the region a hosted sheet's picture covers, is refused rather than
@@ -37,6 +38,7 @@ public actor SeatActuator: Actuating {
     private var turn: Turn?
     private var receipts: [InputReceipt] = []
     private var lastRoute: DeliveryRoute = .posted
+    private var inputSurface: (identity: WindowIdentity, frame: CGRect)?
 
     public init(target: SeatTarget) {
         self.target = target
@@ -149,6 +151,17 @@ public actor SeatActuator: Actuating {
         let seat = try await target.agentSeat()
         let turn = try await heldTurn(on: seat)
         let observation = try await target.currentObservation()
+        let surface = observation.reference.recipient
+        let frame = observation.geometry.window.frame
+        if let inputSurface,
+           inputSurface.identity != surface || inputSurface.frame != frame {
+            throw GestureNotSent(
+                reason: "input_target_changed",
+                sentence: "The window changed during this input. The remaining gesture was not sent; "
+                    + "observe the current dialog before deciding what to do next."
+            )
+        }
+        inputSurface = (surface, frame)
         #if BRAUS_PHASES
         preparing.end()
         let delivery = PhaseInterval.begin("delivery")
@@ -222,6 +235,7 @@ public actor SeatActuator: Actuating {
             try? await seat.release(turn)
         }
         receipts = []
+        inputSurface = nil
         lastRoute = .posted
         self.turn = nil
     }

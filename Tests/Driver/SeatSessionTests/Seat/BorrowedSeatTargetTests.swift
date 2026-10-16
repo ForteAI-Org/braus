@@ -212,6 +212,33 @@ struct BorrowedSeatTargetTests {
         await target.stop()
     }
 
+    @Test("a typing turn stops when observation follows another window")
+    func aGestureSequenceKeepsItsRecipient() async throws {
+        let sensing = FakeSensing()
+        let context = try await ObservationAdmissionTests.composed(sensing: sensing, marker: 956)
+        _ = try await observe(context.seat)
+        let target = SeatTarget(borrowing: SeatHost(), seat: context.seat)
+        let actuator = SeatActuator(target: target)
+        let pid = context.window.reference.processID
+        let before = try await target.observe()
+        let frame = before.geometry.window.frame
+        try await actuator.perform(.click(at: CGPoint(x: frame.midX, y: frame.midY)), in: pid)
+        let reference = ObservationAdmissionTests.reference(ObservationAdmissionTests.secondWindowNumber)
+        sensing.additionalWindows[reference.windowNumber] = reference
+        let second = try await context.seat.adopt(reference, platform: AppKitPlatform())
+        _ = try await target.observe()
+        await #expect(throws: GestureNotSent.self) {
+            try await actuator.perform(.click(at: CGPoint(x: second.reference.frame.midX, y: second.reference.frame.midY)), in: pid)
+        }
+        #expect(context.sender.sent.count == 1)
+        await actuator.confirm(.unknown, in: pid)
+        _ = try await target.observe()
+        let current = second.reference.frame
+        try await actuator.perform(.click(at: CGPoint(x: current.midX, y: current.midY)), in: pid)
+        #expect(context.sender.sent.count == 2)
+        await actuator.confirm(.observed, in: pid)
+    }
+
     @Test("an observation either holder takes supersedes the other's, and the refused Command posts nothing")
     func eitherHoldersObservationSupersedesTheOther() async throws {
 
