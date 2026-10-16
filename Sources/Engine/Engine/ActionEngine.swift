@@ -513,8 +513,12 @@ public struct ActionEngine: Sendable {
         guard let desired = request.desiredState, desired == .on || desired == .off else {
             return ActOutcome(.refused, "set_toggle needs a desired state of on or off")
         }
-        // A reused scene can be older than the control, so the application's own answer decides first.
-        let current = await dependencies.controls?.toggleState(labelled: element.label, in: pid) ?? element.state
+        // A label-only native read cannot establish which repeated control it answered for.
+        let mayReadLabel = element.container == nil && element.section == nil
+            && perceived.scene.elements.filter { LabelText.normalize($0.label) == LabelText.normalize(element.label) }.count == 1
+        let nativeCurrent = mayReadLabel
+            ? await dependencies.controls?.toggleState(labelled: element.label, in: pid) : nil
+        let current = nativeCurrent ?? element.state
         if current == desired {
             // Already in the requested state: the reading is the check, and no gesture is attributed.
             await dependencies.observer?.record(ActionRecord(
@@ -551,13 +555,20 @@ public struct ActionEngine: Sendable {
         await settle(pid)
         let afterWindow = await perceive(pid)
         let after = afterWindow?.scene
-        var answered = await dependencies.controls?.toggleState(at: point, in: pid)
-        if answered == nil { answered = await dependencies.controls?.toggleState(labelled: element.label, in: pid) }
-        let readBack = answered
-            ?? after?.elements.first(where: { $0.id == element.id })?.state
-            ?? after?.elements.first(where: {
-                $0.state != nil && LabelText.normalize($0.label) == LabelText.normalize(element.label)
-            })?.state
+        let matching = after?.elements.filter {
+            $0.kind == element.kind && $0.container == element.container && $0.section == element.section
+                && $0.role == element.role && $0.collectionPath == element.collectionPath
+                && LabelText.normalize($0.label) == LabelText.normalize(element.label)
+        } ?? []
+        let selected = matching.count == 1 ? matching[0] : nil
+        var answered: ControlState?
+        if let selected, selected.bounds == element.bounds {
+            answered = await dependencies.controls?.toggleState(at: point, in: pid)
+        }
+        if answered == nil, mayReadLabel, selected != nil {
+            answered = await dependencies.controls?.toggleState(labelled: element.label, in: pid)
+        }
+        let readBack = answered ?? selected?.state
         let effect = after.flatMap { SceneDifference.effect(before: perceived.scene, after: $0, targetID: element.id) }
         await dependencies.observer?.record(ActionRecord(
             bundleID        : request.bundleID,

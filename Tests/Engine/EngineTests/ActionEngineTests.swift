@@ -724,6 +724,43 @@ struct ActionEngineTests {
         #expect(flipped.kind == .actedUnverified, "the read-back still answers off from the control")
     }
 
+    @Test("toggle readback stays in the selected container when control IDs repeat",
+          arguments: [false, true])
+    func toggleReadbackKeepsContainer(targetDisappears: Bool) async {
+        let other = SceneElement(id: "control|mute", kind: .control, label: "Mute", bounds: rect(0.2, 0.2),
+                                 state: targetDisappears ? .on : .off, container: "DRUMS BUS")
+        let kick = SceneElement(id: "control|mute", kind: .control, label: "Mute", bounds: rect(0.4, 0.2),
+                                state: .off, container: "Kick")
+        var changed = kick
+        changed.state = .on
+        changed.bounds = rect(0.6, 0.2)
+        let actuator = RecordingActuator()
+        let outcome = await engine(
+            scenes: ScriptedScenes([scene([other, kick]), scene(targetDisappears ? [other] : [other, changed])]),
+            actuator: actuator
+        ).act(request("Mute", verb: .setToggle, section: "Kick", desired: .on))
+        #expect(actuator.gestures.count == 1)
+        #expect(outcome.kind == (targetDisappears ? .actedUnverified : .foundActed))
+        #expect(outcome.check?.observed == (targetDisappears ? nil : "on"))
+    }
+
+    @Test("a label-only toggle read cannot override a selected container")
+    func toggleLabelReadDoesNotCrossContainers() async {
+        let kick = SceneElement(id: "control|mute", kind: .control, label: "Mute", bounds: rect(0.4, 0.2),
+                                state: .off, container: "Kick")
+        var changed = kick
+        changed.state = .on
+        let controls = FakeControls()
+        controls.labelledToggle = .on
+        let actuator = RecordingActuator()
+        let outcome = await engine(scenes: ScriptedScenes([scene([kick]), scene([changed])]),
+                                   actuator: actuator, controls: controls)
+            .act(request("Mute", verb: .setToggle, section: "Kick", desired: .on))
+        #expect(outcome.kind == .foundActed)
+        #expect(actuator.gestures.count == 1)
+        #expect(controls.labelledReads.isEmpty)
+    }
+
     // MARK: Pop-ups
 
     private var listScene: PerceivedWindow {
