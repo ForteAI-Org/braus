@@ -43,6 +43,8 @@ public struct SeatSceneProvider: SceneProviding {
     private let windows: any WindowListing
     private let identity: @Sendable (pid_t) -> ApplicationIdentity?
     private let freshStill: @MainActor @Sendable (SeatTarget) async throws -> SeatFrame
+    private let displayBounds: @MainActor @Sendable (SeatTarget) -> CGRect
+    private let displayStill: @MainActor @Sendable (SeatTarget) async throws -> SeatFrame
     private let lastScene = LastScene()
 
     public init(
@@ -61,19 +63,28 @@ public struct SeatSceneProvider: SceneProviding {
     }
 
     /// `freshStill` takes the still a kept scene is confirmed against after a Command, so a test
-    /// can answer it without ScreenCaptureKit.
+    /// can answer it without ScreenCaptureKit. Display bounds and stills can likewise be supplied
+    /// for a popup crop without starting a host.
     package init(
         target    : SeatTarget,
         pipeline  : ScenePipeline,
         windows   : any WindowListing,
         identity  : @escaping @Sendable (pid_t) -> ApplicationIdentity?,
-        freshStill: @escaping @MainActor @Sendable (SeatTarget) async throws -> SeatFrame
+        freshStill: @escaping @MainActor @Sendable (SeatTarget) async throws -> SeatFrame,
+        displayBounds: @escaping @MainActor @Sendable (SeatTarget) -> CGRect = {
+            $0.displayID.map(CGDisplayBounds) ?? .null
+        },
+        displayStill: @escaping @MainActor @Sendable (SeatTarget) async throws -> SeatFrame = {
+            try await $0.displayStill()
+        }
     ) {
         self.target     = target
         self.pipeline   = pipeline
         self.windows    = windows
         self.identity   = identity
         self.freshStill = freshStill
+        self.displayBounds = displayBounds
+        self.displayStill = displayStill
     }
 
     public func currentScene(of processID: pid_t) async throws -> PerceivedWindow {
@@ -97,7 +108,7 @@ public struct SeatSceneProvider: SceneProviding {
             throw SeatDrivingFailure.frameUnusable
         }
         // Only the windows on the seat's display: one left on the person's display is not in this scene.
-        let seatBounds = await target.displayID.map(CGDisplayBounds) ?? .null
+        let seatBounds = await displayBounds(target)
         let onSeat = try windows.windows(ownedBy: processID).filter { $0.frame.intersects(seatBounds) }
         let popups = WindowSurfaceClassifier.classify(onSeat).popups
         var image: CGImage
@@ -119,11 +130,11 @@ public struct SeatSceneProvider: SceneProviding {
             comparable = still
         } else {
             #if BRAUS_PHASES
-            let displayStill = PhaseInterval.begin("capture.displayStill")
+            let displayCapture = PhaseInterval.begin("capture.displayStill")
             #endif
-            let still = try await target.displayStill()
+            let still = try await displayStill(target)
             #if BRAUS_PHASES
-            displayStill.end()
+            displayCapture.end()
             #endif
             guard still.geometry.isValid, let pixels = still.makeCGImage() else {
                 throw SeatDrivingFailure.frameUnusable
@@ -141,7 +152,7 @@ public struct SeatSceneProvider: SceneProviding {
             guard let cropped = pixels.cropping(to: crop) else { throw SeatDrivingFailure.frameUnusable }
             image = cropped
             frame = union
-            guard try await target.currentWindow().reference.identity == observedWindow.reference.identity else {
+            guard await target.isCurrentObservation(observation.reference) else {
                 throw SeatDrivingFailure.frameUnusable
             }
         }

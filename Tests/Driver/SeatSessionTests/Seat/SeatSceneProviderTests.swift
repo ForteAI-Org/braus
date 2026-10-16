@@ -77,6 +77,61 @@ struct SeatSceneProviderTests {
         #expect(scene.scene.elements.first?.value == "\(context.window.reference.processID):\(number)")
     }
 
+    @Test("a display crop follows its recipient while the primary window stays held",
+          arguments: [false, true])
+    func popupCaptureUsesTheOutstandingRecipient(superseded: Bool) async throws {
+        let sensing = FakeSensing()
+        let context = try await SmallAuxiliarySurfaceTests.seat(marker: 970, sensing: sensing)
+        let target = SeatTarget(borrowing: SeatHost(), seat: context.seat)
+        _ = try await target.observe()
+        let panel = FakeGeometry.reference(
+            frame: CGRect(x: 2300, y: 500, width: 89, height: 533), windowNumber: 793
+        )
+        let panelID = try #require(panel.identity)
+        sensing.additionalWindows[panel.windowNumber] = panel
+        context.reader.roles[panel.windowNumber] = .interactivePanel
+        await context.seat.ownWindowBornInSeat(panel, level: 3)
+        context.reader.recency = [RecencyClaim(
+            surface: panelID, signal: .returnedToFront,
+            provenance: .qualifiedFrontOrderAttestation,
+            origin: .application(provenance: .qualifiedRaiseAttribution),
+            observedAtNanoseconds: 100
+        )]
+        context.seat.refreshTargetReadings()
+        context.seat.refreshTargetReadings()
+        let windows = Windows()
+        let menu = CGRect(x: 2300, y: 600, width: 200, height: 200)
+        windows.rows = [
+            WindowRow(layer: 101, frame: menu, number: 794),
+            WindowRow(layer: 3, frame: panel.frame, number: panel.windowNumber),
+            WindowRow(layer: 0, frame: context.window.reference.frame, title: "Edit", number: context.window.id)
+        ]
+        var displayReads = 0
+        let provider = SeatSceneProvider(
+            target: target, pipeline: ScenePipeline(text: EmptyText(), augmentation: CaptureAugmentation()),
+            windows: windows, identity: { _ in ApplicationIdentity(bundleID: "com.test", name: "Test") },
+            freshStill: { _ in throw SeatDrivingFailure.frameUnusable },
+            displayBounds: { _ in FakeGeometry.virtual },
+            displayStill: { _ in
+                displayReads += 1
+                #expect(context.seat.currentTarget?.id == context.window.id)
+                #expect(target.lastCapturedWindow?.id == panel.windowNumber)
+                if superseded { _ = try await observe(context.seat) }
+                return try #require(makeControlledFrame(of: panelID, screenRect: FakeGeometry.virtual))
+            }
+        )
+        if superseded {
+            await #expect(throws: SeatDrivingFailure.frameUnusable) {
+                try await provider.currentScene(of: panel.processID)
+            }
+        } else {
+            let scene = try await provider.currentScene(of: panel.processID)
+            #expect(scene.frame == panel.frame.union(menu))
+            #expect(scene.scene.elements.first?.value == "\(panel.processID):\(panel.windowNumber)")
+        }
+        #expect(displayReads == 1)
+    }
+
     @Test("a document change updates the title of the exact captured window")
     func documentTitleChanges() async throws {
         let context = try await BorrowedSeatTargetTests.borrowed()

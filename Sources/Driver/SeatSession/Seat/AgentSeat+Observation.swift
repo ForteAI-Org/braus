@@ -2441,6 +2441,11 @@ extension AgentSeat {
         )
     }
 
+    /// Whether this exact delivery is still outstanding. Reading this grants no input authority.
+    package func isCurrentObservation(_ reference: SeatObservationReference) -> Bool {
+        observationIssuer.outstanding == reference
+    }
+
     /// Records that a complete Command spent the current observation. The next
     /// Command needs a new one, and the barrier is what makes that a check.
     func noteObservationConsumed() {

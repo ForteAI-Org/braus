@@ -191,6 +191,13 @@ public final class SeatTarget {
         return try await observe()
     }
 
+    /// A display crop must still belong to the delivery it began with, including borrowed observations.
+    package func isCurrentObservation(_ reference: SeatObservationReference) -> Bool {
+        !deliverySpent && delivery?.reference == reference
+            && lastCapturedWindow?.reference.identity == reference.recipient
+            && seat?.isCurrentObservation(reference) == true
+    }
+
     /// Records that a Command went out under the kept observation, which ends its authority. A
     /// Command refused before any effect leaves the observation exactly as it was, so this is
     /// called only once the events have gone out.
