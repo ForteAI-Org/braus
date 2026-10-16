@@ -87,7 +87,9 @@ public enum AccessibilityAugmentation {
     /// Walks one window's tree and returns the harvested elements with the quality of the walk.
     ///
     /// The quality is measured, never inferred from the elements: `walkCompleted` is true only when
-    /// no limit and no deadline cut the walk short, and the first limit met is `stoppedBy`. A row
+    /// no limit and no deadline cut the walk short and every list of children answered
+    /// (`readChildren`, M2), and the first limit met is `stoppedBy`. A list that did not answer names no
+    /// limit: the walk keeps the siblings it can read, and the capture is partial. A row
     /// scrolled out of its container, a frame the trust rule refuses, a sliver too thin to act on
     /// and a label outside the length bounds are filtered, not truncated: they are the walk's own
     /// rules, applied the same way on every capture, and they leave `walkCompleted` alone. Static
@@ -120,6 +122,17 @@ public enum AccessibilityAugmentation {
         var tables       = 0
         var nodesVisited = 0
         var stoppedBy: CaptureQuality.StopReason?
+        // A list of children that did not answer (M2): the walk goes on with the siblings it can read, but
+        // the capture is not whole. No limit stopped it, so none is named.
+        var unlisted = false
+
+        func listed(_ node: Reader.Node) -> [Reader.Node] {
+            guard let children = reader.readChildren(node) else {
+                unlisted = true
+                return []
+            }
+            return children
+        }
 
         func stop(_ reason: CaptureQuality.StopReason) {
             if stoppedBy == nil { stoppedBy = reason }
@@ -207,7 +220,7 @@ public enum AccessibilityAugmentation {
                 // role. A collection inside a row keeps the outer collection: a row's name is content.
                 let collection = collectionPath
                     ?? (isNamed ? childContainer : container.map { $0 + " / " + role } ?? role)
-                let children = reader.children(node)
+                let children = listed(node)
                 let columns = children.filter { reader.role($0) == "AXColumn" }.map {
                     firstText([reader.title($0), reader.descriptionText($0)])
                 }
@@ -218,7 +231,8 @@ public enum AccessibilityAugmentation {
                     if let rowFrame = reader.frame(row), rowFrame.height > 0, !childClip.intersects(rowFrame) {
                         continue
                     }
-                    let named = deepestNamed(row, reader: reader, isPastDeadline: limits.isPastDeadline)
+                    let named = deepestNamed(row, reader: reader, isPastDeadline: limits.isPastDeadline,
+                                             unlisted: { unlisted = true })
                     if limits.isPastDeadline() { stop(.deadline) }
                     guard let named else { continue }
                     let label = cleanLabel(named.name)
@@ -227,7 +241,7 @@ public enum AccessibilityAugmentation {
                          clip: childClip, container: childContainer, collectionPath: collection,
                          isEnabled: reader.isEnabled(row))
                     let owner = childContainer.map { $0 + " / " + label } ?? label
-                    let cells = reader.children(row)
+                    let cells = listed(row)
                     // Only use column order when the table exposes a complete cell-to-column map.
                     // Otherwise traverse the controls with their own labels and row context.
                     let aligned = cells.count == columns.count && cells.allSatisfy { reader.role($0) == "AXCell" }
@@ -303,7 +317,7 @@ public enum AccessibilityAugmentation {
                 }
             }
             var previous: Reader.Node?
-            for child in reader.children(node) {
+            for child in listed(node) {
                 walk(child, depth + 1, childClip, childContainer, collectionPath: collectionPath,
                      column: column, rowName: rowName,
                      insideControl: insideControl || interactiveRoles.contains(role) || role == "AXTextArea",
@@ -324,7 +338,7 @@ public enum AccessibilityAugmentation {
             if count > 1 { out[index].label += " #\(count)" }
         }
         return AccessibilityHarvest(elements: out, quality: CaptureQuality(
-            walkCompleted  : stoppedBy == nil,
+            walkCompleted  : stoppedBy == nil && !unlisted,
             stoppedBy      : stoppedBy,
             windowFound    : true,
             windowRole     : windowRole,
@@ -506,7 +520,8 @@ public enum AccessibilityAugmentation {
     static func deepestNamed<Reader: AccessibilityTreeReading>(
         _ row         : Reader.Node,
         reader        : Reader,
-        isPastDeadline: () -> Bool
+        isPastDeadline: () -> Bool,
+        unlisted      : () -> Void = {}
     ) -> (name: String, frame: CGRect)? {
         let rowFrame = reader.frame(row)
         var best: (name: String, frame: CGRect)?
@@ -521,7 +536,9 @@ public enum AccessibilityAugmentation {
                     best = (text, frame)
                 }
             }
-            if depth < 4 { for child in reader.children(node) { visit(child, depth + 1) } }
+            guard depth < 4 else { return }
+            guard let children = reader.readChildren(node) else { return unlisted() }
+            for child in children { visit(child, depth + 1) }
         }
         visit(row, 0)
         return best

@@ -26,6 +26,9 @@ final class FakeNode: @unchecked Sendable {
     var numericValue: Int?
     var isEnabled: Bool?
     var frame: CGRect?
+    /// The node's children did not answer: `children` reads empty, as the live reader's does, and
+    /// `readChildren` says they were not read.
+    var childrenUnreadable = false
     private(set) var children: [FakeNode] = []
 
     init(
@@ -76,5 +79,6 @@ struct FakeReader: AccessibilityTreeReading {
     func isEnabled(_ node: FakeNode) -> Bool? { node.isEnabled }
     func actions(_ node: FakeNode) -> [String] { [] }
     func frame(_ node: FakeNode) -> CGRect? { node.frame }
-    func children(_ node: FakeNode) -> [FakeNode] { node.children }
+    func children(_ node: FakeNode) -> [FakeNode] { node.childrenUnreadable ? [] : node.children }
+    func readChildren(_ node: FakeNode) -> [FakeNode]? { node.childrenUnreadable ? nil : node.children }
 }

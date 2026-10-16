@@ -45,10 +45,15 @@ public protocol AccessibilityTreeReading: Sendable {
     func actions(_ node: Node) -> [String]
     func frame(_ node: Node) -> CGRect?
     func children(_ node: Node) -> [Node]
+    /// The node's children, or nil when they could not be read: a timeout, or a failure that proves no
+    /// absence. An empty list is a leaf. A walk that meets nil keeps the siblings it can read and says the
+    /// capture is not whole (M2). The default answers `children`, for a conformer that cannot tell.
+    func readChildren(_ node: Node) -> [Node]?
 }
 
 extension AccessibilityTreeReading {
     public func isSameNode(_ first: Node, _ second: Node) -> Bool { false }
+    public func readChildren(_ node: Node) -> [Node]? { children(node) }
     public func selectedRange(_ node: Node) -> NSRange? { nil }
     public func isFocused(_ node: Node) -> Bool? { nil }
     public func isSelected(_ node: Node) -> Bool? { nil }

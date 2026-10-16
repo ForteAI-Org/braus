@@ -90,6 +90,46 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
         (attribute(node, kAXChildrenAttribute) as? [AXUIElement]) ?? []
     }
 
+    /// The children, `[]` for a leaf, nil when they could not be read: a timeout after the one retry, or
+    /// any failure that proves no absence (`ChildrenAnswer`).
+    public nonisolated func readChildren(_ node: AXUIElement) -> [AXUIElement]? {
+        var answer = ChildrenAnswer.retry
+        for _ in 0..<2 {
+            var reference: CFTypeRef?
+            answer = ChildrenAnswer(AXUIElementCopyAttributeValue(node, kAXChildrenAttribute as CFString, &reference),
+                                    reference)
+            guard answer == .retry else { break }
+        }
+        switch answer {
+            case .listed(let children): return children
+            case .retry, .unread       : return nil
+        }
+    }
+
+    /// ChildrenAnswer is what one read of a node's children says. Only `noValue` and `attributeUnsupported`
+    /// are a genuine absence, a leaf. A timeout is worth one retry. `notImplemented`, `invalidUIElement`,
+    /// any other code, and a value that is no list of elements are reads that did not succeed: the node
+    /// may have children nobody listed.
+    enum ChildrenAnswer: Equatable {
+        case listed([AXUIElement])
+        case retry
+        case unread
+
+        init(_ result: AXError, _ reference: CFTypeRef?) {
+            switch result {
+                case .success:
+                    // A cast to a CF type checks nothing: each element's type id is.
+                    guard let items = reference as? [AnyObject],
+                          items.allSatisfy({ CFGetTypeID($0) == AXUIElementGetTypeID() })
+                    else { self = .unread; return }
+                    self = .listed(items.map { unsafeDowncast($0, to: AXUIElement.self) })
+                case .noValue, .attributeUnsupported: self = .listed([])
+                case .cannotComplete                : self = .retry
+                default                             : self = .unread
+            }
+        }
+    }
+
     // MARK: Application and windows
 
     public nonisolated func application(processID: pid_t) -> AXUIElement { AXUIElementCreateApplication(processID) }

@@ -206,6 +206,36 @@ struct AccessibilityHarvestTests {
         #expect(whole.elements.count == 9, "a button, two tables of two rows, each row with its reply button")
     }
 
+    @Test("M2: a sibling whose children did not answer leaves the capture partial with no limit named; the readable siblings are harvested")
+    func unreadableSibling() {
+        let lost = FakeNode("AXGroup", title: "Strumenti", frame: box(105, 150, 300, 200)).adding(
+            FakeNode("AXButton", title: "Nascosto", frame: box(110, 160, 80, 24))
+        )
+        lost.childrenUnreadable = true
+        let root = FakeNode("AXWindow", frame: window).adding(lost, FakeNode("AXButton", title: "Compose", frame: box(700, 700, 100, 24)))
+        let out = AccessibilityAugmentation.harvest(under: root, windowFrame: window, reader: reader)
+        #expect(out.quality.completeness == .partial && out.quality.walkCompleted == false)
+        #expect(out.quality.stoppedBy == nil && out.quality.inconsistency == nil)
+        #expect(out.elements.map(\.label) == ["Compose"])
+    }
+
+    @Test("M2: a table, a row or a cell that did not list its children leaves the capture partial; the other rows keep their controls",
+          arguments: ["table", "row", "cell"])
+    func unreadableTablePart(part: String) {
+        let table = peopleTable()
+        let alice = table.children[0], cell = alice.children[0]
+        switch part {
+            case "table": table.childrenUnreadable = true
+            case "row"  : alice.childrenUnreadable = true
+            default     : cell.childrenUnreadable = true
+        }
+        let root = FakeNode("AXWindow", frame: window).adding(table, FakeNode("AXButton", title: "Compose", frame: box(700, 700, 100, 24)))
+        let out = AccessibilityAugmentation.harvest(under: root, windowFrame: window, reader: reader)
+        #expect(out.quality.completeness == .partial && out.quality.stoppedBy == nil, "\(part)")
+        #expect(out.elements.contains { $0.label == "Compose" })
+        if part != "table" { #expect(out.elements.contains { $0.container == "People / Bruno / Ops" }, "Bruno's reply is kept") }
+    }
+
     @Test("a degenerate window frame reads nothing: not a complete read and not a denied grant")
     func degenerateFrame() {
         let root = FakeNode("AXWindow", subrole: "AXStandardWindow", frame: window).adding(
