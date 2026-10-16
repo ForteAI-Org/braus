@@ -158,6 +158,13 @@ button rather than the word at the start of the sentence. Two matching native co
 ambiguous; exact element IDs and explicit section filters retain precedence. Ambiguity hints use
 an element ID when no section exists instead of suggesting the unusable `section:'?'`.
 
+Pro Tools' native audio Send selectors are scoped by bundle, AX role and their Sends bank.
+They open routing menus without the generic message-send refusal. Selection tools also allow
+the exact `no send` item from those controls; other destructive items retain the normal rule.
+The broker includes already-held floating palettes in `windows` after verifying their current
+identity, including untitled Output panels. See the [Pro Tools guide](../Driver/platforms/ProTools.md)
+for the boundaries and live checks.
+
 With `--seat` the same commands run in the background: the window is adopted onto the Driver's
 virtual display, the stills come from the Seat's capture, every gesture is a Command routed to the
 adopted window inside a Turn, the application is never raised, and the window is returned when the

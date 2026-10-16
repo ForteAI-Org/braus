@@ -35,6 +35,28 @@ triple click to replace PT text, avoiding selection shortcuts that can reach ano
 and verifies the resulting value. The field label accompanies the click; another named field
 refuses before selection. The input sequence cannot follow a newly opened dialog.
 
+Save Session As is a native file panel. Its logical window belongs to PT, while the field
+belongs to the AppKit panel service. The remote route is tried before the own-window route.
+When PT's hit test names a sibling, the resolver starts at the exact panel's AX entry and
+requires a bounded, unambiguous descendant path, matching parents and the content window's
+current identity and geometry. Remote actuation uses that same window-scoped path. Missing
+or conflicting evidence refuses before writing; the host never receives a speculative click.
+
+## Send navigation and held palettes
+
+The Engine recognizes the native `Send selector A` and `Send Assignment A` controls through
+slot J only inside PT's matching `Sends A-E` or `Sends F-J` AX group. Opening them is audio
+routing navigation. The exact `no send` choice is also allowed by selection tools when that
+native opener supplies the context. Generic Send buttons and unrelated destructive menu
+items retain the existing policy. A label alone is insufficient to qualify a control.
+
+The broker's `windows` list includes small floating windows already adopted by its Seat.
+Each supplemental candidate must still have the same current WindowServer identity, a usable
+body and a window layer; a reused ID, vanished window or menu is excluded. This covers the
+89 by 533 point, layer-three Output palette without weakening the initial launch filter.
+PT supplies no title for that palette, so its entry remains untitled. Exact-title switching
+uses the same candidates and still refuses ambiguity.
+
 ## PT running without a window
 
 When `SeatBroker.launch` finds PT already running without an adoptable window, it reads
@@ -116,12 +138,36 @@ menu row can also refuse when its checkmark is recognized as part of the label. 
 changed the value; the opened menu was closed. The verified selection cycle chose different
 values and restored the original.
 
+## Save panel, Send and Output verification, 16 October 2026
+
+A broker/tool-level run on Mac16,1, macOS 27.0.1 (26A434), PT 26.4.1.179, with changes over
+`d306b854`, reproduced Save Session As refusing its name field while Output was open. The
+application hit test returned Output's AX group; the field's own AX window number identified
+the separate AppKit content window. The corrected route wrote a temporary name, read it back
+exactly, restored the original name and read that back before Cancel. The inspected capture
+also showed the temporary name in the Save As field. No session was saved or exported.
+
+The Send selector on a visible audio track opened the routing menu and Escape closed it.
+The inspected capture showed `no send`, `output` and `bus`. No routing value was changed.
+The `no send` policy exception has controlled regression coverage; this run did not assign
+and remove a bus. A preliminary probe targeted a scrolled-out track whose AX controls still
+appeared in the scene and was refused; this change does not qualify scrolled-out controls.
+
+Output appeared in `windows` while held, remained listed after Save As was cancelled, and
+left the list after its close. A separate final cycle selected that untitled window with
+`open_session(window: "")`, read its 89 by 533 point scene, then selected Mix again with the
+same session ID. Foreground application and cursor stayed unchanged. The click receipt alone remained `acted_unverified` in the
+parent Mix scene and reported the separate window's creation or closure; the window census
+supplied the evidence. The final run recorded no workspace activations and unchanged
+foreground application and cursor. The Seat returned the remaining windows and closed.
+These checks use the same broker and tools as the app, without a model-driven workflow.
+
 ## Repository checks, 16 October 2026
 
 - `swift build --product braus`: passed.
 - `make native-test-runner SWIFT=swift`: passed.
 - `TIER_BUNDLES=30 bash Tools/Driver/Scripts/run-tier.sh unit - bash Tools/Driver/Scripts/unit-test-command.sh swift`:
-  passed, 3,736 executed, 120 environment-dependent tests skipped, 3,856 reported across
+  passed, 3,741 executed, 120 environment-dependent tests skipped, 3,861 reported across
   30 runs. The final `TIER_RESULT` had `status: passed` and no problems.
 - `make host-tests SWIFT=swift`: passed, one Seat cycle and 29 display tests, with no
   skips or tier problems.
