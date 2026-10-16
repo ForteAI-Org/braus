@@ -915,6 +915,7 @@ public final class AgentSeat {
             // surface does not reopen ordinary command admission.
             && (state == .unavailable || state.acceptsCommands
                 || selectedContainmentRecoveryMayAdmit(window)
+                || assignedContainmentRecoveryMayAdmit(window)
                 || selectedModalRecoveryMayAdmit(window)
                 || commandBornMayAdmit(window))
             && session[window.windowNumber] == nil
@@ -940,6 +941,31 @@ public final class AgentSeat {
               selectionKit.selected?.surface == identity
         else { return false }
         return sensing.virtualDisplayBounds.contains(window.frame)
+    }
+
+    /// The assignment's refused physical member may enter through the normal transfer while
+    /// containment is the only missing condition. User intent and stopped recovery still win.
+    private func assignedContainmentRecoveryMayAdmit(_ window: WindowReference) -> Bool {
+        guard containmentOnlyFollowWait,
+              !actionInFlight,
+              !sensing.userMayBeSwitchingApplications,
+              sensing.isActive(processID: window.processID) == false,
+              focusRecovery?.isRestoring != true,
+              !inputPauseReasons.contains(.focusRecoveryStopped),
+              !inputPauseReasons.contains(.deliberateStop),
+              let identity = window.identity,
+              let assignment = assignmentKit.lifecycle.current,
+              identity.process == assignment.instance,
+              let member = assignmentKit.inventory.surfaces[identity.windowNumber],
+              member.identity == identity, member.isVerified,
+              member.origin == .preexisting, member.presence == .outsideSeat,
+              !member.isAttachedToHost,
+              selectionKit.lastAssignmentStatus?.blocks.contains(where: {
+                  guard case .effectRefused(let number, .adapterNotQualified) = $0 else { return false }
+                  return number == identity.windowNumber
+              }) == true
+        else { return false }
+        return true
     }
 
     /// A newly selected, attested surface may replace a host that disappeared

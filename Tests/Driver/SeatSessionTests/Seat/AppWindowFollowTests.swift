@@ -821,6 +821,31 @@ struct AppWindowFollowTests {
         #expect(seat.currentTarget?.id == leftOpen.windowNumber)
     }
 
+    @Test("a containment wait can take in a physical window unless the person is switching apps",
+          arguments: [false, true])
+    func aContainmentWaitCanAdmitTheWindowItNeeds(userIsSwitching: Bool) async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, _, leftOpen) = try await Self.seatWithWindowLeftOpen(
+            sensing: sensing, placing: placing, following: true, marker: 7_052
+        )
+        defer { seat.stopWindowFollowing() }
+        seat.refreshTargetReadings()
+        seat.refreshTargetReadings()
+        seat.selectExplicitly(leftOpen)
+        seat.report([.targetActivated])
+        #expect(seat.state == .waiting)
+        #expect(seat.containmentOnlyFollowWait)
+        sensing.userMayBeSwitchingApplications = userIsSwitching
+        _ = await seat.takeInRefusedPreexistingMembers(
+            until: DispatchTime.now().uptimeNanoseconds + 5_000_000_000
+        )
+        #expect(seat.adoptedWindows.contains { $0.reference.identity == leftOpen.identity } == !userIsSwitching)
+        #expect(sensing.virtualDisplayBounds.contains(
+            try #require(sensing.windowGeometry(of: leftOpen.windowNumber)).frame
+        ) == !userIsSwitching)
+    }
+
     @Test("a failed staging after containing another window returns no observation")
     func containmentCannotPublishBeforeTheSelectedWindowIsRestaged() async throws {
         let sensing = FakeSensing()
