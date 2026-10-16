@@ -84,7 +84,10 @@ public struct SeatContextMenuSelector {
             case .ambiguous(let count):
                 return ActOutcome(.ambiguous, "\(count) targets match '\(control)'; choose a section or unique ID", scene: before.scene)
         }
-        if !permissions.allowsDestructive, ActionPolicy.isDestructive(label: item) {
+        if !permissions.allowsDestructive, ActionPolicy.isDestructiveMenuItem(
+            item, openedBy: opener.label, bundleID: identity.bundleID,
+            role: opener.role, container: opener.container
+        ) {
             return ActOutcome(.refused, "'\(item)' requires --allow-destructive", scene: before.scene)
         }
         if permissions.contextMenusOnTextFieldsOnly,

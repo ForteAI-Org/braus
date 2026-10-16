@@ -229,6 +229,31 @@ struct ActionEngineTests {
         #expect(actuator.gestures.count == 1)
     }
 
+    @Test("Pro Tools audio send selectors are navigation, while message sends still refuse")
+    func audioSendNavigation() async {
+        let cases: [(String, String, String?, String?, Bool)] = [
+            ("com.avid.ProTools", "Send selector A", "AXButton", "Kick / Sends A-E", true),
+            ("com.avid.ProTools", "Send Assignment J", "AXButton", "Kick / Sends F-J", true),
+            ("com.x", "Send selector A", "AXButton", "Kick / Sends A-E", false),
+            ("com.avid.ProTools", "Send selector A", nil, "Kick / Sends A-E", false),
+            ("com.avid.ProTools", "Send selector A", "AXButton", nil, false),
+            ("com.avid.ProTools", "Send selector A", "AXButton", "Kick / Sends F-J", false),
+            ("com.avid.ProTools", "Send", "AXButton", "Kick / Sends A-E", false),
+            ("com.avid.ProTools", "Send selector A and delete", "AXButton", "Kick / Sends A-E", false),
+        ]
+        for (bundle, label, role, container, allowed) in cases {
+            let control = SceneElement(
+                id: "control|send", kind: .control, label: label, bounds: rect(0.5, 0.5),
+                role: role, container: container
+            )
+            let outcome = await engine(scenes: ScriptedScenes([scene([control])])).act(ActionRequest(
+                processID: pid, bundleID: bundle, appName: "Test", target: label,
+                verb: .click, isDryRun: true
+            ))
+            #expect(outcome.kind == (allowed ? .dryRun : .refused), Comment(rawValue: label))
+        }
+    }
+
     @Test("a destructive target is refused unless the person allowed it")
     func destructive() async {
         let trash = SceneElement(id: "control|delete", kind: .control, label: "Delete", bounds: rect(0.5, 0.5))

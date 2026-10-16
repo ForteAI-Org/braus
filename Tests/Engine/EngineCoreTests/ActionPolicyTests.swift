@@ -23,6 +23,23 @@ struct ActionPolicyTests {
         #expect(!ActionPolicy.isDestructive(label: nil))
     }
 
+    @Test("no send clears an audio route only when its native selector supplies the context")
+    func audioSendMenu() {
+        for (item, bundle, container, destructive) in [
+            ("no send", "com.avid.ProTools", "Kick / Sends A-E", false),
+            ("No Send", "com.avid.ProTools", "Kick / Sends A-E", false),
+            ("no send", "com.example.mail", "Kick / Sends A-E", true),
+            ("no send", "com.avid.ProTools", "Message", true),
+            ("Send message", "com.avid.ProTools", "Kick / Sends A-E", true),
+            ("Delete", "com.avid.ProTools", "Kick / Sends A-E", true),
+        ] {
+            #expect(ActionPolicy.isDestructiveMenuItem(
+                item, openedBy: "Send selector A", bundleID: bundle, role: "AXButton", container: container
+            ) == destructive)
+        }
+        #expect(ActionPolicy.isDestructive(label: "no send"))
+    }
+
     @Test("activation is skipped in front or while a pop-up is open")
     func activation() {
         #expect(ActivationPolicy.needsActivation(target: 5, frontmost: 7, isPopupOpen: false))

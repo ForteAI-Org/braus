@@ -132,7 +132,12 @@ public struct SeatDropdownSelector {
             return (ActOutcome(.honestMiss, "dropdown '\(control)' is missing or ambiguous. Read: \(labels)", scene: before.scene), nil)
         }
         if !permissions.allowsDestructive,
-           ActionPolicy.isDestructive(label: opener.label) || ActionPolicy.isDestructive(label: item) {
+           ActionPolicy.isDestructive(
+               label: opener.label, bundleID: identity.bundleID, role: opener.role, container: opener.container
+           ) || ActionPolicy.isDestructiveMenuItem(
+               item, openedBy: opener.label, bundleID: identity.bundleID,
+               role: opener.role, container: opener.container
+           ) {
             return (ActOutcome(.refused, "selection requires --allow-destructive", scene: before.scene), nil)
         }
         if dryRun {

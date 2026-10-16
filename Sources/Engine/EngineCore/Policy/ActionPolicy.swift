@@ -23,10 +23,51 @@ public enum ActionPolicy {
         "esci", "disconnett", "invia", "pubblic", "acquist", "compra", "paga",
     ]
 
-    /// True when the label names something destructive or irreversible. Conservative: when unsure, refuse.
-    public static func isDestructive(label: String?) -> Bool {
+    /// True when the label names something destructive or irreversible. Native audio send selectors
+    /// in Pro Tools open routing controls; the same words elsewhere keep the conservative rule.
+    public static func isDestructive(
+        label    : String?,
+        bundleID : String? = nil,
+        role     : String? = nil,
+        container: String? = nil
+    ) -> Bool {
         guard let lowered = label?.lowercased() else { return false }
+        if isAudioSendSelector(label: lowered, bundleID: bundleID, role: role, container: container) {
+            return false
+        }
         return destructiveTerms.contains { lowered.contains($0) }
+    }
+
+    /// Checks a menu choice using the native control that opened it. Pro Tools' exact "no send"
+    /// choice clears an audio route; without that selector evidence it keeps the general rule.
+    public static func isDestructiveMenuItem(
+        _ item   : String,
+        openedBy : String,
+        bundleID : String?,
+        role     : String?,
+        container: String?
+    ) -> Bool {
+        if item.lowercased() == "no send",
+           isAudioSendSelector(label: openedBy, bundleID: bundleID, role: role, container: container) {
+            return false
+        }
+        return isDestructive(label: item)
+    }
+
+    private static func isAudioSendSelector(
+        label    : String,
+        bundleID : String?,
+        role     : String?,
+        container: String?
+    ) -> Bool {
+        guard bundleID == "com.avid.ProTools", role == "AXButton",
+              let bank = container?.components(separatedBy: " / ").last
+        else { return false }
+        let words = label.lowercased().split(separator: " ")
+        return words.count == 3 && words[0] == "send" && ["selector", "assignment"].contains(words[1])
+            && words[2].count == 1
+            && (bank == "Sends A-E" && "abcde".contains(words[2])
+                || bank == "Sends F-J" && "fghij".contains(words[2]))
     }
 
     /// True for Command with Q or W, whatever else is held: they quit or close what the agent is

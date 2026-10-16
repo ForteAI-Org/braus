@@ -173,7 +173,9 @@ public struct ActionEngine: Sendable {
         } catch {
             return error.outcome
         }
-        if ActionPolicy.isDestructive(label: element.label), !permissions.allowsDestructive {
+        if ActionPolicy.isDestructive(
+            label: element.label, bundleID: request.bundleID, role: element.role, container: element.container
+        ), !permissions.allowsDestructive {
             return ActOutcome(.refused, "'\(element.label)' looks destructive/irreversible: refused. "
                 + "If you want the agent to do this, the person must allow destructive actions.", scene: scene)
         }
@@ -1218,7 +1220,10 @@ public struct ActionEngine: Sendable {
             return error.outcome
         }
         Self.inputTrail?.resolve(element)
-        if ActionPolicy.isDestructive(label: item), !permissions.allowsDestructive {
+        if ActionPolicy.isDestructiveMenuItem(
+            item, openedBy: element.label, bundleID: request.bundleID,
+            role: element.role, container: element.container
+        ), !permissions.allowsDestructive {
             return ActOutcome(.refused, "'\(item)' looks destructive/irreversible: refused. If you want the agent "
                 + "to do this, the person must allow destructive actions.", scene: perceived.scene)
         }
