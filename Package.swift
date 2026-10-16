@@ -372,7 +372,8 @@ let package = Package(
             dependencies : ["WebSession", "WebDriving", "WebDriver", "AutomationRuntime", "AutomationMCP", "Memory",
                             "SQLiteMemory", "EngineCore", "PerceptionCore", "LocalMCP"].map { .target(name: $0) },
             path         : "Tests/Integration/WebSessionTests",
-            resources    : [.copy("Fixtures/web-session.html"), .copy("Fixtures/web-secure.html")],
+            resources    : [.copy("Fixtures/web-session.html"), .copy("Fixtures/web-secure.html"),
+                            .copy("Fixtures/select-choices.html")],
             swiftSettings: suite
         ),
 

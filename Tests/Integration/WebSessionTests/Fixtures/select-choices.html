@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Braus select choices</title>
+</head>
+<body>
+<!-- W2, W3 fixture: native selects with twins, long and empty options, disabled options and groups, and selects
+     whose change handler puts the value back synchronously, in a microtask or on a timer. Each select counts its
+     change and keydown events (__counts); a test reads indices and booleans only. Synthetic values; no network. -->
+<form aria-label="Choices">
+  <select id="color" aria-label="Color">
+    <option value="r">Red</option><option value="b1">Blue</option><option value="b2">Blue</option><option value="g">Green</option>
+  </select>
+  <select id="long" aria-label="Lunga">
+    <option value="e"></option>
+    <option value="a">Opzione lunga Opzione lunga Opzione lunga Opzione lunga Opzione lunga Opzione lunga Opzione A</option>
+    <option value="b">Opzione lunga Opzione lunga Opzione lunga Opzione lunga Opzione lunga Opzione lunga Opzione B</option>
+  </select>
+  <select id="groups" aria-label="Gruppi">
+    <option value="a">A</option>
+    <option value="b" disabled>B</option>
+    <optgroup label="Old" disabled><option value="c">C</option></optgroup>
+  </select>
+  <select id="sync" aria-label="Sincrona"><option>Red</option><option>Blue</option></select>
+  <select id="micro" aria-label="Microtask"><option>Red</option><option>Blue</option></select>
+  <select id="timer0" aria-label="Timer zero"><option>Red</option><option>Blue</option></select>
+  <select id="timer100" aria-label="Timer cento"><option>Red</option><option>Blue</option></select>
+  <select id="twin" aria-label="Gemella"><option value="r">Red</option><option value="b1">Blue</option><option value="b2">Blue</option></select>
+</form>
+<script>
+window.__counts = {};
+for (const select of document.querySelectorAll('select')) {
+  window.__counts[select.id] = { change: 0, keydown: 0 };
+  select.addEventListener('change', () => { window.__counts[select.id].change += 1; });
+  select.addEventListener('keydown', () => { window.__counts[select.id].keydown += 1; });
+}
+const back = (id, restore) => document.getElementById(id).addEventListener('change', event => restore(event.target));
+back('sync', s => { s.selectedIndex = 0; });
+back('micro', s => { Promise.resolve().then(() => { s.selectedIndex = 0; }); });
+back('timer0', s => { setTimeout(() => { s.selectedIndex = 0; }, 0); });
+back('timer100', s => { setTimeout(() => { s.selectedIndex = 0; }, 100); });
+back('twin', s => { setTimeout(() => { s.selectedIndex = 1; }, 100); });
+</script>
+</body>
+</html>
