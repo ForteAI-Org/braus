@@ -406,6 +406,33 @@ struct ActionEngineTests {
         #expect(withPopup.message.contains("opens menu(Copy|Cut|Export"))
     }
 
+    @Test("a remaining popup cannot replace the observed return from a dialog")
+    func windowChangePrecedesPopupInference() {
+        let before = scene([export], title: "MP3").scene
+        let after = scene([export, boldOff], title: "Mix: Prova").scene
+        #expect(ActionEngine.gatedEffect(
+            before: before, after: after, targetID: export.id, popupIsOpen: true
+        ) == .windowTitleChanged(title: "Mix: Prova"))
+    }
+
+    @Test("a remaining popup cannot replace a verified toggle")
+    func togglePrecedesPopupInference() {
+        let on = SceneElement(id: boldOff.id, kind: .control, label: boldOff.label,
+                              bounds: boldOff.bounds, role: "AXCheckBox", state: .on)
+        #expect(ActionEngine.gatedEffect(
+            before: scene([export, boldOff]).scene, after: scene([export, on]).scene,
+            targetID: boldOff.id, popupIsOpen: true
+        ) == .stateFlip(from: .off, to: .on))
+    }
+
+    @Test("an unchanged scene with a persistent popup does not claim a menu opened")
+    func unchangedPopupHasNoOpeningEffect() {
+        let unchanged = scene([export, boldOff]).scene
+        #expect(ActionEngine.gatedEffect(
+            before: unchanged, after: unchanged, targetID: export.id, popupIsOpen: true
+        ) == nil)
+    }
+
     @Test("activation happens only when the app is not in front, and never with a pop-up open")
     func activation() async {
         let behind = FakeActivation(frontmost: 1)

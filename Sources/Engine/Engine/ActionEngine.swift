@@ -1541,8 +1541,8 @@ public struct ActionEngine: Sendable {
         return flat.count > 60 ? flat.prefix(59) + "…" : flat
     }
 
-    /// A menu is believable only while a pop-up window exists; and when one does, the menu's rows
-    /// are the effect whatever the scene difference read, because the after scene IS the menu.
+    /// A pop-up confirms menu-shaped changes, but cannot replace a verified window or control change.
+    /// A surface already present without a scene change is not evidence that this action opened it.
     static func gatedEffect(
         before            : SceneSnapshot,
         after             : SceneSnapshot,
@@ -1556,6 +1556,10 @@ public struct ActionEngine: Sendable {
             before: was, after: now, targetID: targetID, countsValueChange: countsValueChange
         )
         if case .menuOpened(let labels) = effect, !popupIsOpen { effect = .elementsAppeared(labels: labels) }
+        switch effect {
+            case .menuOpened, .elementsAppeared: break
+            default: return effect
+        }
         if popupIsOpen {
             let items = after.elements
                 .filter { !$0.isUnlabeled && $0.kind != .icon && (2...40).contains($0.label.count) }
