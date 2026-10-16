@@ -84,11 +84,14 @@ public enum PerceivedCommand {
     /// copy could ever be admitted. When the gesture went out as requested and both perceptions exist, the
     /// difference of the two scenes decides: an attributable change is a structural effect, passed, said as
     /// found anywhere in the window and with no expectation; no change leaves the window check unknown as
-    /// it was, since a command may act where no scene shows it (a document's pixels).
+    /// it was, since a command may act where no scene shows it (a document's pixels). So does a capture
+    /// that was not read in full (M2).
     static func checkedInWindow(_ outcome: ActOutcome, before: PerceivedWindow?, after: PerceivedWindow?) -> ActOutcome {
         guard let check = outcome.check, check.condition == .windowSetChanged, check.verdict == .unknown,
               check.performed == .requested, !check.limits.contains(.deliveryUncertain),
               let before, let after,
+              // A capture that says it is not whole compares to nothing (M2): the window check stays unknown.
+              ActVerification.comparable(before: before.capture, after: after.capture),
               let effect = SceneDifference.effect(before: before.scene, after: after.scene, targetID: nil)
         else { return outcome }
         let inWindow = OperationCheck(condition: .structuralEffect, method: .sceneDifference, verdict: .passed,

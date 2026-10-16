@@ -401,11 +401,13 @@ public struct ActionEngine: Sendable {
         }
         let after = afterWindow.scene
         let surfacesAfter = await surfaces(pid)
-        let effect = Self.gatedEffect(
+        // A capture that says it is not whole compares to nothing (M2): no effect, and no verdict but unknown.
+        let comparable = ActVerification.comparable(before: perceived.capture, after: afterWindow.capture)
+        let effect = comparable ? Self.gatedEffect(
             before: perceived.scene, after: after, targetID: element.id,
             popupIsOpen: surfacesAfter.hasOpenPopup, target: element
-        )
-        let verdict = ActVerification.verdict(before: perceived.scene, after: after, effect: effect, expected: expected)
+        ) : nil
+        let verdict = ActVerification.verdict(before: perceived, after: afterWindow, effect: effect, expected: expected)
         await dependencies.observer?.record(ActionRecord(
             bundleID        : request.bundleID,
             element         : element,
@@ -448,6 +450,7 @@ public struct ActionEngine: Sendable {
             case .ghost, .unattributable:
                 let why = verdict == .ghost
                     ? "this window did NOT change (identical scene)"
+                    : !comparable ? Self.notComparable
                     : "the window's pixels changed but nothing structural did: the intended effect "
                         + "is not classified"
                 let advice = elsewhere.changed ? "" : " Verify the intended result in a fresh observation "
@@ -584,8 +587,12 @@ public struct ActionEngine: Sendable {
             answered = await dependencies.controls?.toggleState(labelled: element.label, in: pid)
         }
         let readBack = answered ?? selected?.state
-        let effect = after.flatMap {
-            SceneDifference.effect(before: perceived.scene, after: $0, targetID: element.id, target: element)
+        // The read-back judges the toggle; the scenes name an effect only when both were read in full (M2).
+        let effect = afterWindow.flatMap { window in
+            ActVerification.comparable(before: perceived.capture, after: window.capture)
+                ? SceneDifference.effect(before: perceived.scene, after: window.scene, targetID: element.id,
+                                         target: element)
+                : nil
         }
         await dependencies.observer?.record(ActionRecord(
             bundleID        : request.bundleID,
@@ -1126,7 +1133,7 @@ public struct ActionEngine: Sendable {
         // A background chord's unchanged scene does not qualify the target's menu support.
         let note = dependencies.activation == nil && chord.modifiers.contains(.command) ? Self.menuShortcutNote : ""
         let outcome = await judged(
-            pressed, in: request, before: perceived.scene, targetID: nil,
+            pressed, in: request, before: perceived, targetID: nil,
             // `selectsFieldsByTripleClick` is set exactly while the seat holds a file panel drawn out of process.
             ghost: permissions.selectsFieldsByTripleClick ? Self.filePanelKeyGhost + note
                 : "If you expected an effect, the key likely reached a control that ignores it: click the "
@@ -1218,7 +1225,7 @@ public struct ActionEngine: Sendable {
                               check: Self.undelivered(.structuralEffect, method: .sceneDifference, target: element))
         }
         return await judged(
-            scrolled, in: request, before: perceived.scene, targetID: element?.id,
+            scrolled, in: request, before: perceived, targetID: element?.id,
             ghost: "Nothing moved: the view may already be at its end, or nothing under that point scrolls; "
                 + "target the scrolling panel itself.",
             repaint: "Observe to see whether other rows came into view."
@@ -1278,7 +1285,7 @@ public struct ActionEngine: Sendable {
                               check: Self.undelivered(.structuralEffect, method: .sceneDifference, target: element))
         }
         return await judged(
-            dragged, in: request, before: scene, targetID: element.id,
+            dragged, in: request, before: perceived, targetID: element.id,
             ghost: "If you expected an effect, the press likely did not pick anything up: try a handle, a row "
                 + "or the exact label.",
             repaint: "A drag that only moves things adds, removes and retitles nothing, so it cannot be told "
@@ -1492,7 +1499,7 @@ public struct ActionEngine: Sendable {
     private func judged(
         _ performed       : String,
         in request        : InputRequest,
-        before            : SceneSnapshot,
+        before beforeWindow: PerceivedWindow,
         targetID          : String?,
         ghost             : String,
         repaint           : String,
@@ -1503,19 +1510,23 @@ public struct ActionEngine: Sendable {
         let pid = request.processID
         await settle(pid)
         let target = Self.inputTrail?.target.map(OperationCheck.Target.init)
-        guard let after = await perceive(pid)?.scene else {
+        let before = beforeWindow.scene
+        guard let afterWindow = await perceive(pid) else {
             await dependencies.actuator.confirm(.unknown, in: pid)
             return ActOutcome(.actedUnverified, "\(performed): no scene could be read afterwards; observe when "
                 + "the window is back", check: OperationCheck(
                     condition: .structuralEffect, method: .sceneDifference, verdict: .unknown,
                     limits: [.noAfterScene, .noExpectation], performed: .requested, target: target))
         }
-        let effect = Self.gatedEffect(
+        let after = afterWindow.scene
+        // A capture that says it is not whole compares to nothing (M2), the focus included.
+        let comparable = ActVerification.comparable(before: beforeWindow.capture, after: afterWindow.capture)
+        let effect = comparable ? Self.gatedEffect(
             before: before, after: after, targetID: targetID ?? "", popupIsOpen: (await surfaces(pid)).hasOpenPopup,
             countsValueChange: countsValueChange, ignoresTextRereads: ignoresTextRereads
-        )
-        let verdict = ActVerification.verdict(before: before, after: after, effect: effect)
-        if movesFocus, verdict != .ghost, Self.showsFocus(before: before, after: after, effect: effect) {
+        ) : nil
+        let verdict = ActVerification.verdict(before: beforeWindow, after: afterWindow, effect: effect)
+        if movesFocus, comparable, verdict != .ghost, Self.showsFocus(before: before, after: after, effect: effect) {
             return await focusJudged(performed, pid: pid, before: before, after: after, effect: effect, target: target)
         }
         Self.inputTrail?.attribute(effect)
@@ -1533,6 +1544,8 @@ public struct ActionEngine: Sendable {
             case .ghost:
                 return ActOutcome(.actedUnverified, "\(performed): this window did NOT change (identical scene). "
                     + ghost, scene: after, check: check)
+            case .unattributable where !comparable:
+                return ActOutcome(.actedUnverified, "\(performed): \(Self.notComparable).", scene: after, check: check)
             case .unattributable:
                 return ActOutcome(.actedUnverified, "\(performed): the window's pixels changed but nothing "
                     + "structural did. \(repaint)", scene: after, check: check)
@@ -1648,6 +1661,11 @@ public struct ActionEngine: Sendable {
         let flat = value.replacingOccurrences(of: "\n", with: " ")
         return flat.count > 60 ? flat.prefix(59) + "…" : flat
     }
+
+    /// Why a comparison was refused (M2): a capture said it was not read in full. The cause is not named,
+    /// since a capture stores none: a list that did not answer and a budget both leave it partial.
+    static let notComparable = "the window before or after it was not read in full, so what changed cannot be "
+        + "judged from the scenes; observe again before deciding anything from them"
 
     /// A pop-up confirms menu-shaped changes, but cannot replace a verified window or control change.
     /// A surface already present without a scene change is not evidence that this action opened it.

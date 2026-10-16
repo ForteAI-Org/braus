@@ -100,6 +100,20 @@ struct CommandWindowCheckTests {
         #expect(outcome.check == Self.unknownWindows())
     }
 
+    @Test("M2: a capture before or after that was not read in full compares to nothing: the window check stays unknown",
+          arguments: [CaptureQuality(walkCompleted: false, windowFound: true),
+                      CaptureQuality(walkCompleted: false, stoppedBy: .elementLimit, windowFound: true)])
+    func partialCaptureStaysUnknown(capture: CaptureQuality) async throws {
+        func partial(_ window: PerceivedWindow) -> PerceivedWindow {
+            PerceivedWindow(scene: window.scene, frame: window.frame, capture: capture, surface: window.surface)
+        }
+        let before = Self.window(["Chiudi"]), after = Self.window(["Chiudi", "Cancel", "Save"])
+        #expect(try await Self.perform(before: partial(before), after: after, check: Self.unknownWindows()).check
+            == Self.unknownWindows())
+        #expect(try await Self.perform(before: before, after: partial(after), check: Self.unknownWindows()).check
+            == Self.unknownWindows())
+    }
+
     @Test("an uncertain delivery or another gesture is never judged again: the window cannot say the request did it")
     func uncertainDeliveryIsKept() async throws {
         let before = Self.window(["Chiudi"]), after = Self.window(["Chiudi", "Cancel", "Save"])

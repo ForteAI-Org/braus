@@ -27,6 +27,33 @@ public enum ActVerification {
         case unattributable
     }
 
+    /// Whether a capture's own facts forbid drawing a structural conclusion by comparing it with another
+    /// (M2): it is explicitly partial or failed, whatever the cause (a list that did not answer, a budget),
+    /// or its facts contradict each other. What it did not read may hold what moved, appeared or vanished.
+    /// A capture that states nothing (`unknown`, the legacy quality) is compared as before: a limit of this
+    /// rule, never called complete.
+    public static func refusesComparison(_ capture: CaptureQuality) -> Bool {
+        capture.inconsistency != nil || capture.completeness == .partial || capture.completeness == .failed
+    }
+
+    /// Whether two captures may be compared for a structural verdict: neither refuses it.
+    public static func comparable(before: CaptureQuality, after: CaptureQuality) -> Bool {
+        !refusesComparison(before) && !refusesComparison(after)
+    }
+
+    /// Judges an action from two perceptions. When either capture refuses a comparison the verdict is
+    /// `unattributable` before anything is compared, the tokens included: two partial reads that look the
+    /// same prove no absence of an effect, and a branch that answers again is no element that appeared.
+    public static func verdict(
+        before  : PerceivedWindow,
+        after   : PerceivedWindow,
+        effect  : SceneEffect?,
+        expected: SceneEffect? = nil
+    ) -> Verdict {
+        guard comparable(before: before.capture, after: after.capture) else { return .unattributable }
+        return verdict(before: before.scene, after: after.scene, effect: effect, expected: expected)
+    }
+
     /// Judges an action. `targetID` enables the state-flip reading; `expected` is a learned effect
     /// to compare families against, when memory has one.
     public static func verdict(
