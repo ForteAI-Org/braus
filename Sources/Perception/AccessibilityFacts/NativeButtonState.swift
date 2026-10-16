@@ -17,6 +17,14 @@ nonisolated enum NativeButtonState {
                 default              : return nil
             }
         }
+        // Solo exposes a different on value; its empty string is also an explicit off state.
+        if bundleID == "com.avid.ProTools", identifier == "solo" {
+            switch value {
+                case "Selected", "on": return .on
+                case ""              : return .off
+                default              : return nil
+            }
+        }
         return isSelected == true ? .on : nil
     }
 }

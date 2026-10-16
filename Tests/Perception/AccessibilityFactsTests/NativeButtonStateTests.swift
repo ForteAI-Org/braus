@@ -32,9 +32,22 @@ struct NativeButtonStateTests {
     func unrelatedButtons(value: String) {
         #expect(read(value: value, bundleID: "test.app") == nil)
         #expect(read(value: value, bundleID: nil) == nil)
-        #expect(read(value: value, identifier: "solo") == nil)
+        #expect(read(value: value, identifier: "record") == nil)
         #expect(read(value: value, identifier: nil) == nil)
         #expect(read(value: value, identifier: "Mute") == nil)
+    }
+
+    @Test("Pro Tools Solo reads its native value independently of AXSelected")
+    func proToolsSolo() {
+        #expect(read(value: "Selected", identifier: "solo") == .on)
+        #expect(read(value: "on", identifier: "solo") == .on)
+        #expect(read(value: "", identifier: "solo") == .off)
+        #expect(read(value: "", identifier: "solo", selected: true) == .off)
+        for value in [nil, "on state", "selected", "unknown"] as [String?] {
+            #expect(read(value: value, identifier: "solo", selected: true) == nil)
+        }
+        #expect(read(value: "Selected", bundleID: "test.app", identifier: "solo") == nil)
+        #expect(read(value: "Selected", identifier: "mute") == nil)
     }
 
     @Test("ordinary selected buttons keep their native on state")

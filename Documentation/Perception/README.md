@@ -167,8 +167,9 @@ scene.resolve(target: "Export")               // .found, .ambiguous(n) or .none
   `AccessibilityAugmenter` supplies the process's bundle ID to the live reader. For Pro Tools
   (`com.avid.ProTools`), the `mute` button reports `on` in Mix and `on state` in Edit; both become
   `[on]`. A successful empty value becomes `[off]`. Missing or unrecognized values stay unknown,
-  even if `AXSelected` answers. This rule applies only to that native identifier in that app;
-  ordinary buttons and other Pro Tools controls retain the existing selection rule.
+  even if `AXSelected` answers. The `solo` identifier uses `Selected` in Mix and `on` in Edit for `[on]`, and an empty
+  value for `[off]`; it does not inherit Mute's `on state` value. Other controls and applications
+  retain the existing selection rule.
   `NativeButtonStateTests` and `AccessibilityAugmentationTests` cover the mapping and its scene
   output, including a token change and a reported state transition.
 - Each harvested `SceneElement` says where its label came from (`labelOrigin`: title, description,
