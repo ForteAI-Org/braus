@@ -22,6 +22,36 @@ struct ScenePipelineConcurrencyTests {
         }
     }
 
+    private final class AbandonProbe: Sendable {
+        let started = DispatchSemaphore(value: 0)
+        let abandoned = DispatchSemaphore(value: 0)
+
+        func waitUntilStarted() -> Bool { started.wait(timeout: .now() + 5) == .success }
+    }
+
+    /// A read that runs until it is abandoned, or for five seconds: the synchronous read cannot be
+    /// abandoned, the cancellable one is abandoned when its task is cancelled.
+    private struct AbandonableText: TextRecognizing {
+        let probe: AbandonProbe
+        let blockedImageWidth: Int
+
+        func recognizeText(in image: CGImage, accuracy: TextRecognitionAccuracy) throws -> [RecognizedText] {
+            guard image.width == blockedImageWidth else { return [] }
+            probe.started.signal()
+            _ = probe.abandoned.wait(timeout: .now() + 5)
+            return []
+        }
+        func recognizeTextCancellably(in image: CGImage, accuracy: TextRecognitionAccuracy) async throws -> [RecognizedText] {
+            try await withTaskCancellationHandler {
+                _ = try recognizeText(in: image, accuracy: accuracy)
+                try Task.checkCancellation()
+                return []
+            } onCancel: {
+                probe.abandoned.signal()
+            }
+        }
+    }
+
     private struct SignalingNative: SceneAugmenting {
         let probe: OverlapProbe
         func augmentation(for processID: pid_t, windowFrame: CGRect) async throws -> AccessibilityHarvest {
@@ -64,5 +94,27 @@ struct ScenePipelineConcurrencyTests {
             return try await pipeline.perceive(capture, of: .init(bundleID: "test", appName: "Test", title: ""))
         }
         await #expect(throws: CancellationError.self) { try await task.value }
+    }
+
+    @Test(arguments: [false, true])
+    func cancelledObservationAbandonsRecognitionInProgress(inPopup: Bool) async throws {
+        let probe = AbandonProbe()
+        let capture = try image()
+        let popup = CGRect(x: 10, y: 10, width: 40, height: 30)
+        let pipeline = ScenePipeline(text: AbandonableText(probe: probe, blockedImageWidth: inPopup ? 40 : 100))
+        let window = ScenePipeline.Window(
+            bundleID: "test", appName: "Test", title: "",
+            frame: CGRect(x: 0, y: 0, width: 100, height: 100),
+            occludingFrames: inPopup ? [popup] : []
+        )
+        let task = Task {
+            try await pipeline.perceive(capture, of: window)
+        }
+        let started = await Task.detached { probe.waitUntilStarted() }.value
+        #expect(started)
+        let clock = ContinuousClock(), cancelled = clock.now
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(clock.now - cancelled < .seconds(1), "a stop does not wait for the rest of the read")
     }
 }

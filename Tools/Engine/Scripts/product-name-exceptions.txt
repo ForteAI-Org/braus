@@ -1,0 +1,13 @@
+# Tracked files allowed to name the product by its earlier name, read by check-product-name.sh.
+# One `<path> | <reason>` per line. Add a line only after a review, and never spell the earlier name here.
+# The ten entries below came with elio/base and were approved by Tommaso Mazzarini on 16 October 2026.
+BrausApp/App/Braus/Core/Diagnostics/LogExport.swift | collects crash reports that builds made before the rename still write under the earlier prefix
+BrausApp/App/BrausTests/Diagnostics/LogExportTests.swift | tests that LogExport collects crash reports written under the earlier prefix
+Sources/SeatBroker/Runtime/ApplicationOpening.swift | recognizes the product's own pre-rename bundle id and app name, so the agent never opens itself
+Tests/SeatBrokerTests/ApplicationOpeningTests.swift | tests that ApplicationOpening refuses the product's pre-rename bundle id and name
+Documentation/Driver/reports/CUADriverBenchmark20261013.md | historical benchmark report: quotes the release binary and driver IDs as recorded before the rename
+Documentation/Driver/reports/CUADriverBenchmark20261013Details.md | historical benchmark report: quotes driver IDs, binaries and environment variables as recorded before the rename
+Tools/Driver/CUAComparison/README.md | explains that rows recorded before the rename carry the earlier driver ID
+Tools/Driver/CUAComparison/report.py | reads task summaries whose rows predate the rename
+Tools/Driver/CUAComparison/summarize.py | maps the earlier driver ID in pre-rename rows to braus
+Tools/Driver/CUAComparison/test_oracles.py | tests that pre-rename rows are read as braus

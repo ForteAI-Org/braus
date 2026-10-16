@@ -166,7 +166,7 @@ public struct ScenePipeline: Sendable {
         let regions = self.regions, sections = self.sections
         #if BRAUS_PHASES
         async let recognized = PhaseInterval.measure("pipeline.ocr") {
-            try recognizeText(in: image, of: window)
+            try await recognizeText(in: image, of: window)
         }
         async let segmented = PhaseInterval.measure("pipeline.segments") {
             try regions?.segments(in: image) ?? []
@@ -265,8 +265,8 @@ public struct ScenePipeline: Sendable {
     /// Reads each known popup in isolation. Dense surrounding content can make the recognizer
     /// misorient otherwise legible menu labels. Crop results replace only text painted inside that
     /// popup, with their coordinates translated back into the captured image at its backing scale.
-    private func recognizeText(in image: CGImage, of window: Window) throws -> [RecognizedText] {
-        var runs = try text.recognizeText(in: image, accuracy: accuracy)
+    private func recognizeText(in image: CGImage, of window: Window) async throws -> [RecognizedText] {
+        var runs = try await text.recognizeTextCancellably(in: image, accuracy: accuracy)
         guard let frame = window.frame, frame.width > 0, frame.height > 0,
               [frame.minX, frame.minY, frame.width, frame.height].allSatisfy(\.isFinite) else { return runs }
         let pixels = CGRect(x: 0, y: 0, width: image.width, height: image.height)
@@ -285,7 +285,7 @@ public struct ScenePipeline: Sendable {
             ).integral.intersection(pixels)
             guard crop.width >= 2, crop.height >= 2,
                   let cropped = image.cropping(to: crop) else { continue }
-            let local = try text.recognizeText(in: cropped, accuracy: accuracy)
+            let local = try await text.recognizeTextCancellably(in: cropped, accuracy: accuracy)
             func belongs(_ box: CGRect) -> Bool {
                 let point = CGPoint(x: box.midX, y: box.midY)
                 return crop.contains(point) && !covered.contains { $0.contains(point) }
