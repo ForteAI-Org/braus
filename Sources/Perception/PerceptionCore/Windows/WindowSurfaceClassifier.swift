@@ -141,6 +141,9 @@ public enum WindowSurfaceClassifier {
             let title = window.title ?? ""
             return .no("titled \"\(title.count <= 30 ? title : "…" + title.suffix(27))\", a real window")
         }
+        guard window.layer == 0 else {
+            return .no("floating window layer \(window.layer), not a window-layer dropdown")
+        }
         let rect = window.frame
         guard rect.width >= popupMinSide, rect.height >= popupMinSide else {
             return .no(String(

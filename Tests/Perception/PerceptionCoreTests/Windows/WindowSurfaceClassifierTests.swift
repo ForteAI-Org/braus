@@ -73,6 +73,20 @@ struct WindowSurfaceClassifierTests {
         #expect(ordinary.verdicts.first?.kind != .floatingList)
     }
 
+    @Test("an undocked floating palette is a window before and after a modal closes")
+    func floatingPaletteIsNotAMenu() {
+        let output = row(3, 2747, 1436, 89, 533, number: 3143)
+        let mix = row(0, 2143, 1292, 1298, 821, "Mix: Prova", number: 985)
+        let modal = row(8, 2531, 1518, 521, 368, "MP3", number: 3152)
+        for rows in [[output, mix], [modal, output, mix], [output, mix]] {
+            let surfaces = WindowSurfaceClassifier.classify(rows)
+            #expect(surfaces.popups.isEmpty)
+            #expect(surfaces.verdicts.first { $0.row.number == output.number }?.kind == .window)
+        }
+        let menu = row(101, 2750, 1450, 200, 300, number: 3153)
+        #expect(WindowSurfaceClassifier.classify([menu, output, mix]).popups == [menu.frame])
+    }
+
     @Test("the picker and the detector can never disagree")
     func neverDisagree() {
         for (name, rows) in allFixtures {
@@ -149,7 +163,7 @@ struct WindowSurfaceClassifierTests {
         #expect(WindowSurfaceClassifier.classify(modal).verdicts[0].why.contains("titled"))
         let untitled = WindowSurfaceClassifier.floatingList(row(8, 350, 400, 815, 124), behind: [modal[1]], titlesLegible: true)
         guard case .no(let clause) = untitled else { Issue.record("expected a rejection"); return }
-        #expect(clause.contains("6.5") || clause.contains("6.6"))
+        #expect(clause.contains("floating window layer 8"))
         #expect(WindowSurfaceClassifier.classify(davinciWithListOpen).verdicts[0].why.contains("1040"))
     }
 }

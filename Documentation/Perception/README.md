@@ -92,7 +92,9 @@ scene.resolve(target: "Export")               // .found, .ambiguous(n) or .none
   section still stands, since a `section:` argument names it. Panel bounds within 0.02 are the same
   layout. Whether to send the update, and against which scene, is the caller's (`AutomationMCP`).
 - `WindowSurfaceClassifier` answers "is a pop-up open" and "which window do we drive" in one pass;
-  a menu-layer window one row tall is a pop-up; every verdict carries the clause that decided it.
+  a menu-layer window one row tall is a pop-up. The geometric fallback applies only to normal-layer
+  windows, so an untitled floating palette does not become a dropdown merely because it is narrow.
+  Every verdict carries the clause that decided it.
 - Empty multiline editors are harvested as `AXTextArea`. Their AX identifier can supply a handle
   when title and description are absent, as in TextEdit's `First Text View`; frame trust still applies.
   A text field or text area with no readable handle remains addressable by its measured role,
