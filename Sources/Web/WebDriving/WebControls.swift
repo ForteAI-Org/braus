@@ -35,9 +35,8 @@ public struct WebControls: ControlPressing {
     /// the engine then clicks.
     public func pressControl(labelled label: String, in processID: pid_t) async -> Bool {
         let (name, ordinal) = Self.splitOrdinal(label)
-        let script = Self.openSelectScript
-            .replacingOccurrences(of: "$LABEL", with: Self.jsString(LabelText.normalize(name)))
-            .replacingOccurrences(of: "$ORDINAL", with: String(ordinal))
+        let script = Self.render(Self.openSelectScript,
+                                 ["LABEL": Self.jsString(LabelText.normalize(name)), "ORDINAL": String(ordinal)])
         guard await evaluate(script, in: processID)?.boolValue == true,
               let popup = await openPopup(in: processID)
         else { return false }
@@ -131,9 +130,7 @@ public struct WebControls: ControlPressing {
         guard limit >= watched else {
             return .sent(.unread(expected: option.text, reason: "the choice's deadline leaves no time to watch the select"))
         }
-        let watch = Self.script(Self.readBackScript, option)
-            .replacingOccurrences(of: "$WINDOW", with: String(watched))
-            .replacingOccurrences(of: "$LIMIT", with: String(limit))
+        let watch = Self.script(Self.readBackScript, option, ["WINDOW": String(watched), "LIMIT": String(limit)])
         do {
             let read = try await tabs.evaluate(watch, in: processID, timeoutSeconds: remaining())
             switch read["state"]?.stringValue {
@@ -159,11 +156,31 @@ public struct WebControls: ControlPressing {
         return Int(parts.seconds) * 1000 + Int(parts.attoseconds / 1_000_000_000_000_000)
     }
 
-    /// A choice's script with the option it names: its index, value and full text.
-    static func script(_ template: String, _ option: WebSelectPopup.Option) -> String {
-        template.replacingOccurrences(of: "$INDEX", with: String(option.index))
-            .replacingOccurrences(of: "$VALUE", with: jsString(option.value))
-            .replacingOccurrences(of: "$TEXT", with: jsString(option.text))
+    /// A choice's script with the option it names (its index, value and full text) and `more` placeholders.
+    static func script(_ template: String, _ option: WebSelectPopup.Option, _ more: [String: String] = [:]) -> String {
+        render(template, ["INDEX": String(option.index), "VALUE": jsString(option.value), "TEXT": jsString(option.text)]
+            .merging(more) { first, _ in first })
+    }
+
+    /// `template` with each `$NAME` placeholder of it replaced by `values[NAME]`, in one pass over the template as
+    /// written: a value is inserted as it is and never searched again, so data that looks like a placeholder
+    /// (`$TEXT` in an option's value) stays data. A placeholder with no value is left as it is.
+    static func render(_ template: String, _ values: [String: String]) -> String {
+        var rendered = ""
+        var rest = template[...]
+        while let dollar = rest.firstIndex(of: "$") {
+            rendered += rest[..<dollar]
+            let name = rest[rest.index(after: dollar)...].prefix { $0.isASCII && ($0.isUppercase || $0.isNumber) }
+            if !name.isEmpty, let value = values[String(name)] {
+                rendered += value
+                rest = rest[name.endIndex...]
+            } else {
+                rendered.append("$")
+                rest = rest[rest.index(after: dollar)...]
+            }
+        }
+        rendered += rest
+        return rendered
     }
 
     /// Closes an open list without choosing, as Escape or a click outside it does.
@@ -208,8 +225,7 @@ public struct WebControls: ControlPressing {
     }
 
     public func toggleState(at point: CGPoint, in processID: pid_t) async -> ControlState? {
-        let script = Self.toggleStateScript.replacingOccurrences(of: "$X", with: String(Double(point.x)))
-            .replacingOccurrences(of: "$Y", with: String(Double(point.y)))
+        let script = Self.render(Self.toggleStateScript, ["X": String(Double(point.x)), "Y": String(Double(point.y))])
         switch await evaluate(script, in: processID)?.stringValue {
             case "true"? : return .on
             case "false"?: return .off
@@ -302,7 +318,9 @@ public struct WebControls: ControlPressing {
 
     /// Watches the select after a choice, every 25 ms, until it held one state (the selected option node, its
     /// index, the value and the full text) for `$WINDOW` ms, within `$LIMIT` ms; then answers whether that state
-    /// is the chosen option at its index, and the text it holds. `unsettled` when it did not hold still in time.
+    /// is the chosen option as it was chosen: the same node, at its index, with the value and the full text read
+    /// when the list opened (an option the page changed after the choice is not the one chosen), and the text it
+    /// holds. `unsettled` when it did not hold still in time.
     static let readBackScript = """
     (async () => {
       /* braus:read-back */
@@ -324,7 +342,9 @@ public struct WebControls: ControlPressing {
       delete window.__brausSelect; delete window.__brausChosen; delete window.__brausOptions;
       if (!last) return { state: 'gone' };
       if (held < $WINDOW) return { state: 'unsettled', held };
-      return { state: 'read', holds: last.index === $INDEX && last.node === option, text: last.text, held };
+      return { state: 'read', held,
+               holds: last.index === $INDEX && last.node === option && last.value === $VALUE && last.text === $TEXT,
+               text: last.text };
     })()
     """
 

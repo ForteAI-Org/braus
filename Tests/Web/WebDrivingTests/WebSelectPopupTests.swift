@@ -47,6 +47,13 @@ struct WebSelectPopupTests {
         #expect(scene.sections.map(\.name) == ["pop-up (Color)"])
     }
 
+    @Test("A script's placeholders are replaced in one pass: an inserted value that looks like one stays data")
+    func onePassPlaceholders() {
+        #expect(WebControls.render("a $X b $Y", ["X": "$Y", "Y": "1"]) == "a $Y b 1")
+        #expect(WebControls.render("$TEXT$VALUE", ["TEXT": "\"$VALUE\"", "VALUE": "'$TEXT'"]) == "\"$VALUE\"'$TEXT'")
+        #expect(WebControls.render("cost $5 and $NOPE", ["X": "y"]) == "cost $5 and $NOPE")
+    }
+
     @Test("A trailing ordinal names which of several; a script string is escaped")
     func ordinalsAndStrings() {
         #expect(WebControls.splitOrdinal("Size #2") == ("Size", 2))

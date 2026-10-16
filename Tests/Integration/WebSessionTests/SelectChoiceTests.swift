@@ -145,6 +145,70 @@ struct SelectChoiceTests {
         #expect(stack.page.events("change") == 1, "one choice, no replay")
     }
 
+    @Test("the chosen option's value or text changed after the send, synchronously or after 100 ms: contradicted, once, never confirmed",
+          arguments: ["s.options[2].value = 'different';", "s.options[2].text = 'Navy';",
+                      "setTimeout(function () { s.options[2].value = 'different'; }, 100);",
+                      "setTimeout(function () { s.options[2].text = 'Navy'; }, 100);"])
+    func mutatedAfterTheSend(mutation: String) async throws {
+        let stack = await Self.stack(Self.colors)
+        stack.page.run("var s = __selects[0]; s.addEventListener('change', function () { \(mutation) });")
+        let scene = try await Self.open(stack, "Color")
+        let receipt = try await Self.choose("Blue #2", stack, in: scene)
+        if case .sent(.contradicted) = receipt {} else { Issue.record("\(mutation): \(receipt)") }
+        #expect(stack.page.events("change") == 1, "one choice, no replay")
+    }
+
+    @Test("values and texts that look like the scripts' placeholders, or hold quotes: each chosen once, at its index, confirmed",
+          arguments: [1, 2, 3, 4])
+    func placeholderLikeData(index: Int) async throws {
+        let stack = await Self.stack(#"__select('odd', 'Odd', [__option('Red', 'r'), __option('Blue', '$TEXT'), "#
+            + #"__option('$LIMIT', '$WINDOW'), __option('Say "hi" $TEXT', '$INDEX'), __option('$VALUE $TEXT', "it's")], "#
+            + "[100, 100, 200, 24], 0);")
+        let scene = try await Self.open(stack, "Odd")
+        let rows = scene.elements.filter { $0.role == "AXMenuItem" }
+        let row = try #require(rows.count > index ? rows[index] : nil, "\(rows.map(\.label))")
+        let receipt = await stack.controls.chooseMenuItem(row, within: .zero, in: stack.processID)
+        guard case .sent(.confirmed) = receipt else { Issue.record("row \(index) \(row.label): \(receipt)"); return }
+        #expect(stack.page.read("__selects[0].selectedIndex") == "\(index)")
+        #expect(stack.page.events("change") == 1)
+    }
+
+    @Test("through the engine and the recorder: the chosen option's value changed after 100 ms is unverified, failed, one change, no key, never archived as passed")
+    func mutatedThroughTheEngine() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("braus-w3-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let page = SyntheticSelectPage(setup: Self.colors)
+        page.run("var s = __selects[0]; s.addEventListener('change', function () { setTimeout(function () { s.options[2].value = 'different'; }, 100); });")
+        let connection = await CDPConnection(transport: page)
+        let tabs = WebTabs()
+        let processID = tabs.register(WebPage(connection: connection, targetID: "target-1", sessionID: "session-1"))
+        let runtime = WebEngineRuntime(knowledgeDirectory: directory, tabs: tabs)
+        let app = AppContextIdentity(bundleID: "web:fixture.test")
+        func act(_ target: String) async throws -> ActOutcome {
+            let recorder = runtime.recorder(ActionContext(source: .app, streamID: "w3m", traceID: "w3m", sessionID: "s1"))
+            try await recorder.begin(.act(target: target, verb: .click, value: nil, section: nil), app: app)
+            let outcome = await runtime.engine(recorder: recorder, allowsDestructive: false)
+                .act(ActionRequest(processID: processID, bundleID: app.bundleID, appName: "fixture.test", target: target, verb: .click))
+            try await recorder.end(.completed, result: .outcome(outcome.kind, message: outcome.message), tool: .act,
+                                   check: outcome.withStatedCheck.check)
+            return outcome
+        }
+        _ = try await act("Color")
+        let chosen = try await act("Blue #2")
+        #expect(chosen.kind == .actedUnverified && chosen.check?.verdict == .failed, Comment(rawValue: chosen.message))
+        #expect(page.events("change") == 1 && page.keyEvents == 0)
+        #expect(await runtime.service.flush(within: .seconds(10)))
+        await runtime.service.close()
+        let archive = try SQLiteConnection(path: directory.appendingPathComponent("memory.sqlite").path, readOnly: true)
+        defer { archive.close() }
+        let verdicts = try archive.query(
+            "SELECT o.target_label || ':' || v.verdict FROM memory_operation_verifications o "
+                + "JOIN memory_verifications v ON v.event_id = o.event_id ORDER BY o.event_id"
+        ) { try $0.text(0) ?? "" }
+        #expect(!verdicts.contains("Blue #2:passed") && verdicts.contains("Blue #2:failed"), "\(verdicts)")
+    }
+
     @Test("a deadline too short to watch the select hold still: applied, unread, not replayed")
     func noTimeToWatch() async throws {
         let stack = await Self.stack(Self.colors, budget: .milliseconds(300))

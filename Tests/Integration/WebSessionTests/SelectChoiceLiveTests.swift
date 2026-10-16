@@ -16,7 +16,7 @@ import WebDriver
 /// `select-choices.html`, through the engine and the web roles: the option a row names (twins, long and empty
 /// options), the refusals with no event (disabled, a disabled group, a replaced select, reordered options), and the
 /// read-back that sees a value the page puts back synchronously, in a microtask or on a timer. The page answers
-/// indices, booleans and its own event counts only. Opt in with `BRAUS_WEB_LIVE_TESTS=1`; needs Google Chrome in
+/// indices, booleans and its own event counts only: change events per select, key events of the whole document. Opt in with `BRAUS_WEB_LIVE_TESTS=1`; needs Google Chrome in
 /// `/Applications`; no network, no account.
 @Suite(
     "Native select choices, live (W2, W3)",
@@ -89,34 +89,38 @@ struct SelectChoiceLiveTests {
             let (_, empty) = await Self.choose("empty option", in: "Lunga", engine, id)
             #expect(empty.kind == .foundActed, Comment(rawValue: empty.message))
             let emptyIndex = try await Self.index("long", on: page)
-            let keys = try await Self.count("color", "keydown", on: page) + Self.count("long", "keydown", on: page)
+            let keys = try await page.evaluate("window.__keys").intValue ?? -1
             #expect(emptyIndex == 0 && keys == 0, "index \(emptyIndex), keys \(keys)")
         }
     }
 
-    @Test("a disabled option, an option of a disabled group, a replaced select, reordered options on Chrome: refused, no event, no key",
-          arguments: ["", "", "document.getElementById('color').replaceWith(document.getElementById('color').cloneNode(true))",
-                      "const c = document.getElementById('color'); c.insertBefore(c.options[3], c.options[0])"])
-    func refusals(change: String) async throws {
+    @Test("a disabled option, an option of a disabled group, a replaced select, reordered options on Chrome: refused, no change, no key",
+          arguments: ["disabled", "group", "replaced", "reordered"])
+    func refusals(kind: String) async throws {
         try await Self.withPage { tabs, id, page in
             let engine = Self.engine(tabs)
-            let (select, row, name) = change.isEmpty ? ("groups", "B", "Gruppi") : ("color", "Blue #2", "Color")
+            let (select, name, row): (String, String, String) = switch kind {
+                case "disabled": ("groups", "Gruppi", "B")
+                case "group"   : ("groups", "Gruppi", "C")
+                default        : ("color", "Color", "Blue #2")
+            }
             let opened = await engine.act(ActionRequest(processID: id, bundleID: "web:file", appName: "fixture", target: name, verb: .click))
             #expect(opened.kind != .refused, Comment(rawValue: opened.message))
-            if !change.isEmpty { _ = try await page.evaluate(change) }
+            if kind == "replaced" {
+                _ = try await page.evaluate("document.getElementById('color').replaceWith(document.getElementById('color').cloneNode(true))")
+            }
+            if kind == "reordered" {
+                _ = try await page.evaluate("const c = document.getElementById('color'); c.insertBefore(c.options[3], c.options[0])")
+            }
             let before = try await Self.index(select, on: page)
             let chosen = await engine.act(ActionRequest(processID: id, bundleID: "web:file", appName: "fixture", target: row, verb: .click))
             #expect(chosen.kind == .refused, Comment(rawValue: chosen.message))
             let after = try await Self.index(select, on: page)
-            #expect(after == before)
-            let changes = try await page.evaluate("document.getElementById('\(select)') ? (window.__counts['\(select)'] || {}).change || 0 : 0").intValue
-            #expect(changes == 0)
-            if change.isEmpty {
-                let (_, group) = await Self.choose("C", in: "Gruppi", engine, id)
-                #expect(group.kind == .refused, Comment(rawValue: group.message))
-                let groupChanges = try await Self.count("groups", "change", on: page)
-                #expect(groupChanges == 0)
-            }
+            let changes = try await Self.count(select, "change", on: page)
+            let keys = try await page.evaluate("window.__keys").intValue ?? -1
+            #expect(after == before, "the value as it was")
+            #expect(changes == 0, "no change event")
+            #expect(keys == 0, "no key reached the page")
         }
     }
 
@@ -130,7 +134,7 @@ struct SelectChoiceLiveTests {
             #expect(chosen.kind == .actedUnverified, Comment(rawValue: chosen.message))
             #expect(chosen.check?.verdict == .failed, "\(String(describing: chosen.check))")
             let changes = try await Self.count(select, "change", on: page)
-            let keys = try await Self.count(select, "keydown", on: page)
+            let keys = try await page.evaluate("window.__keys").intValue ?? -1
             #expect(changes == 1, "one choice, no replay")
             #expect(keys == 0, "no keyboard fallback")
         }

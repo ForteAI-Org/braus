@@ -7,7 +7,8 @@
 <body>
 <!-- W2, W3 fixture: native selects with twins, long and empty options, disabled options and groups, and selects
      whose change handler puts the value back synchronously, in a microtask or on a timer. Each select counts its
-     change and keydown events (__counts); a test reads indices and booleans only. Synthetic values; no network. -->
+     change and keydown events (__counts), the document every key event (__keys, a replaced select's included); a
+     test reads indices, booleans and counts only. Synthetic values; no network. -->
 <form aria-label="Choices">
   <select id="color" aria-label="Color">
     <option value="r">Red</option><option value="b1">Blue</option><option value="b2">Blue</option><option value="g">Green</option>
@@ -30,6 +31,8 @@
 </form>
 <script>
 window.__counts = {};
+window.__keys = 0;
+document.addEventListener('keydown', () => { window.__keys += 1; }, true);
 for (const select of document.querySelectorAll('select')) {
   window.__counts[select.id] = { change: 0, keydown: 0 };
   select.addEventListener('change', () => { window.__counts[select.id].change += 1; });

@@ -112,13 +112,16 @@ Otherwise the choice is refused and no event is sent.
 **What the choice did (W3).** The choice is focus, selection by index, `input`, `change`, blur. Then the page
 watches the select every 25 ms until its selected option node, index, value and full text held one state for 300 ms,
 within the time left of one 3-second deadline for the whole choice. The receipt is:
-- confirmed, if that state is the chosen option;
-- contradicted, if it is another (the page put it back);
+- confirmed, if that state is the chosen option as it was chosen: the same node, at its index, with the value and
+  full text read when the list opened;
+- contradicted, if it is another, or the chosen option with another value or text (the page put it back or changed
+  it);
 - unread, if the select did not hold still in time or did not answer;
 - possibly sent, if the choice itself got no answer.
 
 The engine passes only a confirmed choice, never replays one, and never falls back to the keyboard after a web
-choice was sent or refused. The list Braus drew closes either way, and its closing confirms nothing.
+choice was sent or refused. The list Braus drew closes either way, and its closing confirms nothing. The scripts' placeholders are filled in one pass over the script as written, so an option's value or text that
+looks like a placeholder (`$TEXT`) stays data.
 
 ## Sessions and the memory
 
