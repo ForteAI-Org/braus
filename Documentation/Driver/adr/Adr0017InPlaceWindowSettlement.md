@@ -54,3 +54,10 @@ refused without a recovery episode, because its observation predates the
 accepted frame; the next observation is admitted. A host that moved, a sheet
 outside the display or any other Issue keeps the existing report and recovery.
 `SheetGeometryTests` reproduces the loop offline; no live run was made.
+
+## A held read-only body that changes size
+
+[ADR 0044](Adr0044ReconcileWindowsBeforePublishingScenes.md) adds a narrow return
+exception for an application-owned size that explicitly refuses AXSize after
+adoption. Its original origin and Space remain owed; driver adaptations still
+owe their original size.
