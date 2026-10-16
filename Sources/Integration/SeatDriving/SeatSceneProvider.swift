@@ -85,21 +85,27 @@ public struct SeatSceneProvider: SceneProviding {
         #endif
         let application = identity(processID)
             ?? ApplicationIdentity(bundleID: "pid.\(processID)", name: "pid \(processID)")
+        // Reconcile selection and containment before deciding which surfaces need a display crop.
+        #if BRAUS_PHASES
+        let windowStill = PhaseInterval.begin("capture.windowStill")
+        #endif
+        let observation = try await target.observe()
+        #if BRAUS_PHASES
+        windowStill.end()
+        #endif
+        guard let observedWindow = await target.lastCapturedWindow else {
+            throw SeatDrivingFailure.frameUnusable
+        }
         // Only the windows on the seat's display: one left on the person's display is not in this scene.
         let seatBounds = await target.displayID.map(CGDisplayBounds) ?? .null
         let onSeat = try windows.windows(ownedBy: processID).filter { $0.frame.intersects(seatBounds) }
         let popups = WindowSurfaceClassifier.classify(onSeat).popups
         var image: CGImage
         let frame: CGRect
-        let observedWindow: AdoptedWindow
         var comparable: SeatFrame?
         if popups.isEmpty {
+            let still = observation.frame
             #if BRAUS_PHASES
-            let windowStill = PhaseInterval.begin("capture.windowStill")
-            #endif
-            let still = try await target.windowStill()
-            #if BRAUS_PHASES
-            windowStill.end()
             let conversion = PhaseInterval.begin("capture.makeCGImage")
             #endif
             guard still.geometry.isValid, let pixels = still.makeCGImage() else {
@@ -111,8 +117,6 @@ public struct SeatSceneProvider: SceneProviding {
             image = pixels
             frame = still.geometry.screenRect
             comparable = still
-            guard let captured = await target.lastCapturedWindow else { throw SeatDrivingFailure.frameUnusable }
-            observedWindow = captured
         } else {
             #if BRAUS_PHASES
             let displayStill = PhaseInterval.begin("capture.displayStill")
@@ -126,7 +130,7 @@ public struct SeatSceneProvider: SceneProviding {
             }
             let display = still.geometry.screenRect
             let scale = still.geometry.scaleFactor
-            let windowFrame = try await target.currentFrame()
+            let windowFrame = observation.frame.geometry.screenRect
             let union = popups.reduce(windowFrame) { $0.union($1) }.intersection(display)
             let crop = CGRect(
                 x     : (union.minX - display.minX) * scale,
@@ -137,7 +141,9 @@ public struct SeatSceneProvider: SceneProviding {
             guard let cropped = pixels.cropping(to: crop) else { throw SeatDrivingFailure.frameUnusable }
             image = cropped
             frame = union
-            observedWindow = try await target.currentWindow()
+            guard try await target.currentWindow().reference.identity == observedWindow.reference.identity else {
+                throw SeatDrivingFailure.frameUnusable
+            }
         }
         // Adoption keeps a recovery title; only a fresh census can name the document now displayed.
         let matchingRows = try windows.windows(ownedBy: processID).filter { $0.number == observedWindow.id }

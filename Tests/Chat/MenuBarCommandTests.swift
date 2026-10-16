@@ -396,6 +396,46 @@ struct MenuBarCommandTests {
         #expect(MenuBarCommand.pressSettle == .milliseconds(400))
     }
 
+    @Test("a window change during perception rereads the scene without redispatching")
+    func windowsChangingDuringObservationAreReadAgain() async throws {
+        var windows = ["Edit"]
+        var reads = 0
+        var presses = 0
+        let dispatched = await MenuBarCommand.runInFront(
+            read: { .press(Node("I/O..."), path: "Setup > I/O...") },
+            press: { _ in presses += 1; return .success },
+            withFront: { command in command(); return nil }
+        )
+        let result = try await MenuBarCommand.observedOutcome(
+            dispatched.pressed, outcome: dispatched.outcome, processID: -1, before: windows,
+            settling: RecordingSettling(), signature: { _ in windows },
+            observe: {
+                reads += 1
+                windows = ["Edit", "I/O Setup"]
+                return Self.scene
+            }
+        )
+        #expect(reads == 2)
+        #expect(presses == 1)
+        #expect(result.kind == .foundActed)
+        #expect(result.scene == Self.scene)
+    }
+
+    @Test("continually changing windows leave the action unverified without a stale scene")
+    func unstableWindowsHaveNoScene() async throws {
+        var revision = 0
+        let result = try await MenuBarCommand.observedOutcome(
+            "Setup > I/O...", outcome: ActOutcome(.foundActed, "pressed"),
+            processID: -1, before: [], settling: RecordingSettling(),
+            signature: { _ in [String(revision)] },
+            observe: { revision += 1; return Self.scene }
+        )
+        #expect(revision == 3)
+        #expect(result.kind == .actedUnverified)
+        #expect(result.scene == nil)
+        #expect(result.message.contains("Do not repeat"))
+    }
+
     @Test("A handback that was not verified but is verified by the observation gets the window verdict",
           arguments: [true, false])
     func aLateVerifiedReturnGetsTheWindowVerdict(_ windowOpened: Bool) async throws {

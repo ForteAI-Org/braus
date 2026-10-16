@@ -29,7 +29,11 @@ struct SeatSceneProviderTests {
 
     private final class Windows: WindowListing, @unchecked Sendable {
         var rows: [WindowRow] = []
-        func windows(ownedBy processID: Int32) throws -> [WindowRow] { rows }
+        var reads = 0
+        func windows(ownedBy processID: Int32) throws -> [WindowRow] {
+            reads += 1
+            return rows
+        }
     }
 
     private struct CaptureAugmentation: SceneAugmenting {
@@ -173,6 +177,19 @@ struct SeatSceneProviderTests {
             windows : windows,
             target  : target
         )
+    }
+
+    @Test("the Seat reconciles selection before perception lists popup windows")
+    func observationPrecedesWindowCensus() async throws {
+        let context = try await reuse(marker: 968)
+        context.source.duringCapture = {
+            #expect(context.windows.reads == 0,
+                    "a census before reconciliation can omit a newly adopted dialog")
+        }
+        let captures = context.source.requested.count
+        _ = try await context.provider.currentScene(of: context.window.reference.processID)
+        #expect(context.windows.reads >= 1)
+        #expect(context.source.requested.count == captures + 1)
     }
 
     @Test("byte-identical pixels of the same window answer the last scene without the pipeline")

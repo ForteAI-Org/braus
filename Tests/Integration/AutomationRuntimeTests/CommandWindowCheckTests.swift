@@ -77,6 +77,21 @@ struct CommandWindowCheckTests {
         #expect(outcome.message.hasPrefix("pressed File > Save a Copy…: no window opened or closed, the window changed in place"))
     }
 
+    @Test("a discarded after-scene cannot turn an unverified command into a confirmed change")
+    func discardedSceneStaysUnknown() async throws {
+        let windows = Windows(before: Self.window(["Close"]), after: Self.window(["Close", "Cancel", "Save"]))
+        let check = Self.unknownWindows(limits: [.noAfterScene, .commandEffectUnchecked])
+        let outcome = try await PerceivedCommand.perform(
+            bundleID: "ai.example.editor", recorder: nil, perceive: { await windows.next() }
+        ) { observe in
+            _ = try await observe()
+            return ActOutcome(.actedUnverified, "Windows changed during observation.", check: check)
+        }
+        #expect(outcome.kind == .actedUnverified)
+        #expect(outcome.check == check)
+        #expect(outcome.scene == nil)
+    }
+
     @Test("a window that did not change in place either stays unknown, as a command may act where no scene shows it")
     func noChangeStaysUnknown() async throws {
         let same = Self.window(["Chiudi", "Crea nuovo livello"])

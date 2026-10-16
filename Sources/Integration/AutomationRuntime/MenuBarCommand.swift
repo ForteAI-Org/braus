@@ -9,6 +9,7 @@ import AppKit
 import ApplicationServices
 import EngineCore
 import PerceptionCore
+import WindowPlacement
 
 /// MenuBarCommand reaches one item of an application's menu bar through accessibility, which
 /// answers for an application in the background: nothing is clicked, nothing is activated.
@@ -502,6 +503,7 @@ public enum MenuBarCommand {
         frontIssue   : String? = nil,
         frontReturned: () -> Bool = { false },
         settling     : (any Settling)? = nil,
+        signature    : @MainActor (pid_t) -> [String] = windowSignature,
         observe      : () async throws -> SceneSnapshot
     ) async throws -> ActOutcome {
         guard let pressed else { return outcome }
@@ -511,8 +513,26 @@ public enum MenuBarCommand {
             try? await Task.sleep(for: pressSettle)
         }
         let scene: SceneSnapshot
+        var after = signature(processID)
         do {
-            scene = try await observe()
+            var stable: SceneSnapshot?
+            for _ in 0..<3 {
+                try Task.checkCancellation()
+                let candidate = try await observe()
+                let current = signature(processID)
+                if current == after {
+                    stable = candidate
+                    break
+                }
+                after = current
+            }
+            guard let stable else {
+                return ActOutcome(.actedUnverified,
+                    "pressed \(pressed): windows kept changing during observation. Do not repeat this command. "
+                        + "Observe the session before further input.",
+                    check: windowCheck(.unknown, limits: [.noAfterScene]))
+            }
+            scene = stable
         } catch {
             return ActOutcome(.actedUnverified, outcome.message
                 + " Observation after dispatch failed: \(error). Do not repeat this command. "
@@ -527,7 +547,7 @@ public enum MenuBarCommand {
                 + " The seat accepts no input until the front is back with the person's window."
                 + " Do not repeat it blind.", scene: scene, check: check)
         }
-        let changed = windowSignature(of: processID) != before
+        let changed = after != before
         // A window that did not change does not show the command failed: its effect may be elsewhere, so it is unknown.
         let check = windowCheck(changed ? .passed : .unknown)
         return changed
@@ -554,7 +574,7 @@ public enum MenuBarCommand {
                        limits: limits + [.commandEffectUnchecked], performed: performed)
     }
 
-    /// What says a command changed the application's windows: every accessibility window's role,
+    /// What says a command changed the application's windows: every accessibility window's number, role,
     /// subrole and title, in order. A dialog opening or closing, or a document retitling, moves it.
     public static func windowSignature(of processID: pid_t) -> [String] {
         let application = AXUIElementCreateApplication(processID)
@@ -564,8 +584,9 @@ public enum MenuBarCommand {
               let windows = value as? [AXUIElement]
         else { return [] }
         return windows.map { window in
-            [kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute]
-                .map { string(window, $0) ?? "" }.joined(separator: "|")
+            let number = WindowRelocator.windowNumber(of: window).map(String.init) ?? "unknown"
+            return ([number] + [kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute]
+                .map { string(window, $0) ?? "" }).joined(separator: "|")
         }
     }
 

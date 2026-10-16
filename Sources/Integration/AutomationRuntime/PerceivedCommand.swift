@@ -68,6 +68,8 @@ public enum PerceivedCommand {
             throw error
         }
         guard outcome.check != nil else { return outcome }
+        // A census change can invalidate a completed perception; it is not evidence for this command.
+        if outcome.check?.limits.contains(.noAfterScene) == true { after = nil }
         let checked = checkedInWindow(outcome, before: before, after: after)
         guard let recorder else { return checked }
         await recorder.record(before: before, menu: nil, after: after, bundleID: bundleID)
