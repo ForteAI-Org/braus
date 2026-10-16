@@ -112,7 +112,7 @@ public struct ScenePipeline: Sendable {
         let text = self.text, regions = self.regions, sections = self.sections, accuracy = self.accuracy
         #if BRAUS_PHASES
         async let recognized = PhaseInterval.measure("pipeline.ocr") {
-            try text.recognizeText(in: image, accuracy: accuracy)
+            try await text.recognizeTextCancellably(in: image, accuracy: accuracy)
         }
         async let segmented = PhaseInterval.measure("pipeline.segments") {
             try regions?.segments(in: image) ?? []
@@ -121,7 +121,7 @@ public struct ScenePipeline: Sendable {
             try await augmentationElements(for: window)
         }
         #else
-        async let recognized = text.recognizeText(in: image, accuracy: accuracy)
+        async let recognized = text.recognizeTextCancellably(in: image, accuracy: accuracy)
         async let segmented = regions?.segments(in: image) ?? []
         async let harvested = augmentationElements(for: window)
         #endif
