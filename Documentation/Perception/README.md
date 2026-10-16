@@ -26,6 +26,11 @@ There is no umbrella module. Link the `BrausPerception` library product; every c
 imports it uses. `PerceptionCore` imports Foundation and CoreGraphics only, reads no environment
 and keeps no global; the adapters import `PerceptionCore` and their one framework.
 
+Equal pixels do not imply equal native state. The Seat adapter caches the pipeline's pixel-derived
+facts and merges a fresh native harvest on every observation, including its current read quality.
+A control outside the visible viewport can change without changing the image. An unavailable
+native read leaves that state unknown rather than repeating the last value.
+
 ## Using it
 
 ```swift

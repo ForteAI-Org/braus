@@ -69,3 +69,42 @@ activation recovery or disappearance starts, its deadline and two-request budget
 remain shared across the episode, including across returns during a Turn. No
 command is replayed. Controlled regressions cover the recorded timing; this
 change still needs a live run to measure application focus behavior.
+
+## Windows on inactive desktops (16 October 2026)
+
+A normal dialog on another Space can disappear from both `AXWindows` and the on-screen server
+list. Pro Tools I/O Setup was still present in the exact WindowServer lookup; moving it through
+a retained AX handle succeeded without switching the person's desktop. Resolving the same ID
+without that handle failed.
+
+The Host shares one bounded `WindowElementCache` between discovery and placement. Window-created
+notifications retain their element without granting authority. Qualified AX reads also retain
+handles. Before using a retained discovery handle, the adapter checks its current PID, Window ID,
+server identity, desktop membership and native availability. The ordinary on-screen census remains
+the primary follow source; only retained windows with positive inactive-desktop evidence supplement
+it. Transparent helpers, minimised windows and hidden applications do not become candidates.
+Native fullscreen transfer keeps its separate opt-in policy.
+
+`WindowSurface.isOnInactiveSpace` is positive desktop evidence, independent of `isVisible`. Such a
+surface cannot expire into `withdrawnEstablished` merely because time passed off screen. The follow
+inventory still requires agreeing geometry and an assigned process before attempting placement.
+An ineligible reading no longer consumes a later eligible appearance.
+
+No desktop is switched or written by this path. A cold window for which no AX handle was ever
+observed can still be unavailable; the adapter does not guess an element from its title or frame.
+WindowServer can omit the on-screen flag for these windows. Positive inactive membership still
+qualifies the candidate when the flag is absent; the ordinary visibility field stays false.
+Offline regressions cover this omitted field, unchanged pixels, repeated toggle IDs, inactive
+membership, withdrawal and transfer eligibility.
+
+A local run with these changes over `cd5c77ca`, on Mac16,1 / macOS 27.0.1 (26A434) and Pro Tools
+26.4.1.179, kept Safari fullscreen on the physical display throughout Output → I/O Setup → Cancel.
+The menu's immediate scene and the next observation both named I/O Setup on the Seat. Cancel
+closed it, Output was closed, and the final native census confirmed both windows gone. Foreground
+application, cursor and physical display Spaces were unchanged. The probe used
+`allowUnvalidatedBuild: true`; this is one application scenario, not compatibility promotion.
+
+`make host-tests SWIFT=swift` passed all 30 checks. The unit tier passed 3,727 tests with 120 skips
+and no reported problems; the final affected suites were rerun after the native flag correction.
+`make test SWIFT=swift` itself remains blocked by the product-name check in ten files already
+present at the base revision. No naming cleanup is part of this change.

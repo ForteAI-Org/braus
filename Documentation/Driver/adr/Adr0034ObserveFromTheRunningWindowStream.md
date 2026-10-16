@@ -1,7 +1,7 @@
 # ADR 0034: Observe from the window stream that is already running
 
 Status: implemented, 2026-10-07. Offline tests only; no live run. Part 2 ("unchanged") is
-implemented too, by the owner's decision of 7 October, with its trade-off below. It builds on [ADR 0003](Adr0003KitOwnsSeatCapture.md): the kit still
+implemented too, by the owner's decision of 7 October, with the native-fact refresh amendment below. It builds on [ADR 0003](Adr0003KitOwnsSeatCapture.md): the kit still
 owns every capture path, and the consumer only lends a stream it already runs.
 
 ## Evidence
@@ -175,14 +175,30 @@ builds the new scene, and that is what is skipped:
   `SeatControls.pressControl` and `pressMenuItem`) do not record the command time yet, so a state
   change made only by one of them can still be answered from a kept scene.
 
-The trade-off, accepted by the owner on 7 October: the scene is not made of pixels alone. The
-accessibility stage can report a change that draws nothing (a value, or focus moving to an
-element that is not drawn), and a reused scene does not show it until something on screen
-changes. Running the accessibility stage alone would have spent its 0.35 s budget, which defeats
-a fast "unchanged" answer.
+### Native facts are refreshed independently (16 October 2026)
 
-With phases on, `perception.reused` times each scene answered again, from the start of
-`perception`; it is ended only on a reuse, so its count is the number of reuses.
+The whole-scene reuse above is superseded. Pro Tools changed the Mute value of a track outside
+Mix's visible viewport while the captured pixels stayed identical. The native read and a fresh
+pipeline reported `on`; the reused agent scene still reported `off`.
+
+`SeatSceneProvider` now keeps only `ScenePipeline.VisualScene`: the pixel-built scene, segments
+and window facts. Each observation merges a new accessibility harvest into that pixel scene,
+then applies the optional pixel state reader. A failed or empty harvest cannot leave old native
+controls, values or quality behind. OCR, grouping and section detection are reused when the
+existing pixel and window checks pass. The post-Command fresh-still check is unchanged.
+
+`set_toggle` verifies the unique control with the selected container, section, role and collection
+path. Repeated labels never supply a global readback; a missing or ambiguous target remains
+unverified. A moved control can still be read from its new scene position.
+
+With phases on, `perception.reused` counts recognition reuse. Native reads still run, so this is
+not a claim that the entire observation was skipped or that its previous latency is preserved.
+
+A local Pro Tools 26.4.1.179 run on Mac16,1 / macOS 27.0.1 (26A434) compared the agent scene,
+native value and a fresh pipeline after two clicks and two `set_toggle` requests on one track.
+The scene followed `off → on → off → on → off`; both `set_toggle` readbacks were confirmed.
+The original state, foreground application and cursor were preserved. This checks the toggle
+scenario, not the performance acceptance below or every control in the application.
 
 ## Consequences
 
