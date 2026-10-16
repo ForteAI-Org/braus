@@ -229,6 +229,16 @@ struct EndpointDiscovery {
     /// `windowTreeClickedApplications`.
     var clicksThroughAccessibility: (WindowIdentity) -> Bool = { _ in false }
 
+    /// Qualified applications whose attested own-window dialogs take clicks through accessibility.
+    var modalClicksThroughAccessibility: (WindowIdentity) -> Bool = { _ in false }
+
+    /// A qualified modal click resolves its control from that window's own bounded tree.
+    var ownWindowPointer: (
+        Int32, CGPoint, DialogEndpointResolver<AXUIElement>.SurfaceChain, UInt64
+    ) -> Result<ResolvedInputEndpoint, InputEndpointRefusal> = { _, _, chain, _ in
+        .failure(.subtreeUnreadable(surface: chain.surface))
+    }
+
     /// The applications outside Apple's whose ordinary windows also take their clicks through
     /// accessibility, from the observed window down: Pro Tools repeats control labels across
     /// tracks and its Mix hit test can omit the track strips. Add a bundle identifier to widen it.
@@ -362,6 +372,15 @@ struct EndpointDiscovery {
             let app = NSRunningApplication(processIdentifier: pid_t(window.processID))
             return app?.bundleIdentifier.map(windowTreeClickedApplications.contains) == true
                 || app?.bundleURL.map(AppleNativeApplications.shipping.contains(bundleAt:)) == true
+        },
+        modalClicksThroughAccessibility: { window in
+            NSRunningApplication(processIdentifier: window.processID)?.bundleIdentifier
+                .map(windowTreeClickedApplications.contains) == true
+        },
+        ownWindowPointer: { processID, point, chain, generation in
+            DialogEndpointResolver<AXUIElement>
+                .accessibility(assignedProcessID: processID)
+                .ownWindowPointerEndpoint(at: point, within: chain, selectionGeneration: generation)
         },
         postsDeclinedClicks: { window in
             NSRunningApplication(processIdentifier: pid_t(window.processID))?.bundleIdentifier
@@ -876,12 +895,16 @@ extension AgentSeat {
             guard geometry.window.frame.contains(point) else {
                 throw InputEndpointRefusal.pointOutsideSurface
             }
-            outcome = endpoints.pointer(
-                instance.processID,
-                point,
-                chain,
-                observation.selectionGeneration
-            )
+            if case .click = command, hasAttestedModalRelation,
+               endpoints.modalClicksThroughAccessibility(sheet) {
+                outcome = endpoints.ownWindowPointer(
+                    instance.processID, point, chain, observation.selectionGeneration
+                )
+            } else {
+                outcome = endpoints.pointer(
+                    instance.processID, point, chain, observation.selectionGeneration
+                )
+            }
         } else {
             outcome = endpoints.keyboardContext(
                 instance.processID,

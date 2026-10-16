@@ -485,6 +485,29 @@ nonisolated package struct DialogEndpointResolver<Node> {
         )
     }
 
+    /// Resolves a control from the selected window when the application hit test names a sibling.
+    package func ownWindowPointerEndpoint(
+        at point: CGPoint,
+        within chain: SurfaceChain,
+        selectionGeneration: UInt64
+    ) -> Result<ResolvedInputEndpoint, InputEndpointRefusal> where Node: Equatable {
+        guard chain.surfaceFrame.contains(point) else { return .failure(.pointOutsideSurface) }
+        let resolved = endpoint(
+            kind: .pointer,
+            windowNumber: chain.surface.windowNumber,
+            accessibilityProcessID: chain.surface.processID,
+            within: chain,
+            selectionGeneration: selectionGeneration,
+            focusedNodeWindowNumber: nil,
+            evidence: .attestedSurfaceItself
+        )
+        guard case .success(let endpoint) = resolved else { return resolved }
+        switch ownContentPath(at: point, of: endpoint, searchWindowTree: true) {
+            case .success: return .success(endpoint)
+            case .failure: return .failure(.subtreeUnreadable(surface: chain.surface))
+        }
+    }
+
     /// The surface itself, for a window accessibility shows as a single leaf.
     ///
     /// Measured on 30/09/2026 with Photoshop's New Document, a top-level modal

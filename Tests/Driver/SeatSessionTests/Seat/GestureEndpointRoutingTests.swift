@@ -110,6 +110,7 @@ struct GestureEndpointRoutingTests {
 
         /// Whether the window's application takes its clicks through accessibility, as Finder does.
         var clicksThroughAccessibility = false
+        var modalClicksThroughAccessibility = false
         /// Whether a click accessibility declined before acting may be posted instead.
         var postsDeclinedClicks        = true
 
@@ -156,6 +157,11 @@ struct GestureEndpointRoutingTests {
                     return remotePanelContentWindow.map { .panel(contentWindow: $0) } ?? .notPanel
                 },
                 clicksThroughAccessibility: { [self] _ in clicksThroughAccessibility },
+                modalClicksThroughAccessibility: { [self] _ in modalClicksThroughAccessibility },
+                ownWindowPointer: { [self] _, point, _, _ in
+                    points.append(point)
+                    return answer
+                },
                 postsDeclinedClicks: { [self] _ in postsDeclinedClicks },
                 remoteActuation: { [self] _, command, endpoint, prefersHost, label in
                     actuated.append((command, endpoint))
@@ -277,6 +283,65 @@ struct GestureEndpointRoutingTests {
 
     static func click(at point: CGPoint, count: Int = 1) -> InputCommand {
         .click(InputLocation(screenPoint: point, windowPointFromTop: CGPoint(x: 1, y: 1)), count: count)
+    }
+
+    @Test("only qualified own-window modal clicks use accessibility", arguments: [false, true])
+    func ownModalClick(qualified: Bool) async throws {
+        let panel = try await Self.panel()
+        let observation = try await observedReference(panel.seat)
+        let identity = try #require(panel.sheet.reference.identity)
+        panel.discovery.clicksThroughAccessibility = true
+        panel.discovery.modalClicksThroughAccessibility = qualified
+        panel.discovery.postsDeclinedClicks = false
+        panel.discovery.identities[identity.windowNumber] = identity
+        let geometry = try #require(panel.sensing.windowGeometryObservation(of: panel.sheet.reference))
+        panel.discovery.answer = .success(try Self.endpoint(
+            geometry, relation: .logicalSurface, logicalSurface: identity,
+            generation: observation.selectionGeneration, hostProcessID: identity.processID
+        ))
+        let turn = try await panel.seat.acquire()
+        let receipt = try await panel.seat.send(
+            Self.click(at: Self.insideSheet(panel)), observation: observation, turn: turn
+        )
+        #expect(panel.discovery.actuated.count == (qualified ? 1 : 0))
+        #expect(panel.sender.sent.count == (qualified ? 0 : 1))
+        #expect((receipt.route.poster == .accessibilityAction) == qualified)
+        try panel.seat.confirm(receipt, .unknown)
+        try panel.seat.release(turn)
+    }
+
+    @Test("a qualified modal field can enter its editor only before any AX write",
+          arguments: [RemoteContentActuationRefusal.fieldRequiresClick, .unreadable,
+                      .actionRefused(action: "AXSelectedText", code: -25205)])
+    func modalFieldEntry(refusal: RemoteContentActuationRefusal) async throws {
+        let panel = try await Self.panel()
+        let observation = try await observedReference(panel.seat)
+        let identity = try #require(panel.sheet.reference.identity)
+        panel.discovery.clicksThroughAccessibility = true
+        panel.discovery.modalClicksThroughAccessibility = true
+        panel.discovery.postsDeclinedClicks = false
+        panel.discovery.identities[identity.windowNumber] = identity
+        let geometry = try #require(panel.sensing.windowGeometryObservation(of: panel.sheet.reference))
+        panel.discovery.answer = .success(try Self.endpoint(
+            geometry, relation: .logicalSurface, logicalSurface: identity,
+            generation: observation.selectionGeneration, hostProcessID: identity.processID
+        ))
+        panel.discovery.actuation = { _, _ in .failure(refusal) }
+        let turn = try await panel.seat.acquire()
+        if refusal == .fieldRequiresClick {
+            let receipt = try await panel.seat.send(
+                Self.click(at: Self.insideSheet(panel), count: 3), observation: observation, turn: turn
+            )
+            #expect(panel.sender.sent.count == 1)
+            try panel.seat.confirm(receipt, .unknown)
+        } else {
+            await #expect(throws: refusal) {
+                try await panel.seat.send(Self.click(at: Self.insideSheet(panel)), observation: observation, turn: turn)
+            }
+            #expect(panel.sender.sent.isEmpty)
+        }
+        #expect(panel.discovery.actuated.count == 1)
+        try panel.seat.release(turn)
     }
 
     // MARK: The measured remote recipe

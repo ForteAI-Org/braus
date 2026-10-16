@@ -55,6 +55,7 @@ struct RemoteContentActuationTests {
 
         // A list of items: whether its selected children can be written, what they are, every
         // write, and what a write really does in the application.
+        var textSettable = true
         var selectionSettable = false
         // A field's `AXValue`: a file's name in a list is never writable, a field one can edit is.
         var valueSettable     = false
@@ -148,6 +149,7 @@ struct RemoteContentActuationTests {
                 switch attribute {
                     case kAXSelectedRowsAttribute: node.rowsSettable
                     case kAXValueAttribute       : node.valueSettable
+                    case kAXSelectedTextAttribute: node.textSettable
                     default                      : node.selectionSettable
                 }
             },
@@ -1101,6 +1103,35 @@ struct RemoteContentActuationTests {
         let result = try await Self.click(finder)
         #expect(button.performed == [kAXPressAction] && field.writes.isEmpty)
         #expect(!result.posted)
+    }
+
+    @Test("a field selection refuses another name or text that is not writable", arguments: [false, true])
+    func fieldLabelIsChecked(editable: Bool) async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_439)
+        let field = Self.control(kAXTextFieldRole, in: finder, actions: [], value: "original")
+        field.title = editable ? "Other field" : "File Name"
+        field.selectionSettable = true
+        field.textSettable = editable
+        let actuator = Self.actuator(hitting: { field }, window: finder.element)
+        let identity = try #require(finder.window.reference.identity)
+        let geometry = try #require(WindowGeometryObservation(
+            window: finder.window.reference, scaleFactor: 1,
+            version: GeometryObservationVersion(observerGeneration: 1, sequence: 1)
+        ))
+        let endpoint = try GestureEndpointRoutingTests.endpoint(
+            geometry, relation: .logicalSurface, logicalSurface: identity,
+            generation: 1, hostProcessID: identity.processID
+        )
+        let result = actuator.actuate(
+            .click(Self.point(in: finder.window), count: 3), endpoint: endpoint, expecting: "File Name"
+        )
+        let refusal: RemoteContentActuationRefusal = editable
+            ? .wrongElement(requested: "File Name", found: "Other field") : .fieldRequiresClick
+        #expect(throws: refusal) {
+            try result.get()
+        }
+        #expect(field.writes.isEmpty)
+        #expect(field.value == "original")
     }
 
     @Test("text after an accessibility click on an ordinary window's field is set through AXSelectedText")

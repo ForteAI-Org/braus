@@ -591,8 +591,15 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         role      : String,
         wholeValue: Bool
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
+        if let wanted = requestedLabel, case let names = labels(node), !names.isEmpty,
+           !names.contains(where: { Self.sameLabel($0, wanted) }) {
+            return .failure(.wrongElement(requested: wanted, found: names[0]))
+        }
         if isOrdinaryWindow, !selectionIsSettable(node, kAXSelectedTextRangeAttribute) {
             return .failure(.unsupportedRole(role))
+        }
+        if isOrdinaryWindow, !selectionIsSettable(node, kAXSelectedTextAttribute) {
+            return .failure(.fieldRequiresClick)
         }
         guard let current = value(node) else { return .failure(.unreadable) }
         let length = current.utf16.count

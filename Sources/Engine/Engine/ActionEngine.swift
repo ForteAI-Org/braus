@@ -933,12 +933,14 @@ public struct ActionEngine: Sendable {
             field        : element.value,
             at           : point,
             replacing    : replacing,
-            byTripleClick: permissions.selectsFieldsByTripleClick
+            byTripleClick: permissions.selectsFieldsByTripleClick || request.bundleID == "com.avid.ProTools"
         ) + [inserts ? .insert(typed) : .type(typed)]
         // Text kept in a field the click placed its caret in goes through accessibility too, which a key
         // in between would forget.
         let endOfField = Self.textFieldRoles.contains(element.role ?? "") ? Self.endOfField : nil
-        if let error = await send(gestures, to: pid, redundantAfterAccessibilityClick: endOfField) {
+        if let error = await send(
+            gestures, to: pid, redundantAfterAccessibilityClick: endOfField, expecting: element.label
+        ) {
             if let refused = Self.notSent(error, "typing into '\(element.label)'", scene: perceived.scene) { return refused }
             return ActOutcome(.actedUnverified, "typing into '\(element.label)': delivery failed: \(error)",
                               check: Self.undelivered(.valueReadBack, method: .controlValue, expected: typed,
@@ -1347,7 +1349,8 @@ public struct ActionEngine: Sendable {
     private func send(
         _ gestures: [Gesture],
         to processID: pid_t,
-        redundantAfterAccessibilityClick redundant: Gesture? = nil
+        redundantAfterAccessibilityClick redundant: Gesture? = nil,
+        expecting label: String? = nil
     ) async -> (any Error)? {
         var sent = 0
         do {
@@ -1358,7 +1361,11 @@ public struct ActionEngine: Sendable {
                    await dependencies.actuator.lastDeliveryRoute(in: processID) == .accessibility {
                     continue
                 }
-                try await dependencies.actuator.perform(gesture, in: processID)
+                if index == 0, case .click = gesture, let label {
+                    try await dependencies.actuator.perform(gesture, expecting: label, in: processID)
+                } else {
+                    try await dependencies.actuator.perform(gesture, in: processID)
+                }
                 sent += 1
             }
             return nil

@@ -103,6 +103,14 @@ struct InputDeliveryTests {
 
     // MARK: type_text
 
+    @Test("typing names its field when preparing the click")
+    func typingBindsTheFieldLabel() async {
+        let actuator = RecordingActuator()
+        _ = await engine(scenes: ScriptedScenes([scene([field(value: "Old")])]), actuator: actuator)
+            .deliver(request(.typeText("New", into: "Project Name", replacing: true)))
+        #expect(actuator.labels == ["Project Name"])
+    }
+
     @Test("typing into a same-value native field uses its measured point rather than a version row")
     func textEntryUsesTheField() async {
         var name = field(value: "26.3")
@@ -221,6 +229,20 @@ struct InputDeliveryTests {
             .deliver(request(.typeText("My Project", into: "Project Name", replacing: true)))
         #expect(unread.kind == .actedUnverified)
         #expect(unread.message.contains("no field's value could be read"))
+    }
+
+    @Test("Pro Tools replaces a field without selection shortcuts or filename rewriting")
+    func proToolsFieldSelection() async {
+        let actuator = RecordingActuator()
+        let result = await engine(
+            scenes: ScriptedScenes([scene([field(value: "1.0")]), scene([field(value: "2")])]),
+            actuator: actuator
+        ).deliver(InputRequest(
+            processID: pid, bundleID: "com.avid.ProTools", appName: "Pro Tools",
+            input: .typeText("2", into: "Project Name", replacing: true)
+        ))
+        #expect(await actuator.gestures == [.click(at: fieldPoint, count: 3), .type("2")])
+        #expect(result.kind == .foundActed)
     }
 
     @Test("a short text is typed a key pair per character and a long one is inserted on one event")

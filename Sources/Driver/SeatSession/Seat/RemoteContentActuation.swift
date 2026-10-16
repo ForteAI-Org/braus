@@ -41,6 +41,9 @@ nonisolated public enum RemoteContentActuationRefusal: Error, Sendable, Equatabl
     /// innermost element's, or the element's the click reached.
     case unsupportedRole(String)
 
+    /// A named own-window field has no writable text before a pointer click enters its editor.
+    case fieldRequiresClick
+
     /// The click reached a popup or a menu button. Pressed, it opens a menu
     /// window the panel service owns and nothing in the seat follows, which
     /// stays open; `select` opens, chooses and closes it in one action.
@@ -112,6 +115,8 @@ nonisolated extension RemoteContentActuationRefusal: CustomStringConvertible, Lo
             case .unreadable:
                 "The window's accessibility could not be read there, so nothing was sent. Observe "
                     + "again before retrying."
+            case .fieldRequiresClick:
+                "This field cannot be edited through accessibility before entering its editor; nothing was written."
             case .unsupportedRole(let role) where role == kAXRowRole:
                 "A list row is at that point, which takes one click to select it or two to open it, so "
                     + "nothing was sent. It is not a text field: to type, name the field, or use insert_text "

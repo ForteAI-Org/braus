@@ -2681,6 +2681,9 @@ public final class AgentSeat {
                 recipient   : recipient,
                 traceContext: traceContext,
                 mayPost     : ownContent.map { endpoints.postsDeclinedClicks($0.logicalSurface) } ?? false,
+                mayEnterField: isModalSurface && ownContent.map {
+                    endpoints.modalClicksThroughAccessibility($0.logicalSurface)
+                } == true,
                 prefersHost : classification == .appleExtensionContent,
                 expecting   : label,
                 hostRecipe  : classification == .appleExtensionContent ? (window.reference, resolved) : nil
@@ -2760,7 +2763,8 @@ public final class AgentSeat {
     /// before anything was done answers nil and the caller posts it. With `prefersHost`, an
     /// Apple extension's press goes through the host's own tree (`RemoteContentActuator`), and when
     /// that proved ignored, `hostRecipe` is the host window and recipe one click is posted with,
-    /// never into the extension's own window.
+    /// never into the extension's own window. `mayEnterField` permits only a qualified own-window
+    /// dialog field's click when text is not writable yet and no AX write has been attempted.
     private func actuateRemoteContent(
         _ command    : InputCommand,
         textField    : RemoteContentActuation.TextField?,
@@ -2770,6 +2774,7 @@ public final class AgentSeat {
         recipient    : WindowReference,
         traceContext : InputTraceContext,
         mayPost      : Bool = false,
+        mayEnterField: Bool = false,
         prefersHost  : Bool = false,
         expecting    label: String? = nil,
         hostRecipe   : (window: WindowReference, platform: any InputPlatform)? = nil
@@ -2810,7 +2815,8 @@ public final class AgentSeat {
                 }
             }
             trace.recordSendSystemCall(from: started, through: DispatchTime.now().uptimeNanoseconds)
-        } catch let refusal as RemoteContentActuationRefusal where mayPost && refusal.wasDeclinedBeforeActing {
+        } catch let refusal as RemoteContentActuationRefusal
+            where (mayPost && refusal.wasDeclinedBeforeActing) || (mayEnterField && refusal == .fieldRequiresClick) {
             Self.log.notice("""
                 accessibility declined the click on window \(recipient.windowNumber, privacy: .public) \
                 before acting, so it is posted: \(String(describing: refusal), privacy: .public)
@@ -2876,9 +2882,15 @@ public final class AgentSeat {
         window      : AdoptedWindow,
         observation : SeatObservationReference
     ) -> ResolvedInputEndpoint? {
-        guard case .click = command, attestedModalSurface(for: observation) == nil,
+        guard case .click = command,
               let surface = window.reference.identity, endpoints.clicksThroughAccessibility(surface)
         else { return nil }
+        if attestedModalSurface(for: observation) != nil {
+            guard endpoints.modalClicksThroughAccessibility(surface), let endpoint,
+                  endpoint.relation == .logicalSurface, endpoint.identity == surface
+            else { return nil }
+            return endpoint
+        }
         if let endpoint {
             return endpoint.relation == .logicalSurface && endpoint.identity == surface ? endpoint : nil
         }

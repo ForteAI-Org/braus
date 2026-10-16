@@ -190,6 +190,40 @@ struct DialogEndpointResolverTests {
         )
     }
 
+    @Test("window-scoped pointer resolution rejects ambiguous or foreign controls",
+          arguments: ["valid", "foreignWindow", "foreignProcess", "ambiguous", "unreadable", "wrongParent"])
+    func ownWindowPointer(fault: String) throws {
+        var tree = Tree(
+            hit: 9,
+            frames: [1: Self.surfaceFrame, 2: Self.buttonFrame, 9: Self.buttonFrame],
+            children: [1: [2]],
+            windows: [1: Self.sheetWindow, 2: Self.sheetWindow, 9: Self.hostWindow],
+            processes: [1: Self.hostProcessID, 2: Self.hostProcessID, 9: Self.hostProcessID],
+            parents: [2: 1],
+            windowNodes: [Self.sheetWindow: 1]
+        )
+        switch fault {
+            case "foreignWindow": tree.windows[2] = Self.hostWindow
+            case "foreignProcess": tree.processes[2] = Self.remoteProcess
+            case "ambiguous":
+                tree.children[1] = [2, 3]
+                tree.frames[3] = Self.buttonFrame
+            case "unreadable": tree.unreadableChildren = [1]
+            case "wrongParent": tree.parents[2] = 9
+            default: break
+        }
+        let result = coherentResolver(tree: tree).ownWindowPointerEndpoint(
+            at: Self.pointOnCancel, within: chain, selectionGeneration: 12
+        )
+        if fault == "valid" {
+            let endpoint = try result.get()
+            #expect(endpoint.identity == sheet)
+            #expect(endpoint.relation == .logicalSurface)
+        } else {
+            #expect(throws: (any Error).self) { try result.get() }
+        }
+    }
+
     // MARK: The measured case
 
     @Test("the accessibility PID stays the host's while the owner is the remote service")
