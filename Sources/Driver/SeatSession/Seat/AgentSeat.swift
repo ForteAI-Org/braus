@@ -1381,7 +1381,8 @@ public final class AgentSeat {
                     serverSize: placed.frame.size,
                     fullSize  : confirmation.body.size
                 ),
-                operationalSize: confirmation.body.size
+                operationalSize: confirmation.body.size,
+                wasResizedForSeat: adapted != nil || restoringTo != nil || wasFullScreen
             )
 
             try checkAdoptionMayContinue()
@@ -5413,6 +5414,51 @@ public final class AgentSeat {
         return (.refused, writeError)
     }
 
+    /// Exact identity and a full AX body bracketed by agreeing server frames, all inside the Seat.
+    private func readContainedBody(of window: WindowReference) -> (server: WindowReference, body: CGRect)? {
+        guard let before = sensing.windowGeometry(of: window.windowNumber),
+              before.hasSameIdentity(as: window),
+              let body = try? placing.frame(of: window),
+              let after = sensing.windowGeometry(of: window.windowNumber),
+              after.hasSameIdentity(as: window),
+              VirtualWindowPlacementCheck.framesMatch(before.frame, after.frame),
+              body.width > 0, body.height > 0,
+              sensing.virtualDisplayBounds.contains(body),
+              sensing.virtualDisplayBounds.contains(after.frame),
+              VirtualWindowPlacementCheck.sizesMatchAcrossSources(body.size, after.frame.size),
+              !SeatWindowSession.readsAsThumbnail(serverSize: after.frame.size, fullSize: window.frame.size)
+        else { return nil }
+        return (after, body)
+    }
+
+    /// A naturally resized, read-only body keeps its size on return. Driver adaptations remain owed.
+    private func returnGeometry(of window: AdoptedWindow, until limit: UInt64?) async -> AdoptedWindow {
+        guard let record = session[window.id], record.window.reference.hasSameIdentity(as: window.reference),
+              !record.wasResizedForSeat, !window.wasFullScreen,
+              let first = readContainedBody(of: window.reference),
+              !VirtualWindowPlacementCheck.framesMatch(
+                  CGRect(origin: .zero, size: first.body.size),
+                  CGRect(origin: .zero, size: window.originalFrame.size)
+              )
+        else { return window }
+        do {
+            try placing.resize(window.reference, to: window.originalFrame.size)
+            return window
+        } catch DisplayFailure.attributeNotSettable("AXSize") {
+            await EventLoopWait.sleep(Self.boundedPause(.milliseconds(150), until: limit))
+            guard Self.mayContinue(until: limit), sensing.physicalTopologyIsUnchanged,
+                  let second = readContainedBody(of: window.reference),
+                  VirtualWindowPlacementCheck.framesMatch(first.server.frame, second.server.frame),
+                  VirtualWindowPlacementCheck.framesMatch(first.body, second.body)
+            else { return window }
+            let settled = window.withReturnSize(body: second.body.size, server: second.server.frame.size)
+            session[window.id]?.window = settled
+            return settled
+        } catch {
+            return window
+        }
+    }
+
     /// Writes back what the seat changed, size before origin.
     ///
     /// A window shrunk to fit the Virtual Display is owed its old size as much
@@ -5521,6 +5567,7 @@ public final class AgentSeat {
             }
         }
 
+        let window = await returnGeometry(of: window, until: limit)
         let bounds = sensing.virtualDisplayBounds
 
         var previousMatched = false
@@ -5914,6 +5961,33 @@ public final class AgentSeat {
                 movement is the known effect, and the dialog is not driven again
                 """)
         }
+        if issues == [.geometryChanged], confirmation == .unknown, !actionInFlight,
+           let first = readContainedBody(of: record.window.reference),
+           !VirtualWindowPlacementCheck.sizesMatchAcrossSources(first.server.frame.size, record.operationalSize) {
+            recoveryEpisode += 1
+            recoveryTrigger = issues
+            let episode = recoveryEpisode
+            recoveryTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { if recoveryEpisode == episode { recoveryTask = nil } }
+                await EventLoopWait.sleep(.milliseconds(250))
+                guard !Task.isCancelled, recoveryEpisode == episode, state == .recovering else { return }
+                guard !actionInFlight, !sensing.userMayBeSwitchingApplications,
+                      sensing.isActive(processID: record.window.reference.processID) == false,
+                      let second = readContainedBody(of: record.window.reference),
+                      VirtualWindowPlacementCheck.framesMatch(first.server.frame, second.server.frame),
+                      VirtualWindowPlacementCheck.framesMatch(first.body, second.body)
+                else {
+                    transition(to: .failed, reason: .issues([.ambiguousEffect]))
+                    turns.failAll(with: SeatInterruption(issues: [.ambiguousEffect]))
+                    return
+                }
+                // Only geometry is reconciled. The posted command keeps its unknown confirmation.
+                acceptOperationalGeometry(second.server)
+                transition(to: wasDegradedBeforeRecovery ? .degraded : .ready, reason: .recovered)
+            }
+            return
+        }
         do {
             try recoveryBudget.begin(
                 issues        : issues,
@@ -5998,6 +6072,7 @@ public final class AgentSeat {
                 case .resize(let size):
                     // The adaptation, from inside the episode that verifies it:
                     // the readings that follow say whether the write took.
+                    session[record.window.id]?.wasResizedForSeat = true
                     do { try placing.resize(record.window.reference, to: size) }
                     catch {
                         Self.log.notice("""

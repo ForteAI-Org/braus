@@ -11,6 +11,7 @@ import SeatCore
 import SeatInput
 @testable import SeatSession
 import Testing
+import VirtualScreens
 
 /// The three geometries a held window has, on the seat rather than in a value:
 /// the frame it is owed on its return, the frame it is operated at, and the
@@ -70,6 +71,53 @@ struct OperationalGeometryTests {
         #expect(placing.moves.count == movesBefore,
                 "a size is never answered by writing an origin")
         #expect(placing.resizes.isEmpty, "a window that fits the display is not adapted")
+    }
+
+    @Test("only a contained full body can be read after an unknown effect without replaying it",
+          arguments: [true, false])
+    func aResizeAfterUnknownInputIsReadOnly(coherentBody: Bool) async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let sender = FakeSender()
+        let (seat, _) = try await AgentSeatTests.adopted(sensing: sensing, placing: placing, sender: sender)
+        let turn = try await seat.acquire()
+        let receipt = try await seat.send(
+            AgentSeatTests.click, observation: try await observedReference(seat), turn: turn
+        )
+        try seat.confirm(receipt, .unknown)
+        sensing.geometry = Self.resized
+        placing.bodyFrames[Self.resized.windowNumber] = coherentBody ? Self.resized.frame : FakeGeometry.adoptedWindow.frame
+        seat.report([.geometryChanged])
+        #expect(seat.state == (coherentBody ? .recovering : .failed))
+        let settled = await RecoveryWait.settle(seat) { seat.state == .ready || seat.state == .failed }
+        #expect(settled.satisfied)
+        #expect(seat.state == (coherentBody ? .ready : .failed))
+        if coherentBody { #expect(seat.currentTarget?.reference.frame == Self.resized.frame) }
+        #expect(sender.sent.count == 1)
+        #expect(placing.resizes.isEmpty)
+        // Reading geometry must not convert the unknown command into a verified effect.
+        seat.report([.snapshotChanged])
+        #expect(seat.state == .failed)
+        try? seat.release(turn)
+    }
+
+    @Test("an application-owned size that refuses AXSize returns at its original physical origin")
+    func aReadOnlySizeDoesNotBlockReturn() async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, window) = try await AgentSeatTests.adopted(sensing: sensing, placing: placing)
+        sensing.geometry = Self.resized
+        placing.bodyFrames[window.id] = Self.resized.frame
+        placing.resizeError = DisplayFailure.attributeNotSettable("AXSize")
+        placing.onMove = { origin in
+            let frame = CGRect(origin: origin, size: Self.resized.frame.size)
+            sensing.geometry = Self.resized.replacingFrame(frame)
+            placing.bodyFrames[window.id] = frame
+        }
+        let returned = await seat.release(window, .returnToUserSeat)
+        #expect(returned == .returned)
+        #expect(sensing.geometry?.frame == CGRect(origin: window.originalFrame.origin, size: Self.resized.frame.size))
+        #expect(placing.resizes.count == 1, "a read-only size is not written on each return poll")
     }
 
     @Test("an observation taken before the resize is refused afterwards")

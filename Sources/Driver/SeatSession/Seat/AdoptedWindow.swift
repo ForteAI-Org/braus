@@ -150,4 +150,18 @@ nonisolated public struct AdoptedWindow: Sendable, Equatable, Identifiable {
             originalSpaceID    : originalSpaceID
         )
     }
+
+    /// Keeps the physical origin while accepting a settled body whose size the application owns.
+    func withReturnSize(body: CGSize, server: CGSize) -> AdoptedWindow {
+        AdoptedWindow(
+            reference: reference,
+            originalFrame: CGRect(origin: originalFrame.origin, size: body),
+            title: title,
+            originalDisplayID: originalDisplayID,
+            wasFullScreen: wasFullScreen,
+            originalServerFrame: originalServerFrame.map { CGRect(origin: $0.origin, size: server) },
+            owesNoReturn: owesNoReturn,
+            originalSpaceID: originalSpaceID
+        )
+    }
 }

@@ -36,6 +36,9 @@ nonisolated struct WindowRecord {
     /// reading then disagrees with: the staging refresh called it a thumbnail
     /// and `stage` waited for a size it would never see again.
     var operationalSize: CGSize
+
+    /// A size the driver wrote must still be restored, even if the application later refuses AXSize.
+    var wasResizedForSeat = false
 }
 
 /// SeatWindowSession is the pure half of coordinating several windows: which
