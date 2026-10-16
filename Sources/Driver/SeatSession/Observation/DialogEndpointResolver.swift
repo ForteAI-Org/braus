@@ -485,6 +485,35 @@ nonisolated package struct DialogEndpointResolver<Node> {
         )
     }
 
+    /// Resolves remote panel content from the attested surface when the hit test names a sibling.
+    /// The descendant's WindowServer identity and its complete parent path must agree before use.
+    package func remoteWindowPointerEndpoint(
+        at point           : CGPoint,
+        within chain       : SurfaceChain,
+        selectionGeneration: UInt64
+    ) -> Result<ResolvedInputEndpoint, InputEndpointRefusal> where Node: Equatable {
+        guard chain.surfaceFrame.contains(point) else { return .failure(.pointOutsideSurface) }
+        guard let window = windowNode(chain.surface.windowNumber),
+              nodeWindow(window) == chain.surface.windowNumber,
+              nodeProcess(window) == chain.surface.processID,
+              case .success(let found) = descend(from: window, to: point),
+              let number = found.windowNumber, number != chain.surface.windowNumber,
+              let process = nodeProcess(found.node)
+        else { return .failure(.subtreeUnreadable(surface: chain.surface)) }
+        let resolved = endpoint(
+            kind                   : .pointer,
+            windowNumber           : number,
+            accessibilityProcessID : process,
+            within                 : chain,
+            selectionGeneration    : selectionGeneration,
+            focusedNodeWindowNumber: nil
+        )
+        guard case .success(let endpoint) = resolved else { return resolved }
+        guard case .success = remoteContentPath(at: point, of: endpoint, searchWindowTree: true)
+        else { return .failure(.subtreeUnreadable(surface: chain.surface)) }
+        return resolved
+    }
+
     /// Resolves a control from the selected window when the application hit test names a sibling.
     package func ownWindowPointerEndpoint(
         at point: CGPoint,
@@ -800,8 +829,8 @@ nonisolated package struct DialogEndpointResolver<Node> {
     /// content `endpoint` names. A remote actuation acts on one of them and on
     /// nothing else (ADR 0031). It reads, as everything here does.
     ///
-    /// The descent from the hit test's node is `pointerEndpoint`'s, by the
-    /// smallest containing child; the walk up goes through `AXParent`. Every
+    /// The descent starts at the hit test's node, or the attested surface for a qualified
+    /// application whose hit test names a sibling. The walk up goes through `AXParent`. Every
     /// node belongs to the surface's process or the content's, and names the
     /// content's window, no window, or the surface, which ends the walk. A node
     /// naming any other window, a read that failed, more than 64 steps or 300 ms
@@ -809,16 +838,26 @@ nonisolated package struct DialogEndpointResolver<Node> {
     /// attested from the surface's own subtree, `remoteContentOfSurface`, as the
     /// windowless field of Resolve's Go to Folder sheet was.
     package func remoteContentPath(
-        at point   : CGPoint,
-        of endpoint: ResolvedInputEndpoint
-    ) -> Result<[Node], RemoteContentActuationRefusal> {
+        at point        : CGPoint,
+        of endpoint     : ResolvedInputEndpoint,
+        searchWindowTree: Bool = false
+    ) -> Result<[Node], RemoteContentActuationRefusal> where Node: Equatable {
 
         let surface = endpoint.logicalSurface
         let content = endpoint.identity
         let (deadline, overflow) = now().addingReportingOverflow(300_000_000)
         guard !overflow, endpoint.relation == .remoteContent else { return .failure(.outsideRemoteContent) }
         var node: Node
-        switch innermostNode(at: point) {
+        let found: Result<Node, RemoteContentActuationRefusal>
+        if searchWindowTree {
+            guard let window = windowNode(surface.windowNumber) else { return .failure(.unreadable) }
+            found = innermostWindowNode(
+                at: point, window: window, surface: surface, content: content, deadline: deadline
+            )
+        } else {
+            found = innermostNode(at: point)
+        }
+        switch found {
             case .success(let found): node = found
             case .failure(let refusal): return .failure(refusal)
         }
@@ -898,6 +937,7 @@ nonisolated package struct DialogEndpointResolver<Node> {
         at point: CGPoint,
         window  : Node,
         surface : WindowIdentity,
+        content : WindowIdentity? = nil,
         deadline: UInt64
     ) -> Result<Node, RemoteContentActuationRefusal> where Node: Equatable {
         guard let frame = nodeFrame(window), frame.contains(point),
@@ -935,11 +975,12 @@ nonisolated package struct DialogEndpointResolver<Node> {
             guard now() < deadline, !ambiguous else { return .failure(.unreadable) }
             guard let candidate else { return .success(node) }
             guard !visited.contains(candidate) else { return .failure(.unreadable) }
-            guard parent(candidate) == node, nodeProcess(candidate) == surface.processID else {
-                return .failure(.outsideRemoteContent)
-            }
+            guard parent(candidate) == node, let process = nodeProcess(candidate),
+                  process == surface.processID || process == content?.processID
+            else { return .failure(.outsideRemoteContent) }
             switch windowReading(candidate) {
-                case .window(let number) where number == surface.windowNumber: break
+                case .window(let number) where number == surface.windowNumber
+                    || number == content?.windowNumber: break
                 case .windowless: break
                 case .window: return .failure(.outsideRemoteContent)
                 case .unreadable: return .failure(.unreadable)

@@ -52,6 +52,7 @@ struct GestureEndpointRoutingTests {
         /// What the focused node's descent answers, when it is a different
         /// answer from the pointer's.
         var keyboardAnswer: Result<ResolvedInputEndpoint, InputEndpointRefusal>?
+        var ownWindowAnswer: Result<ResolvedInputEndpoint, InputEndpointRefusal>?
 
         var descendantKeyboardAnswer: Result<ResolvedInputEndpoint, InputEndpointRefusal>?
         var descendantKeyboardResolutions = 0
@@ -160,7 +161,7 @@ struct GestureEndpointRoutingTests {
                 modalClicksThroughAccessibility: { [self] _ in modalClicksThroughAccessibility },
                 ownWindowPointer: { [self] _, point, _, _ in
                     points.append(point)
-                    return answer
+                    return ownWindowAnswer ?? answer
                 },
                 postsDeclinedClicks: { [self] _ in postsDeclinedClicks },
                 remoteActuation: { [self] _, command, endpoint, prefersHost, label in
@@ -299,6 +300,10 @@ struct GestureEndpointRoutingTests {
             geometry, relation: .logicalSurface, logicalSurface: identity,
             generation: observation.selectionGeneration, hostProcessID: identity.processID
         ))
+        if qualified {
+            panel.discovery.ownWindowAnswer = panel.discovery.answer
+            panel.discovery.answer = .failure(.subtreeUnreadable(surface: identity))
+        }
         let turn = try await panel.seat.acquire()
         let receipt = try await panel.seat.send(
             Self.click(at: Self.insideSheet(panel)), observation: observation, turn: turn
@@ -404,6 +409,38 @@ struct GestureEndpointRoutingTests {
         #expect(location.observedGeometry?.version == content.version,
                 "the point is expressed against the reading the endpoint carries")
 
+        try panel.seat.confirm(receipt, .unknown)
+        try panel.seat.release(turn)
+    }
+
+    @Test("a qualified application's file panel keeps its remote content route")
+    func nativeFilePanelPrecedesOwnWindowRoute() async throws {
+        let panel = try await Self.panel()
+        let observation = try await observedReference(panel.seat)
+        let sheet = try #require(panel.sheet.reference.identity)
+        let content = try Self.remoteContent(of: panel)
+        let remote = try #require(content.window.identity)
+        panel.discovery.clicksThroughAccessibility = true
+        panel.discovery.modalClicksThroughAccessibility = true
+        panel.discovery.ownWindowAnswer = .failure(.subtreeUnreadable(surface: sheet))
+        panel.discovery.answer = .success(try Self.endpoint(
+            content,
+            relation: .remoteContent,
+            logicalSurface: sheet,
+            generation: observation.selectionGeneration,
+            hostProcessID: panel.host.reference.processID
+        ))
+        panel.discovery.identities[Self.remoteWindowNumber] = remote
+        let turn = try await panel.seat.acquire()
+        let receipt = try await panel.seat.send(
+            Self.click(at: Self.insideSheet(panel), count: 3),
+            observation: observation,
+            turn: turn
+        )
+        #expect(receipt.route.poster == .accessibilityAction)
+        #expect(receipt.route.windowNumber == Self.remoteWindowNumber)
+        #expect(panel.sender.sent.isEmpty)
+        #expect(panel.discovery.actuated.first?.endpoint.identity == remote)
         try panel.seat.confirm(receipt, .unknown)
         try panel.seat.release(turn)
     }

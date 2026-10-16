@@ -261,9 +261,16 @@ struct EndpointDiscovery {
     /// The readings the shipping seat takes.
     static let shipping = EndpointDiscovery(
         pointer: { processID, point, chain, generation in
-            DialogEndpointResolver<AXUIElement>
-                .accessibility(assignedProcessID: processID)
-                .pointerEndpoint(at: point, within: chain, selectionGeneration: generation)
+            let resolver = DialogEndpointResolver<AXUIElement>.accessibility(assignedProcessID: processID)
+            let result = resolver.pointerEndpoint(at: point, within: chain, selectionGeneration: generation)
+            if case .failure = result,
+               NSRunningApplication(processIdentifier: processID)?.bundleIdentifier
+                   .map(windowTreeClickedApplications.contains) == true {
+                return resolver.remoteWindowPointerEndpoint(
+                    at: point, within: chain, selectionGeneration: generation
+                )
+            }
+            return result
         },
         keyboardContext: { processID, chain, generation in
             DialogEndpointResolver<AXUIElement>
@@ -895,13 +902,13 @@ extension AgentSeat {
             guard geometry.window.frame.contains(point) else {
                 throw InputEndpointRefusal.pointOutsideSurface
             }
-            if case .click = command, hasAttestedModalRelation,
+            outcome = endpoints.pointer(
+                instance.processID, point, chain, observation.selectionGeneration
+            )
+            // A native file panel may host another process even in an application with its own dialogs.
+            if case .failure = outcome, case .click = command, hasAttestedModalRelation,
                endpoints.modalClicksThroughAccessibility(sheet) {
                 outcome = endpoints.ownWindowPointer(
-                    instance.processID, point, chain, observation.selectionGeneration
-                )
-            } else {
-                outcome = endpoints.pointer(
                     instance.processID, point, chain, observation.selectionGeneration
                 )
             }

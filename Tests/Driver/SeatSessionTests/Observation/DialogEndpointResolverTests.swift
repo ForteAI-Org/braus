@@ -224,6 +224,41 @@ struct DialogEndpointResolverTests {
         }
     }
 
+    @Test("a remote panel resolves from its surface despite a sibling hit, with a verified parent path",
+          arguments: ["valid", "wrongParent", "unreadable", "foreignProcess", "ambiguous", "outside"])
+    func remotePanelFromWindowTree(fault: String) throws {
+        var tree = hostedPanelTree
+        tree.hit = 9
+        tree.frames[9] = Self.buttonFrame
+        tree.windows[9] = Self.hostWindow
+        tree.processes[9] = Self.hostProcessID
+        tree.parents = [3: 2, 2: 1]
+        tree.windowNodes = [Self.sheetWindow: 1]
+        switch fault {
+            case "wrongParent": tree.parents[3] = 9
+            case "unreadable": tree.unreadableChildren = [2]
+            case "foreignProcess": tree.processes[3] = 999
+            case "ambiguous":
+                tree.children[2] = [3, 4]
+                tree.frames[4] = Self.buttonFrame
+            default: break
+        }
+        let resolver = coherentResolver(tree: tree)
+        let point = fault == "outside" ? CGPoint.zero : Self.pointOnCancel
+        let result = resolver.remoteWindowPointerEndpoint(at: point, within: chain, selectionGeneration: 12)
+        if fault == "valid" {
+            let endpoint = try result.get()
+            #expect(endpoint.identity == remote)
+            #expect(endpoint.relation == .remoteContent)
+            let path = try resolver.remoteContentPath(
+                at: point, of: endpoint, searchWindowTree: true
+            ).get()
+            #expect(path.map(\.id) == [3, 2])
+        } else {
+            #expect(throws: (any Error).self) { try result.get() }
+        }
+    }
+
     // MARK: The measured case
 
     @Test("the accessibility PID stays the host's while the owner is the remote service")

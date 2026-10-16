@@ -651,7 +651,7 @@ extension RemoteContentActuator where Node == AXUIElement {
         return RemoteContentActuator(
             path   : { point, endpoint in
                 endpoint.relation == .remoteContent
-                    ? resolver.remoteContentPath(at: point, of: endpoint)
+                    ? resolver.remoteContentPath(at: point, of: endpoint, searchWindowTree: searchWindowTree)
                     : resolver.ownContentPath(at: point, of: endpoint, searchWindowTree: searchWindowTree)
             },
             role   : { attribute($0, kAXRoleAttribute) },
