@@ -35,4 +35,22 @@ public enum TextRecognitionAccuracy: Sendable, Equatable {
 public protocol TextRecognizing: Sendable {
 
     func recognizeText(in image: CGImage, accuracy: TextRecognitionAccuracy) throws -> [RecognizedText]
+
+    /// Reads the image as `recognizeText` does, for a caller that may be cancelled: a conformer
+    /// whose read can be abandoned stops it when the calling task is cancelled and throws
+    /// `CancellationError`, so a stop does not wait for a read nobody will use.
+    func recognizeTextCancellably(in image: CGImage, accuracy: TextRecognitionAccuracy) async throws -> [RecognizedText]
+}
+
+extension TextRecognizing {
+
+    /// A read that cannot be abandoned: it does not start for a task already cancelled, and runs
+    /// to its end once started.
+    public func recognizeTextCancellably(
+        in image: CGImage,
+        accuracy: TextRecognitionAccuracy
+    ) async throws -> [RecognizedText] {
+        try Task.checkCancellation()
+        return try recognizeText(in: image, accuracy: accuracy)
+    }
 }
