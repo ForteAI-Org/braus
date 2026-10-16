@@ -234,6 +234,47 @@ struct BrokeredAutomationSessionTests {
         #expect(broker.queue.entries.isEmpty)
     }
 
+    @Test("opening another window of the held app keeps the lease and session, including on refusal")
+    func anotherWindowKeepsTheSeat() async throws {
+        let broker = SeatBroker()
+        let dock = try #require(NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock")
+            .first?.processIdentifier)
+        var title = "Edit"
+        var openings = 0
+        var switches: [String] = []
+        let desktop = BrokeredAutomationSession(
+            broker: broker, workerID: UUID(), knowledgeDirectory: Scratch.directory("braus-switch"),
+            allowsDestructive: false, missingGrant: { nil }, requestGrants: {},
+            seating: { _, _, _ in
+                openings += 1
+                return (TargetApp(pid: dock, bundleID: "com.apple.dock", name: "Dock", bundleURL: nil, windows: []), SeatTarget())
+            },
+            perceiving: { _, _ in
+                SceneSnapshot(bundleID: "com.apple.dock", appName: "Dock", windowTitle: title,
+                              viewportPixelSize: ViewportPixelSize(width: 10, height: 10), elements: [])
+            },
+            switching: { _, _, wanted in
+                switches.append(wanted)
+                if wanted == "Missing" { throw Opened() }
+                title = wanted
+            },
+            stoppedForGood: { _ in false }
+        )
+        _ = try await desktop.open(application: "com.apple.dock", window: "Edit")
+        let originalID = desktop.id
+        let entries = broker.queue.entries
+        let mix = try await desktop.open(application: "com.apple.dock", window: "Mix")
+        #expect(mix.windowTitle == "Mix")
+        await #expect(throws: Opened.self) {
+            try await desktop.open(application: "com.apple.dock", window: "Missing")
+        }
+        #expect(switches == ["Mix", "Missing"])
+        #expect(openings == 1)
+        #expect(desktop.id == originalID)
+        #expect(broker.queue.entries == entries)
+        await desktop.close()
+    }
+
     @Test("an open over a seat that stopped for good ends that session and opens the requested one")
     func anOpenReplacesAStoppedSeat() async throws {
         let broker = SeatBroker()

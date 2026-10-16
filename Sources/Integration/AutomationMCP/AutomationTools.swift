@@ -135,6 +135,8 @@ public final class AutomationTools {
     Before the first action on an app in a turn, call status and observe any existing session.
     A message that needs no app needs no tool: answer it directly.
     For a new app, discover exact names and window titles with windows, then open_session.
+    To switch windows of the held app, call open_session with the same app and an exact window title; this
+    keeps the Seat and session. Handle a blocking dialog first. Do not release the Seat to switch windows.
     For anything on the web, use the browser apps marks as the default unless the person names another one.
     open_session on a running browser opens a new window of it to work in, but while the seat holds the browser
     its other visible windows move to the seat's display too: if the person may be using it, ask first.
@@ -143,7 +145,7 @@ public final class AutomationTools {
     If an observation ends the session, use status and discover current windows before explicitly opening
     the intended window. Never observe the ended ID or replay the input that preceded its disappearance.
     Never call close_session because a task is done: Braus releases the Seat by itself when it is no longer
-    needed. Call it only when the person asks you to release the Seat, or before calling open_session again.
+    needed. Call it only when the person asks you to release the Seat, or before opening a different app.
     An action result's observation is the scene taken just after the action settled: read it, do not observe again.
     Observe only when a result has none, when a dialog or window may still be opening, or before repeating an
     acted_unverified action whose observation shows no effect, since that scene is taken moments after acting.
@@ -291,7 +293,7 @@ public final class AutomationTools {
                  ["query": text], [], readOnly: true),
             tool("open_session", "Adopt an app into one persistent background Seat and observe it. "
                  + "Use an exact window title when needed; an empty title selects one uniquely untitled window. "
-                 + "Omitting window selects the main window. Close the current session before opening another. "
+                 + "Omitting window selects the main window. For the held app, an exact window title switches within the same Seat. Close the session before opening a different app. "
                  + Self.sceneLegend,
                  ["app": text, "window": .object(["type": .string("string")])], ["app"]),
             tool("observe", "Read a fresh scene in this session, including its current dialog. Required after "

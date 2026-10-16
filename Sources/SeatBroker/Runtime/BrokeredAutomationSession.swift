@@ -94,6 +94,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private let missingGrant: @MainActor () -> PermissionKind?
     @ObservationIgnored private let requestGrants: @MainActor () -> Void
     @ObservationIgnored private let seating: Seating
+    @ObservationIgnored private let switching: @MainActor (SeatTarget, pid_t, String) async throws -> Void
     @ObservationIgnored private let perceiving: Perceiving
     @ObservationIgnored private let idleWindow: Duration
     @ObservationIgnored private let waitIdle: IdleWaiting
@@ -154,6 +155,22 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         return await recorder(runtime, sessionID: nil).observe(perceived)
     }
 
+    /// Selects one exact current title among held windows, retaining the application's lease.
+    static func switchWindow(_ target: SeatTarget, processID: pid_t, title: String) async throws {
+        let seat = try target.agentSeat()
+        _ = try await target.observe()
+        let candidates = TargetEnumerator.windows(of: processID).filter { $0.title == title }
+        guard candidates.count == 1, let candidate = candidates.first else {
+            throw AutomationFailure("The window title is missing or ambiguous. Read windows and use one exact title.")
+        }
+        guard let held = seat.adoptedWindows.first(where: {
+            $0.id == candidate.windowNumber && $0.reference.processID == processID
+        }) else {
+            throw AutomationFailure("That window is not yet held by the Seat. Observe before switching; keep the session open.")
+        }
+        _ = try await seat.switchTarget(to: held)
+    }
+
     /// The recorder of the call this task is performing, or one of the session's own.
     static func recorder(_ runtime: EngineRuntime, sessionID: UUID?) -> CallRecorder {
         CallRecorder.current ?? runtime.recorder(ActionContext(
@@ -182,6 +199,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         idleWindow        : Duration = idleWindow,
         waitIdle          : @escaping IdleWaiting = { try await Task.sleep(for: $0) },
         readDialog        : @escaping DialogReading = { DialogButtonPress.openDialog(of: $0) },
+        switching         : @escaping @MainActor (SeatTarget, pid_t, String) async throws -> Void = switchWindow,
         stoppedForGood    : @escaping @MainActor (SeatTarget) -> Bool = {
             SeatAdmission.stoppedForGood(try? $0.agentSeat())
         }
@@ -199,6 +217,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         self.waitIdle           = waitIdle
         self.readDialog         = readDialog
         self.stoppedForGood     = stoppedForGood
+        self.switching          = switching
     }
 
     /// What the worker's row says about the computer, and nil while this session neither waits
@@ -270,8 +289,21 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         await closing?.value
         // A seat that stopped for good ends its session: this open replaces it, as close_session would.
         if case .holding = phase, let target, stoppedForGood(target) { await close() }
+        if case .holding = phase, let target, let running = application, let title,
+           (running.bundleIdentifier?.caseInsensitiveCompare(word) == .orderedSame
+            || running.localizedName?.caseInsensitiveCompare(word) == .orderedSame
+            || lastOpened?.name.caseInsensitiveCompare(word) == .orderedSame) {
+            try await switching(target, running.processIdentifier, title)
+            let scene = try await perceivedScene()
+            if var opened = lastOpened {
+                opened.window = scene.windowTitle
+                lastOpened = opened
+            }
+            return scene
+        }
         guard phase == .idle, closing == nil else {
-            throw AutomationFailure("A Seat is already open. Observe it or close_session before opening another app.")
+            throw AutomationFailure("A Seat is already open. Observe it, or pass this app and an exact window title "
+                + "to select another held window. Close the session before opening another app.")
         }
         if let missing = missingGrant() {
             requestGrants()
