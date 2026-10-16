@@ -153,6 +153,10 @@ public final class AutomationTools {
     that window's scene, or say it is unchanged. When you no longer have that revision, for example after
     the conversation was compacted, observe with full true. open_session always gives the full scene.
     select needs the CURRENT dropdown label/value.
+    For a Pro Tools send destination, click the track's native Send selector, then the visible bus or output
+    submenu and destination. Send Assignment opens the send panel once assigned; the adjacent Send selector
+    opens the destination menu. To remove a send, open that selector and click the native "no send" item.
+    Verify the assignment value after choosing; menu closure alone does not prove the route changed.
     Prefer set_toggle with explicit on/off over blindly clicking checkboxes.
     On ambiguous, inspect the candidates and disambiguate. On a transport failure, observe;
     never automatically replay an action that may already have happened. Missing permissions require the
@@ -167,6 +171,9 @@ public final class AutomationTools {
     An opaque field remains acted_unverified: never replay; verify its committed effect separately.
     press_key presses return, tab, escape, space, delete, an arrow, a letter, a digit, / or ~, with optional modifiers.
     scroll turns the wheel up or down over a target or the window; there is no horizontal scroll.
+    For a control outside the viewport or covered by another panel, inspect the app's menus for a find,
+    reveal or scroll-to command, or scroll over the relevant content, then observe again. One unchanged
+    scroll at the window's centre does not establish that the control is unavailable.
     drag goes from one target to another or by an offset; context_menu right-clicks a target and picks an item.
     menu reaches the app's menu bar by a path such as "File > Save As...": a path that ends on a menu lists its
     items and presses nothing, one that ends on an item presses it. Use it for a command the window shows no

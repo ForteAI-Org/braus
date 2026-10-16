@@ -97,6 +97,10 @@ struct ActionEngineTests {
             labelledReads.append(label); return labelledToggle
         }
         func focusedFieldValue(in processID: pid_t) async -> String? { focused }
+        var submenu: MenuItemNavigation?
+        func menuItemNavigation(titled title: String, within menuFrame: CGRect, in processID: pid_t) async -> MenuItemNavigation? {
+            submenu
+        }
         var menuItemPresses = false
         var pressedMenuItems: [(title: String, frame: CGRect)] = []
         func pressMenuItem(titled title: String, within menuFrame: CGRect, in processID: pid_t) async -> Bool {
@@ -251,6 +255,43 @@ struct ActionEngineTests {
                 verb: .click, isDryRun: true
             ))
             #expect(outcome.kind == (allowed ? .dryRun : .refused), Comment(rawValue: label))
+        }
+    }
+
+    @Test("a context-free no-send label remains refused")
+    func audioSendRemovalNeedsItsSelector() async {
+        let item = SceneElement(id: "no-send", kind: .text, label: "no send", bounds: rect(0.5, 0.5))
+        let actuator = RecordingActuator()
+        let outcome = await engine(scenes: ScriptedScenes([scene([item])]), actuator: actuator).act(ActionRequest(
+            processID: pid, bundleID: "com.avid.ProTools", appName: "Pro Tools", target: "no send", verb: .click
+        ))
+        #expect(outcome.kind == .refused)
+        #expect(actuator.gestures.isEmpty)
+    }
+
+    @Test("only a native audio menu in Pro Tools permits a no-send click")
+    func audioSendMenuRemoval() async {
+        for (bundle, native, popup, allowed) in [
+            ("com.avid.ProTools", true, true, true),
+            ("com.avid.ProTools", false, true, false),
+            ("com.avid.ProTools", true, false, false),
+            ("com.example.mail", true, true, false)
+        ] {
+            let item = SceneElement(id: "no-send", kind: .text, label: "no send",
+                                    bounds: rect(0.22, 0.26))
+            let actuator = RecordingActuator()
+            let controls = FakeControls()
+            controls.submenu = MenuItemNavigation(hasSubmenu: false, row: 0, submenuFrame: nil,
+                                                  isAudioSendMenu: native)
+            controls.menuItemPresses = true
+            let outcome = await engine(
+                scenes: ScriptedScenes([scene([item]), scene([])]), actuator: actuator,
+                windows: ScriptedWindows(popup ? [[popupWindow, mainWindow], [mainWindow]] : [[mainWindow]]),
+                controls: controls
+            ).act(ActionRequest(processID: pid, bundleID: bundle, appName: "Test", target: "no send", verb: .click))
+            #expect(outcome.kind == (allowed ? .foundActed : .refused))
+            #expect(controls.pressedMenuItems.count == (allowed ? 1 : 0))
+            #expect(actuator.gestures.isEmpty)
         }
     }
 
@@ -866,6 +907,86 @@ struct ActionEngineTests {
         #expect(outcome.message.contains("the menu closed but the effect is not confirmed; observe"))
         #expect(actuator.confirmations.last == .unknown, "a closed menu is not the item's effect")
         #expect(actuator.gestures == [.type("96000"), .key(code: Key.rightArrow), .key(code: Key.return)])
+    }
+
+    @Test("an OCR label absent from a readable native menu is never typed or pressed")
+    func unmatchedNativeMenuItemDoesNotType() async {
+        let actuator = RecordingActuator()
+        let controls = FakeControls()
+        controls.menuItemPresses = true
+        controls.submenu = MenuItemNavigation(hasSubmenu: false, row: nil, submenuFrame: nil, hasMatchingItem: false)
+        let outcome = await engine(
+            scenes: ScriptedScenes([listScene]), actuator: actuator,
+            windows: ScriptedWindows([[popupWindow, mainWindow]]), controls: controls
+        ).act(request("96000"))
+        #expect(outcome.kind == .honestMiss)
+        #expect(actuator.gestures.isEmpty)
+        #expect(controls.pressedMenuItems.isEmpty)
+    }
+
+    @Test("a native submenu parent is entered without pressing or committing it", arguments: [false, true])
+    func submenuDoesNotCommit(opens: Bool) async {
+        let actuator = RecordingActuator()
+        let controls = FakeControls()
+        controls.menuItemPresses = true
+        let child = WindowRow(layer: 101, frame: CGRect(x: 520, y: 300, width: 180, height: 150), title: nil, number: 10)
+        controls.submenu = MenuItemNavigation(hasSubmenu: true, row: 1, submenuFrame: child.frame)
+        let initial = [popupWindow, mainWindow]
+        let after = opens ? [child, popupWindow, mainWindow] : initial
+        let outcome = await engine(
+            scenes: ScriptedScenes([listScene]), actuator: actuator,
+            windows: ScriptedWindows([initial, initial, after]), controls: controls
+        ).act(request("96000"))
+        #expect(controls.pressedMenuItems.isEmpty)
+        #expect(actuator.gestures == [.key(code: Key.home), .key(code: Key.downArrow), .key(code: Key.rightArrow)])
+        #expect(outcome.kind == (opens ? .foundActed : .actedUnverified))
+        #expect(outcome.check?.condition == .submenuOpened)
+        #expect(outcome.check?.verdict == (opens ? .passed : .unknown))
+    }
+
+    @Test("submenu navigation refuses an unreadable row and does not credit an unrelated popup")
+    func submenuIdentity() async {
+        let controls = FakeControls()
+        let actuator = RecordingActuator()
+        controls.submenu = MenuItemNavigation(hasSubmenu: true, row: nil, submenuFrame: nil)
+        let refused = await engine(scenes: ScriptedScenes([listScene]), actuator: actuator,
+                                   windows: ScriptedWindows([[popupWindow, mainWindow]]), controls: controls)
+            .act(request("96000"))
+        #expect(refused.kind == .honestMiss)
+        #expect(actuator.gestures.isEmpty)
+        #expect(controls.pressedMenuItems.isEmpty)
+
+        let other = WindowRow(layer: 101, frame: CGRect(x: 520, y: 300, width: 180, height: 150), title: nil, number: 10)
+        controls.submenu = MenuItemNavigation(hasSubmenu: true, row: 1, submenuFrame: .zero)
+        let uncertain = await engine(scenes: ScriptedScenes([listScene]), actuator: actuator,
+                                     windows: ScriptedWindows([[popupWindow, mainWindow], [popupWindow, mainWindow],
+                                                               [other, popupWindow, mainWindow]]), controls: controls)
+            .act(request("96000"))
+        #expect(uncertain.kind == .actedUnverified)
+        #expect(uncertain.check?.verdict == .unknown)
+        #expect(!actuator.gestures.contains(.key(code: Key.return)))
+        #expect(controls.pressedMenuItems.isEmpty)
+    }
+
+    @Test("an open submenu is not navigated again and a partial key sequence is not reported unsent")
+    func submenuAlreadyOpenAndInterrupted() async {
+        let controls = FakeControls()
+        let actuator = RecordingActuator()
+        let child = WindowRow(layer: 101, frame: CGRect(x: 520, y: 300, width: 180, height: 150), title: nil, number: 10)
+        controls.submenu = MenuItemNavigation(hasSubmenu: true, row: 1, submenuFrame: child.frame)
+        let already = await engine(scenes: ScriptedScenes([listScene]), actuator: actuator,
+                                   windows: ScriptedWindows([[child, popupWindow, mainWindow]]), controls: controls)
+            .act(request("96000"))
+        #expect(already.kind == .actedNoop)
+        #expect(actuator.gestures.isEmpty)
+        actuator.failure = GestureNotSent(reason: "changed", sentence: "The window changed")
+        actuator.failsFrom = 1
+        let interrupted = await engine(scenes: ScriptedScenes([listScene]), actuator: actuator,
+                                       windows: ScriptedWindows([[popupWindow, mainWindow]]), controls: controls)
+            .act(request("96000"))
+        #expect(interrupted.kind == .actedUnverified)
+        #expect(actuator.gestures == [.key(code: Key.home)])
+        #expect(controls.pressedMenuItems.isEmpty)
     }
 
     @Test("a target outside an open pop-up closes it first and says so")

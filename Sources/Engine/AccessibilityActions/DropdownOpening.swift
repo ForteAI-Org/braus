@@ -1,5 +1,6 @@
 import ApplicationServices
 import Foundation
+import EngineCore
 import AccessibilityFacts
 import PerceptionCore
 
@@ -28,6 +29,63 @@ public enum DropdownOpening {
             self.frame = frame
             self.resolveNumber = resolveNumber
         }
+    }
+
+    /// Reads a painted item's keyboard position and submenu owner without dispatching an action.
+    public static func navigation(
+        item: String,
+        in menuFrame: CGRect,
+        processID: pid_t
+    ) -> MenuItemNavigation? {
+        let root = AXUIElementCreateApplication(processID)
+        AXUIElementSetMessagingTimeout(root, 0.2)
+        return navigation(named: item, in: menuFrame, under: root,
+                          drawnMenu: { drawnMenu(in: menuFrame, processID: processID) },
+                          reader: LiveAccessibilityReader())
+    }
+
+    /// Pro Tools exposes a submenu as a menu-bearing AXWindow rather than AXMenu.
+    static func submenu<Reader: AccessibilityTreeReading>(_ item: Reader.Node, reader: Reader) -> Reader.Node? {
+        let children = reader.children(item).filter { child in
+            let role = reader.role(child)
+            return role == kAXMenuRole || (role == kAXWindowRole && reader.children(child).contains {
+                reader.role($0) == kAXMenuItemRole
+            })
+        }
+        return children.count == 1 ? children[0] : nil
+    }
+
+    static func navigation<Reader: AccessibilityTreeReading>(
+        named item: String, in menuFrame: CGRect, under root: Reader.Node,
+        drawnMenu: () -> Reader.Node? = { nil }, reader: Reader
+    ) -> MenuItemNavigation? {
+        let painted = paintedMenuItems(in: menuFrame, under: root, drawnMenu: drawnMenu, reader: reader)
+        guard !painted.isEmpty else { return nil }
+        guard let index = LabelText.menuItemMatch(item, in: painted.map { reader.title($0) ?? "" }),
+              reader.isEnabled(painted[index]) == true else {
+            return MenuItemNavigation(hasSubmenu: false, row: nil, submenuFrame: nil, hasMatchingItem: false)
+        }
+        let selected = painted[index]
+        let child = submenu(selected, reader: reader)
+        let rows = painted.filter {
+            reader.isEnabled($0) == true && !LabelText.menuTitleKey(reader.title($0) ?? "").isEmpty
+        }.sorted { (reader.frame($0)?.minY ?? 0) < (reader.frame($1)?.minY ?? 0) }
+        let ordered = zip(rows, rows.dropFirst()).allSatisfy {
+            guard let first = reader.frame($0), let second = reader.frame($1) else { return false }
+            return first.maxY <= second.minY
+        }
+        let row = ordered && rows.count <= 64
+            ? LabelText.menuItemMatch(item, in: rows.map { reader.title($0) ?? "" }) : nil
+        func unique(_ title: String) -> Reader.Node? {
+            let matches = painted.filter { LabelText.menuTitleKey(reader.title($0) ?? "") == title }
+            return matches.count == 1 ? matches[0] : nil
+        }
+        let audioSendMenu = unique("no send").map { reader.isEnabled($0) == true && submenu($0, reader: reader) == nil } == true
+            && ["output", "bus"].allSatisfy { title in
+                unique(title).map { submenu($0, reader: reader) != nil } == true
+            }
+        return MenuItemNavigation(hasSubmenu: child != nil, row: row, submenuFrame: child.flatMap(reader.frame),
+                                  isAudioSendMenu: audioSendMenu)
     }
 
     public static func select(item: String, in menuFrame: CGRect, processID: pid_t) throws {
@@ -61,26 +119,34 @@ public enum DropdownOpening {
         named item: String, in menuFrame: CGRect, under root: Reader.Node,
         drawnMenu: () -> Reader.Node? = { nil }, reader: Reader
     ) -> Reader.Node? {
-        var painted: [(node: Reader.Node, title: String)] = []
+        let painted = paintedMenuItems(in: menuFrame, under: root, drawnMenu: drawnMenu, reader: reader)
+        guard let index = LabelText.menuItemMatch(item, in: painted.map { reader.title($0) ?? "" }),
+              reader.isEnabled(painted[index]) == true
+        else { return nil }
+        return painted[index]
+    }
+
+    private static func paintedMenuItems<Reader: AccessibilityTreeReading>(
+        in menuFrame: CGRect, under root: Reader.Node,
+        drawnMenu: () -> Reader.Node?, reader: Reader
+    ) -> [Reader.Node] {
+        var painted: [Reader.Node] = []
         func visit(_ node: Reader.Node, _ depth: Int) {
             // CEF's native popup rows sit at depth twelve under its AppKit wrappers.
-            // Match the bounded control search without traversing web option mirrors.
             guard depth < 16 else { return }
             let role = reader.role(node) ?? ""
             guard role != "AXWebArea" else { return }
             if role == kAXMenuItemRole,
                let frame = reader.frame(node), frame.width > 0, frame.height > 0,
                menuFrame.contains(CGPoint(x: frame.midX, y: frame.midY)) {
-                painted.append((node, reader.title(node) ?? ""))
+                // A submenu can appear both under its parent item and as an application window.
+                if !painted.contains(where: { reader.isSameNode($0, node) }) { painted.append(node) }
             }
             for child in reader.children(node) { visit(child, depth + 1) }
         }
         visit(root, 0)
         if painted.isEmpty, let menu = drawnMenu() { visit(menu, 0) }
-        guard let index = LabelText.menuItemMatch(item, in: painted.map(\.title)),
-              reader.isEnabled(painted[index].node) == true
-        else { return nil }
-        return painted[index].node
+        return painted
     }
 
     /// The `AXMenu` drawn at the centre of `menuFrame`, when the element there belongs to

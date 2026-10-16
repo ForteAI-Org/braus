@@ -15,6 +15,7 @@ public enum Key {
     /// The key above Return, which deletes backwards.
     public static let delete: UInt16 = 51
     public static let escape: UInt16 = 53
+    public static let home: UInt16 = 115
     public static let leftArrow: UInt16 = 123
     public static let rightArrow: UInt16 = 124
     public static let downArrow: UInt16 = 125

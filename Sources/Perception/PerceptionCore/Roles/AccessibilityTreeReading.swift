@@ -19,6 +19,9 @@ public protocol AccessibilityTreeReading: Sendable {
 
     associatedtype Node
 
+    /// Whether two handles name the same native element. Readers without identity support answer
+    /// false, preserving ambiguity rather than merging different controls by their labels or frames.
+    func isSameNode(_ first: Node, _ second: Node) -> Bool
     func role(_ node: Node) -> String?
     func subrole(_ node: Node) -> String?
     func title(_ node: Node) -> String?
@@ -45,6 +48,7 @@ public protocol AccessibilityTreeReading: Sendable {
 }
 
 extension AccessibilityTreeReading {
+    public func isSameNode(_ first: Node, _ second: Node) -> Bool { false }
     public func selectedRange(_ node: Node) -> NSRange? { nil }
     public func isFocused(_ node: Node) -> Bool? { nil }
     public func isSelected(_ node: Node) -> Bool? { nil }

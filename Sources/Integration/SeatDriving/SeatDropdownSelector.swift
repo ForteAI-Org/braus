@@ -131,6 +131,14 @@ public struct SeatDropdownSelector {
             let labels = before.scene.elements.map(\.label).joined(separator: ", ")
             return (ActOutcome(.honestMiss, "dropdown '\(control)' is missing or ambiguous. Read: \(labels)", scene: before.scene), nil)
         }
+        if ActionPolicy.isAudioSendSelector(
+            label: opener.label, bundleID: identity.bundleID, role: opener.role, container: opener.container
+        ) {
+            return (ActOutcome(.refused,
+                "This audio routing control needs observed menu steps. Use act on the track's Send selector, "
+                    + "then act on the visible menu item or submenu. To clear it, choose 'no send'. "
+                    + "No input was sent; select is for flat dropdowns.", scene: before.scene), nil)
+        }
         if !permissions.allowsDestructive,
            ActionPolicy.isDestructive(
                label: opener.label, bundleID: identity.bundleID, role: opener.role, container: opener.container

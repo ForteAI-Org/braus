@@ -173,11 +173,26 @@ public struct ActionEngine: Sendable {
         } catch {
             return error.outcome
         }
+        let point = perceived.globalPoint(of: element)
+        let surfaces = await surfaces(pid)
+        let containingPopup = surfaces.popups.first { $0.insetBy(dx: -4, dy: -4).contains(point) }
         if ActionPolicy.isDestructive(
             label: element.label, bundleID: request.bundleID, role: element.role, container: element.container
         ), !permissions.allowsDestructive {
-            return ActOutcome(.refused, "'\(element.label)' looks destructive/irreversible: refused. "
-                + "If you want the agent to do this, the person must allow destructive actions.", scene: scene)
+            // A native routing menu supplies context even when its opener is hidden by the popup.
+            // The same words in text, another application or another menu keep the normal refusal.
+            var audioRemoval = false
+            if request.bundleID == "com.avid.ProTools", request.verb == .click,
+               LabelText.menuTitleKey(element.label) == "no send", let popup = containingPopup,
+               let navigation = await dependencies.controls?.menuItemNavigation(
+                   titled: element.label, within: popup, in: pid
+               ) {
+                audioRemoval = navigation.hasMatchingItem && navigation.isAudioSendMenu && !navigation.hasSubmenu
+            }
+            if !audioRemoval {
+                return ActOutcome(.refused, "'\(element.label)' looks destructive/irreversible: refused. "
+                    + "If you want the agent to do this, the person must allow destructive actions.", scene: scene)
+            }
         }
         if request.verb == .rightClick,
            let refusal = menuOutsideTheSeat(on: element, appName: request.appName, scene: scene) {
@@ -187,8 +202,6 @@ public struct ActionEngine: Sendable {
            let role = element.role, ActionPolicy.menuOpeningRoles.contains(role) {
             return ActOutcome(.refused, ActionPolicy.menuOpeningRefusal(role: role), scene: scene)
         }
-        let point = perceived.globalPoint(of: element)
-        let surfaces = await surfaces(pid)
         let closure = permissions.windowClosure
         if closure.mayEndTheApplication,
            ActionPolicy.isWindowClosingLabel(element.label) || closure.controlFrames.contains(where: {
@@ -211,7 +224,6 @@ public struct ActionEngine: Sendable {
            let applied = await formatThroughMenu(request, element: element, perceived: perceived) {
             return applied
         }
-        let containingPopup = surfaces.popups.first { $0.insetBy(dx: -4, dy: -4).contains(point) }
         if request.verb == .click, let popup = containingPopup {
             return await pickInPopup(request, element: element, popupFrame: popup, perceived: perceived)
         }
@@ -621,6 +633,18 @@ public struct ActionEngine: Sendable {
         perceived  : PerceivedWindow
     ) async -> ActOutcome {
         let pid = request.processID
+        if let navigation = await dependencies.controls?.menuItemNavigation(
+            titled: element.label, within: popupFrame, in: pid
+        ) {
+            guard navigation.hasMatchingItem else {
+                return ActOutcome(.honestMiss, "'\(element.label)' does not uniquely match an enabled item in the "
+                    + "native menu; no input was sent. Observe the menu again.", scene: perceived.scene)
+            }
+            if navigation.hasSubmenu {
+                return await openSubmenu(request, element: element, popupFrame: popupFrame,
+                                         navigation: navigation, perceived: perceived)
+            }
+        }
         // A native menu names its items: the one of that title is pressed, and keys pick only otherwise.
         if !request.isDryRun, let controls = dependencies.controls,
            await controls.pressMenuItem(titled: element.label, within: popupFrame, in: pid) {
@@ -753,6 +777,64 @@ public struct ActionEngine: Sendable {
         return ActOutcome(.actedUnverified, "typed '\(typed)' to choose '\(element.label)' in the pop-up (keyboard "
             + "type-ahead): the menu closed but the effect is not confirmed; observe before acting again.",
             scene: after, check: check)
+    }
+
+    /// A parent row opens another menu; pressing its AX action can close the whole menu in Pro Tools.
+    /// Navigate from the top without Return, then verify that this parent's own child is a new popup.
+    private func openSubmenu(
+        _ request: ActionRequest,
+        element: SceneElement,
+        popupFrame: CGRect,
+        navigation: MenuItemNavigation,
+        perceived: PerceivedWindow
+    ) async -> ActOutcome {
+        let pid = request.processID
+        let before = await surfaces(pid).popups
+        if let child = navigation.submenuFrame, child != popupFrame, before.contains(child) {
+            return ActOutcome(.actedNoop, "the submenu '\(element.label)' is already open", scene: perceived.scene)
+        }
+        guard let row = navigation.row, (0..<64).contains(row) else {
+            return ActOutcome(.honestMiss, "the submenu's row order is unreadable; no input was sent", scene: perceived.scene)
+        }
+        if request.isDryRun {
+            return ActOutcome(.dryRun, "would open the submenu '\(element.label)' without choosing an item")
+        }
+        var sent = false
+        do {
+            try await dependencies.actuator.perform(.key(code: Key.home), in: pid)
+            sent = true
+            for _ in 0..<row {
+                try await dependencies.actuator.perform(.key(code: Key.downArrow), in: pid)
+                await pause(timing.popupArrow)
+            }
+            try await dependencies.actuator.perform(.key(code: Key.rightArrow), in: pid)
+        } catch {
+            await dependencies.actuator.confirm(.unknown, in: pid)
+            await recordPick(request, element: element, before: perceived, after: nil,
+                             attempt: sent ? .deliveryFailed("\(error)") : Self.attempt(after: error))
+            if !sent, let refused = Self.notSent(error, "opening submenu '\(element.label)'", scene: perceived.scene) {
+                return refused
+            }
+            return ActOutcome(.actedUnverified, "opening submenu '\(element.label)': delivery failed: \(error)")
+        }
+        await pause(timing.popupCommit)
+        let afterPopups = await surfaces(pid).popups
+        let child = await dependencies.controls?.menuItemNavigation(
+            titled: element.label, within: popupFrame, in: pid
+        )?.submenuFrame
+        let opened = child.map { afterPopups.contains(popupFrame) && afterPopups.contains($0) && !before.contains($0) }
+            ?? false
+        let after = await perceive(pid)
+        await dependencies.actuator.confirm(opened ? .observed : .unknown, in: pid)
+        await recordPick(request, element: element, before: perceived, after: after)
+        return ActOutcome(opened ? .foundActed : .actedUnverified,
+                          opened ? "'\(element.label)' opened a SUBMENU: act the item you want next."
+                              : "requested submenu '\(element.label)' but no new menu was confirmed; observe before acting again.",
+                          scene: after?.scene, check: OperationCheck(
+                              condition: .submenuOpened, method: .windowCensus,
+                              verdict: opened ? .passed : .unknown, expected: "submenu opened",
+                              observed: opened ? "submenu opened" : "no new submenu confirmed",
+                              performed: .requested, target: OperationCheck.Target(element)))
     }
 
     /// Reports a choice in an open pop-up to the observer: the perceptions around it and how far the

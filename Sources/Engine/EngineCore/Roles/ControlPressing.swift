@@ -37,6 +37,14 @@ public protocol ControlPressing: Sendable {
     /// when none does or the application does not say. What typed text is verified by.
     func focusedFieldValue(in processID: pid_t) async -> String?
 
+    /// Reads the painted item's submenu and keyboard position. Nil means no native menu could be
+    /// read; a readable menu without a unique enabled match answers `hasMatchingItem` false.
+    func menuItemNavigation(
+        titled title: String,
+        within menuFrame: CGRect,
+        in processID: pid_t
+    ) async -> MenuItemNavigation?
+
     /// Presses the one enabled menu item titled `title` painted inside `menuFrame`, an open native
     /// menu. True when a press was made, even one the application refused, because it may have
     /// acted; false when no such item exists, and only then may the keyboard choose instead.
@@ -50,8 +58,38 @@ extension ControlPressing {
         nil
     }
 
+    public func menuItemNavigation(
+        titled title: String,
+        within menuFrame: CGRect,
+        in processID: pid_t
+    ) async -> MenuItemNavigation? {
+        nil
+    }
+
     /// A conformer that cannot read menu items presses none; the keyboard chooses.
     public func pressMenuItem(titled title: String, within menuFrame: CGRect, in processID: pid_t) async -> Bool {
         false
+    }
+}
+
+/// MenuItemNavigation describes a readable native menu and whether it has one enabled matching item.
+/// A missing match forbids a typed fallback. A row counts enabled, named items from the top;
+/// nil refuses keyboard navigation when their geometry is ambiguous. The child frame is only
+/// an ownership hint until the window census confirms a new popup at that frame.
+public struct MenuItemNavigation: Sendable, Equatable {
+    public let hasMatchingItem: Bool
+    public let hasSubmenu: Bool
+    /// The painted native menu contains a unique no-send leaf and output/bus submenus.
+    public let isAudioSendMenu: Bool
+    public let row: Int?
+    public let submenuFrame: CGRect?
+
+    public init(hasSubmenu: Bool, row: Int?, submenuFrame: CGRect?, hasMatchingItem: Bool = true,
+                isAudioSendMenu: Bool = false) {
+        self.isAudioSendMenu = isAudioSendMenu
+        self.hasMatchingItem = hasMatchingItem
+        self.hasSubmenu = hasSubmenu
+        self.row = row
+        self.submenuFrame = submenuFrame
     }
 }

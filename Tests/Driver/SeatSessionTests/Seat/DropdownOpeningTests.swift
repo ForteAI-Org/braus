@@ -1,4 +1,5 @@
 import ApplicationServices
+import EngineCore
 import PerceptionCore
 import Testing
 @testable import AccessibilityActions
@@ -67,6 +68,16 @@ struct DropdownOpeningTests {
         ])
         #expect(DropdownOpening.nativeMenuItem(named: "Beta", in: popup, under: root,
                                              reader: MenuReader()) == nil)
+    }
+
+    @Test("one native item exposed through two tree paths remains one recipient")
+    func sameItemThroughTwoPaths() {
+        let leaf = row("TUNE (Mono)")
+        let child = MenuNode("AXWindow", children: [leaf])
+        let parent = MenuNode("AXMenuItem", title: "bus", children: [child])
+        let root = MenuNode("AXApplication", children: [child, MenuNode("AXWindow", children: [parent])])
+        #expect(DropdownOpening.nativeMenuItem(named: "TUNE (Mono)", in: popup, under: root,
+                                             reader: MenuReader()) === leaf)
     }
 
     @Test("two real native items remain ambiguous, including a disabled duplicate")
@@ -161,6 +172,72 @@ struct DropdownOpeningTests {
         }, reader: MenuReader()) === native)
     }
 
+    @Test("an unreadable label in a readable native menu is distinct from no native menu")
+    func unknownNativeItem() {
+        let root = MenuNode("AXApplication", children: [MenuNode("AXWindow", children: [row("bus")])])
+        #expect(DropdownOpening.navigation(named: "snq", in: popup, under: root, reader: MenuReader()) != nil)
+        #expect(DropdownOpening.navigation(named: "bus", in: popup, under: MenuNode("AXApplication"),
+                                          reader: MenuReader()) == nil)
+    }
+
+    @Test("submenu parents include menu-bearing windows but not ordinary child windows")
+    func submenuOwnership() {
+        let reader = MenuReader()
+        let native = MenuNode("AXMenuItem", children: [MenuNode("AXMenu")])
+        let window = MenuNode("AXMenuItem", children: [MenuNode("AXWindow", children: [row("Destination")])])
+        let ordinary = MenuNode("AXMenuItem", children: [MenuNode("AXWindow", children: [MenuNode("AXButton")])])
+        #expect(DropdownOpening.submenu(native, reader: reader) != nil)
+        #expect(DropdownOpening.submenu(window, reader: reader) != nil)
+        #expect(DropdownOpening.submenu(ordinary, reader: reader) == nil)
+        #expect(DropdownOpening.submenu(row("no send"), reader: reader) == nil)
+    }
+
+    @Test("submenu keyboard rows skip separators and disabled items without using hidden descendants")
+    func submenuRow() {
+        func item(_ title: String, _ y: CGFloat, enabled: Bool = true, children: [MenuNode] = []) -> MenuNode {
+            MenuNode("AXMenuItem", title: title, frame: CGRect(x: 200, y: y, width: 160, height: 10),
+                     enabled: enabled, children: children)
+        }
+        let hidden = MenuNode("AXWindow", frame: .zero, children: [item("Destination", 0)])
+        let root = MenuNode("AXApplication", children: [MenuNode("AXWindow", children: [
+            item("no send", 300), item("", 310), item("Disabled", 320, enabled: false),
+            item("output", 330), item("bus", 340, children: [hidden])
+        ])])
+        let navigation = DropdownOpening.navigation(named: "bus", in: popup, under: root, reader: MenuReader())
+        #expect(navigation?.hasSubmenu == true)
+        #expect(navigation?.row == 2)
+        #expect(DropdownOpening.navigation(named: "no send", in: popup, under: root,
+                                           reader: MenuReader())?.hasSubmenu == false)
+        let overlapping = MenuNode("AXApplication", children: [MenuNode("AXWindow", children: [
+            item("output", 340), item("bus", 340, children: [hidden])
+        ])])
+        let uncertain = DropdownOpening.navigation(named: "bus", in: popup, under: overlapping, reader: MenuReader())
+        #expect(uncertain?.hasSubmenu == true)
+        #expect(uncertain?.row == nil)
+    }
+
+    @Test("audio routing context requires native no-send, output and bus rows")
+    func audioSendMenuContext() {
+        func branch(_ title: String) -> MenuNode {
+            MenuNode("AXMenuItem", title: title, frame: CGRect(x: 204, y: 340, width: 150, height: 20),
+                     children: [MenuNode("AXWindow", children: [row("Destination")])])
+        }
+        let clear = row("no send")
+        let output = branch("output"), bus = branch("bus")
+        for (items, expected) in [
+            ([clear, output, bus], true),
+            ([clear, bus], false),
+            ([clear, output, row("bus")], false),
+            ([clear, output, bus, branch("bus")], false),
+            ([row("no send", enabled: false), output, bus], false),
+            ([clear, row("no send"), output, bus], false)
+        ] {
+            let root = MenuNode("AXApplication", children: [MenuNode("AXWindow", children: items)])
+            let navigation = DropdownOpening.navigation(named: "no send", in: popup, under: root, reader: MenuReader())
+            #expect(navigation?.isAudioSendMenu == expected)
+        }
+    }
+
     private func row(_ title: String, enabled: Bool = true) -> MenuNode {
         MenuNode("AXMenuItem", title: title,
                  frame: CGRect(x: 204, y: 310, width: 150, height: 20), enabled: enabled)
@@ -185,6 +262,7 @@ private final class MenuNode {
 }
 
 private struct MenuReader: AccessibilityTreeReading {
+    func isSameNode(_ first: MenuNode, _ second: MenuNode) -> Bool { first === second }
     func role(_ node: MenuNode) -> String? { node.role }
     func subrole(_ node: MenuNode) -> String? { nil }
     func title(_ node: MenuNode) -> String? { node.title }

@@ -29,6 +29,10 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
         self.applicationBundleID = applicationBundleID
     }
 
+    public nonisolated func isSameNode(_ first: AXUIElement, _ second: AXUIElement) -> Bool {
+        CFEqual(first, second)
+    }
+
     public nonisolated func role(_ node: AXUIElement) -> String? { string(node, kAXRoleAttribute) }
     public nonisolated func subrole(_ node: AXUIElement) -> String? { string(node, kAXSubroleAttribute) }
     public nonisolated func title(_ node: AXUIElement) -> String? { string(node, kAXTitleAttribute) }

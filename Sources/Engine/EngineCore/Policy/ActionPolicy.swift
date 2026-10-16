@@ -54,7 +54,8 @@ public enum ActionPolicy {
         return isDestructive(label: item)
     }
 
-    private static func isAudioSendSelector(
+    /// Recognizes the native routing controls whose nested menu is operated in observed steps.
+    package static func isAudioSendSelector(
         label    : String,
         bundleID : String?,
         role     : String?,

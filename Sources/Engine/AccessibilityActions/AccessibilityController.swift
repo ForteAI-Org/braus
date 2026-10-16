@@ -43,6 +43,16 @@ public struct AccessibilityController: ControlPressing {
         }
     }
 
+    public func menuItemNavigation(
+        titled title: String,
+        within menuFrame: CGRect,
+        in processID: pid_t
+    ) async -> MenuItemNavigation? {
+        await MainActor.run {
+            DropdownOpening.navigation(item: title, in: menuFrame, processID: processID)
+        }
+    }
+
     public func pressMenuItem(titled title: String, within menuFrame: CGRect, in processID: pid_t) async -> Bool {
         await MainActor.run {
             do {
