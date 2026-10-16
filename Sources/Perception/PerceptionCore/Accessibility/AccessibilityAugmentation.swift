@@ -39,7 +39,7 @@ public enum AccessibilityAugmentation {
         public init(
             maxDepth      : Int = 32,
             maxTables     : Int = 24,
-            maxElements   : Int = 400,
+            maxElements   : Int = 1024,
             isPastDeadline: @escaping @Sendable () -> Bool = { false }
         ) {
             self.maxDepth       = maxDepth

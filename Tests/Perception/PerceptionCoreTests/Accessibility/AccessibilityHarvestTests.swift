@@ -37,6 +37,28 @@ struct AccessibilityHarvestTests {
         return table
     }
 
+    @Test("a dense visible mixer keeps the controls of its last strip within the default budget")
+    func denseVisibleControls() {
+        let root = FakeNode("AXWindow", frame: window)
+        for track in 0..<16 {
+            let x = 110 + CGFloat(track) * 60
+            let group = FakeNode("AXGroup", title: "Track \(track)", frame: box(x, 110, 58, 740))
+            for control in 0..<35 {
+                group.adding(FakeNode("AXButton", title: "Control \(control)",
+                                     frame: box(x + 2, 120 + CGFloat(control) * 20, 54, 18)))
+            }
+            root.adding(group)
+        }
+        let full = AccessibilityAugmentation.harvest(under: root, windowFrame: window, reader: reader)
+        #expect(full.quality.walkCompleted == true)
+        #expect(full.elements.count == 560)
+        #expect(full.elements.filter { $0.container == "Track 15" }.count == 35)
+        let bounded = AccessibilityAugmentation.harvest(under: root, windowFrame: window, reader: reader,
+                                                        limits: .init(maxElements: 400))
+        #expect(bounded.quality.stoppedBy == .elementLimit)
+        #expect(bounded.elements.count == 400)
+    }
+
     @Test("every label says which attribute it came from, and a pixel element says none")
     func labelOrigins() {
         let root = FakeNode("AXWindow", frame: window).adding(
