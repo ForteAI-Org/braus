@@ -93,10 +93,32 @@ named for a secret, a declared secret, a credential's shape).
 Chrome draws a `<select>`'s list outside the page, where neither the scene nor a click reaches it.
 `WebControls.pressControl` therefore opens a list Braus draws instead (`WebSelectPopup`): the scene
 shows the options as `AXMenuItem` elements in a `pop-up (<name>)` section over what they cover, and
-`WebWindows` lists a menu-layer window in front of the page. The engine then treats it as any open
-pop-up: a click on an option goes to `pressMenuItem`, which chooses it the way browser-use does
-(focus, set the value, dispatch `input` and `change`, blur) and reads the value back. Escape or a
-click outside closes it. Custom ARIA dropdowns are ordinary page content and are clicked as such.
+`WebWindows` lists a menu-layer window in front of the page. Escape or a click outside closes it. Custom ARIA
+dropdowns are ordinary page content and are clicked as such.
+
+**Which option (W2).** When the list opens, the page keeps the select node and its option nodes in order, and the
+tab keeps each option's index, value, full text, group and whether it or its group is disabled. A row's label is for
+reading only: cut at 80 characters, ` #n` after a twin, "empty option". The engine chooses a row through
+`ControlPressing.chooseMenuItem`, and `WebControls` finds the row by its place in the list, not by its label (a
+labelled element's scene id is its kind and label, which twins share), the label only having to agree. The page
+chooses by index, and only when:
+- the select is the node the list was opened on, still there and enabled;
+- its options are the nodes kept, in the same order;
+- the option has the value and full text read then;
+- the option and its group are enabled.
+
+Otherwise the choice is refused and no event is sent.
+
+**What the choice did (W3).** The choice is focus, selection by index, `input`, `change`, blur. Then the page
+watches the select every 25 ms until its selected option node, index, value and full text held one state for 300 ms,
+within the time left of one 3-second deadline for the whole choice. The receipt is:
+- confirmed, if that state is the chosen option;
+- contradicted, if it is another (the page put it back);
+- unread, if the select did not hold still in time or did not answer;
+- possibly sent, if the choice itself got no answer.
+
+The engine passes only a confirmed choice, never replays one, and never falls back to the keyboard after a web
+choice was sent or refused. The list Braus drew closes either way, and its closing confirms nothing.
 
 ## Sessions and the memory
 
@@ -144,6 +166,8 @@ that the frontmost application never changes.
 
 - Only the main frame is read: iframes are neither in the scene nor clickable by name. The isolated
   world is the main frame's alone, and no test covers a script reaching into a frame from it.
+- A select's choice is judged by what held for the watched window: a page that changes the value only after it
+  (here 300 ms) is not seen, and the receipt makes no promise about later changes.
 - `<input list>` suggestions and the date, time and color pickers are drawn outside the page and are
   not handled yet.
 - Nested scroll containers do not clip their content: an element scrolled out of an inner panel but

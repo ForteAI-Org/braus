@@ -12,19 +12,32 @@ import PerceptionCore
 ///
 /// `WebControls.pressControl` opens it; from then on the scene shows its options as menu items in
 /// a pop-up section and the window listing shows a pop-up window, which is how the engine sees
-/// any open menu. `pressMenuItem` chooses an option the way browser-use does: focus, set, `input`
-/// and `change`, blur, then read the value back. Escape or a click outside closes it.
+/// any open menu. A row's label is for reading only (cut, ` #n`, "empty option"): an option is the
+/// row's place in this list, its index in the select, its value and its full text, which the page
+/// checks against the option node it kept when the list opened (`WebControls.chooseMenuItem`).
+/// Escape or a click outside closes it.
 public struct WebSelectPopup: Sendable, Equatable {
 
     public struct Option: Sendable, Equatable {
+        /// The option's full text, trimmed, as the page compares it.
         public var text      : String
         public var isSelected: Bool
+        /// False for a disabled option and for every option of a disabled group.
         public var isEnabled : Bool
+        /// Its index among the select's options when the list opened; -1 when unknown, and then it is never chosen.
+        public var index     : Int
+        public var value     : String
+        /// The label of its option group, nil outside one.
+        public var group     : String?
 
-        public init(text: String, isSelected: Bool = false, isEnabled: Bool = true) {
+        public init(text: String, isSelected: Bool = false, isEnabled: Bool = true, index: Int = -1, value: String = "",
+                    group: String? = nil) {
             self.text       = text
             self.isSelected = isSelected
             self.isEnabled  = isEnabled
+            self.index      = index
+            self.value      = value
+            self.group      = group
         }
     }
 
