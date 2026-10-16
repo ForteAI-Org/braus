@@ -254,6 +254,29 @@ struct ActionEngineTests {
         }
     }
 
+    @Test("a click verifies the toggle in its own track when other tracks share its ID")
+    func repeatedToggleIdentity() async {
+        let bus = SceneElement(
+            id: "control|mute", kind: .control, label: "Mute", bounds: rect(0.01, 0.68),
+            role: "AXButton", state: .off, container: "DRUMS BUS"
+        )
+        var kick = SceneElement(
+            id: "control|mute", kind: .control, label: "Mute", bounds: rect(0.07, 0.68),
+            role: "AXButton", state: .off, container: "Kick"
+        )
+        let before = scene([bus, kick])
+        kick.state = .on
+        let actuator = RecordingActuator()
+        let outcome = await engine(
+            scenes: ScriptedScenes([before, scene([bus, kick])]), actuator: actuator
+        ).act(ActionRequest(
+            processID: pid, bundleID: "com.x", appName: "X", target: "Mute {Kick}", verb: .click
+        ))
+        #expect(outcome.kind == .foundActed)
+        #expect(outcome.check?.observed == "stateFlip")
+        #expect(actuator.confirmations == [.observed])
+    }
+
     @Test("a destructive target is refused unless the person allowed it")
     func destructive() async {
         let trash = SceneElement(id: "control|delete", kind: .control, label: "Delete", bounds: rect(0.5, 0.5))

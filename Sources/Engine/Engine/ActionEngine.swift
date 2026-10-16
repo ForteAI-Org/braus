@@ -390,7 +390,8 @@ public struct ActionEngine: Sendable {
         let after = afterWindow.scene
         let surfacesAfter = await surfaces(pid)
         let effect = Self.gatedEffect(
-            before: perceived.scene, after: after, targetID: element.id, popupIsOpen: surfacesAfter.hasOpenPopup
+            before: perceived.scene, after: after, targetID: element.id,
+            popupIsOpen: surfacesAfter.hasOpenPopup, target: element
         )
         let verdict = ActVerification.verdict(before: perceived.scene, after: after, effect: effect, expected: expected)
         await dependencies.observer?.record(ActionRecord(
@@ -571,7 +572,9 @@ public struct ActionEngine: Sendable {
             answered = await dependencies.controls?.toggleState(labelled: element.label, in: pid)
         }
         let readBack = answered ?? selected?.state
-        let effect = after.flatMap { SceneDifference.effect(before: perceived.scene, after: $0, targetID: element.id) }
+        let effect = after.flatMap {
+            SceneDifference.effect(before: perceived.scene, after: $0, targetID: element.id, target: element)
+        }
         await dependencies.observer?.record(ActionRecord(
             bundleID        : request.bundleID,
             element         : element,
@@ -1571,12 +1574,13 @@ public struct ActionEngine: Sendable {
         after             : SceneSnapshot,
         targetID          : String,
         popupIsOpen       : Bool,
+        target            : SceneElement? = nil,
         countsValueChange : Bool = false,
         ignoresTextRereads: Bool = false
     ) -> SceneEffect? {
         let (was, now) = ignoresTextRereads ? withoutTextRereads(before: before, after: after) : (before, after)
         var effect = SceneDifference.effect(
-            before: was, after: now, targetID: targetID, countsValueChange: countsValueChange
+            before: was, after: now, targetID: targetID, target: target, countsValueChange: countsValueChange
         )
         if case .menuOpened(let labels) = effect, !popupIsOpen { effect = .elementsAppeared(labels: labels) }
         switch effect {

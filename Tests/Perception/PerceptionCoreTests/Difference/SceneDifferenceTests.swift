@@ -40,6 +40,27 @@ struct SceneDifferenceTests {
         #expect(SceneDifference.effect(before: before, after: after, targetID: "sw1") == .stateFlip(from: .off, to: .on))
     }
 
+    @Test("a repeated toggle cannot borrow another scope's state", arguments: ["selected", "other", "ambiguous", "missing"])
+    func scopedToggleState(change: String) {
+        var first = element("control|mute", "Mute", state: .off)
+        first.role = "AXButton"
+        first.container = "Bus"
+        var target = first
+        target.container = "Kick"
+        target.bounds.x = 0.4
+        var current = target
+        var other = first
+        if change == "other" { other.state = .on } else { current.state = .on }
+        let after = change == "missing" ? [other] : change == "ambiguous" ? [other, current, current] : [other, current]
+        let effect = SceneDifference.effect(
+            before: scene([first, target]), after: scene(after), targetID: target.id, target: target
+        )
+        #expect(effect == (change == "selected" ? .stateFlip(from: .off, to: .on) : nil))
+        #expect(SceneDifference.effect(
+            before: scene([first, target]), after: scene(after), targetID: target.id
+        ) == nil)
+    }
+
     @Test("a clustered appearance is a menu, with sorted labels")
     func menuOpened() {
         let before = scene([element("t", "Sequence", kind: .text)])

@@ -14,29 +14,34 @@
 /// produced three unique effects and no transition could ever earn trust.
 public enum SceneDifference {
 
-    /// The attributable effect, or nil when nothing attributable changed. `targetID` is the element
-    /// the event hit in the before scene; it enables the state-flip reading. `countsValueChange` also
-    /// names a text field that reads another value; a key press has no target, so only it asks.
+    /// The attributable effect, or nil when nothing attributable changed. `target` preserves the
+    /// selected control and its scope when several controls share `targetID`. Without it, the ID
+    /// must identify one before element. A state flip needs one counterpart in that same scope.
+    /// `countsValueChange` also names a text field that reads another value; a key press has no
+    /// target, so only it asks.
     public static func effect(
         before           : SceneSnapshot,
         after            : SceneSnapshot,
         targetID         : String?,
+        target           : SceneElement? = nil,
         countsValueChange: Bool = false
     ) -> SceneEffect? {
         if LabelText.letters(before.windowTitle) != LabelText.letters(after.windowTitle) {
             return .windowTitleChanged(title: String(after.windowTitle.prefix(40)))
         }
 
-        if let targetID,
-           let target = before.elements.first(where: { $0.id == targetID }),
-           let stateBefore = target.state {
-            // Positional jitter renames an id; the same kind, label and stateful role rescues it.
-            let counterpart = after.elements.first(where: { $0.id == targetID })
-                ?? after.elements.first(where: {
-                    $0.kind == target.kind && $0.state != nil
-                        && LabelText.normalize($0.label) == LabelText.normalize(target.label)
-                })
-            if let stateAfter = counterpart?.state, stateAfter != stateBefore {
+        if before.bundleID == after.bundleID, before.windowTitle == after.windowTitle,
+           let selected = target ?? unique(before.elements.filter { $0.id == targetID }),
+           let stateBefore = selected.state {
+            let matches: (SceneElement) -> Bool = {
+                $0.kind == selected.kind && $0.role == selected.role
+                    && $0.container == selected.container && $0.collectionPath == selected.collectionPath
+                    && LabelText.normalize($0.label) == LabelText.normalize(selected.label)
+            }
+            // The selected scope must be unique on both sides; a shared ID cannot name another track.
+            if unique(before.elements.filter(matches)) == selected,
+               let counterpart = unique(after.elements.filter(matches)),
+               let stateAfter = counterpart.state, stateAfter != stateBefore {
                 return .stateFlip(from: stateBefore, to: stateAfter)
             }
         }
@@ -119,6 +124,10 @@ public enum SceneDifference {
         let named = elements.map(\.label).filter { $0.count <= 24 && !$0.hasSuffix(".") }
         let pool = named.isEmpty ? elements.map(\.label) : named
         return Array(Set(pool).sorted().prefix(cap))
+    }
+
+    private static func unique(_ elements: [SceneElement]) -> SceneElement? {
+        elements.count == 1 ? elements[0] : nil
     }
 
     private static func spread(_ values: [Double]) -> Double {
