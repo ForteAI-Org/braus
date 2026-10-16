@@ -1,6 +1,6 @@
 # Pro Tools background controls
 
-Pro Tools uses the Seat's accessibility click route for ordinary windows. `QtPlatform`
+Pro Tools uses the Seat's accessibility click route for ordinary windows and attested dialogs. `QtPlatform`
 remains its event policy; that choice does not establish which framework drew a control.
 The input driver still sends coordinates and events. Accessibility actions belong to
 `SeatSession`, inside the observation admission and command gate.
@@ -19,9 +19,21 @@ an unreadable path or exhausted budgets refuse before acting. The descent is lim
 to 64 levels, 512 examined children and the existing 300 ms path budget.
 
 Supported roles use the existing accessibility action mapping. An unsupported control
-refuses; it does not fall back to a click that might activate PT. Each action consumes
+refuses; it does not fall back to a click that might activate PT. A qualified dialog's text
+field is the narrow exception: after its own window path and requested label match, a field
+without writable `AXSelectedText` receives the pointer click that enters its editor. No AX
+selection is written before that click. An uncertain AX write never grants a posted retry. Each action consumes
 its observation. `AXError.cannotComplete` is an attempted action with an uncertain
 effect, never permission to press again. The consumer reads the effect and confirms it.
+
+## Text fields in dialogs
+
+Bounce Mix exposes a name field with a writable selection range before its editor exists,
+but its text and focus are not writable then. Selecting the range and writing text can return
+without changing the name. A pointer click creates the editable text area. `type_text` uses a
+triple click to replace PT text, avoiding selection shortcuts that can reach another control,
+and verifies the resulting value. The field label accompanies the click; another named field
+refuses before selection. The input sequence cannot follow a newly opened dialog.
 
 ## PT running without a window
 
@@ -85,7 +97,40 @@ Seat before another command. A read invalidated by the target transition needs a
 observation; that is not a repeated input. Early probes exposed these sequencing
 requirements and were failures, not counted as completed cycles.
 
-## Repository checks
+## Dialog and state verification, 16 October 2026
+
+On the same macOS build and Pro Tools version, a broker-level probe changed Solo off/on/off
+on one audio track and read `[on]` and `[off]` in both Mix and Edit. The native on values were
+`Selected` in Mix and `on` in Edit; both off readings were empty strings.
+
+With the pre-existing Output panel open, Bounce Mix accepted a temporary file name and its
+original name again. Both `type_text` results verified the exact value. Sample Rate changed
+48 → 44.1 → 48 kHz, with both selections verified. Captures stayed titled `Bounce Mix`, at
+420 by 516 points, without Output controls mixed in. Cancel closed the dialog and the Seat
+returned the windows. No export or session save was requested. The final repeated cycle
+recorded no workspace activation notification, and the foreground application and cursor
+were unchanged. This is a broker/driver check, not a model-driven end-to-end export.
+
+A bare `MP3` target remains ambiguous between two dropdowns. Selecting an already-selected
+menu row can also refuse when its checkmark is recognized as part of the label. Neither probe
+changed the value; the opened menu was closed. The verified selection cycle chose different
+values and restored the original.
+
+## Repository checks, 16 October 2026
+
+- `swift build --product braus`: passed.
+- `make native-test-runner SWIFT=swift`: passed.
+- `TIER_BUNDLES=30 bash Tools/Driver/Scripts/run-tier.sh unit - bash Tools/Driver/Scripts/unit-test-command.sh swift`:
+  passed, 3,736 executed, 120 environment-dependent tests skipped, 3,856 reported across
+  30 runs. The final `TIER_RESULT` had `status: passed` and no problems.
+- `make host-tests SWIFT=swift`: passed, one Seat cycle and 29 display tests, with no
+  skips or tier problems.
+- `git diff --check`: passed.
+- `make test SWIFT=swift`: stopped at the product-name check because ten existing files
+  still contain the former product name. The independent unit tier above passed;
+  this does not make the aggregate command a pass.
+
+## Repository checks, 15 October 2026
 
 - `swift build --product braus`: passed.
 - `swift test --filter 'RemoteContentActuationTests|ProToolsWindowRecoveryTests'`:

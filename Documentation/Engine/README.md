@@ -225,6 +225,8 @@ and errors. No global click or foreground fallback is used.
 Success requires the requested value to appear at the original dropdown in a fresh capture after
 the menu closes. `--evidence /tmp/braus-dropdown` saves local `before.png`, `menu.png` and `after.png`.
 Full-window scenes and native opener lookup use the captured process, window number and geometry.
+The title comes from that captured window's current census entry. A different window after
+selection cannot verify the original dropdown, even if it contains the requested text.
 An AX title need not equal the WindowServer title. Missing identity or stale geometry refuses;
 titles and focus do not provide another candidate. Native popup/combo values drive arrow routing
 and effect verification when available; a matching editor or neighbouring value proves nothing.
@@ -329,7 +331,9 @@ Driver offers is not yet turned on here.
   `Actuating.confirm`: `observed` for a landed effect, `absent` for a ghost, `unknown` for a
   repaint or a failed delivery. One action's gestures are confirmed together. A foreground
   actuator has nothing to answer; the Seat's answers each receipt and gives its Turn back, which is
-  the Seat's own rule that an event that went out is never repeated.
+  the Seat's own rule that an event that went out is never repeated. The Seat actuator binds the
+  sequence to its first recipient and frame. A new dialog or changed frame stops the remaining
+  gestures; earlier effects stay unverified and are not replayed.
 - `Actuating.lastDeliveryRoute` says whether the last gesture went out posted or as an accessibility
   action; a conformer that only posts keeps the default, `posted`. The Seat performs a click on an
   Apple native application's ordinary window through accessibility first (ADR 0031, "Apple native
