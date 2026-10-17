@@ -7,15 +7,18 @@ import Engine
 import EngineCore
 import Foundation
 import PerceptionCore
+import Synchronization
 import Testing
 import WebDriver
 import WebDriving
 
 /// W12, G4b, on a real headless Chrome with a new temporary profile, removed afterwards, and the fixture
 /// `requests.html` served by the test's own `FixtureHTTPServer` on 127.0.0.1: the settler waits for a fetch the click
-/// started, for one that fails and for one that is aborted, and does not wait without its watch. Two limits are
-/// measured as known issues: a timer is no request, and the engine's own wait ends at its 300 ms cap with the request
-/// in flight. Opt in with `BRAUS_WEB_LIVE_TESTS=1`; needs Google Chrome in `/Applications`. No external network.
+/// started and whose body the page reads, for one that fails and for one that is aborted, and does not wait without its
+/// watch. A fetch whose body the page never reads keeps the wait to its cap, a limit the protocol's events show: its
+/// start and its answer come, its end does not. Two limits are measured as known issues: a timer is no request, and the
+/// engine's own wait ends at its 300 ms cap with the request in flight. Of the protocol's events only the method, the
+/// request id and the timestamp of the fetches are kept, and printed for the evidence; no address, header or body. Opt in with `BRAUS_WEB_LIVE_TESTS=1`; needs Google Chrome in `/Applications`. No external network.
 @Suite(
     "Requests in flight, live (W12)",
     .serialized,
@@ -40,29 +43,73 @@ struct RequestsLiveTests {
         #expect(FixtureHTTPServer.refuses(port: server.port), "the server's port is closed")
     }
 
-    /// Clicks `label` as the engine does, after the settler's `prepare` when `watched`, settles with a cap of three
-    /// seconds, and answers how long the settling took and what the status reads then.
-    static func settle(after label: String, watched: Bool = true, tabs: WebTabs, id: pid_t, page: WebPage) async throws
-        -> (took: Duration, state: String?) {
+    /// One protocol event of a fetch: its method, request id and timestamp, nothing else.
+    struct FetchEvent: Sendable, Equatable {
+        let method   : String
+        let requestID: String
+        let timestamp: Double
+    }
+
+    /// Clicks `label` as the engine does, after the settler's `prepare` when `watched`, settles with `cap`, and answers
+    /// how long the settling took, what the status reads then, and the events of the fetches the click started, which
+    /// it prints for the evidence.
+    static func settle(after label: String, watched: Bool = true, cap: Duration = .seconds(3), tabs: WebTabs, id: pid_t,
+                       page: WebPage) async throws
+        -> (took: Duration, state: String?, events: [FetchEvent]) {
         let window  = try await WebScenes(tabs: tabs).currentScene(of: id)
         let element = try WebDrivingLiveTests.element(label, in: window)
         let settler = WebSettler(tabs: tabs)
+        let seen = Mutex<(fetches: Set<String>, events: [FetchEvent])>(([], []))
+        _ = try await page.send("Network.enable")
+        let key = await page.observe { event in
+            guard let event, let requestID = event.params["requestId"]?.stringValue else { return }
+            seen.withLock { seen in
+                if event.method == "Network.requestWillBeSent", event.params["type"]?.stringValue == "Fetch" {
+                    seen.fetches.insert(requestID)
+                }
+                guard seen.fetches.contains(requestID),
+                      ["Network.requestWillBeSent", "Network.responseReceived", "Network.loadingFinished",
+                       "Network.loadingFailed"].contains(event.method)
+                else { return }
+                seen.events.append(FetchEvent(method: event.method, requestID: requestID,
+                                              timestamp: event.params["timestamp"]?.doubleValue ?? -1))
+            }
+        }
         if watched { await settler.prepare(in: id) }
         try await WebActuator(tabs: tabs).perform(.click(at: window.globalPoint(of: element)), expecting: element.label,
                                                   in: id)
         let started = ContinuousClock.now
-        await settler.settle(in: id, cap: .seconds(3))
+        await settler.settle(in: id, cap: cap)
         let took = ContinuousClock.now - started
-        return (took, try await page.evaluate("document.getElementById('state').textContent").stringValue)
+        let state = try await page.evaluate("document.getElementById('state').textContent").stringValue
+        await page.stopObserving(key)
+        let events = seen.withLock { $0.events }
+        for event in events {
+            print("cdp-event \(label): \(event.method) \(event.requestID) \(event.timestamp)")
+        }
+        return (took, state, events)
     }
 
-    @Test("a fetch the click started, answered after 600 ms: the settler returns once it is answered, before the cap")
+    @Test("a fetch the click started, answered after 600 ms, whose body the page reads: the settler returns once it ended, before the cap")
     func slowFetch() async throws {
         try await Self.withServedFixture { tabs, id, page, server in
             let settled = try await Self.settle(after: "Carica", tabs: tabs, id: id, page: page)
             #expect(settled.state == "Caricato", "settled after \(settled.took)")
             #expect(settled.took >= .milliseconds(550) && settled.took < .seconds(3), "settled after \(settled.took)")
+            #expect(settled.events.map(\.method) == ["Network.requestWillBeSent", "Network.responseReceived",
+                                                     "Network.loadingFinished"], "\(settled.events)")
             #expect(await server.counts["/slow"] == 1)
+        }
+    }
+
+    @Test("the limit: a fetch whose body the page never reads is answered, but never ends for the protocol, so the wait goes to its cap")
+    func unreadBody() async throws {
+        try await Self.withServedFixture { tabs, id, page, _ in
+            let settled = try await Self.settle(after: "Ignora", cap: .milliseconds(1500), tabs: tabs, id: id, page: page)
+            #expect(settled.state == "Ricevuto", "the headers came and resolved the page's promise")
+            #expect(settled.took >= .milliseconds(1450), "settled after \(settled.took)")
+            #expect(settled.events.map(\.method) == ["Network.requestWillBeSent", "Network.responseReceived"],
+                    "the start and the answer came, no end: \(settled.events)")
         }
     }
 

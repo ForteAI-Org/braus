@@ -3,6 +3,7 @@
 <head><meta charset="utf-8"><title>Braus requests</title></head>
 <body>
   <button id="load" type="button">Carica</button>
+  <button id="ignore" type="button">Ignora</button>
   <button id="break" type="button">Rompi</button>
   <button id="abort" type="button">Annulla</button>
   <button id="wait" type="button">Attendi</button>
@@ -11,8 +12,13 @@
     // Served by the test's own server on 127.0.0.1: each button starts one request to it, or a timer.
     const state = document.getElementById('state');
     const show = (text) => () => { state.textContent = text; };
+    // Reads the body, as a page that uses its answer does.
     document.getElementById('load').addEventListener('click', () => {
-      fetch('/slow').then(show('Caricato'), show('Errore'));
+      fetch('/slow').then((response) => response.text()).then(show('Caricato'), show('Errore'));
+    });
+    // Never reads the body: the answer's headers resolve the promise, its body stays unread.
+    document.getElementById('ignore').addEventListener('click', () => {
+      fetch('/slow').then(show('Ricevuto'), show('Errore'));
     });
     document.getElementById('break').addEventListener('click', () => {
       fetch('/fail').then(show('Arrivato'), show('Errore'));
