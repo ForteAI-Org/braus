@@ -12,7 +12,8 @@ import WebDriver
 import WebDriving
 
 /// W07 on a real headless Chrome with a new temporary profile, removed afterwards, and the local fixture `frames.html`:
-/// a button "Invia" in the page and one of that name in a frame, a "Paga" only in the frame, and a frame over a button.
+/// a button "Dettagli" in the page and one of that name in a frame, a "Riepilogo" only in the frame, and a frame over a
+/// button. The labels name nothing destructive, so the policy does not refuse them before the frame case is reached.
 /// The frame's contents are not read, so a click reaches the main document's button only, a target only in the frame is
 /// a miss, and a frame on top of a button refuses its click. The frame reports its own clicks to the page by message.
 /// Opt in with `BRAUS_WEB_LIVE_TESTS=1`; needs Google Chrome in `/Applications`. No network.
@@ -42,35 +43,35 @@ struct FramesLiveTests {
                 try await page.evaluate("window.__frameClicks['\(id)'] || 0").intValue)
     }
 
-    @Test("the scene: one Invia, the page's own; each frame a section whose contents are not read; nothing of a frame's")
+    @Test("the scene: one Dettagli, the page's own; each frame a section whose contents are not read; nothing of a frame's")
     func scene() async throws {
         try await WebDrivingLiveTests.withFixture("frames") { tabs, id, _ in
             let window = try await WebScenes(tabs: tabs).currentScene(of: id)
             let labels = window.scene.elements.map(\.label)
-            #expect(labels.filter { $0.hasPrefix("Invia") } == ["Invia"], "\(labels)")
-            #expect(!labels.contains("Paga") && !labels.contains("Annuncio"), "\(labels)")
+            #expect(labels.filter { $0.hasPrefix("Dettagli") } == ["Dettagli"], "\(labels)")
+            #expect(!labels.contains("Riepilogo") && !labels.contains("Annuncio"), "\(labels)")
             let sections = window.scene.sections.map(\.name)
             #expect(sections.contains("frame, contents not read (Pagamento)"), "\(sections)")
             #expect(sections.contains("frame, contents not read (Pubblicità)"), "\(sections)")
         }
     }
 
-    @Test("a click on Invia reaches the page's button only; the frame's Invia gets nothing")
+    @Test("a click on Dettagli reaches the page's button only; the frame's Dettagli gets nothing")
     func sameName() async throws {
         try await WebDrivingLiveTests.withFixture("frames") { tabs, id, page in
-            let outcome = await Self.click("Invia", tabs: tabs, id: id)
+            let outcome = await Self.click("Dettagli", tabs: tabs, id: id)
             #expect(outcome.kind != .refused && outcome.kind != .honestMiss, Comment(rawValue: outcome.message))
-            let counted = try await Self.clicks("send", on: page)
+            let counted = try await Self.clicks("details", on: page)
             #expect(counted.main == 1 && counted.frame == 0, "main \(String(describing: counted.main)), frame \(String(describing: counted.frame))")
         }
     }
 
-    @Test("Paga, only in a frame, is a miss, and nothing is clicked in the frame")
+    @Test("Riepilogo, only in a frame, is a miss, and nothing is clicked in the frame")
     func onlyInTheFrame() async throws {
         try await WebDrivingLiveTests.withFixture("frames") { tabs, id, page in
-            let outcome = await Self.click("Paga", tabs: tabs, id: id)
+            let outcome = await Self.click("Riepilogo", tabs: tabs, id: id)
             #expect(outcome.kind == .honestMiss, Comment(rawValue: outcome.message))
-            let counted = try await Self.clicks("pay", on: page)
+            let counted = try await Self.clicks("summary", on: page)
             #expect(counted.frame == 0)
         }
     }

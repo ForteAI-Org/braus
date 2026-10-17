@@ -6,7 +6,7 @@
   <style>
     body { margin: 0; font: 16px sans-serif; }
     button { position: absolute; left: 20px; width: 200px; height: 40px; }
-    #send { top: 20px; }
+    #details { top: 20px; }
     #under { top: 300px; }
     iframe { position: absolute; left: 0; border: 0; }
     #pay { top: 100px; width: 400px; height: 120px; }
@@ -14,9 +14,9 @@
   </style>
 </head>
 <body>
-  <button id="send" type="button">Invia</button>
+  <button id="details" type="button">Dettagli</button>
   <iframe id="pay" title="Pagamento" srcdoc="
-    <button id='send' type='button'>Invia</button> <button id='pay' type='button'>Paga</button>
+    <button id='details' type='button'>Dettagli</button> <button id='summary' type='button'>Riepilogo</button>
     <script>
       for (const b of document.querySelectorAll('button')) {
         b.addEventListener('click', () => parent.postMessage({ frameClick: b.id }, '*'));

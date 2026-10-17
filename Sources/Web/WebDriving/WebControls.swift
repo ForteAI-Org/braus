@@ -352,18 +352,21 @@ public struct WebControls: ControlPressing {
 
     // MARK: Scripts
 
-    /// The select a person would call `$LABEL`: normalized like `LabelText.normalize`, matched on
-    /// its accessible name, then its current option. The chosen one is kept on the isolated world's
-    /// window, out of the DOM and of the page's globals, so the page sees no change at all.
+    /// The select a person would call `$LABEL`, in the document or an open shadow root: normalized like
+    /// `LabelText.normalize`, matched on its accessible name, then its current option. The chosen one is kept on
+    /// the isolated world's window, out of the DOM and of the page's globals, so the page sees no change at all.
+    /// Closed shadow roots and frames are not searched.
     static let openSelectScript = """
     (() => {
       const norm = s => (s || '').toLowerCase().replace(/[^\\p{L}\\p{M}\\p{N}]/gu, '');
       const nameOf = e => e.getAttribute('aria-label')
-        || (e.getAttribute('aria-labelledby') || '').split(/\\s+/).map(id => (document.getElementById(id) || {}).textContent || '').join(' ').trim()
+        || (e.getAttribute('aria-labelledby') || '').split(/\\s+/).map(id => (e.getRootNode().getElementById(id) || {}).textContent || '').join(' ').trim()
         || (e.labels && e.labels[0] ? e.labels[0].textContent : '') || e.title || '';
       const visible = e => { const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1
         && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth; };
-      const selects = [...document.querySelectorAll('select')].filter(e => !e.multiple && e.size <= 1 && visible(e));
+      const deep = (root, selector) => [...root.querySelectorAll(selector)]
+        .concat(...[...root.querySelectorAll('*')].filter(e => e.shadowRoot).map(e => deep(e.shadowRoot, selector)));
+      const selects = deep(document, 'select').filter(e => !e.multiple && e.size <= 1 && visible(e));
       let found = selects.filter(e => norm(nameOf(e)) === $LABEL);
       if (!found.length) found = selects.filter(e => e.selectedOptions[0] && norm(e.selectedOptions[0].textContent) === $LABEL);
       const target = found[$ORDINAL - 1];
@@ -463,7 +466,8 @@ public struct WebControls: ControlPressing {
     /// carries `aria-expanded`; a control that is not expanded opened nothing, whatever else is open in the page.
     /// Its list is the one it names by `aria-controls` or `aria-owns`, else the only list shown when no other
     /// control is expanded. Answers what it found, and keeps the control and the option on the world's window when
-    /// it found one. Shadow roots and frames are not searched.
+    /// it found one. The lists it names are looked up in its own root, a shadow root's or the document's; the others
+    /// in the document and every open shadow root. Closed shadow roots and frames are not searched.
     static let ariaOptionFunction = """
     function (label, ordinal, control) {
       /* braus:aria-options */
@@ -474,13 +478,16 @@ public struct WebControls: ControlPressing {
       const owner = control.matches('[aria-expanded]') ? control
         : (control.closest('[aria-expanded]') || control.querySelector('[aria-expanded]'));
       if (!owner || owner.getAttribute('aria-expanded') !== 'true') return { kind: 'none' };
+      const deep = (root, selector) => [...root.querySelectorAll(selector)]
+        .concat(...[...root.querySelectorAll('*')].filter(e => e.shadowRoot).map(e => deep(e.shadowRoot, selector)));
+      const root = owner.getRootNode();
       const named = ((owner.getAttribute('aria-controls') || '') + ' ' + (owner.getAttribute('aria-owns') || ''))
-        .split(/\\s+/).filter(Boolean).map(id => document.getElementById(id)).filter(e => e && visible(e));
+        .split(/\\s+/).filter(Boolean).map(id => root.getElementById(id)).filter(e => e && visible(e));
       let lists = named;
       if (!lists.length) {
-        const others = [...document.querySelectorAll('[aria-expanded="true"]')].filter(e => e !== owner && visible(e));
+        const others = deep(document, '[aria-expanded="true"]').filter(e => e !== owner && visible(e));
         if (others.length) return { kind: 'refused', reason: 'the control names no list, and another control is expanded' };
-        lists = [...document.querySelectorAll('[role=listbox], [role=menu]')].filter(visible);
+        lists = deep(document, '[role=listbox], [role=menu]').filter(visible);
       }
       if (lists.length !== 1) return { kind: 'refused', reason: 'the list the control opened cannot be told from another' };
       const options = [...lists[0].querySelectorAll('[role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox]')]
