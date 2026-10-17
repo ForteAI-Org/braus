@@ -103,6 +103,12 @@ public protocol Actuating: Sendable {
     /// ignores the label.
     func perform(_ gesture: Gesture, expecting label: String, in processID: pid_t) async throws
 
+    /// The same, for a pointer gesture over the element the scene names `label` (a right click, a drag from it, a
+    /// scroll over it): a conformer that can see what lies under the point may refuse, before any event, one that
+    /// would land on something else. The label never changes how the gesture is delivered. The default delivers it
+    /// as `perform(_:in:)`, so a conformer that does not look under the point delivers as it always did.
+    func perform(_ gesture: Gesture, over label: String, in processID: pid_t) async throws
+
     /// Closes the gestures delivered since the last confirmation with what the engine saw. Called
     /// once per action, after the verdict, and also when delivery itself failed.
     func confirm(_ effect: DeliveryEffect, in processID: pid_t) async
@@ -115,6 +121,10 @@ public protocol Actuating: Sendable {
 public extension Actuating {
 
     func perform(_ gesture: Gesture, expecting label: String, in processID: pid_t) async throws {
+        try await perform(gesture, in: processID)
+    }
+
+    func perform(_ gesture: Gesture, over label: String, in processID: pid_t) async throws {
         try await perform(gesture, in: processID)
     }
 

@@ -35,6 +35,12 @@ public struct WebActuator: Actuating {
         try await deliver(gesture, expecting: label, in: processID)
     }
 
+    /// The same check for any other pointer gesture over `label`: a right click at its point, a drag at its start, a
+    /// scroll at its point (W10).
+    public func perform(_ gesture: Gesture, over label: String, in processID: pid_t) async throws {
+        try await deliver(gesture, expecting: label, in: processID)
+    }
+
     private func deliver(_ gesture: Gesture, expecting label: String?, in processID: pid_t) async throws {
         let page = try tabs.page(for: processID)
         // A gesture reaches only the document the scene was read from (W11), and the one it was decided on when the
@@ -52,7 +58,7 @@ public struct WebActuator: Actuating {
                                  sentence: "The page is no longer the document that was read: it navigated or "
                                      + "reloaded. Observe it again before acting.")
         }
-        if case .click(let point, _, _) = gesture, let label {
+        if let label, let point = Self.point(of: gesture) {
             try await hitCheck(point, label: label, in: processID)
         }
         // An open select's list goes, as Chrome's own does, on Escape or on a click outside it.
@@ -72,17 +78,17 @@ public struct WebActuator: Actuating {
         }
     }
 
-    /// Refuses, with nothing sent, a click at `point` that the page would not deliver to the element the scene names
-    /// `label` there, or to the node the tab is held to: something is on top of it (an overlay, a banner, a frame), a
-    /// scroll container clips it, or the node is gone. The page's own hit-testing decides, through open shadow roots.
-    /// Several elements of that label holding the point (a link and its text) each count as the target.
+    /// Refuses, with nothing sent, a pointer gesture at `point` that the page would not deliver to the element the
+    /// scene names `label` there, or to the node the tab is held to: something is on top of it (an overlay, a banner,
+    /// a frame), a scroll container clips it, or the node is gone. The page's own hit-testing decides, through open
+    /// shadow roots. Several elements of that label holding the point (a link and its text) each count as the target.
     private func hitCheck(_ point: CGPoint, label: String, in processID: pid_t) async throws {
         let nodes = tabs.held(of: processID).map { [$0.node] }
             ?? tabs.targets(of: processID).filter { $0.label == label && $0.box.contains(point) }.compactMap(\.node)
         guard !nodes.isEmpty else {
             throw GestureNotSent(reason: "target_unbound",
-                                 sentence: "'\(label)' has no node in the page at that point that the click could be "
-                                     + "checked against: nothing was sent. Observe it again before acting.")
+                                 sentence: "'\(label)' has no node in the page at that point that the gesture could "
+                                     + "be checked against: nothing was sent. Observe it again before acting.")
         }
         // The hit test runs in the isolated world, on the target nodes resolved there.
         let answer: JSONValue?
@@ -107,14 +113,22 @@ public struct WebActuator: Actuating {
             case "covered"?:
                 let cover = answer?["cover"]?.stringValue ?? "another element"
                 throw GestureNotSent(reason: "target_covered",
-                                     sentence: "'\(label)' is not what the page would click at its point: \(cover) is "
+                                     sentence: "'\(label)' is not what the page would reach at its point: \(cover) is "
                                          + "on top of it there (an overlay, a banner, or a scroll container that clips "
                                          + "it). Nothing was sent. Close or scroll away what covers it, then observe "
                                          + "again.")
             default:
                 throw GestureNotSent(reason: "target_unchecked",
-                                     sentence: "Whether a click would reach '\(label)' could not be checked in the "
+                                     sentence: "Whether the gesture would reach '\(label)' could not be checked in the "
                                          + "page: nothing was sent. Observe it again before acting.")
+        }
+    }
+
+    /// Where a pointer gesture first reaches the page: a click's point, a drag's start, a scroll's point; nil for keys.
+    static func point(of gesture: Gesture) -> CGPoint? {
+        switch gesture {
+            case .click(let point, _, _), .scroll(let point, _, _), .drag(let point, _): point
+            case .key, .character, .type, .insert: nil
         }
     }
 

@@ -361,7 +361,10 @@ public struct ActionEngine: Sendable {
                     try await dependencies.actuator.perform(
                         .click(at: point, count: 3), expecting: element.label, in: pid
                     )
-                case .rightClick : try await dependencies.actuator.perform(.click(at: point, button: .right), in: pid)
+                case .rightClick:
+                    try await dependencies.actuator.perform(
+                        .click(at: point, button: .right), over: element.label, in: pid
+                    )
                 default:
                     if !openedByPress {
                         try await dependencies.actuator.perform(.click(at: point), expecting: element.label, in: pid)
@@ -1282,7 +1285,7 @@ public struct ActionEngine: Sendable {
         }
         let scrolled = "scrolled \(amount)"
         await raiseIfNeeded(pid, isPopupOpen: (await surfaces(pid)).hasOpenPopup)
-        if let error = await send([.scroll(at: point, deltaY: lines)], to: pid) {
+        if let error = await send([.scroll(at: point, deltaY: lines)], to: pid, over: element?.label) {
             if let refused = Self.notSent(error, scrolled, scene: perceived.scene) { return refused }
             return ActOutcome(.actedUnverified, "\(scrolled): delivery failed: \(error)",
                               check: Self.undelivered(.structuralEffect, method: .sceneDifference, target: element))
@@ -1342,7 +1345,7 @@ public struct ActionEngine: Sendable {
                 + "\(destination) at \(Int(finish.x)),\(Int(finish.y))")
         }
         await raiseIfNeeded(pid, isPopupOpen: (await surfaces(pid)).hasOpenPopup)
-        if let error = await send([.drag(from: start, to: finish)], to: pid) {
+        if let error = await send([.drag(from: start, to: finish)], to: pid, over: element.label) {
             if let refused = Self.notSent(error, dragged, scene: scene) { return refused }
             return ActOutcome(.actedUnverified, "\(dragged): delivery failed: \(error)",
                               check: Self.undelivered(.structuralEffect, method: .sceneDifference, target: element))
@@ -1392,7 +1395,7 @@ public struct ActionEngine: Sendable {
         }
         let before = await surfaces(pid)
         await raiseIfNeeded(pid, isPopupOpen: before.hasOpenPopup)
-        if let error = await send([.click(at: point, button: .right)], to: pid) {
+        if let error = await send([.click(at: point, button: .right)], to: pid, over: element.label) {
             if let refused = Self.notSent(error, "right-clicking '\(element.label)'", scene: perceived.scene) { return refused }
             return ActOutcome(.actedUnverified, "right-clicking '\(element.label)': delivery failed: \(error)",
                               check: Self.undelivered(.menuItemChosen, method: .windowCensus, expected: item,
@@ -1506,9 +1509,12 @@ public struct ActionEngine: Sendable {
     /// A failure closes the delivery as unknown: what went out before it is never repeated.
     /// A `redundantAfterAccessibilityClick` gesture right after a click that went through accessibility
     /// is not delivered: that click left its caret where the gesture would have moved it.
+    /// The first gesture goes `over` the element so named, when there is one and it is no click aimed `expecting` a
+    /// label: an actuator that sees what lies under its point may refuse it before any event.
     private func send(
         _ gestures: [Gesture],
         to processID: pid_t,
+        over target: String? = nil,
         redundantAfterAccessibilityClick redundant: Gesture? = nil,
         expecting label: String? = nil
     ) async -> (any Error)? {
@@ -1523,6 +1529,8 @@ public struct ActionEngine: Sendable {
                 }
                 if index == 0, case .click = gesture, let label {
                     try await dependencies.actuator.perform(gesture, expecting: label, in: processID)
+                } else if index == 0, let target {
+                    try await dependencies.actuator.perform(gesture, over: target, in: processID)
                 } else {
                     try await dependencies.actuator.perform(gesture, in: processID)
                 }
