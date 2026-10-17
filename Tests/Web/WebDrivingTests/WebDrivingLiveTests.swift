@@ -22,10 +22,12 @@ import WebDriving
 struct WebDrivingLiveTests {
 
     /// Runs `body` on a new headless Chrome with a new temporary profile, removed afterwards, on the local fixture
-    /// `fixture`; the browser is closed on success and on a throw.
+    /// `fixture`, or on `address` when one is given (a test's own server on 127.0.0.1); the browser is closed on
+    /// success and on a throw.
     static func withFixture(
-        _ fixture: String = "web-scene",
-        _ body   : (WebTabs, pid_t, WebPage) async throws -> Void
+        _ fixture : String = "web-scene",
+        at address: URL? = nil,
+        _ body    : (WebTabs, pid_t, WebPage) async throws -> Void
     ) async throws {
         let profile = FileManager.default.temporaryDirectory
             .appending(path: "braus-web-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -33,7 +35,7 @@ struct WebDrivingLiveTests {
         let browser = try await WebBrowser.launch(ChromeLaunchOptions(userDataDirectory: profile))
         do {
             let page = try await browser.openPage()
-            let url  = try #require(Bundle.module.url(forResource: fixture, withExtension: "html"))
+            let url  = try #require(address ?? Bundle.module.url(forResource: fixture, withExtension: "html"))
             try await page.navigate(to: url.absoluteString)
             let tabs = WebTabs()
             try await body(tabs, tabs.register(page), page)

@@ -575,7 +575,8 @@ let package = Package(
         webTests("WebDriving", ["WebDriving", "WebDriver", "Engine", "EngineCore", "PerceptionCore"],
                  resources: [.copy("Fixtures/web-scene.html"), .copy("Fixtures/web-hostile.html"),
                              .copy("Fixtures/web-secure.html"), .copy("Fixtures/hit-test.html"),
-                             .copy("Fixtures/settle.html"), .copy("Fixtures/frames.html")]),
+                             .copy("Fixtures/settle.html"), .copy("Fixtures/frames.html"),
+                             .copy("Fixtures/requests.html")]),
 
         // MARK: Engine tests
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",

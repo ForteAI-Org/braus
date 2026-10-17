@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="it">
+<head><meta charset="utf-8"><title>Braus requests</title></head>
+<body>
+  <button id="load" type="button">Carica</button>
+  <button id="break" type="button">Rompi</button>
+  <button id="abort" type="button">Annulla</button>
+  <button id="wait" type="button">Attendi</button>
+  <p id="state" role="status">Attesa!</p>
+  <script>
+    // Served by the test's own server on 127.0.0.1: each button starts one request to it, or a timer.
+    const state = document.getElementById('state');
+    const show = (text) => () => { state.textContent = text; };
+    document.getElementById('load').addEventListener('click', () => {
+      fetch('/slow').then(show('Caricato'), show('Errore'));
+    });
+    document.getElementById('break').addEventListener('click', () => {
+      fetch('/fail').then(show('Arrivato'), show('Errore'));
+    });
+    document.getElementById('abort').addEventListener('click', () => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 500);
+      fetch('/hang', { signal: controller.signal }).then(show('Arrivato'), show('Annullato'));
+    });
+    // Not a request: a reaction 400 ms later, which no watch of requests sees.
+    document.getElementById('wait').addEventListener('click', () => { setTimeout(show('Scaduto'), 400); });
+  </script>
+</body>
+</html>
