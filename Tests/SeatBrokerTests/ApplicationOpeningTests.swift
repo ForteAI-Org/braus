@@ -37,7 +37,7 @@ private let installed = [app("Photos"), app("Google Chrome"), app("Preview"), ap
     }
 
     let missing = sentence(for: "Microsoft Word")
-    #expect(missing.contains("\"Microsoft Word\" is not an application installed on this machine"))
+    #expect(missing.contains("No installed application is named \"Microsoft Word\""))
     #expect(missing.contains("call apps with a shorter query, then open_session with the bundleID it lists"))
     #expect(!missing.contains("prompt"))
 

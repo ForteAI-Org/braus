@@ -60,6 +60,13 @@ enum TargetEnumerator {
         let bundleID   : String?
         let displayName: String?
         let lastUsed   : Date?
+
+        /// This row with the name and date it lacks taken from `other`, a row of the same bundle at another path:
+        /// what Spotlight knew of a copy that is not the one kept.
+        func filled(from other: InstalledRow) -> InstalledRow {
+            InstalledRow(path: path, bundleID: bundleID, displayName: displayName ?? other.displayName,
+                         lastUsed: lastUsed ?? other.lastUsed)
+        }
     }
 
     // ponytail: the installed list is kept 5 s, so apps then open_session asks Spotlight once;
@@ -69,21 +76,49 @@ enum TargetEnumerator {
     @MainActor
     private static var installedCache: (taken: ContinuousClock.Instant, apps: [TargetApp])?
 
-    /// Every installed application, from Spotlight, or from the folder scan when Spotlight finds
-    /// none or fails, as with indexing off. Read again once the cached list is `installedLifetime` old.
+    /// Every installed application: Spotlight's rows and the folder scan's together (`merged`), one per bundle
+    /// identifier (`installable`). Never Spotlight's alone: with indexing off it still answers a residual list (one
+    /// row, Safari, on this Mac on 18 October 2026), and a list taken for complete made "Calendar" resolve to another
+    /// vendor's calendar and the system's own applications "not installed". Read again once the cached list is
+    /// `installedLifetime` old.
     @MainActor
     private static func installedApplications() -> [TargetApp] {
         if let installedCache, ContinuousClock.now - installedCache.taken < installedLifetime {
             return installedCache.apps
         }
-        let rows = spotlightRows() ?? applicationURLs(in: applicationFolders).map { url in
-            InstalledRow(path: url.path, bundleID: Bundle(url: url)?.bundleIdentifier, displayName: nil,
-                         lastUsed: nil)
-        }
+        let rows = merged(spotlight: spotlightRows() ?? [], scanned: scannedRows(in: applicationFolders))
         let kept = installable(rows) { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0)?.path }
         let apps = kept.compactMap { application(at: URL(fileURLWithPath: $0.path), row: $0) }
         installedCache = (ContinuousClock.now, apps)
         return apps
+    }
+
+    /// The application bundles under `folders` (two levels deep, a folder that is not there scanned as empty) as
+    /// rows: the path and the identifier the bundle declares, with no name or date, which Spotlight's row of the same
+    /// path keeps.
+    static func scannedRows(in folders: [URL]) -> [InstalledRow] {
+        applicationURLs(in: folders).map { url in
+            InstalledRow(path: url.path, bundleID: Bundle(url: url)?.bundleIdentifier, displayName: nil, lastUsed: nil)
+        }
+    }
+
+    /// Spotlight's rows and the scan's as one list, by path. A path in one alone is kept as it is. A path in both
+    /// takes the identifier the bundle on disk declares now, and Spotlight's name and date only when Spotlight named
+    /// that same bundle, or none: an identifier Spotlight remembers from another bundle at that path is stale, and its
+    /// name and date go with it. A scanned bundle that declares no identifier leaves Spotlight's row as it was.
+    /// Nothing is read from disk here.
+    static func merged(spotlight: [InstalledRow], scanned: [InstalledRow]) -> [InstalledRow] {
+        var byPath: [String: InstalledRow] = [:]
+        for row in spotlight { byPath[row.path] = row }
+        for row in scanned {
+            guard let known = byPath[row.path] else { byPath[row.path] = row; continue }
+            guard let current = row.bundleID, !current.isEmpty else { continue }
+            let coherent = known.bundleID == nil || known.bundleID == "" || known.bundleID == current
+            byPath[row.path] = InstalledRow(path: row.path, bundleID: current,
+                                            displayName: coherent ? known.displayName : nil,
+                                            lastUsed: coherent ? known.lastUsed : nil)
+        }
+        return byPath.values.sorted { $0.path < $1.path }
     }
 
     /// The application at `url`, not running, named as its bundle names it. A system agent is none:
@@ -111,7 +146,8 @@ enum TargetEnumerator {
     /// system's own applications. So is a bundle with no identifier: `open_session` is told to
     /// open by one, and the ones Spotlight found here were test fixtures named "Xcode". When one
     /// identifier sits at several paths, the one Launch Services names (`preferred`) is kept, then
-    /// one under `/Applications`, then the first by path.
+    /// one under `/Applications`, then the first by path; the name and date the kept row lacks come from the
+    /// others, so Spotlight's date of a copy follows the identifier to the path kept.
     static func installable(_ rows: [InstalledRow], preferred: (String) -> String?) -> [InstalledRow] {
         func isApplication(_ path: String) -> Bool {
             let components = path.split(separator: "/")
@@ -125,8 +161,11 @@ enum TargetEnumerator {
         var kept: [String: InstalledRow] = [:]
         for row in rows.sorted(by: { $0.path < $1.path }) where isApplication(row.path) {
             guard let bundleID = row.bundleID, !bundleID.isEmpty else { continue }
-            if let held = kept[bundleID], rank(held, bundleID) <= rank(row, bundleID) { continue }
-            kept[bundleID] = row
+            if let held = kept[bundleID] {
+                kept[bundleID] = rank(held, bundleID) <= rank(row, bundleID) ? held.filled(from: row) : row.filled(from: held)
+            } else {
+                kept[bundleID] = row
+            }
         }
         return kept.values.sorted { $0.path < $1.path }
     }

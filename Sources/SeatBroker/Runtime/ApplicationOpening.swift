@@ -101,8 +101,12 @@ enum ApplicationOpening {
     /// unambiguous: alone in the best tier anything matched in, or the only
     /// one of that tier that is running. An exact name therefore wins
     /// outright, and a part of one name ("Chrome" for "Google Chrome") is
-    /// meant when nothing matches better. Anything that names none or several
-    /// is refused with what the model would need to correct itself.
+    /// meant when nothing matches better. "Apple <name>" names Apple's own
+    /// application of exactly that name (`appleNamed`) when no application
+    /// answers to the whole query by its identifier or name. Anything that
+    /// names none or several is refused with what the model would need to
+    /// correct itself; a name nothing answers to is not said to be "not
+    /// installed", which a name alone cannot tell (`notNamed`).
     static func resolve(_ name: String, in apps: [TargetApp]) throws -> TargetApp {
         let wanted = requested(name)
         guard !wanted.isEmpty else {
@@ -114,16 +118,48 @@ enum ApplicationOpening {
                     + "Opening it would take the person's own window; choose another application.")
         }
         let candidates = ranked(wanted, in: apps)
-        guard let best = candidates.first.flatMap({ match(wanted, $0) }) else {
-            throw SeatBrokerError.applicationNotResolved(
-                "\"\(wanted)\" is not an application installed on this machine; "
-                    + "call apps with a shorter query, then open_session with the bundleID it lists.")
-        }
+        let found = candidates.first.flatMap { match(wanted, $0) }
+        // Apple's own name comes before a part of a name: never before an identifier or a whole name.
+        if found.map({ $0 > .name }) ?? true, let apple = try appleNamed(wanted, in: apps) { return apple }
+        guard let best = found else { throw notNamed(wanted, in: apps) }
         let tier    = candidates.prefix { match(wanted, $0) == best }
         let running = tier.filter(\.isRunning)
         if tier.count == 1, let only = tier.first { return only }
         if running.count == 1, let only = running.first { return only }
         throw ambiguity(wanted, Array(tier))
+    }
+
+    /// The application "Apple <name>" names: Apple's own, a bundle identifier under `com.apple.`, whose name
+    /// is exactly `<name>` in any of `names(of:)`. Nil when the query has not that shape or no Apple application
+    /// has that name; a refusal when two have. Never a third party's application, never a part of a name.
+    static func appleNamed(_ wanted: String, in apps: [TargetApp]) throws -> TargetApp? {
+        let words = wanted.split(separator: " ", omittingEmptySubsequences: true)
+        guard words.count >= 2, same(String(words[0]), "Apple") else { return nil }
+        let rest = words.dropFirst().joined(separator: " ")
+        let owned = apps.filter(isOpenable).filter { app in
+            app.bundleID.lowercased().hasPrefix("com.apple.") && names(of: app).contains { same($0, rest) }
+        }
+        guard !owned.isEmpty else { return nil }
+        if owned.count == 1, let only = owned.first { return only }
+        throw ambiguity(wanted, owned.sorted(by: precedes))
+    }
+
+    /// The refusal of a name no installed application answers to. It names the installed applications whose
+    /// name shares a word with the query, six at most, as identities to choose from, and chooses none of them.
+    static func notNamed(_ wanted: String, in apps: [TargetApp]) -> SeatBrokerError {
+        let asked = Set(words(of: wanted))
+        let guidance = "call apps with a shorter query, then open_session with the bundleID it lists."
+        let nearby = apps.filter(isOpenable)
+            .filter { app in names(of: app).contains { !asked.isDisjoint(with: words(of: $0)) } }
+            .sorted(by: precedes)
+        guard !nearby.isEmpty else {
+            return .applicationNotResolved("No installed application is named \"\(wanted)\"; \(guidance)")
+        }
+        let shown = nearby.prefix(6).map(described).joined(separator: "; ")
+        return .applicationNotResolved(
+            "No installed application is named \"\(wanted)\". Installed applications sharing a word with it: \(shown). "
+                + "None was opened: if the conversation says which one is meant, call open_session with its bundleID; "
+                + "otherwise ask the person, or \(guidance)")
     }
 
     /// The order among equally good matches: running first, then the most recently used, then the
