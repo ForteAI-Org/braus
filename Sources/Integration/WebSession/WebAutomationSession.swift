@@ -4,6 +4,7 @@
 //
 
 import AutomationRuntime
+import CoreGraphics
 import Engine
 import EngineCore
 import Foundation
@@ -136,8 +137,10 @@ public final class WebAutomationSession: AutomationSessionOperating {
 
     /// Opens `control`'s list and chooses `item` in it: two engine clicks, each verified, the second only when the
     /// first opened a list. A native select's list is drawn as a window over the page, and its item is chosen in it.
-    /// An ARIA list opens in the page itself (W05), so no window is waited for: the open list's option of that name
-    /// is clicked by its node, and the control is read back after the page settled, which decides the check.
+    /// An ARIA list opens in the page itself (W05), so no window is waited for. The control is resolved in the scene
+    /// first and clicked by its element, so the list looked for is the one that very control opened, never another
+    /// control's open in the page. Its option of that name is clicked by its node, and the control is read back
+    /// after the page settled, which decides the check.
     public func select(control: String, item: String) async throws -> ActOutcome {
         let (processID, runtime) = try current()
         return try await Self.select(control: control, item: item, processID: processID, runtime: runtime) { target in
@@ -153,31 +156,46 @@ public final class WebAutomationSession: AutomationSessionOperating {
         runtime  : WebEngineRuntime,
         click    : (String) async throws -> ActOutcome
     ) async throws -> ActOutcome {
-        let opened = try await click(control)
+        // The control as the engine will resolve it for a click, so its node is the list's owner.
+        let resolved = try await runtime.scenes.element(resolving: control, in: processID)
+        let opened = try await click(resolved?.element.id ?? control)
         if (try? runtime.windows.windows(ownedBy: processID).count) ?? 0 > 1 {
             return try await click(item)
         }
-        guard opened.kind == .foundActed || opened.kind == .actedUnverified else { return opened }
-        switch await runtime.controls.ariaOption(named: item, in: processID) {
+        guard opened.kind == .foundActed || opened.kind == .actedUnverified, let owner = resolved?.identity else {
+            return opened
+        }
+        switch await runtime.controls.ariaOption(named: item, owner: owner, in: processID) {
             case .noList:
                 return opened
             case .missing(let reason):
-                return ActOutcome(.honestMiss, "'\(item)' is not in the list '\(control)' opened: \(reason). Observe the "
-                    + "list before choosing again.", scene: opened.scene)
+                return ActOutcome(.honestMiss, "'\(item)' is not in the list '\(control)' opened: \(reason). Only the "
+                    + "opening click was sent. Observe the list before choosing again.", scene: opened.scene)
             case .refused(let reason):
-                return ActOutcome(.refused, "'\(item)' was not chosen, nothing was sent: \(reason).", scene: opened.scene)
-            case .option(let identity):
+                return ActOutcome(.refused, "'\(item)' was not chosen: \(reason). Only the opening click was sent; no "
+                    + "option was clicked.", scene: opened.scene)
+            case .option(let identity, let box):
                 let (perceived, option) = try await runtime.scenes.currentScene(of: processID, naming: identity)
-                guard let id = option else {
-                    return ActOutcome(.refused, "'\(item)' was not chosen, nothing was sent: the option is not in the "
-                        + "scene (outside the view, or covered). Observe the list before choosing again.",
-                        scene: perceived.scene)
+                guard let id = option ?? Self.row(at: box, in: perceived) else {
+                    return ActOutcome(.refused, "'\(item)' was not chosen: the option is not in the scene (outside the "
+                        + "view, or covered). Only the opening click was sent; no option was clicked. Observe the list "
+                        + "before choosing again.", scene: perceived.scene)
                 }
                 let chosen = try await click(id)
                 guard chosen.kind == .foundActed || chosen.kind == .actedUnverified else { return chosen }
                 return Self.judged(chosen, item: item, control: control,
                                    readBack: await runtime.controls.ariaReadBack(expecting: item, in: processID))
         }
+    }
+
+    /// The label of the one row of the scene that `box` (viewport CSS pixels) is the box of: twins share their scene
+    /// id, so the scene names neither's node, but each reads apart by its ordinal (` #n`), which the engine resolves.
+    /// Nil when no row, or several, hold the box's center.
+    static func row(at box: CGRect?, in perceived: PerceivedWindow) -> String? {
+        guard let box, perceived.frame.width > 0, perceived.frame.height > 0 else { return nil }
+        let center = CGPoint(x: box.midX / perceived.frame.width, y: box.midY / perceived.frame.height)
+        let rows = perceived.scene.elements.filter { $0.role == "AXRow" && $0.bounds.cgRect.contains(center) }
+        return rows.count == 1 ? rows[0].label : nil
     }
 
     /// The outcome of a click on an ARIA list's option, judged by what its control reads back, never by the list's

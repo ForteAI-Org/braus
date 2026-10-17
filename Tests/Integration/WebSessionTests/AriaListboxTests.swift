@@ -18,7 +18,7 @@ import WebDriver
 @MainActor
 struct AriaListboxTests {
 
-    private static func choose(_ item: String, on page: ScriptedAriaPage) async throws -> ActOutcome {
+    private static func choose(_ item: String, on page: ScriptedAriaPage, control: String = "Colore") async throws -> ActOutcome {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("braus-w05-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let connection = await CDPConnection(transport: page)
@@ -27,7 +27,7 @@ struct AriaListboxTests {
         let runtime = WebEngineRuntime(knowledgeDirectory: directory, tabs: tabs)
         defer { Task { await runtime.service.close() } }
         let recorder = runtime.recorder(ActionContext(source: .app, streamID: "w05", traceID: "w05", sessionID: "s1"))
-        let outcome = try await WebAutomationSession.select(control: "Colore", item: item, processID: processID,
+        let outcome = try await WebAutomationSession.select(control: control, item: item, processID: processID,
                                                             runtime: runtime) { target in
             await runtime.engine(recorder: recorder, allowsDestructive: false)
                 .act(ActionRequest(processID: processID, bundleID: "web:fixture.test", appName: "fixture.test",
@@ -48,6 +48,16 @@ struct AriaListboxTests {
         let option = try #require(ScriptedAriaPage.options.first { $0.name == "Blu" })
         #expect(page.presses.last.map(option.box.contains) == true, "the second press landed on Blu")
         #expect(page.shownValue == "Blu")
+    }
+
+    @Test("twins share their scene id, so the scene names neither's node: the option is placed by its box, and the press lands on the second Blu")
+    func twinPlacedByItsBox() async throws {
+        let page = ScriptedAriaPage(options: ScriptedAriaPage.twins, found: 23)
+        let outcome = try await Self.choose("Blu #2", on: page)
+        #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
+        let second = try #require(ScriptedAriaPage.twins.last)
+        #expect(page.presses.last.map(second.box.contains) == true, "the second press landed on the second Blu")
+        #expect(page.pressCount == 2)
     }
 
     @Test("a control that reads another value after settling fails the check, and nothing is chosen again")
@@ -83,8 +93,19 @@ struct AriaListboxTests {
         let page = ScriptedAriaPage(optionsAnswer: ["kind": "refused", "reason": .string(reason)])
         let outcome = try await Self.choose("Blu", on: page)
         #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
-        #expect(outcome.message.contains("nothing was sent") && outcome.message.contains(reason))
+        #expect(outcome.message.contains("no option was clicked") && outcome.message.contains(reason))
+        #expect(!outcome.message.contains("nothing was sent"), "the opening click went out")
         #expect(page.pressCount == 1)
+    }
+
+    @Test("another control's list left open: a control that opens nothing chooses nothing in it, and nothing is clicked there")
+    func anotherControlsList() async throws {
+        let page = ScriptedAriaPage(startsOpen: true)
+        let outcome = try await Self.choose("Blu", on: page, control: "Aiuto")
+        #expect(outcome.check?.condition != .valueReadBack, Comment(rawValue: outcome.message))
+        #expect(page.pressCount == 1, "only the click on Aiuto")
+        #expect(page.presses.allSatisfy(ScriptedAriaPage.help.contains), "no press on Colore's list")
+        #expect(page.shownValue == "Rosso", "Colore keeps its value")
     }
 
     @Test("a control that opens no list answers its click, as before: no second click")

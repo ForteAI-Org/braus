@@ -24,6 +24,10 @@ public struct WebWorld: Sendable, Hashable {
 
     /// The world's global object, which each call runs on.
     let objectID: String
+
+    /// The world's execution context, used only to resolve DOM nodes into it (`call`): a call on `objectID`
+    /// then takes them only if they belong to this same world.
+    let contextID: Int
 }
 
 extension WebPage {
@@ -55,7 +59,8 @@ extension WebPage {
                 throw CDPError.malformedResult(method: "Runtime.evaluate", detail: "no objectId for the world")
             }
             if try await mainDocument() == before {
-                return WebWorld(frameID: before.frameID, loaderID: before.loaderID, objectID: objectID)
+                return WebWorld(frameID: before.frameID, loaderID: before.loaderID, objectID: objectID,
+                                contextID: context)
             }
             // Releasing a handle whose document is gone can only fail with it; either way nothing holds it.
             _ = try? await send("Runtime.releaseObject", ["objectId": .string(objectID)])
@@ -83,6 +88,59 @@ extension WebPage {
             ],
             timeoutSeconds: timeoutSeconds
         )
+        try Self.rethrow(answer)
+        return answer["result"]?["value"] ?? .null
+    }
+
+    /// Calls `function`, a function declaration, in `world` with `arguments` by value followed by the DOM nodes
+    /// `nodes` (backend ids), and returns its value by value, awaiting a returned promise.
+    ///
+    /// Each node is resolved in the world's execution context and passed to a call on the world's global object,
+    /// which Chrome makes only with arguments of that same world: a context id Chrome handed to another document
+    /// never lends the call another world's nodes. The handles are released before this returns. Throws
+    /// `CDPError.protocolError` when the world's document is gone, a node is no longer in it or was resolved in
+    /// another world, and then the function did not run; `CDPError.scriptFailed` when it throws.
+    public func call(
+        _ function    : String,
+        in world      : WebWorld,
+        arguments     : [JSONValue] = [],
+        nodes         : [Int] = [],
+        timeoutSeconds: Double? = nil
+    ) async throws -> JSONValue {
+        let group = "braus-call-\(UUID().uuidString)"
+        let answer: JSONValue
+        do {
+            var handles: [JSONValue] = []
+            for node in nodes {
+                let resolved = try await send(
+                    "DOM.resolveNode",
+                    [
+                        "backendNodeId"     : .number(Double(node)),
+                        "executionContextId": .number(Double(world.contextID)),
+                        "objectGroup"       : .string(group),
+                    ]
+                )
+                guard let object = resolved["object"]?["objectId"]?.stringValue else {
+                    throw CDPError.malformedResult(method: "DOM.resolveNode", detail: "no objectId")
+                }
+                handles.append(["objectId": .string(object)])
+            }
+            answer = try await send(
+                "Runtime.callFunctionOn",
+                [
+                    "functionDeclaration": .string(function),
+                    "objectId"           : .string(world.objectID),
+                    "arguments"          : .array(arguments.map { ["value": $0] } + handles),
+                    "returnByValue"      : true,
+                    "awaitPromise"       : true,
+                ],
+                timeoutSeconds: timeoutSeconds
+            )
+        } catch {
+            if !nodes.isEmpty { await release(group) }
+            throw error
+        }
+        if !nodes.isEmpty { await release(group) }
         try Self.rethrow(answer)
         return answer["result"]?["value"] ?? .null
     }

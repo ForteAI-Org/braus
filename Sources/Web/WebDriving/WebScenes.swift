@@ -38,10 +38,28 @@ public struct WebScenes: SceneProviding {
     ) async throws -> (window: PerceivedWindow, target: String?) {
         let page = try tabs.page(for: processID)
         let read = try await scene(of: processID)
-        guard identity.targetID == page.targetID, identity.sessionID == page.sessionID,
-              read.document == identity.document
-        else { return (read.window, nil) }
-        return (read.window, read.backendNodes.first { $0.value == identity.node }?.key)
+        guard let document = read.document, let node = Self.node(of: identity, page: page, document: document) else {
+            return (read.window, nil)
+        }
+        return (read.window, read.backendNodes.first { $0.value == node }?.key)
+    }
+
+    /// The element `target` resolves to in a fresh scene, as the engine resolves a click, and the identity of its
+    /// node; nil when it resolves to no element alone. The identity is nil for an element with no node of its own,
+    /// one whose id another element shares, or a scene whose document could not be read.
+    public func element(
+        resolving target: String,
+        in processID    : pid_t
+    ) async throws -> (element: SceneElement, identity: WebNodeIdentity?)? {
+        let page = try tabs.page(for: processID)
+        let read = try await scene(of: processID)
+        guard case .found(let element) = read.window.scene.resolve(target: target, preferNativeControls: true) else {
+            return nil
+        }
+        let identity = read.document.flatMap { document in
+            read.backendNodes[element.id].map { Self.identity(page: page, document: document, node: $0) }
+        }
+        return (element, identity)
     }
 
     /// The scene, the document node it was read from, and the DOM node of each element by its id.
@@ -68,6 +86,14 @@ public struct WebScenes: SceneProviding {
     /// The identity of DOM node `node` of the document whose own node is `document`, in `page`'s tab.
     static func identity(page: WebPage, document: Int, node: Int) -> WebNodeIdentity {
         WebNodeIdentity(targetID: page.targetID, sessionID: page.sessionID, document: document, node: node)
+    }
+
+    /// The DOM node `identity` names, when it names a node of `page`'s tab and of its document `document`; nil for
+    /// another tab, session or document, which is no longer the node that was read.
+    static func node(of identity: WebNodeIdentity, page: WebPage, document: Int) -> Int? {
+        guard identity.targetID == page.targetID, identity.sessionID == page.sessionID, identity.document == document
+        else { return nil }
+        return identity.node
     }
 
     /// The backend id of the page's document node, which another document (a navigation, a reload) does not keep.

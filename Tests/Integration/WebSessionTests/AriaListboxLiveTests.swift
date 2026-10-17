@@ -109,10 +109,23 @@ struct AriaListboxLiveTests {
     @Test("a control that puts its value back 100 ms after the choice fails the check, with one click and no replay")
     func restored() async throws {
         try await Self.withPage { page, select in
-            let outcome = try await select("Ripristino", "Blu")
+            let outcome = try await select("Ritorno", "Blu")
             #expect(outcome.kind == .actedUnverified && outcome.check?.verdict == .failed, Comment(rawValue: outcome.message))
             #expect(outcome.check?.observed == "Rosso")
-            #expect(try await Self.number("window.__clicks.ripristini", on: page) == 1)
+            #expect(try await Self.number("window.__clicks.ritorni", on: page) == 1)
+        }
+    }
+
+    @Test("another control's list left open: a button that opens nothing chooses nothing in it, and nothing is clicked there")
+    func anotherControlsList() async throws {
+        try await Self.withPage { page, select in
+            _ = try await page.evaluate("document.getElementById('colore').click()")
+            let open = try await page.evaluate("document.getElementById('colore').getAttribute('aria-expanded')").stringValue
+            #expect(open == "true", "Colore's list is open")
+            let outcome = try await select("Aiuto", "Blu")
+            #expect(outcome.check?.condition != .valueReadBack, Comment(rawValue: outcome.message))
+            #expect(try await Self.number("window.__clicks.colori", on: page) == 0, "no click in Colore's list")
+            #expect(try await Self.number("window.__chosen.colore", on: page) == 0, "Colore keeps Rosso")
         }
     }
 

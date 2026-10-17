@@ -89,6 +89,21 @@ public final class WebTabs: Sendable {
         }
     }
 
+    /// Calls `function` in the tab's isolated world with `arguments` by value and then the DOM nodes `nodes`
+    /// (backend ids) resolved in that world (`WebPage.call(_:in:arguments:nodes:timeoutSeconds:)`). Retried and
+    /// thrown as `evaluate`.
+    func call(
+        _ function    : String,
+        in processID  : pid_t,
+        arguments     : [JSONValue] = [],
+        nodes         : [Int] = [],
+        timeoutSeconds: Double? = nil
+    ) async throws -> JSONValue {
+        try await inWorld(of: processID) { page, world in
+            try await page.call(function, in: world, arguments: arguments, nodes: nodes, timeoutSeconds: timeoutSeconds)
+        }
+    }
+
     /// Runs `call` with the tab's world, made for the document there now when the tab has none or Chrome
     /// refused the kept one, as `evaluate` says.
     private func inWorld<Value>(

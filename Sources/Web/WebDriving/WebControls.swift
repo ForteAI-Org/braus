@@ -216,20 +216,36 @@ public struct WebControls: ControlPressing {
         /// The option cannot be chosen safely (several lists open, several options of that name, a disabled
         /// option): nothing is sent.
         case refused(String)
-        /// The one option to click, by the identity `WebScenes` gives its node.
-        case option(WebNodeIdentity)
+        /// The one option to click, by the identity `WebScenes` gives its node, and its box in viewport CSS pixels,
+        /// which places it in the scene when twins share their scene id and the scene names neither's node.
+        case option(WebNodeIdentity, box: CGRect?)
     }
 
-    /// The option named `item` of the one ARIA list open in the page: the list the expanded control names by
-    /// `aria-controls` or `aria-owns`, else the only list shown. A trailing ` #n` picks the n-th option of that
-    /// name, as the scene reads twins apart; with several and no ordinal, it refuses. The control and the option
-    /// are kept on the isolated world's window for `ariaReadBack`, out of the DOM and of the page's globals.
-    public func ariaOption(named item: String, in processID: pid_t) async -> AriaOption {
+    /// The option named `item` of the ARIA list that the control `owner` opened: the control the session clicked,
+    /// by the identity its scene gave it, never another control expanded in the page. Its list is the one it names
+    /// by `aria-controls` or `aria-owns`, else the only list shown when no other control is expanded. A trailing
+    /// ` #n` picks the n-th option of that name, as the scene reads twins apart; with several and no ordinal, it
+    /// refuses. The control and the option are kept on the isolated world's window for `ariaReadBack`, out of the
+    /// DOM and of the page's globals. A control the page no longer has, or one that cannot be read, is refused.
+    public func ariaOption(named item: String, owner: WebNodeIdentity, in processID: pid_t) async -> AriaOption {
         guard let page = try? tabs.page(for: processID) else { return .noList }
+        guard let document = try? await WebScenes.documentNode(of: page),
+              let node = WebScenes.node(of: owner, page: page, document: document)
+        else { return .refused("the control is no longer the one that was read: the page changed") }
         let (name, ordinal) = Self.explicitOrdinal(item)
-        let script = Self.render(Self.ariaOptionScript, ["LABEL": Self.jsString(LabelText.normalize(name)),
-                                                         "ORDINAL": String(ordinal ?? 0)])
-        guard let answer = await evaluate(script, in: processID) else { return .noList }
+        // The function runs in the isolated world, on the control's node resolved there.
+        let answer: JSONValue
+        do {
+            answer = try await tabs.call(
+                Self.ariaOptionFunction,
+                in            : processID,
+                arguments     : [.string(LabelText.normalize(name)), .number(Double(ordinal ?? 0))],
+                nodes         : [node],
+                timeoutSeconds: 5
+            )
+        } catch {
+            return .refused("the control could not be found or read in the page")
+        }
         let reason = answer["reason"]?.stringValue ?? ""
         switch answer["kind"]?.stringValue {
             case "found"?:
@@ -242,10 +258,14 @@ public struct WebControls: ControlPressing {
                 return .noList
         }
         // The option is kept on the isolated world's window, so it is named from there.
-        guard let backend = (try? await tabs.node(of: "window.__brausAriaOption", in: processID)) ?? nil,
-              let document = try? await WebScenes.documentNode(of: page)
-        else { return .refused("the option could not be named in the page") }
-        return .option(WebScenes.identity(page: page, document: document, node: backend))
+        guard let backend = (try? await tabs.node(of: "window.__brausAriaOption", in: processID)) ?? nil else {
+            return .refused("the option could not be named in the page")
+        }
+        let box = answer["rect"]?.arrayValue.flatMap { values -> CGRect? in
+            let numbers = values.compactMap(\.doubleValue)
+            return numbers.count == 4 ? CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3]) : nil
+        }
+        return .option(WebScenes.identity(page: page, document: document, node: backend), box: box)
     }
 
     /// AriaReadBack is what the control of an ARIA list reads after an option was clicked and the page settled.
@@ -442,46 +462,51 @@ public struct WebControls: ControlPressing {
     // One expression, not two statements: a world's script is evaluated as the value of a function.
     static let closeScript = "delete window.__brausSelect, delete window.__brausOptions"
 
-    /// The option `$LABEL` (normalized like `LabelText.normalize`) of the one ARIA list open in the page, `$ORDINAL`
-    /// the n-th of that name or 0 for the only one. The open list is the one an expanded combo box or pop-up
-    /// control names by `aria-controls` or `aria-owns`, else the only list shown. Answers what it found, and keeps
-    /// the control and the option on the window when it found one. Shadow roots and frames are not searched.
-    static let ariaOptionScript = """
-    (() => {
+    /// Run in the isolated world on the control the session clicked (`control`, resolved there): the option
+    /// `label` (normalized like `LabelText.normalize`) of the ARIA list that control opened, `ordinal` the n-th of
+    /// that name or 0 for the only one. The control is the node clicked, or the element around or inside it that
+    /// carries `aria-expanded`; a control that is not expanded opened nothing, whatever else is open in the page.
+    /// Its list is the one it names by `aria-controls` or `aria-owns`, else the only list shown when no other
+    /// control is expanded. Answers what it found, and keeps the control and the option on the world's window when
+    /// it found one. Shadow roots and frames are not searched.
+    static let ariaOptionFunction = """
+    function (label, ordinal, control) {
       /* braus:aria-options */
+      if (!(control instanceof Element)) return { kind: 'none' };
       const norm = s => (s || '').toLowerCase().replace(/[^\\p{L}\\p{M}\\p{N}]/gu, '');
       const visible = e => { const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1
         && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth; };
-      const owners = [...document.querySelectorAll('[aria-expanded="true"]')].filter(e => {
-        const popup = e.getAttribute('aria-haspopup');
-        return (e.getAttribute('role') === 'combobox' || (popup && popup !== 'false')) && visible(e);
-      });
-      if (!owners.length) return { kind: 'none' };
-      if (owners.length > 1) return { kind: 'refused', reason: 'more than one list is open in the page' };
-      const owner = owners[0];
+      const owner = control.matches('[aria-expanded]') ? control
+        : (control.closest('[aria-expanded]') || control.querySelector('[aria-expanded]'));
+      if (!owner || owner.getAttribute('aria-expanded') !== 'true') return { kind: 'none' };
       const named = ((owner.getAttribute('aria-controls') || '') + ' ' + (owner.getAttribute('aria-owns') || ''))
         .split(/\\s+/).filter(Boolean).map(id => document.getElementById(id)).filter(e => e && visible(e));
-      const shown = [...document.querySelectorAll('[role=listbox], [role=menu]')].filter(visible);
-      const lists = named.length ? named : shown;
-      if (lists.length !== 1) return { kind: 'refused', reason: 'the open list cannot be told from another' };
+      let lists = named;
+      if (!lists.length) {
+        const others = [...document.querySelectorAll('[aria-expanded="true"]')].filter(e => e !== owner && visible(e));
+        if (others.length) return { kind: 'refused', reason: 'the control names no list, and another control is expanded' };
+        lists = [...document.querySelectorAll('[role=listbox], [role=menu]')].filter(visible);
+      }
+      if (lists.length !== 1) return { kind: 'refused', reason: 'the list the control opened cannot be told from another' };
       const options = [...lists[0].querySelectorAll('[role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox]')]
         .filter(visible);
       const nameOf = o => o.getAttribute('aria-label') || o.textContent || '';
-      const matches = options.filter(o => norm(nameOf(o)) === $LABEL);
+      const matches = options.filter(o => norm(nameOf(o)) === label);
       if (!matches.length) return { kind: 'missing', reason: 'the open list has no option of that name' };
-      if (matches.length > 1 && $ORDINAL === 0) {
+      if (matches.length > 1 && ordinal === 0) {
         return { kind: 'refused', reason: 'several options have that name; name one as the scene shows it, with its ordinal' };
       }
-      const chosen = matches[Math.max($ORDINAL, 1) - 1];
+      const chosen = matches[Math.max(ordinal, 1) - 1];
       if (!chosen) return { kind: 'missing', reason: 'the open list has fewer options of that name' };
       if (chosen.closest('[aria-disabled="true"]')) return { kind: 'refused', reason: 'that option is disabled' };
       Object.defineProperty(window, '__brausAriaOwner', { value: owner, configurable: true, writable: true });
       Object.defineProperty(window, '__brausAriaOption', { value: chosen, configurable: true, writable: true });
-      return { kind: 'found' };
-    })()
+      const r = chosen.getBoundingClientRect();
+      return { kind: 'found', rect: [r.x, r.y, r.width, r.height] };
+    }
     """
 
-    /// What the control `ariaOptionScript` kept reads now: its input's value (its own, or the one it holds), else its
+    /// What the control `ariaOptionFunction` kept reads now: its input's value (its own, or the one it holds), else its
     /// `aria-valuetext`, else its text; null when it is gone or is a secure field (`WebSecureFields`).
     static let ariaValueScript = """
     (() => {
