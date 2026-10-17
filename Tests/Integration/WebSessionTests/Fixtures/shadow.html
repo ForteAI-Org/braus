@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="it">
+<head><meta charset="utf-8"><title>Braus shadow</title>
+  <style>
+    body { margin: 0; font: 16px sans-serif; }
+    x-picker, x-switch, x-select { position: absolute; left: 20px; display: block; }
+    x-picker { top: 20px; }
+    x-switch { top: 220px; width: 160px; height: 32px; background: #eee; }
+    x-select { top: 280px; }
+  </style>
+</head>
+<body>
+  <x-picker></x-picker>
+  <x-switch role="switch" tabindex="0" aria-label="Notifiche" aria-checked="false">Notifiche</x-switch>
+  <x-select></x-select>
+  <script>
+    // What the page answers: the size and the color chosen, and the switch's state, by value.
+    window.__chosen = { taglia: 'S', colore: 'Rosso' };
+
+    // An ARIA combo box and its list, both in one open shadow root: aria-controls names an id of that root.
+    const picker = document.querySelector('x-picker').attachShadow({ mode: 'open' });
+    picker.innerHTML = `
+      <style>
+        [role=combobox] { width: 200px; height: 32px; border: 1px solid; }
+        [role=option] { width: 200px; height: 30px; }
+      </style>
+      <div role="combobox" tabindex="0" aria-label="Taglia" aria-expanded="false" aria-controls="taglie">S</div>
+      <div role="listbox" id="taglie" aria-label="Taglie" hidden>
+        <div role="option">S</div><div role="option">M</div><div role="option">L</div>
+      </div>`;
+    const combo = picker.querySelector('[role=combobox]');
+    const list  = picker.getElementById('taglie');
+    combo.addEventListener('click', () => {
+      const open = list.hidden;
+      list.hidden = !open;
+      combo.setAttribute('aria-expanded', String(open));
+    });
+    for (const option of list.querySelectorAll('[role=option]')) {
+      option.addEventListener('click', () => {
+        combo.textContent = option.textContent;
+        window.__chosen.taglia = option.textContent;
+        list.hidden = true;
+        combo.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    // A custom element that is a switch by its own role.
+    const toggle = document.querySelector('x-switch');
+    toggle.addEventListener('click', () => {
+      toggle.setAttribute('aria-checked', String(toggle.getAttribute('aria-checked') !== 'true'));
+    });
+
+    // A native select in an open shadow root.
+    const host = document.querySelector('x-select').attachShadow({ mode: 'open' });
+    host.innerHTML = '<select aria-label="Colore"><option>Rosso</option><option>Blu</option></select>';
+    host.querySelector('select').addEventListener('change', (event) => { window.__chosen.colore = event.target.value; });
+  </script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <title>Braus frames</title>
+  <style>
+    body { margin: 0; font: 16px sans-serif; }
+    button { position: absolute; left: 20px; width: 200px; height: 40px; }
+    #send { top: 20px; }
+    #under { top: 300px; }
+    iframe { position: absolute; left: 0; border: 0; }
+    #pay { top: 100px; width: 400px; height: 120px; }
+    #ad { top: 280px; width: 400px; height: 80px; }
+  </style>
+</head>
+<body>
+  <button id="send" type="button">Invia</button>
+  <iframe id="pay" title="Pagamento" srcdoc="
+    <button id='send' type='button'>Invia</button> <button id='pay' type='button'>Paga</button>
+    <script>
+      for (const b of document.querySelectorAll('button')) {
+        b.addEventListener('click', () => parent.postMessage({ frameClick: b.id }, '*'));
+      }
+    </script>"></iframe>
+  <button id="under" type="button">Sotto il frame</button>
+  <iframe id="ad" title="Pubblicità" srcdoc="<p style='margin: 0; height: 80px; background: #ddd'>Annuncio</p>"></iframe>
+  <script>
+    // Clicks on the main document's buttons, and the clicks the frame's buttons report.
+    window.__clicks = {};
+    window.__frameClicks = {};
+    for (const b of document.querySelectorAll('button')) {
+      b.addEventListener('click', () => { window.__clicks[b.id] = (window.__clicks[b.id] || 0) + 1; });
+    }
+    addEventListener('message', (event) => {
+      const id = event.data && event.data.frameClick;
+      if (id) window.__frameClicks[id] = (window.__frameClicks[id] || 0) + 1;
+    });
+  </script>
+</body>
+</html>

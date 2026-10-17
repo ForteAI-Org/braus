@@ -373,7 +373,8 @@ let package = Package(
                             "SQLiteMemory", "EngineCore", "PerceptionCore", "LocalMCP"].map { .target(name: $0) },
             path         : "Tests/Integration/WebSessionTests",
             resources    : [.copy("Fixtures/web-session.html"), .copy("Fixtures/web-secure.html"),
-                            .copy("Fixtures/select-choices.html"), .copy("Fixtures/aria-listbox.html")],
+                            .copy("Fixtures/select-choices.html"), .copy("Fixtures/aria-listbox.html"),
+                            .copy("Fixtures/shadow.html")],
             swiftSettings: suite
         ),
 
@@ -574,7 +575,7 @@ let package = Package(
         webTests("WebDriving", ["WebDriving", "WebDriver", "Engine", "EngineCore", "PerceptionCore"],
                  resources: [.copy("Fixtures/web-scene.html"), .copy("Fixtures/web-hostile.html"),
                              .copy("Fixtures/web-secure.html"), .copy("Fixtures/hit-test.html"),
-                             .copy("Fixtures/settle.html")]),
+                             .copy("Fixtures/settle.html"), .copy("Fixtures/frames.html")]),
 
         // MARK: Engine tests
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
