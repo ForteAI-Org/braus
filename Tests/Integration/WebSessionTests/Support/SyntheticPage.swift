@@ -25,7 +25,8 @@ import WebDriver
 /// function on; `DOM.getDocument` answers the document's backend id. `DOM.resolveNode` resolves a node by its backend
 /// id, and the click's hit test (`braus:hit-test`), called in the world with the nodes so resolved, answers from the
 /// boxes: a cover on top of the point, the field, or a field gone. The settler's observer runs on a
-/// `MutationObserver` that a text step (`step(texts:)`) notifies, one step at each settling read. A test can
+/// `MutationObserver` that a text step (`step(texts:)`) notifies, one step at each settling read. A test can emit
+/// an event on the page's session (`emit`) and count the commands the page received (`count(of:)`). A test can
 /// change the page (`Change`) now, once right after the next press, or once every read of the n-th scene
 /// was answered (the tree, the snapshot, the metrics and the document of one perception): a field replaced
 /// by a new node in the same place under the same name, a field's type changed, the document replaced, or a cover
@@ -117,6 +118,7 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
     private var documentReadable = true
     private var covers: [(box: CGRect, name: String)] = []
     private var steps : [String] = []
+    private var commands: [String: Int] = [:]
     private var texts      = 0
     private var presses    = 0
     private var afterPress : [Change] = []
@@ -141,6 +143,20 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
     /// The page's text takes each of `texts` in turn, one right before each settling read is answered.
     func step(texts: [String]) {
         lock.withLock { steps += texts }
+    }
+
+    /// Sends an event of the page's session, as Chrome would.
+    func emit(_ method: String, _ params: JSONValue, session: String = "session-1") {
+        guard var data = try? JSONEncoder().encode(JSONValue.object(["method": .string(method), "params": params,
+                                                                      "sessionId": .string(session)]))
+        else { return }
+        data.append(0)
+        feed.yield(data)
+    }
+
+    /// How many commands named `method` the page received.
+    func count(of method: String) -> Int {
+        lock.withLock { commands[method] ?? 0 }
     }
 
     /// The text steps not taken yet.
@@ -218,6 +234,7 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
         guard let id = request["id"] else { return }
         let result = lock.withLock {
             let method = request["method"]?.stringValue ?? ""
+            commands[method, default: 0] += 1
             let answered = answer(method, request["params"] ?? .object([:]))
             if Self.sceneReads.contains(method) {
                 reads[method, default: 0] += 1

@@ -13,9 +13,11 @@ import WebDriver
 ///
 /// The count of changes comes from an observer `prepare` installs in the page before the gesture, so a
 /// text replaced by one of the same length keeps the page busy (W12). A `style` attribute is not
-/// counted, so an animation alone does not hold every action to its cap. A page that reacts later
-/// than `quiet` after it went still (a request still in flight, a timer) is not waited for, and a
-/// focused field's value changed to one of the same length is not seen.
+/// counted, so an animation alone does not hold every action to its cap. `prepare` also starts a watch
+/// of the tab's requests (`WebRequests`): the page is not quiet while a fetch, an XMLHttpRequest or a
+/// document it started is in flight. The watch ends with `settle`, or at its lifetime when no settle
+/// comes. A page that reacts later than `quiet` after it went still with nothing in flight (a timer)
+/// is not waited for, and a focused field's value changed to one of the same length is not seen.
 ///
 /// The first read waits one interval, so a page that reacts on the next frame is not judged
 /// before it has drawn. The signature is read from the tab's isolated world (`WebTabs.evaluate`).
@@ -24,23 +26,39 @@ public struct WebSettler: Settling {
     let tabs    : WebTabs
     let interval: Duration
     let quiet   : Duration
+    /// How long a watch of requests lasts past its last `prepare` when no `settle` ends it.
+    let lifetime: Duration
 
-    public init(tabs: WebTabs, interval: Duration = .milliseconds(50), quiet: Duration = .milliseconds(150)) {
+    public init(tabs: WebTabs, interval: Duration = .milliseconds(50), quiet: Duration = .milliseconds(150),
+                lifetime: Duration = .seconds(10)) {
         self.tabs     = tabs
         self.interval = interval
         self.quiet    = quiet
+        self.lifetime = lifetime
     }
 
     /// Installs, once per document, the observer that counts the page's DOM changes, in the tab's isolated
-    /// world, where the signature reads its count.
+    /// world, where the signature reads its count, and starts the watch of the tab's requests, or keeps the one
+    /// running for a later gesture of the same action.
     public func prepare(in processID: pid_t) async {
+        guard let page = try? tabs.page(for: processID) else { return }
         _ = try? await tabs.evaluate(Self.observerScript, in: processID, timeoutSeconds: 2)
+        if let running = tabs.requests(of: processID), !running.isClosed {
+            running.extend(by: lifetime)
+            return
+        }
+        guard let watch = await WebRequests.start(on: page, lifetime: lifetime) else { return }
+        if let replaced = tabs.setRequests(watch, for: processID) { await replaced.stop(disabling: replaced === watch) }
+        let tabs = self.tabs
+        watch.attach(expiry: Task { await Self.expire(watch, of: processID, tabs: tabs) })
     }
 
     public func settle(in processID: pid_t, cap: Duration) async {
         let clock = ContinuousClock()
         let deadline = clock.now + cap
+        let watch = tabs.requests(of: processID)
         guard (try? tabs.page(for: processID)) != nil else {
+            await Self.end(watch, of: processID, tabs: tabs)
             try? await Task.sleep(until: deadline)
             return
         }
@@ -48,20 +66,40 @@ public struct WebSettler: Settling {
         var stillSince = clock.now
         while clock.now < deadline {
             try? await Task.sleep(for: min(interval, deadline - clock.now))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { break }
             let signature = try? await tabs.evaluate(Self.signatureScript, in: processID, timeoutSeconds: 2)
             let now = clock.now
             if let signature, signature == last {
-                if now - stillSince >= quiet, signature[0]?.stringValue == "complete" { return }
+                // The watch counted, inline, every request whose start came before this read's answer.
+                if now - stillSince >= quiet, signature[0]?.stringValue == "complete", (watch?.inFlight ?? 0) == 0 {
+                    break
+                }
             } else {
                 last = signature
                 stillSince = now
             }
         }
+        await Self.end(watch, of: processID, tabs: tabs)
     }
 
-    /// Counts, on the isolated world's window and out of the DOM, the page's changes: nodes added or removed, text, and every
-    /// attribute but `style`.
+    /// Stops `watch` when it is still its tab's watch; one already replaced or stopped is left alone.
+    static func end(_ watch: WebRequests?, of processID: pid_t, tabs: WebTabs) async {
+        guard let watch, tabs.takeRequests(watch, of: processID) else { return }
+        await watch.stop(disabling: true)
+    }
+
+    /// Ends `watch` at its deadline, which a later `prepare` may move, unless something stopped it before.
+    static func expire(_ watch: WebRequests, of processID: pid_t, tabs: WebTabs) async {
+        while !watch.isStopped {
+            let deadline = watch.deadline
+            guard (try? await Task.sleep(until: deadline)) != nil else { return }
+            if ContinuousClock.now >= watch.deadline { break }
+        }
+        await end(watch, of: processID, tabs: tabs)
+    }
+
+    /// Counts, on the isolated world's window and out of the DOM, the page's changes: nodes added or removed,
+    /// text, and every attribute but `style`.
     static let observerScript = """
     (() => {
       /* braus:mutations */

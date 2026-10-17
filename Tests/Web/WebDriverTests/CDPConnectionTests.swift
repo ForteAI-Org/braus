@@ -160,6 +160,41 @@ struct CDPConnectionTests {
         #expect(await iterator.next() == nil)
     }
 
+    @Test("An observer sees an event before the answer Chrome sent after it resumes its command; once removed it sees nothing; a close reaches it as nil")
+    func observersInOrder() async throws {
+        // Each command is answered by an event first, then its answer, in one write, as Chrome may.
+        let transport = ScriptedTransport { message in
+            guard let id = message["id"] else { return nil }
+            var bytes = CDPConnectionTests.frame(["method": "Network.requestWillBeSent", "sessionId": "s1",
+                                                  "params": ["requestId": .string("r\(id.intValue ?? 0)")]])
+            bytes.append(CDPConnectionTests.frame(["id": id, "result": [:]]))
+            return bytes
+        }
+        let connection = await CDPConnection(transport: transport)
+        let seen = Mutex<[String?]>([])
+        let key = await connection.addObserver { event in
+            seen.withLock { $0.append(event.map { $0.params["requestId"]?.stringValue ?? $0.method }) }
+        }
+        _ = try await connection.send("Runtime.evaluate", sessionID: "s1")
+        #expect(seen.withLock { $0 } == ["r1"], "the event was observed before the answer resumed the command")
+        #expect(await connection.observerCount == 1)
+
+        await connection.removeObserver(key)
+        _ = try await connection.send("Runtime.evaluate", sessionID: "s1")
+        #expect(seen.withLock { $0 } == ["r1"], "nothing after the removal")
+        #expect(await connection.observerCount == 0)
+
+        let closing = Mutex<[Bool]>([])
+        _ = await connection.addObserver { event in closing.withLock { $0.append(event == nil) } }
+        transport.close()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(closing.withLock { $0 } == [true], "the close reached the observer as nil")
+        #expect(await connection.observerCount == 0)
+        let late = Mutex<[Bool]>([])
+        _ = await connection.addObserver { event in late.withLock { $0.append(event == nil) } }
+        #expect(late.withLock { $0 } == [true], "an observer added after the close hears nil at once")
+    }
+
     // MARK: Launch options
 
     @Test("Launch arguments open the pipe on the chosen profile, headless by default")

@@ -38,6 +38,8 @@ public final class WebTabs: Sendable {
         /// The node, and its document, a gesture under way was decided on by a read before the engine's own: a click
         /// reaches that node only, and no gesture reaches another document, even when the engine's read saw it (W05).
         var held    : (document: Int, node: Int)?
+        /// The watch of the tab's requests in flight, from a settler's prepare to its settle (W12); at most one.
+        var requests: WebRequests?
     }
 
     /// The name Chrome shows for the engine's world in the DevTools context list.
@@ -63,9 +65,10 @@ public final class WebTabs: Sendable {
         }
     }
 
-    /// Forgets a tab. Its id is never handed out again.
+    /// Forgets a tab, and stops the watch of its requests. Its id is never handed out again.
     public func remove(_ processID: pid_t) {
-        state.withLock { _ = $0.tabs.removeValue(forKey: processID) }
+        let watch = state.withLock { $0.tabs.removeValue(forKey: processID)?.requests }
+        if let watch { Task { await watch.stop(disabling: true) } }
     }
 
     /// The page behind an id. Throws `WebDrivingError.unknownTab` for an id never registered or removed.
@@ -176,6 +179,31 @@ public final class WebTabs: Sendable {
     /// The elements of the last scene of the tab.
     func targets(of processID: pid_t) -> [Target] {
         state.withLock { $0.tabs[processID]?.targets ?? [] }
+    }
+
+    /// The watch of the tab's requests, if one is running.
+    func requests(of processID: pid_t) -> WebRequests? {
+        state.withLock { $0.tabs[processID]?.requests }
+    }
+
+    /// Makes `watch` the tab's watch, and answers the one it replaced, which the caller stops. A tab gone takes none:
+    /// `watch` itself is answered then.
+    func setRequests(_ watch: WebRequests, for processID: pid_t) -> WebRequests? {
+        state.withLock { state in
+            guard state.tabs[processID] != nil else { return watch }
+            defer { state.tabs[processID]?.requests = watch }
+            return state.tabs[processID]?.requests
+        }
+    }
+
+    /// Takes `watch` out of the tab when it is still the tab's watch, and answers whether it was: only then does the
+    /// caller stop it, so a watch that ended long ago never stops the one that replaced it.
+    func takeRequests(_ watch: WebRequests, of processID: pid_t) -> Bool {
+        state.withLock { state in
+            guard let current = state.tabs[processID]?.requests, current === watch else { return false }
+            state.tabs[processID]?.requests = nil
+            return true
+        }
     }
 
     /// Holds the tab to node `node` of document node `document` until it is held to nil.

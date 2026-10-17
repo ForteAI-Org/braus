@@ -22,6 +22,9 @@ public actor CDPConnection {
     /// Whether the transport has finished or `close()` was called.
     public private(set) var isClosed = false
 
+    /// How many observers `addObserver` registered and nothing removed yet.
+    public var observerCount: Int { observers.count }
+
     private struct Waiting {
         let method      : String
         let continuation: CheckedContinuation<JSONValue, any Error>
@@ -32,6 +35,7 @@ public actor CDPConnection {
     private var nextID     = 1
     private var waiting    : [Int: Waiting] = [:]
     private var subscribers: [UUID: AsyncStream<CDPEvent>.Continuation] = [:]
+    private var observers  : [UUID: @Sendable (CDPEvent?) -> Void] = [:]
     private var splitter   = CDPFrameSplitter()
     private var reading    : Task<Void, Never>?
 
@@ -107,6 +111,25 @@ public actor CDPConnection {
         return stream
     }
 
+    /// Calls `observer` with every event from now on, inline, in the order the connection reads them, and with nil
+    /// once the connection closed. An answer read after an event is resumed after the observer saw that event, so a
+    /// caller that awaited a command finds every event Chrome sent before its answer already observed. The observer
+    /// runs on the connection and must return at once. Returns the key `removeObserver` takes.
+    public func addObserver(_ observer: @escaping @Sendable (CDPEvent?) -> Void) -> UUID {
+        let key = UUID()
+        guard !isClosed else {
+            observer(nil)
+            return key
+        }
+        observers[key] = observer
+        return key
+    }
+
+    /// Removes the observer `key`: once this returns, it is never called again.
+    public func removeObserver(_ key: UUID) {
+        observers.removeValue(forKey: key)
+    }
+
     /// Closes the transport. Waiting commands fail with `connectionClosed`.
     public func close() {
         transport.close()
@@ -129,6 +152,7 @@ public actor CDPConnection {
                     params   : message["params"] ?? [:],
                     sessionID: message["sessionId"]?.stringValue
                 )
+                for observer in observers.values { observer(event) }
                 for subscriber in subscribers.values { subscriber.yield(event) }
             } else {
                 unreadableFrameCount += 1
@@ -169,5 +193,7 @@ public actor CDPConnection {
         }
         for subscriber in subscribers.values { subscriber.finish() }
         subscribers.removeAll()
+        for observer in observers.values { observer(nil) }
+        observers.removeAll()
     }
 }

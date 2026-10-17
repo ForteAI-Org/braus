@@ -46,6 +46,26 @@ public struct WebPage: Sendable, Hashable {
         return await connection.events().filter { $0.sessionID == sessionID }
     }
 
+    /// Calls `observer` with each event of this page's session from now on, inline in the connection's read order
+    /// (`CDPConnection.addObserver`), and with nil once the connection closed or the page's session was detached, its
+    /// tab closed. Returns the key `stopObserving` takes.
+    public func observe(_ observer: @escaping @Sendable (CDPEvent?) -> Void) async -> UUID {
+        let sessionID = self.sessionID
+        return await connection.addObserver { event in
+            guard let event else { return observer(nil) }
+            if event.sessionID == sessionID {
+                observer(event)
+            } else if event.method == "Target.detachedFromTarget", event.params["sessionId"]?.stringValue == sessionID {
+                observer(nil)
+            }
+        }
+    }
+
+    /// Stops the observer `key`: once this returns, it is never called again.
+    public func stopObserving(_ key: UUID) async {
+        await connection.removeObserver(key)
+    }
+
     /// Loads `url` and waits for its load event.
     ///
     /// Throws `CDPError.protocolError` with Chrome's `errorText` when the navigation fails, and
