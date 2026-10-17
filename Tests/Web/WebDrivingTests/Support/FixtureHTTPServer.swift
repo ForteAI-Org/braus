@@ -14,8 +14,10 @@ import Network
 /// - `/hang`: no answer, until the client closes;
 /// - anything else: 404.
 ///
-/// It keeps how many requests each path received, nothing of their headers or bodies. `stop` cancels the listener
-/// and every connection still open; afterwards the port refuses connections.
+/// It keeps how many requests each path received, nothing of their headers or bodies. `stop` cancels the listener,
+/// ends the stream of new connections, cancels every connection still open, and returns once the task that took
+/// connections and every task serving one have ended; afterwards the port refuses connections. A start that fails
+/// leaves no listener, stream or task.
 actor FixtureHTTPServer {
 
     nonisolated let port: UInt16
@@ -24,73 +26,111 @@ actor FixtureHTTPServer {
     private let listener: NWListener
     private let queue   : DispatchQueue
     private let page    : String
+    private let incoming: AsyncStream<NWConnection>.Continuation
+    private var taking  : Task<Void, Never>?
     private var open    : [ObjectIdentifier: NWConnection] = [:]
+    private var serving : [ObjectIdentifier: Task<Void, Never>] = [:]
     private var isStopped = false
     private(set) var counts: [String: Int] = [:]
 
-    private init(listener: NWListener, port: UInt16, queue: DispatchQueue, page: String) {
+    private init(listener: NWListener, port: UInt16, queue: DispatchQueue, page: String,
+                 incoming: AsyncStream<NWConnection>.Continuation) {
         self.listener = listener
         self.port     = port
         self.queue    = queue
         self.page     = page
+        self.incoming = incoming
     }
 
-    static func start(page: String) async throws -> FixtureHTTPServer {
+    /// Starts serving `page` on 127.0.0.1, on `port`, by default one the system picks.
+    static func start(page: String, port: NWEndpoint.Port = .any) async throws -> FixtureHTTPServer {
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
         let listener = try NWListener(using: parameters)
         let queue = DispatchQueue(label: "dev.forte.braus.webdriving.tests.http")
         let (connections, continuation) = AsyncStream<NWConnection>.makeStream()
         listener.newConnectionHandler = { continuation.yield($0) }
-        let port: UInt16 = try await withCheckedThrowingContinuation { ready in
-            listener.stateUpdateHandler = { state in
-                switch state {
-                    case .ready:
-                        listener.stateUpdateHandler = nil
-                        ready.resume(returning: listener.port?.rawValue ?? 0)
-                    case .failed(let error):
-                        listener.stateUpdateHandler = nil
-                        ready.resume(throwing: error)
-                    default:
-                        break
+        let port: UInt16
+        do {
+            port = try await withCheckedThrowingContinuation { ready in
+                listener.stateUpdateHandler = { state in
+                    switch state {
+                        case .ready:
+                            listener.stateUpdateHandler = nil
+                            ready.resume(returning: listener.port?.rawValue ?? 0)
+                        case .failed(let error):
+                            listener.stateUpdateHandler = nil
+                            ready.resume(throwing: error)
+                        default:
+                            break
+                    }
                 }
+                listener.start(queue: queue)
             }
-            listener.start(queue: queue)
+        } catch {
+            listener.newConnectionHandler = nil
+            listener.cancel()
+            continuation.finish()
+            throw error
         }
-        let server = FixtureHTTPServer(listener: listener, port: port, queue: queue, page: page)
-        Task {
-            for await connection in connections {
-                Task { await server.serve(connection) }
-            }
-        }
+        let server = FixtureHTTPServer(listener: listener, port: port, queue: queue, page: page, incoming: continuation)
+        await server.take(connections)
         return server
     }
 
-    /// Cancels the listener and every connection still open. Idempotent.
-    func stop() {
-        guard !isStopped else { return }
-        isStopped = true
-        listener.cancel()
-        for connection in open.values { connection.cancel() }
-        open.removeAll()
+    /// Starts the task that takes each new connection and serves it in a task of its own, kept until it ends.
+    private func take(_ connections: AsyncStream<NWConnection>) {
+        taking = Task { [weak self] in
+            for await connection in connections {
+                await self?.accept(connection)
+            }
+        }
     }
 
-    private func serve(_ connection: NWConnection) async {
+    private func accept(_ connection: NWConnection) {
         guard !isStopped else { return connection.cancel() }
         let key = ObjectIdentifier(connection)
         open[key] = connection
+        serving[key] = Task { [weak self] in await self?.serve(connection, key: key) }
+    }
+
+    /// Cancels the listener, ends the stream of new connections, cancels every connection still open, and returns
+    /// once the taking task and every serving task have ended. Idempotent.
+    func stop() async {
+        guard !isStopped else { return }
+        isStopped = true
+        listener.newConnectionHandler = nil
+        listener.cancel()
+        incoming.finish()
+        for connection in open.values { connection.cancel() }
+        let tasks = Array(serving.values)
+        for task in tasks { task.cancel() }
+        await taking?.value
+        for task in tasks { await task.value }
+        taking = nil
+        serving.removeAll()
+        open.removeAll()
+    }
+
+    /// How many connection tasks are still running: none once `stop` returned.
+    var runningTasks: Int { serving.count + (taking == nil ? 0 : 1) }
+
+    private func serve(_ connection: NWConnection, key: ObjectIdentifier) async {
         defer {
             connection.cancel()
             open.removeValue(forKey: key)
+            serving.removeValue(forKey: key)
         }
         connection.start(queue: queue)
         guard let path = await Self.path(of: connection) else { return }
         counts[path, default: 0] += 1
+        guard !isStopped else { return }
         switch path {
             case "/":
                 await Self.write(connection, Self.answer(200, "text/html; charset=utf-8", page))
             case "/slow":
                 try? await Task.sleep(for: .milliseconds(600))
+                guard !isStopped else { return }
                 await Self.write(connection, Self.answer(200, "text/plain", "ok"))
             case "/fail":
                 return
