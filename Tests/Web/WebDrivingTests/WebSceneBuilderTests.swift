@@ -123,6 +123,27 @@ struct WebSceneBuilderTests {
         #expect(try Self.element("Mail", in: scene).section == "header")
     }
 
+    @Test("W07: a frame is a section that says its contents are not read, never an element; what lies under it keeps its own section")
+    func frames() {
+        let nodes = [
+            WebAXNode(id: "1", childIDs: ["2", "3", "4"], role: "RootWebArea", name: "Shop", backendNodeID: 1),
+            WebAXNode(id: "2", parentID: "1", role: "button", name: "Invia", backendNodeID: 2),
+            WebAXNode(id: "3", parentID: "1", role: "Iframe", name: "Pagamento", backendNodeID: 3),
+            WebAXNode(id: "4", parentID: "1", role: "button", name: "Sotto", backendNodeID: 4),
+        ]
+        let boxes: [Int: CGRect] = [
+            1: CGRect(x: 0, y: 0, width: 1000, height: 500),
+            2: CGRect(x: 10, y: 10, width: 80, height: 20),
+            3: CGRect(x: 0, y: 100, width: 400, height: 200),
+            4: CGRect(x: 10, y: 150, width: 80, height: 20),
+        ]
+        let scene = WebSceneBuilder.build(nodes: nodes, layout: WebLayout(boxes: boxes, viewport: CGSize(width: 1000, height: 500)))
+            .scene
+        #expect(scene.sections.map(\.name).contains("frame, contents not read (Pagamento)"))
+        #expect(scene.elements.map(\.label) == ["Invia", "Sotto"], "the frame is no element")
+        #expect(scene.elements.first { $0.label == "Sotto" }?.section == nil, "the button under the frame is not the frame's")
+    }
+
     @Test("A long text is cut to a label's length")
     func longText() throws {
         let long = String(repeating: "word ", count: 40)

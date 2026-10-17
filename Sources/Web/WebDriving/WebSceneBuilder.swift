@@ -52,6 +52,8 @@ public enum WebSceneBuilder {
         // The DOM node of each element, in the elements' order.
         var elementNodes: [Int?]                           = []
         var sections: [(name: String, rect: NormalizedRect)] = []
+        // The frames shown in the page, whose own documents the scene does not read (W07).
+        var frames  : [(name: String, rect: NormalizedRect)] = []
 
         func visibleBounds(of node: WebAXNode) -> NormalizedRect? {
             guard let id = node.backendNodeID, let box = layout.boxes[id] else { return nil }
@@ -78,6 +80,9 @@ public enum WebSceneBuilder {
                 }
                 if collectionRoles.contains(node.role) {
                     collection = collection ?? (container.map { $0 + " / " } ?? "") + (name.isEmpty ? node.role : name)
+                }
+                if Self.frameRoles.contains(node.role), let bounds = visibleBounds(of: node) {
+                    frames.append((Self.frameName(name), bounds))
                 }
                 let isSecure = node.backendNodeID.map(layout.secureFieldIDs.contains) ?? false
                 if let element = element(for: node, name: name, container: container, collection: collection,
@@ -141,6 +146,13 @@ public enum WebSceneBuilder {
                 .min { $0.bounds.area < $1.bounds.area }?
                 .name
         }
+        // After the elements took their sections: what lies under a frame is the main document's, not the frame's.
+        var frameNames: [String: Int] = [:]
+        for frame in frames {
+            let count = (frameNames[frame.name] ?? 0) + 1
+            frameNames[frame.name] = count
+            named.append(SceneSection(name: count > 1 ? "\(frame.name) #\(count)" : frame.name, bounds: frame.rect))
+        }
 
         let appKey = appKey(for: layout.url)
         let capture = CaptureQuality(
@@ -198,6 +210,14 @@ public enum WebSceneBuilder {
     static let namedPlaceRoles: [String: String] = ["form": "form", "region": "region"]
 
     static let groupRoles: Set<String> = ["group", "toolbar", "radiogroup", "tablist", "menu", "menubar"]
+
+    /// A frame shows another document, which the scene does not read: it is a section that says so, never an
+    /// element a click could be sent into.
+    static let frameRoles: Set<String> = ["Iframe", "IframePresentational"]
+
+    static func frameName(_ name: String) -> String {
+        name.isEmpty ? "frame, contents not read" : "frame, contents not read (\(cut(name)))"
+    }
 
     static let collectionRoles: Set<String> = ["table", "grid", "treegrid", "tree", "listbox"]
 
