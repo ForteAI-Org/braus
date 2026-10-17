@@ -16,6 +16,15 @@
     #box { position: absolute; top: 380px; left: 40px; width: 300px; height: 100px; overflow: auto; border: 1px solid; }
     #spacer { height: 250px; }
     #hidden { position: static; }
+    #start, #inside { margin: 0; height: 20px; }
+    #covered-field { position: absolute; top: 50px; left: 300px; width: 200px; height: 30px; }
+    #free-field { position: absolute; top: 500px; left: 40px; width: 200px; height: 30px; }
+    #outer { position: absolute; top: 240px; left: 400px; width: 300px; height: 150px; overflow: auto;
+             border: 1px solid; }
+    #inner { height: 100px; overflow: auto; border: 1px solid; }
+    #inner-spacer { height: 200px; }
+    #outer-spacer { height: 300px; }
+    #nested { position: static; }
   </style>
 </head>
 <body>
@@ -25,14 +34,35 @@
   <div id="glass" aria-hidden="true"></div>
   <a id="link" href="#">Collegamento</a>
   <div id="host"></div>
-  <div id="box"><div id="spacer"></div><button id="hidden" type="button">Nascosto</button></div>
+  <div id="box"><p id="start">Inizio</p><div id="spacer"></div><button id="hidden" type="button">Nascosto</button></div>
+  <input id="covered-field" aria-label="Campo coperto">
+  <input id="free-field" aria-label="Campo libero">
+  <div id="outer">
+    <div id="inner">
+      <p id="inside">Interno</p><div id="inner-spacer"></div><button id="nested" type="button">Annidato</button>
+    </div>
+    <div id="outer-spacer"></div>
+  </div>
   <script>
     // Every press that reaches the document, and every click each control receives.
     window.__downs = 0;
     window.__clicks = {};
     document.addEventListener('mousedown', () => window.__downs++, true);
     const count = (id) => () => { window.__clicks[id] = (window.__clicks[id] || 0) + 1; };
-    for (const id of ['under', 'through', 'hidden']) document.getElementById(id).addEventListener('click', count(id));
+    for (const id of ['under', 'through', 'hidden', 'nested']) {
+      document.getElementById(id).addEventListener('click', count(id));
+    }
+    // Context menus by the element they reached, wheel turns and key presses that reached the document (W10).
+    window.__menus = {};
+    window.__wheels = 0;
+    window.__keys = 0;
+    document.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      const id = event.target.id || event.target.tagName.toLowerCase();
+      window.__menus[id] = (window.__menus[id] || 0) + 1;
+    }, true);
+    document.addEventListener('wheel', () => window.__wheels++, { capture: true, passive: true });
+    document.addEventListener('keydown', () => window.__keys++, true);
     document.getElementById('link').addEventListener('click', (event) => { event.preventDefault(); count('link')(); });
     const shadow = document.getElementById('host').attachShadow({ mode: 'open' });
     shadow.innerHTML = '<button type="button" style="width: 200px; height: 40px">Ombra</button>';
