@@ -24,7 +24,8 @@ import WebDriver
 /// its backend id (an element's numeric `id`), node name and `type`, and `Runtime.callFunctionOn` runs a
 /// function on; `DOM.getDocument` answers the document's backend id. `DOM.resolveNode` resolves a node by its backend
 /// id, and the click's hit test (`braus:hit-test`), called in the world with the nodes so resolved, answers from the
-/// boxes: a cover on top of the point, the field, or a field gone. A test can
+/// boxes: a cover on top of the point, the field, or a field gone. The settler's observer runs on a
+/// `MutationObserver` that a text step (`step(texts:)`) notifies, one step at each settling read. A test can
 /// change the page (`Change`) now, once right after the next press, or once every read of the n-th scene
 /// was answered (the tree, the snapshot, the metrics and the document of one perception): a field replaced
 /// by a new node in the same place under the same name, a field's type changed, the document replaced, or a cover
@@ -61,6 +62,10 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
     /// The DOM the scripts run on: fields, `document` with the focus, `location`, the viewport, and the
     /// helpers the page's input events call.
     static let dom = """
+    var window = this;
+    var __observers = [];
+    function MutationObserver(callback) { this.callback = callback; }
+    MutationObserver.prototype.observe = function () { __observers.push(this); };
     var __fields = [];
     function __input(id, type, name, value, box) {
       var e = { tagName: 'INPUT', id: id, type: type, name: name, value: value, box: box,
@@ -97,6 +102,10 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
       e.value += text;
     }
     function __command(name) { if (name === 'selectAll') { __selected = true; } }
+    function __retext(text) {
+      document.body.innerText = text;
+      for (var i = 0; i < __observers.length; i++) { __observers[i].callback([{ type: 'characterData', attributeName: null }]); }
+    }
     """
 
     let incoming: AsyncStream<Data>
@@ -107,6 +116,7 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
     private var documentID = 1
     private var documentReadable = true
     private var covers: [(box: CGRect, name: String)] = []
+    private var steps : [String] = []
     private var texts      = 0
     private var presses    = 0
     private var afterPress : [Change] = []
@@ -127,6 +137,14 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
                                    + "\(Self.literal(field.value)), \(box));")
         }
     }
+
+    /// The page's text takes each of `texts` in turn, one right before each settling read is answered.
+    func step(texts: [String]) {
+        lock.withLock { steps += texts }
+    }
+
+    /// The text steps not taken yet.
+    var pendingSteps: Int { lock.withLock { steps.count } }
 
     /// How many mouse presses and how many typed texts (keys with text, insertions) reached the page.
     var pressCount: Int { lock.withLock { presses } }
@@ -276,6 +294,9 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
 
     /// The script's value as `Runtime.evaluate` returns it by value, or its exception.
     private func evaluate(_ expression: String) -> JSONValue {
+        if expression.contains("braus:settle"), !steps.isEmpty {
+            context.evaluateScript("__retext(\(Self.literal(steps.removeFirst())));")
+        }
         context.exception = nil
         let text = context.evaluateScript("(function () { var v = (\(expression)); return v === undefined ? "
                                           + "'{\"undefined\":true}' : JSON.stringify(v); })()")?.toString()

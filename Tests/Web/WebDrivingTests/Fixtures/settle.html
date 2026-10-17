@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="it">
+<head><meta charset="utf-8"><title>Braus settling</title></head>
+<body>
+  <button id="start" type="button">Avvia</button>
+  <button id="load" type="button">Carica</button>
+  <p id="state" role="status">Attesa!</p>
+  <script>
+    const state = document.getElementById('state');
+    // Ten texts of one length, one every 60 ms, then a last one of that length too: 660 ms of changes.
+    document.getElementById('start').addEventListener('click', () => {
+      let step = 0;
+      const timer = setInterval(() => {
+        state.textContent = step < 10 ? 'Passo ' + step : 'Pronto!';
+        if (step++ === 10) clearInterval(timer);
+      }, 60);
+    });
+    // A reaction 400 ms after the click, with nothing changing before it: a request answered late.
+    document.getElementById('load').addEventListener('click', () => {
+      setTimeout(() => { state.textContent = 'Caricato'; }, 400);
+    });
+  </script>
+</body>
+</html>
