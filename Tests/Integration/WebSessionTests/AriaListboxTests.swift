@@ -81,6 +81,16 @@ struct AriaListboxTests {
         #expect(page.shownValue == "Rosso")
     }
 
+    @Test("the list re-rendered in the same document between the session's read and the engine's own, a new Blu in the old one's place: the click is refused unsent")
+    func rerenderedBeforeTheEnginesRead() async throws {
+        let page = ScriptedAriaPage(turn: (.rerender(ScriptedAriaPage.renewed), method: "Accessibility.getFullAXTree", count: 2))
+        let outcome = try await Self.choose("Blu", on: page)
+        #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
+        #expect(outcome.message.contains("nothing was sent"), Comment(rawValue: outcome.message))
+        #expect(page.pressCount == 1, "only the opening click")
+        #expect(page.shownValue == "Rosso")
+    }
+
     @Test("a control that reads another value after settling fails the check, and nothing is chosen again")
     func notKept() async throws {
         let page = ScriptedAriaPage(readBacks: ["Blu", "Rosso"])

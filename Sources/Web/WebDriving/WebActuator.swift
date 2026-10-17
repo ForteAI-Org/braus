@@ -26,6 +26,16 @@ public struct WebActuator: Actuating {
     }
 
     public func perform(_ gesture: Gesture, in processID: pid_t) async throws {
+        try await deliver(gesture, expecting: nil, in: processID)
+    }
+
+    /// The same, for a click aimed at the element the scene names `label`: it goes out only when the page would hit
+    /// that element at its point, or the node the tab is held to (W10, W09, W05).
+    public func perform(_ gesture: Gesture, expecting label: String, in processID: pid_t) async throws {
+        try await deliver(gesture, expecting: label, in: processID)
+    }
+
+    private func deliver(_ gesture: Gesture, expecting label: String?, in processID: pid_t) async throws {
         let page = try tabs.page(for: processID)
         // A gesture reaches only the document the scene was read from (W11), and the one it was decided on when the
         // tab is held (W05). A navigation or a reload since then is another document, and a scene whose document could
@@ -37,10 +47,13 @@ public struct WebActuator: Actuating {
                                      + "before acting.")
         }
         let current = try? await WebScenes.documentNode(of: page)
-        if current != read || tabs.held(of: processID).map({ $0 != current }) == true {
+        if current != read || tabs.held(of: processID).map({ $0.document != current }) == true {
             throw GestureNotSent(reason: "page_changed",
                                  sentence: "The page is no longer the document that was read: it navigated or "
                                      + "reloaded. Observe it again before acting.")
+        }
+        if case .click(let point, _, _) = gesture, let label {
+            try await hitCheck(point, label: label, in: processID)
         }
         // An open select's list goes, as Chrome's own does, on Escape or on a click outside it.
         if let window = tabs.window(of: processID), let popup = window.popup {
@@ -58,6 +71,83 @@ public struct WebActuator: Actuating {
             _ = try await page.send(method, params)
         }
     }
+
+    /// Refuses, with nothing sent, a click at `point` that the page would not deliver to the element the scene names
+    /// `label` there, or to the node the tab is held to: something is on top of it (an overlay, a banner, a frame), a
+    /// scroll container clips it, or the node is gone. The page's own hit-testing decides, through open shadow roots.
+    /// Several elements of that label holding the point (a link and its text) each count as the target.
+    private func hitCheck(_ point: CGPoint, label: String, in processID: pid_t) async throws {
+        let nodes = tabs.held(of: processID).map { [$0.node] }
+            ?? tabs.targets(of: processID).filter { $0.label == label && $0.box.contains(point) }.compactMap(\.node)
+        guard !nodes.isEmpty else {
+            throw GestureNotSent(reason: "target_unbound",
+                                 sentence: "'\(label)' has no node in the page at that point that the click could be "
+                                     + "checked against: nothing was sent. Observe it again before acting.")
+        }
+        // The hit test runs in the isolated world, on the target nodes resolved there.
+        let answer: JSONValue?
+        do {
+            answer = try await tabs.call(
+                Self.hitFunction,
+                in            : processID,
+                arguments     : [.number(point.x), .number(point.y)],
+                nodes         : nodes,
+                timeoutSeconds: 5
+            )
+        } catch CDPError.protocolError(method: "DOM.resolveNode", _, _) {
+            throw Self.gone(label)
+        } catch {
+            answer = nil
+        }
+        switch answer?["kind"]?.stringValue {
+            case "target"?:
+                return
+            case "gone"?:
+                throw Self.gone(label)
+            case "covered"?:
+                let cover = answer?["cover"]?.stringValue ?? "another element"
+                throw GestureNotSent(reason: "target_covered",
+                                     sentence: "'\(label)' is not what the page would click at its point: \(cover) is "
+                                         + "on top of it there (an overlay, a banner, or a scroll container that clips "
+                                         + "it). Nothing was sent. Close or scroll away what covers it, then observe "
+                                         + "again.")
+            default:
+                throw GestureNotSent(reason: "target_unchecked",
+                                     sentence: "Whether a click would reach '\(label)' could not be checked in the "
+                                         + "page: nothing was sent. Observe it again before acting.")
+        }
+    }
+
+    private static func gone(_ label: String) -> GestureNotSent {
+        GestureNotSent(reason: "target_gone",
+                       sentence: "'\(label)' is no longer the element that was read: the page removed or replaced it. "
+                           + "Nothing was sent. Observe it again before acting.")
+    }
+
+    /// Run in the isolated world with a viewport point and the target nodes resolved there: whether the element the
+    /// page would hit there is a target or inside one. The hit goes down through open shadow roots, and up through
+    /// their hosts. A text node counts as its element.
+    static let hitFunction = """
+    function (x, y, ...nodes) {
+      /* braus:hit-test */
+      const targets = nodes.map(n => n && n.nodeType === 3 ? n.parentElement : n);
+      if (targets.some(t => !t || !t.isConnected)) return { kind: 'gone' };
+      let hit = document.elementFromPoint(x, y);
+      while (hit && hit.shadowRoot) {
+        const inner = hit.shadowRoot.elementFromPoint(x, y);
+        if (!inner || inner === hit) break;
+        hit = inner;
+      }
+      for (let n = hit; n; n = n.parentNode || n.host) {
+        if (targets.includes(n)) return { kind: 'target' };
+      }
+      if (!hit) return { kind: 'covered', cover: 'nothing of the page' };
+      const role = hit.getAttribute('role') || hit.tagName.toLowerCase();
+      const name = (hit.getAttribute('aria-label') || hit.getAttribute('title') || hit.textContent || '')
+        .replace(/\\s+/g, ' ').trim().slice(0, 40);
+      return { kind: 'covered', cover: name ? role + " '" + name + "'" : role };
+    }
+    """
 
     /// Delivery keeps no receipts.
     public func confirm(_ effect: DeliveryEffect, in processID: pid_t) async {}

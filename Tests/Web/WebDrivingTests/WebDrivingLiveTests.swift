@@ -21,6 +21,8 @@ import WebDriving
 )
 struct WebDrivingLiveTests {
 
+    /// Runs `body` on a new headless Chrome with a new temporary profile, removed afterwards, on the local fixture
+    /// `fixture`; the browser is closed on success and on a throw.
     static func withFixture(
         _ fixture: String = "web-scene",
         _ body   : (WebTabs, pid_t, WebPage) async throws -> Void

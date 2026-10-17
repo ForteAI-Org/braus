@@ -15,6 +15,14 @@ import WebDriver
 /// scene of a tab measured, and the isolated world the engine's scripts run in (`evaluate`).
 public final class WebTabs: Sendable {
 
+    /// One element of a tab's last scene, as a click aimed at it is checked: its label as the scene shows it, its box
+    /// in viewport CSS pixels, and its DOM node, nil for one the page has no node for (a row of a list Braus draws).
+    struct Target: Sendable {
+        let label: String
+        let box  : CGRect
+        let node : Int?
+    }
+
     struct Tab {
         let page    : WebPage
         var viewport: CGSize
@@ -25,9 +33,11 @@ public final class WebTabs: Sendable {
         var world   : WebWorld?
         /// The document node the last scene was read from, nil when none was read or it could not be (W11).
         var document: Int?
-        /// The document a gesture under way was decided on, by a read before the engine's own: another one gets
-        /// nothing, even when the engine's read saw it (W05).
-        var held    : Int?
+        /// The elements of the last scene, for the check of a click (W10).
+        var targets : [Target] = []
+        /// The node, and its document, a gesture under way was decided on by a read before the engine's own: a click
+        /// reaches that node only, and no gesture reaches another document, even when the engine's read saw it (W05).
+        var held    : (document: Int, node: Int)?
     }
 
     /// The name Chrome shows for the engine's world in the DevTools context list.
@@ -74,8 +84,9 @@ public final class WebTabs: Sendable {
     ///
     /// The world is made on the first script of a document and kept for the next ones. A call Chrome
     /// refuses ran nothing, which is what a world whose document has gone answers, so the world is made
-    /// again for the document there now and the script is sent once more; any other failure is thrown
-    /// as it came. Errors as `WebPage.evaluate(_:in:timeoutSeconds:)` and `page(for:)`.
+    /// again for the document there now and the script is sent once more; a refusal while the world's
+    /// document is still there, and any other failure, is thrown as it came. Errors as
+    /// `WebPage.evaluate(_:in:timeoutSeconds:)` and `page(for:)`.
     public func evaluate(
         _ script      : String,
         in processID  : pid_t,
@@ -119,7 +130,9 @@ public final class WebTabs: Sendable {
         if let world = state.withLock({ $0.tabs[processID]?.world }) {
             do {
                 return try await call(page, world)
-            } catch CDPError.protocolError {
+            } catch let error as CDPError {
+                // A world whose document is still there refused the call itself, a node gone: it stays.
+                guard case .protocolError = error, (try? await page.holds(world)) != true else { throw error }
                 state.withLock { state in
                     if state.tabs[processID]?.world == world { state.tabs[processID]?.world = nil }
                 }
@@ -155,13 +168,23 @@ public final class WebTabs: Sendable {
         state.withLock { $0.tabs[processID]?.document }
     }
 
-    /// Holds the tab to document node `document` until it is held to nil.
-    func hold(document: Int?, for processID: pid_t) {
-        state.withLock { $0.tabs[processID]?.held = document }
+    /// Keeps the elements of a scene, for the check of a click.
+    func note(targets: [Target], for processID: pid_t) {
+        state.withLock { $0.tabs[processID]?.targets = targets }
     }
 
-    /// The document node the tab is held to, if any.
-    func held(of processID: pid_t) -> Int? {
+    /// The elements of the last scene of the tab.
+    func targets(of processID: pid_t) -> [Target] {
+        state.withLock { $0.tabs[processID]?.targets ?? [] }
+    }
+
+    /// Holds the tab to node `node` of document node `document` until it is held to nil.
+    func hold(_ held: (document: Int, node: Int)?, for processID: pid_t) {
+        state.withLock { $0.tabs[processID]?.held = held }
+    }
+
+    /// The node, and its document, the tab is held to, if any.
+    func held(of processID: pid_t) -> (document: Int, node: Int)? {
         state.withLock { $0.tabs[processID]?.held }
     }
 }

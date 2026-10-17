@@ -22,10 +22,13 @@ import WebDriver
 /// one script context; the page's own world answers no script. A script evaluated without `returnByValue` answers
 /// a remote object, which `DOM.describeNode` names by
 /// its backend id (an element's numeric `id`), node name and `type`, and `Runtime.callFunctionOn` runs a
-/// function on; `DOM.getDocument` answers the document's backend id. A test can
+/// function on; `DOM.getDocument` answers the document's backend id. `DOM.resolveNode` resolves a node by its backend
+/// id, and the click's hit test (`braus:hit-test`), called in the world with the nodes so resolved, answers from the
+/// boxes: a cover on top of the point, the field, or a field gone. A test can
 /// change the page (`Change`) now, once right after the next press, or once every read of the n-th scene
 /// was answered (the tree, the snapshot, the metrics and the document of one perception): a field replaced
-/// by a new node in the same place under the same name, a field's type changed, or the document replaced. A
+/// by a new node in the same place under the same name, a field's type changed, the document replaced, or a cover
+/// laid over a box. A
 /// scene's reads go out together, so a change is never made in the middle of one.
 ///
 /// Isolation: `lock` guards the context, the fields, the document and the schedule, the only mutable
@@ -51,6 +54,8 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
         case navigate
         /// The document node can no longer be read: `DOM.getDocument` answers none.
         case loseDocument
+        /// An element named `name` is laid over `box`, on top of the fields: a press there reaches it, not a field.
+        case cover(CGRect, name: String)
     }
 
     /// The DOM the scripts run on: fields, `document` with the focus, `location`, the viewport, and the
@@ -71,8 +76,13 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
     var location = { href: 'https://fixture.test/login' };
     var innerWidth = 1280, innerHeight = 720;
     var __selected = false;
+    var __covers = [];
     function __press(x, y, count) {
       var hit = null;
+      for (var c = 0; c < __covers.length; c++) {
+        var k = __covers[c];
+        if (x >= k[0] && x <= k[0] + k[2] && y >= k[1] && y <= k[1] + k[3]) { document.activeElement = null; return; }
+      }
       for (var i = 0; i < __fields.length; i++) {
         var b = __fields[i].box;
         if (x >= b[0] && x <= b[0] + b[2] && y >= b[1] && y <= b[1] + b[3]) { hit = __fields[i]; }
@@ -96,6 +106,7 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
     private let context: JSContext
     private var documentID = 1
     private var documentReadable = true
+    private var covers: [(box: CGRect, name: String)] = []
     private var texts      = 0
     private var presses    = 0
     private var afterPress : [Change] = []
@@ -178,6 +189,9 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
                 documentID += 100
             case .loseDocument:
                 documentReadable = false
+            case .cover(let box, let name):
+                covers.append((box, name))
+                context.evaluateScript("__covers.push([\(box.minX), \(box.minY), \(box.width), \(box.height)]);")
         }
     }
 
@@ -210,11 +224,15 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
     private func answer(_ method: String, _ params: JSONValue) -> JSONValue {
         if let world = SyntheticWorld.answer(method, params, loaderID: "loader-\(documentID)") { return world }
         if let expression = SyntheticWorld.expression(method, params) {
+            if expression.contains("braus:hit-test") { return hit(params) }
             return params["returnByValue"]?.boolValue == false ? remoteObject(expression) : evaluate(expression)
         }
         switch method {
             case "DOM.describeNode":
                 return describe(params["objectId"]?.stringValue ?? "")
+            case "DOM.resolveNode":
+                // A node replaced since is still resolved, as Chrome resolves one it keeps: the hit test finds it gone.
+                return ["object": ["type": "object", "objectId": .string("field-\(params["backendNodeId"]?.intValue ?? 0)")]]
             case "Runtime.callFunctionOn":
                 return call(params["functionDeclaration"]?.stringValue ?? "", on: params["objectId"]?.stringValue ?? "")
             case "DOM.getDocument" where !documentReadable:
@@ -314,6 +332,26 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
         let attributes: [JSONValue] = node["type"]?.stringValue.map { ["type", .string($0)] } ?? []
         return ["node": ["backendNodeId": .number(node["id"]?.doubleValue ?? 9000), "nodeName": node["tag"] ?? "#text",
                          "attributes": .array(attributes)]]
+    }
+
+    /// The click's hit test on a field, its first node argument, from the boxes: a cover holding the point is on top;
+    /// else the field there.
+    private func hit(_ params: JSONValue) -> JSONValue {
+        let arguments = params["arguments"]?.arrayValue ?? []
+        let id = Int((arguments.dropFirst(2).first?["objectId"]?.stringValue ?? "").dropFirst("field-".count)) ?? 0
+        let point = CGPoint(x: arguments.first?["value"]?.doubleValue ?? -1,
+                            y: arguments.dropFirst().first?["value"]?.doubleValue ?? -1)
+        let answer: JSONValue
+        if !fields.contains(where: { $0.backendID == id }) {
+            answer = ["kind": "gone"]
+        } else if let cover = covers.last(where: { $0.box.contains(point) }) {
+            answer = ["kind": "covered", "cover": .string("dialog '\(cover.name)'")]
+        } else if fields.first(where: { $0.box.contains(point) })?.backendID == id {
+            answer = ["kind": "target"]
+        } else {
+            answer = ["kind": "covered", "cover": "document"]
+        }
+        return ["result": ["type": "object", "value": answer]]
     }
 
     /// A function run on a remote object, its value answered by value.

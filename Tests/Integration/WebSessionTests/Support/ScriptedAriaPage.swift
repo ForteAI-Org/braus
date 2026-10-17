@@ -17,6 +17,8 @@ import WebDriver
 ///   a node resolved in the world (`DOM.resolveNode`), finds the list only on "Colore" while it is open; the
 ///   page-wide script of before (`17c9147`) finds it from anywhere, which is the wrong-owner case this page
 ///   reproduces;
+/// - the click's hit test (`braus:hit-test`) on a node, from the boxes in paint order: the open list's options on top
+///   of the control and the button; a node no longer in the page is gone;
 /// - a turn a test scripted, once the option was found: right before it answers the n-th command of a kind after it
 ///   (a tree, a document read), the page navigates to a new document, or re-renders its list in the same one, with
 ///   other options. A turn tied to one command is deterministic whatever order a scene's reads go in.
@@ -59,6 +61,13 @@ final class ScriptedAriaPage: CDPTransporting, @unchecked Sendable {
     static let others = [
         Option(backendID: 21, name: "Rosso", box: CGRect(x: 100, y: 130, width: 200, height: 30)),
         Option(backendID: 24, name: "Nero",  box: CGRect(x: 100, y: 160, width: 200, height: 30)),
+        Option(backendID: 23, name: "Verde", box: CGRect(x: 100, y: 190, width: 200, height: 30)),
+    ]
+
+    /// The list re-rendered: a new "Blu" node in the old one's place.
+    static let renewed = [
+        Option(backendID: 21, name: "Rosso", box: CGRect(x: 100, y: 130, width: 200, height: 30)),
+        Option(backendID: 25, name: "Blu",   box: CGRect(x: 100, y: 160, width: 200, height: 30)),
         Option(backendID: 23, name: "Verde", box: CGRect(x: 100, y: 190, width: 200, height: 30)),
     ]
 
@@ -123,6 +132,9 @@ final class ScriptedAriaPage: CDPTransporting, @unchecked Sendable {
         }
         if let world = SyntheticWorld.answer(method, params, loaderID: "loader-\(document)") { return world }
         if let expression = SyntheticWorld.expression(method, params) {
+            if expression.contains("braus:hit-test") {
+                return ["result": ["type": "object", "value": hit(params)]]
+            }
             if expression.contains("braus:aria-options") {
                 optionQueries += 1
                 // Only the control "Colore" (node 10), its last argument, opens the list.
@@ -156,6 +168,20 @@ final class ScriptedAriaPage: CDPTransporting, @unchecked Sendable {
             default:
                 return .object([:])
         }
+    }
+
+    /// The click's hit test on node `node-<id>`, its first node argument, at the point its first two arguments give:
+    /// the topmost box holding the point.
+    private func hit(_ params: JSONValue) -> JSONValue {
+        let arguments = params["arguments"]?.arrayValue ?? []
+        let id = Int((arguments.dropFirst(2).first?["objectId"]?.stringValue ?? "").dropFirst("node-".count)) ?? 0
+        let point = CGPoint(x: arguments.first?["value"]?.doubleValue ?? -1,
+                            y: arguments.dropFirst().first?["value"]?.doubleValue ?? -1)
+        var painted: [(id: Int, box: CGRect, name: String)] = [(10, Self.control, "Colore"), (30, Self.help, "Aiuto")]
+        if isOpen { painted += [(20, Self.list, "Colori")] + options.map { ($0.backendID, $0.box, $0.name) } }
+        guard painted.contains(where: { $0.id == id }) else { return ["kind": "gone"] }
+        guard let top = painted.last(where: { $0.box.contains(point) }) else { return ["kind": "covered", "cover": "document"] }
+        return top.id == id ? ["kind": "target"] : ["kind": "covered", "cover": .string("'\(top.name)'")]
     }
 
     private func take(_ turn: Turn) {

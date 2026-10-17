@@ -67,15 +67,16 @@ public struct WebScenes: SceneProviding {
         return (element, identity)
     }
 
-    /// Runs `body`, the gestures decided on the node `identity` names, with its tab held to that node's document: the
-    /// actuator sends nothing to another one, even when a read in between, the engine's own, saw it (W05).
+    /// Runs `body`, the gestures decided on the node `identity` names, with its tab held to that node: a click reaches
+    /// that node only, and no gesture another document, even when a read in between, the engine's own, saw another
+    /// node in its place (W05).
     public func holding<Result>(
         _ identity  : WebNodeIdentity,
         in processID: pid_t,
         _ body      : () async throws -> Result
     ) async rethrows -> Result {
-        tabs.hold(document: identity.document, for: processID)
-        defer { tabs.hold(document: nil, for: processID) }
+        tabs.hold((document: identity.document, node: identity.node), for: processID)
+        defer { tabs.hold(nil, for: processID) }
         return try await body()
     }
 
@@ -98,6 +99,10 @@ public struct WebScenes: SceneProviding {
         tabs.note(viewport: layout.viewport, title: built.scene.windowTitle, for: processID)
         let read = await document
         tabs.note(document: read, for: processID)
+        let elementNodes = Dictionary(built.nodeElements.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
+        tabs.note(targets: built.scene.elements.enumerated().map { index, element in
+            WebTabs.Target(label: element.label, box: element.bounds.pixelBox(in: layout.viewport), node: elementNodes[index])
+        }, for: processID)
         let window = PerceivedWindow(scene: built.scene, frame: CGRect(origin: .zero, size: layout.viewport),
                                      capture: built.capture, surface: popup == nil ? .window : .popupUnion)
         return (window, read, built.backendNodes, built.nodeElements)

@@ -195,6 +195,13 @@ extension WebPage {
         _ = try? await send("Runtime.releaseObjectGroup", ["objectGroup": .string(group)])
     }
 
+    /// Whether `world` was made in the document the main frame holds now, so a call it refused was refused for
+    /// the call's own reason (a node gone), not because its document went.
+    public func holds(_ world: WebWorld) async throws -> Bool {
+        let current = try await mainDocument()
+        return current.frameID == world.frameID && current.loaderID == world.loaderID
+    }
+
     /// The main frame and the document it holds now.
     private func mainDocument() async throws -> (frameID: String, loaderID: String) {
         let tree = try await send("Page.getFrameTree")
