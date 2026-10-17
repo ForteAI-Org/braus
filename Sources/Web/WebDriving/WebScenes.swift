@@ -88,7 +88,9 @@ public struct WebScenes: SceneProviding {
         let page = try tabs.page(for: processID)
         async let document = try? Self.documentNode(of: page)
         async let tree     = page.send("Accessibility.getFullAXTree")
-        async let snapshot = page.send("DOMSnapshot.captureSnapshot", ["computedStyles": []])
+        async let snapshot = page.send("DOMSnapshot.captureSnapshot", [
+            "computedStyles": .array(WebLayout.clippingStyles.map { .string($0) }),
+        ])
         async let metrics  = page.send("Page.getLayoutMetrics")
         let layout = try WebLayout(snapshot: try await snapshot, metrics: try await metrics)
         let isOpen = tabs.window(of: processID)?.popup != nil

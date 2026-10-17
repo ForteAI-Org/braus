@@ -57,7 +57,8 @@ public enum WebSceneBuilder {
 
         func visibleBounds(of node: WebAXNode) -> NormalizedRect? {
             guard let id = node.backendNodeID, let box = layout.boxes[id] else { return nil }
-            let visible = box.intersection(viewport)
+            // What a scroll container hides is not painted, as what lies outside the viewport (W09).
+            let visible = box.intersection(layout.clips[id] ?? viewport).intersection(viewport)
             guard !visible.isNull, visible.width >= 2, visible.height >= 2,
                   viewport.contains(CGPoint(x: visible.midX, y: visible.midY))
             else { return nil }
