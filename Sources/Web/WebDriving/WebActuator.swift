@@ -27,6 +27,13 @@ public struct WebActuator: Actuating {
 
     public func perform(_ gesture: Gesture, in processID: pid_t) async throws {
         let page = try tabs.page(for: processID)
+        // A gesture reaches only the document the scene was read from (W11). A navigation or a reload since then is
+        // another document: nothing is sent to it. A change between this check and the events is not seen.
+        if let read = tabs.document(of: processID), (try? await WebScenes.documentNode(of: page)) != read {
+            throw GestureNotSent(reason: "page_changed",
+                                 sentence: "The page is no longer the document that was read: it navigated or "
+                                     + "reloaded. Observe it again before acting.")
+        }
         // An open select's list goes, as Chrome's own does, on Escape or on a click outside it.
         if let window = tabs.window(of: processID), let popup = window.popup {
             switch gesture {

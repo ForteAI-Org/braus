@@ -78,9 +78,11 @@ public struct WebScenes: SceneProviding {
         let built  = WebSceneBuilder.build(nodes: WebAXNode.nodes(fromFullTree: try await tree), layout: layout,
                                            popup: popup)
         tabs.note(viewport: layout.viewport, title: built.scene.windowTitle, for: processID)
+        let read = await document
+        tabs.note(document: read, for: processID)
         let window = PerceivedWindow(scene: built.scene, frame: CGRect(origin: .zero, size: layout.viewport),
                                      capture: built.capture, surface: popup == nil ? .window : .popupUnion)
-        return (window, await document, built.backendNodes)
+        return (window, read, built.backendNodes)
     }
 
     /// The identity of DOM node `node` of the document whose own node is `document`, in `page`'s tab.

@@ -23,6 +23,8 @@ public final class WebTabs: Sendable {
         var popup   : WebSelectPopup?
         /// The world the engine's scripts run in, made on the first script of each document.
         var world   : WebWorld?
+        /// The document node the last scene was read from, nil when it could not be read (W11).
+        var document: Int?
     }
 
     /// The name Chrome shows for the engine's world in the DevTools context list.
@@ -138,6 +140,16 @@ public final class WebTabs: Sendable {
 
     func setPopup(_ popup: WebSelectPopup?, for processID: pid_t) {
         state.withLock { $0.tabs[processID]?.popup = popup }
+    }
+
+    /// Keeps the document node a scene was read from, nil when it could not be read.
+    func note(document: Int?, for processID: pid_t) {
+        state.withLock { $0.tabs[processID]?.document = document }
+    }
+
+    /// The document node the last scene of the tab was read from.
+    func document(of processID: pid_t) -> Int? {
+        state.withLock { $0.tabs[processID]?.document }
     }
 }
 
