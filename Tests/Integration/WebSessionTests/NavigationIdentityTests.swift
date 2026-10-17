@@ -8,8 +8,9 @@ import WebDriver
 @testable import WebDriving
 
 /// W11: an action reaches only the document its scene was read from. A navigation or a reload between the scene and
-/// the dispatch is another document, and the web actuator sends nothing to it: the engine refuses, nothing sent. Over
-/// `SyntheticPage`, whose `navigate` change replaces the document, with the production web roles.
+/// the dispatch is another document, and a scene whose document could not be read names none: the web actuator sends
+/// nothing, and the engine refuses, nothing sent. Over `SyntheticPage`, whose `navigate` change replaces the document
+/// and whose `loseDocument` change leaves it unreadable, with the production web roles.
 @Suite("Acting on the document that was read (W11)")
 struct NavigationIdentityTests {
 
@@ -41,6 +42,16 @@ struct NavigationIdentityTests {
                                                               input: .pressKey(KeyChord(.character("x")), times: 1)))
         #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
         #expect(stack.page.textCount == 0)
+    }
+
+    @Test("a scene whose document could not be read names none: the click is refused, nothing was sent, no press reached the page")
+    func documentUnread() async throws {
+        let stack = await Self.stack()
+        stack.page.change([.loseDocument])
+        let outcome = await Self.click("Nome", stack)
+        #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
+        #expect(outcome.message.contains("nothing was sent"), Comment(rawValue: outcome.message))
+        #expect(stack.page.pressCount == 0)
     }
 
     @Test("the same document: the click goes out as before (positive control)")

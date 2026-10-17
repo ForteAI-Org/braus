@@ -216,9 +216,8 @@ public struct WebControls: ControlPressing {
         /// The option cannot be chosen safely (several lists open, several options of that name, a disabled
         /// option): nothing is sent.
         case refused(String)
-        /// The one option to click, by the identity `WebScenes` gives its node, and its box in viewport CSS pixels,
-        /// which places it in the scene when twins share their scene id and the scene names neither's node.
-        case option(WebNodeIdentity, box: CGRect?)
+        /// The one option to click, by the identity `WebScenes` gives its node.
+        case option(WebNodeIdentity)
     }
 
     /// The option named `item` of the ARIA list that the control `owner` opened: the control the session clicked,
@@ -261,11 +260,7 @@ public struct WebControls: ControlPressing {
         guard let backend = (try? await tabs.node(of: "window.__brausAriaOption", in: processID)) ?? nil else {
             return .refused("the option could not be named in the page")
         }
-        let box = answer["rect"]?.arrayValue.flatMap { values -> CGRect? in
-            let numbers = values.compactMap(\.doubleValue)
-            return numbers.count == 4 ? CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3]) : nil
-        }
-        return .option(WebScenes.identity(page: page, document: document, node: backend), box: box)
+        return .option(WebScenes.identity(page: page, document: document, node: backend))
     }
 
     /// AriaReadBack is what the control of an ARIA list reads after an option was clicked and the page settled.
@@ -501,8 +496,7 @@ public struct WebControls: ControlPressing {
       if (chosen.closest('[aria-disabled="true"]')) return { kind: 'refused', reason: 'that option is disabled' };
       Object.defineProperty(window, '__brausAriaOwner', { value: owner, configurable: true, writable: true });
       Object.defineProperty(window, '__brausAriaOption', { value: chosen, configurable: true, writable: true });
-      const r = chosen.getBoundingClientRect();
-      return { kind: 'found', rect: [r.x, r.y, r.width, r.height] };
+      return { kind: 'found' };
     }
     """
 

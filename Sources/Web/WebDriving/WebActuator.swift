@@ -27,9 +27,17 @@ public struct WebActuator: Actuating {
 
     public func perform(_ gesture: Gesture, in processID: pid_t) async throws {
         let page = try tabs.page(for: processID)
-        // A gesture reaches only the document the scene was read from (W11). A navigation or a reload since then is
-        // another document: nothing is sent to it. A change between this check and the events is not seen.
-        if let read = tabs.document(of: processID), (try? await WebScenes.documentNode(of: page)) != read {
+        // A gesture reaches only the document the scene was read from (W11), and the one it was decided on when the
+        // tab is held (W05). A navigation or a reload since then is another document, and a scene whose document could
+        // not be read names none: nothing is sent. A change between this check and the events is not seen.
+        guard let read = tabs.document(of: processID) else {
+            throw GestureNotSent(reason: "page_unread",
+                                 sentence: "The page's document could not be read with its scene, so it is not known "
+                                     + "whether this gesture would reach the page that was read. Observe it again "
+                                     + "before acting.")
+        }
+        let current = try? await WebScenes.documentNode(of: page)
+        if current != read || tabs.held(of: processID).map({ $0 != current }) == true {
             throw GestureNotSent(reason: "page_changed",
                                  sentence: "The page is no longer the document that was read: it navigated or "
                                      + "reloaded. Observe it again before acting.")

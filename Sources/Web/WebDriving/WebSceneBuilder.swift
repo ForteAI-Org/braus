@@ -35,15 +35,16 @@ public enum WebSceneBuilder {
         build(nodes: nodes, layout: layout, popup: popup).scene
     }
 
-    /// The scene, the quality of the read behind it, and the DOM node each element stands for by its id in
-    /// the scene (`backendNodes`): Chrome's tree is read whole, so the walk is complete unless the element limit
-    /// stopped it, and the window is the page's root. An element with no node (an option of an open list), or
-    /// whose id another element shares, has none.
+    /// The scene, the quality of the read behind it, the DOM node each element stands for by its id in the scene
+    /// (`backendNodes`), and the element each DOM node stands for by its index in the scene (`nodeElements`). Chrome's
+    /// tree is read whole, so the walk is complete unless the element limit stopped it, and the window is the page's
+    /// root. An element with no node (an option of an open list) has none; one whose id another element shares has no
+    /// node by its id, but its node still has it by its index; a node two elements stand for has none.
     public static func build(
         nodes : [WebAXNode],
         layout: WebLayout,
         popup : WebSelectPopup? = nil
-    ) -> (scene: SceneSnapshot, capture: CaptureQuality, backendNodes: [String: Int]) {
+    ) -> (scene: SceneSnapshot, capture: CaptureQuality, backendNodes: [String: Int], nodeElements: [Int: Int]) {
         var visited = 0
         let byID     = Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let viewport = CGRect(origin: .zero, size: layout.viewport)
@@ -170,7 +171,13 @@ public enum WebSceneBuilder {
                 backendNodes[element.id] = node
             }
         }
-        return (scene, capture, backendNodes)
+        var nodeElements: [Int: Int] = [:]
+        var seenNodes: Set<Int> = []
+        for (index, node) in elementNodes.enumerated() {
+            guard let node else { continue }
+            nodeElements[node] = seenNodes.insert(node).inserted ? index : nil
+        }
+        return (scene, capture, backendNodes, nodeElements)
     }
 
     // MARK: Roles

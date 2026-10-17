@@ -28,20 +28,25 @@ public struct WebScenes: SceneProviding {
         try await scene(of: processID).window
     }
 
-    /// The scene, and the id in it of the element of the node `identity`, for a node found by other means (a
-    /// script) and clicked through the engine. Nil when that node is not in this read: another tab or document
-    /// (a navigation, a reload), a node removed or replaced, an element outside the view, or an id two elements
-    /// share.
+    /// The scene, and the target that names in it the element of the node `identity`, for a node found by other means
+    /// (a script) and clicked through the engine: the element's id, or for twins, which share it, its label read apart
+    /// by its ordinal, whichever a click resolves to that element alone. Nil when that node is not in this read:
+    /// another document (a navigation, a reload), a node removed or replaced, an element outside the view, or a name
+    /// that resolves to another element too.
     public func currentScene(
         of processID   : pid_t,
         naming identity: WebNodeIdentity
     ) async throws -> (window: PerceivedWindow, target: String?) {
         let page = try tabs.page(for: processID)
         let read = try await scene(of: processID)
-        guard let document = read.document, let node = Self.node(of: identity, page: page, document: document) else {
-            return (read.window, nil)
+        guard let document = read.document, let node = Self.node(of: identity, page: page, document: document),
+              let index = read.nodeElements[node]
+        else { return (read.window, nil) }
+        let element = read.window.scene.elements[index]
+        let target = [element.id, element.label].first {
+            read.window.scene.resolve(target: $0, preferNativeControls: true) == .found(element)
         }
-        return (read.window, read.backendNodes.first { $0.value == node }?.key)
+        return (read.window, target)
     }
 
     /// The element `target` resolves to in a fresh scene, as the engine resolves a click, and the identity of its
@@ -62,10 +67,23 @@ public struct WebScenes: SceneProviding {
         return (element, identity)
     }
 
-    /// The scene, the document node it was read from, and the DOM node of each element by its id.
+    /// Runs `body`, the gestures decided on the node `identity` names, with its tab held to that node's document: the
+    /// actuator sends nothing to another one, even when a read in between, the engine's own, saw it (W05).
+    public func holding<Result>(
+        _ identity  : WebNodeIdentity,
+        in processID: pid_t,
+        _ body      : () async throws -> Result
+    ) async rethrows -> Result {
+        tabs.hold(document: identity.document, for: processID)
+        defer { tabs.hold(document: nil, for: processID) }
+        return try await body()
+    }
+
+    /// The scene, the document node it was read from, the DOM node of each element by its id, and the element of
+    /// each DOM node by its index in the scene.
     private func scene(
         of processID: pid_t
-    ) async throws -> (window: PerceivedWindow, document: Int?, backendNodes: [String: Int]) {
+    ) async throws -> (window: PerceivedWindow, document: Int?, backendNodes: [String: Int], nodeElements: [Int: Int]) {
         let page = try tabs.page(for: processID)
         async let document = try? Self.documentNode(of: page)
         async let tree     = page.send("Accessibility.getFullAXTree")
@@ -82,7 +100,7 @@ public struct WebScenes: SceneProviding {
         tabs.note(document: read, for: processID)
         let window = PerceivedWindow(scene: built.scene, frame: CGRect(origin: .zero, size: layout.viewport),
                                      capture: built.capture, surface: popup == nil ? .window : .popupUnion)
-        return (window, read, built.backendNodes)
+        return (window, read, built.backendNodes, built.nodeElements)
     }
 
     /// The identity of DOM node `node` of the document whose own node is `document`, in `page`'s tab.

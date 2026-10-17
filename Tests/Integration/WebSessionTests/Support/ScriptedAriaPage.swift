@@ -16,7 +16,10 @@ import WebDriver
 ///   ARIA options' answer, the values the control reads back one read after another. The options' function, given
 ///   a node resolved in the world (`DOM.resolveNode`), finds the list only on "Colore" while it is open; the
 ///   page-wide script of before (`17c9147`) finds it from anywhere, which is the wrong-owner case this page
-///   reproduces.
+///   reproduces;
+/// - a turn a test scripted, once the option was found: right before it answers the n-th command of a kind after it
+///   (a tree, a document read), the page navigates to a new document, or re-renders its list in the same one, with
+///   other options. A turn tied to one command is deterministic whatever order a scene's reads go in.
 ///
 /// The DOM's own behaviour (the ARIA attributes, the option's name) is the Chrome tier's: here the scripts' answers
 /// are given, so what is tested is what the session and the engine do with them.
@@ -45,14 +48,31 @@ final class ScriptedAriaPage: CDPTransporting, @unchecked Sendable {
         Option(backendID: 23, name: "Blu",   box: CGRect(x: 100, y: 190, width: 200, height: 30)),
     ]
 
-    let options: [Option]
+    /// What the page does once the option was found: a navigation to a new document, or a list re-rendered in the
+    /// same one, each with these options in the list.
+    enum Turn: Sendable {
+        case navigate([Option])
+        case rerender([Option])
+    }
+
+    /// The list after a turn: "Nero", another node, where "Blu" was.
+    static let others = [
+        Option(backendID: 21, name: "Rosso", box: CGRect(x: 100, y: 130, width: 200, height: 30)),
+        Option(backendID: 24, name: "Nero",  box: CGRect(x: 100, y: 160, width: 200, height: 30)),
+        Option(backendID: 23, name: "Verde", box: CGRect(x: 100, y: 190, width: 200, height: 30)),
+    ]
 
     let incoming: AsyncStream<Data>
     private let feed: AsyncStream<Data>.Continuation
     private let lock = NSLock()
 
+    private var options: [Option]
     private var isOpen = false
     private var value  = "Rosso"
+    private var document = 1
+    /// The turn, and the command and its count after the found option that it comes on.
+    private let turn: (Turn, method: String, count: Int)?
+    private var sinceFound: [String: Int]?
     /// Whether a press on the control opens its list; false for a control that opens nothing.
     private let opensOnPress: Bool
     /// The answer to the options' script while the list is open; nil finds the option `found`.
@@ -64,8 +84,10 @@ final class ScriptedAriaPage: CDPTransporting, @unchecked Sendable {
     private(set) var optionQueries = 0
 
     init(options: [Option] = ScriptedAriaPage.options, opensOnPress: Bool = true, startsOpen: Bool = false,
-         optionsAnswer: JSONValue? = nil, found: Int = 22, readBacks: [JSONValue] = []) {
+         optionsAnswer: JSONValue? = nil, found: Int = 22, readBacks: [JSONValue] = [],
+         turn: (Turn, method: String, count: Int)? = nil) {
         self.options       = options
+        self.turn          = turn
         self.isOpen        = startsOpen
         self.opensOnPress  = opensOnPress
         self.optionsAnswer = optionsAnswer
@@ -94,7 +116,12 @@ final class ScriptedAriaPage: CDPTransporting, @unchecked Sendable {
     func close() { feed.finish() }
 
     private func answer(_ method: String, _ params: JSONValue) -> JSONValue {
-        if let world = SyntheticWorld.answer(method, params) { return world }
+        if var since = sinceFound {
+            since[method, default: 0] += 1
+            sinceFound = since
+            if let turn, turn.method == method, turn.count == since[method] { take(turn.0) }
+        }
+        if let world = SyntheticWorld.answer(method, params, loaderID: "loader-\(document)") { return world }
         if let expression = SyntheticWorld.expression(method, params) {
             if expression.contains("braus:aria-options") {
                 optionQueries += 1
@@ -102,7 +129,8 @@ final class ScriptedAriaPage: CDPTransporting, @unchecked Sendable {
                 guard params["arguments"]?.arrayValue?.last?["objectId"]?.stringValue == "node-10", isOpen else {
                     return ["result": ["type": "object", "value": ["kind": "none"]]]
                 }
-                return ["result": ["type": "object", "value": optionsAnswer ?? foundAnswer()]]
+                if optionsAnswer == nil { sinceFound = [:] }
+                return ["result": ["type": "object", "value": optionsAnswer ?? ["kind": "found"]]]
             }
             if params["returnByValue"]?.boolValue == false {
                 return ["result": ["type": "object", "subtype": "node", "objectId": "aria-option"]]
@@ -115,7 +143,7 @@ final class ScriptedAriaPage: CDPTransporting, @unchecked Sendable {
             case "DOM.resolveNode":
                 return ["object": ["type": "object", "objectId": .string("node-\(params["backendNodeId"]?.intValue ?? 0)")]]
             case "DOM.getDocument":
-                return ["root": ["backendNodeId": 1, "nodeName": "#document"]]
+                return ["root": ["backendNodeId": .number(Double(document)), "nodeName": "#document"]]
             case "Accessibility.getFullAXTree":
                 return tree()
             case "DOMSnapshot.captureSnapshot":
@@ -130,11 +158,14 @@ final class ScriptedAriaPage: CDPTransporting, @unchecked Sendable {
         }
     }
 
-    /// The options' answer for the option `found`, with its box as the page measures it.
-    private func foundAnswer() -> JSONValue {
-        guard let option = options.first(where: { $0.backendID == found }) else { return ["kind": "found"] }
-        return ["kind": "found", "rect": [.number(option.box.minX), .number(option.box.minY), .number(option.box.width),
-                                          .number(option.box.height)]]
+    private func take(_ turn: Turn) {
+        switch turn {
+            case .navigate(let next):
+                document += 100
+                options   = next
+            case .rerender(let next):
+                options   = next
+        }
     }
 
     private func press(_ point: CGPoint) {
@@ -154,7 +185,7 @@ final class ScriptedAriaPage: CDPTransporting, @unchecked Sendable {
         if expression.contains("braus:aria-options") {
             optionQueries += 1
             guard isOpen else { return ["kind": "none"] }
-            return optionsAnswer ?? foundAnswer()
+            return optionsAnswer ?? ["kind": "found"]
         }
         if expression.contains("braus:aria-value") {
             guard !readBacks.isEmpty else { return .string(value) }

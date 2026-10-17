@@ -163,6 +163,54 @@ struct WebDrivingLiveTests {
         }
     }
 
+    @Test("W11: after a navigation or a reload, a click at the point the old scene gave is refused unsent; a route change in the same document keeps it")
+    func navigation() async throws {
+        try await Self.withFixture { tabs, id, page in
+            let scenes   = WebScenes(tabs: tabs)
+            let actuator = WebActuator(tabs: tabs)
+            let url      = try #require(Bundle.module.url(forResource: "web-scene", withExtension: "html"))
+            // Mouse presses that reach the document, counted before the page's own handlers see them.
+            let counting = "window.__downs = 0; document.addEventListener('mousedown', () => window.__downs++, true); 0"
+            func downs() async throws -> Int? { try await page.evaluate("window.__downs").intValue }
+
+            for turn in ["navigate", "reload"] {
+                let window = try await scenes.currentScene(of: id)
+                let send   = window.globalPoint(of: try Self.element("Send", in: window))
+                if turn == "navigate" {
+                    try await page.navigate(to: url.absoluteString)
+                } else {
+                    _ = try await page.evaluate("window.__old = true; 0")
+                    _ = try await page.send("Page.reload")
+                    try #require(try await Self.reloaded(page), "the reload did not finish within five seconds")
+                }
+                _ = try await page.evaluate(counting)
+                let refused = await #expect(throws: GestureNotSent.self, "\(turn)") {
+                    try await actuator.perform(.click(at: send), in: id)
+                }
+                #expect(refused?.reason == "page_changed", "\(turn)")
+                #expect(try await downs() == 0, "\(turn): no press reached the new document")
+            }
+
+            // A route change keeps the document node: after a new read the same click goes out.
+            let window = try await scenes.currentScene(of: id)
+            _ = try await page.evaluate("history.pushState({}, '', '#route'); 0")
+            try await actuator.perform(.click(at: window.globalPoint(of: try Self.element("Send", in: window))), in: id)
+            #expect(try await downs() == 1)
+        }
+    }
+
+    /// Whether a reload gave the page a new document that has loaded within five seconds: `window.__old`, set on the
+    /// old one, is gone. A read while the old one goes may throw; it is read again.
+    static func reloaded(_ page: WebPage) async throws -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            let loaded = try? await page.evaluate("window.__old === undefined && document.readyState === 'complete'")
+            if loaded?.boolValue == true { return true }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
     @Test("Through the engine: a click opens a select's list, a click on an option chooses it")
     func select() async throws {
         try await Self.withFixture { tabs, id, page in

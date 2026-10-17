@@ -4,7 +4,6 @@
 //
 
 import AutomationRuntime
-import CoreGraphics
 import Engine
 import EngineCore
 import Foundation
@@ -174,28 +173,21 @@ public final class WebAutomationSession: AutomationSessionOperating {
             case .refused(let reason):
                 return ActOutcome(.refused, "'\(item)' was not chosen: \(reason). Only the opening click was sent; no "
                     + "option was clicked.", scene: opened.scene)
-            case .option(let identity, let box):
+            case .option(let identity):
+                // The option by its own node, in a read of the document it was found in: twins by their ordinal, never
+                // by a place another row may hold. The click goes only to that document, though the engine reads again.
                 let (perceived, option) = try await runtime.scenes.currentScene(of: processID, naming: identity)
-                guard let id = option ?? Self.row(at: box, in: perceived) else {
-                    return ActOutcome(.refused, "'\(item)' was not chosen: the option is not in the scene (outside the "
-                        + "view, or covered). Only the opening click was sent; no option was clicked. Observe the list "
-                        + "before choosing again.", scene: perceived.scene)
+                guard let option else {
+                    return ActOutcome(.refused, "'\(item)' was not chosen: the option found is no longer that node in "
+                        + "the page's scene (the list changed, the page navigated, or the option is outside the view). "
+                        + "Only the opening click was sent; no option was clicked. Observe the list before choosing "
+                        + "again.", scene: perceived.scene)
                 }
-                let chosen = try await click(id)
+                let chosen = try await runtime.scenes.holding(identity, in: processID) { try await click(option) }
                 guard chosen.kind == .foundActed || chosen.kind == .actedUnverified else { return chosen }
                 return Self.judged(chosen, item: item, control: control,
                                    readBack: await runtime.controls.ariaReadBack(expecting: item, in: processID))
         }
-    }
-
-    /// The label of the one row of the scene that `box` (viewport CSS pixels) is the box of: twins share their scene
-    /// id, so the scene names neither's node, but each reads apart by its ordinal (` #n`), which the engine resolves.
-    /// Nil when no row, or several, hold the box's center.
-    static func row(at box: CGRect?, in perceived: PerceivedWindow) -> String? {
-        guard let box, perceived.frame.width > 0, perceived.frame.height > 0 else { return nil }
-        let center = CGPoint(x: box.midX / perceived.frame.width, y: box.midY / perceived.frame.height)
-        let rows = perceived.scene.elements.filter { $0.role == "AXRow" && $0.bounds.cgRect.contains(center) }
-        return rows.count == 1 ? rows[0].label : nil
     }
 
     /// The outcome of a click on an ARIA list's option, judged by what its control reads back, never by the list's

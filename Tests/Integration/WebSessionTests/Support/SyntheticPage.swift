@@ -49,6 +49,8 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
         case setType(Int, String)
         /// The document is replaced by another, the fields kept: a navigation to the same form.
         case navigate
+        /// The document node can no longer be read: `DOM.getDocument` answers none.
+        case loseDocument
     }
 
     /// The DOM the scripts run on: fields, `document` with the focus, `location`, the viewport, and the
@@ -93,6 +95,7 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
     private let lock    = NSLock()
     private let context: JSContext
     private var documentID = 1
+    private var documentReadable = true
     private var texts      = 0
     private var presses    = 0
     private var afterPress : [Change] = []
@@ -173,6 +176,8 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
                 context.evaluateScript("(__fields.find(function (f) { return f.id === \(id); }) || {}).type = \(Self.literal(type));")
             case .navigate:
                 documentID += 100
+            case .loseDocument:
+                documentReadable = false
         }
     }
 
@@ -212,6 +217,8 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
                 return describe(params["objectId"]?.stringValue ?? "")
             case "Runtime.callFunctionOn":
                 return call(params["functionDeclaration"]?.stringValue ?? "", on: params["objectId"]?.stringValue ?? "")
+            case "DOM.getDocument" where !documentReadable:
+                return ["root": ["nodeName": "#document"]]
             case "DOM.getDocument":
                 return ["root": ["backendNodeId": .number(Double(documentID)), "nodeName": "#document"]]
             case "Accessibility.getFullAXTree":

@@ -50,14 +50,35 @@ struct AriaListboxTests {
         #expect(page.shownValue == "Blu")
     }
 
-    @Test("twins share their scene id, so the scene names neither's node: the option is placed by its box, and the press lands on the second Blu")
-    func twinPlacedByItsBox() async throws {
+    @Test("twins share their scene id: the option is named by its own node, as the scene reads it apart by its ordinal, and the press lands on the second Blu")
+    func twinNamedByItsNode() async throws {
         let page = ScriptedAriaPage(options: ScriptedAriaPage.twins, found: 23)
         let outcome = try await Self.choose("Blu #2", on: page)
         #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
         let second = try #require(ScriptedAriaPage.twins.last)
         #expect(page.presses.last.map(second.box.contains) == true, "the second press landed on the second Blu")
         #expect(page.pressCount == 2)
+    }
+
+    @Test("right after the option was found the page navigates, or re-renders its list, and another row holds the option's place: nothing is chosen there",
+          arguments: [ScriptedAriaPage.Turn.navigate(ScriptedAriaPage.others), .rerender(ScriptedAriaPage.others)])
+    func turnedBeforeTheRead(turn: ScriptedAriaPage.Turn) async throws {
+        let page = ScriptedAriaPage(turn: (turn, method: "Accessibility.getFullAXTree", count: 1))
+        let outcome = try await Self.choose("Blu", on: page)
+        #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
+        #expect(outcome.message.contains("no option was clicked"))
+        #expect(page.pressCount == 1, "only the opening click")
+        #expect(page.shownValue == "Rosso")
+    }
+
+    @Test("a navigation between the session's read and the engine's own: the click is refused unsent, though the new page has the option in its place")
+    func navigatedBeforeTheEnginesRead() async throws {
+        let page = ScriptedAriaPage(turn: (.navigate(ScriptedAriaPage.options), method: "DOM.getDocument", count: 2))
+        let outcome = try await Self.choose("Blu", on: page)
+        #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
+        #expect(outcome.message.contains("nothing was sent"), Comment(rawValue: outcome.message))
+        #expect(page.pressCount == 1, "only the opening click")
+        #expect(page.shownValue == "Rosso")
     }
 
     @Test("a control that reads another value after settling fails the check, and nothing is chosen again")
