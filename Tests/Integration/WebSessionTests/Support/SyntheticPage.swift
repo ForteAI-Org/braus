@@ -26,7 +26,8 @@ import WebDriver
 /// id, and the click's hit test (`braus:hit-test`), called in the world with the nodes so resolved, answers from the
 /// boxes: a cover on top of the point, the field, or a field gone. The settler's observer runs on a
 /// `MutationObserver` that a text step (`step(texts:)`) notifies, one step at each settling read. A test can emit
-/// an event on the page's session (`emit`) and count the commands the page received (`count(of:)`). A test can
+/// an event on the page's session (`emit`) and count the commands the page received (`count(of:)`, `order`), and
+/// hold the answers to a command until it releases them (`hold`). A test can
 /// change the page (`Change`) now, once right after the next press, or once every read of the n-th scene
 /// was answered (the tree, the snapshot, the metrics and the document of one perception): a field replaced
 /// by a new node in the same place under the same name, a field's type changed, the document replaced, or a cover
@@ -119,6 +120,9 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
     private var covers: [(box: CGRect, name: String)] = []
     private var steps : [String] = []
     private var commands: [String: Int] = [:]
+    private var received: [String] = []
+    private var heldMethods: Set<String> = []
+    private var heldReplies: [Data] = []
     private var texts      = 0
     private var presses    = 0
     private var afterPress : [Change] = []
@@ -152,6 +156,26 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
         else { return }
         data.append(0)
         feed.yield(data)
+    }
+
+    /// Keeps the answers to every command named `method` from now on, until `release`.
+    func hold(_ method: String) {
+        lock.withLock { _ = heldMethods.insert(method) }
+    }
+
+    /// Sends the answers kept for `method`, and answers it at once from now on.
+    func release(_ method: String) {
+        let replies = lock.withLock {
+            heldMethods.remove(method)
+            defer { heldReplies.removeAll() }
+            return heldReplies
+        }
+        for reply in replies { feed.yield(reply) }
+    }
+
+    /// The commands the page received, in order, among `methods`.
+    func order(of methods: Set<String>) -> [String] {
+        lock.withLock { received.filter(methods.contains) }
     }
 
     /// How many commands named `method` the page received.
@@ -232,9 +256,10 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
     func send(_ message: Data) throws {
         let request = try JSONDecoder().decode(JSONValue.self, from: message)
         guard let id = request["id"] else { return }
+        let method = request["method"]?.stringValue ?? ""
         let result = lock.withLock {
-            let method = request["method"]?.stringValue ?? ""
             commands[method, default: 0] += 1
+            received.append(method)
             let answered = answer(method, request["params"] ?? .object([:]))
             if Self.sceneReads.contains(method) {
                 reads[method, default: 0] += 1
@@ -249,7 +274,12 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
         if let session = request["sessionId"] { reply["sessionId"] = session }
         var data = try JSONEncoder().encode(JSONValue.object(reply))
         data.append(0)
-        feed.yield(data)
+        let held = lock.withLock {
+            guard heldMethods.contains(method) else { return false }
+            heldReplies.append(data)
+            return true
+        }
+        if !held { feed.yield(data) }
     }
 
     func close() { feed.finish() }

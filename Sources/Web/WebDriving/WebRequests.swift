@@ -18,6 +18,7 @@ import WebDriver
 ///
 /// The watch ends at `stop`, and its count empties when its connection closes or its tab goes. It has a deadline
 /// that `WebSettler` keeps: a gesture prepared for and never sent leaves no observer and no `Network` domain past it.
+/// `start` and `stop` run only on the tab's lane (`WebTabs.lane(of:)`), never across each other.
 final class WebRequests: Sendable {
 
     static let counted: Set<String> = ["Fetch", "XHR", "Document"]

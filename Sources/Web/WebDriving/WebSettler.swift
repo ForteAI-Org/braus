@@ -16,7 +16,8 @@ import WebDriver
 /// counted, so an animation alone does not hold every action to its cap. `prepare` also starts a watch
 /// of the tab's requests (`WebRequests`): the page is not quiet while a fetch, an XMLHttpRequest or a
 /// document it started is in flight. The watch ends with `settle`, or at its lifetime when no settle
-/// comes. A page that reacts later than `quiet` after it went still with nothing in flight (a timer)
+/// comes; it is started and stopped on its tab's lane, one step at a time, so a stop under way and a
+/// new start never cross, and a stop runs to its end even for a caller cancelled. A page that reacts later than `quiet` after it went still with nothing in flight (a timer)
 /// is not waited for, and a focused field's value changed to one of the same length is not seen.
 ///
 /// The first read waits one interval, so a page that reacts on the next frame is not judged
@@ -41,16 +42,21 @@ public struct WebSettler: Settling {
     /// world, where the signature reads its count, and starts the watch of the tab's requests, or keeps the one
     /// running for a later gesture of the same action.
     public func prepare(in processID: pid_t) async {
-        guard let page = try? tabs.page(for: processID) else { return }
+        guard let page = try? tabs.page(for: processID), let lane = tabs.lane(of: processID) else { return }
         _ = try? await tabs.evaluate(Self.observerScript, in: processID, timeoutSeconds: 2)
-        if let running = tabs.requests(of: processID), !running.isClosed {
-            running.extend(by: lifetime)
-            return
-        }
-        guard let watch = await WebRequests.start(on: page, lifetime: lifetime) else { return }
-        if let replaced = tabs.setRequests(watch, for: processID) { await replaced.stop(disabling: replaced === watch) }
         let tabs = self.tabs
-        watch.attach(expiry: Task { await Self.expire(watch, of: processID, tabs: tabs) })
+        let lifetime = self.lifetime
+        await lane.run {
+            if let running = tabs.requests(of: processID), !running.isClosed {
+                running.extend(by: lifetime)
+                return
+            }
+            guard let watch = await WebRequests.start(on: page, lifetime: lifetime) else { return }
+            if let replaced = tabs.setRequests(watch, for: processID) {
+                await replaced.stop(disabling: replaced === watch)
+            }
+            watch.attach(expiry: Task { await Self.expire(watch, of: processID, tabs: tabs) })
+        }
     }
 
     public func settle(in processID: pid_t, cap: Duration) async {
@@ -82,10 +88,14 @@ public struct WebSettler: Settling {
         await Self.end(watch, of: processID, tabs: tabs)
     }
 
-    /// Stops `watch` when it is still its tab's watch; one already replaced or stopped is left alone.
+    /// Stops `watch`, on its tab's lane, when it is still the tab's watch; one already replaced or stopped is left
+    /// alone.
     static func end(_ watch: WebRequests?, of processID: pid_t, tabs: WebTabs) async {
-        guard let watch, tabs.takeRequests(watch, of: processID) else { return }
-        await watch.stop(disabling: true)
+        guard let watch, let lane = tabs.lane(of: processID) else { return }
+        await lane.run {
+            guard tabs.takeRequests(watch, of: processID) else { return }
+            await watch.stop(disabling: true)
+        }
     }
 
     /// Ends `watch` at its deadline, which a later `prepare` may move, unless something stopped it before.

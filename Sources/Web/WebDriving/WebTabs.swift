@@ -40,6 +40,8 @@ public final class WebTabs: Sendable {
         var held    : (document: Int, node: Int)?
         /// The watch of the tab's requests in flight, from a settler's prepare to its settle (W12); at most one.
         var requests: WebRequests?
+        /// Where the watch is started and stopped, one step at a time, so a stop under way and a start never cross.
+        let lane = AsyncLane()
     }
 
     /// The name Chrome shows for the engine's world in the DevTools context list.
@@ -65,10 +67,12 @@ public final class WebTabs: Sendable {
         }
     }
 
-    /// Forgets a tab, and stops the watch of its requests. Its id is never handed out again.
+    /// Forgets a tab, and stops the watch of its requests on the tab's lane. Its id is never handed out again.
     public func remove(_ processID: pid_t) {
-        let watch = state.withLock { $0.tabs.removeValue(forKey: processID)?.requests }
-        if let watch { Task { await watch.stop(disabling: true) } }
+        let tab = state.withLock { $0.tabs.removeValue(forKey: processID) }
+        if let tab, let watch = tab.requests {
+            Task { await tab.lane.run { await watch.stop(disabling: true) } }
+        }
     }
 
     /// The page behind an id. Throws `WebDrivingError.unknownTab` for an id never registered or removed.
@@ -179,6 +183,11 @@ public final class WebTabs: Sendable {
     /// The elements of the last scene of the tab.
     func targets(of processID: pid_t) -> [Target] {
         state.withLock { $0.tabs[processID]?.targets ?? [] }
+    }
+
+    /// The lane the tab's watch is started and stopped on; nil for a tab gone.
+    func lane(of processID: pid_t) -> AsyncLane? {
+        state.withLock { $0.tabs[processID]?.lane }
     }
 
     /// The watch of the tab's requests, if one is running.

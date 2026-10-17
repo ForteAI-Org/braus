@@ -146,6 +146,47 @@ struct WebRequestsTests {
         #expect(await Self.cleaned(watched))
     }
 
+    @Test("a stop held at its Network.disable, and a prepare meanwhile: the new watch starts only once the stop ended, so the domain is enabled last and the new watch keeps it")
+    func stopHeldThenPrepare() async throws {
+        let watched = try await Self.watched()
+        let processID = watched.stack.processID
+        let page = watched.stack.page
+        await watched.settler.prepare(in: processID)
+        page.hold("Network.disable")
+        let settling = Task { await watched.settler.settle(in: processID, cap: .milliseconds(300)) }
+        let deadline = ContinuousClock.now + .seconds(3)
+        while page.count(of: "Network.disable") == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(page.count(of: "Network.disable") == 1, "the old watch's stop is under way, held at its disable")
+        let preparing = Task { await watched.settler.prepare(in: processID) }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(page.count(of: "Network.enable") == 1, "the new watch did not start while the stop was under way")
+        page.release("Network.disable")
+        _ = await settling.value
+        await preparing.value
+        #expect(page.order(of: ["Network.enable", "Network.disable"]) == ["Network.enable", "Network.disable", "Network.enable"])
+        let observers = await watched.page.connection.observerCount
+        #expect(watched.stack.tabs.requests(of: processID) != nil && observers == 1, "the new watch is the tab's, and observing")
+        _ = await Self.settle(watched, cap: .milliseconds(300))
+        #expect(await Self.cleaned(watched))
+    }
+
+    @Test("a settle from a task already cancelled still ends its watch: the domain is disabled, no observer is left")
+    func cancelledSettle() async throws {
+        let watched = try await Self.watched()
+        let processID = watched.stack.processID
+        await watched.settler.prepare(in: processID)
+        let settler = watched.settler
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await settler.settle(in: processID, cap: .milliseconds(300))
+        }
+        _ = await cancelled.value
+        #expect(watched.stack.page.count(of: "Network.disable") == 1)
+        #expect(await Self.cleaned(watched))
+    }
+
     @Test("the tab removed while watching: no observer is left, and the domain is disabled")
     func tabRemoved() async throws {
         let watched = try await Self.watched()
