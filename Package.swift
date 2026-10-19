@@ -14,6 +14,9 @@
 //   Engine/      how the agent ACTS on what it sees: the outcome vocabulary,
 //                the verification rule, the act cycle, what it remembers, and
 //                the roles an actuator and a store fill.
+//   Mac/         the Mac's own apps reached through their APIs: the adapters an agent calls
+//                with the app behind or closed, before it drives the app's interface.
+//
 //   Integration/ where two layers meet: the Driver's seat filling the Engine's
 //                roles, so the same engine drives a window in the background.
 //
@@ -134,6 +137,21 @@ func integration(
         name         : name,
         dependencies : dependencies.map { .target(name: $0) },
         path         : "Sources/Integration/\(name)",
+        swiftSettings: settings
+    )
+}
+
+func mac(
+    _ name        : String,
+      path        : String,
+    _ dependencies: [String]       = [],
+      settings    : [SwiftSetting] = pure
+) -> Target {
+
+    .target(
+        name         : name,
+        dependencies : dependencies.map { .target(name: $0) },
+        path         : "Sources/Mac/\(path)",
         swiftSettings: settings
     )
 }
@@ -467,6 +485,13 @@ let package = Package(
             path: "Tools/Engine/memory-probe",
             swiftSettings: pure
         ),
+
+        // MARK: Mac
+        // App adapters: EventKit, CoreAudio, CoreWLAN, FileManager and fixed scripts, each behind a transport
+        // role so the unit tests run on fakes. JSONValue comes from LocalMCP, which has no other dependency.
+        mac("AppAdapters", path: "Adapters", ["EngineCore", "LocalMCP"]),
+        .testTarget(name: "AppAdaptersTests", dependencies: ["AppAdapters", "EngineCore", "LocalMCP"],
+                    path: "Tests/Mac/AppAdaptersTests", swiftSettings: suite),
 
         // MARK: Perception tests
         perceptionTests("PerceptionCore", ["PerceptionCore"]),
