@@ -34,12 +34,19 @@ public struct AccessibilityController: ControlPressing {
         return await MainActor.run {
             let reader = LiveAccessibilityReader()
             let application = reader.application(processID: processID)
-            reader.setMessagingTimeout(application, seconds: 1)
-            guard let control = Self.firstControl(in: reader.windows(of: application), reader: reader, where: { node in
-                LabelText.normalize(reader.value(node) ?? "") == want
-                    || LabelText.normalize(reader.title(node) ?? "") == want
-            }) else { return false }
-            return AXUIElementPerformAction(control, kAXPressAction as CFString) == .success
+            reader.setMessagingTimeout(application, seconds: WalkBudget.standard.applicationTimeout)
+            guard let control = Self.firstControl(
+                in     : reader.windows(of: application),
+                reader : reader,
+                timeout: { reader.setMessagingTimeout($0, seconds: WalkBudget.standard.elementTimeout) },
+                where  : { node in
+                    LabelText.normalize(reader.value(node) ?? "") == want
+                        || LabelText.normalize(reader.title(node) ?? "") == want
+                }
+            ) else { return false }
+            // A timed-out press may have reached the app: false would make the engine click it again.
+            let result = AXUIElementPerformAction(control, kAXPressAction as CFString)
+            return result == .success || result == .cannotComplete
         }
     }
 
@@ -71,9 +78,13 @@ public struct AccessibilityController: ControlPressing {
         return await MainActor.run {
             let reader = LiveAccessibilityReader()
             let application = reader.application(processID: processID)
-            reader.setMessagingTimeout(application, seconds: 1)
+            reader.setMessagingTimeout(application, seconds: WalkBudget.standard.applicationTimeout)
             var matches: [String] = []
-            let complete = Self.walk(reader.windows(of: application), reader: reader) { node in
+            let complete = Self.walk(
+                reader.windows(of: application),
+                reader : reader,
+                timeout: { reader.setMessagingTimeout($0, seconds: WalkBudget.standard.elementTimeout) }
+            ) { node in
                 guard Self.controlRoles.contains(reader.role(node) ?? ""), let value = reader.value(node) else {
                     return false
                 }
@@ -106,9 +117,13 @@ public struct AccessibilityController: ControlPressing {
         return await MainActor.run {
             let reader = LiveAccessibilityReader()
             let application = reader.application(processID: processID)
-            reader.setMessagingTimeout(application, seconds: 1)
+            reader.setMessagingTimeout(application, seconds: WalkBudget.standard.applicationTimeout)
             var states: [ControlState?] = []
-            let complete = Self.walk(reader.windows(of: application), reader: reader) { node in
+            let complete = Self.walk(
+                reader.windows(of: application),
+                reader : reader,
+                timeout: { reader.setMessagingTimeout($0, seconds: WalkBudget.standard.elementTimeout) }
+            ) { node in
                 guard Self.toggleRoles.contains(reader.role(node) ?? ""),
                       LabelText.normalize(reader.title(node) ?? "") == want
                         || LabelText.normalize(reader.descriptionText(node) ?? "") == want
@@ -130,7 +145,7 @@ public struct AccessibilityController: ControlPressing {
         await MainActor.run {
             let reader = LiveAccessibilityReader()
             let application = reader.application(processID: processID)
-            reader.setMessagingTimeout(application, seconds: 1)
+            reader.setMessagingTimeout(application, seconds: WalkBudget.standard.applicationTimeout)
             var focused: CFTypeRef?
             guard AXUIElementCopyAttributeValue(application, kAXFocusedUIElementAttribute as CFString, &focused)
                     == .success,
@@ -144,14 +159,36 @@ public struct AccessibilityController: ControlPressing {
 
     // MARK: Walk
 
-    @MainActor
-    private static func firstControl(
-        in roots: [AXUIElement],
-        reader  : LiveAccessibilityReader,
-        where predicate: (AXUIElement) -> Bool
-    ) -> AXUIElement? {
-        var found: AXUIElement?
-        walk(roots, reader: reader) { node in
+    /// WalkBudget bounds one walk, so a dense or hung application answers in time with an incomplete
+    /// answer instead of holding the caller: elements visited, depth from a window, monotonic wall time,
+    /// and the messaging timeouts set on the application element and on every element visited.
+    struct WalkBudget: Equatable {
+        var elements          : Int
+        var depth             : Int
+        var deadline          : Duration
+        var applicationTimeout: Float
+        var elementTimeout    : Float
+
+        // Chosen for dense mixers: a mixer window shows hundreds of scene elements over a larger tree,
+        // so the limit stays far above it and a walk is cut only by an app that never answers.
+        static let standard = WalkBudget(
+            elements          : 4_000,
+            depth             : 10,
+            deadline          : .seconds(3),
+            applicationTimeout: 1,
+            elementTimeout    : 0.25
+        )
+    }
+
+    static func firstControl<Reader: AccessibilityTreeReading>(
+        in roots: [Reader.Node],
+        reader  : Reader,
+        budget  : WalkBudget = .standard,
+        timeout : (Reader.Node) -> Void = { _ in },
+        where predicate: (Reader.Node) -> Bool
+    ) -> Reader.Node? {
+        var found: Reader.Node?
+        walk(roots, reader: reader, budget: budget, timeout: timeout) { node in
             guard controlRoles.contains(reader.role(node) ?? ""), predicate(node) else { return false }
             found = node
             return true
@@ -159,26 +196,34 @@ public struct AccessibilityController: ControlPressing {
         return found
     }
 
-    /// Visits every node under the roots, depth first to ten levels, until `visit` returns true.
-    /// Answers false when a node's children did not answer (`readChildren`, M2): the walk goes on with
-    /// the siblings it can read, but what it saw is not the whole tree. `firstControl` ignores the answer:
-    /// it presses the first match, which never claimed to be the only one.
-    @MainActor
+    /// Visits the nodes under the roots depth first, to `budget.depth` levels, until `visit` returns true.
+    /// `timeout` is given each node before it is read. Answers false when a node's children did not answer
+    /// (`readChildren`, M2) or the budget's elements or deadline ran out: what the walk saw is then not
+    /// the whole tree. `firstControl` ignores the answer: it presses the first match, which never claimed
+    /// to be the only one.
     @discardableResult
-    private static func walk(
-        _ roots: [AXUIElement],
-        reader : LiveAccessibilityReader,
-        visit  : (AXUIElement) -> Bool
+    static func walk<Reader: AccessibilityTreeReading>(
+        _ roots: [Reader.Node],
+        reader : Reader,
+        budget : WalkBudget = .standard,
+        timeout: (Reader.Node) -> Void = { _ in },
+        visit  : (Reader.Node) -> Bool
     ) -> Bool {
+        let clock = ContinuousClock()
+        let end = clock.now.advanced(by: budget.deadline)
+        var visited = 0
         var stop = false
-        var unlisted = false
-        func descend(_ node: AXUIElement, _ depth: Int) {
-            guard !stop, depth <= 10 else { return }
+        var incomplete = false
+        func descend(_ node: Reader.Node, _ depth: Int) {
+            guard !stop, depth <= budget.depth else { return }
+            guard visited < budget.elements, clock.now < end else { stop = true; incomplete = true; return }
+            visited += 1
+            timeout(node)
             if visit(node) { stop = true; return }
-            guard let children = reader.readChildren(node) else { unlisted = true; return }
+            guard let children = reader.readChildren(node) else { incomplete = true; return }
             for child in children { descend(child, depth + 1) }
         }
         for root in roots { descend(root, 0) }
-        return !unlisted
+        return !incomplete
     }
 }
