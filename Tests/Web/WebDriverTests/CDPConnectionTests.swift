@@ -172,6 +172,8 @@ struct CDPConnectionTests {
         var headed = options
         headed.isHeadless = false
         #expect(!headed.arguments.contains("--headless"))
+        // A visible Chrome starts with no window, so the one Braus opens later stays in the background.
+        #expect(headed.arguments.contains("--no-startup-window") && !headed.arguments.contains("about:blank"))
         let profile = ChromeLaunchOptions.brausProfile(applicationSupport: URL(fileURLWithPath: "/Lib/AS"))
         #expect(profile.path(percentEncoded: false).hasSuffix("/Lib/AS/Braus/chrome-web/"))
     }

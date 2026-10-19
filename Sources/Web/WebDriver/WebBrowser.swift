@@ -49,7 +49,11 @@ public final class WebBrowser: Sendable {
     /// Opens a new tab on `url` and attaches to it. Returns before the page has loaded; use
     /// `WebPage.navigate` to wait for a load.
     public func openPage(url: String = "about:blank") async throws -> WebPage {
-        let created = try await connection.send("Target.createTarget", ["url": .string(url)])
+        // In the background, so a visible Chrome's new window never takes the person's focus.
+        let created = try await connection.send(
+            "Target.createTarget",
+            ["url": .string(url), "background": true, "newWindow": true]
+        )
         guard let targetID = created["targetId"]?.stringValue else {
             throw CDPError.malformedResult(method: "Target.createTarget", detail: "no targetId")
         }

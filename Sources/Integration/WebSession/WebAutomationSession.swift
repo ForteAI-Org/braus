@@ -23,22 +23,42 @@ public final class WebAutomationSession: AutomationSessionOperating {
 
     private let knowledgeDirectory: URL
     private let allowsDestructive : Bool
-    private let launchOptions     : ChromeLaunchOptions
+    private let allowsLocalFiles  : Bool
+    /// How Chrome starts, read when the session launches it: a change applies from the next launch.
+    public var launchOptions: ChromeLaunchOptions
     private var browser  : WebBrowser?
     private var page     : WebPage?
     private var processID: pid_t?
     private var runtime  : WebEngineRuntime?
     private var appKey   : String?
+    private var profile  : String?
     public private(set) var id: UUID?
 
-    public init(knowledgeDirectory: URL, launchOptions: ChromeLaunchOptions, allowsDestructive: Bool = false) {
+    /// The profiles a session's Chrome runs on now: Chrome lets one process at a time use a
+    /// profile, so a second session on the same one is refused before it launches anything.
+    private static var profilesInUse: Set<String> = []
+
+    /// The answer to a `file://` address while local files are not allowed.
+    public static let localFileRefusal = "Braus does not open local files in its browser: the page would be read "
+        + "into the scene and the memory. Open the file with its own app instead."
+
+    /// `allowsLocalFiles` lets `open` load a `file://` address. Off by default, since whatever the file
+    /// holds reaches the scene, the model and the memory; a test's local fixture turns it on.
+    public init(
+        knowledgeDirectory: URL,
+        launchOptions     : ChromeLaunchOptions,
+        allowsDestructive : Bool = false,
+        allowsLocalFiles  : Bool = false
+    ) {
         self.knowledgeDirectory = knowledgeDirectory
         self.launchOptions      = launchOptions
         self.allowsDestructive  = allowsDestructive
+        self.allowsLocalFiles   = allowsLocalFiles
     }
 
     /// The address `word` names, or nil when it names no page: `web:` followed by an address or a
-    /// host, or an `http`, `https` or `file` URL.
+    /// host, or an `http`, `https` or `file` URL. A `file` URL is named so that `open` refuses it
+    /// with a sentence instead of the desktop looking for an app of that name.
     public nonisolated static func address(in word: String) -> String? {
         let trimmed = word.trimmingCharacters(in: .whitespacesAndNewlines)
         var rest = trimmed
@@ -53,10 +73,21 @@ public final class WebAutomationSession: AutomationSessionOperating {
         guard let address = Self.address(in: word) else {
             throw AutomationFailure("A web session opens an address: web:<host> or an http(s) URL.")
         }
+        guard allowsLocalFiles || !address.lowercased().hasPrefix("file:") else {
+            throw AutomationFailure(Self.localFileRefusal)
+        }
         if let page {
             try await page.navigate(to: address)
             return try await observe()
         }
+        // Without the trailing slash a path takes once the directory exists, so both spellings match.
+        var profile = launchOptions.userDataDirectory.standardizedFileURL.path(percentEncoded: false)
+        while profile.count > 1, profile.hasSuffix("/") { profile.removeLast() }
+        guard !Self.profilesInUse.contains(profile) else {
+            throw AutomationFailure("Another session is using Braus's Chrome profile. Try again once it closes.")
+        }
+        Self.profilesInUse.insert(profile)
+        self.profile = profile
         do {
             let browser = try await WebBrowser.launch(launchOptions)
             self.browser = browser
@@ -125,6 +156,9 @@ public final class WebAutomationSession: AutomationSessionOperating {
         id = nil
         await runtime?.finish()
         await browser?.close()
+        // Given back once Chrome has quit, so the next session finds the profile free.
+        if let profile { Self.profilesInUse.remove(profile) }
+        self.profile = nil
     }
 
     /// The tab, as the window listing of its synthetic id answers.

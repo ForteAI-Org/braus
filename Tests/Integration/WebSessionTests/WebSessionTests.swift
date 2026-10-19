@@ -3,6 +3,7 @@
 //  Braus
 //
 
+import AppKit
 import AutomationMCP
 import AutomationRuntime
 import EngineCore
@@ -34,6 +35,10 @@ final class DesktopProbe: AutomationSessionOperating {
     func select(control: String, item: String) async throws -> ActOutcome { throw AutomationFailure("probe") }
     func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome { throw AutomationFailure("probe") }
     func close() async { calls.append("close"); id = nil }
+    func resolvedBundleID(of application: String) async -> String? {
+        calls.append("resolve \(application)"); return "com.example.App"
+    }
+    func windowCandidates(ownedBy processID: pid_t) throws -> [WindowRow] { calls.append("windows \(processID)"); return [] }
 }
 
 @MainActor
@@ -73,6 +78,63 @@ struct WebSessionTests {
         #expect(web.calls == ["open web:example.com"])
         #expect(router.id == web.id)
     }
+
+    @Test("A file address goes to the web session, which refuses it before starting Chrome")
+    func refusesLocalFiles() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: "braus-web-file-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let desktop = DesktopProbe()
+        let web     = WebAutomationSession(
+            knowledgeDirectory: temporary.appending(path: "Knowledge"),
+            launchOptions     : ChromeLaunchOptions(
+                executableURL    : temporary.appending(path: "no-chrome"),
+                userDataDirectory: temporary.appending(path: "profile")
+            )
+        )
+        let router  = RoutingAutomationSession(desktop: desktop, web: web)
+        for address in ["file:///tmp/a.html", "web:file:///tmp/a.html", "FILE:///tmp/a.html"] {
+            let refusal = await #expect(throws: AutomationFailure.self) {
+                _ = try await router.open(application: address, window: nil)
+            }
+            #expect(refusal?.description == WebAutomationSession.localFileRefusal)
+        }
+        #expect(desktop.calls.isEmpty)
+        #expect(web.id == nil)
+        #expect(!FileManager.default.fileExists(atPath: temporary.appending(path: "profile").path))
+    }
+
+    @Test("An address names no application; any other name resolves as the desktop resolves it")
+    func resolvesOnlyApplications() async {
+        let desktop = DesktopProbe()
+        let router  = RoutingAutomationSession(desktop: desktop, web: DesktopProbe())
+        #expect(await router.resolvedBundleID(of: "web:notes.example.com") == nil)
+        #expect(await router.resolvedBundleID(of: "https://example.com") == nil)
+        #expect(await router.resolvedBundleID(of: "Notes") == "com.example.App")
+        #expect(desktop.calls == ["resolve Notes"])
+    }
+
+    @Test("A negative window id is a tab the web session lists; any other id is the desktop's")
+    func listsWindowsBySide() throws {
+        let desktop = DesktopProbe()
+        let web     = DesktopProbe()
+        let router  = RoutingAutomationSession(desktop: desktop, web: web)
+        _ = try router.windowCandidates(ownedBy: -100)
+        _ = try router.windowCandidates(ownedBy: 42)
+        #expect(web.calls == ["windows -100"])
+        #expect(desktop.calls == ["windows 42"])
+    }
+
+    @Test("Closing the router closes both sides")
+    func closesBoth() async throws {
+        let desktop = DesktopProbe()
+        let web     = DesktopProbe()
+        let router  = RoutingAutomationSession(desktop: desktop, web: web)
+        _ = try await router.open(application: "web:example.com", window: nil)
+        await router.close()
+        #expect(desktop.calls == ["close"])
+        #expect(web.calls == ["open web:example.com", "close"])
+        #expect(router.id == nil)
+    }
 }
 
 /// The web session behind the tools on a real headless Chrome and the local fixture, with a real
@@ -97,7 +159,8 @@ struct WebSessionLiveTests {
         defer { try? FileManager.default.removeItem(at: temporary) }
         let web = WebAutomationSession(
             knowledgeDirectory: knowledge,
-            launchOptions     : ChromeLaunchOptions(userDataDirectory: temporary.appending(path: "profile"))
+            launchOptions     : ChromeLaunchOptions(userDataDirectory: temporary.appending(path: "profile")),
+            allowsLocalFiles  : true
         )
         let tools = AutomationTools(session: RoutingAutomationSession(desktop: DesktopProbe(), web: web))
         tools.producer = CallProducer(source: .app, streamID: "web-1", traceID: "message-1", messageRef: "message-1")
@@ -131,9 +194,90 @@ struct WebSessionLiveTests {
         #expect(try Self.rows("SELECT count(*) FROM memory_candidate_steps", at: archive) == ["3"])
     }
 
+    @Test("A second session on the same profile is refused until the first closes")
+    func oneSessionPerProfile() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: "braus-web-profile-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let options = ChromeLaunchOptions(userDataDirectory: temporary.appending(path: "profile"))
+        let first   = WebAutomationSession(knowledgeDirectory: temporary.appending(path: "A"), launchOptions: options,
+                                           allowsLocalFiles: true)
+        let second  = WebAutomationSession(knowledgeDirectory: temporary.appending(path: "B"), launchOptions: options,
+                                           allowsLocalFiles: true)
+        let fixture = try #require(Bundle.module.url(forResource: "web-session", withExtension: "html"))
+
+        _ = try await first.open(application: fixture.absoluteString, window: nil)
+        await #expect(throws: AutomationFailure.self) {
+            _ = try await second.open(application: fixture.absoluteString, window: nil)
+        }
+        #expect(second.id == nil)
+        await first.close()
+        _ = try await second.open(application: fixture.absoluteString, window: nil)
+        #expect(second.id != nil)
+        await second.close()
+    }
+
     static func rows(_ sql: String, at url: URL) throws -> [String] {
         let connection = try SQLiteConnection(path: url.path, readOnly: true)
         defer { connection.close() }
         return try connection.query(sql) { try $0.text(0) ?? "" }
+    }
+}
+
+/// Braus's Chrome as a window the person can watch: driven from inside, it must never take the
+/// person's focus. Opt in with `BRAUS_WEB_WINDOW_TESTS=1`, since a window appears on screen.
+@Suite(
+    "Web session, visible window",
+    .serialized,
+    .enabled(if: ProcessInfo.processInfo.environment["BRAUS_WEB_WINDOW_TESTS"] == "1")
+)
+@MainActor
+struct WebSessionWindowTests {
+
+    @Test("A visible Chrome is driven through the tools and the frontmost app never changes")
+    func visibleWindowKeepsFocus() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: "braus-web-window-\(UUID().uuidString)")
+        let knowledge = temporary.appending(path: "Knowledge", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: knowledge, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let web = WebAutomationSession(
+            knowledgeDirectory: knowledge,
+            launchOptions     : ChromeLaunchOptions(userDataDirectory: temporary.appending(path: "profile"), isHeadless: false),
+            allowsLocalFiles  : true
+        )
+        let tools   = AutomationTools(session: RoutingAutomationSession(desktop: DesktopProbe(), web: web))
+        let fixture = try #require(Bundle.module.url(forResource: "web-session", withExtension: "html"))
+        let front   = WebSessionWindowTests.frontName()
+
+        let opened = try await tools.call("open_session", WebSessionLiveTests.json(#"{"app":"\#(fixture.absoluteString)"}"#))
+        let id = try #require(web.id?.uuidString, "\(opened)")
+        try await Task.sleep(for: .seconds(1))
+        let afterOpen = WebSessionWindowTests.frontName()
+        #expect(afterOpen == front, "opening took the focus: \(front) -> \(afterOpen)")
+        let typed = try await tools.call("type_text", WebSessionLiveTests.json(#"{"session":"\#(id)","target":"Name","text":"Ada"}"#))
+        #expect(typed["isError"].bool != true, "\(typed)")
+        let sent = try await tools.call("act", WebSessionLiveTests.json(#"{"session":"\#(id)","target":"Send"}"#))
+        #expect(sent["isError"].bool != true, "\(sent)")
+        try await Task.sleep(for: .seconds(2))
+        let windows = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]) ?? []
+        #expect(windows.contains { ($0[kCGWindowOwnerName as String] as? String) == "Google Chrome"
+            && ($0[kCGWindowLayer as String] as? Int) == 0
+            && ($0[kCGWindowBounds as String] as? [String: Any])?["Width"] as? Double ?? 0 > 600 },
+            "no Chrome window is on screen")
+        let afterAct = WebSessionWindowTests.frontName()
+        #expect(afterAct == front, "acting took the focus: \(front) -> \(afterAct)")
+        await web.close()
+    }
+
+    /// The frontmost application as Launch Services reports it now, read outside this process.
+    static func frontName() -> String {
+        let process = Process()
+        let pipe    = Pipe()
+        process.executableURL  = URL(fileURLWithPath: "/bin/sh")
+        process.arguments      = ["-c", "lsappinfo info -only name $(lsappinfo front)"]
+        process.standardOutput = pipe
+        try? process.run()
+        process.waitUntilExit()
+        return String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     }
 }

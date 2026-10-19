@@ -48,16 +48,21 @@ final class ModelToolLoop {
     /// The tools a turn hands its model: those `call` serves.
     private let definitions: [JSONValue]
 
+    /// Whether those tools open web addresses, which the instructions then teach.
+    private let offersWeb: Bool
+
     /// `call` runs one tool by name, as `AutomationTools.call` does, and reports
     /// its records itself; `definitions` are the tools it serves.
     init(
         call       : @escaping @MainActor (String, JSONValue) async throws -> JSONValue,
         reminder   : @escaping @MainActor () -> String? = { nil },
-        definitions: [JSONValue] = AutomationTools.definitions
+        definitions: [JSONValue] = AutomationTools.definitions,
+        offersWeb  : Bool        = false
     ) {
         self.call        = call
         self.reminder    = reminder
         self.definitions = definitions
+        self.offersWeb   = offersWeb
     }
 
     /// The window a loop turn on `selection` runs in: the `num_ctx` Braus sends
@@ -102,8 +107,9 @@ final class ModelToolLoop {
         var messages = [TurnMessage(
             role: .system,
             text: WorkerAgentHost.instructions(
-                role    : role,
-                hasTools: hasTools
+                role     : role,
+                hasTools : hasTools,
+                offersWeb: offersWeb
             )
         )]
         messages += history

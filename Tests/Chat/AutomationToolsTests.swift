@@ -414,6 +414,23 @@ struct AutomationToolsTests {
 }
 
 extension AutomationToolsTests {
+    @Test("open_session and the instructions teach web addresses only where the web is offered")
+    func webIsTaughtOnlyWhereOffered() throws {
+        func opening(_ offered: Bool) -> String {
+            AutomationTools.definitions(offeringAdapters: false, offeringWeb: offered)
+                .first { $0["name"].string == "open_session" }?["description"].string ?? ""
+        }
+        #expect(!opening(false).contains("web:<host>"))
+        #expect(opening(true).contains("web:<host>") && opening(true).contains("A file:// address is refused"))
+        #expect(!AutomationTools.instructions.contains("web:<host>"))
+        let web = AutomationTools.instructions(offeringAdapters: false, offeringWeb: true)
+        #expect(web.contains("call open_session with web:<host> or an http(s) address"))
+        #expect(!web.contains("use the browser apps marks as the default"))
+        let tools = AutomationTools(session: SyntheticSession(), offersWeb: true)
+        #expect(tools.toolDefinitions == AutomationTools.definitions(offeringAdapters: false, offeringWeb: true))
+        #expect(tools.instructions == AutomationTools.instructions(offeringAdapters: false, offeringWeb: true))
+    }
+
     @Test
     func appsIsListedReadOnlyWithAnOptionalQuery() throws {
         let apps = try #require(AutomationTools.definitions.first { $0["name"].string == "apps" })

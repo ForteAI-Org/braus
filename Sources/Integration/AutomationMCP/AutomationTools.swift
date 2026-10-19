@@ -39,6 +39,9 @@ public final class AutomationTools {
     /// The app adapters `app_capabilities` and `app_call` reach, without a session or a seat. Nil leaves both tools
     /// out of `toolDefinitions` and their lines out of `instructions`: the composition decides whether they exist.
     public let adapters: AppAdapters?
+    /// Whether the session opens `web:<host>` and http(s) addresses as pages in Braus's own Chrome: the
+    /// composition that routes them to a web session says so, and `open_session` and `instructions` teach it.
+    public let offersWeb: Bool
     public var record: ((String) throws -> Void)?
     /// Who makes the calls, as the living memory records them: the app's worker, an external client,
     /// the command line's chat. Each call is recorded under it, with the trace it names at that moment.
@@ -67,15 +70,22 @@ public final class AutomationTools {
     private var seen: [Baseline] = []
 
     public init(
-        session : any AutomationSessionOperating,
-        adapters: AppAdapters? = nil
+        session  : any AutomationSessionOperating,
+        adapters : AppAdapters? = nil,
+        offersWeb: Bool         = false
     ) {
-        self.session  = session
-        self.adapters = adapters
+        self.session   = session
+        self.adapters  = adapters
+        self.offersWeb = offersWeb
     }
 
     /// The tools this instance serves and accepts: `definitions`, with the adapter tools while `adapters` is set.
-    public var toolDefinitions: [JSONValue] { Self.definitions(offeringAdapters: adapters != nil) }
+    public var toolDefinitions: [JSONValue] {
+        Self.definitions(
+            offeringAdapters: adapters != nil,
+            offeringWeb     : offersWeb
+        )
+    }
 
     /// What a host sends the agent after a turn that left a candidate it did not interpret, once per candidate;
     /// nil when there is none or it was asked already. Haiku 5.5 answered the person after an end and left the
@@ -140,13 +150,36 @@ public final class AutomationTools {
     /// The base instructions every provider turn over these tools runs with, in the CLI and the app alike.
     public static var instructions: String { instructions(offeringAdapters: false) }
 
-    /// The base instructions, with the adapters' lines when `app_capabilities` and `app_call` are offered.
-    public static func instructions(offeringAdapters: Bool) -> String {
-        baseInstructions + (offeringAdapters ? "\n" + adapterInstructions : "") + "\n" + MemoryTaskTool.instructions
+    /// The base instructions, with the adapters' lines when `app_capabilities` and `app_call` are offered, and
+    /// with pages opened in Braus's own Chrome instead of a browser app when the web is offered.
+    public static func instructions(
+        offeringAdapters: Bool,
+        offeringWeb     : Bool = false
+    ) -> String {
+        let base = offeringWeb ? baseInstructions.replacingOccurrences(of: browserLine, with: webLine) : baseInstructions
+        return base + (offeringAdapters ? "\n" + adapterInstructions : "") + "\n" + MemoryTaskTool.instructions
     }
 
     /// This instance's instructions: those of the tools it serves, as `toolDefinitions`.
-    public var instructions: String { Self.instructions(offeringAdapters: adapters != nil) }
+    public var instructions: String {
+        Self.instructions(
+            offeringAdapters: adapters != nil,
+            offeringWeb     : offersWeb
+        )
+    }
+
+    /// Where the web is reached without the web session, a line of `baseInstructions`.
+    static let browserLine = "For anything on the web, use the browser apps marks as the default unless the person "
+        + "names another one."
+
+    /// What replaces `browserLine` when the web is offered: a page in Braus's own Chrome, a browser app only by name.
+    static let webLine = "For anything on the web, call open_session with web:<host> or an http(s) address: the page "
+        + "opens in Braus's own Chrome, never the person's browser. Drive a browser app only when the person names it."
+
+    /// What `open_session`'s description adds when the web is offered.
+    static let webOpening = "With web:<host> (web:example.com) or an http(s) address as app, it opens that page in "
+        + "Braus's own Chrome instead, never the person's browser, and the scene is the page; another address "
+        + "later loads in the same tab. A file:// address is refused. "
 
     /// What the instructions add with the adapters: an app's API before its interface, and folders, files and text
     /// files through the files adapter's verbs, never through Finder, TextEdit or a shell.
@@ -167,7 +200,7 @@ public final class AutomationTools {
     For a new app, discover exact names and window titles with windows, then open_session.
     To switch windows of the held app, call open_session with the same app and an exact window title; this
     keeps the Seat and session. Handle a blocking dialog first. Do not release the Seat to switch windows.
-    For anything on the web, use the browser apps marks as the default unless the person names another one.
+    \(browserLine)
     open_session on a running browser opens a new window of it to work in, but while the seat holds the browser
     its other visible windows move to the seat's display too: if the person may be using it, ask first.
     Pass one of their window titles only when they ask for that window.
@@ -269,8 +302,11 @@ public final class AutomationTools {
     public static var definitions: [JSONValue] { definitions(offeringAdapters: false) }
 
     /// The tools an instance serves: every Seat tool and `memory_task`, and `app_capabilities` and `app_call` only
-    /// when the adapters are offered.
-    public static func definitions(offeringAdapters: Bool) -> [JSONValue] {
+    /// when the adapters are offered. `open_session` says how it opens a page only when the web is offered.
+    public static func definitions(
+        offeringAdapters: Bool,
+        offeringWeb     : Bool = false
+    ) -> [JSONValue] {
         let text: JSONValue = .object(["type": .string("string"), "minLength": .number(1)])
         let section: JSONValue = .object([
             "type": .string("string"), "minLength": .number(1),
@@ -336,6 +372,7 @@ public final class AutomationTools {
             tool("open_session", "Adopt an app into one persistent background Seat and observe it. "
                  + "Use an exact window title when needed; an empty title selects one uniquely untitled window. "
                  + "Omitting window selects the main window. For the held app, an exact window title switches within the same Seat. Close the session before opening a different app. "
+                 + (offeringWeb ? webOpening : "")
                  + (offeringAdapters ? "Set named true only when the person named this app: otherwise an app "
                     + "with a better route (an app_call adapter) is not opened, and the answer says which route to "
                     + "use. " + SharedRoutes.namedApp + " " : "")

@@ -32,16 +32,21 @@ final class ExternalMCPSession {
     }
 
     /// `adapterApprover` asks the person in the app before an adapter's irreversible verb runs; without one
-    /// those verbs are refused.
+    /// those verbs are refused. `offersWeb` says that `session` routes web addresses to a web session.
     init(
         profile: MCPClientProfile,
         session: any AutomationSessionOperating,
         perform: @escaping Performing = { try await $0() },
         activity: @escaping @MainActor (String) -> Void = { _ in },
-        adapterApprover: (any AdapterApproving)? = nil
+        adapterApprover: (any AdapterApproving)? = nil,
+        offersWeb: Bool = false
     ) {
         self.profile = profile
-        self.tools = AutomationTools(session: session, adapters: .standard(approver: adapterApprover))
+        self.tools = AutomationTools(
+            session  : session,
+            adapters : .standard(approver: adapterApprover),
+            offersWeb: offersWeb
+        )
         self.tools.producer = CallProducer(source: .mcp, streamID: "mcp-" + profile.id.uuidString)
         self.perform = perform
         self.activity = activity

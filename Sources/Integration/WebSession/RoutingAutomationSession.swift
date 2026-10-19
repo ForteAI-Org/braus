@@ -9,8 +9,12 @@ import Foundation
 import PerceptionCore
 
 /// RoutingAutomationSession lets one set of tools drive applications and pages: `open` with
-/// `web:<host>` or a URL goes to the web session, any other name to the desktop one, and every
-/// later call goes to the session that was opened last. The tools see one session, as before.
+/// `web:<host>` or an `http(s)` URL goes to the web session, any other name to the desktop one, and
+/// every later call goes to the session that was opened last. The tools see one session, as before.
+///
+/// A `file://` address goes to the web session too, which refuses it unless it allows local files
+/// (`WebAutomationSession.localFileRefusal`). A window candidate with a negative id is a tab
+/// (`WebTabs`), so it is listed by the web session; every other id by the desktop one.
 @MainActor
 public final class RoutingAutomationSession: AutomationSessionOperating {
 
@@ -53,7 +57,11 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
 
     public func press(button: String) async throws -> ActOutcome { try await current.press(button: button) }
 
-    public func close() async { await current.close() }
+    /// Closes both sides; the one that holds nothing returns at once.
+    public func close() async {
+        await desktop.close()
+        await web.close()
+    }
 
     public var closeWarning: String? { current.closeWarning }
     public var seatNotice: String? { current.seatNotice }
@@ -61,6 +69,12 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
 
     public func applications(matching query: String?) async throws -> [ApplicationCandidate] {
         try await desktop.applications(matching: query)
+    }
+
+    /// An address names no application, so no adapter route is looked up for it.
+    public func resolvedBundleID(of application: String) async -> String? {
+        guard WebAutomationSession.address(in: application) == nil else { return nil }
+        return await desktop.resolvedBundleID(of: application)
     }
 
     public func windowCandidates(ownedBy processID: pid_t) throws -> [WindowRow] {

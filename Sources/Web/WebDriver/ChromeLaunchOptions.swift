@@ -73,9 +73,11 @@ public struct ChromeLaunchOptions: Sendable, Hashable {
             "--disable-backgrounding-occluded-windows",
             "--window-size=\(windowWidth),\(windowHeight)",
         ]
-        if isHeadless { arguments.append("--headless") }
+        // A visible Chrome starts with no window: a window opened at launch brings Chrome to the front,
+        // one opened later in the background (`WebBrowser.openPage`) does not.
+        arguments.append(isHeadless ? "--headless" : "--no-startup-window")
         arguments.append(contentsOf: additionalArguments)
-        arguments.append("about:blank")
+        if isHeadless { arguments.append("about:blank") }
         return arguments
     }
 }

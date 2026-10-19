@@ -103,6 +103,8 @@ final class WorkerAgentHost {
     /// when there is none to describe; it goes ahead of the prompt the provider
     /// receives and is never recorded. `adapterApprover` asks the person before
     /// an adapter's irreversible verb runs; without one those verbs are refused.
+    /// `offersWeb` says that `session` routes web addresses to a web session, so
+    /// the tools and the instructions teach them.
     convenience init(
         workingDirectory: URL,
         bridgeExecutable: URL,
@@ -110,7 +112,8 @@ final class WorkerAgentHost {
         transports      : @escaping (ModelSelection) -> any ModelTransport = { $0.transport() },
         contextWindows  : @escaping (ModelSelection) -> Int?               = { _ in nil },
         seatLine        : @escaping @MainActor () -> String?               = { nil },
-        adapterApprover : (any AdapterApproving)?                          = nil
+        adapterApprover : (any AdapterApproving)?                          = nil,
+        offersWeb       : Bool                                             = false
     ) {
         self.init(
             workingDirectory: workingDirectory,
@@ -120,7 +123,8 @@ final class WorkerAgentHost {
             transports      : transports,
             contextWindows  : contextWindows,
             seatLine        : seatLine,
-            adapterApprover : adapterApprover
+            adapterApprover : adapterApprover,
+            offersWeb       : offersWeb
         )
     }
 
@@ -134,7 +138,8 @@ final class WorkerAgentHost {
         transports      : @escaping (ModelSelection) -> any ModelTransport = { $0.transport() },
         contextWindows  : @escaping (ModelSelection) -> Int?               = { _ in nil },
         seatLine        : @escaping @MainActor () -> String?               = { nil },
-        adapterApprover : (any AdapterApproving)?                          = nil
+        adapterApprover : (any AdapterApproving)?                          = nil,
+        offersWeb       : Bool                                             = false
     ) {
         self.workingDirectory = workingDirectory
         self.bridgeExecutable = bridgeExecutable
@@ -144,8 +149,9 @@ final class WorkerAgentHost {
         self.seatLine         = seatLine
         // A worker's tools offer the app adapters; `instructions` says so in their words.
         let tools  = AutomationTools(
-            session : session(),
-            adapters: .standard(approver: adapterApprover)
+            session  : session(),
+            adapters : .standard(approver: adapterApprover),
+            offersWeb: offersWeb
         )
         let router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
             try await tools.call(name, arguments)
@@ -182,9 +188,13 @@ final class WorkerAgentHost {
     static func instructions(
         role       : String?,
         hasTools   : Bool = true,
-        searchesWeb: Bool = false
+        searchesWeb: Bool = false,
+        offersWeb  : Bool = false
     ) -> String {
-        let tools = AutomationTools.instructions(offeringAdapters: true)
+        let tools = AutomationTools.instructions(
+            offeringAdapters: true,
+            offeringWeb     : offersWeb
+        )
         var base  = hasTools ? tools + "\n" + appInstructions : textOnlyInstructions
         if searchesWeb { base += "\n" + webInstructions }
         guard let role = role?.trimmingCharacters(in: .whitespacesAndNewlines), !role.isEmpty else {
@@ -241,7 +251,8 @@ final class WorkerAgentHost {
             let loop  = ModelToolLoop(
                 call       : { [tools] name, arguments in try await tools.call(name, arguments) },
                 reminder   : { [tools] in tools.takeInterpretationReminder() },
-                definitions: tools.toolDefinitions
+                definitions: tools.toolDefinitions,
+                offersWeb  : tools.offersWeb
             )
             self.loop = loop
             defer { endLoop() }
@@ -282,7 +293,8 @@ final class WorkerAgentHost {
         // instructions change, in the current message as well as the provider configuration.
         let instructions = Self.instructions(
             role       : role,
-            searchesWeb: allowsWebSearch
+            searchesWeb: allowsWebSearch,
+            offersWeb  : tools.offersWeb
         )
         // The seat line opens the person's message, so a reminder puts the text explaining it first.
         var message      = seat.map { $0 + "\n\n" + prompt } ?? prompt
@@ -301,7 +313,8 @@ final class WorkerAgentHost {
             connectionFile      : connection,
             workingDirectory    : workingDirectory,
             inheritedEnvironment: inheritedEnvironment,
-            allowsWebSearch     : allowsWebSearch
+            allowsWebSearch     : allowsWebSearch,
+            offersWeb           : tools.offersWeb
         )
         var web = WebToolRecords()
         do {
@@ -330,7 +343,8 @@ final class WorkerAgentHost {
                     connectionFile      : connection,
                     workingDirectory    : workingDirectory,
                     inheritedEnvironment: inheritedEnvironment,
-                    allowsWebSearch     : allowsWebSearch
+                    allowsWebSearch     : allowsWebSearch,
+                    offersWeb           : tools.offersWeb
                 )
                 try await provider.run(follow, executable: executable, onStart: { onEvent(.processStarted($0)) }) { event in
                     if case .session(let id) = event { self.reportedSession = id }
@@ -472,7 +486,8 @@ final class WorkerAgentHost {
             connectionFile      : connection,
             workingDirectory    : workingDirectory,
             inheritedEnvironment: inheritedEnvironment,
-            isCompaction        : true
+            isCompaction        : true,
+            offersWeb           : tools.offersWeb
         )
         let started  = Date()
         var boundary : (pre: Int?, post: Int?)?
@@ -707,7 +722,8 @@ final class WorkerAgentHost {
         workingDirectory    : URL,
         inheritedEnvironment: [String: String],
         isCompaction        : Bool = false,
-        allowsWebSearch     : Bool = false
+        allowsWebSearch     : Bool = false,
+        offersWeb           : Bool = false
     ) -> ProviderTurn {
         let searchesWeb = allowsWebSearch && !isCompaction
         let efforts = ModelSelection.supportedEfforts(provider: selection.provider, model: selection.model)
@@ -718,7 +734,8 @@ final class WorkerAgentHost {
             prompt          : prompt,
             instructions    : instructions(
                 role       : role,
-                searchesWeb: searchesWeb
+                searchesWeb: searchesWeb,
+                offersWeb  : offersWeb
             ),
             bridgeExecutable: bridgeExecutable.path,
             connectionFile  : connectionFile.path,

@@ -16,6 +16,7 @@ import Observation
 import PerceptionCore
 import os
 import SeatBroker
+import WebSession
 
 /// A problem in the language an alert needs: a specific title, an actionable
 /// explanation, and optional diagnostic detail kept out of the main message.
@@ -186,6 +187,17 @@ final class TeamModel {
     /// or holds the computer (§4.2).
     private var desktops: [UUID: BrokeredAutomationSession] = [:]
 
+    /// Whether workers open web addresses as pages in Braus's own Chrome (`AppPreferences.web`), read as the
+    /// team opens. Without it no web session exists and the tools teach none.
+    let offersWeb: Bool
+
+    /// Each conversation's web session, a Chrome tab its worker's tools reach with `web:<host>` or an http(s)
+    /// address, with the worker it belongs to. It takes no seat.
+    private var webs: [UUID: (workerID: UUID, session: WebAutomationSession)] = [:]
+
+    /// The conversations that show Braus's Chrome as a window instead of headless, kept across launches.
+    private(set) var browserWindows: Set<UUID>
+
     /// Increment 1 has one workspace per store, and the schema gives it no row
     /// yet, so its events carry this fixed id.
     private static let workspaceID = UUID(uuid: (0x4d, 0x45, 0x43, 0x55, 0x4d, 0, 0x40, 0, 0x80, 0, 0, 0, 0, 0, 0, 1))
@@ -230,6 +242,10 @@ final class TeamModel {
         self.bridgeExecutable = bridgeExecutable
         self.preferences      = preferences
         self.approvals        = approvals
+        self.offersWeb        = preferences.bool(forKey: AppPreferences.web)
+        self.browserWindows   = Set(
+            (preferences.stringArray(forKey: AppPreferences.showsBrowserWindow) ?? []).compactMap(UUID.init)
+        )
     }
 
     // MARK: Reading
@@ -619,6 +635,8 @@ final class TeamModel {
         }
 
         Task {
+            // A turn here ends the pages the worker left open in its other conversations.
+            for (id, web) in webs where web.workerID == workerID && id != conversationID { await web.session.close() }
             var ending: WorkerTurnRecorder.Ending?
             do {
                 var provider: ModelProvider?
@@ -706,10 +724,20 @@ final class TeamModel {
         if let existing = hosts[conversationID], let held = desktops[workerID] { return (existing, held) }
 
         let desktop = self.desktop(for: workerID)
+        var session: any AutomationSessionOperating = desktop
+        if offersWeb {
+            let web = webs[conversationID]?.session
+                ?? AppModel.webSession(showsWindow: browserWindows.contains(conversationID))
+            webs[conversationID] = (workerID, web)
+            session = RoutingAutomationSession(
+                desktop: desktop,
+                web    : web
+            )
+        }
         let host    = WorkerAgentHost(
             workingDirectory: workingFolder(of: conversationID),
             bridgeExecutable: bridgeExecutable,
-            session         : { desktop },
+            session         : { session },
             agents          : agents,
             transports      : { [connections] in $0.transport(settings: connections.providerSettings) },
             contextWindows  : { [connections] selection in
@@ -720,7 +748,8 @@ final class TeamModel {
                 )
             },
             seatLine        : { desktop.turnStatus },
-            adapterApprover : approvals.map { AdapterApprover(approvals: $0) }
+            adapterApprover : approvals.map { AdapterApprover(approvals: $0) },
+            offersWeb       : offersWeb
         )
         host.callProducer = CallProducer(source: .app, streamID: "worker-" + workerID.uuidString)
         hosts[conversationID] = host
@@ -1274,10 +1303,32 @@ final class TeamModel {
     /// Removes the enlarged screen at once, for a worker or a seat that went away.
     func dismissEnlargedScreen() { enlargedScreen = nil }
 
-    /// Gives the worker's seat back (§3.4). The conversation, a running turn and the worker stay
-    /// as they are; the next tool call that needs the computer waits in the queue for it again.
+    /// Whether the conversation shows Braus's Chrome as a window.
+    func showsBrowserWindow(in conversationID: UUID) -> Bool { browserWindows.contains(conversationID) }
+
+    /// Shows or hides Braus's Chrome for the conversation, from the next time it starts. A Chrome already
+    /// running between turns is closed, so the next page opens the way the person chose; during a turn it
+    /// is left alone and the choice applies once it closes.
+    func setShowsBrowserWindow(
+        _ shows          : Bool,
+        in conversationID: UUID
+    ) async {
+        if shows { browserWindows.insert(conversationID) } else { browserWindows.remove(conversationID) }
+        preferences.set(
+            browserWindows.map(\.uuidString),
+            forKey: AppPreferences.showsBrowserWindow
+        )
+        guard let web = webs[conversationID] else { return }
+
+        web.session.launchOptions = AppModel.chromeOptions(showsWindow: shows)
+        if !isAnswering(web.workerID) { await web.session.close() }
+    }
+
+    /// Gives the worker's seat back (§3.4), and closes its pages. The conversation, a running turn and
+    /// the worker stay as they are; the next tool call that needs the computer waits in the queue for it again.
     func releaseComputer(_ workerID: UUID) async {
         await desktops[workerID]?.close()
+        for web in webs.values where web.workerID == workerID { await web.session.close() }
     }
 
     /// Reads the worker's window as the agent's `observe` reads it, for `/observe`. It
@@ -1316,8 +1367,12 @@ final class TeamModel {
     /// that could not be removed is reported rather than forgotten.
     func closeAgentHosts() async {
         let closing = hosts
+        let pages   = webs.values.map(\.session)
         hosts.removeAll()
         desktops.removeAll()
+        webs.removeAll()
+        // Chrome quits with its sessions, so no browser outlives the app.
+        for web in pages { await web.close() }
         for host in closing.values {
             do { try await host.close() }
             catch {

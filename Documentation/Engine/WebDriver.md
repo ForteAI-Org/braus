@@ -58,6 +58,27 @@ address loads in the same tab. Every call then goes through the same `ActionEngi
 actions and the task's procedure candidates under `web:<host>` with no change to its logic.
 Opening an application closes the web session, and opening an address closes the desktop one.
 
+`RoutingAutomationSession` sends `web:<host>` and `http(s)://` addresses to the web session and
+every other name to the desktop (Seat) session; a window id below zero is a tab, listed by the web
+session. A `file://` address goes to the web session too, which refuses it with a sentence unless it
+was made with `allowsLocalFiles`: a local file opened in Chrome would be read into the scene, the
+model's context and the memory, whatever it holds. Only the tests' local fixtures turn it on.
+
+In the app the web is off unless the `computer.web` preference is on (a launch argument
+`-computer.web YES` turns it on for one run). With it, every external MCP client and every worker
+conversation drives a `RoutingAutomationSession`, and `open_session`'s description and the
+instructions teach `web:<host>`; without it they say nothing of it and no Chrome is ever started.
+The desktop side goes through the seat queue as before, the web side takes no seat. They all use
+one Chrome profile, `chrome-web` in the app's directory, and Chrome lets one process at a time use a
+profile, so a second web session is refused with a sentence until the first closes.
+
+Each conversation has its own web session. A turn that starts in another conversation of the same
+worker closes it, as do releasing the worker's computer and quitting. The inspector's Show Chrome
+Window switch, kept per conversation, starts that conversation's Chrome visible instead of headless:
+Chrome is started with `--no-startup-window` and its tab opened in the background in a new window,
+so the window never takes the person's focus. A change applies the next time Chrome starts; a
+Chrome idle between turns is closed at once.
+
 ## Tests
 
 ```bash
@@ -67,7 +88,9 @@ BRAUS_WEB_LIVE_TESTS=1 swift test --filter "WebDriverTests|WebDrivingTests|WebSe
 
 The live tests need Google Chrome in `/Applications`, use a throwaway profile and a local fixture,
 reach no network and leave no Chrome running. One drives `open_session`, `type_text`, `act`,
-`select` and `memory_task` through `AutomationTools` and reads the archive afterwards.
+`select` and `memory_task` through `AutomationTools` and reads the archive afterwards. The visible
+window test (`BRAUS_WEB_WINDOW_TESTS=1`) opens a Chrome window on the person's screen and checks
+that the frontmost application never changes.
 
 ## Limits
 
@@ -76,4 +99,3 @@ reach no network and leave no Chrome running. One drives `open_session`, `type_t
   not handled yet.
 - Nested scroll containers do not clip their content: an element scrolled out of an inner panel but
   inside the viewport is still in the scene.
-- The Braus app's MCP and worker sessions are not yet wired to `RoutingAutomationSession`.

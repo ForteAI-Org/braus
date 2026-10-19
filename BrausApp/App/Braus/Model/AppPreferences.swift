@@ -33,6 +33,14 @@ enum AppPreferences {
     static let seatRefreshRate        = "computer.refreshRate"
     static let seatRefreshRateDefault = 60
 
+    /// Whether workers and external clients open `web:<host>` and http(s) addresses as pages in Braus's own
+    /// Chrome, read with `UserDefaults.bool(forKey:)`, so off unless set. A team window reads it as it opens
+    /// and a client as it connects; a launch argument (`-computer.web YES`) turns it on for one run.
+    static let web = "computer.web"
+
+    /// The conversations whose worker shows Braus's Chrome as a window; every other one keeps it headless.
+    static let showsBrowserWindow = "computer.showsBrowserWindow"
+
     // MARK: Sidebar
 
     /// Whether a worker's row shows its model under the name when nothing else is said there.

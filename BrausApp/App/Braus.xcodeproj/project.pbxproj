@@ -12,6 +12,7 @@
 		000000000000000200000003 /* BrausChat in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000013 /* BrausChat */; };
 		000000000000000200000004 /* BrausEngine in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000014 /* BrausEngine */; };
 		000000000000000200000005 /* BrausPerception in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000016 /* BrausPerception */; };
+		000000000000000200000006 /* BrausWeb in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000017 /* BrausWeb */; };
 		04975A2F3064044900FB69FD /* braus-bridge in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000015 /* braus-bridge */; };
 		049760CE3065351100FB69FD /* braus_logo.icon in Resources */ = {isa = PBXBuildFile; fileRef = 049760CD3065351100FB69FD /* braus_logo.icon */; };
 /* End PBXBuildFile section */
@@ -67,6 +68,7 @@
 				000000000000000200000002 /* ModelTransports in Frameworks */,
 				000000000000000200000005 /* BrausPerception in Frameworks */,
 				000000000000000200000004 /* BrausEngine in Frameworks */,
+				000000000000000200000006 /* BrausWeb in Frameworks */,
 				000000000000000200000003 /* BrausChat in Frameworks */,
 			);
 		};
@@ -122,6 +124,7 @@
 				000000000000000200000015 /* braus-bridge */,
 				000000000000000200000016 /* BrausPerception */,
 				000000000000000200000014 /* BrausEngine */,
+				000000000000000200000017 /* BrausWeb */,
 				000000000000000200000013 /* BrausChat */,
 			);
 			productName = Braus;
@@ -575,6 +578,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
 			productName = BrausPerception;
+		};
+		000000000000000200000017 /* BrausWeb */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
+			productName = BrausWeb;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

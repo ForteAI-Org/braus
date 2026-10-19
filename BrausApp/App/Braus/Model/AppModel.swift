@@ -10,6 +10,8 @@ import Foundation
 import LocalMCP
 import ModelTransports
 import SeatBroker
+import WebDriver
+import WebSession
 
 /// AppModel is what every window of the app shares: the seat broker the
 /// workers' desktops go through, and the model settings.
@@ -41,18 +43,44 @@ final class AppModel {
             workerID: UUID(),
             knowledgeDirectory: KnowledgeLocation.knowledge(under: WorkspaceLaunch.directory)
         )
+        let offersWeb = UserDefaults.standard.bool(forKey: AppPreferences.web)
+        // The web side takes no seat, and a turn with no desktop session open holds none.
+        let routed: any AutomationSessionOperating = offersWeb
+            ? RoutingAutomationSession(
+                desktop: desktop,
+                web    : AppModel.webSession()
+            )
+            : desktop
         let session = ExternalMCPSession(
             profile: profile,
-            session: desktop,
+            session: routed,
             perform: { body in
-                var result = JSONValue.null
+                var result = LocalMCP.JSONValue.null
                 try await desktop.turn { result = try await body() }
                 return result
             },
             activity: activity,
-            adapterApprover: AdapterApprover(approvals: approvals)
+            adapterApprover: AdapterApprover(approvals: approvals),
+            offersWeb: offersWeb
         )
         return MCPHostSession(router: session.router) { await session.close() }
+    }
+
+    /// A web session on Braus's own Chrome profile, `chrome-web` in the app's directory, recording into the
+    /// shared memory. One session at a time runs on the profile; another is refused until it closes.
+    static func webSession(showsWindow: Bool = false) -> WebAutomationSession {
+        WebAutomationSession(
+            knowledgeDirectory: KnowledgeLocation.knowledge(under: WorkspaceLaunch.directory),
+            launchOptions     : chromeOptions(showsWindow: showsWindow)
+        )
+    }
+
+    /// Braus's Chrome, headless unless the conversation asked to see its window.
+    static func chromeOptions(showsWindow: Bool) -> ChromeLaunchOptions {
+        ChromeLaunchOptions(
+            userDataDirectory: WorkspaceLaunch.directory.appending(path: "chrome-web", directoryHint: .isDirectory),
+            isHeadless       : !showsWindow
+        )
     }
 
     /// The Knowledge directory an external client's profile had before G76, under the app's support

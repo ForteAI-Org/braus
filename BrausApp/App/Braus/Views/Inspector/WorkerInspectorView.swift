@@ -62,6 +62,10 @@ struct WorkerInspectorView: View {
                 team  : team,
                 worker: worker
             )
+            InspectorBrowserSection(
+                team  : team,
+                worker: worker
+            )
             InspectorTurnSection(
                 worker: worker,
                 turn  : turn
