@@ -104,6 +104,9 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     /// An element's own `AXSelected`, nil when it does not answer.
     let isSelected: (Node) -> Bool?
 
+    /// An element's own `AXFocused`, nil when it does not answer.
+    let isFocused: (Node) -> Bool?
+
     /// The element above, the elements below, and the default button a window or a panel names.
     let parent       : (Node) -> Node?
     let children     : (Node) -> [Node]
@@ -138,6 +141,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         selection          : @escaping (Node, String) -> [Node]? = { _, _ in nil },
         writeSelection     : @escaping (Node, String, [Node]) -> AXError = { _, _, _ in .attributeUnsupported },
         isSelected         : @escaping (Node) -> Bool? = { _ in nil },
+        isFocused          : @escaping (Node) -> Bool? = { _ in nil },
         parent             : @escaping (Node) -> Node? = { _ in nil },
         children           : @escaping (Node) -> [Node] = { _ in [] },
         defaultButton      : @escaping (Node) -> Node? = { _ in nil },
@@ -159,6 +163,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         self.selection           = selection
         self.writeSelection      = writeSelection
         self.isSelected          = isSelected
+        self.isFocused           = isFocused
         self.parent              = parent
         self.children            = children
         self.defaultButton       = defaultButton
@@ -602,6 +607,28 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         return nil
     }
 
+    /// Enters the editor of a field whose text accessibility cannot write yet, without a pointer.
+    ///
+    /// Measured on 19/10/2026 on the selection counters of Pro Tools' Edit window, Pro Tools in the
+    /// background: AXPress gave the field the focus with its whole value selected, and the
+    /// application stayed inactive, where a posted click on the same field activated it. The keys
+    /// that follow reach the focused editor and replace the selection, so no text field is handed
+    /// back for AX writes. A field without AXPress, or whose press does not read back as focused,
+    /// answers `fieldRequiresClick`: a press that took no hold wrote nothing either.
+    private func enterEditor(
+        of node: Node,
+        role   : String
+    ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
+        guard actions(node).contains(kAXPressAction) else { return .failure(.fieldRequiresClick) }
+        let code = perform(node, kAXPressAction)
+        note("AXPress on \(role) to enter its editor answered \(code.rawValue)")
+        settle()
+        guard code == .success || code == .cannotComplete, isFocused(node) == true else {
+            return .failure(.fieldRequiresClick)
+        }
+        return .success(RemoteContentActuation(action: kAXPressAction, role: role, textField: nil))
+    }
+
     /// Leaves a caret at the end of the field's value, or selects all of it.
     /// A value that cannot be read refuses, since its length is the caret.
     private func select(
@@ -617,7 +644,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
             return .failure(.unsupportedRole(role))
         }
         if isOrdinaryWindow, !selectionIsSettable(node, kAXSelectedTextAttribute) {
-            return .failure(.fieldRequiresClick)
+            return enterEditor(of: node, role: role)
         }
         guard let current = value(node) else { return .failure(.unreadable) }
         let length = current.utf16.count
@@ -713,6 +740,7 @@ extension RemoteContentActuator where Node == AXUIElement {
                 return AXUIElementSetAttributeValue(container, name as CFString, nodes as CFArray)
             },
             isSelected      : { (attribute($0, kAXSelectedAttribute) as NSNumber?)?.boolValue },
+            isFocused       : { (attribute($0, kAXFocusedAttribute) as NSNumber?)?.boolValue },
             parent          : { node in
                 guard let parent: AXUIElement = attribute(node, kAXParentAttribute) else { return nil }
                 AXUIElementSetMessagingTimeout(parent, BoundedAccessibilityRead.fastTimeout)

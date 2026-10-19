@@ -63,6 +63,9 @@ struct RemoteContentActuationTests {
         var selectionWrites  : [[Element]] = []
         var onSelectChildren : (([Element]) -> Void)?
         var selectedFlag     : Bool?
+        /// `AXFocused`, and whether an AXPress gives the element the focus, as a field entering its editor.
+        var focused          : Bool?
+        var focusesOnPress   = false
         var defaultButton    : Element?
 
         // An outline or a table: whether its selected rows can be written, what they are, every
@@ -141,6 +144,7 @@ struct RemoteContentActuationTests {
             value  : { $0.value },
             perform: { element, action in
                 element.performed.append(action)
+                if action == kAXPressAction, element.focusesOnPress { element.focused = true }
                 element.onPerform?(action)
                 return element.performAnswer
             },
@@ -167,6 +171,7 @@ struct RemoteContentActuationTests {
                 return .success
             },
             isSelected         : { $0.selectedFlag },
+            isFocused          : { $0.focused },
             parent             : { $0.parent },
             children           : { $0.children },
             defaultButton      : { $0.defaultButton },
@@ -1199,6 +1204,40 @@ struct RemoteContentActuationTests {
         }
         #expect(field.writes.isEmpty)
         #expect(field.value == "original")
+    }
+
+    @Test("a field that takes no text yet enters its editor by AXPress, read back as focused, and writes nothing",
+          arguments: [true, false])
+    func fieldEntersItsEditorByPress(focuses: Bool) async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_441)
+        let field = Self.control(kAXTextFieldRole, in: finder, actions: [kAXPressAction], value: "    1| 1| 000")
+        field.title = "Edit Selection Start"
+        field.selectionSettable = true
+        field.textSettable = false
+        field.focusesOnPress = focuses
+        let actuator = Self.actuator(hitting: { field }, window: finder.element)
+        let identity = try #require(finder.window.reference.identity)
+        let geometry = try #require(WindowGeometryObservation(
+            window: finder.window.reference, scaleFactor: 1,
+            version: GeometryObservationVersion(observerGeneration: 1, sequence: 1)
+        ))
+        let endpoint = try GestureEndpointRoutingTests.endpoint(
+            geometry, relation: .logicalSurface, logicalSurface: identity,
+            generation: 1, hostProcessID: identity.processID
+        )
+        let result = actuator.actuate(
+            .click(Self.point(in: finder.window), count: 3), endpoint: endpoint, expecting: "Edit Selection Start"
+        )
+        if focuses {
+            let entered = try result.get()
+            #expect(entered.action == kAXPressAction)
+            #expect(entered.textField == nil, "the keys that follow reach the focused editor")
+        } else {
+            #expect(throws: RemoteContentActuationRefusal.fieldRequiresClick) { try result.get() }
+        }
+        #expect(field.performed == [kAXPressAction])
+        #expect(field.writes.isEmpty)
+        #expect(field.value == "    1| 1| 000")
     }
 
     @Test("text after an accessibility click on an ordinary window's field is set through AXSelectedText")
