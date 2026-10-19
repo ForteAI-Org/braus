@@ -74,8 +74,9 @@ public enum WebSceneBuilder {
                 if collectionRoles.contains(node.role) {
                     collection = collection ?? (container.map { $0 + " / " } ?? "") + (name.isEmpty ? node.role : name)
                 }
+                let isSecure = node.backendNodeID.map(layout.secureFieldIDs.contains) ?? false
                 if let element = element(for: node, name: name, container: container, collection: collection,
-                                         textCovered: textCovered) {
+                                         textCovered: textCovered, isSecure: isSecure) {
                     if let bounds = visibleBounds(of: node) {
                         var element = element
                         element.bounds = bounds
@@ -179,13 +180,17 @@ public enum WebSceneBuilder {
         return nil
     }
 
-    /// The element a node stands for, without its bounds; nil for a node the scene does not show.
+    /// The element a node stands for, without its bounds; nil for a node the scene does not show. A node
+    /// `isSecure` names (`WebSecureFields`, by the DOM) is an `AXSecureTextField` with no value whatever
+    /// role the tree gives it: the DOM wins over the tree's role, and what the tree says it holds never
+    /// reaches the scene.
     static func element(
         for node   : WebAXNode,
         name       : String,
         container  : String?,
         collection : String?,
-        textCovered: Bool
+        textCovered: Bool,
+        isSecure   : Bool = false
     ) -> SceneElement? {
         let enabled = node.flag("disabled").map { !$0 } ?? true
         func control(_ role: String, label: String? = nil, state: ControlState? = nil, value: String? = nil,
@@ -196,6 +201,12 @@ public enum WebSceneBuilder {
                 bounds: .zero, role: role, state: state, value: value, isEnabled: enabled, container: container,
                 isUnlabeled: label.isEmpty, labelOrigin: label.isEmpty ? nil : .title, collectionPath: collection
             )
+        }
+        if isSecure {
+            var field = control("AXSecureTextField", value: nil, unnamed: "Secure text field")
+            field.kind        = .control
+            field.isUnlabeled = false
+            return field
         }
         switch node.role {
             case "button":

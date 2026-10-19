@@ -372,7 +372,7 @@ let package = Package(
             dependencies : ["WebSession", "WebDriving", "WebDriver", "AutomationRuntime", "AutomationMCP", "Memory",
                             "SQLiteMemory", "EngineCore", "PerceptionCore", "LocalMCP"].map { .target(name: $0) },
             path         : "Tests/Integration/WebSessionTests",
-            resources    : [.copy("Fixtures/web-session.html")],
+            resources    : [.copy("Fixtures/web-session.html"), .copy("Fixtures/web-secure.html")],
             swiftSettings: suite
         ),
 
@@ -571,7 +571,8 @@ let package = Package(
         // roles that act on it over the DevTools protocol. Synthetic process ids name the tabs.
         web("WebDriving", ["WebDriver", "EngineCore", "PerceptionCore"]),
         webTests("WebDriving", ["WebDriving", "WebDriver", "Engine", "EngineCore", "PerceptionCore"],
-                 resources: [.copy("Fixtures/web-scene.html"), .copy("Fixtures/web-hostile.html")]),
+                 resources: [.copy("Fixtures/web-scene.html"), .copy("Fixtures/web-hostile.html"),
+                             .copy("Fixtures/web-secure.html")]),
 
         // MARK: Engine tests
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",

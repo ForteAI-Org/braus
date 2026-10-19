@@ -58,6 +58,36 @@ refuses the next call, which ran nothing, so the world is made again for the new
 script is sent once more. While a world is made, the main frame's document is read before and after:
 a world whose document changed in between is released and made again.
 
+## Secure fields
+
+A secret field's value never reaches a scene, the memory or the engine: `WebSecureFields` decides
+which inputs hold one from the DOM's own attributes, never from a label, and the same rule runs in
+Swift on the snapshot (`WebLayout.secureFieldIDs`) and in JavaScript in the read-back scripts. Such
+an input is in the scene as an `AXSecureTextField` with no value, whatever role and value the tree
+gives it, and neither the focused field's read-back nor the controls' values read it; typing into it
+is therefore never verified by its value. An input is secure when:
+
+- its `type` is `password`;
+- an `autocomplete` token is `current-password`, `new-password`, `one-time-code`, `cc-number`,
+  `cc-csc`, `cc-exp`, `cc-exp-month` or `cc-exp-year`;
+- its `name` or `id`, read as words (`card_number`, `cardNumber` and `CARD-NUMBER` alike), has one
+  word or a run of whole words that spells a password (`password`, `passwd`, `pwd`, `passcode`,
+  `passphrase`), a one-time or verification code (`otp`, `totp`, `hotp`, `onetimecode`,
+  `onetimepassword`, `onetimepin`, `verificationcode`, `smscode`, `authcode`, `securitycode`,
+  `mfa`, `twofactor`, `2fa`), a card's number (`cardnumber`, `cardnum`, `cardno`, `ccnumber`,
+  `ccnum`, `ccno`), its security code (`cvv`, `cvv2`, `cvc`, `cvc2`, `csc`, `cvn`, `cardcode`,
+  `cardverification`) or its expiry (`ccexp`, `ccexpiry`, `ccexpiration`, `ccmonth`, `ccyear`,
+  `cardexp`, `cardexpiry`, `cardexpiration`, `expmonth`, `expyear`, `expirymonth`, `expiryyear`,
+  `expirationmonth`, `expirationyear`).
+
+Autocomplete and names count only on a text-like input, not on a checkbox, a radio button, a button
+or a hidden input. Whole words keep ordinary fields ordinary: `zipcode`, `phone_number`, `order_no`,
+`quantity`, `promo_code`, `card_holder` and `passwordless_email` are not secure, and neither `pin`
+nor `code` alone counts, since a postal PIN code or a promotion code is not a secret. A secret field
+with none of these attributes, such as six bare digit boxes, is not recognized. What the agent types
+into a secure field is still recorded with its call unless the existing rules withhold it (a label
+named for a secret, a declared secret, a credential's shape).
+
 ## Native selects
 
 Chrome draws a `<select>`'s list outside the page, where neither the scene nor a click reaches it.

@@ -133,6 +133,36 @@ struct WebDrivingLiveTests {
         }
     }
 
+    @Test("A card number, a security code, a one-time code and a password show no value and are never read back")
+    func secureFields() async throws {
+        try await Self.withFixture("web-secure") { tabs, id, page in
+            let controls = WebControls(tabs: tabs)
+            let actuator = WebActuator(tabs: tabs)
+            let window   = try await WebScenes(tabs: tabs).currentScene(of: id)
+            let secrets  = ["4111111111111111", "secret-cvc-737", "secret-otp-654321", "hunter2-secret"]
+
+            for label in ["Card", "Security", "Code", "Key"] {
+                let field = try Self.element(label, in: window)
+                #expect(field.role == "AXSecureTextField" && field.value == nil, "\(label): \(field)")
+            }
+            #expect(try Self.element("Quantity", in: window).value == "3")
+            #expect(try Self.element("Zip", in: window).value == "10115")
+            #expect(!window.scene.elements.contains { element in
+                secrets.contains { (element.value ?? "").contains($0) || element.label.contains($0) }
+            })
+
+            try await actuator.perform(.click(at: window.globalPoint(of: try Self.element("Card", in: window))), in: id)
+            try await actuator.perform(.type("4242"), in: id)
+            #expect(try await page.evaluate("document.getElementById('card').value.includes('4242')") == true)
+            #expect(await controls.focusedFieldValue(in: id) == nil)
+            let typed = try #require(try await page.evaluate("document.getElementById('card').value").stringValue)
+            #expect(await controls.controlValue(matchingAny: Set(secrets + [typed]), in: id) == nil)
+            #expect(await controls.controlValue(matchingAny: ["10115"], in: id) == "10115")
+            try await actuator.perform(.click(at: window.globalPoint(of: try Self.element("Zip", in: window))), in: id)
+            #expect(await controls.focusedFieldValue(in: id) == "10115")
+        }
+    }
+
     @Test("Through the engine: a click opens a select's list, a click on an option chooses it")
     func select() async throws {
         try await Self.withFixture { tabs, id, page in

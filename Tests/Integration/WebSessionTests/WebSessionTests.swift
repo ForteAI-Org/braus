@@ -194,6 +194,39 @@ struct WebSessionLiveTests {
         #expect(try Self.rows("SELECT count(*) FROM memory_candidate_steps", at: archive) == ["3"])
     }
 
+    @Test("What a secure field holds reaches neither the tools' answers nor any file of the memory")
+    func secureFieldsStayOutOfTheMemory() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: "braus-web-secure-\(UUID().uuidString)")
+        let knowledge = temporary.appending(path: "Knowledge", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: knowledge, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let web = WebAutomationSession(
+            knowledgeDirectory: knowledge,
+            launchOptions     : ChromeLaunchOptions(userDataDirectory: temporary.appending(path: "profile")),
+            allowsLocalFiles  : true
+        )
+        let tools = AutomationTools(session: RoutingAutomationSession(desktop: DesktopProbe(), web: web))
+        tools.producer = CallProducer(source: .app, streamID: "web-secure", traceID: "message-1", messageRef: "message-1")
+        let fixture = try #require(Bundle.module.url(forResource: "web-secure", withExtension: "html"))
+        let secrets = ["4111111111111111", "secret-cvc-737", "secret-otp-654321", "hunter2-secret"]
+
+        let opened   = try await tools.call("open_session", Self.json(#"{"app":"\#(fixture.absoluteString)"}"#))
+        let id       = try #require(web.id?.uuidString, "\(opened)")
+        let observed = try await tools.call("observe", Self.json(#"{"session":"\#(id)","full":true}"#))
+        let answers  = "\(opened)\(observed)"
+        #expect(answers.contains("Quantity") && answers.contains("10115"), "\(answers)")
+        #expect(!secrets.contains { answers.contains($0) }, "\(answers)")
+        await web.close()
+
+        let files = FileManager.default.enumerator(at: knowledge, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL } ?? []
+        #expect(files.contains { $0.lastPathComponent == "memory.sqlite" })
+        for file in files {
+            guard let data = try? Data(contentsOf: file) else { continue }
+            for secret in secrets { #expect(data.range(of: Data(secret.utf8)) == nil, "\(secret) in \(file.lastPathComponent)") }
+        }
+    }
+
     @Test("A second session on the same profile is refused until the first closes")
     func oneSessionPerProfile() async throws {
         let temporary = FileManager.default.temporaryDirectory.appending(path: "braus-web-profile-\(UUID().uuidString)")

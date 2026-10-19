@@ -8,10 +8,12 @@ import Foundation
 import WebDriver
 
 /// WebLayout is where the main document's nodes are painted, in viewport CSS pixels, from one
-/// `DOMSnapshot.captureSnapshot`, with the page's title and address.
+/// `DOMSnapshot.captureSnapshot`, with the page's title and address, and which nodes are secure
+/// fields whose value is never read (`secureFieldIDs`).
 ///
-/// Only the main document is read: a frame's boxes are relative to its own document, and its
-/// nodes are not in the main frame's accessibility tree either.
+/// Only the main document's boxes are read: a frame's boxes are relative to its own document, and its
+/// nodes are not in the main frame's accessibility tree either. Secure fields are read from every
+/// document, since the snapshot flattens shadow trees into theirs and lists each frame as one.
 public struct WebLayout: Sendable, Equatable {
 
     /// Each laid-out node's box by its backend node id. Where Chrome lays one node out more than
@@ -21,12 +23,22 @@ public struct WebLayout: Sendable, Equatable {
     public var viewport: CGSize
     public var title   : String
     public var url     : String
+    /// The backend node ids of the inputs `WebSecureFields` names secure, by the DOM's own attributes and
+    /// never by a label: their value stays out of every scene.
+    public var secureFieldIDs: Set<Int>
 
-    public init(boxes: [Int: CGRect], viewport: CGSize, title: String = "", url: String = "") {
-        self.boxes    = boxes
-        self.viewport = viewport
-        self.title    = title
-        self.url      = url
+    public init(
+        boxes         : [Int: CGRect],
+        viewport      : CGSize,
+        title         : String   = "",
+        url           : String   = "",
+        secureFieldIDs: Set<Int> = []
+    ) {
+        self.boxes          = boxes
+        self.viewport       = viewport
+        self.title          = title
+        self.url            = url
+        self.secureFieldIDs = secureFieldIDs
     }
 
     /// Reads a snapshot, whose boxes are in document coordinates, and moves them by the document's
@@ -57,10 +69,42 @@ public struct WebLayout: Sendable, Equatable {
             }
         }
         self.init(
-            boxes   : boxes,
-            viewport: CGSize(width: width, height: height),
-            title   : string(document["title"]),
-            url     : string(document["documentURL"])
+            boxes         : boxes,
+            viewport      : CGSize(width: width, height: height),
+            title         : string(document["title"]),
+            url           : string(document["documentURL"]),
+            secureFieldIDs: Self.secureFields(in: snapshot["documents"]?.arrayValue ?? [], strings: strings)
         )
+    }
+
+    /// The backend ids of the secure fields in any of the documents. The snapshot lists a node's
+    /// attributes as string indexes, name then value.
+    static func secureFields(
+        in documents: [JSONValue],
+        strings     : [String]
+    ) -> Set<Int> {
+        func string(_ index: JSONValue?) -> String {
+            guard let index = index?.intValue, strings.indices.contains(index) else { return "" }
+            return strings[index]
+        }
+        var secure: Set<Int> = []
+        for document in documents {
+            let nodes      = document["nodes"]
+            let names      = nodes?["nodeName"]?.arrayValue ?? []
+            let attributes = nodes?["attributes"]?.arrayValue ?? []
+            let backendIDs = nodes?["backendNodeId"]?.arrayValue ?? []
+            for (index, name) in names.enumerated() where string(name).uppercased() == "INPUT" {
+                guard attributes.indices.contains(index), backendIDs.indices.contains(index),
+                      let id = backendIDs[index].intValue
+                else { continue }
+                let pairs = attributes[index].arrayValue ?? []
+                var named: [String: String] = [:]
+                for pair in stride(from: 0, to: pairs.count - 1, by: 2) {
+                    named[string(pairs[pair]).lowercased()] = string(pairs[pair + 1])
+                }
+                if WebSecureFields.isSecure(tag: "INPUT", attributes: named) { secure.insert(id) }
+            }
+        }
+        return secure
     }
 }

@@ -172,11 +172,14 @@ public struct WebControls: ControlPressing {
 
     static let closeScript = "delete window.__brausSelect"
 
-    /// The current value of every select, combo box and text field in the main document.
+    /// The current value of every select, combo box and text field in the main document; a secure
+    /// field's value (`WebSecureFields`) is never read.
     static let controlValuesScript = """
     (() => {
+      const secure = \(WebSecureFields.function);
       const out = [];
       for (const e of document.querySelectorAll('select, input, [role=combobox]')) {
+        if (secure(e)) continue;
         if (e.tagName === 'SELECT') { const o = e.selectedOptions[0]; if (o) out.push(o.textContent.trim()); }
         else if ('value' in e && typeof e.value === 'string') out.push(e.value);
         else out.push((e.getAttribute('aria-valuetext') || e.textContent || '').trim());
@@ -201,9 +204,11 @@ public struct WebControls: ControlPressing {
     })()
     """
 
-    /// The text of the field that holds the focus, through shadow roots and same-origin frames.
+    /// The text of the field that holds the focus, through shadow roots and same-origin frames; null for
+    /// a secure field (`WebSecureFields`), whose value is never read.
     static let focusedFieldScript = """
     (() => {
+      const secure = \(WebSecureFields.function);
       let e = document.activeElement;
       for (;;) {
         if (e && e.shadowRoot && e.shadowRoot.activeElement) { e = e.shadowRoot.activeElement; continue; }
@@ -212,7 +217,7 @@ public struct WebControls: ControlPressing {
         }
         break;
       }
-      if (!e) return null;
+      if (!e || secure(e)) return null;
       if (e.tagName === 'TEXTAREA') return e.value;
       if (e.tagName === 'INPUT' && !['checkbox','radio','button','submit','reset','image','file','range','color'].includes(e.type)) return e.value;
       if (e.isContentEditable) return e.innerText.replace(/\\n$/, '');

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Braus secure fields</title></head>
+<body>
+  <main>
+    <form aria-label="Pay">
+      <label for="card">Card</label> <input id="card" name="cardNumber" value="4111111111111111">
+      <label for="cvc">Security</label> <input id="cvc" autocomplete="billing cc-csc" value="secret-cvc-737">
+      <label for="code">Code</label> <input id="code" name="otp" inputmode="numeric" value="secret-otp-654321">
+      <label for="key">Key</label> <input id="key" type="password" value="hunter2-secret">
+      <label for="qty">Quantity</label> <input id="qty" type="number" name="quantity" value="3">
+      <label for="zip">Zip</label> <input id="zip" name="zip_code" value="10115">
+    </form>
+  </main>
+</body>
+</html>
