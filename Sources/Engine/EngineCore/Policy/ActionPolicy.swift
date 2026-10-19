@@ -25,6 +25,11 @@ public enum ActionPolicy {
 
     /// True when the label names something destructive or irreversible. Native audio send selectors
     /// in Pro Tools open routing controls; the same words elsewhere keep the conservative rule.
+    /// A pane selector is no action either: a radio button or a tab only selects one of its siblings, and
+    /// one named exactly by a pane's name picks the pane and runs nothing. Numbers' inspector selector
+    /// "Format", an `AXRadioButton` beside "Organise", was refused for its substring (B2 trial, 17/10/2026).
+    /// A button, a menu item, an element with no role, and every other label, "Format Disk" included,
+    /// keep the label's rule.
     public static func isDestructive(
         label    : String?,
         bundleID : String? = nil,
@@ -35,8 +40,18 @@ public enum ActionPolicy {
         if isAudioSendSelector(label: lowered, bundleID: bundleID, role: role, container: container) {
             return false
         }
+        if let role, paneSelectorRoles.contains(role), paneNames.contains(normalizedLabel(lowered)) {
+            return false
+        }
         return destructiveTerms.contains { lowered.contains($0) }
     }
+
+    /// The roles of a control that selects one of its siblings and runs nothing.
+    static let paneSelectorRoles: Set<String> = ["AXRadioButton", "AXTab"]
+
+    /// The names of a pane that read as destructive only for their substring, matched whole after
+    /// `normalizedLabel`.
+    static let paneNames: Set<String> = ["format"]
 
     /// Checks a menu choice using the native control that opened it. Pro Tools' exact "no send"
     /// choice clears an audio route; without that selector evidence it keeps the general rule.

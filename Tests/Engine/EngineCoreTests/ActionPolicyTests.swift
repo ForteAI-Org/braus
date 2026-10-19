@@ -40,6 +40,22 @@ struct ActionPolicyTests {
         #expect(ActionPolicy.isDestructive(label: "no send"))
     }
 
+    @Test("a radio button or a tab named exactly Format selects an inspector pane: not destructive (Numbers, B2 trial)")
+    func paneSelector() {
+        #expect(!ActionPolicy.isDestructive(label: "Format", role: "AXRadioButton"))
+        #expect(!ActionPolicy.isDestructive(label: "format", role: "AXTab"))
+        #expect(!ActionPolicy.isDestructive(label: "Format\u{2026}", role: "AXRadioButton"), "the ellipsis does not tell labels apart")
+    }
+
+    @Test("everything else that reads as destructive stays refused, Format included",
+          arguments: [("Format", "AXButton"), ("Format", nil), ("Format\u{2026}", "AXMenuItem"), ("Format", "AXMenuButton"),
+                      ("Format Disk", "AXRadioButton"), ("Format and Erase", "AXTab"), ("Delete", "AXRadioButton"),
+                      ("Erase", "AXTab"), ("Formatta disco", "AXRadioButton"), ("Format", "AXPopUpButton")] as [(String, String?)])
+    func destructiveStays(label: String, role: String?) {
+        #expect(ActionPolicy.isDestructive(label: label, role: role), Comment(rawValue: "\(label) \(role ?? "no role")"))
+        #expect(ActionPolicy.isDestructive(label: "Format"), "the label alone keeps every match")
+    }
+
     @Test("activation is skipped in front or while a pop-up is open")
     func activation() {
         #expect(ActivationPolicy.needsActivation(target: 5, frontmost: 7, isPopupOpen: false))
