@@ -20,11 +20,12 @@ public struct AppAdapters: Sendable {
         self.approver = approver
     }
 
-    /// The adapters of this build on the Mac's own transports.
-    public static func standard(approver: (any AdapterApproving)? = nil) -> AppAdapters {
+    /// The adapters of this build on the Mac's own transports. `startsSystemEvents` makes the System adapter start
+    /// System Events hidden to read its grant (`SystemAdapter`), for Braus's Settings only.
+    public static func standard(approver: (any AdapterApproving)? = nil, startsSystemEvents: Bool = false) -> AppAdapters {
         let store = EventKitStore()
         return AppAdapters([
-            SystemAdapter(transport: MacSystemTransport()),
+            SystemAdapter(transport: MacSystemTransport(), startsSystemEvents: startsSystemEvents),
             CalendarAdapter(store: store),
             RemindersAdapter(store: store),
             FilesAdapter(),

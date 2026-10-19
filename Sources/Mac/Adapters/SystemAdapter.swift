@@ -14,6 +14,9 @@ public protocol SystemTransporting: Sendable {
     func setWifiPower(_ isOn: Bool) async throws
     /// Whether Braus may control System Events, which `setAppearance` needs, as the Mac answers without prompting.
     func appearanceAccess() async -> AdapterAvailability
+    /// Starts System Events hidden and not activated when it is not running, so `appearanceAccess` can read its
+    /// grant: the Mac answers it only for a running target. Starting it never prompts.
+    func startSystemEvents() async throws
     /// Asks the person whether Braus may control System Events, prompting when they have not answered yet. Only on
     /// the person's request.
     func requestAppearanceAccess() async -> AdapterAvailability
@@ -58,9 +61,13 @@ public struct SystemAdapter: AppAdapting {
     public let bundleIDs: Set<String> = ["com.apple.systempreferences"]
 
     private let transport: any SystemTransporting
+    /// Whether reading the availability starts System Events first, so its grant reads as the Mac has it instead of
+    /// unknown. Only Braus's Settings sets it, where the person reads the grant; the tools never start it to route.
+    private let startsSystemEvents: Bool
 
-    public init(transport: any SystemTransporting) {
-        self.transport = transport
+    public init(transport: any SystemTransporting, startsSystemEvents: Bool = false) {
+        self.transport          = transport
+        self.startsSystemEvents = startsSystemEvents
     }
 
     public var verbs: [AdapterVerb] {
@@ -87,7 +94,9 @@ public struct SystemAdapter: AppAdapting {
     }
 
     public func availability() async -> AdapterAvailability {
-        Self.availability(appearance: await transport.appearanceAccess())
+        // A failed start leaves the grant unknown, which the availability below says.
+        if startsSystemEvents { try? await transport.startSystemEvents() }
+        return Self.availability(appearance: await transport.appearanceAccess())
     }
 
     public func requestPermission() async -> AdapterAvailability {
@@ -96,11 +105,19 @@ public struct SystemAdapter: AppAdapting {
 
     /// The adapter's availability given System Events' grant. Volume and Wi-Fi need no permission, so the adapter runs
     /// without it and only `set_appearance` refuses, by itself; the state is unknown then, which lets the person's
-    /// Settings offer to ask for it.
+    /// Settings offer to ask for it. A grant the Mac could not answer (System Events not running) says so apart from
+    /// one it refused.
     static func availability(appearance: AdapterAvailability) -> AdapterAvailability {
-        guard !appearance.isReady else { return .ready }
-        return .unknown("Volume and Wi-Fi work; changing the appearance needs Braus to control System Events, which "
-                        + "the person allows in Braus's Settings.")
+        switch appearance {
+            case .ready:
+                return .ready
+            case .unknown:
+                return .unknown("Volume and Wi-Fi work. Whether Braus may change the appearance is not known while "
+                                + "System Events is not running; set_appearance starts it hidden and checks first.")
+            case .needsPermission, .unavailable:
+                return .unknown("Volume and Wi-Fi work; changing the appearance needs Braus to control System Events, "
+                                + "which the person allows in Braus's Settings.")
+        }
     }
 
     public func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome {

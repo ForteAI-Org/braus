@@ -21,8 +21,9 @@ struct AdaptersSection: View {
         let availability: AdapterAvailability
     }
 
-    /// The adapters of this build, made once: each holds its store or transport.
-    private static let adapters = AppAdapters.standard()
+    /// The adapters of this build, made once: each holds its store or transport. The System adapter starts System
+    /// Events hidden to read its grant, which never prompts.
+    private static let adapters = AppAdapters.standard(startsSystemEvents: true)
 
     @State private var lines: [Line] = []
 

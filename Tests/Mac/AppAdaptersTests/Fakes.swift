@@ -76,9 +76,21 @@ actor FakeSystemTransport: SystemTransporting {
         if !ignoresWrites { wifi = isOn }
     }
 
+    /// Whether System Events runs: the grant reads as unknown until it does, as on the Mac.
+    var systemEventsRuns = true
+    private(set) var starts = 0
+
     func appearanceAccess() async -> AdapterAvailability {
-        permissionNeeded ? .needsPermission("Allow Automation.") : .ready
+        guard systemEventsRuns else { return .unknown("System Events is not running.") }
+        return permissionNeeded ? .needsPermission("Allow Automation.") : .ready
     }
+
+    func startSystemEvents() async throws {
+        starts += 1
+        systemEventsRuns = true
+    }
+
+    func stopSystemEvents() { systemEventsRuns = false }
 
     func requestAppearanceAccess() async -> AdapterAvailability {
         accessRequests += 1

@@ -26,6 +26,10 @@ public struct MacSystemTransport: SystemTransporting {
         AppleScriptRunner.availability(bundleID: Self.systemEvents, app: "System Events")
     }
 
+    public func startSystemEvents() async throws {
+        try await Self.ensureSystemEventsRuns()
+    }
+
     public func requestAppearanceAccess() async -> AdapterAvailability {
         await AppleScriptRunner.requestPermission(bundleID: Self.systemEvents, app: "System Events")
     }

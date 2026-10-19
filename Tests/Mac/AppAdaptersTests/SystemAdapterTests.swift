@@ -60,6 +60,38 @@ struct SystemAdapterTests {
         #expect(await adapter.availability() == .ready)
     }
 
+    @Test("System Events not running reads as unknown, apart from a refusal, and is never started to read it")
+    func systemEventsNotRunning() async {
+        let transport = FakeSystemTransport()
+        await transport.stopSystemEvents()
+        let adapter = SystemAdapter(transport: transport)
+        guard case .unknown(let reason) = await adapter.availability() else {
+            Issue.record("expected unknown while System Events is not running")
+            return
+        }
+        #expect(reason.contains("not known while System Events is not running"), "\(reason)")
+        #expect(await transport.starts == 0)
+        #expect(await transport.accessRequests == 0)
+    }
+
+    @Test("The Settings' adapter starts System Events to read its grant, without asking the person")
+    func settingsReadsTheGrant() async {
+        let transport = FakeSystemTransport()
+        await transport.stopSystemEvents()
+        #expect(await SystemAdapter(transport: transport, startsSystemEvents: true).availability() == .ready)
+        #expect(await transport.starts == 1)
+        #expect(await transport.accessRequests == 0)
+        let refusing = FakeSystemTransport(permissionNeeded: true)
+        await refusing.stopSystemEvents()
+        guard case .unknown(let reason) = await SystemAdapter(transport: refusing, startsSystemEvents: true)
+            .availability() else {
+            Issue.record("expected the refused grant as unknown")
+            return
+        }
+        #expect(reason.contains("allows in Braus's Settings"), "\(reason)")
+        #expect(await refusing.accessRequests == 0)
+    }
+
     @Test("Volume sets level and mute and answers the previous ones")
     func volume() async throws {
         let transport = FakeSystemTransport()
