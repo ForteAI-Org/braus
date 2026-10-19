@@ -162,6 +162,28 @@ supplied the evidence. The final run recorded no workspace activations and uncha
 foreground application and cursor. The Seat returned the remaining windows and closed.
 These checks use the same broker and tools as the app, without a model-driven workflow.
 
+## Accessibility probe, 19 October 2026
+
+A read-only probe read PT's accessibility tree with PT in the background and its windows on
+a physical display, not in the Seat. The only action was one `AXShowMenu`, described below;
+the person closed that menu with Escape. Same Mac and PT version as above.
+
+| Surface | Reading |
+| --- | --- |
+| Track rename dialog | `AXWindow`/`AXDialog`, `AXModal` true, with Name and Comments fields. The name field has no title or description; a sibling static text reads "Name the track:". Only `AXSelectedTextRange` is settable, as in Bounce Mix. OK and Cancel are plain buttons; no `AXDefaultButton`. |
+| New Memory Location | `AXDialog`, `AXModal` true. Name and Number fields as above; Marker, Selection and None are `AXRadioButton`s with AXPress. |
+| Edit selection counters | `AXTextField`s titled Edit Selection Start, End and Length in the Counter Display Cluster of the ordinary Edit window, distinct from Play Selection Start, End and Length. Only `AXSelectedTextRange` is settable. |
+| Edit window track area | No accessibility element covers the clips and the timeline. |
+| Track header name | `AXPopUpButton` titled `Track name "Kick"`, value `Kick`, identifier `name`, actions AXShowMenu and AXPress, in Edit and Mix. The Track menu has no Rename item. |
+| Track list | Rows hold buttons titled `Selected. Kick - Audio Track `. Folder tracks append ` - Routing Folder Track `. |
+
+`AXShowMenu` on the track name answered -25204 and opened the track's contextual menu: a
+new PT window at WindowServer layer 101, beside the control rather than under the pointer,
+which was on another display. PT stayed inactive and the cursor did not move. Accessibility
+exposes the menu as an `AXWindow`/`AXDialog` among PT's windows, with `AXMenuItem` children
+that offer AXPress, including Rename..., and nested dialogs for submenus. It offers no `AXMenu`
+element and no AXCancel. Where the menu opens while its window is in the Seat is not measured.
+
 ## Repository checks, 16 October 2026
 
 - `swift build --product braus`: passed.
