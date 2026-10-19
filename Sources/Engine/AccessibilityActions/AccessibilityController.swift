@@ -73,14 +73,14 @@ public struct AccessibilityController: ControlPressing {
             let application = reader.application(processID: processID)
             reader.setMessagingTimeout(application, seconds: 1)
             var matches: [String] = []
-            Self.walk(reader.windows(of: application), reader: reader) { node in
+            let complete = Self.walk(reader.windows(of: application), reader: reader) { node in
                 guard Self.controlRoles.contains(reader.role(node) ?? ""), let value = reader.value(node) else {
                     return false
                 }
                 if labels.contains(LabelText.normalize(value)) { matches.append(value) }
                 return false
             }
-            return matches.count == 1 ? matches[0] : nil
+            return complete && matches.count == 1 ? matches[0] : nil
         }
     }
 
@@ -108,7 +108,7 @@ public struct AccessibilityController: ControlPressing {
             let application = reader.application(processID: processID)
             reader.setMessagingTimeout(application, seconds: 1)
             var states: [ControlState?] = []
-            Self.walk(reader.windows(of: application), reader: reader) { node in
+            let complete = Self.walk(reader.windows(of: application), reader: reader) { node in
                 guard Self.toggleRoles.contains(reader.role(node) ?? ""),
                       LabelText.normalize(reader.title(node) ?? "") == want
                         || LabelText.normalize(reader.descriptionText(node) ?? "") == want
@@ -122,7 +122,7 @@ public struct AccessibilityController: ControlPressing {
                 states.append(state)
                 return false
             }
-            return states.count == 1 ? states[0] : nil
+            return complete && states.count == 1 ? states[0] : nil
         }
     }
 
@@ -160,14 +160,25 @@ public struct AccessibilityController: ControlPressing {
     }
 
     /// Visits every node under the roots, depth first to ten levels, until `visit` returns true.
+    /// Answers false when a node's children did not answer (`readChildren`, M2): the walk goes on with
+    /// the siblings it can read, but what it saw is not the whole tree. `firstControl` ignores the answer:
+    /// it presses the first match, which never claimed to be the only one.
     @MainActor
-    private static func walk(_ roots: [AXUIElement], reader: LiveAccessibilityReader, visit: (AXUIElement) -> Bool) {
+    @discardableResult
+    private static func walk(
+        _ roots: [AXUIElement],
+        reader : LiveAccessibilityReader,
+        visit  : (AXUIElement) -> Bool
+    ) -> Bool {
         var stop = false
+        var unlisted = false
         func descend(_ node: AXUIElement, _ depth: Int) {
             guard !stop, depth <= 10 else { return }
             if visit(node) { stop = true; return }
-            for child in reader.children(node) { descend(child, depth + 1) }
+            guard let children = reader.readChildren(node) else { unlisted = true; return }
+            for child in children { descend(child, depth + 1) }
         }
         for root in roots { descend(root, 0) }
+        return !unlisted
     }
 }
