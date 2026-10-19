@@ -22,11 +22,15 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
     public typealias Node = AXUIElement
 
-    private let applicationBundleID: String?
+    private let applicationBundleID  : String?
+    private let elementTimeoutSeconds: Float?
 
     /// Creates a reader. An absent bundle ID uses only standard accessibility state attributes.
-    public init(applicationBundleID: String? = nil) {
-        self.applicationBundleID = applicationBundleID
+    /// `elementTimeoutSeconds`, when given, is set on every window and child the reader lists, so a walk
+    /// bounds each message to the application and not only those sent through the application element.
+    public init(applicationBundleID: String? = nil, elementTimeoutSeconds: Float? = nil) {
+        self.applicationBundleID   = applicationBundleID
+        self.elementTimeoutSeconds = elementTimeoutSeconds
     }
 
     public nonisolated func isSameNode(_ first: AXUIElement, _ second: AXUIElement) -> Bool {
@@ -87,7 +91,7 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
     }
 
     public nonisolated func children(_ node: AXUIElement) -> [AXUIElement] {
-        (attribute(node, kAXChildrenAttribute) as? [AXUIElement]) ?? []
+        timed((attribute(node, kAXChildrenAttribute) as? [AXUIElement]) ?? [])
     }
 
     /// The children, `[]` for a leaf, nil when they could not be read: a timeout after the one retry, or
@@ -101,7 +105,7 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
             guard answer == .retry else { break }
         }
         switch answer {
-            case .listed(let children): return children
+            case .listed(let children): return timed(children)
             case .retry, .unread       : return nil
         }
     }
@@ -144,7 +148,7 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
     /// the apps that list them only there.
     public nonisolated func windows(of application: AXUIElement) -> [AXUIElement] {
         let listed = (attribute(application, kAXWindowsAttribute) as? [AXUIElement]) ?? []
-        return listed.isEmpty ? children(application) : listed
+        return listed.isEmpty ? children(application) : timed(listed)
     }
 
     /// Selects the captured window, including a sheet exposed as a child of another window.
@@ -166,6 +170,13 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
     /// Caps each message to this element's process so a hung app bounds the cost of a read.
     public nonisolated func setMessagingTimeout(_ node: AXUIElement, seconds: Float) {
         AXUIElementSetMessagingTimeout(node, seconds)
+    }
+
+    private nonisolated func timed(_ nodes: [AXUIElement]) -> [AXUIElement] {
+        if let elementTimeoutSeconds {
+            for node in nodes { AXUIElementSetMessagingTimeout(node, elementTimeoutSeconds) }
+        }
+        return nodes
     }
 
     // MARK: Attribute reads

@@ -13,7 +13,7 @@ import PerceptionCore
 
 /// AccessibilityAugmenter fills `SceneAugmenting` with the live accessibility tree: it finds the
 /// window matching the capture, hops to the main actor for the reads, and runs the core's generic walk
-/// under a wall-clock budget.
+/// under a budget measured on the monotonic clock, which a change of the system time does not move.
 ///
 /// The budget is the guard against a pathological tree: a file browser exposing hundreds of rows
 /// measured nine seconds per window unbounded. Running out returns the rows read so far, fewer labels
@@ -29,8 +29,9 @@ public struct AccessibilityAugmenter: SceneAugmenting {
     private let windowNumberResolver: (@MainActor @Sendable (AXUIElement) -> Int?)?
 
     /// Creates an augmenter. `budgetSeconds` bounds one walk; `messagingTimeoutSeconds` bounds one
-    /// message to the app. The walk checks its deadline between nodes; an in-flight message and
-    /// its one transient retry can exceed the walk budget.
+    /// message to the app, set on the application and on every element the walk lists. The walk checks
+    /// its deadline between nodes; an in-flight message and its one transient retry can exceed the walk
+    /// budget.
     /// `windowNumberResolver` binds identified captures to a native AX window. An absent or failed
     /// resolver yields no native facts for such a capture; it never falls back to geometry or focus.
     public init(
@@ -65,7 +66,8 @@ public struct AccessibilityAugmenter: SceneAugmenting {
                 return AccessibilityHarvest(elements: [], quality: CaptureQuality(isGrantAvailable: trusted))
             }
             let reader = LiveAccessibilityReader(
-                applicationBundleID: NSRunningApplication(processIdentifier: processID)?.bundleIdentifier
+                applicationBundleID  : NSRunningApplication(processIdentifier: processID)?.bundleIdentifier,
+                elementTimeoutSeconds: timeout
             )
             let application = reader.application(processID: processID)
             reader.setMessagingTimeout(application, seconds: timeout)
@@ -81,12 +83,13 @@ public struct AccessibilityAugmenter: SceneAugmenting {
                     quality : CaptureQuality(windowFound: false, isGrantAvailable: trusted)
                 )
             }
-            let deadline = Date().addingTimeInterval(budget)
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(budget))
             var harvest = AccessibilityAugmentation.harvest(
                 under      : window,
                 windowFrame: windowFrame,
                 reader     : reader,
-                limits     : AccessibilityAugmentation.Limits(isPastDeadline: { Date() >= deadline })
+                limits     : AccessibilityAugmentation.Limits(isPastDeadline: { clock.now >= deadline })
             )
             harvest.quality.isGrantAvailable = trusted
             return harvest
