@@ -360,7 +360,7 @@ let package = Package(
         // The foreground `Actuating`: synthetic events at the HID system tap.
         engine("HIDActuation", ["EngineCore"], settings: pure),
 
-        // `ControlPressing` over the live accessibility tree; reads and presses hop to the main actor.
+        // `ControlPressing` over the live accessibility tree; control reads run off the main actor, menus on it.
         engine("AccessibilityActions", ["EngineCore", "PerceptionCore", "AccessibilityFacts"], settings: pure),
 
         // `ApplicationActivating` over AppKit's workspace.

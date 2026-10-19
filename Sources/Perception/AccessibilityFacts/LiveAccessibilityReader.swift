@@ -12,12 +12,12 @@ import PerceptionCore
 
 /// LiveAccessibilityReader fills `AccessibilityTreeReading` over the system's `AXUIElement` handles.
 ///
-/// Retains only the application bundle ID used to interpret native button values. Reads use the
-/// main actor: the C API is not safe to call elsewhere, and its handles are not Sendable. A
-/// `.cannotComplete` answer (a messaging timeout) is transient and retried once; anything else is a
-/// genuine absence and reads as nil. The per-app
+/// Retains only the application bundle ID used to interpret native button values. Not tied to an
+/// actor: the caller picks the thread, and the C API blocks it until the application answers, so a
+/// caller that must stay responsive reads off the main actor. The handles are not Sendable: keep each
+/// in the task that read it. A `.cannotComplete` answer (a messaging timeout) is transient and retried
+/// once; anything else is a genuine absence and reads as nil. The per-app
 /// messaging timeout bounds a pathological tree so one slow app cannot hang the caller.
-@MainActor
 public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
     public typealias Node = AXUIElement

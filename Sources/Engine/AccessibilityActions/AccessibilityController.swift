@@ -17,9 +17,11 @@ import PerceptionCore
 /// control whose value is among a set of labels, reads a toggle's state under a point or by its
 /// label, and reads the value of the text field that holds the application's focus.
 ///
-/// Every read and press hops to the main actor, where the C API is safe. Geometry is used only for
-/// the hit test under a point, never to relate a control to a pop-up: after a window-server move
-/// the tree's frames are stale, and matching by value is what stays true.
+/// The engine asks `pressControl` before every click, so the control reads and presses run off the
+/// caller's actor, within a `WalkBudget`: a slow application blocks a global executor thread, not the
+/// main actor. The menu reads and presses stay on the main actor with `DropdownOpening`. Geometry is
+/// used only for the hit test under a point, never to relate a control to a pop-up: after a
+/// window-server move the tree's frames are stale, and matching by value is what stays true.
 public struct AccessibilityController: ControlPressing {
 
     private static let controlRoles: Set<String> = ["AXComboBox", "AXPopUpButton"]
@@ -35,7 +37,7 @@ public struct AccessibilityController: ControlPressing {
     public func pressControl(labelled label: String, in processID: pid_t) async -> Bool {
         let want = LabelText.normalize(label)
         guard !want.isEmpty else { return false }
-        return await MainActor.run {
+        return await Self.offMainActor {
             let reader = LiveAccessibilityReader()
             let application = reader.application(processID: processID)
             reader.setMessagingTimeout(application, seconds: WalkBudget.standard.applicationTimeout)
@@ -76,7 +78,7 @@ public struct AccessibilityController: ControlPressing {
 
     public func controlValue(matchingAny labels: Set<String>, in processID: pid_t) async -> String? {
         guard !labels.isEmpty else { return nil }
-        return await MainActor.run {
+        return await Self.offMainActor {
             let reader = LiveAccessibilityReader()
             let application = reader.application(processID: processID)
             reader.setMessagingTimeout(application, seconds: WalkBudget.standard.applicationTimeout)
@@ -97,7 +99,7 @@ public struct AccessibilityController: ControlPressing {
     }
 
     public func toggleState(at point: CGPoint, in processID: pid_t) async -> ControlState? {
-        await MainActor.run {
+        await Self.offMainActor {
             let reader = LiveAccessibilityReader()
             var element: AXUIElement?
             let system = AXUIElementCreateSystemWide()
@@ -115,7 +117,7 @@ public struct AccessibilityController: ControlPressing {
     public func toggleState(labelled label: String, in processID: pid_t) async -> ControlState? {
         let want = LabelText.normalize(label)
         guard !want.isEmpty else { return nil }
-        return await MainActor.run {
+        return await Self.offMainActor {
             let reader = LiveAccessibilityReader()
             let application = reader.application(processID: processID)
             reader.setMessagingTimeout(application, seconds: WalkBudget.standard.applicationTimeout)
@@ -143,7 +145,7 @@ public struct AccessibilityController: ControlPressing {
     }
 
     public func focusedFieldValue(in processID: pid_t) async -> String? {
-        await MainActor.run {
+        await Self.offMainActor {
             let reader = LiveAccessibilityReader()
             let application = reader.application(processID: processID)
             reader.setMessagingTimeout(application, seconds: WalkBudget.standard.applicationTimeout)
@@ -156,6 +158,15 @@ public struct AccessibilityController: ControlPressing {
             guard Self.fieldRoles.contains(reader.role(field) ?? "") else { return nil }
             return reader.value(field)
         }
+    }
+
+    // MARK: Off the main actor
+
+    /// Runs `body` on the global executor, so an application that answers slowly holds this thread
+    /// within the walk's budget and never the caller's actor.
+    @concurrent
+    private static func offMainActor<Value: Sendable>(_ body: @Sendable () -> Value) async -> Value {
+        body()
     }
 
     // MARK: Walk
