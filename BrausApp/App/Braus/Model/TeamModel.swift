@@ -749,6 +749,7 @@ final class TeamModel {
             },
             seatLine        : { desktop.turnStatus },
             adapterApprover : approvals.map { AdapterApprover(approvals: $0) },
+            approvals       : approvals,
             offersWeb       : offersWeb
         )
         host.callProducer = CallProducer(source: .app, streamID: "worker-" + workerID.uuidString)

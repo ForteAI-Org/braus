@@ -42,6 +42,14 @@ final class AdapterApprovals {
     @ObservationIgnored
     private var answers: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
+    /// The scope (`ApprovalScope.current`) each waiting request was asked in, by request id.
+    @ObservationIgnored
+    private var scopes: [UUID: UUID] = [:]
+
+    /// Scopes whose turn stopped: what they ask is refused at once until `admit`.
+    @ObservationIgnored
+    private var stopped: Set<UUID> = []
+
     private let timeout    : Duration
     private let answerDelay: Duration
 
@@ -62,7 +70,10 @@ final class AdapterApprovals {
     /// Waits for the person's answer to `consent`: true only when they allowed it; false after `timeout` or when
     /// the waiting task is cancelled.
     func ask(_ consent: AdapterConsent) async -> Bool {
+        let scope = ApprovalScope.current
+        if let scope, stopped.contains(scope) { return false }
         let id = UUID()
+        if let scope { scopes[id] = scope }
         let deadline = Task { [weak self, timeout] in
             do { try await Task.sleep(for: timeout) } catch { return }
             self?.answer(
@@ -95,6 +106,7 @@ final class AdapterApprovals {
         _ id   : UUID,
         allowed: Bool
     ) {
+        scopes[id] = nil
         guard let continuation = answers.removeValue(forKey: id) else { return }
         let wasShown = pending.first?.id == id
         pending.removeAll { $0.id == id }
@@ -122,6 +134,23 @@ final class AdapterApprovals {
         )
     }
 
+    /// Refuses every request `scope` waits on, which leaves the sheet, and those it asks until `admit`: its turn
+    /// stopped, so nothing it asked runs.
+    func refuse(scope: UUID) {
+        stopped.insert(scope)
+        for (id, owner) in scopes where owner == scope {
+            answer(
+                id,
+                allowed: false
+            )
+        }
+    }
+
+    /// Lets `scope` ask again, as its next turn starts.
+    func admit(scope: UUID) {
+        stopped.remove(scope)
+    }
+
     /// Refuses every waiting request, as when the app quits.
     func refuseAll() {
         for id in answers.keys {
@@ -131,4 +160,10 @@ final class AdapterApprovals {
             )
         }
     }
+}
+
+/// ApprovalScope names the turn an approval is asked in (a worker's conversation), so stopping that turn ends its
+/// waiting approvals (`AdapterApprovals.refuse(scope:)`). Nil outside a scoped turn, as for external clients.
+nonisolated enum ApprovalScope {
+    @TaskLocal static var current: UUID?
 }

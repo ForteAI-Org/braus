@@ -82,6 +82,10 @@ final class WorkerAgentHost {
     /// What the running command line turn reported it cost, held until its child has exited.
     private var reportedUsage: ProviderUsage?
 
+    /// Where this conversation's approvals wait, and the scope they wait in: stopping a turn refuses them.
+    private let approvals    : AdapterApprovals?
+    private let approvalScope: UUID
+
     /// The rollout file of the Codex session last read, so a session is looked for once.
     private var rollout: (session: String, file: URL)?
 
@@ -104,7 +108,8 @@ final class WorkerAgentHost {
     /// receives and is never recorded. `adapterApprover` asks the person before
     /// an adapter's irreversible verb runs; without one those verbs are refused.
     /// `offersWeb` says that `session` routes web addresses to a web session, so
-    /// the tools and the instructions teach them.
+    /// the tools and the instructions teach them. `approvals` holds the approvals a turn waits on, which `stop`
+    /// refuses, so a stopped turn never waits for the person.
     convenience init(
         workingDirectory: URL,
         bridgeExecutable: URL,
@@ -113,6 +118,7 @@ final class WorkerAgentHost {
         contextWindows  : @escaping (ModelSelection) -> Int?               = { _ in nil },
         seatLine        : @escaping @MainActor () -> String?               = { nil },
         adapterApprover : (any AdapterApproving)?                          = nil,
+        approvals       : AdapterApprovals?                                = nil,
         offersWeb       : Bool                                             = false
     ) {
         self.init(
@@ -124,6 +130,7 @@ final class WorkerAgentHost {
             contextWindows  : contextWindows,
             seatLine        : seatLine,
             adapterApprover : adapterApprover,
+            approvals       : approvals,
             offersWeb       : offersWeb
         )
     }
@@ -139,8 +146,10 @@ final class WorkerAgentHost {
         contextWindows  : @escaping (ModelSelection) -> Int?               = { _ in nil },
         seatLine        : @escaping @MainActor () -> String?               = { nil },
         adapterApprover : (any AdapterApproving)?                          = nil,
+        approvals       : AdapterApprovals?                                = nil,
         offersWeb       : Bool                                             = false
     ) {
+        self.approvals        = approvals
         self.workingDirectory = workingDirectory
         self.bridgeExecutable = bridgeExecutable
         self.agents           = agents
@@ -153,8 +162,10 @@ final class WorkerAgentHost {
             adapters : .standard(approver: adapterApprover),
             offersWeb: offersWeb
         )
+        let scope  = UUID()
+        self.approvalScope = scope
         let router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
-            try await tools.call(name, arguments)
+            try await ApprovalScope.$current.withValue(scope) { try await tools.call(name, arguments) }
         }
         self.tools  = tools
         self.router = router
@@ -242,6 +253,7 @@ final class WorkerAgentHost {
         }
         self.onEvent    = onEvent
         isStopRequested = false
+        approvals?.admit(scope: approvalScope)
         defer { self.onEvent = nil }
         // A loop turn is not resent earlier tool results, and a resumed context may have been compacted.
         tools.forgetScene()
@@ -257,7 +269,7 @@ final class WorkerAgentHost {
             self.loop = loop
             defer { endLoop() }
             do {
-                try await loop.run(
+                try await ApprovalScope.$current.withValue(approvalScope) { try await loop.run(
                     transport    : transports(selection),
                     role         : role,
                     history      : history,
@@ -274,7 +286,7 @@ final class WorkerAgentHost {
                         lastUsage: nil,
                         rollout  : nil
                     )))
-                }
+                } }
             } catch {
                 // The loop ends only after a tool call in flight has finished, so no action is cut short.
                 await tools.session.close()
@@ -677,6 +689,8 @@ final class WorkerAgentHost {
     func stop() {
         guard onEvent != nil else { return }
         isStopRequested = true
+        // A call waiting for the person's approval is refused now, so the turn never waits for it.
+        approvals?.refuse(scope: approvalScope)
         // A loop turn has no router or child to stop, and a paused router would refuse
         // the next command line turn.
         if let loop {
@@ -693,6 +707,7 @@ final class WorkerAgentHost {
     /// removed, after everything else has been released.
     func close() async throws {
         loop?.stop()
+        approvals?.refuse(scope: approvalScope)
         router.pause()
         provider.cancel()
         // A loop turn's call in flight finishes before the session is closed, as the router's does.

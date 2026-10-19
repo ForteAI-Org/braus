@@ -52,6 +52,29 @@ struct AdapterApprovalsTests {
         #expect(await waiting.value == false)
     }
 
+    @Test("stopping a turn refuses its waiting approvals and takes them off the sheet; another turn's keep waiting")
+    func stoppedScope() async throws {
+        let approvals = AdapterApprovals()
+        let (turn, other) = (UUID(), UUID())
+        let send = consent("send")
+        let stopped = Task { await ApprovalScope.$current.withValue(turn) { await approvals.ask(send) } }
+        let kept = Task { await ApprovalScope.$current.withValue(other) { await approvals.ask(send) } }
+        while approvals.pending.count < 2 { await Task.yield() }
+        approvals.refuse(scope: turn)
+        #expect(await stopped.value == false)
+        #expect(approvals.pending.count == 1)
+        // Asked again before its next turn starts, it does not wait.
+        let again = await ApprovalScope.$current.withValue(turn) { await approvals.ask(send) }
+        #expect(again == false)
+        approvals.admit(scope: turn)
+        let next = Task { await ApprovalScope.$current.withValue(turn) { await approvals.ask(send) } }
+        while approvals.pending.count < 2 { await Task.yield() }
+        approvals.refuseAll()
+        let (keptAnswer, nextAnswer) = (await kept.value, await next.value)
+        #expect(!keptAnswer && !nextAnswer)
+        #expect(approvals.pending.isEmpty && approvals.shownAt == nil)
+    }
+
     @Test("a click or a key in the first second of a request answers nothing; then it does, and the next waits again")
     func answerDelay() async throws {
         let clock = TestClock()
