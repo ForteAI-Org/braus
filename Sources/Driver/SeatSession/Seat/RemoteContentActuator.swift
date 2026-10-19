@@ -607,6 +607,20 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         return nil
     }
 
+    /// The form label a field is named by in the scene: the static text just before it in its parent,
+    /// ending with a colon, at most 48 characters. The scene's side is the caption rule of
+    /// `AccessibilityAugmentation`, which the driver cannot import: keep the two in step.
+    private func formCaption(of node: Node) -> String? {
+        guard let above = parent(node) else { return nil }
+        let siblings = children(above)
+        guard let index = siblings.firstIndex(of: node), index > 0,
+              role(siblings[index - 1]) == kAXStaticTextRole,
+              let text = value(siblings[index - 1])?.trimmingCharacters(in: .whitespacesAndNewlines),
+              text.hasSuffix(":"), text.count <= 48
+        else { return nil }
+        return text
+    }
+
     /// Enters the editor of a field whose text accessibility cannot write yet, without a pointer.
     ///
     /// Measured on 19/10/2026 on the selection counters of Pro Tools' Edit window, Pro Tools in the
@@ -636,8 +650,8 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         role      : String,
         wholeValue: Bool
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
-        if let wanted = requestedLabel, case let names = labels(node), !names.isEmpty,
-           !names.contains(where: { Self.sameLabel($0, wanted) }) {
+        if let wanted = requestedLabel, case let names = labels(node) + [formCaption(of: node)].compactMap({ $0 }),
+           !names.isEmpty, !names.contains(where: { Self.sameLabel($0, wanted) }) {
             return .failure(.wrongElement(requested: wanted, found: names[0]))
         }
         if isOrdinaryWindow, !selectionIsSettable(node, kAXSelectedTextRangeAttribute) {

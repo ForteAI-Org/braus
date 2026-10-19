@@ -1206,6 +1206,39 @@ struct RemoteContentActuationTests {
         #expect(field.value == "original")
     }
 
+    @Test("a field is named by the form label just before it, as the scene names it", arguments: [true, false])
+    func fieldIsNamedByItsFormLabel(labelled: Bool) async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_442)
+        let caption = Self.control(kAXStaticTextRole, in: finder, actions: [], value: labelled ? "Name the track:" : "Kick")
+        let field = Self.control(kAXTextFieldRole, in: finder, actions: [kAXPressAction], value: "Kick")
+        #expect(caption.parent === field.parent)
+        field.title = "Kick"
+        field.selectionSettable = true
+        field.textSettable = false
+        field.focusesOnPress = true
+        let actuator = Self.actuator(hitting: { field }, window: finder.element)
+        let identity = try #require(finder.window.reference.identity)
+        let geometry = try #require(WindowGeometryObservation(
+            window: finder.window.reference, scaleFactor: 1,
+            version: GeometryObservationVersion(observerGeneration: 1, sequence: 1)
+        ))
+        let endpoint = try GestureEndpointRoutingTests.endpoint(
+            geometry, relation: .logicalSurface, logicalSurface: identity,
+            generation: 1, hostProcessID: identity.processID
+        )
+        let result = actuator.actuate(
+            .click(Self.point(in: finder.window), count: 3), endpoint: endpoint, expecting: "Name the track:"
+        )
+        if labelled {
+            #expect(try result.get().action == kAXPressAction)
+        } else {
+            #expect(throws: RemoteContentActuationRefusal.wrongElement(requested: "Name the track:", found: "Kick")) {
+                try result.get()
+            }
+            #expect(field.performed.isEmpty)
+        }
+    }
+
     @Test("a field that takes no text yet enters its editor by AXPress, read back as focused, and writes nothing",
           arguments: [true, false])
     func fieldEntersItsEditorByPress(focuses: Bool) async throws {
