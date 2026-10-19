@@ -558,12 +558,15 @@ public enum AccessibilityAugmentation {
         return best
     }
 
+    /// The kinds of track a toolkit appends to a track's name, as measured (Pro Tools, 19/10/2026).
+    /// The driver keeps the same list in `RemoteContentActuator`, and a broker test keeps them in step.
+    static let roleSuffixes = [" - Audio Track", " - Routing Folder Track"]
+
     /// Trims the role suffix and state prefix some toolkits append ("Audio 13 - Audio Track ",
     /// "Shown. Audio 13") down to the name a person says.
     static func cleanLabel(_ raw: String) -> String {
         var text = raw.trimmingCharacters(in: .whitespaces)
-        let roleSuffix = " - Audio Track"
-        if text.hasSuffix(roleSuffix) { text = String(text.dropLast(roleSuffix.count)) }
+        if let roleSuffix = roleSuffixes.first(where: text.hasSuffix) { text = String(text.dropLast(roleSuffix.count)) }
         for prefix in ["Shown. ", "Hidden. ", "Selected. ", "Active. ", "Inactive. "] where text.hasPrefix(prefix) {
             text = String(text.dropFirst(prefix.count))
         }

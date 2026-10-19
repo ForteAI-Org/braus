@@ -630,5 +630,6 @@ struct AccessibilityAugmentationTests {
         #expect(AccessibilityAugmentation.cleanLabel(" Plain ") == "Plain")
         #expect(AccessibilityAugmentation.cleanLabel("Drums - Room") == "Drums - Room")
         #expect(AccessibilityAugmentation.cleanLabel("Drums - Room - Audio Track ") == "Drums - Room")
+        #expect(AccessibilityAugmentation.cleanLabel("DRUMS BUS - Routing Folder Track ") == "DRUMS BUS")
     }
 }
