@@ -312,6 +312,114 @@ struct TargetSelectionCoreTests {
         #expect(core.candidates == [Fixture.identity(12)])
     }
 
+    /// Pro Tools' application modal over its Edit and Mix windows took the
+    /// selection from Edit; once it closed, nothing ordered the two and the
+    /// Seat asked for a choice, losing the window it had been working in.
+    @Test("A closing application modal returns to the window it took the selection from")
+    func applicationModalReturnsToTheDisplacedChoice() {
+
+        var folder  = MemberFolder()
+        let members = folder.settle([11, 12, 13])
+        var core    = Fixture.core(documents: [11, 12], members: members)
+
+        core.selectExplicitly(Fixture.identity(11), members: members)
+        Self.openApplicationModal(13, in: &core, members: members)
+        core.noteRecency(Fixture.event(13, .appeared, at: 10), members: members)
+
+        #expect(core.selected?.surface == Fixture.identity(13))
+
+        let afterModal = folder.settle([11, 12])
+        core.forget(Fixture.identity(13), members: afterModal)
+
+        #expect(core.selected?.surface == Fixture.identity(11))
+        #expect(core.selected?.reason == .explicitChoice)
+        #expect(core.suspensions.isEmpty, "No explicit selection is required")
+    }
+
+    @Test("A window selected by its recency comes back the same way after the modal")
+    func applicationModalReturnsToTheRecentWindow() {
+
+        var folder  = MemberFolder()
+        let members = folder.settle([11, 12, 13])
+        var core    = Fixture.core(documents: [11, 12], members: members)
+
+        core.noteRecency(Fixture.event(11, .appeared, at: 10), members: members)
+        Self.openApplicationModal(13, in: &core, members: members)
+        core.noteRecency(Fixture.event(13, .appeared, at: 20), members: members)
+
+        #expect(core.selected?.surface == Fixture.identity(13))
+
+        let afterModal = folder.settle([11, 12])
+        core.forget(Fixture.identity(13), members: afterModal)
+
+        #expect(core.selected?.surface == Fixture.identity(11))
+        #expect(core.suspensions.isEmpty)
+    }
+
+    @Test("Nested application modals hand the selection back in the order they took it")
+    func nestedApplicationModalsUnwindInOrder() {
+
+        var folder  = MemberFolder()
+        let members = folder.settle([11, 12, 13, 14])
+        var core    = Fixture.core(documents: [11, 12], members: members)
+
+        core.selectExplicitly(Fixture.identity(11), members: members)
+        Self.openApplicationModal(13, in: &core, members: members)
+        #expect(core.selected?.surface == Fixture.identity(13))
+
+        Self.openApplicationModal(14, in: &core, members: members)
+        #expect(core.selected?.surface == Fixture.identity(14))
+
+        let afterInner = folder.settle([11, 12, 13])
+        core.forget(Fixture.identity(14), members: afterInner)
+        #expect(core.selected?.surface == Fixture.identity(13))
+
+        let afterOuter = folder.settle([11, 12])
+        core.forget(Fixture.identity(13), members: afterOuter)
+        #expect(core.selected?.surface == Fixture.identity(11))
+        #expect(core.selected?.reason == .explicitChoice)
+    }
+
+    @Test("A displaced window closed under the modal is not returned to")
+    func closedDisplacedWindowIsNotReturnedTo() {
+
+        var folder  = MemberFolder()
+        let members = folder.settle([11, 12, 13])
+        var core    = Fixture.core(documents: [11, 12], members: members)
+
+        core.selectExplicitly(Fixture.identity(11), members: members)
+        Self.openApplicationModal(13, in: &core, members: members)
+
+        let withoutDisplaced = folder.settle([12, 13])
+        core.forget(Fixture.identity(11), members: withoutDisplaced)
+
+        let afterModal = folder.settle([12])
+        core.forget(Fixture.identity(13), members: afterModal)
+
+        #expect(core.selected?.surface == Fixture.identity(12))
+        #expect(core.selected?.reason == .onlyCandidate)
+    }
+
+    @Test("An explicit choice made under the modal replaces the remembered window")
+    func explicitChoiceUnderTheModalReplacesTheMemory() {
+
+        var folder  = MemberFolder()
+        let members = folder.settle([11, 12, 13])
+        var core    = Fixture.core(documents: [11, 12], members: members)
+
+        core.selectExplicitly(Fixture.identity(11), members: members)
+        Self.openApplicationModal(13, in: &core, members: members)
+        core.selectExplicitly(Fixture.identity(13), members: members)
+
+        let afterModal = folder.settle([11, 12])
+        core.forget(Fixture.identity(13), members: afterModal)
+
+        #expect(core.selected == nil)
+        #expect(core.suspensions.contains(.explicitSelectionRequired(
+            candidates: [Fixture.identity(11), Fixture.identity(12)]
+        )))
+    }
+
     @Test("A modal relation on evidence that cannot carry it is a doubt, never a bypass")
     func unqualifiedModalRelationIsADoubt() {
 
@@ -567,5 +675,17 @@ struct TargetSelectionCoreTests {
         #expect(core.generation > before)
         #expect(core.suspensions == [.notAssigned])
         #expect(core.candidates.isEmpty)
+    }
+
+    /// Declares a visible dialog modal to the whole application, as an AXDialog
+    /// with AXModal set and no parent window named reads.
+    private static func openApplicationModal(
+        _ windowNumber: Int,
+        in core       : inout TargetSelectionCore,
+        members       : [AssignedSurface]
+    ) {
+        core.declareRole(Fixture.role(windowNumber, .dialog), members: members)
+        core.observeVisibility(Fixture.visibility(windowNumber, .visibleInteractive), members: members)
+        core.declareModal(Fixture.modal(windowNumber, over: nil), members: members)
     }
 }

@@ -23,8 +23,10 @@
 /// 1. Modal constraints first, inside their scope. A blocked surface is never a
 ///    candidate, whatever its recency and whoever asks for it.
 /// 2. A standing choice, when there is one and it is still a candidate: the
-///    consumer's explicit selection, or the parent a closing dialog returned to.
-///    It stands until a new qualified event or until it stops being a candidate.
+///    consumer's explicit selection, the parent a closing dialog returned to,
+///    or, when the dialog names no parent, the surface its modal block took the
+///    selection from. It stands until a new qualified event or until it stops
+///    being a candidate.
 /// 3. Otherwise the most recent qualified appearance, reappearance or return to
 ///    the front.
 /// 4. When that order was not observed and more than one candidate remains, the
@@ -86,6 +88,18 @@ nonisolated package struct TargetSelectionCore: Sendable {
     /// comes back, and by the surface ceasing to be a candidate.
     private var standingSurface: WindowIdentity?
     private var standingReason : SelectedTarget.Reason = .explicitChoice
+
+    /// The selections a modal block took away, most recent last, which is
+    /// where a closing modal that names no parent hands the selection back.
+    ///
+    /// Each keeps the reason it had: the modal interrupted it and observed
+    /// nothing about it, so an explicit choice comes back explicit, and calling
+    /// it a return to a parent would claim a parentage nobody attested. An
+    /// entry goes when its surface is selected again, closes, or the consumer
+    /// chooses, and a qualified event leaves it alone: the modal's own
+    /// appearance is one, and a later return to the front of another window
+    /// wins anyway through the policy once the modal is gone.
+    private var displaced: [SelectedTarget] = []
 
     package init() {}
 
@@ -218,6 +232,7 @@ nonisolated package struct TargetSelectionCore: Sendable {
         }
         standingSurface = surface
         standingReason  = .explicitChoice
+        displaced       = []
         reselect(members: members)
 
         guard let selected, selected.surface == surface else {
@@ -231,7 +246,8 @@ nonisolated package struct TargetSelectionCore: Sendable {
     ///
     /// `members` must already be the membership without that surface. When the
     /// closed surface was the target, the parent it was attested to belong to
-    /// becomes the standing choice; a parent that is no longer a candidate
+    /// becomes the standing choice, or, when it names none, the surface its
+    /// modal block most recently displaced; one that is no longer a candidate
     /// simply does not stand, and the automatic policy answers instead.
     package mutating func forget(_ surface: WindowIdentity, members: [AssignedSurface]) {
 
@@ -242,10 +258,17 @@ nonisolated package struct TargetSelectionCore: Sendable {
         recency.forget(surface)
         modality.forget(surface)
         if standingSurface == surface { standingSurface = nil }
+        displaced.removeAll { $0.surface == surface }
 
         if wasSelected, let parent, parent != surface {
             standingSurface = parent
             standingReason  = .returnToParent
+        } else if wasSelected, let index = displaced.lastIndex(where: { entry in
+            members.contains { $0.identity == entry.surface }
+        }) {
+            let returning   = displaced.remove(at: index)
+            standingSurface = returning.surface
+            standingReason  = returning.reason
         }
         reselect(members: members)
     }
@@ -259,6 +282,7 @@ nonisolated package struct TargetSelectionCore: Sendable {
         recency         = RecencyOrder()
         modality        = ModalConstraints()
         standingSurface = nil
+        displaced       = []
         candidates      = []
         ineligible      = [:]
         modalBlocks     = []
@@ -294,6 +318,12 @@ nonisolated package struct TargetSelectionCore: Sendable {
         ineligible = refusals
         candidates = eligible.filter { !blocked.contains($0) }
 
+        // Only an eligible surface is displaced: one being forgotten has no facts
+        // left, and a caller may still hand it in among the members.
+        if let current = selected, blocked.contains(current.surface), eligible.contains(current.surface) {
+            displaced.append(current)
+        }
+
         var requiredChoice: [WindowIdentity] = []
         if let standing = standingSurface, candidates.contains(standing) {
             settle(on: standing, reason: standingReason)
@@ -301,6 +331,7 @@ nonisolated package struct TargetSelectionCore: Sendable {
             standingSurface = nil
             requiredChoice  = chooseAutomatically()
         }
+        if let selected { displaced.removeAll { $0.surface == selected.surface } }
         suspensions = causes(members: members, requiredChoice: requiredChoice)
     }
 
