@@ -17,6 +17,9 @@
 //   Mac/         the Mac's own apps reached through their APIs: the adapters an agent calls
 //                with the app behind or closed, before it drives the app's interface.
 //
+//   Web/         pages in Braus's own Chrome over its DevTools pipe, and a page
+//                as the engine's roles see a window.
+//
 //   Integration/ where two layers meet: the Driver's seat filling the Engine's
 //                roles, so the same engine drives a window in the background.
 //
