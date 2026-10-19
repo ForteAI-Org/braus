@@ -57,24 +57,24 @@ struct AdapterTextTests {
         #expect(AdapterText.outcome(outcome, now: Self.now) == "ok Read 40 bytes of ~.\nsize: 4\nunit: byte")
     }
 
-    @Test("a list of objects is one header of its keys and one row per item: - for a missing value, ] escaped")
+    @Test("a list of objects is one header of its keys and one row per item: - for a missing value, \\, comma and ] escaped")
     func lists() {
         let outcome = AdapterOutcome.confirmed("2 matches under ~/Documents.", .object([
             "path"   : .string("~/Documents"),
             "matches": .array([
                 .object(["name": .string("Report 2026.md"), "path": .string("~/Documents/Work/Report 2026.md"),
                          "bytes": .number(40)]),
-                .object(["name": .string("a]b\nc"), "path": .string("~/Elsewhere/x"), "note": .string("")]),
+                .object(["name": .string("a]b\nc"), "path": .string("~/Elsewhere/x, y\\z"), "note": .string("")]),
             ]),
             "entries": .array([.object(["label": .string("mobile"), "value": .string("+39 333")])]),
         ]))
         #expect(AdapterText.outcome(outcome, now: Self.now) == #"""
             ok 2 matches under ~/Documents.
-            entries: [label value]
-            [mobile +39 333]
-            matches: [name path bytes note]
-            [Report 2026.md Work/Report 2026.md 40 -]
-            [a\]b\nc ~/Elsewhere/x - ""]
+            entries: [label, value]
+            [mobile, +39 333]
+            matches: [name, path, bytes, note]
+            [Report 2026.md, Work/Report 2026.md, 40, -]
+            [a\]b\nc, ~/Elsewhere/x\, y\\z, -, ""]
             """#, "a path under the listing's folder is relative to it, never escaped")
     }
 

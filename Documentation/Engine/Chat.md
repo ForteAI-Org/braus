@@ -179,8 +179,9 @@ top-level text the message already says whole is not repeated. Each field is
 a `key: value` line, numbers and booleans bare, ISO 8601 instants as
 `MM-DD HH:mm` in the Mac's time zone (the year first outside the current
 one), a nested object's fields as `key.field`. A list of objects is one
-`key: [k1 k2]` header and one `[v1 v2]` row per item, `-` for a missing value,
-`\]` and `\n` inside a value; in a folder's listing, paths under the folder
+`key: [k1, k2]` header and one `[v1, v2]` row per item, values separated by
+`, `, `-` for a missing value, `\,`, `\]`, `\\` and `\n` inside a value (so
+`Report 2026.md` stays one value); in a folder's listing, paths under the folder
 are relative to it. A text with a line break, or longer than 120 characters,
 comes last after its `key:` line, as it is. `app_capabilities` answers one
 line for the adapter and its availability, each argument's meaning once, then

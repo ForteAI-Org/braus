@@ -8,19 +8,20 @@ import LocalMCP
 /// An outcome's first line is its word (`word(_:)`) and its message; a top-level text the message already says whole
 /// (`says(_:_:)`) is not repeated. Each field is then a `key: value` line: a number or a boolean bare, an ISO 8601
 /// instant as `MM-DD HH:mm` in the Mac's time zone (`YYYY-MM-DD HH:mm` outside the current year), a nested object's
-/// fields as `key.field`, a list of texts joined by commas. A list of objects is one `key: [k1 k2]` header line, then one `[v1 v2]` line per
-/// item: `-` for a missing value, a `]` written `\]` and a line break `\n`. In the listing of a folder (a result whose
-/// `path` names it), a path under that folder is written relative to it. A text with a line break, or longer than
-/// `blockLength`, comes last after its `key:` line, as it is.
+/// fields as `key.field`, a list of texts joined by commas. A list of objects is one `key: [k1, k2]` header line, then
+/// one `[v1, v2]` line per item: `-` for a missing value, a `\` written `\\`, a `,` `\,`, a `]` `\]` and a line
+/// break `\n`. In the listing of a folder (a result whose `path` names it), a path under that folder is written
+/// relative to it. A text with a line break, or longer than `blockLength`, comes last after its `key:` line, as it is.
 public enum AdapterText {
 
     /// The format in a few sentences, for the `app_call` description.
     public static let legend = """
         The answer is text: its first line is the outcome (ok, unverified, noop, miss, ambiguous, refused) and the \
         message, then one `key: value` line per field, dates as MM-DD HH:mm in the Mac's time zone (with the year \
-        when not this one). A list is one `key: [k1 k2]` line, then one `[v1 v2]` line per item, - for a missing \
-        value and \\] for a ] inside one; in a folder's listing, paths are relative to that folder. A text of several \
-        lines, or a long one, comes last after its `key:` line, exactly as it is.
+        when not this one). A list is one `key: [k1, k2]` line, then one `[v1, v2]` line per item, - for a missing \
+        value and \\, for a comma, \\] for a ] and \\\\ for a backslash inside one; in a folder's listing, paths \
+        are relative to that folder. A text of several lines, or a long one, comes last after its `key:` line, \
+        exactly as it is.
         """
 
     /// The longest text written on its field's line; a longer one, or one with a line break, is written last.
@@ -168,8 +169,8 @@ public enum AdapterText {
                     return ordered(fields.keys).flatMap { lines("\(key).\($0)", fields[$0] ?? .null) }
                 case .array(let items) where !items.isEmpty && items.allSatisfy({ $0.object != nil }):
                     let keys = ordered(Set(items.flatMap { $0.object.map { Array($0.keys) } ?? [] }))
-                    return ["\(key): [\(keys.joined(separator: " "))]"]
-                        + items.map { item in "[" + keys.map { cell(item[$0]) }.joined(separator: " ") + "]" }
+                    return ["\(key): [\(keys.joined(separator: ", "))]"]
+                        + items.map { item in "[" + keys.map { cell(item[$0]) }.joined(separator: ", ") + "]" }
                 case .array(let items):
                     return items.isEmpty ? [] : ["\(key): " + scalar(value, listed: true)]
                 default:
@@ -179,13 +180,16 @@ public enum AdapterText {
 
         /// A value on one line: a number or a boolean bare, a date short, a line break as `\n`. A listed path under the
         /// listing's folder is relative to it.
-        func scalar(_ value: JSONValue, listed: Bool = false) -> String {
+        func scalar(_ value: JSONValue, listed: Bool = false, inRow: Bool = false) -> String {
             switch value {
                 case .string(let text):
                     var shown = date(text, now: now) ?? text
                     if listed, let folder {
                         let prefix = folder == "~" ? "~/" : folder + "/"
                         if shown.hasPrefix(prefix), shown.count > prefix.count { shown.removeFirst(prefix.count) }
+                    }
+                    if inRow {
+                        for mark in ["\\", ",", "]"] { shown = shown.replacingOccurrences(of: mark, with: "\\" + mark) }
                     }
                     return shown.replacingOccurrences(of: "\n", with: "\\n")
                 case .number(let number):
@@ -195,17 +199,18 @@ public enum AdapterText {
                 case .null:
                     return "-"
                 case .array(let items):
-                    return items.map { scalar($0, listed: listed) }.joined(separator: ", ")
+                    return items.map { scalar($0, listed: listed, inRow: inRow) }
+                        .joined(separator: inRow ? "\\, " : ", ")
                 case .object(let fields):
-                    return ordered(fields.keys).map { scalar(fields[$0] ?? .null, listed: listed) }
+                    return ordered(fields.keys).map { scalar(fields[$0] ?? .null, listed: listed, inRow: inRow) }
                         .joined(separator: " ")
             }
         }
 
-        /// A value in a list's row: as `scalar`, `""` for an empty text and a `]` escaped, so the row ends at its own.
+        /// A value in a list's row: as `scalar`, `""` for an empty text, a `\`, `,` and `]` escaped, so the value ends
+        /// at its own comma and the row at its own `]`.
         func cell(_ value: JSONValue) -> String {
-            if value == .string("") { return "\"\"" }
-            return scalar(value, listed: true).replacingOccurrences(of: "]", with: "\\]")
+            value == .string("") ? "\"\"" : scalar(value, listed: true, inRow: true)
         }
 
         /// A number as a person writes it: without a fraction when it has none.
