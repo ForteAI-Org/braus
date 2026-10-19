@@ -7,6 +7,7 @@
 
 import Foundation
 import Testing
+import TestScratch
 @testable import SeatBroker
 
 private func app(_ name: String, running: Bool = false) -> TargetApp {
@@ -230,4 +231,47 @@ private let keeper      = installedApp("Keeper Password Manager", bundleID: "com
     // A part of a name is never resolved to one either, and none is offered as nearby.
     let partial = refusal(for: "password", in: apps)
     #expect(partial.hasPrefix("No installed application is named \"password\"; call apps"))
+}
+
+// MARK: Paths
+
+@Test func resolvesAnInstalledApplicationByItsPath() throws {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let tool = TargetApp(pid: nil, bundleID: "com.example.Tool", name: "Tool",
+                         bundleURL: home.appendingPathComponent("Applications/Tool.app"), windows: [])
+    let apps = installed + [tool]
+    #expect(try ApplicationOpening.resolve("/Applications/Photos.app", in: apps).name == "Photos")
+    #expect(try ApplicationOpening.resolve("  /Applications/Photos.app/ ", in: apps).name == "Photos")
+    #expect(try ApplicationOpening.resolve("/Applications/../Applications/Pages.app", in: apps).name == "Pages")
+    #expect(try ApplicationOpening.resolve("~/Applications/Tool.app", in: apps).bundleID == "com.example.Tool")
+}
+
+@Test func aPathNoInstalledApplicationSitsAtIsRefusedWithTheWayToNameOne() {
+    for path in ["/Applications/Missing.app", "/Applications/Photos.app/Contents/MacOS/Photos", "~"] {
+        let sentence = refusal(for: path, in: installed)
+        #expect(sentence.hasPrefix("No installed application is at \"\(path)\". Name it by the bundleID"))
+        #expect(sentence.contains("then open_session with that bundleID"))
+    }
+}
+
+@Test func aPathFollowsSymbolicLinksOnBothSides() throws {
+    let folder = Scratch.directory("application-paths")
+    let real = folder.appendingPathComponent("Real.app")
+    let link = folder.appendingPathComponent("Link.app")
+    try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+    func app(at url: URL) -> TargetApp {
+        TargetApp(pid: nil, bundleID: "com.example.Real", name: "Real", bundleURL: url, windows: [])
+    }
+    #expect(try ApplicationOpening.resolve(link.path, in: installed + [app(at: real)]).bundleID == "com.example.Real")
+    #expect(try ApplicationOpening.resolve(real.path, in: installed + [app(at: link)]).bundleID == "com.example.Real")
+}
+
+@Test func theProductAndAPasswordManagerAreRefusedAtTheirPathToo() {
+    let apps = installed + [product("dev.forte.Braus", name: "Braus"),
+                            installedApp("1Password", bundleID: "com.1password.1password")]
+    #expect(refusal(for: "/Applications/Braus.app", in: apps)
+        .hasPrefix("\"/Applications/Braus.app\" is the application you run in"))
+    #expect(refusal(for: "/Applications/1Password.app", in: apps)
+        .hasPrefix("\"/Applications/1Password.app\" is a password manager"))
 }

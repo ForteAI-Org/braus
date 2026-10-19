@@ -141,17 +141,16 @@ enum ApplicationOpening {
     /// names none or several is refused with what the model would need to
     /// correct itself; a name nothing answers to is not said to be "not
     /// installed", which a name alone cannot tell (`notNamed`). A request that
-    /// names a password manager is refused as one before any matching.
+    /// names a password manager is refused as one before any matching. One
+    /// that starts with "/" or "~" is a path (`installed(atPath:in:)`).
     static func resolve(_ name: String, in apps: [TargetApp]) throws -> TargetApp {
+        let path = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if path.hasPrefix("/") || path.hasPrefix("~") { return try installed(atPath: path, in: apps) }
         let wanted = requested(name)
         guard !wanted.isEmpty else {
             throw SeatBrokerError.applicationNotResolved("No application was named to open.")
         }
-        if (ownNames + ownBundleIDs).contains(where: { same($0, wanted) }) {
-            throw SeatBrokerError.applicationNotResolved(
-                "\"\(wanted)\" is the application you run in, and you cannot drive it. "
-                    + "Opening it would take the person's own window; choose another application.")
-        }
+        if (ownNames + ownBundleIDs).contains(where: { same($0, wanted) }) { throw ownRefusal(wanted) }
         // By the request itself, or by the bundle identifier of one installed under another name.
         if isPasswordManager(bundleID: wanted, names: [wanted])
             || apps.contains(where: { same($0.bundleID, wanted) && isPasswordManager($0) }) {
@@ -167,6 +166,33 @@ enum ApplicationOpening {
         if tier.count == 1, let only = tier.first { return only }
         if running.count == 1, let only = running.first { return only }
         throw ambiguity(wanted, Array(tier))
+    }
+
+    /// The installed application whose bundle is at `path`, once "~" is expanded to the home folder
+    /// and the path standardized with its symbolic links resolved, as each application's bundle is.
+    /// A path no listed application sits at is refused with the way to name one; this product and
+    /// a password manager are refused at their path as by their name.
+    static func installed(atPath path: String, in apps: [TargetApp]) throws -> TargetApp {
+        let wanted = resolvedPath(URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+        guard let app = apps.first(where: { $0.bundleURL.map(resolvedPath) == wanted }) else {
+            throw SeatBrokerError.applicationNotResolved(
+                "No installed application is at \"\(path)\". Name it by the bundleID or the name apps lists; "
+                    + "call apps with a query to find it, then open_session with that bundleID.")
+        }
+        if isOwn(app) { throw ownRefusal(path) }
+        if isPasswordManager(app) { throw passwordManagerRefusal(path) }
+        return app
+    }
+
+    private static func resolvedPath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// The refusal of this product, named as the request named it.
+    private static func ownRefusal(_ named: String) -> SeatBrokerError {
+        .applicationNotResolved(
+            "\"\(named)\" is the application you run in, and you cannot drive it. "
+                + "Opening it would take the person's own window; choose another application.")
     }
 
     /// The application "Apple <name>" names: Apple's own, a bundle identifier under `com.apple.`, whose name
