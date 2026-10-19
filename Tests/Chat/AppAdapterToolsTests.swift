@@ -206,6 +206,22 @@ struct AppAdapterToolsTests {
         #expect(Self.namedProperty(of: tools) == .null)
     }
 
+    @Test("with the web session composed, open_session on an app a website does answers web:<host>, unless named")
+    func routedToTheWeb() async throws {
+        let session = RoutingSession()
+        let tools   = AutomationTools(session: session, offersWeb: true)
+        let answer  = try await Self.open(tools, "Mappe")
+        #expect(answer["opened"] == .bool(false))
+        #expect(answer["route"].string == "web:google.com/maps")
+        #expect(answer["message"].string?.contains("named true") == true)
+        #expect(session.opened.isEmpty)
+        #expect(Self.namedProperty(of: tools)["type"].string == "boolean")
+        _ = try await Self.open(tools, "Mappe", named: true)
+        #expect(session.opened == ["Mappe"])
+        _ = try await Self.open(AutomationTools(session: session), "Mappe")
+        #expect(session.opened == ["Mappe", "Mappe"])
+    }
+
     @Test("an adapter that cannot run is skipped: the app opens, and the answer says why")
     func skippedAdapterOpensWithANote() async throws {
         let session = RoutingSession()
@@ -247,7 +263,7 @@ private final class RoutingSession: AutomationSessionOperating {
 
     func resolvedBundleID(of application: String) async -> String? {
         resolved.append(application)
-        return ["Calendario", "Calendar"].contains(application) ? "com.apple.iCal" : nil
+        return ["Calendario": "com.apple.iCal", "Calendar": "com.apple.iCal", "Mappe": "com.apple.Maps"][application]
     }
 
     func open(application: String, window: String?) async throws -> SceneSnapshot {

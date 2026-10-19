@@ -87,6 +87,41 @@ struct TaskRouterTests {
                 "\(message)")
     }
 
+    @Test("With the web session composed, an app a website does the task of routes there, by its bundle id", arguments: [
+        ("com.apple.Maps", "google.com/maps"), ("com.apple.Translate", "translate.google.com"),
+        ("com.apple.weather", "google.com/search?q=weather"), ("com.apple.stocks", "google.com/finance"),
+        ("com.apple.news", "news.google.com"), ("com.apple.TV", "youtube.com"), ("COM.APPLE.MAPS", "google.com/maps"),
+    ])
+    func website(bundleID: String, host: String) async {
+        let decision = await router.route(opening: "Mappe", bundleID: bundleID, named: false, offersWeb: true) { _ in
+            Issue.record("a web route asked about an adapter")
+            return nil
+        }
+        guard case .use(let route, let message) = decision else {
+            Issue.record("\(bundleID) was not routed to the web")
+            return
+        }
+        #expect(route == .web(host) && route.address == "web:\(host)")
+        #expect(message.hasPrefix("Mappe: call open_session with app \"web:\(host)\""), "\(message)")
+        #expect(message.contains(SharedRoutes.openOnlyIfNamed("Mappe")))
+        #expect(message.contains("call open_session again with named true"))
+    }
+
+    @Test("Without the web session, or for an app the person named, no app routes to the web; Mail keeps its adapter")
+    func websiteNotComposed() async {
+        #expect(await router.route(opening: "Maps", bundleID: "com.apple.Maps", named: false) { _ in .ready }
+            == .open(note: nil))
+        #expect(await router.route(opening: "Maps", bundleID: "com.apple.Maps", named: true, offersWeb: true) { _ in
+            .ready
+        } == .open(note: nil))
+        guard case .use(.adapter("mail"), _) = await router.route(
+            opening: "Mail", bundleID: "com.apple.mail", named: false, offersWeb: true, availability: { _ in .ready }
+        ) else {
+            Issue.record("Mail left its adapter with the web composed")
+            return
+        }
+    }
+
     @Test("Rule 1's wording separates a kind of thing from an app's name or brand")
     func namedWording() {
         for kind in ["\"mappe\"", "\"weather\"", "\"translator\"", "\"calendar\"", "\"with Maps\""] {

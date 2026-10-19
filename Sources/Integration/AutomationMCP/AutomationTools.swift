@@ -298,6 +298,12 @@ public final class AutomationTools {
         window: or viewport: when those moved; all else is unchanged.
         """
 
+    /// The routes `open_session` may answer instead of opening, as its description names them.
+    private static func betterRoutes(_ adapters: Bool, _ web: Bool) -> String {
+        [adapters ? "an app_call adapter" : nil, web ? "a web:<host> page" : nil].compactMap { $0 }
+            .joined(separator: " or ")
+    }
+
     /// The tools an instance without adapters serves (`definitions(offeringAdapters:)`).
     public static var definitions: [JSONValue] { definitions(offeringAdapters: false) }
 
@@ -373,11 +379,11 @@ public final class AutomationTools {
                  + "Use an exact window title when needed; an empty title selects one uniquely untitled window. "
                  + "Omitting window selects the main window. For the held app, an exact window title switches within the same Seat. Close the session before opening a different app. "
                  + (offeringWeb ? webOpening : "")
-                 + (offeringAdapters ? "Set named true only when the person named this app: otherwise an app "
-                    + "with a better route (an app_call adapter) is not opened, and the answer says which route to "
-                    + "use. " + SharedRoutes.namedApp + " " : "")
+                 + (offeringAdapters || offeringWeb ? "Set named true only when the person named this app: "
+                    + "otherwise an app with a better route (\(Self.betterRoutes(offeringAdapters, offeringWeb))) is "
+                    + "not opened, and the answer says which route to use. " + SharedRoutes.namedApp + " " : "")
                  + Self.sceneLegend,
-                 ["app": text, "window": .object(["type": .string("string")])].merging(offeringAdapters ? [
+                 ["app": text, "window": .object(["type": .string("string")])].merging(offeringAdapters || offeringWeb ? [
                     "named": .object(["type": .string("boolean"),
                                       "description": .string("True only when the person named this app, or when "
                                                              + "none of the verbs of the adapter an earlier answer "
@@ -1797,14 +1803,15 @@ public final class AutomationTools {
         return .object(object)
     }
 
-    /// The route for opening `app`, before anything opens (`TaskRouter`): only with the adapters, and never for the app
-    /// the session already holds, which was opened as asked and whose windows `open_session` switches between.
+    /// The route for opening `app`, before anything opens (`TaskRouter`): only with the adapters or the web session,
+    /// and never for the app the session already holds, which was opened as asked and whose windows `open_session`
+    /// switches between.
     private func route(opening app: String, named: Bool) async -> RouteDecision {
-        guard let adapters, !named else { return .open(note: nil) }
+        guard adapters != nil || offersWeb, !named else { return .open(note: nil) }
         let bundleID = await session.resolvedBundleID(of: app)
         if let bundleID, bundleID == session.memoryApplication { return .open(note: nil) }
-        return await TaskRouter().route(opening: app, bundleID: bundleID, named: false) { name in
-            guard let adapter = adapters.adapter(for: name) else { return nil }
+        return await TaskRouter().route(opening: app, bundleID: bundleID, named: false, offersWeb: offersWeb) { name in
+            guard let adapter = adapters?.adapter(for: name) else { return nil }
             return switch await adapter.availability() {
                 case .ready                      : .ready
                 case .unknown(let reason)        : .unknown(reason)
