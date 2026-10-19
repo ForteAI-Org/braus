@@ -220,6 +220,14 @@ public final class AutomationTools {
     submenu and destination. Send Assignment opens the send panel once assigned; the adjacent Send selector
     opens the destination menu. To remove a send, open that selector and click the native "no send" item.
     Verify the assignment value after choosing; menu closure alone does not prove the route changed.
+    In Pro Tools with a session open, switch to Edit or Mix with open_session or Window > Edit, not the Dashboard.
+    Its track area has no accessible controls, so a click on clips or the timeline is refused: for a time
+    selection, type the bar into Edit Selection Start and Edit Selection End, press return after each, then use
+    the Edit menu (Separate, Fades). A refused click there means looking for the menu command, never coordinates.
+    To rename a Pro Tools track, context_menu its Track name control with Rename..., then type_text into
+    "Name the track:" and press OK.
+    Click a radio button with act click; select is for dropdowns. drag takes a target and an offset or a second
+    target, never "@x,y" coordinates.
     Prefer set_toggle with explicit on/off over blindly clicking checkboxes.
     On ambiguous, inspect the candidates and disambiguate. On a transport failure, observe;
     never automatically replay an action that may already have happened. Missing permissions require the
