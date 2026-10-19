@@ -19,6 +19,9 @@ actor FakeNotesTransport: NotesTransporting {
     ]
     var dropsWrites = false
     private(set) var html: [String: String] = [:]
+    /// The bodies and attachment counts `content(id:)` answers in place of a body made from the note's text.
+    private var bodies: [String: String] = [:]
+    private var attachments: [String: Int] = [:]
     private(set) var writes = 0
     private var readFailure: (any Error & Sendable)?
     private var writeFailure: (any Error & Sendable)?
@@ -40,6 +43,12 @@ actor FakeNotesTransport: NotesTransporting {
 
     func dropWrites() { dropsWrites = true }
 
+    /// The note's body holds `body`, and `count` attachments.
+    func embed(_ body: String, attachments count: Int = 0, in id: String) {
+        bodies[id]      = body
+        attachments[id] = count
+    }
+
     /// Notes reads fail once a note was created or added to.
     func failReads(afterWrite error: any Error & Sendable) { readFailure = error }
 
@@ -60,6 +69,11 @@ actor FakeNotesTransport: NotesTransporting {
         guard let note = notes.first(where: { $0.id == id }) else { return nil }
         guard hidesFolder else { return note }
         return StoreNote(id: note.id, title: note.title, folder: note.folder, modified: note.modified, text: note.text)
+    }
+
+    func content(id: String) async throws -> (body: String, attachments: Int)? {
+        guard let note = notes.first(where: { $0.id == id }) else { return nil }
+        return (bodies[id] ?? html[id] ?? "<div>\(note.text ?? "")</div>", attachments[id] ?? 0)
     }
 
     func create(html: String, folderID: String?) async throws -> String {
@@ -234,6 +248,31 @@ struct NotesAdapterTests {
         ]))
         #expect(outcome.kind == .foundActed)
         #expect(outcome.result["previous_length"] == .number(13))
+    }
+
+    @Test("append_to_note refuses a note with an image or an attachment, and writes nothing",
+          arguments: [("<div>Shopping</div><div><img src=\"x.png\"></div>", 0), ("<div>Shopping</div>", 1),
+                      ("<div><IMG SRC=\"y\"></div>", 0)])
+    func appendRefusesMedia(body: String, attachments: Int) async throws {
+        let transport = FakeNotesTransport()
+        await transport.embed(body, attachments: attachments, in: "n-1")
+        let outcome = try await NotesAdapter(transport: transport).call("append_to_note", .object([
+            "id": .string("n-1"), "text": .string("Eggs"),
+        ]))
+        #expect(outcome.kind == .refused)
+        #expect(outcome.message.contains("nothing was done") && outcome.message.contains("create_note"))
+        #expect(await transport.writes == 0)
+        #expect(await transport.notes.first?.text == "Shopping\nMilk")
+    }
+
+    @Test("append_to_note on a note that does not exist is a miss, and writes nothing")
+    func appendMissing() async throws {
+        let transport = FakeNotesTransport()
+        let outcome = try await NotesAdapter(transport: transport).call("append_to_note", .object([
+            "id": .string("n-9"), "text": .string("Eggs"),
+        ]))
+        #expect(outcome.kind == .honestMiss)
+        #expect(await transport.writes == 0)
     }
 
     @Test("A Notes that does not keep the change is unverified")

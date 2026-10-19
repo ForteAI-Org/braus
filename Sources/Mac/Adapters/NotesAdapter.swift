@@ -61,6 +61,8 @@ public protocol NotesTransporting: Sendable {
     /// The notes whose title or text contains `query`, in one folder or all of them.
     func notes(matching query: String?, folderID: String?, limit: Int) async throws -> [StoreNote]
     func note(id: String) async throws -> StoreNote?
+    /// The note's HTML body and how many attachments it holds, nil when no note has the id.
+    func content(id: String) async throws -> (body: String, attachments: Int)?
     /// Makes a note from HTML in the folder (the default one when nil) and answers its id.
     func create(html: String, folderID: String?) async throws -> String
     /// Adds HTML at the end of the note's body.
@@ -70,7 +72,9 @@ public protocol NotesTransporting: Sendable {
 /// NotesAdapter is the Notes app through its dictionary (one fixed script), with Notes hidden: folders
 /// listed, notes found and read as plain text, a note created or added to and read back by its id. A note
 /// created in a folder is confirmed only in that folder, read back by its id, which fixes the account too.
-/// Text goes in escaped as HTML, so the agent's words never become markup.
+/// Text goes in escaped as HTML, so the agent's words never become markup. A note holding an image or an
+/// attachment is never added to: setting its body drops them (measured on 19 Oct, the image went while the
+/// note still counted two attachments, and the text read back as added).
 ///
 /// Locked notes are not readable through the dictionary; they read back as empty.
 public struct NotesAdapter: AppAdapting {
@@ -115,7 +119,7 @@ public struct NotesAdapter: AppAdapting {
                             folder,
                         ],
                         safety: .write, readBack: "the new note read by its id", contentResults: Self.contentResults),
-            AdapterVerb("append_to_note", "Add text at the end of a note.",
+            AdapterVerb("append_to_note", "Add text at the end of a note without images or attachments.",
                         parameters: [
                             AdapterParameter("id", .string, "the note's id from find_notes"),
                             AdapterParameter("text", .string, "the text to add, on new lines", content: true),
@@ -225,7 +229,13 @@ public struct NotesAdapter: AppAdapting {
     private func append(_ arguments: AdapterArguments) async throws -> AdapterOutcome {
         let id   = try arguments.required("id")
         let text = try arguments.required("text")
-        guard let before = try await transport.note(id: id) else { return .missing("No note with id \(id).") }
+        guard let before = try await transport.note(id: id),
+              let content = try await transport.content(id: id) else { return .missing("No note with id \(id).") }
+        // Setting the body drops what the HTML cannot carry back: an embedded image went, its attachment still counted.
+        if content.body.range(of: "<img", options: .caseInsensitive) != nil || content.attachments > 0 {
+            return .refused("The note holds images or attachments, which adding text through Notes' scripting would "
+                            + "drop: nothing was done. Put the text in a new note with create_note.")
+        }
         let noted: JSONValue = .object(["id": .string(id)])
         do {
             try await transport.append(html: Self.paragraphs(text), to: id)
@@ -352,6 +362,12 @@ public struct MacNotesTransport: NotesTransporting {
         Self.note(try await run("read_note", [.text(id)]))
     }
 
+    public func content(id: String) async throws -> (body: String, attachments: Int)? {
+        let fields = try await run("note_content", [.text(id)]).list
+        guard fields.count == 2, let body = fields[0].text, case .number(let count) = fields[1] else { return nil }
+        return (body, Int(count))
+    }
+
     public func create(html: String, folderID: String?) async throws -> String {
         guard let id = try await run("create_note", [.text(html), .text(folderID ?? "")]).text else {
             throw AdapterFailure("Notes did not answer the new note's id.")
@@ -443,6 +459,17 @@ public struct MacNotesTransport: NotesTransporting {
                 end tell
             end timeout
         end read_note
+
+        on note_content(nid)
+            with timeout of 15 seconds
+                tell application id "com.apple.Notes"
+                    set found to (every note whose id is nid)
+                    if found is {} then return {}
+                    set m to item 1 of found
+                    return {body of m, count of attachments of m}
+                end tell
+            end timeout
+        end note_content
 
         on create_note(html, folderId)
             with timeout of 15 seconds

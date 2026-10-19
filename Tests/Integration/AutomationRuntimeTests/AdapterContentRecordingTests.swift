@@ -165,6 +165,9 @@ private actor CanaryNotes: NotesTransporting {
     }
     func notes(matching query: String?, folderID: String?, limit: Int) async throws -> [StoreNote] { notes }
     func note(id: String) async throws -> StoreNote? { notes.first { $0.id == id } }
+    func content(id: String) async throws -> (body: String, attachments: Int)? {
+        notes.contains { $0.id == id } ? ("<div>text</div>", 0) : nil
+    }
     func create(html: String, folderID: String?) async throws -> String {
         let text = Self.plain(html)
         let id   = "n-\(notes.count + 1)"
