@@ -39,6 +39,7 @@ struct ProcedureContractTests {
             .scroll(direction: .down, lines: 3, target: nil, section: nil), .drag(from: "A", to: .offset(dx: 0, dy: 4), section: nil),
             .contextMenu(target: "P", item: "Copy", section: nil), .menu(path: "File > Save"),
             .press(button: "OK"), .closeSession,
+            .appCapabilities(app: "Calendar", query: nil), .appCall(app: "calendar", verb: "list_calendars", arguments: "{}"),
         ]
         let operations = requests.enumerated().map { StepOperation(operationID: "o\($0.offset)", position: $0.offset, request: $0.element) }
         let children = requests.filter(\.tool.isBatchStep).enumerated().map { StepOperation(operationID: "b\($0.offset)", position: $0.offset, request: $0.element) }

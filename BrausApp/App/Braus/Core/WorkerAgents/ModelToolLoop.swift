@@ -45,25 +45,19 @@ final class ModelToolLoop {
     /// The round streaming now, cancelled by `stop`.
     private var round: Task<Round, Never>?
 
-    /// `call` runs one tool by name, as `AutomationTools.call` does, and reports
-    /// its records itself.
-    init(
-        call    : @escaping @MainActor (String, JSONValue) async throws -> JSONValue,
-        reminder: @escaping @MainActor () -> String? = { nil }
-    ) {
-        self.call     = call
-        self.reminder = reminder
-    }
+    /// The tools a turn hands its model: those `call` serves.
+    private let definitions: [JSONValue]
 
-    /// The tools a model is handed: `AutomationTools.definitions`, each with its schema.
-    static func definitions() throws -> [ToolDefinition] {
-        try AutomationTools.definitions.map { definition in
-            ToolDefinition(
-                name       : definition["name"].string ?? "",
-                description: definition["description"].string ?? "",
-                parameters : try JSONEncoder().encode(definition["inputSchema"])
-            )
-        }
+    /// `call` runs one tool by name, as `AutomationTools.call` does, and reports
+    /// its records itself; `definitions` are the tools it serves.
+    init(
+        call       : @escaping @MainActor (String, JSONValue) async throws -> JSONValue,
+        reminder   : @escaping @MainActor () -> String? = { nil },
+        definitions: [JSONValue] = AutomationTools.definitions
+    ) {
+        self.call        = call
+        self.reminder    = reminder
+        self.definitions = definitions
     }
 
     /// The window a loop turn on `selection` runs in: the `num_ctx` Braus sends
@@ -104,7 +98,7 @@ final class ModelToolLoop {
         onEvent      : @escaping @MainActor (WorkerAgentEvent) -> Void
     ) async throws {
         let hasTools = try await transport.capabilities().supportsTools
-        let tools    = hasTools ? try Self.definitions() : []
+        let tools    = hasTools ? try Self.toolDefinitions(definitions) : []
         var messages = [TurnMessage(
             role: .system,
             text: WorkerAgentHost.instructions(
@@ -288,6 +282,17 @@ final class ModelToolLoop {
             cacheWrites: writes,
             output     : usage.outputTokens ?? 0
         )
+    }
+
+    /// Definitions as a model provider takes them, each with its schema.
+    static func toolDefinitions(_ definitions: [JSONValue]) throws -> [ToolDefinition] {
+        try definitions.map { definition in
+            ToolDefinition(
+                name       : definition["name"].string ?? "",
+                description: definition["description"].string ?? "",
+                parameters : try JSONEncoder().encode(definition["inputSchema"])
+            )
+        }
     }
 
     /// The tool's answer as the model reads it: the text of the MCP result, and

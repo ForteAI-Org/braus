@@ -1,3 +1,4 @@
+import AppAdapters
 import AppKit
 import AutomationRuntime
 import EngineCore
@@ -34,6 +35,9 @@ public struct CallProducer: Sendable, Equatable {
 /// for the transcript.
 public final class AutomationTools {
     public let session: any AutomationSessionOperating
+    /// The app adapters `app_capabilities` and `app_call` reach, without a session or a seat. Nil leaves both tools
+    /// out of `toolDefinitions` and their lines out of `instructions`: the composition decides whether they exist.
+    public let adapters: AppAdapters?
     public var record: ((String) throws -> Void)?
     /// Who makes the calls, as the living memory records them: the app's worker, an external client,
     /// the command line's chat. Each call is recorded under it, with the trace it names at that moment.
@@ -61,9 +65,16 @@ public final class AutomationTools {
     /// of that window is sent as changes against.
     private var seen: [Baseline] = []
 
-    public init(session: any AutomationSessionOperating) {
-        self.session = session
+    public init(
+        session : any AutomationSessionOperating,
+        adapters: AppAdapters? = nil
+    ) {
+        self.session  = session
+        self.adapters = adapters
     }
+
+    /// The tools this instance serves and accepts: `definitions`, with the adapter tools while `adapters` is set.
+    public var toolDefinitions: [JSONValue] { Self.definitions(offeringAdapters: adapters != nil) }
 
     /// What a host sends the agent after a turn that left a candidate it did not interpret, once per candidate;
     /// nil when there is none or it was asked already. Haiku 5.5 answered the person after an end and left the
@@ -126,7 +137,25 @@ public final class AutomationTools {
     }
 
     /// The base instructions every provider turn over these tools runs with, in the CLI and the app alike.
-    public static var instructions: String { baseInstructions + "\n" + MemoryTaskTool.instructions }
+    public static var instructions: String { instructions(offeringAdapters: false) }
+
+    /// The base instructions, with the adapters' lines when `app_capabilities` and `app_call` are offered.
+    public static func instructions(offeringAdapters: Bool) -> String {
+        baseInstructions + (offeringAdapters ? "\n" + adapterInstructions : "") + "\n" + MemoryTaskTool.instructions
+    }
+
+    /// This instance's instructions: those of the tools it serves, as `toolDefinitions`.
+    public var instructions: String { Self.instructions(offeringAdapters: adapters != nil) }
+
+    /// What the instructions add with the adapters: an app's API before its interface, and folders, files and text
+    /// files through the files adapter's verbs, never through Finder, TextEdit or a shell.
+    static let adapterInstructions = """
+    An app that app_capabilities lists verbs for is reached with app_call, through its API and with no session:
+    prefer a verb there over driving the app's interface.
+    Folders, files and text files are handled with the files adapter's verbs (app_capabilities for files: pwd, cd,
+    list, find, read, make_folder, copy, move, write, append, edit, move_to_trash), never through Finder, TextEdit
+    or a shell; its paths stay inside the home folder, and a relative path is under its working directory.
+    """
 
     static let baseInstructions = """
     You are Braus's desktop automation assistant. Use only the braus MCP tools to inspect and control apps.
@@ -235,7 +264,12 @@ public final class AutomationTools {
         window: or viewport: when those moved; all else is unchanged.
         """
 
-    public static var definitions: [JSONValue] {
+    /// The tools an instance without adapters serves (`definitions(offeringAdapters:)`).
+    public static var definitions: [JSONValue] { definitions(offeringAdapters: false) }
+
+    /// The tools an instance serves: every Seat tool and `memory_task`, and `app_capabilities` and `app_call` only
+    /// when the adapters are offered.
+    public static func definitions(offeringAdapters: Bool) -> [JSONValue] {
         let text: JSONValue = .object(["type": .string("string"), "minLength": .number(1)])
         let section: JSONValue = .object([
             "type": .string("string"), "minLength": .number(1),
@@ -361,6 +395,22 @@ public final class AutomationTools {
                  + "button as text. Answers with the scene after the press. Disabled and destructive buttons are "
                  + "refused.",
                  session.merging(["button": text], uniquingKeysWith: { $1 }), ["session", "button"]),
+        ] + (offeringAdapters ? [
+            tool("app_capabilities", "List what Braus can do in an app through its API, with the app in the background "
+                 + "or closed and no session: the adapter's availability and its verbs, each with its arguments, "
+                 + "safety class and read-back. Prefer a verb here over driving the app's interface. Optional "
+                 + "query: words of the verbs wanted.",
+                 ["app": text, "query": text], ["app"], readOnly: true),
+            tool("app_call", "Run one verb of an app's adapter (see app_capabilities) and read its effect back; "
+                 + "no session needed. The outcome is found_acted when the read-back confirmed the effect, "
+                 + "acted_unverified when it did not (read the state again before anything else), acted_noop "
+                 + "when nothing needed doing, honest_miss when the thing named does not exist, refused when "
+                 + "nothing was done and the message says why. Setters answer the previous value.",
+                 ["app": text, "verb": text,
+                  "arguments": .object(["type": .string("object"),
+                                        "description": .string("The verb's arguments, as app_capabilities lists them.")])],
+                 ["app", "verb"]),
+        ] : []) + [
             tool("close_session", "Return the application's windows and release its Seat. Only when the person "
                  + "asks, or before calling open_session again; never to finish a task, since Braus releases the "
                  + "Seat by itself.",
@@ -404,7 +454,8 @@ public final class AutomationTools {
     /// with the check the operation's oracle made. An end the memory cannot save suspends it: the answer
     /// says so, the effect is never repeated, and no further effect starts until the end is saved.
     private func dispatch(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
-        let request = try? Self.callRequest(name, arguments == .null ? JSONValue.object([:]) : arguments)
+        let arguments = arguments == .null ? JSONValue.object([:]) : arguments
+        let request = try? Self.callRequest(name, withheldContent(name, arguments))
         guard let recorder = makeRecorder(sessionID: session.id) else {
             return try finish(name, try await answer(name, arguments, recorder: nil), notice: nil)
         }
@@ -422,7 +473,7 @@ public final class AutomationTools {
         let attribution = request.tool == .batch ? nil : openTask?.attribution
         if case .batch = request {} else {
             do {
-                try await recorder.begin(request, app: memoryApplication, attribution: attribution)
+                try await recorder.begin(request, app: application(of: request), attribution: attribution)
             } catch {
                 await collectSecrets(of: recorder)
                 guard !request.tool.requiresConfirmedStart else { throw Self.unconfirmed(error) }
@@ -477,7 +528,15 @@ public final class AutomationTools {
             object["memory"] = .string(notice)
             answered = .object(object)
         }
-        try transcribe("← \(name) \(String(decoding: try JSONEncoder().encode(answered), as: UTF8.self))")
+        // A file's content an adapter answered is the model's: its transcript line keeps the marker in its place.
+        var transcribed = answered
+        if !transcriptOmits.isEmpty, case .object(var object) = answered,
+           case .object(var result)? = object["result"] {
+            for key in transcriptOmits where result[key] != nil { result[key] = .string(ValueMinimization.marker) }
+            object["result"] = .object(result)
+            transcribed = .object(object)
+        }
+        try transcribe("← \(name) \(String(decoding: try JSONEncoder().encode(transcribed), as: UTF8.self))")
         return MCPRouter.toolResult(answered)
     }
 
@@ -1313,14 +1372,70 @@ public final class AutomationTools {
         session.memoryApplication.map { AppContextIdentity(bundleID: $0) }
     }
 
+    /// The application a call's event names: the adapter's app for the adapter tools, which run
+    /// outside the session, and the session's app for every other tool.
+    private func application(of request: AgentCallRequest) -> AppContextIdentity? {
+        switch request {
+            case .appCapabilities(let app, _), .appCall(let app, _, _):
+                return adapters?.adapter(for: app)?.bundleIDs.sorted().first.map { AppContextIdentity(bundleID: $0) }
+            default:
+                return memoryApplication
+        }
+    }
+
+    /// A verb's arguments as the memory keeps them: JSON with sorted keys, `{}` when absent.
+    private static func canonical(_ arguments: JSONValue) throws -> String {
+        let value = arguments == .null ? JSONValue.object([:]) : arguments
+        guard value.object != nil else { throw AutomationFailure("arguments must be an object.") }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return String(decoding: try encoder.encode(value), as: UTF8.self)
+    }
+
+    /// A call's arguments as its record and its transcript keep them. For `app_call`, the values of the verb's content
+    /// parameters (`AdapterParameter.isContent`, a text written, appended or found) become the marker, and every text
+    /// of its arguments does when the verb cannot be resolved, since none was told apart. Other calls are kept whole.
+    /// The adapters repeat no content in their messages, so the call's answer and error are not searched for it.
+    private func withheldContent(_ name: String, _ arguments: JSONValue) -> JSONValue {
+        guard name == "app_call", case .object(var call) = arguments, let values = call["arguments"],
+              values != .null else { return arguments }
+        let verb = adapters.flatMap { adapters -> AdapterVerb? in
+            guard let app = arguments["app"].string, let verb = arguments["verb"].string else { return nil }
+            return try? adapters.resolve(app: app, verb: verb, arguments: values).verb
+        }
+        guard let verb, case .object(var fields) = values else {
+            call["arguments"] = Self.withholdingTexts(values)
+            return .object(call)
+        }
+        for parameter in verb.parameters where parameter.isContent && fields[parameter.name] != nil {
+            fields[parameter.name] = .string(ValueMinimization.marker)
+        }
+        call["arguments"] = .object(fields)
+        return .object(call)
+    }
+
+    /// `value` with every text in it, however nested, replaced by the marker.
+    private static func withholdingTexts(_ value: JSONValue) -> JSONValue {
+        switch value {
+            case .string            : .string(ValueMinimization.marker)
+            case .array(let items)  : .array(items.map(withholdingTexts))
+            case .object(let fields): .object(fields.mapValues(withholdingTexts))
+            default                 : value
+        }
+    }
+
     /// The typed result of the call `answer` concluded last, for its record.
     private var lastResult: AgentCallResult?
+    /// The result fields of the call `answer` concluded last that hold a file's content (`AdapterVerb.contentResults`):
+    /// left out of the transcript line of its answer, never out of the answer.
+    private var transcriptOmits: [String] = []
 
     private func answer(_ name: String, _ arguments: JSONValue, recorder: CallRecorder?) async throws -> JSONValue {
         lastResult = nil
         lastCheck  = nil
+        transcriptOmits = []
         let arguments = arguments == .null ? JSONValue.object([:]) : arguments
-        guard let definition = Self.definitions.first(where: { $0["name"].string == name }),
+        guard let definition = toolDefinitions.first(where: { $0["name"].string == name }),
               let values = arguments.object else { throw AutomationFailure("Invalid tool arguments.") }
         let schema = definition["inputSchema"]
         let allowed = Set(schema["properties"].object?.keys.map { $0 } ?? [])
@@ -1328,9 +1443,10 @@ public final class AutomationTools {
         for field in schema["required"].array ?? [] {
             guard let key = field.string, values[key] != nil else { throw AutomationFailure("A required argument is missing.") }
         }
-        try transcribe("→ \(name) \(String(decoding: try JSONEncoder().encode(arguments), as: UTF8.self))")
+        let shown = withheldContent(name, arguments)
+        try transcribe("→ \(name) \(String(decoding: try JSONEncoder().encode(shown), as: UTF8.self))")
         let value: JSONValue
-        if !["status", "windows", "apps", "open_session"].contains(name) {
+        if !["status", "windows", "apps", "open_session", "app_capabilities", "app_call"].contains(name) {
             guard let id = session.id, arguments["session"].string == id.uuidString else {
                 throw AutomationFailure("Session ID is missing or stale. Use status; open a session if necessary and observe again.")
             }
@@ -1392,6 +1508,17 @@ public final class AutomationTools {
                 ListedApplication(name: $0.name, bundleID: $0.bundleID, version: $0.version, isRunning: $0.isRunning,
                                   location: $0.location, isDefaultBrowser: $0.isDefaultBrowser)
             }, hiddenCount: found.count - shown.count))
+        case "app_capabilities":
+            value = try await offeredAdapters().capabilities(of: string(arguments, "app"),
+                                                             query: try optionalString(arguments, "query"))
+        case "app_call":
+            let adapters = try offeredAdapters()
+            let app = try string(arguments, "app"), verb = try string(arguments, "verb")
+            transcriptOmits = (try? adapters.resolve(app: app, verb: verb, arguments: arguments["arguments"]))?
+                .verb.contentResults ?? []
+            let outcome = try await adapters.call(app: app, verb: verb, arguments: arguments["arguments"])
+            value = outcome.json
+            lastResult = .outcome(outcome.kind, message: outcome.message)
         case "open_session":
             let scene = try await session.open(application: string(arguments, "app"),
                                                 window: Self.windowTitle(arguments))
@@ -1552,6 +1679,14 @@ public final class AutomationTools {
         return .object(object)
     }
 
+    /// The adapters, or the refusal of an adapter tool in a composition that does not offer them.
+    private func offeredAdapters() throws -> AppAdapters {
+        guard let adapters else {
+            throw AutomationFailure("App adapters are not offered here: open the app with open_session.")
+        }
+        return adapters
+    }
+
     /// The typed answer of an observation the recorder wrote as a sample: nil when it wrote none, which
     /// the record keeps as an explicit gap.
     private func observed(by recorder: CallRecorder?) async -> AgentCallResult? {
@@ -1573,6 +1708,12 @@ public final class AutomationTools {
             case "press"        : return .press(button: try requiredString(arguments, "button"))
             case "batch"        : return .batch
             case "close_session": return .closeSession
+            case "app_capabilities":
+                return .appCapabilities(app: try requiredString(arguments, "app"),
+                                        query: try optionalString(arguments, "query"))
+            case "app_call":
+                return .appCall(app: try requiredString(arguments, "app"), verb: try requiredString(arguments, "verb"),
+                                arguments: try canonical(arguments["arguments"]))
             default             : return try Step(name, arguments).callRequest
         }
     }

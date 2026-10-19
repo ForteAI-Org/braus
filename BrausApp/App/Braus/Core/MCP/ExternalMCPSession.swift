@@ -1,3 +1,4 @@
+import AppAdapters
 import AutomationMCP
 import AutomationRuntime
 import Foundation
@@ -18,8 +19,8 @@ final class ExternalMCPSession {
     private var isClosed = false
 
     lazy var router = MCPRouter(
-        tools: profile.desktop ? AutomationTools.definitions : [],
-        instructions: AutomationTools.instructions + "\n" + Self.instructions
+        tools: profile.desktop ? tools.toolDefinitions : [],
+        instructions: tools.instructions + "\n" + Self.instructions
     ) { [weak self] name, arguments in
         guard let self, !self.isClosed, self.profile.desktop else {
             throw MCPRequestFailure("This client is not authorized for desktop access.")
@@ -37,7 +38,7 @@ final class ExternalMCPSession {
         activity: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         self.profile = profile
-        self.tools = AutomationTools(session: session)
+        self.tools = AutomationTools(session: session, adapters: .standard())
         self.tools.producer = CallProducer(source: .mcp, streamID: "mcp-" + profile.id.uuidString)
         self.perform = perform
         self.activity = activity

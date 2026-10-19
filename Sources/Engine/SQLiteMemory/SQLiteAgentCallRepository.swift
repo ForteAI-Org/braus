@@ -475,8 +475,9 @@ enum SQLiteAgentCallRows {
                     guard message == nil, let attempted, let verified else { throw refuse(.resultShape("batch")) }
                     result = .batch(stopped: code == "stopped", attempted: Int(attempted), verified: Int(verified))
                 case let code?:
-                    // An outcome is every operation's result, `menu` and `press` included, as the writer admits it.
-                    guard tool.isOperation, let outcome = ActOutcomeKind(rawValue: code),
+                    // An outcome is every operation's result, `menu` and `press` included, and `app_call`'s, as
+                    // the writer admits it.
+                    guard tool.answersOutcome, let outcome = ActOutcomeKind(rawValue: code),
                           outcome.rawValue.utf8.elementsEqual(code.utf8) else {
                         throw refuse(.unknownCode(argument: "result_kind", code: code))
                     }

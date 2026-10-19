@@ -32,24 +32,27 @@ public enum AgentTool: String, Sendable, Equatable, Hashable, CaseIterable {
     case menu
     case press
     case closeSession = "close_session"
+    case appCapabilities = "app_capabilities"
+    case appCall         = "app_call"
 
-    /// Whether the tool requires the current session: every tool but the three read-only listings
-    /// and `open_session`. The session a call names is its event's `sessionID`.
+    /// Whether the tool requires the current session: every tool but the three read-only listings,
+    /// `open_session` and the two adapter tools, which reach an app's API without a session. The
+    /// session a call names is its event's `sessionID`.
     public var takesSession: Bool {
         switch self {
-            case .status, .windows, .apps, .openSession: false
-            default                                    : true
+            case .status, .windows, .apps, .openSession, .appCapabilities, .appCall: false
+            default                                                                : true
         }
     }
 
     /// Whether a call of the tool must have its start confirmed in the archive before it runs: every
     /// tool that may change the application or the Seat (the operations, a batch, `menu`, `press`,
-    /// `open_session`). The read-only tools, and `close_session`, which gives the person's windows back,
-    /// run whatever the memory answers, with their record's gap said.
+    /// `open_session`, `app_call`). The read-only tools, and `close_session`, which gives the person's
+    /// windows back, run whatever the memory answers, with their record's gap said.
     public var requiresConfirmedStart: Bool {
         switch self {
-            case .status, .windows, .apps, .observe, .closeSession: false
-            default                                              : true
+            case .status, .windows, .apps, .observe, .closeSession, .appCapabilities: false
+            default                                                                : true
         }
     }
 
@@ -57,6 +60,13 @@ public enum AgentTool: String, Sendable, Equatable, Hashable, CaseIterable {
     /// check may judge: `act`, `select`, the six inputs, `menu` and `press`.
     public var isOperation: Bool {
         isBatchStep || self == .menu || self == .press
+    }
+
+    /// Whether a concluded call of the tool answers an outcome: every operation, and `app_call`, whose
+    /// adapter reads its own effect back. `app_call` is not an operation: it has no gesture, no scene
+    /// and no check, and it is not a procedure step.
+    public var answersOutcome: Bool {
+        isOperation || self == .appCall
     }
 
     /// Whether the tool may be a step of a batch: `act`, `select` and the six inputs.
@@ -121,6 +131,10 @@ public enum AgentCallRequest: Sendable {
     case menu(path: String)
     case press(button: String)
     case closeSession
+    /// The verbs an app's adapter offers, optionally only those matching `query`.
+    case appCapabilities(app: String, query: String?)
+    /// One adapter verb, with its arguments as the JSON text the tools wrote: keys sorted, no spaces.
+    case appCall(app: String, verb: String, arguments: String)
 
     public var tool: AgentTool {
         switch self {
@@ -141,6 +155,8 @@ public enum AgentCallRequest: Sendable {
             case .menu        : .menu
             case .press       : .press
             case .closeSession: .closeSession
+            case .appCapabilities: .appCapabilities
+            case .appCall     : .appCall
         }
     }
 
@@ -339,7 +355,7 @@ public struct AgentCallProgress: Sendable {
         switch (status, tool) {
             case (.completed, .act), (.completed, .select), (.completed, .typeText), (.completed, .insertText),
                  (.completed, .pressKey), (.completed, .menu), (.completed, .press),
-                 (.completed, .scroll), (.completed, .drag), (.completed, .contextMenu):
+                 (.completed, .scroll), (.completed, .drag), (.completed, .contextMenu), (.completed, .appCall):
                 expected = .outcome
             case (.completed, .batch)       : expected = .batch
             case (.completed, .closeSession): expected = .closed

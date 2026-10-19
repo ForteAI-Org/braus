@@ -88,6 +88,11 @@ public struct ValueMinimization: Sendable {
                 minimized = .menu(path: keep(path, "path"))
             case .press(let button):
                 minimized = .press(button: keep(button, "button"))
+            case .appCapabilities(let app, let query):
+                minimized = .appCapabilities(app: keep(app, "app"), query: keepOptional(query, "query"))
+            case .appCall(let app, let verb, let arguments):
+                minimized = .appCall(app: keep(app, "app"), verb: keep(verb, "verb"),
+                                     arguments: keep(arguments, "arguments"))
         }
         return (minimized, redactions)
     }

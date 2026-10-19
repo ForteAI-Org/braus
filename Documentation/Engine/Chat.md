@@ -140,6 +140,14 @@ A provider process disconnect between turns does not release the Seat.
 `menu`, `press`, `batch`, `close_session`. CLI chat and the signed Braus app
 share these definitions and their validation.
 
+`app_capabilities` and `app_call` reach an app's adapter (`AppAdapters`) with
+no session, and exist only where the composition passes the adapters to
+`AutomationTools`: the app does for its workers and external clients, CLI chat
+does not. An irreversible verb is refused until destructive actions are
+allowed, which nothing allows yet. An `app_call` keeps the values of its
+verb's content parameters out of its record and transcript, and a verb's
+content results out of the transcript line of its answer.
+
 Action tools require the ephemeral session ID returned by open_session.
 Observations carry a revision, capture report time, and the current text scene,
 or its `changes` since an earlier revision (`since`) of the same window.

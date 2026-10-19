@@ -5,6 +5,7 @@
 //  Created by Tommaso Mazzarini on 07/10/2026.
 //
 
+import AppAdapters
 import AutomationMCP
 import AutomationRuntime
 import CoreGraphics
@@ -433,6 +434,35 @@ struct MemoryWiringTests {
         await service.close()
     }
 
+    @Test("an adapter call needs no session and is recorded under the adapter's app, with its outcome and its arguments, its content withheld")
+    @MainActor
+    func toolsRecordAdapterCalls() async throws {
+        let directory = try W.directory()
+        let tools     = AutomationTools(session: RecordedSession(directory: directory),
+                                        adapters: AppAdapters([NoteAdapter()]))
+        tools.producer = CallProducer(source: .mcp, streamID: "mcp-profile", traceID: "message-8")
+        _ = try await tools.call("app_capabilities", .object(["app": .string("Notes")]))
+        let answer = try await tools.call("app_call", .object([
+            "app"      : .string("notes"),
+            "verb"     : .string("create_note"),
+            "arguments": .object(["title": .string("Braus test"), "body": .string("Zoë's canary-4127 body")]),
+        ]))
+        #expect(String(describing: answer).contains("found_acted"))
+        let service = MemoryService.shared(for: directory)
+        #expect(await service.flush(within: .seconds(10)))
+        let calls = try await service.calls(inTrace: "message-8")
+        #expect(calls.map(\.request.tool) == [.appCapabilities, .appCall])
+        #expect(calls.allSatisfy { $0.event.app?.bundleID == "com.apple.Notes" })
+        if case .appCall(_, let verb, let arguments) = calls[1].request {
+            #expect(verb == "create_note")
+            #expect(arguments == #"{"body":"[withheld]","title":"Braus test"}"#)
+        } else { Issue.record("app_call request missing") }
+        if case .outcome(let kind, _)? = calls[1].progress.result { #expect(kind == .foundActed) }
+        else { Issue.record("app_call outcome missing") }
+        await service.close()
+        #expect(try archiveOccurrences(of: "canary-4127", in: directory.appendingPathComponent("memory.sqlite")).isEmpty)
+    }
+
     @Test("C07: two external clients and a worker each write and learn into an archive of their own, as on main, and none reads the others' knowledge")
     @MainActor
     func privateArchivesPerClient() async throws {
@@ -631,4 +661,22 @@ func rawEdit(_ url: URL, _ edit: (SQLiteConnection) throws -> Void) throws {
     for trigger in triggers { try connection.execute("DROP TRIGGER \(trigger.name)") }
     try edit(connection)
     for trigger in triggers { try connection.execute(trigger.sql) }
+}
+
+/// NoteAdapter is a one-verb adapter whose body is content, which confirms whatever it is asked, for the tools'
+/// recording.
+private struct NoteAdapter: AppAdapting {
+    let name                 = "notes"
+    let appNames             = ["Notes"]
+    let bundleIDs: Set<String> = ["com.apple.Notes"]
+    let verbs = [AdapterVerb("create_note", "Create a note.",
+                             parameters: [AdapterParameter("title", .string, "title"),
+                                          AdapterParameter("body", .string, "body", content: true)],
+                             safety: .write, readBack: "none, a fake")]
+
+    func availability() async -> AdapterAvailability { .ready }
+
+    func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome {
+        .confirmed("Created \(arguments["title"].string ?? "").")
+    }
 }

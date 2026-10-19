@@ -31,6 +31,8 @@ import PerceptionCore
 /// | `context_menu` | `target`, `item` (text), `section` (text, optional) |
 /// | `menu` | `path` (text, the menu bar path as the call wrote it) |
 /// | `press` | `button` (text) |
+/// | `app_capabilities` | `app` (text), `query` (text, optional) |
+/// | `app_call` | `app`, `verb` (text), `arguments` (text, the verb's arguments as JSON with sorted keys) |
 public enum AgentCallArguments {
 
     public enum Rows: Sendable, Equatable { case one, optional, list }
@@ -76,6 +78,10 @@ public enum AgentCallArguments {
                 return [text("path")]
             case .press:
                 return [text("button")]
+            case .appCapabilities:
+                return [text("app"), text("query", .optional)]
+            case .appCall:
+                return [text("app"), text("verb"), text("arguments")]
         }
     }
 }
@@ -144,6 +150,13 @@ extension AgentCallRequest {
                 put("path", text(path))
             case .press(let button):
                 put("button", text(button))
+            case .appCapabilities(let app, let query):
+                put("app", text(app))
+                put("query", text(query))
+            case .appCall(let app, let verb, let values):
+                put("app", text(app))
+                put("verb", text(verb))
+                put("arguments", text(values))
         }
         let order = AgentCallArguments.specs(of: tool).map(\.name)
         return rows.enumerated().sorted { lhs, rhs in
@@ -265,6 +278,11 @@ extension AgentCallRequest {
                 request = .menu(path: try required("path"))
             case .press:
                 request = .press(button: try required("button"))
+            case .appCapabilities:
+                request = .appCapabilities(app: try required("app"), query: text("query"))
+            case .appCall:
+                request = .appCall(app: try required("app"), verb: try required("verb"),
+                                   arguments: try required("arguments"))
         }
         do {
             try request.validate()

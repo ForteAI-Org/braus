@@ -201,7 +201,7 @@ let package = Package(
     products : [
         .library(name: "BrausChat",
                  targets: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
-                           "AutomationRuntime", "AutomationMCP"]),
+                           "AutomationRuntime", "AutomationMCP", "AppAdapters"]),
         .library(
             name: "BrausDriver",
             targets: ["SeatCore", "PrivateSymbols", "VirtualScreens", "WindowPlacement",
@@ -318,7 +318,7 @@ let package = Package(
         // calls the tools record and what an action waits for. No desktop, no seat.
         .testTarget(
             name         : "AutomationRuntimeTests",
-            dependencies : ["AutomationRuntime", "AutomationMCP", "Memory", "SQLiteMemory", "EngineCore",
+            dependencies : ["AutomationRuntime", "AutomationMCP", "AppAdapters", "Memory", "SQLiteMemory", "EngineCore",
                             "PerceptionCore", "LocalMCP", "LocalEmbedding", "TestScratch"].map { .target(name: $0) },
             path         : "Tests/Integration/AutomationRuntimeTests",
             // The Recall's quality corpus: knowledge learned through the tools and queries split by family.
@@ -455,7 +455,8 @@ let package = Package(
                     "WorkspaceActivation", "Memory", "SQLiteMemory", "LiveScenes", "PerceptionCore",
                     "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding"]),
         integration("AutomationMCP", ["AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
-                                     "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts"]),
+                                     "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts",
+                                     "AppAdapters"]),
         // The foreground command line: windows, scene, act, memory. What a model host does, by hand.
         .executableTarget(
             name: "braus",
@@ -511,7 +512,8 @@ let package = Package(
 
         // MARK: Engine tests
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
-                                                    "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore"],
+                                                    "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
+                                                    "AppAdapters"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
             name: "BrausCLITests",

@@ -49,6 +49,11 @@ struct AgentCallContractTests {
         ("menu", .menu(path: "File > Save As...")),
         ("press", .press(button: "Don’t Save")),
         ("close_session", .closeSession),
+        ("app_capabilities", .appCapabilities(app: "Calendar", query: nil)),
+        ("app_capabilities query", .appCapabilities(app: "calendar", query: "create event")),
+        ("app_call", .appCall(app: "calendar", verb: "create_event",
+                              arguments: #"{"start":"2026-10-15T09:00:00Z","title":"Zoë ☕️"}"#)),
+        ("app_call empty", .appCall(app: "system", verb: "get_volume", arguments: "{}")),
     ]
 
     @Test("every tool and variant becomes its contract's rows and is rebuilt exactly from them; every name is the tool's own and admitted")
@@ -180,7 +185,8 @@ struct AgentCallContractTests {
                 _ = try AgentCallRecord(event: event(session: nil), request: request)
             }
         }
-        for request in [AgentCallRequest.status, .windows(app: nil), .apps(query: nil), .openSession(app: "Mail", window: nil)] {
+        for request in [AgentCallRequest.status, .windows(app: nil), .apps(query: nil), .openSession(app: "Mail", window: nil),
+                        .appCapabilities(app: "calendar", query: nil), .appCall(app: "system", verb: "get_volume", arguments: "{}")] {
             _ = try AgentCallRecord(event: event(session: nil), request: request)
         }
         #expect(Set(AgentTool.allCases.filter(\.isBatchStep)) == [.act, .select, .typeText, .insertText, .pressKey, .scroll, .drag, .contextMenu])
@@ -193,6 +199,9 @@ struct AgentCallContractTests {
         try AgentCallProgress(.completed, result: .batch(stopped: true, attempted: 2, verified: 1), endedAtMS: 5).validate(for: .batch)
         try AgentCallProgress(.completed, result: .closed(message: "Application session closed."), endedAtMS: 5).validate(for: .closeSession)
         try AgentCallProgress(.completed, endedAtMS: 5).validate(for: .observe)
+        try AgentCallProgress(.completed, result: .outcome(.foundActed, message: "Created Braus test."), endedAtMS: 5)
+            .validate(for: .appCall)
+        try AgentCallProgress(.completed, endedAtMS: 5).validate(for: .appCapabilities)
         try AgentCallProgress(.failed, result: .error(message: "Session ID is missing or stale."), endedAtMS: 5).validate(for: .windows)
         try AgentCallProgress(.skipped, endedAtMS: 5).validate(for: .select)
         func refused(_ progress: AgentCallProgress, _ tool: AgentTool, _ invalidity: AgentCallError.Invalidity) {

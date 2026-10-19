@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 23/09/2026.
 //
 
+import AppAdapters
 import AutomationMCP
 import AutomationRuntime
 import ChatCore
@@ -137,8 +138,9 @@ final class WorkerAgentHost {
         self.transports       = transports
         self.contextWindows   = contextWindows
         self.seatLine         = seatLine
-        let tools  = AutomationTools(session: session())
-        let router = MCPRouter(tools: AutomationTools.definitions) { name, arguments in
+        // A worker's tools offer the app adapters; `instructions` says so in their words.
+        let tools  = AutomationTools(session: session(), adapters: .standard())
+        let router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
             try await tools.call(name, arguments)
         }
         self.tools  = tools
@@ -175,7 +177,8 @@ final class WorkerAgentHost {
         hasTools   : Bool = true,
         searchesWeb: Bool = false
     ) -> String {
-        var base = hasTools ? AutomationTools.instructions + "\n" + appInstructions : textOnlyInstructions
+        let tools = AutomationTools.instructions(offeringAdapters: true)
+        var base  = hasTools ? tools + "\n" + appInstructions : textOnlyInstructions
         if searchesWeb { base += "\n" + webInstructions }
         guard let role = role?.trimmingCharacters(in: .whitespacesAndNewlines), !role.isEmpty else {
             return base
@@ -229,8 +232,9 @@ final class WorkerAgentHost {
 
         if WorkerAnswer(provider: selection.provider) == .modelLoop {
             let loop  = ModelToolLoop(
-                call    : { [tools] name, arguments in try await tools.call(name, arguments) },
-                reminder: { [tools] in tools.takeInterpretationReminder() }
+                call       : { [tools] name, arguments in try await tools.call(name, arguments) },
+                reminder   : { [tools] in tools.takeInterpretationReminder() },
+                definitions: tools.toolDefinitions
             )
             self.loop = loop
             defer { endLoop() }
