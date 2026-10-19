@@ -46,18 +46,25 @@ public struct AppAdapters: Sendable {
         }
     }
 
-    /// The refusal of a call on `app` while the seat drives `held` (a bundle id): an adapter that stands
-    /// for that app would change it behind the interface the seat is reading, and the seat behind the
-    /// adapter's read-back. Nil when the adapter stands for another app, or for files, whose verbs are
-    /// file operations on paths that a Finder window on the seat neither holds nor has to read back.
-    public func seatConflict(app: String, held: String?) -> String? {
-        guard let held, let adapter = adapter(for: app), !(adapter is FilesAdapter),
-              adapter.bundleIDs.contains(where: { $0.caseInsensitiveCompare(held) == .orderedSame }) else {
-            return nil
+    /// The refusal of a call on `app` while the seat drives `held` (a bundle id) in the calling session, or one of
+    /// `elsewhere` in another session of this process: an adapter that stands for that app would change it behind the
+    /// interface the seat is reading, and the seat behind the adapter's read-back. Nil when the adapter stands for
+    /// another app, or for files, whose verbs are file operations on paths that a Finder window on the seat neither
+    /// holds nor has to read back.
+    public func seatConflict(app: String, held: String?, elsewhere: Set<String> = []) -> String? {
+        guard let adapter = adapter(for: app), !(adapter is FilesAdapter) else { return nil }
+        let stands = { (bundleID: String) in
+            adapter.bundleIDs.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame }
         }
         let shown = adapter.appNames.first ?? adapter.name
-        return "The seat is driving \(shown) in this session, so the \(adapter.name) adapter is refused: nothing was "
-            + "done. Finish with \(shown)'s interface and close_session first, or do the whole task through one route."
+        if let held, stands(held) {
+            return "The seat is driving \(shown) in this session, so the \(adapter.name) adapter is refused: nothing "
+                + "was done. Finish with \(shown)'s interface and close_session first, or do the whole task through one "
+                + "route."
+        }
+        guard elsewhere.contains(where: stands) else { return nil }
+        return "Another session is driving \(shown) on the seat, so the \(adapter.name) adapter is refused: nothing "
+            + "was done. Try again once that session has closed \(shown), or tell the person it is in use."
     }
 
     /// The adapter's availability and its verbs matching `query` (all of them without one): as JSON, the form of the

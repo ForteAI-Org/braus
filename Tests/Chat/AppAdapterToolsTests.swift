@@ -145,6 +145,21 @@ struct AppAdapterToolsTests {
         #expect(await scribe.written == ["draft"])
     }
 
+    @Test("an app_call on an app another session holds on the seat is refused, and reaches nothing")
+    func refusedOnAnAppHeldElsewhere() async throws {
+        let ledger = LedgerAdapter()
+        let tools  = AutomationTools(session: RoutingSession(), adapters: AppAdapters([ledger]))
+        let call: JSONValue = .object(["app": .string("ledger"), "verb": .string("touch")])
+        let other = UUID()
+        SeatHolds.set("TEST.LEDGER", for: other)
+        let refused = try await tools.call("app_call", call).answerText
+        #expect(refused.hasPrefix("refused Another session is driving Ledger"), "\(refused)")
+        #expect(ledger.touches == 0)
+        SeatHolds.set(nil, for: other)
+        #expect(try await tools.call("app_call", call).answerText.hasPrefix("ok "))
+        #expect(ledger.touches == 1)
+    }
+
     // MARK: open_session and the task router
 
     /// The `named` argument `open_session` takes from these tools, `.null` when it takes none.
@@ -291,6 +306,25 @@ extension JSONValue {
 @MainActor
 private final class Transcript {
     var lines: [String] = []
+}
+
+/// LedgerAdapter counts its one verb's calls; its bundle id is its own, so no other test's hold refuses it.
+private final class LedgerAdapter: AppAdapting {
+    let name                 = "ledger"
+    let appNames             = ["Ledger"]
+    let bundleIDs: Set<String> = ["test.ledger"]
+    let verbs = [AdapterVerb("touch", "Counts a call.", safety: .read, readBack: "none, a fake")]
+
+    private let count = Mutex(0)
+
+    var touches: Int { count.withLock { $0 } }
+
+    func availability() async -> AdapterAvailability { .ready }
+
+    func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome {
+        count.withLock { $0 += 1 }
+        return .confirmed("Touched.")
+    }
 }
 
 /// BlockingAdapter's one verb holds its thread, as a script does, until `release` or two seconds pass, and answers

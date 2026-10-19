@@ -151,6 +151,12 @@ struct AppAdaptersTests {
         #expect(adapters.seatConflict(app: "calendar", held: "com.apple.mail") == nil)
         #expect(adapters.seatConflict(app: "files", held: "com.apple.finder") == nil)
         #expect(adapters.seatConflict(app: "Mail", held: nil) == nil)
+        let elsewhere = adapters.seatConflict(app: "Mail", held: nil, elsewhere: ["com.apple.iCal", "COM.APPLE.MAIL"])
+        #expect(elsewhere?.hasPrefix("Another session is driving Mail") == true, "\(elsewhere ?? "no refusal")")
+        #expect(adapters.seatConflict(app: "Mail", held: "com.apple.mail", elsewhere: ["com.apple.mail"])?
+            .contains("in this session") == true)
+        #expect(adapters.seatConflict(app: "notes", held: nil, elsewhere: ["com.apple.mail"]) == nil)
+        #expect(adapters.seatConflict(app: "files", held: nil, elsewhere: ["com.apple.finder"]) == nil)
     }
 
     @Test("Every adapter of the build names a read-back for every verb, and no verb twice")

@@ -1610,8 +1610,9 @@ public final class AutomationTools {
             let app = try string(arguments, "app"), verb = try string(arguments, "verb")
             let resolved = (try? adapters.resolve(app: app, verb: verb, arguments: arguments["arguments"]))?.verb
             transcriptOmits = resolved?.contentResults ?? []
-            // One app, one route at a time: no adapter changes the app the seat is driving.
-            let outcome = if let refusal = adapters.seatConflict(app: app, held: session.memoryApplication) {
+            // One app, one route at a time: no adapter changes an app any session's seat is driving.
+            let outcome = if let refusal = adapters.seatConflict(app: app, held: session.memoryApplication,
+                                                                 elsewhere: SeatHolds.bundleIDs) {
                 AdapterOutcome.refused(refusal)
             } else {
                 try await adapters.call(app: app, verb: verb, arguments: arguments["arguments"])

@@ -106,7 +106,12 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private var lease: SeatLease?
     @ObservationIgnored private var target: SeatTarget?
     @ObservationIgnored private var runtime: EngineRuntime?
-    @ObservationIgnored private var application: NSRunningApplication?
+    /// The application open on the seat, recorded in `SeatHolds` under `holdKey` while it is set, so no other
+    /// session's adapter changes it behind the seat.
+    @ObservationIgnored private var application: NSRunningApplication? {
+        didSet { SeatHolds.set(memoryApplication, for: holdKey) }
+    }
+    @ObservationIgnored let holdKey = UUID()
     @ObservationIgnored private var closing: Task<Void, Never>?
     public private(set) var closeWarning: String?
     @ObservationIgnored private var isInTurn = false
@@ -182,6 +187,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
 
     /// The Knowledge directory whose memory this session's calls are recorded in.
     public var memoryDirectory: URL? { knowledgeDirectory }
+
+    // A session dropped without close still forgets its hold.
+    deinit { SeatHolds.set(nil, for: holdKey) }
 
     /// The application of the session, as a call's event names it.
     public var memoryApplication: String? {

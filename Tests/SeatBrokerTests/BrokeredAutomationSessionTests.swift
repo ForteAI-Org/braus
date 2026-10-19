@@ -245,6 +245,18 @@ struct BrokeredAutomationSessionTests {
         #expect(desktop.memoryApplication == nil)
     }
 
+    @Test("the session records the app it holds for every session's adapters, and forgets it on close")
+    func recordsItsHold() async throws {
+        let broker  = SeatBroker()
+        let desktop = try Self.seated(broker)
+        #expect(SeatHolds.bundleID(heldBy: desktop.holdKey) == nil)
+        _ = try await desktop.open(application: "Test", window: nil)
+        #expect(SeatHolds.bundleID(heldBy: desktop.holdKey) == "com.apple.dock")
+        #expect(SeatHolds.bundleIDs.contains("com.apple.dock"))
+        await desktop.close()
+        #expect(SeatHolds.bundleID(heldBy: desktop.holdKey) == nil)
+    }
+
     @Test("opening another window of the held app keeps the lease and session, including on refusal")
     func anotherWindowKeepsTheSeat() async throws {
         let broker = SeatBroker()
