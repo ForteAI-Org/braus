@@ -1113,6 +1113,43 @@ struct RemoteContentActuationTests {
         #expect(!result.posted)
     }
 
+    @Test("a control named with its role suffix is the one asked for, and a different name is not")
+    func roleSuffixIsTheSameName() {
+        #expect(RemoteContentActuator<Element>.sameLabel("Keys", "Keys - Audio Track"))
+        #expect(RemoteContentActuator<Element>.sameLabel("Keys", "Selected. Keys - Audio Track "))
+        #expect(!RemoteContentActuator<Element>.sameLabel("Drums", "Drums - Room"))
+    }
+
+    @Test("a control whose name carries the role suffix is pressed, another name is refused",
+          arguments: ["Keys - Audio Track", "Drums - Audio Track"])
+    func requestedLabelMeetsRoleSuffix(name: String) async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_440)
+        let button = Self.control(kAXButtonRole, in: finder, actions: [kAXPressAction])
+        button.title = name
+        let actuator = Self.actuator(hitting: { button }, window: finder.element)
+        let identity = try #require(finder.window.reference.identity)
+        let geometry = try #require(WindowGeometryObservation(
+            window: finder.window.reference, scaleFactor: 1,
+            version: GeometryObservationVersion(observerGeneration: 1, sequence: 1)
+        ))
+        let endpoint = try GestureEndpointRoutingTests.endpoint(
+            geometry, relation: .logicalSurface, logicalSurface: identity,
+            generation: 1, hostProcessID: identity.processID
+        )
+        let result = actuator.actuate(
+            .click(Self.point(in: finder.window)), endpoint: endpoint, expecting: "Keys"
+        )
+        if name.hasPrefix("Keys") {
+            _ = try result.get()
+            #expect(button.performed == [kAXPressAction])
+        } else {
+            #expect(throws: RemoteContentActuationRefusal.wrongElement(requested: "Keys", found: name)) {
+                try result.get()
+            }
+            #expect(button.performed.isEmpty)
+        }
+    }
+
     @Test("a field selection refuses another name or text that is not writable", arguments: [false, true])
     func fieldLabelIsChecked(editable: Bool) async throws {
         let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_439)

@@ -423,12 +423,18 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         return hostSurfaceNumber == nil ? nil : search(near: node, where: fits)
     }
 
-    /// Whether two names are one, as the scene writes it: trimmed, without the state prefix some
-    /// toolkits add or a " #N" ordinal, and ignoring case and accents.
+    /// The role suffix a toolkit appends to a track control's name. The scene's side of this rule is
+    /// `AccessibilityAugmentation.cleanLabel`, which the driver cannot import: keep the two in step.
+    private static var roleSuffix: String { " - Audio Track" }
+
+    /// Whether two names are one, as the scene writes it (`AccessibilityAugmentation.cleanLabel`): trimmed,
+    /// without the role suffix or the state prefix some toolkits add or a " #N" ordinal, and ignoring case
+    /// and accents.
     static func sameLabel(_ left: String, _ right: String) -> Bool { normalized(left) == normalized(right) }
 
     static func normalized(_ raw: String) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasSuffix(roleSuffix) { text = String(text.dropLast(roleSuffix.count)) }
         for prefix in ["Shown. ", "Hidden. ", "Selected. ", "Active. ", "Inactive. "] where text.hasPrefix(prefix) {
             text = String(text.dropFirst(prefix.count))
         }
