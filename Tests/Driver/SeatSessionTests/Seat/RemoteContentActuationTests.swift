@@ -357,6 +357,28 @@ struct RemoteContentActuationTests {
         try panel.routing.seat.release(turn)
     }
 
+    @Test("a double click on a remote panel's row presses its default button, and opens the row only where none is named",
+          arguments: [true, false])
+    func aPanelRowCompletesThroughItsDefaultButton(hasDefaultButton: Bool) throws {
+        let surface  = FakeGeometry.identity(windowNumber: 878)
+        let endpoint = try Self.remoteEndpoint(surface: surface)
+        let sheet    = Element(kAXSheetRole, window: .window(878), processID: surface.processID)
+        let content  = Element(kAXGroupRole, window: .window(879), processID: surface.processID, parent: sheet)
+        let row      = Element(kAXRowRole, window: .window(879), processID: surface.processID, parent: content,
+                               actions: [RemoteContentActuator<Element>.openAction])
+        let name     = Element(kAXStaticTextRole, window: .windowless, processID: surface.processID, parent: row)
+        let open     = Element(kAXButtonRole, window: .window(879), processID: surface.processID, parent: content,
+                               actions: [kAXPressAction])
+        if hasDefaultButton { sheet.defaultButton = open }
+
+        let outcome = try Self.actuator { name }.actuate(Self.click(count: 2), endpoint: endpoint).get()
+        #expect(row.writes == [.selected], "selected before it is completed")
+        #expect(outcome.action == (hasDefaultButton ? kAXPressAction : "\(kAXSelectedAttribute), then AXOpen"))
+        #expect(open.performed == (hasDefaultButton ? [kAXPressAction] : []))
+        #expect(row.performed == (hasDefaultButton ? [] : ["AXOpen"]),
+                "AXOpen on a panel's row may activate the host, so the default button comes first")
+    }
+
     @Test("a click on a popup or a menu button refuses and tells the agent to use select",
           arguments: [kAXPopUpButtonRole, kAXMenuButtonRole])
     func aMenuOpenerRefuses(role: String) async throws {
@@ -1318,12 +1340,17 @@ struct RemoteContentActuationTests {
         let kindCell = Element(kAXCellRole, window: .windowless, processID: pid, parent: row)
         let kind     = Element(kAXStaticTextRole, window: .windowless, processID: pid, parent: kindCell,
                                value: "QT movie")
+        // An ordinary window keeps AXOpen even when its surface names a default button.
+        let button = Element(kAXButtonRole, window: finder.element.window, processID: pid,
+                             parent: finder.element, actions: [kAXPressAction])
+        finder.element.defaultButton = button
         finder.hit.element = kind
 
         let turn    = try await finder.seat.acquire()
         let receipt = try await Self.send(2, to: finder, turn: turn)
         #expect(list.rowWrites == [[row]])
         #expect(name.performed == [RemoteContentActuator<Element>.openAction], "the row's name field opens it")
+        #expect(button.performed.isEmpty, "no default button is pressed outside a panel")
         #expect(row.performed.isEmpty && kind.performed.isEmpty)
         #expect(finder.sender.sent.isEmpty)
         try finder.seat.confirm(receipt, .unknown)

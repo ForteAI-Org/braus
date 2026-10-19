@@ -260,6 +260,12 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
             guard count == 2 else {
                 return .success(RemoteContentActuation(action: selected, role: kAXRowRole, textField: nil))
             }
+            // A panel's row completes the way its icons were measured to: through the default
+            // button, since AXOpen on an icon activated the host. AXOpen stays for the rest.
+            if endpoint.relation == .remoteContent,
+               let button = panelDefaultButton(in: nodes[(row + 1)...], of: nodes) {
+                return press(button, kAXPressAction)
+            }
             return open(row: nodes[row], under: nodes[...row], selected: selected)
         }
         let mapped = Self.pressedRoles.union(Self.textRoles)
@@ -325,15 +331,21 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         )
         guard count == 2 else { return .success(selected) }
 
-        var above = nodes[list...].map { $0 }
-        if let top = nodes.last, let surface = parent(top) { above.append(surface) }
-        if let button = above.lazy.compactMap(defaultButton).first {
+        if let button = panelDefaultButton(in: nodes[list...], of: nodes) {
             return press(button, kAXPressAction)
         }
         guard let opener = nodes[..<list].first(where: { actions($0).contains(Self.openAction) }) else {
             return .failure(.unsupportedRole(roles[0]))
         }
         return press(opener, Self.openAction)
+    }
+
+    /// The default button a panel names, searched in `ancestors` nearest first and then in the
+    /// surface above the path's top node, which is where a panel keeps it.
+    private func panelDefaultButton(in ancestors: ArraySlice<Node>, of nodes: [Node]) -> Node? {
+        var above = Array(ancestors)
+        if let top = nodes.last, let surface = parent(top) { above.append(surface) }
+        return above.lazy.compactMap(defaultButton).first
     }
 
     /// Selects the row at `row` of the path and answers the attribute that did it, only once a
