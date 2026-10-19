@@ -28,6 +28,10 @@ public struct AccessibilityController: ControlPressing {
 
     public init() {}
 
+    /// Presses the first combo box or pop-up button labelled `label` that lists AXPress among its actions.
+    ///
+    /// The search covers every window of the application: `ControlPressing` names no window, so the
+    /// press cannot be bound to the captured one as `DropdownOpening.Window` binds a dropdown.
     public func pressControl(labelled label: String, in processID: pid_t) async -> Bool {
         let want = LabelText.normalize(label)
         guard !want.isEmpty else { return false }
@@ -35,14 +39,11 @@ public struct AccessibilityController: ControlPressing {
             let reader = LiveAccessibilityReader()
             let application = reader.application(processID: processID)
             reader.setMessagingTimeout(application, seconds: WalkBudget.standard.applicationTimeout)
-            guard let control = Self.firstControl(
-                in     : reader.windows(of: application),
-                reader : reader,
-                timeout: { reader.setMessagingTimeout($0, seconds: WalkBudget.standard.elementTimeout) },
-                where  : { node in
-                    LabelText.normalize(reader.value(node) ?? "") == want
-                        || LabelText.normalize(reader.title(node) ?? "") == want
-                }
+            guard let control = Self.pressTarget(
+                labelled: want,
+                in      : reader.windows(of: application),
+                reader  : reader,
+                timeout : { reader.setMessagingTimeout($0, seconds: WalkBudget.standard.elementTimeout) }
             ) else { return false }
             // A timed-out press may have reached the app: false would make the engine click it again.
             let result = AXUIElementPerformAction(control, kAXPressAction as CFString)
@@ -194,6 +195,22 @@ public struct AccessibilityController: ControlPressing {
             return true
         }
         return found
+    }
+
+    /// The first control whose normalized value or title is `want` and that lists AXPress. A control
+    /// that does not list it is skipped, since the press would be refused or mean something else.
+    static func pressTarget<Reader: AccessibilityTreeReading>(
+        labelled want: String,
+        in roots     : [Reader.Node],
+        reader       : Reader,
+        budget       : WalkBudget = .standard,
+        timeout      : (Reader.Node) -> Void = { _ in }
+    ) -> Reader.Node? {
+        firstControl(in: roots, reader: reader, budget: budget, timeout: timeout) { node in
+            (LabelText.normalize(reader.value(node) ?? "") == want
+                || LabelText.normalize(reader.title(node) ?? "") == want)
+                && reader.actions(node).contains(kAXPressAction)
+        }
     }
 
     /// Visits the nodes under the roots depth first, to `budget.depth` levels, until `visit` returns true.

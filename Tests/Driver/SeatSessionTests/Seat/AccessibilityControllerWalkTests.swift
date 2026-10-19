@@ -5,9 +5,10 @@ import PerceptionCore
 import Testing
 @testable import AccessibilityActions
 
-/// The controller's walks on built trees: each stays inside its budget whatever the tree's size, and a
-/// walk the budget stopped answers incomplete, as one that met unread children does.
-@Suite("Accessibility controller walk budget")
+/// The controller's walks on built trees: each stays inside its budget whatever the tree's size, a walk
+/// the budget stopped answers incomplete, as one that met unread children does, and a press goes only to
+/// a control that lists AXPress.
+@Suite("Accessibility controller walk budget and press target")
 struct AccessibilityControllerWalkTests {
 
     @Test("A walk visits at most the budget's elements and then answers incomplete")
@@ -68,6 +69,22 @@ struct AccessibilityControllerWalkTests {
         #expect(AccessibilityController.WalkBudget.standard.depth == 10)
     }
 
+    @Test("A labelled control without AXPress is skipped for the next one that lists it")
+    func skipsControlWithoutPress() {
+        let pressable = WalkNode("AXPopUpButton", value: "Medio")
+        let window = WalkNode("AXWindow", children: [
+            WalkNode("AXPopUpButton", value: "Medio", actions: [kAXShowMenuAction]),
+            pressable,
+        ])
+        #expect(AccessibilityController.pressTarget(labelled: "medio", in: [window], reader: WalkReader()) === pressable)
+    }
+
+    @Test("No control is pressed when none lists AXPress")
+    func refusesWithoutPress() {
+        let window = WalkNode("AXWindow", children: [WalkNode("AXComboBox", value: "Medio", actions: [])])
+        #expect(AccessibilityController.pressTarget(labelled: "medio", in: [window], reader: WalkReader()) == nil)
+    }
+
     /// A window holding `count` groups, with a pop-up showing "Medio" after them.
     private func wide(_ count: Int) -> WalkNode {
         WalkNode("AXWindow", children: (0..<count).map { _ in WalkNode("AXGroup") } + [
@@ -117,3 +134,4 @@ struct WalkReader: AccessibilityTreeReading {
     func frame(_ node: WalkNode) -> CGRect? { nil }
     func children(_ node: WalkNode) -> [WalkNode] { node.children }
 }
+
