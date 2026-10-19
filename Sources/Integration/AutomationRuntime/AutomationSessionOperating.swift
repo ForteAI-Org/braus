@@ -31,6 +31,9 @@ public protocol AutomationSessionOperating: AnyObject {
     /// The applications `open` can open that `query` names, best first, or all of them when it is nil.
     /// Read-only: it needs no open session and opens nothing.
     func applications(matching query: String?) async throws -> [ApplicationCandidate]
+    /// The bundle ID of the one application `open` would open for `application`, resolved as `open` resolves it,
+    /// without opening anything; nil when it names none or several, or the session cannot tell. Read-only.
+    func resolvedBundleID(of application: String) async -> String?
     /// Read-only window candidates exposed by this session's discovery policy; no adoption or input.
     func windowCandidates(ownedBy processID: pid_t) throws -> [WindowRow]
     /// The Knowledge directory whose living memory this session's calls are recorded in; nil for a
@@ -52,6 +55,9 @@ public extension AutomationSessionOperating {
     var memoryDirectory: URL? { nil }
 
     var memoryApplication: String? { nil }
+
+    /// A session that cannot resolve a name before opening it: nothing is routed, every app opens as asked.
+    func resolvedBundleID(of application: String) async -> String? { nil }
 
     func windowCandidates(ownedBy processID: pid_t) throws -> [WindowRow] {
         try WindowServerWindowListing().windows(ownedBy: processID)

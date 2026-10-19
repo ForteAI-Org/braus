@@ -43,9 +43,9 @@ public struct SystemPermissionNeeded: Error, Sendable, Equatable {
 /// SystemAdapter is the Mac's settings that have an API: appearance, output volume, Wi-Fi. Setters
 /// answer the value they replaced, so the agent can put it back.
 ///
-/// Not here yet, with the reason: Bluetooth (no public setter; spec section 10, question 5), Focus
-/// (no public read of which mode is on). Opening a Settings pane is `MacBackgroundOpener`'s: its
-/// read-back is the sidebar's selected row.
+/// Not here yet, with the reason: Bluetooth (no public setter), Focus (no public read of which mode is
+/// on). Any other setting is changed in System Settings' interface, which the task router's advice
+/// sends the agent to when none of these verbs does the task.
 public struct SystemAdapter: AppAdapting {
 
     public let name       = "system"

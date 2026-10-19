@@ -311,7 +311,8 @@ let package = Package(
             "SeatBroker",
             ["SeatBroker", "PerceptionCore", "SeatCore", "SeatCapture",
              "SeatSession", "SeatInput", "TargetReader", "EngineCore", "ModelTransports",
-             "SeatDriving", "AutomationRuntime", "Engine", "AutomationMCP", "LocalMCP", "Memory", "TestScratch"]
+             "SeatDriving", "AutomationRuntime", "Engine", "AutomationMCP", "LocalMCP", "Memory", "TestScratch",
+             "TaskRouting"]
         ),
         brokerTests("ModelTransports", ["ModelTransports"]),
         // The living memory wired to the tools, the sessions and the engine: the queue, the recorder, the
@@ -456,7 +457,9 @@ let package = Package(
                     "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding"]),
         integration("AutomationMCP", ["AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts",
-                                     "AppAdapters"]),
+                                     "AppAdapters", "TaskRouting"]),
+        // The task router's rules and its catalogue of default routes: pure, and consulted before a session opens.
+        integration("TaskRouting", settings: pure),
         // The foreground command line: windows, scene, act, memory. What a model host does, by hand.
         .executableTarget(
             name: "braus",
@@ -493,6 +496,8 @@ let package = Package(
         mac("AppAdapters", path: "Adapters", ["EngineCore", "LocalMCP"]),
         .testTarget(name: "AppAdaptersTests", dependencies: ["AppAdapters", "EngineCore", "LocalMCP"],
                     path: "Tests/Mac/AppAdaptersTests", swiftSettings: suite),
+        .testTarget(name: "TaskRoutingTests", dependencies: ["TaskRouting"],
+                    path: "Tests/Integration/TaskRoutingTests", swiftSettings: suite),
 
         // MARK: Perception tests
         perceptionTests("PerceptionCore", ["PerceptionCore"]),
@@ -513,7 +518,7 @@ let package = Package(
         // MARK: Engine tests
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
-                                                    "AppAdapters"],
+                                                    "AppAdapters", "TaskRouting"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
             name: "BrausCLITests",

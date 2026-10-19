@@ -404,6 +404,13 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         Self.candidates(ApplicationOpening.ranked(query, in: TargetEnumerator.targets()))
     }
 
+    /// The bundle ID `open` resolves `application` to, through the same `ApplicationOpening.resolve`, so a name in
+    /// the person's language routes as the app's own does. Nil, by design, for a name `open` would refuse: that
+    /// open then says why. Needs no seat and no grant.
+    public func resolvedBundleID(of application: String) async -> String? {
+        try? ApplicationOpening.resolve(application, in: TargetEnumerator.targets()).bundleID
+    }
+
     public func windowCandidates(ownedBy processID: pid_t) throws -> [WindowRow] {
         let held = (try? target?.agentSeat().adoptedWindows.map(\.reference)) ?? []
         return TargetEnumerator.windows(of: processID, includingHeld: held).map {

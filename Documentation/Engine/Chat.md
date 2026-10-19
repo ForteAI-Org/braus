@@ -148,6 +148,15 @@ allowed, which nothing allows yet. An `app_call` keeps the values of its
 verb's content parameters out of its record and transcript, and a verb's
 content results out of the transcript line of its answer.
 
+With the adapters, `open_session` takes `named` and asks the `TaskRouter`
+first: the session resolves the app's name to a bundle id as `open` would
+(the broker through `ApplicationOpening.resolve`, so a name in the person's
+language counts), and an app the `RouteCatalogue` gives an adapter (Calendar,
+Reminders, Notes, Finder, System Settings, Mail) is answered with that adapter
+and not opened, unless the person named the app, the seat already holds it, or
+the adapter cannot run. The answer says to call `open_session` again with
+`named` true when none of the adapter's verbs does the task.
+
 Action tools require the ephemeral session ID returned by open_session.
 Observations carry a revision, capture report time, and the current text scene,
 or its `changes` since an earlier revision (`since`) of the same window.

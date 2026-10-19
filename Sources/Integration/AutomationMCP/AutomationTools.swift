@@ -11,6 +11,7 @@ import PhaseSignposts
 #endif
 import PrivateSymbols
 import SeatCore
+import TaskRouting
 
 /// CallProducer is who makes a set of tool calls, as the living memory records them: the source (the
 /// app's worker, an external client, the command line), the stream that tells two producers of one
@@ -335,8 +336,16 @@ public final class AutomationTools {
             tool("open_session", "Adopt an app into one persistent background Seat and observe it. "
                  + "Use an exact window title when needed; an empty title selects one uniquely untitled window. "
                  + "Omitting window selects the main window. For the held app, an exact window title switches within the same Seat. Close the session before opening a different app. "
+                 + (offeringAdapters ? "Set named true only when the person named this app: otherwise an app "
+                    + "with a better route (an app_call adapter) is not opened, and the answer says which route to "
+                    + "use. " + SharedRoutes.namedApp + " " : "")
                  + Self.sceneLegend,
-                 ["app": text, "window": .object(["type": .string("string")])], ["app"]),
+                 ["app": text, "window": .object(["type": .string("string")])].merging(offeringAdapters ? [
+                    "named": .object(["type": .string("boolean"),
+                                      "description": .string("True only when the person named this app, or when "
+                                                             + "none of the verbs of the adapter an earlier answer "
+                                                             + "pointed to does the task. " + SharedRoutes.namedApp)])
+                 ] : [:], uniquingKeysWith: { $1 }), ["app"]),
             tool("observe", "Read a fresh scene in this session, including its current dialog. Required after "
                  + "resuming chat. Not after an action whose result carries observation: that is already the "
                  + "scene after it. A window already read answers its changes since that revision, or that it "
@@ -1520,10 +1529,25 @@ public final class AutomationTools {
             value = outcome.json
             lastResult = .outcome(outcome.kind, message: outcome.message)
         case "open_session":
-            let scene = try await session.open(application: string(arguments, "app"),
-                                                window: Self.windowTitle(arguments))
-            value = observation(scene)
-            lastResult = await observed(by: recorder)
+            if values["named"] != nil, arguments["named"].bool == nil {
+                throw AutomationFailure("named must be true or false.")
+            }
+            let app = try string(arguments, "app")
+            switch await route(opening: app, named: arguments["named"].bool == true) {
+                case .use(let route, let message):
+                    // Nothing opened, so no scene: the record keeps the call as completed with no observation.
+                    value = .object(["opened": .bool(false), "route": .string(route.address),
+                                     "message": .string(message)])
+                case .open(let note):
+                    let scene = try await session.open(application: app, window: Self.windowTitle(arguments))
+                    var opened = observation(scene)
+                    if let note, case .object(var object) = opened {
+                        object["routeNote"] = .string(note)
+                        opened = .object(object)
+                    }
+                    value = opened
+                    lastResult = await observed(by: recorder)
+            }
         case "observe":
             if values["full"] != nil, arguments["full"].bool == nil {
                 throw AutomationFailure("full must be true or false.")
@@ -1677,6 +1701,23 @@ public final class AutomationTools {
         else { return value }
         object["notice"] = .string(notice)
         return .object(object)
+    }
+
+    /// The route for opening `app`, before anything opens (`TaskRouter`): only with the adapters, and never for the app
+    /// the session already holds, which was opened as asked and whose windows `open_session` switches between.
+    private func route(opening app: String, named: Bool) async -> RouteDecision {
+        guard let adapters, !named else { return .open(note: nil) }
+        let bundleID = await session.resolvedBundleID(of: app)
+        if let bundleID, bundleID == session.memoryApplication { return .open(note: nil) }
+        return await TaskRouter().route(opening: app, bundleID: bundleID, named: false) { name in
+            guard let adapter = adapters.adapter(for: name) else { return nil }
+            return switch await adapter.availability() {
+                case .ready                      : .ready
+                case .unknown(let reason)        : .unknown(reason)
+                case .needsPermission(let reason): .notReady(reason)
+                case .unavailable(let reason)    : .notReady(reason)
+            }
+        }
     }
 
     /// The adapters, or the refusal of an adapter tool in a composition that does not offer them.

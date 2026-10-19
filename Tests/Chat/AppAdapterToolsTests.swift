@@ -88,6 +88,113 @@ struct AppAdapterToolsTests {
         #expect(call.hasPrefix("→ app_call") && call.contains("erase") && call.contains("\"count\":2"), "\(call)")
         #expect(records.allSatisfy { !$0.contains("never shown") && !$0.contains("nor this") }, "\(records)")
     }
+
+    // MARK: open_session and the task router
+
+    /// The `named` argument `open_session` takes from these tools, `.null` when it takes none.
+    private static func namedProperty(of tools: AutomationTools) -> JSONValue {
+        tools.toolDefinitions.first { $0["name"].string == "open_session" }?["inputSchema"]["properties"]["named"] ?? .null
+    }
+
+    private static func open(_ tools: AutomationTools, _ app: String, named: Bool? = nil) async throws -> JSONValue {
+        var arguments: [String: JSONValue] = ["app": .string(app)]
+        if let named { arguments["named"] = .bool(named) }
+        return try await tools.call("open_session", .object(arguments)).payload
+    }
+
+    @Test("open_session on an app the resolver names as one with an adapter answers the adapter and opens nothing")
+    func routedToTheAdapter() async throws {
+        let session = RoutingSession()
+        let tools   = AutomationTools(session: session, adapters: AppAdapters([CalendarStub(.ready)]))
+        let answer  = try await Self.open(tools, "Calendario")
+        #expect(answer["opened"] == .bool(false))
+        #expect(answer["route"].string == "app_call(calendar)")
+        #expect(answer["message"].string?.hasPrefix("Calendario: use app_call with app \"calendar\"") == true)
+        #expect(session.resolved == ["Calendario"] && session.opened.isEmpty)
+        #expect(Self.namedProperty(of: tools)["type"].string == "boolean")
+    }
+
+    @Test("open_session opens as asked when the person named the app, or the seat holds it already")
+    func namedOrHeldOpens() async throws {
+        let session = RoutingSession()
+        let tools   = AutomationTools(session: session, adapters: AppAdapters([CalendarStub(.ready)]))
+        _ = try await Self.open(tools, "Calendario", named: true)
+        #expect(session.opened == ["Calendario"] && session.resolved.isEmpty)
+        session.held = "com.apple.iCal"
+        _ = try await Self.open(tools, "Calendar")
+        #expect(session.opened == ["Calendario", "Calendar"])
+    }
+
+    @Test("without the adapters open_session opens as asked, routes nothing and takes no named")
+    func notRoutedWithoutAdapters() async throws {
+        let session = RoutingSession()
+        let tools   = AutomationTools(session: session)
+        _ = try await Self.open(tools, "Calendario")
+        #expect(session.opened == ["Calendario"] && session.resolved.isEmpty)
+        await #expect(throws: AutomationFailure.self) { try await Self.open(tools, "Calendario", named: false) }
+        #expect(Self.namedProperty(of: tools) == .null)
+    }
+
+    @Test("an adapter that cannot run is skipped: the app opens, and the answer says why")
+    func skippedAdapterOpensWithANote() async throws {
+        let session = RoutingSession()
+        let tools   = AutomationTools(session: session,
+                                      adapters: AppAdapters([CalendarStub(.needsPermission("no Calendars access"))]))
+        let answer  = try await Self.open(tools, "Calendario")
+        #expect(session.opened == ["Calendario"])
+        #expect(answer["routeNote"].string?.contains("no Calendars access") == true)
+    }
+}
+
+/// CalendarStub is a calendar adapter with no verb, whose availability the test sets.
+private struct CalendarStub: AppAdapting {
+    let name                 = "calendar"
+    let appNames             = ["Calendar"]
+    let bundleIDs: Set<String> = ["com.apple.iCal"]
+    let verbs: [AdapterVerb] = []
+    let state: AdapterAvailability
+
+    init(_ state: AdapterAvailability) { self.state = state }
+
+    func availability() async -> AdapterAvailability { state }
+
+    func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome {
+        throw AdapterFailure("unused")
+    }
+}
+
+/// RoutingSession resolves "Calendario" and "Calendar" to Calendar's bundle id, as the broker's resolver does on an
+/// Italian Mac, and opens whatever it is asked, keeping both in order.
+@MainActor
+private final class RoutingSession: AutomationSessionOperating {
+    var id: UUID?
+    var held: String?
+    var resolved: [String] = []
+    var opened: [String] = []
+
+    var memoryApplication: String? { held }
+
+    func resolvedBundleID(of application: String) async -> String? {
+        resolved.append(application)
+        return ["Calendario", "Calendar"].contains(application) ? "com.apple.iCal" : nil
+    }
+
+    func open(application: String, window: String?) async throws -> SceneSnapshot {
+        opened.append(application)
+        id = UUID()
+        return SceneSnapshot(bundleID: "com.apple.iCal", appName: "Calendario", windowTitle: "Calendario",
+                             viewportPixelSize: ViewportPixelSize(width: 400, height: 200), elements: [])
+    }
+
+    func observe() async throws -> SceneSnapshot { throw AutomationFailure("unused") }
+    func act(target: String, verb: ActionVerb, section: String?, desiredState: ControlState?) async throws -> ActOutcome {
+        throw AutomationFailure("unused")
+    }
+    func select(control: String, item: String) async throws -> ActOutcome { throw AutomationFailure("unused") }
+    func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome {
+        throw AutomationFailure("unused")
+    }
+    func close() async {}
 }
 
 /// ScribeAdapter writes and reads one text, keeping what it was given, so the tools' withholding can be told apart
