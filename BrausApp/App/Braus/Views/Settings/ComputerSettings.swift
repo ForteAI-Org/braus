@@ -9,8 +9,9 @@ import SeatBroker
 import SwiftUI
 
 /// ComputerSettings is what a worker needs to use this Mac: the macOS
-/// permissions its seat asks for (`PermissionsSection`), and this Mac's build
-/// with whether the kit's ledger lists it.
+/// permissions its seat asks for (`PermissionsSection`), those of the apps it
+/// reaches without the seat (`AdaptersSection`), and this Mac's build with
+/// whether the kit's ledger lists it.
 struct ComputerSettings: View {
 
     let broker: SeatBroker
@@ -20,6 +21,8 @@ struct ComputerSettings: View {
     var body: some View {
         Form {
             PermissionsSection(broker: broker)
+
+            AdaptersSection()
 
             if let validation {
                 Section {

@@ -20,8 +20,16 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Braus sends commands to Mail, Messages, Notes and System Events so workers can find and send mail, send messages, keep notes and switch the appearance for you.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Braus reads, adds and changes your calendar events when a worker plans your time for you.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Braus looks up phone numbers and email addresses so workers send mail and messages to the right person.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Braus reads, adds and completes your reminders when a worker keeps your to-dos for you.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Braus needs Screen Recording access so workers can see and verify the app windows they use.</string>
 </dict>

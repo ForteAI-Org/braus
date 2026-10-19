@@ -12,6 +12,9 @@ actor FakeSystemTransport: SystemTransporting {
     var ignoresWrites   = false
     var permissionNeeded = false
     private(set) var writes = 0
+    /// How many times the person was asked for System Events, and what they answer.
+    private(set) var accessRequests = 0
+    var grantsWhenAsked = true
 
     init(ignoresWrites: Bool = false, permissionNeeded: Bool = false, muted: Bool? = false, wifi: Bool? = true) {
         self.ignoresWrites    = ignoresWrites
@@ -42,6 +45,16 @@ actor FakeSystemTransport: SystemTransporting {
     func setWifiPower(_ isOn: Bool) async throws {
         writes += 1
         if !ignoresWrites { wifi = isOn }
+    }
+
+    func appearanceAccess() async -> AdapterAvailability {
+        permissionNeeded ? .needsPermission("Allow Automation.") : .ready
+    }
+
+    func requestAppearanceAccess() async -> AdapterAvailability {
+        accessRequests += 1
+        if grantsWhenAsked { permissionNeeded = false }
+        return await appearanceAccess()
     }
 }
 

@@ -22,6 +22,14 @@ public struct MacSystemTransport: SystemTransporting {
         try await Self.runAppearanceScript(dark: dark)
     }
 
+    public func appearanceAccess() async -> AdapterAvailability {
+        AppleScriptRunner.availability(bundleID: Self.systemEvents, app: "System Events")
+    }
+
+    public func requestAppearanceAccess() async -> AdapterAvailability {
+        await AppleScriptRunner.requestPermission(bundleID: Self.systemEvents, app: "System Events")
+    }
+
     /// The value of a `defaults` read, nil when the key is not set (`defaults` exits 1 then).
     private static func defaults(_ arguments: [String]) throws -> String? {
         let process = Process()

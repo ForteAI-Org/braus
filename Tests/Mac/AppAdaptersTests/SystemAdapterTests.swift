@@ -44,6 +44,22 @@ struct SystemAdapterTests {
         #expect(outcome == .refused("Allow Automation."))
     }
 
+    @Test("Without System Events the adapter is unknown, still runs, and its permission is asked only on request")
+    func systemEventsGrant() async throws {
+        let transport = FakeSystemTransport(permissionNeeded: true)
+        let adapter   = SystemAdapter(transport: transport)
+        guard case .unknown(let reason) = await adapter.availability() else {
+            Issue.record("expected unknown without System Events")
+            return
+        }
+        #expect(reason.contains("System Events"))
+        #expect(try await adapter.call("set_volume", .object(["level": .number(10)])).kind == .foundActed)
+        #expect(await transport.accessRequests == 0)
+        #expect(await adapter.requestPermission() == .ready)
+        #expect(await transport.accessRequests == 1)
+        #expect(await adapter.availability() == .ready)
+    }
+
     @Test("Volume sets level and mute and answers the previous ones")
     func volume() async throws {
         let transport = FakeSystemTransport()

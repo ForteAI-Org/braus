@@ -12,6 +12,11 @@ public protocol SystemTransporting: Sendable {
     /// Whether the Wi-Fi radio is on; nil when the Mac has no Wi-Fi interface.
     func wifiPower() async throws -> Bool?
     func setWifiPower(_ isOn: Bool) async throws
+    /// Whether Braus may control System Events, which `setAppearance` needs, as the Mac answers without prompting.
+    func appearanceAccess() async -> AdapterAvailability
+    /// Asks the person whether Braus may control System Events, prompting when they have not answered yet. Only on
+    /// the person's request.
+    func requestAppearanceAccess() async -> AdapterAvailability
 }
 
 public enum SystemAppearance: String, Sendable, Equatable {
@@ -82,7 +87,20 @@ public struct SystemAdapter: AppAdapting {
     }
 
     public func availability() async -> AdapterAvailability {
-        .ready
+        Self.availability(appearance: await transport.appearanceAccess())
+    }
+
+    public func requestPermission() async -> AdapterAvailability {
+        Self.availability(appearance: await transport.requestAppearanceAccess())
+    }
+
+    /// The adapter's availability given System Events' grant. Volume and Wi-Fi need no permission, so the adapter runs
+    /// without it and only `set_appearance` refuses, by itself; the state is unknown then, which lets the person's
+    /// Settings offer to ask for it.
+    static func availability(appearance: AdapterAvailability) -> AdapterAvailability {
+        guard !appearance.isReady else { return .ready }
+        return .unknown("Volume and Wi-Fi work; changing the appearance needs Braus to control System Events, which "
+                        + "the person allows in Braus's Settings.")
     }
 
     public func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome {
