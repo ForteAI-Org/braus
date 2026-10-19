@@ -406,15 +406,15 @@ public final class AutomationTools {
                  session.merging(["button": text], uniquingKeysWith: { $1 }), ["session", "button"]),
         ] + (offeringAdapters ? [
             tool("app_capabilities", "List what Braus can do in an app through its API, with the app in the background "
-                 + "or closed and no session: the adapter's availability and its verbs, each with its arguments, "
-                 + "safety class and read-back. Prefer a verb here over driving the app's interface. Optional "
-                 + "query: words of the verbs wanted.",
+                 + "or closed and no session: the adapter's availability, what each argument means, then one line per "
+                 + "verb, `adapter.verb argument optional? — summary [safety]`. Prefer a verb here over driving the "
+                 + "app's interface. Optional query: words of the verbs wanted.",
                  ["app": text, "query": text], ["app"], readOnly: true),
             tool("app_call", "Run one verb of an app's adapter (see app_capabilities) and read its effect back; "
-                 + "no session needed. The outcome is found_acted when the read-back confirmed the effect, "
-                 + "acted_unverified when it did not (read the state again before anything else), acted_noop "
-                 + "when nothing needed doing, honest_miss when the thing named does not exist, refused when "
-                 + "nothing was done and the message says why. Setters answer the previous value.",
+                 + "no session needed. The outcome is ok when the read-back confirmed the effect, unverified when "
+                 + "it did not (read the state again before anything else), noop when nothing needed doing, miss "
+                 + "when the thing named does not exist, refused when nothing was done and the message says why. "
+                 + "Setters answer the previous value. " + AdapterText.legend,
                  ["app": text, "verb": text,
                   "arguments": .object(["type": .string("object"),
                                         "description": .string("The verb's arguments, as app_capabilities lists them.")])],
@@ -545,6 +545,8 @@ public final class AutomationTools {
             transcribed = Self.mappingTexts(.object(object)) { minimization.minimize(text: $0).0 }
         }
         try transcribe("← \(name) \(String(decoding: try JSONEncoder().encode(transcribed), as: UTF8.self))")
+        // An adapter's answer reaches the model as text (`AdapterText`); the transcript keeps its JSON.
+        if let modelText { return MCPRouter.textResult(modelText + (notice.map { "\nmemory: \($0)" } ?? "")) }
         return MCPRouter.toolResult(answered)
     }
 
@@ -1478,12 +1480,15 @@ public final class AutomationTools {
     /// The content texts of the adapter call `answer` concluded last (`content(of:arguments:outcome:)`): withheld
     /// from its record and its transcript line, never from the answer.
     private var contentTexts: [String] = []
+    /// The answer of the adapter call `answer` concluded last as the model reads it, nil for every other tool.
+    private var modelText: String?
 
     private func answer(_ name: String, _ arguments: JSONValue, recorder: CallRecorder?) async throws -> JSONValue {
         lastResult = nil
         lastCheck  = nil
         transcriptOmits = []
         contentTexts    = []
+        modelText       = nil
         let arguments = arguments == .null ? JSONValue.object([:]) : arguments
         guard let definition = toolDefinitions.first(where: { $0["name"].string == name }),
               let values = arguments.object else { throw AutomationFailure("Invalid tool arguments.") }
@@ -1559,8 +1564,10 @@ public final class AutomationTools {
                                   location: $0.location, isDefaultBrowser: $0.isDefaultBrowser)
             }, hiddenCount: found.count - shown.count))
         case "app_capabilities":
-            value = try await offeredAdapters().capabilities(of: string(arguments, "app"),
-                                                             query: try optionalString(arguments, "query"))
+            let listing = try await offeredAdapters().capabilities(of: string(arguments, "app"),
+                                                                   query: try optionalString(arguments, "query"))
+            value     = listing.json
+            modelText = listing.text
         case "app_call":
             let adapters = try offeredAdapters()
             let app = try string(arguments, "app"), verb = try string(arguments, "verb")
@@ -1572,7 +1579,8 @@ public final class AutomationTools {
             } else {
                 try await adapters.call(app: app, verb: verb, arguments: arguments["arguments"])
             }
-            value = outcome.json
+            value     = outcome.json
+            modelText = AdapterText.outcome(outcome)
             contentTexts = Self.content(of: resolved, arguments: arguments["arguments"], outcome: outcome)
             let message = ValueMinimization(secrets: contentTexts).minimize(text: outcome.message).0
             lastResult = .outcome(outcome.kind, message: message)

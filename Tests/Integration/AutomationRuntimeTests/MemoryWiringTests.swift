@@ -447,7 +447,7 @@ struct MemoryWiringTests {
             "verb"     : .string("create_note"),
             "arguments": .object(["title": .string("Braus test"), "body": .string("Zoë's canary-4127 body")]),
         ]))
-        #expect(String(describing: answer).contains("found_acted"))
+        #expect(String(describing: answer).contains("ok Created Braus test."))
         let service = MemoryService.shared(for: directory)
         #expect(await service.flush(within: .seconds(10)))
         let calls = try await service.calls(inTrace: "message-8")

@@ -128,17 +128,17 @@ struct AppAdaptersTests {
         let outcome = try await Self.adapters(store: store).call(app: "Calendar", verb: "list_calendars", arguments: .null)
         #expect(outcome.kind == .refused)
         #expect(outcome.message.contains("Privacy & Security > Calendars"))
-        let capabilities = await Self.adapters(store: store).capabilities(of: "Reminders", query: nil)
+        let capabilities = await Self.adapters(store: store).capabilities(of: "Reminders", query: nil).json
         #expect(capabilities["availability"]["state"] == .string("needs_permission"))
     }
 
     @Test("Capabilities filter verbs by the words of a query")
     func capabilities() async {
-        let listing = await Self.adapters().capabilities(of: "calendar", query: "create event")
+        let listing = await Self.adapters().capabilities(of: "calendar", query: "create event").json
         let verbs = listing["verbs"].array?.compactMap { $0["verb"].string }
         #expect(verbs == ["calendar.create_event"])
         #expect(listing["verbs"].array?.first?["safety"] == .string("write"))
-        let unknown = await Self.adapters().capabilities(of: "Pages", query: nil)
+        let unknown = await Self.adapters().capabilities(of: "Pages", query: nil).json
         #expect(unknown["adapter"] == .null)
     }
 

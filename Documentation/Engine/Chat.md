@@ -171,6 +171,24 @@ ids, dates, states and counts stay. The call's content texts are also
 withheld wherever its record repeats them, such as a message naming the note
 it just created.
 
+The model reads an adapter's answer as compact text (`AdapterText`), the same
+for every adapter, while the record and the transcript keep its JSON
+(`AdapterOutcome.json`). The first line is the outcome's word (`ok`,
+`unverified`, `noop`, `miss`, `ambiguous`, `refused`) and the message; a
+top-level text the message already says whole is not repeated. Each field is
+a `key: value` line, numbers and booleans bare, ISO 8601 instants as
+`MM-DD HH:mm` in the Mac's time zone (the year first outside the current
+one), a nested object's fields as `key.field`. A list of objects is one
+`key: [k1 k2]` header and one `[v1 v2]` row per item, `-` for a missing value,
+`\]` and `\n` inside a value; in a folder's listing, paths under the folder
+are relative to it. A text with a line break, or longer than 120 characters,
+comes last after its `key:` line, as it is. `app_capabilities` answers one
+line for the adapter and its availability, each argument's meaning once, then
+one line per verb, `adapter.verb argument optional? — summary [safety]`. The
+`app_call` description states the format once (`AdapterText.legend`). On the
+files dump scenario the text takes about half the JSON's bytes (capabilities
+1,953 against 5,736).
+
 The verb runs off the main actor (`AppAdapters.call` is `@concurrent`), so a
 script, a contacts fetch, the Messages history read or the `defaults` process
 never stalls the app; its call line is transcribed before it runs and its

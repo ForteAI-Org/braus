@@ -60,17 +60,23 @@ public struct AppAdapters: Sendable {
             + "done. Finish with \(shown)'s interface and close_session first, or do the whole task through one route."
     }
 
-    /// The adapter's availability and its verbs matching `query` (all of them without one).
-    public func capabilities(of app: String, query: String?) async -> JSONValue {
-        guard let adapter = adapter(for: app) else { return missing(app) }
-        let query = query?.trimmingCharacters(in: .whitespaces)
-        let verbs = adapter.verbs.filter { query?.isEmpty != false || $0.matches(query ?? "") }
-        return .object([
+    /// The adapter's availability and its verbs matching `query` (all of them without one): as JSON, the form of the
+    /// call's record and transcript, and as the text the model reads (`AdapterText.capabilities`).
+    public func capabilities(of app: String, query: String?) async -> (json: JSONValue, text: String) {
+        guard let adapter = adapter(for: app) else {
+            let missing = missing(app)
+            return (missing, missing["message"].string ?? "")
+        }
+        let query        = query?.trimmingCharacters(in: .whitespaces)
+        let verbs        = adapter.verbs.filter { query?.isEmpty != false || $0.matches(query ?? "") }
+        let availability = await adapter.availability()
+        let json: JSONValue = .object([
             "adapter"     : .string(adapter.name),
             "apps"        : .array(adapter.appNames.map { .string($0) }),
-            "availability": await adapter.availability().json,
+            "availability": availability.json,
             "verbs"       : .array(verbs.map { $0.json(adapter: adapter.name) }),
         ])
+        return (json, AdapterText.capabilities(of: adapter, availability: availability, verbs: verbs))
     }
 
     /// Every adapter with its availability and verb names.

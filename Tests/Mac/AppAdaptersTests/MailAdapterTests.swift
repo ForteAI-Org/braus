@@ -251,7 +251,7 @@ struct MailAdapterTests {
         let transport = FakeMailTransport()
         await transport.answer(.unknown("Mail is not running."))
         let adapters = AppAdapters([Self.adapter(transport)])
-        let capabilities = await adapters.capabilities(of: "Mail", query: nil)
+        let capabilities = await adapters.capabilities(of: "Mail", query: nil).json
         #expect(capabilities["availability"]["state"] == .string("unknown"), "\(capabilities)")
         let read = try await adapters.call(app: "Mail", verb: "find_messages", arguments: .object([:]))
         #expect(read.kind == .foundActed, Comment(rawValue: read.message))

@@ -52,14 +52,14 @@ struct AppAdapterToolsTests {
             "verb"     : .string("write"),
             "arguments": .object(["path": .string("notes.txt"), "text": .string("Zoë's private draft")]),
         ]))
-        #expect(answer.payload["outcome"].string == "found_acted")
+        #expect(answer.answerText == "ok Wrote notes.txt.")
         #expect(await scribe.written == ["Zoë's private draft"])
         #expect(records.count == 2)
         #expect(records.allSatisfy { !$0.contains("private draft") }, "\(records)")
         #expect(records[0].contains("notes.txt") && records[0].contains(Self.marker))
     }
 
-    @Test("a verb's content result reaches the model whole and its transcript line as the marker")
+    @Test("a verb's content result reaches the model whole, as text, and its transcript line as the marker in JSON")
     func contentResultsWithheldFromTheTranscriptOnly() async throws {
         let tools   = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([ScribeAdapter()]))
         var records = [String]()
@@ -67,11 +67,26 @@ struct AppAdapterToolsTests {
         let answer = try await tools.call("app_call", .object([
             "app": .string("scribe"), "verb": .string("read"), "arguments": .object(["path": .string("notes.txt")]),
         ]))
-        #expect(answer.payload["result"]["text"].string == "the file's own words")
-        #expect(answer.payload["result"]["size"] == .number(19))
+        #expect(answer.answerText == "ok Read it.\nsize: 19\ntext: the file's own words")
         let line = try #require(records.last)
         #expect(line.hasPrefix("← app_call") && !line.contains("the file's own words"))
         #expect(line.contains(Self.marker) && line.contains("\"size\""))
+    }
+
+    @Test("app_capabilities answers the model in text lines and keeps its JSON in the transcript")
+    func capabilitiesAsText() async throws {
+        let tools   = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([ScribeAdapter()]))
+        var records = [String]()
+        tools.record = { records.append($0) }
+        let answer = try await tools.call("app_capabilities", .object(["app": .string("Scribe")]))
+        #expect(answer.answerText == """
+            scribe (Scribe): ready
+            path: path
+            text: text
+            scribe.write path text — Write a text. [write]
+            scribe.read path — Read a text. [read]
+            """)
+        #expect(records.last?.hasPrefix(#"← app_capabilities {"#) == true, "\(records)")
     }
 
     @Test("an app_call whose verb cannot be resolved withholds every text of its arguments")
@@ -105,7 +120,7 @@ struct AppAdapterToolsTests {
         }
         let answer = try await tools.call("app_call", .object(["app": .string("blocking"), "verb": .string("wait")]))
         let during = await probe.value
-        #expect(answer.payload["result"]["released"] == .bool(true), "the main actor waited for the verb")
+        #expect(answer.answerText == "ok Waited.\nreleased: true", "the main actor waited for the verb")
         #expect(during.count == 1 && during.first?.hasPrefix("→ app_call") == true, "\(during)")
         #expect(transcript.lines.count == 2 && transcript.lines.last?.hasPrefix("← app_call") == true)
     }
@@ -121,12 +136,12 @@ struct AppAdapterToolsTests {
             "arguments": .object(["path": .string("notes.txt"), "text": .string("draft")]),
         ])
         session.held = "test.scribe"
-        let refused = try await tools.call("app_call", call).payload
-        #expect(refused["outcome"].string == "refused")
-        #expect(refused["message"].string?.contains("close_session first, or do the whole task through one route") == true)
+        let refused = try await tools.call("app_call", call).answerText
+        #expect(refused.hasPrefix("refused The seat is driving Scribe"))
+        #expect(refused.contains("close_session first, or do the whole task through one route"))
         #expect(await scribe.written.isEmpty)
         session.held = "com.apple.iCal"
-        #expect(try await tools.call("app_call", call).payload["outcome"].string == "found_acted")
+        #expect(try await tools.call("app_call", call).answerText.hasPrefix("ok "))
         #expect(await scribe.written == ["draft"])
     }
 
@@ -264,6 +279,12 @@ private actor ScribeAdapter: AppAdapting {
         }
         return .confirmed("Read it.", .object(["text": .string("the file's own words"), "size": .number(19)]))
     }
+}
+
+extension JSONValue {
+
+    /// A tool result's one text item as the model reads it, empty when it has none.
+    fileprivate var answerText: String { self["content"].array?.first?["text"].string ?? "" }
 }
 
 /// Transcript keeps the lines the tools record, on the main actor where they are written.

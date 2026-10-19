@@ -89,7 +89,12 @@ public final class MCPRouter {
         let text: String
         do { text = String(decoding: try JSONEncoder().encode(value), as: UTF8.self) }
         catch { text = "Could not encode tool result: \(error)" }
-        return .object([
+        return textResult(text, isError: isError)
+    }
+
+    /// A tool's answer already written as text, as one text item, for a tool whose answer is not JSON.
+    public static func textResult(_ text: String, isError: Bool = false) -> JSONValue {
+        .object([
             "content": .array([.object(["type": .string("text"), "text": .string(text)])]),
             "isError": .bool(isError)
         ])
