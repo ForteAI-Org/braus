@@ -17,6 +17,8 @@ public struct CalendarAdapter: AppAdapting {
     static let maximumDays = 366.0
     /// The most events one answer lists.
     static let maximumEvents = 50
+    /// An event's words; its id, calendar and times stay recorded.
+    static let contentResults = ["title", "location", "notes"]
 
     private let store: any EventStoring
 
@@ -35,34 +37,37 @@ public struct CalendarAdapter: AppAdapting {
                         parameters: [
                             AdapterParameter("from", .string, "ISO 8601 date or instant"),
                             AdapterParameter("to", .string, "ISO 8601 date or instant, at most 366 days after from"),
-                            AdapterParameter("query", .string, "words the title, location or notes contain", required: false),
+                            AdapterParameter("query", .string, "words the title, location or notes contain",
+                                             required: false, content: true),
                             AdapterParameter("calendar", .string, "a calendar's title or id", required: false),
                         ],
-                        safety: .read, readBack: "the store's events"),
+                        safety: .read, readBack: "the store's events", contentResults: Self.contentResults),
             AdapterVerb("create_event", "Create an event.",
                         parameters: [
-                            AdapterParameter("title", .string, "the event's title"),
+                            AdapterParameter("title", .string, "the event's title", content: true),
                             AdapterParameter("start", .string, "ISO 8601 instant, or a date for an all-day event"),
                             AdapterParameter("end", .string, "ISO 8601; default: one hour after start, or the same day",
                                              required: false),
                             AdapterParameter("all_day", .boolean, "true for an all-day event", required: false),
                             calendar,
-                            AdapterParameter("location", .string, "where", required: false),
-                            AdapterParameter("notes", .string, "notes", required: false),
+                            AdapterParameter("location", .string, "where", required: false, content: true),
+                            AdapterParameter("notes", .string, "notes", required: false, content: true),
                         ],
-                        safety: .write, readBack: "the new event read from the store by its id"),
+                        safety: .write, readBack: "the new event read from the store by its id",
+                        contentResults: Self.contentResults),
             AdapterVerb("update_event", "Change an event's title, times, location or notes.",
                         parameters: [
                             id,
-                            AdapterParameter("title", .string, "new title", required: false),
+                            AdapterParameter("title", .string, "new title", required: false, content: true),
                             AdapterParameter("start", .string, "new ISO 8601 start", required: false),
                             AdapterParameter("end", .string, "new ISO 8601 end", required: false),
-                            AdapterParameter("location", .string, "new location", required: false),
-                            AdapterParameter("notes", .string, "new notes", required: false),
+                            AdapterParameter("location", .string, "new location", required: false, content: true),
+                            AdapterParameter("notes", .string, "new notes", required: false, content: true),
                         ],
-                        safety: .write, readBack: "the event read again by its id"),
+                        safety: .write, readBack: "the event read again by its id", contentResults: Self.contentResults),
             AdapterVerb("delete_event", "Delete an event.", parameters: [id],
-                        safety: .irreversible, readBack: "the event no longer in the store", confirms: .readBack),
+                        safety: .irreversible, readBack: "the event no longer in the store", confirms: .readBack,
+                        contentResults: Self.contentResults),
         ]
     }
 

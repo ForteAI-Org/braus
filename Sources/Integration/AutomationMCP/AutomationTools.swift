@@ -537,13 +537,12 @@ public final class AutomationTools {
             object["memory"] = .string(notice)
             answered = .object(object)
         }
-        // A file's content an adapter answered is the model's: its transcript line keeps the marker in its place.
+        // The content an adapter was given or answered is the model's: the transcript keeps the marker in its place.
         var transcribed = answered
-        if !transcriptOmits.isEmpty, case .object(var object) = answered,
-           case .object(var result)? = object["result"] {
-            for key in transcriptOmits where result[key] != nil { result[key] = .string(ValueMinimization.marker) }
-            object["result"] = .object(result)
-            transcribed = .object(object)
+        if case .object(var object) = answered, !transcriptOmits.isEmpty || !contentTexts.isEmpty {
+            object["result"] = object["result"].map { Self.withholding(Set(transcriptOmits), in: $0) }
+            let minimization = ValueMinimization(secrets: contentTexts)
+            transcribed = Self.mappingTexts(.object(object)) { minimization.minimize(text: $0).0 }
         }
         try transcribe("← \(name) \(String(decoding: try JSONEncoder().encode(transcribed), as: UTF8.self))")
         return MCPRouter.toolResult(answered)
@@ -1404,7 +1403,8 @@ public final class AutomationTools {
     /// A call's arguments as its record and its transcript keep them. For `app_call`, the values of the verb's content
     /// parameters (`AdapterParameter.isContent`, a text written, appended or found) become the marker, and every text
     /// of its arguments does when the verb cannot be resolved, since none was told apart. Other calls are kept whole.
-    /// The adapters repeat no content in their messages, so the call's answer and error are not searched for it.
+    /// The answer's record is searched for those values as well (`content(of:arguments:outcome:)`), since a message may
+    /// repeat them (the title of a note it created); an adapter's error repeats none.
     private func withheldContent(_ name: String, _ arguments: JSONValue) -> JSONValue {
         guard name == "app_call", case .object(var call) = arguments, let values = call["arguments"],
               values != .null else { return arguments }
@@ -1425,24 +1425,65 @@ public final class AutomationTools {
 
     /// `value` with every text in it, however nested, replaced by the marker.
     private static func withholdingTexts(_ value: JSONValue) -> JSONValue {
+        mappingTexts(value) { _ in ValueMinimization.marker }
+    }
+
+    /// `value` with every text in it, however nested, replaced by `transform` of it.
+    private static func mappingTexts(_ value: JSONValue, _ transform: (String) -> String) -> JSONValue {
         switch value {
-            case .string            : .string(ValueMinimization.marker)
-            case .array(let items)  : .array(items.map(withholdingTexts))
-            case .object(let fields): .object(fields.mapValues(withholdingTexts))
+            case .string(let text)  : .string(transform(text))
+            case .array(let items)  : .array(items.map { mappingTexts($0, transform) })
+            case .object(let fields): .object(fields.mapValues { mappingTexts($0, transform) })
             default                 : value
         }
     }
 
+    /// `value` with the value of every key in `keys`, at any depth, withheld as `withholdingTexts` does.
+    private static func withholding(_ keys: Set<String>, in value: JSONValue) -> JSONValue {
+        switch value {
+            case .array(let items)  : .array(items.map { withholding(keys, in: $0) })
+            case .object(let fields):
+                .object(fields.reduce(into: [:]) { kept, field in
+                    kept[field.key] = keys.contains(field.key) ? withholdingTexts(field.value)
+                                                               : withholding(keys, in: field.value)
+                })
+            default                 : value
+        }
+    }
+
+    /// Every text in `value`, however nested; with `keys`, only those under one of them, at any depth.
+    private static func texts(in value: JSONValue, under keys: Set<String>? = nil) -> [String] {
+        switch value {
+            case .string(let text)  : keys == nil ? [text] : []
+            case .array(let items)  : items.flatMap { texts(in: $0, under: keys) }
+            case .object(let fields):
+                fields.flatMap { key, field in texts(in: field, under: keys?.contains(key) == true ? nil : keys) }
+            default                 : []
+        }
+    }
+
+    /// The content texts of an adapter call (its content parameters, every text of its arguments when the verb is not
+    /// known, and its content results), withheld wherever a record repeats them, in a message that names a title too.
+    private static func content(of verb: AdapterVerb?, arguments: JSONValue, outcome: AdapterOutcome) -> [String] {
+        guard let verb else { return texts(in: arguments) }
+        let given = verb.parameters.filter(\.isContent).flatMap { texts(in: arguments[$0.name]) }
+        return given + texts(in: outcome.result, under: Set(verb.contentResults))
+    }
+
     /// The typed result of the call `answer` concluded last, for its record.
     private var lastResult: AgentCallResult?
-    /// The result fields of the call `answer` concluded last that hold a file's content (`AdapterVerb.contentResults`):
-    /// left out of the transcript line of its answer, never out of the answer.
+    /// The result keys of the call `answer` concluded last that hold content (`AdapterVerb.contentResults`): left out
+    /// of the transcript line of its answer, never out of the answer.
     private var transcriptOmits: [String] = []
+    /// The content texts of the adapter call `answer` concluded last (`content(of:arguments:outcome:)`): withheld
+    /// from its record and its transcript line, never from the answer.
+    private var contentTexts: [String] = []
 
     private func answer(_ name: String, _ arguments: JSONValue, recorder: CallRecorder?) async throws -> JSONValue {
         lastResult = nil
         lastCheck  = nil
         transcriptOmits = []
+        contentTexts    = []
         let arguments = arguments == .null ? JSONValue.object([:]) : arguments
         guard let definition = toolDefinitions.first(where: { $0["name"].string == name }),
               let values = arguments.object else { throw AutomationFailure("Invalid tool arguments.") }
@@ -1523,8 +1564,8 @@ public final class AutomationTools {
         case "app_call":
             let adapters = try offeredAdapters()
             let app = try string(arguments, "app"), verb = try string(arguments, "verb")
-            transcriptOmits = (try? adapters.resolve(app: app, verb: verb, arguments: arguments["arguments"]))?
-                .verb.contentResults ?? []
+            let resolved = (try? adapters.resolve(app: app, verb: verb, arguments: arguments["arguments"]))?.verb
+            transcriptOmits = resolved?.contentResults ?? []
             // One app, one route at a time: no adapter changes the app the seat is driving.
             let outcome = if let refusal = adapters.seatConflict(app: app, held: session.memoryApplication) {
                 AdapterOutcome.refused(refusal)
@@ -1532,7 +1573,9 @@ public final class AutomationTools {
                 try await adapters.call(app: app, verb: verb, arguments: arguments["arguments"])
             }
             value = outcome.json
-            lastResult = .outcome(outcome.kind, message: outcome.message)
+            contentTexts = Self.content(of: resolved, arguments: arguments["arguments"], outcome: outcome)
+            let message = ValueMinimization(secrets: contentTexts).minimize(text: outcome.message).0
+            lastResult = .outcome(outcome.kind, message: message)
         case "open_session":
             if values["named"] != nil, arguments["named"].bool == nil {
                 throw AutomationFailure("named must be true or false.")

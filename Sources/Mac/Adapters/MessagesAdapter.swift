@@ -68,12 +68,12 @@ public struct MessagesAdapter: AppAdapting {
             AdapterVerb("send_message", "Send an iMessage to a phone number or an email address.",
                         parameters: [
                             AdapterParameter("to", .string, "a phone number with its country code, or an email address "
-                                             + "(read it with contacts)"),
-                            AdapterParameter("text", .string, "the message"),
+                                             + "(read it with contacts)", content: true),
+                            AdapterParameter("text", .string, "the message", content: true),
                         ],
                         safety: .irreversible,
                         readBack: "Messages' history by handle and time, when Braus has Full Disk Access",
-                        confirms: .readBack),
+                        confirms: .readBack, contentResults: ["to"]),
         ]
     }
 

@@ -32,8 +32,9 @@ public struct AdapterVerb: Sendable, Equatable {
     /// not the contract: that is `confirmation`.
     public let readBack   : String
     public let confirmation: Confirmation
-    /// The fields of the verb's result that hold a file's content (`files.read`'s `text`): the model reads them; the
-    /// transcript line of the answer keeps the marker in their place, as it does for a content parameter.
+    /// The keys of the verb's result that hold content (a file's text, a person's message, name or address), matched
+    /// by name at any depth: `subject` names the field of the result and of every object in its lists. The model reads
+    /// them; every record of the call keeps the marker in their place, as it does for a content parameter.
     public let contentResults: [String]
 
     public init(
@@ -102,8 +103,8 @@ public struct AdapterParameter: Sendable, Equatable {
     /// Whether an empty string is a value (a text that empties a file, a replacement that removes): false, and
     /// refused, unless the verb says so.
     public let allowsEmpty: Bool
-    /// Whether the value is a file's content (a text written, appended, found or put in place): the tools withhold
-    /// it from every record, transcript line and echo of the call, as they withhold a typed text.
+    /// Whether the value is content (a text written, appended, found or put in place, a person's words, name or
+    /// address): the tools withhold it from every record, transcript line and echo of the call, as a typed text.
     public let isContent  : Bool
 
     public init(

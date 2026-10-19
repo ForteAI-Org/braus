@@ -68,6 +68,9 @@ public struct ContactsAdapter: AppAdapting {
 
     /// The most people one answer lists.
     static let maximumContacts = 20
+    /// Who a person is and how to reach them: an entry's `value` (a phone, an address), not its label; ids and
+    /// counts stay recorded.
+    static let contentResults = ["name", "organization", "value", "birthday"]
 
     private let store: any ContactsStoring
 
@@ -79,14 +82,15 @@ public struct ContactsAdapter: AppAdapting {
         [
             AdapterVerb("find_contacts", "Find people by name, with their phones and email addresses.",
                         parameters: [
-                            AdapterParameter("name", .string, "a name or part of one"),
+                            AdapterParameter("name", .string, "a name or part of one", content: true),
                             AdapterParameter("limit", .integer, "at most this many; default 10", required: false,
                                              range: 1...Double(Self.maximumContacts)),
                         ],
-                        safety: .read, readBack: "the address book"),
+                        safety: .read, readBack: "the address book", contentResults: Self.contentResults),
             AdapterVerb("read_contact", "Read one person: phones, emails, postal addresses, organization, birthday.",
                         parameters: [AdapterParameter("id", .string, "the contact's id from find_contacts")],
-                        safety: .read, readBack: "the address book by the contact's id"),
+                        safety: .read, readBack: "the address book by the contact's id",
+                        contentResults: Self.contentResults),
         ]
     }
 

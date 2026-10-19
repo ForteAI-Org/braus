@@ -69,6 +69,8 @@ public struct MailAdapter: AppAdapting {
     static let maximumMessages = 50
     /// The longest text `read_message` answers, in characters.
     static let maximumContent = 20_000
+    /// The fields of a message that are a person's words or addresses; its id, date and read state stay recorded.
+    static let contentResults = ["subject", "sender", "to", "text"]
 
     private let transport   : any MailTransporting
     /// How many times, and how far apart, `send` looks for the mail in the sent mailbox.
@@ -85,36 +87,41 @@ public struct MailAdapter: AppAdapting {
         [
             AdapterVerb("find_messages", "Find messages in the inbox, newest first, by words of the subject or sender.",
                         parameters: [
-                            AdapterParameter("query", .string, "text the subject or the sender contains", required: false),
+                            AdapterParameter("query", .string, "text the subject or the sender contains",
+                                             required: false, content: true),
                             AdapterParameter("unread_only", .boolean, "true for unread messages only", required: false),
                             AdapterParameter("limit", .integer, "at most this many; default 10", required: false,
                                              range: 1...Double(Self.maximumMessages)),
                         ],
-                        safety: .read, readBack: "Mail's inbox"),
+                        safety: .read, readBack: "Mail's inbox", contentResults: Self.contentResults),
             AdapterVerb("read_message", "Read one message: sender, recipients, date and text.",
                         parameters: [AdapterParameter("id", .string, "the message's id from find_messages")],
-                        safety: .read, readBack: "the inbox or the sent mailbox by Message-ID"),
+                        safety: .read, readBack: "the inbox or the sent mailbox by Message-ID",
+                        contentResults: Self.contentResults),
             AdapterVerb("create_draft", "Save a new mail in the drafts mailbox without sending it.",
                         parameters: [
-                            AdapterParameter("to", .string, "the recipient's email address", required: false),
-                            AdapterParameter("subject", .string, "the subject"),
-                            AdapterParameter("body", .string, "the plain text"),
+                            AdapterParameter("to", .string, "the recipient's email address", required: false,
+                                             content: true),
+                            AdapterParameter("subject", .string, "the subject", content: true),
+                            AdapterParameter("body", .string, "the plain text", content: true),
                             AdapterParameter("from", .string, "the address of the account to write from; Mail's "
-                                             + "default account without one", required: false),
+                                             + "default account without one", required: false, content: true),
                         ],
                         safety: .write,
-                        readBack: "the new draft in the drafts mailbox, by recipient, account and text"),
+                        readBack: "the new draft in the drafts mailbox, by recipient, account and text",
+                        contentResults: Self.contentResults),
             AdapterVerb("send", "Send a mail to one address, from Mail's default account or the one named.",
                         parameters: [
-                            AdapterParameter("to", .string, "the recipient's email address (read it with contacts)"),
-                            AdapterParameter("subject", .string, "the subject"),
-                            AdapterParameter("body", .string, "the plain text"),
+                            AdapterParameter("to", .string, "the recipient's email address (read it with contacts)",
+                                             content: true),
+                            AdapterParameter("subject", .string, "the subject", content: true),
+                            AdapterParameter("body", .string, "the plain text", content: true),
                             AdapterParameter("from", .string, "the address of the account to send from; Mail's "
-                                             + "default account without one", required: false),
+                                             + "default account without one", required: false, content: true),
                         ],
                         safety: .irreversible,
                         readBack: "the new message in the sent mailbox, by recipient, account and text",
-                        confirms: .readBack),
+                        confirms: .readBack, contentResults: Self.contentResults),
         ]
     }
 

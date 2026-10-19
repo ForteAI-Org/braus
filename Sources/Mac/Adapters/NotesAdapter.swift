@@ -81,6 +81,8 @@ public struct NotesAdapter: AppAdapting {
 
     static let maximumNotes   = 50
     static let maximumContent = 20_000
+    /// A note's words; its id, folder, account and dates stay recorded.
+    static let contentResults = ["title", "text"]
 
     private let transport: any NotesTransporting
 
@@ -95,28 +97,30 @@ public struct NotesAdapter: AppAdapting {
                         safety: .read, readBack: "Notes' folders"),
             AdapterVerb("find_notes", "Find notes whose title or text contains a text, optionally in one folder.",
                         parameters: [
-                            AdapterParameter("query", .string, "text the title or the note contains", required: false),
+                            AdapterParameter("query", .string, "text the title or the note contains", required: false,
+                                             content: true),
                             folder,
                             AdapterParameter("limit", .integer, "at most this many; default 10", required: false,
                                              range: 1...Double(Self.maximumNotes)),
                         ],
-                        safety: .read, readBack: "Notes' notes"),
+                        safety: .read, readBack: "Notes' notes", contentResults: Self.contentResults),
             AdapterVerb("read_note", "Read one note's title, folder and plain text.",
                         parameters: [AdapterParameter("id", .string, "the note's id from find_notes")],
-                        safety: .read, readBack: "the note by its id"),
+                        safety: .read, readBack: "the note by its id", contentResults: Self.contentResults),
             AdapterVerb("create_note", "Create a note with a title and a text.",
                         parameters: [
-                            AdapterParameter("title", .string, "the note's title, its first line"),
-                            AdapterParameter("text", .string, "the text under the title", required: false),
+                            AdapterParameter("title", .string, "the note's title, its first line", content: true),
+                            AdapterParameter("text", .string, "the text under the title", required: false,
+                                             content: true),
                             folder,
                         ],
-                        safety: .write, readBack: "the new note read by its id"),
+                        safety: .write, readBack: "the new note read by its id", contentResults: Self.contentResults),
             AdapterVerb("append_to_note", "Add text at the end of a note.",
                         parameters: [
                             AdapterParameter("id", .string, "the note's id from find_notes"),
-                            AdapterParameter("text", .string, "the text to add, on new lines"),
+                            AdapterParameter("text", .string, "the text to add, on new lines", content: true),
                         ],
-                        safety: .write, readBack: "the note's text read again"),
+                        safety: .write, readBack: "the note's text read again", contentResults: Self.contentResults),
         ]
     }
 

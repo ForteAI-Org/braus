@@ -12,6 +12,8 @@ public struct RemindersAdapter: AppAdapting {
 
     /// The most reminders one answer lists.
     static let maximumReminders = 100
+    /// A reminder's words; its id, list, due date and state stay recorded.
+    static let contentResults = ["title", "notes"]
 
     private let store: any EventStoring
 
@@ -26,22 +28,25 @@ public struct RemindersAdapter: AppAdapting {
             AdapterVerb("find_reminders", "Find reminders, optionally in one list or matching a text.",
                         parameters: [
                             AdapterParameter("list", .string, "a list's title or id", required: false),
-                            AdapterParameter("query", .string, "words the title or notes contain", required: false),
+                            AdapterParameter("query", .string, "words the title or notes contain", required: false,
+                                             content: true),
                             AdapterParameter("include_completed", .boolean, "default false", required: false),
                         ],
-                        safety: .read, readBack: "the store's reminders"),
+                        safety: .read, readBack: "the store's reminders", contentResults: Self.contentResults),
             AdapterVerb("create_reminder", "Create a reminder.",
                         parameters: [
-                            AdapterParameter("title", .string, "what to remember"),
+                            AdapterParameter("title", .string, "what to remember", content: true),
                             AdapterParameter("list", .string, "a list's title or id; default: the default list",
                                              required: false),
                             AdapterParameter("due", .string, "ISO 8601 date or instant", required: false),
-                            AdapterParameter("notes", .string, "notes", required: false),
+                            AdapterParameter("notes", .string, "notes", required: false, content: true),
                         ],
-                        safety: .write, readBack: "the new reminder read from the store by its id"),
+                        safety: .write, readBack: "the new reminder read from the store by its id",
+                        contentResults: Self.contentResults),
             AdapterVerb("complete_reminder", "Mark a reminder as done.",
                         parameters: [AdapterParameter("id", .string, "the reminder's id from find_reminders")],
-                        safety: .write, readBack: "the reminder read again, completed"),
+                        safety: .write, readBack: "the reminder read again, completed",
+                        contentResults: Self.contentResults),
         ]
     }
 

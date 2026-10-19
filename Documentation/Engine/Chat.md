@@ -161,7 +161,15 @@ the files adapter is exempt, since its verbs are file operations a Finder
 window on the seat neither holds nor reads back. Only the calling session's
 own hold counts. An `app_call` keeps the values of its
 verb's content parameters out of its record and transcript, and a verb's
-content results out of the transcript line of its answer.
+content results out of the transcript line of its answer. Content is what a
+person writes, reads or is called: a file's text, a mail's addresses, subject
+and text, a message and its recipient, a note, a contact's name, phones,
+addresses and birthday, an event's or a reminder's title, location and notes,
+and the queries that search them. A content result key (`contentResults`) is
+matched by name at any depth, so a list of messages withholds each subject;
+ids, dates, states and counts stay. The call's content texts are also
+withheld wherever its record repeats them, such as a message naming the note
+it just created.
 
 The verb runs off the main actor (`AppAdapters.call` is `@concurrent`), so a
 script, a contacts fetch, the Messages history read or the `defaults` process
