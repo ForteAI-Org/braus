@@ -190,3 +190,44 @@ private func product(_ bundleID: String, name: String, pid: pid_t? = nil) -> Tar
     #expect(!ApplicationOpening.isOwn(product("com.example.Photos", name: "Photos", pid: 8), processID: 7))
     #expect(!ApplicationOpening.isOwn(app("Photos")))
 }
+
+// MARK: Password managers
+
+private let onePassword = installedApp("1Password", bundleID: "com.1password.1password")
+private let passwords   = installedApp("Passwords", bundleID: "com.apple.Passwords")
+private let keeper      = installedApp("Keeper Password Manager", bundleID: "com.keepersecurity.passwordmanager")
+
+@Test func aPasswordManagerIsRefusedByNameOrBundleIdentifierInstalledOrNot() {
+    let apps = installed + [onePassword, passwords, keeper]
+    for name in ["1Password", "1password.app", "com.1password.1password", "Apple Passwords", "passwords",
+                 "Keeper", "com.keepersecurity.passwordmanager", "Bitwarden", "com.bitwarden.desktop",
+                 "Proton Pass", "NordPass", "Dashlane", "LastPass", "Enpass"] {
+        #expect(refusal(for: name, in: apps).hasPrefix("\"\(name.replacingOccurrences(of: ".app", with: ""))\" "
+            + "is a password manager, and you never open one"))
+    }
+}
+
+@Test func anEntryInsideALongerWordIsNotAPasswordManager() throws {
+    let timekeeper = installedApp("Timekeeper", bundleID: "com.example.Timekeeper")
+    let generator  = installedApp("Password Generator", bundleID: "com.example.PasswordGenerator")
+    let apps = installed + [timekeeper, generator]
+    #expect(try ApplicationOpening.resolve("Timekeeper", in: apps).bundleID == "com.example.Timekeeper")
+    #expect(try ApplicationOpening.resolve("Password Generator", in: apps).bundleID == "com.example.PasswordGenerator")
+    #expect(!ApplicationOpening.isPasswordManager(timekeeper))
+    #expect(!ApplicationOpening.isPasswordManager(generator))
+    #expect(ApplicationOpening.isPasswordManager(keeper))
+    #expect(ApplicationOpening.isPasswordManager(installedApp("Proton Pass", bundleID: "me.proton.pass.electron")))
+    // A localized name is the bundle identifier's to catch.
+    #expect(ApplicationOpening.isPasswordManager(installedApp("Passwörter", bundleID: "com.apple.Passwords")))
+}
+
+@Test func aPasswordManagerIsListedNowhere() {
+    let apps = installed + [onePassword, passwords, keeper]
+    #expect(ApplicationOpening.ranked(nil, in: apps).map(\.name)
+        == ApplicationOpening.ranked(nil, in: installed).map(\.name))
+    #expect(ApplicationOpening.ranked("pass", in: apps).isEmpty)
+    #expect(ApplicationOpening.catalog(apps) == "Café, Google Chrome, Pages, Photos, Preview")
+    // A part of a name is never resolved to one either, and none is offered as nearby.
+    let partial = refusal(for: "password", in: apps)
+    #expect(partial.hasPrefix("No installed application is named \"password\"; call apps"))
+}

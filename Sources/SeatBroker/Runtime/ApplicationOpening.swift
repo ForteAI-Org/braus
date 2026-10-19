@@ -15,15 +15,49 @@ import Foundation
 /// it is allowed to open cannot drift apart.
 enum ApplicationOpening {
 
-    /// Which installed applications the planner may open.
+    /// Which installed applications the planner may open: every one but a password manager.
     ///
-    /// Unset: every installed application is offered and openable. Opening an
-    /// application on a model's say-so is the owner's decision, not this
-    /// ticket's, and this predicate is where that decision goes. Narrowing it
-    /// here narrows the list in the prompt and the resolution of a named
-    /// application together, so constraining the capability is one edit in
-    /// one file and nothing else has to know.
-    static func isOpenable(_ app: TargetApp) -> Bool { true }
+    /// Narrowing it here narrows the list in the prompt, the `apps` listing and the resolution
+    /// of a named application together, so constraining the capability is one edit in one file
+    /// and nothing else has to know. A password manager is listed nowhere, like this product itself.
+    static func isOpenable(_ app: TargetApp) -> Bool { !isPasswordManager(app) }
+
+    /// Password managers by bundle identifier, lowercased: 1Password 8 and 7, Bitwarden, LastPass
+    /// and Apple's Passwords.
+    private static let passwordManagerBundleIDs: Set<String> = [
+        "com.1password.1password",
+        "com.agilebits.onepassword7",
+        "com.bitwarden.desktop",
+        "com.lastpass.lastpass",
+        "com.apple.passwords",
+    ]
+
+    /// Password managers by name, for the builds and vendors whose bundle identifier is not listed.
+    /// Each entry matches whole words of a name, ignoring case, diacritics and punctuation: "Keeper
+    /// Password Manager" and "Proton Pass" are refused, "Timekeeper" and "Password Generator" are not.
+    private static let passwordManagerNames = [
+        "1password", "bitwarden", "dashlane", "lastpass", "nordpass", "proton pass", "keeper", "enpass", "passwords",
+    ]
+
+    /// Whether `app` is a password manager, which no worker opens whatever the task: by its bundle
+    /// identifier, or by any of its names (`names(of:)`) holding an entry as whole words.
+    static func isPasswordManager(_ app: TargetApp) -> Bool {
+        isPasswordManager(bundleID: app.bundleID, names: names(of: app))
+    }
+
+    private static func isPasswordManager(bundleID: String, names: [String]) -> Bool {
+        passwordManagerBundleIDs.contains(bundleID.lowercased()) || names.contains { name in
+            let spaced = " " + words(of: name).joined(separator: " ") + " "
+            return passwordManagerNames.contains { spaced.contains(" \($0) ") }
+        }
+    }
+
+    /// The refusal of a password manager, named as the request named it.
+    private static func passwordManagerRefusal(_ named: String) -> SeatBrokerError {
+        .applicationNotResolved(
+            "\"\(named)\" is a password manager, and you never open one: the person's passwords stay "
+                + "out of the session. Ask the person to do that step themselves, or choose another application.")
+    }
 
     /// The product's bundle identifiers: Braus and the name it had before. A second build of the
     /// app carries one of them too, so it is as untargetable as the running one.
@@ -106,7 +140,8 @@ enum ApplicationOpening {
     /// answers to the whole query by its identifier or name. Anything that
     /// names none or several is refused with what the model would need to
     /// correct itself; a name nothing answers to is not said to be "not
-    /// installed", which a name alone cannot tell (`notNamed`).
+    /// installed", which a name alone cannot tell (`notNamed`). A request that
+    /// names a password manager is refused as one before any matching.
     static func resolve(_ name: String, in apps: [TargetApp]) throws -> TargetApp {
         let wanted = requested(name)
         guard !wanted.isEmpty else {
@@ -116,6 +151,11 @@ enum ApplicationOpening {
             throw SeatBrokerError.applicationNotResolved(
                 "\"\(wanted)\" is the application you run in, and you cannot drive it. "
                     + "Opening it would take the person's own window; choose another application.")
+        }
+        // By the request itself, or by the bundle identifier of one installed under another name.
+        if isPasswordManager(bundleID: wanted, names: [wanted])
+            || apps.contains(where: { same($0.bundleID, wanted) && isPasswordManager($0) }) {
+            throw passwordManagerRefusal(wanted)
         }
         let candidates = ranked(wanted, in: apps)
         let found = candidates.first.flatMap { match(wanted, $0) }
