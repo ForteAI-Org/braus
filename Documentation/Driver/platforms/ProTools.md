@@ -19,10 +19,13 @@ an unreadable path or exhausted budgets refuse before acting. The descent is lim
 to 64 levels, 512 examined children and the existing 300 ms path budget.
 
 Supported roles use the existing accessibility action mapping. An unsupported control
-refuses; it does not fall back to a click that might activate PT. A qualified dialog's text
-field is the narrow exception: after its own window path and requested label match, a field
-without writable `AXSelectedText` receives the pointer click that enters its editor. No AX
-selection is written before that click. An uncertain AX write never grants a posted retry. Each action consumes
+refuses; it does not fall back to a click that might activate PT. A field without writable
+`AXSelectedText` enters its editor through its own AXPress, after its window path and requested
+label match, and only a read-back focus counts; the keys that follow replace the selection. This
+covers the rename dialog's name field and the Edit window's selection counters, where a posted
+click was measured to activate PT. A field that offers no press, or does not take the focus, keeps
+the older exception in a qualified dialog: one pointer click that enters its editor. No AX
+selection is written before either. An uncertain AX write never grants a posted retry. Each action consumes
 its observation. `AXError.cannotComplete` is an attempted action with an uncertain
 effect, never permission to press again. The consumer reads the effect and confirms it.
 
@@ -183,6 +186,30 @@ which was on another display. PT stayed inactive and the cursor did not move. Ac
 exposes the menu as an `AXWindow`/`AXDialog` among PT's windows, with `AXMenuItem` children
 that offer AXPress, including Rename..., and nested dialogs for submenus. It offers no `AXMenu`
 element and no AXCancel. Where the menu opens while its window is in the Seat is not measured.
+
+## Live Seat verification, 19 October 2026
+
+A hosted broker session (`BrokeredAutomationSession`, the app's tools) drove PT in the Seat
+with the probe session open, PT in the background and no other Seat test running.
+
+| Step | Observed result |
+| --- | --- |
+| `context_menu` on `Track name "Kick"`, Rename... | AXShowMenu opened the menu inside the Seat and AXPress chose the item; the modal rename dialog was adopted. |
+| `type_text` into "Name the track:" | AXPress entered the field and the keys wrote `Kick Probe`, read back exactly. |
+| Cancel, then observe | The dialog closed and the Seat returned to the Edit window; the track kept its name. |
+| `type_text` into Edit Selection Start and End, return | 1 → 3 and 11 → 5, then back to 1 and 11, each read back from the counter. |
+
+PT never became the foreground application in these runs and no command was refused as
+`seatNotReady`. A posted click on a counter, tried first, activated PT twice; that route was
+replaced by AXPress. `type_text` into a counter reports `acted_unverified` because PT formats
+the typed bar as `    3| 1| 000`; the counter's own value is the evidence.
+
+Opening the session took 4 to 37 seconds. Sampling the slow runs showed Vision's text
+recognizer compiling its E5 model on every process launch (`e5rt_e5_compiler_compile`), since
+this macOS build finds no valid precompiled bundle. It is outside the driver.
+
+PT keeps creating and destroying a 66 by 20 point decoration window; each adoption moves the
+Seat through `starting`. A command arriving then now waits for the adoption instead of failing.
 
 ## Repository checks, 16 October 2026
 
