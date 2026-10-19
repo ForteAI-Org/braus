@@ -77,7 +77,11 @@ public final class WebAutomationSession: AutomationSessionOperating {
             throw AutomationFailure(Self.localFileRefusal)
         }
         if let page {
-            try await page.navigate(to: address)
+            // The tab may now show Chrome's error page or another document: the failure says to observe.
+            do { try await page.navigate(to: address) } catch {
+                throw Self.navigationFailure(address: address, error: error, showsWindow: !launchOptions.isHeadless,
+                                             closed: false) ?? error
+            }
             return try await observe()
         }
         // Without the trailing slash a path takes once the directory exists, so both spellings match.
@@ -88,8 +92,9 @@ public final class WebAutomationSession: AutomationSessionOperating {
         }
         Self.profilesInUse.insert(profile)
         self.profile = profile
+        let options = launchOptions
         do {
-            let browser = try await WebBrowser.launch(launchOptions)
+            let browser = try await WebBrowser.launch(options)
             self.browser = browser
             let page = try await browser.openPage()
             self.page = page
@@ -97,11 +102,75 @@ public final class WebAutomationSession: AutomationSessionOperating {
             self.runtime = runtime
             processID = runtime.tabs.register(page)
             id = UUID()
-            try await page.navigate(to: address)
+            do { try await page.navigate(to: address) } catch {
+                throw Self.navigationFailure(address: address, error: error, showsWindow: !options.isHeadless,
+                                             closed: true) ?? error
+            }
             return try await observe()
         } catch {
+            // Chrome is closed: the profile is free, and a window the person chose since applies to the next launch.
             await close()
             throw error
+        }
+    }
+
+    /// The failure an agent reads when `address` did not load, or nil when `error` is not a navigation's: the
+    /// address's origin only (never its path, query, fragment or credentials), Chrome's error and what it means, the
+    /// browser that ran (Braus's own Chrome on its own profile, with or without its window), the way out, and what is
+    /// left: `closed` when the session closed Chrome, else a tab whose page must be observed (Chrome may show its error
+    /// page or another document). It sends the agent nowhere else: moving to the person's own browser or the desktop
+    /// is the person's choice, never a silent fallback.
+    public nonisolated static func navigationFailure(address: String, error: any Error, showsWindow: Bool,
+                                                     closed: Bool) -> AutomationFailure? {
+        let answered: String
+        switch error as? CDPError {
+            case .protocolError(method: "Page.navigate", _, let message)?: answered = message
+            case .timedOut(method: "Page.navigate", let seconds)?: answered = "no load within \(Int(seconds)) s"
+            default: return nil
+        }
+        let meaning = navigationMeaning(answered).map { " (\($0))" } ?? ""
+        let browser = showsWindow
+            ? "Braus's own Chrome, in its window on Braus's own profile"
+            : "Braus's own Chrome, with no window (headless), on Braus's own profile"
+        let wayOut = showsWindow
+            ? "If the site asks to sign in, the person signs in themselves in that window."
+            : "Some sites refuse a browser with no window, or need the person to sign in: ask the person to turn on "
+                + "Show Chrome Window for this conversation (Inspector, Web), then open the page again. It opens in "
+                + "a window of Braus's Chrome, where the person signs in themselves if the site asks."
+        let left = closed
+            ? "Braus closed its Chrome: no page is open in this session."
+            : "The tab may show Chrome's error page or another document: observe before deciding."
+        return AutomationFailure("The page did not load as asked: \(origin(of: address)) answered "
+            + "\(answered)\(meaning) in \(browser). " + wayOut + " " + left + " Tell the person; do not move to their "
+            + "own browser or the desktop without asking them.")
+    }
+
+    /// The origin of `address`, scheme, host and port, with nothing else of it; a local file is named as one.
+    nonisolated static func origin(of address: String) -> String {
+        guard let components = URLComponents(string: address), let scheme = components.scheme?.lowercased() else {
+            return "the address"
+        }
+        if scheme == "file" { return "a local file" }
+        guard let host = components.host, !host.isEmpty else { return "the address" }
+        return scheme + "://" + host + (components.port.map { ":\($0)" } ?? "")
+    }
+
+    /// What Chrome's network error means, in words, for the errors a page commonly fails with; nil for another.
+    nonisolated static func navigationMeaning(_ errorText: String) -> String? {
+        let code = errorText.hasPrefix("net::") ? String(errorText.dropFirst(5)) : errorText
+        switch code {
+            case "ERR_HTTP_RESPONSE_CODE_FAILURE": return "the site answered with an HTTP error and an empty page"
+            case "ERR_NAME_NOT_RESOLVED": return "the site's name could not be resolved"
+            case "ERR_INTERNET_DISCONNECTED": return "this Mac is offline"
+            case "ERR_CONNECTION_REFUSED": return "the site refused the connection"
+            case "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED": return "the connection was cut"
+            case "ERR_CONNECTION_TIMED_OUT", "ERR_TIMED_OUT": return "the site did not answer in time"
+            case "ERR_TOO_MANY_REDIRECTS": return "the site redirected too many times"
+            case "ERR_BLOCKED_BY_CLIENT", "ERR_BLOCKED_BY_RESPONSE", "ERR_BLOCKED_BY_ADMINISTRATOR":
+                return "the page was blocked"
+            case "ERR_ABORTED": return "the load was stopped before it finished"
+            default:
+                return code.hasPrefix("ERR_CERT_") ? "the site's certificate was not accepted" : nil
         }
     }
 
