@@ -368,93 +368,109 @@ public struct MacMailTransport: MailTransporting {
                            content: fields.count > 6 ? fields[6].text : nil)
     }
 
-    /// The only script this transport runs. Every value comes in as a handler parameter.
+    /// The only script this transport runs. Every value comes in as a handler parameter. Each handler
+    /// bounds its Apple events to 30 seconds, twice the other scripts' time: Mail searches whole
+    /// mailboxes and sends over the network.
     static let script = """
         on describe(m, withText)
-            tell application id "com.apple.mail"
-                set addresses to {}
-                repeat with r in (to recipients of m)
-                    set end of addresses to (address of r)
-                end repeat
-                set fields to {message id of m, subject of m, sender of m, date received of m, read status of m, addresses}
-                if withText then set end of fields to (content of m)
-                return fields
-            end tell
+            with timeout of 30 seconds
+                tell application id "com.apple.mail"
+                    set addresses to {}
+                    repeat with r in (to recipients of m)
+                        set end of addresses to (address of r)
+                    end repeat
+                    set fields to {message id of m, subject of m, sender of m, date received of m, read status of m, addresses}
+                    if withText then set end of fields to (content of m)
+                    return fields
+                end tell
+            end timeout
         end describe
 
         on find_messages(q, unreadOnly, maxCount)
-            tell application id "com.apple.mail"
-                if q is "" and unreadOnly then
-                    set found to (messages of inbox whose read status is false)
-                else if q is "" then
-                    set found to (messages of inbox)
-                else if unreadOnly then
-                    set found to (messages of inbox whose read status is false and (subject contains q or sender contains q))
-                else
-                    set found to (messages of inbox whose subject contains q or sender contains q)
-                end if
-                set answer to {}
-                set n to count of found
-                if n > maxCount then set n to maxCount
-                repeat with i from 1 to n
-                    set m to item i of found
-                    set end of answer to {message id of m, subject of m, sender of m, date received of m, read status of m}
-                end repeat
-                return answer
-            end tell
+            with timeout of 30 seconds
+                tell application id "com.apple.mail"
+                    if q is "" and unreadOnly then
+                        set found to (messages of inbox whose read status is false)
+                    else if q is "" then
+                        set found to (messages of inbox)
+                    else if unreadOnly then
+                        set found to (messages of inbox whose read status is false and (subject contains q or sender contains q))
+                    else
+                        set found to (messages of inbox whose subject contains q or sender contains q)
+                    end if
+                    set answer to {}
+                    set n to count of found
+                    if n > maxCount then set n to maxCount
+                    repeat with i from 1 to n
+                        set m to item i of found
+                        set end of answer to {message id of m, subject of m, sender of m, date received of m, read status of m}
+                    end repeat
+                    return answer
+                end tell
+            end timeout
         end find_messages
 
         on read_message(mid)
-            tell application id "com.apple.mail"
-                set found to (messages of inbox whose message id is mid)
-                if found is {} then set found to (messages of sent mailbox whose message id is mid)
-                if found is {} then return {}
-                return my describe(item 1 of found, true)
-            end tell
+            with timeout of 30 seconds
+                tell application id "com.apple.mail"
+                    set found to (messages of inbox whose message id is mid)
+                    if found is {} then set found to (messages of sent mailbox whose message id is mid)
+                    if found is {} then return {}
+                    return my describe(item 1 of found, true)
+                end tell
+            end timeout
         end read_message
 
         on send_mail(addr, subj, bodyText, fromAddr)
-            tell application id "com.apple.mail"
-                set m to make new outgoing message with properties {subject:subj, content:bodyText, visible:false}
-                if fromAddr is not "" then set sender of m to fromAddr
-                tell m to make new to recipient at end of to recipients with properties {address:addr}
-                return send m
-            end tell
+            with timeout of 30 seconds
+                tell application id "com.apple.mail"
+                    set m to make new outgoing message with properties {subject:subj, content:bodyText, visible:false}
+                    if fromAddr is not "" then set sender of m to fromAddr
+                    tell m to make new to recipient at end of to recipients with properties {address:addr}
+                    return send m
+                end tell
+            end timeout
         end send_mail
 
         on save_draft(addr, subj, bodyText, fromAddr)
-            tell application id "com.apple.mail"
-                set m to make new outgoing message with properties {subject:subj, content:bodyText, visible:false}
-                if fromAddr is not "" then set sender of m to fromAddr
-                if addr is not "" then
-                    tell m to make new to recipient at end of to recipients with properties {address:addr}
-                end if
-                save m
-                close m saving no
-                return true
-            end tell
+            with timeout of 30 seconds
+                tell application id "com.apple.mail"
+                    set m to make new outgoing message with properties {subject:subj, content:bodyText, visible:false}
+                    if fromAddr is not "" then set sender of m to fromAddr
+                    if addr is not "" then
+                        tell m to make new to recipient at end of to recipients with properties {address:addr}
+                    end if
+                    save m
+                    close m saving no
+                    return true
+                end tell
+            end timeout
         end save_draft
 
         on drafts_with(subj)
-            tell application id "com.apple.mail"
-                set found to (messages of drafts mailbox whose subject is subj)
-                set answer to {}
-                repeat with m in found
-                    set end of answer to my describe(contents of m, true)
-                end repeat
-                return answer
-            end tell
+            with timeout of 30 seconds
+                tell application id "com.apple.mail"
+                    set found to (messages of drafts mailbox whose subject is subj)
+                    set answer to {}
+                    repeat with m in found
+                        set end of answer to my describe(contents of m, true)
+                    end repeat
+                    return answer
+                end tell
+            end timeout
         end drafts_with
 
         on sent_since(subj, sinceDate)
-            tell application id "com.apple.mail"
-                set found to (messages of sent mailbox whose subject is subj and date sent is greater than or equal to sinceDate)
-                set answer to {}
-                repeat with m in found
-                    set end of answer to my describe(contents of m, false)
-                end repeat
-                return answer
-            end tell
+            with timeout of 30 seconds
+                tell application id "com.apple.mail"
+                    set found to (messages of sent mailbox whose subject is subj and date sent is greater than or equal to sinceDate)
+                    set answer to {}
+                    repeat with m in found
+                        set end of answer to my describe(contents of m, false)
+                    end repeat
+                    return answer
+                end tell
+            end timeout
         end sent_since
         """
 }

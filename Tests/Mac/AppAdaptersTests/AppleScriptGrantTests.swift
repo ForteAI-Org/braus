@@ -1,4 +1,6 @@
 import Carbon
+import Foundation
+import Synchronization
 import Testing
 @testable import AppAdapters
 
@@ -27,5 +29,37 @@ struct AppleScriptGrantTests {
             #expect(stopped.beforeAnyEvent, "\(grant): stopped before any event")
             #expect(stopped.isGrantUnknown == (grant == .notAnswerable), "\(grant): unknown is told apart from refused")
         }
+    }
+
+    /// Gauge counts the scripts running at once, the most ever seen, and those run on the main thread.
+    private final class Gauge: Sendable {
+        let counts = Mutex((running: 0, peak: 0, onMain: 0, runs: 0))
+    }
+
+    @Test("scripts on the queue run one at a time, and never on the main thread")
+    func scriptsRunOneAtATime() async throws {
+        let gauge = Gauge()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    try await ScriptQueue.shared.run {
+                        gauge.counts.withLock { counts in
+                            counts.running += 1
+                            counts.runs    += 1
+                            counts.peak     = max(counts.peak, counts.running)
+                            if Thread.isMainThread { counts.onMain += 1 }
+                        }
+                        // Long enough for another task to start a script, were the queue not serial.
+                        usleep(5_000)
+                        gauge.counts.withLock { $0.running -= 1 }
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+        let counts = gauge.counts.withLock { $0 }
+        #expect(counts.runs == 8)
+        #expect(counts.peak == 1, "two scripts ran at once")
+        #expect(counts.onMain == 0)
     }
 }

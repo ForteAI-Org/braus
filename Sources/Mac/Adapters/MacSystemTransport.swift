@@ -48,8 +48,8 @@ public struct MacSystemTransport: SystemTransporting {
     private static let systemEvents = "com.apple.systemevents"
 
     /// Sets dark mode through System Events, after checking without asking that Braus may send it
-    /// Apple events: a Mac that would show the consent prompt answers `SystemPermissionNeeded`.
-    @MainActor
+    /// Apple events: a Mac that would show the consent prompt answers `SystemPermissionNeeded`. The
+    /// script runs on `ScriptQueue`, its event bounded to 15 seconds.
     private static func runAppearanceScript(dark: Bool) async throws {
         try await ensureSystemEventsRuns()
         var target = AEAddressDesc()
@@ -66,11 +66,23 @@ public struct MacSystemTransport: SystemTransporting {
             default:
                 throw AdapterFailure("System Events could not be reached (\(status)).")
         }
-        let source = "tell application id \"\(systemEvents)\" to tell appearance preferences to set dark mode to \(dark)"
-        var error: NSDictionary?
-        guard let script = NSAppleScript(source: source) else { throw AdapterFailure("The appearance script did not compile.") }
-        script.executeAndReturnError(&error)
-        if let error { throw AdapterFailure("System Events refused the appearance change: \(error).") }
+        let source = """
+            with timeout of 15 seconds
+                tell application id "\(systemEvents)" to tell appearance preferences to set dark mode to \(dark)
+            end timeout
+            """
+        try await ScriptQueue.shared.run {
+            guard let script = NSAppleScript(source: source) else {
+                throw AdapterFailure("The appearance script did not compile.")
+            }
+            var error: NSDictionary?
+            script.executeAndReturnError(&error)
+            guard let error else { return }
+            // The script's one event was refused, so nothing changed: a refusal, as before it ran.
+            let failure = AppleScriptRunner.failure(error, app: "System Events")
+            if let needed = failure as? AutomationPermissionNeeded { throw SystemPermissionNeeded(needed.reason) }
+            throw failure
+        }
     }
 
     /// Starts System Events in the background when it is not running, since the permission check needs

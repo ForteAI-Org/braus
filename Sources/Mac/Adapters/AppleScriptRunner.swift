@@ -96,7 +96,9 @@ indirect enum ScriptValue: Sendable, Equatable {
 /// with its arguments as Apple event parameters. It starts the app hidden when it is not running,
 /// checks without asking that Braus may control it, and only then sends the script.
 ///
-/// NSAppleScript is not thread-safe, so every run happens on the main actor.
+/// NSAppleScript is not thread-safe, so every script runs on `ScriptQueue`, one at a time and off the
+/// main actor. Each fixed script bounds its Apple events with `with timeout`; an event that runs out
+/// answers `AdapterFailure`, and what the script was doing may have happened.
 enum AppleScriptRunner {
 
     /// The app's availability without prompting and without launching it: installed, and the grant as
@@ -136,38 +138,50 @@ enum AppleScriptRunner {
         return status == noErr ? .ready : .needsPermission(automationNeeded(app).reason)
     }
 
-    /// Runs `handler` of `source` with `arguments` on the app. Throws `AutomationPermissionNeeded`
-    /// when the Mac would ask the person first: before the script runs (`beforeAnyEvent`), or from the
-    /// script's own events, which may follow others it sent. Throws `AdapterFailure` when the app or
-    /// the script fails.
-    @MainActor
+    /// Runs `handler` of `source` with `arguments` on the app, the script itself on `ScriptQueue`.
+    /// Throws `AutomationPermissionNeeded` when the Mac would ask the person first: before the script
+    /// runs (`beforeAnyEvent`), or from the script's own events, which may follow others it sent.
+    /// Throws `AdapterFailure` when the app or the script fails, or an event runs out of time.
     static func run(_ source: String, handler: String, _ arguments: [ScriptArgument],
                     bundleID: String, app: String) async throws -> ScriptValue {
         try await launchHidden(bundleID: bundleID, app: app)
         // Asked before the script runs: no event has reached the app.
         if case .failure(let needed) = dispatch(for: grant(bundleID: bundleID), app: app) { throw needed }
-        guard let script = NSAppleScript(source: source) else { throw AdapterFailure("The \(app) script did not compile.") }
-        let event = NSAppleEventDescriptor(eventClass: AEEventClass(kASAppleScriptSuite),
-                                           eventID: AEEventID(kASSubroutineEvent),
-                                           targetDescriptor: .null(),
-                                           returnID: AEReturnID(kAutoGenerateReturnID),
-                                           transactionID: AETransactionID(kAnyTransactionID))
-        event.setParam(NSAppleEventDescriptor(string: handler.lowercased()), forKeyword: AEKeyword(keyASSubroutineName))
-        let parameters = NSAppleEventDescriptor.list()
-        for (index, argument) in arguments.enumerated() { parameters.insert(argument.descriptor, at: index + 1) }
-        event.setParam(parameters, forKeyword: keyDirectObject)
-        var error: NSDictionary?
-        let answer = script.executeAppleEvent(event, error: &error)
-        if let error {
-            let number = (error[NSAppleScript.errorNumber] as? Int) ?? 0
-            if number == Int(errAEEventNotPermitted) || number == Int(errAEEventWouldRequireUserConsent) {
-                // The script ran: events it sent before this one may have had their effect.
-                throw automationNeeded(app, beforeAnyEvent: false)
+        return try await ScriptQueue.shared.run {
+            guard let script = NSAppleScript(source: source) else {
+                throw AdapterFailure("The \(app) script did not compile.")
             }
-            let message = (error[NSAppleScript.errorMessage] as? String) ?? "\(error)"
-            throw AdapterFailure("\(app) refused the script (\(number)): \(message)")
+            let event = NSAppleEventDescriptor(eventClass: AEEventClass(kASAppleScriptSuite),
+                                               eventID: AEEventID(kASSubroutineEvent),
+                                               targetDescriptor: .null(),
+                                               returnID: AEReturnID(kAutoGenerateReturnID),
+                                               transactionID: AETransactionID(kAnyTransactionID))
+            event.setParam(NSAppleEventDescriptor(string: handler.lowercased()),
+                           forKeyword: AEKeyword(keyASSubroutineName))
+            let parameters = NSAppleEventDescriptor.list()
+            for (index, argument) in arguments.enumerated() { parameters.insert(argument.descriptor, at: index + 1) }
+            event.setParam(parameters, forKeyword: keyDirectObject)
+            var error: NSDictionary?
+            let answer = script.executeAppleEvent(event, error: &error)
+            if let error { throw failure(error, app: app) }
+            return ScriptValue(answer)
         }
-        return ScriptValue(answer)
+    }
+
+    /// What a script's error says. The script ran, so events it sent before the error may have had
+    /// their effect, a timeout's included.
+    static func failure(_ error: NSDictionary, app: String) -> any Error {
+        let number = (error[NSAppleScript.errorNumber] as? Int) ?? 0
+        switch number {
+            case Int(errAEEventNotPermitted), Int(errAEEventWouldRequireUserConsent):
+                return automationNeeded(app, beforeAnyEvent: false)
+            case Int(errAETimeout):
+                return AdapterFailure("\(app) did not answer in time: it may be busy or hung, and what the script "
+                                      + "was doing may have happened.")
+            default:
+                let message = (error[NSAppleScript.errorMessage] as? String) ?? "\(error)"
+                return AdapterFailure("\(app) refused the script (\(number)): \(message)")
+        }
     }
 
     /// What the Mac answers, without prompting, to whether Braus may send the app Apple events.

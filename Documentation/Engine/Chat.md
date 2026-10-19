@@ -148,6 +148,15 @@ allowed, which nothing allows yet. An `app_call` keeps the values of its
 verb's content parameters out of its record and transcript, and a verb's
 content results out of the transcript line of its answer.
 
+The verb runs off the main actor (`AppAdapters.call` is `@concurrent`), so a
+script, a contacts fetch, the Messages history read or the `defaults` process
+never stalls the app; its call line is transcribed before it runs and its
+answer line after, so a host shows it running meanwhile. Every AppleScript
+runs on one serial queue (`ScriptQueue`), one at a time, and each fixed
+script bounds its Apple events with `with timeout` (Mail 30 seconds, Notes'
+search 30, the rest 15), so a hung app answers a timeout rather than holding
+the queue.
+
 With the adapters, `open_session` takes `named` and asks the `TaskRouter`
 first: the session resolves the app's name to a bundle id as `open` would
 (the broker through `ApplicationOpening.resolve`, so a name in the person's

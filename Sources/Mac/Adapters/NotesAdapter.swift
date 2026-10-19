@@ -375,81 +375,92 @@ public struct MacNotesTransport: NotesTransporting {
                          account : account)
     }
 
-    /// The only script this transport runs. Every value comes in as a handler parameter.
+    /// The only script this transport runs. Every value comes in as a handler parameter. Each handler
+    /// bounds its Apple events to 15 seconds, and `find_notes` to 30, since it reads every note's text.
     static let script = """
         on list_folders()
-            tell application id "com.apple.Notes"
-                set answer to {}
-                repeat with a in accounts
-                    repeat with f in folders of a
-                        set end of answer to {id of f, name of f, name of a, count of notes of f}
+            with timeout of 15 seconds
+                tell application id "com.apple.Notes"
+                    set answer to {}
+                    repeat with a in accounts
+                        repeat with f in folders of a
+                            set end of answer to {id of f, name of f, name of a, count of notes of f}
+                        end repeat
                     end repeat
-                end repeat
-                return answer
-            end tell
+                    return answer
+                end tell
+            end timeout
         end list_folders
 
         on find_notes(q, folderId, maxCount)
-            tell application id "com.apple.Notes"
-                if folderId is "" then
-                    if q is "" then
-                        set found to every note
+            with timeout of 30 seconds
+                tell application id "com.apple.Notes"
+                    if folderId is "" then
+                        if q is "" then
+                            set found to every note
+                        else
+                            set found to (every note whose name contains q or plaintext contains q)
+                        end if
                     else
-                        set found to (every note whose name contains q or plaintext contains q)
+                        set f to folder id folderId
+                        if q is "" then
+                            set found to every note of f
+                        else
+                            set found to (every note of f whose name contains q or plaintext contains q)
+                        end if
                     end if
-                else
-                    set f to folder id folderId
-                    if q is "" then
-                        set found to every note of f
-                    else
-                        set found to (every note of f whose name contains q or plaintext contains q)
-                    end if
-                end if
-                set answer to {}
-                set n to count of found
-                if n > maxCount then set n to maxCount
-                repeat with i from 1 to n
-                    set m to item i of found
-                    set end of answer to {id of m, name of m, name of container of m, modification date of m}
-                end repeat
-                return answer
-            end tell
+                    set answer to {}
+                    set n to count of found
+                    if n > maxCount then set n to maxCount
+                    repeat with i from 1 to n
+                        set m to item i of found
+                        set end of answer to {id of m, name of m, name of container of m, modification date of m}
+                    end repeat
+                    return answer
+                end tell
+            end timeout
         end find_notes
 
         on read_note(nid)
-            tell application id "com.apple.Notes"
-                set found to (every note whose id is nid)
-                if found is {} then return {}
-                set m to item 1 of found
-                set f to container of m
-                set a to container of f
-                repeat 16 times
-                    if class of a is account then exit repeat
-                    set a to container of a
-                end repeat
-                set accountName to ""
-                if class of a is account then set accountName to name of a
-                return {id of m, name of m, name of f, modification date of m, plaintext of m, id of f, accountName}
-            end tell
+            with timeout of 15 seconds
+                tell application id "com.apple.Notes"
+                    set found to (every note whose id is nid)
+                    if found is {} then return {}
+                    set m to item 1 of found
+                    set f to container of m
+                    set a to container of f
+                    repeat 16 times
+                        if class of a is account then exit repeat
+                        set a to container of a
+                    end repeat
+                    set accountName to ""
+                    if class of a is account then set accountName to name of a
+                    return {id of m, name of m, name of f, modification date of m, plaintext of m, id of f, accountName}
+                end tell
+            end timeout
         end read_note
 
         on create_note(html, folderId)
-            tell application id "com.apple.Notes"
-                if folderId is "" then
-                    set m to make new note with properties {body:html}
-                else
-                    set m to make new note at folder id folderId with properties {body:html}
-                end if
-                return id of m
-            end tell
+            with timeout of 15 seconds
+                tell application id "com.apple.Notes"
+                    if folderId is "" then
+                        set m to make new note with properties {body:html}
+                    else
+                        set m to make new note at folder id folderId with properties {body:html}
+                    end if
+                    return id of m
+                end tell
+            end timeout
         end create_note
 
         on append_to_note(nid, html)
-            tell application id "com.apple.Notes"
-                set m to item 1 of (every note whose id is nid)
-                set body of m to (body of m) & html
-                return true
-            end tell
+            with timeout of 15 seconds
+                tell application id "com.apple.Notes"
+                    set m to item 1 of (every note whose id is nid)
+                    set body of m to (body of m) & html
+                    return true
+                end tell
+            end timeout
         end append_to_note
         """
 }

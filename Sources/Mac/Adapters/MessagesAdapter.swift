@@ -274,15 +274,18 @@ public struct MacMessagesTransport: MessagesTransporting {
         return rows
     }
 
-    /// The only script this transport runs; the handle and the text come in as parameters.
+    /// The only script this transport runs; the handle and the text come in as parameters. Its Apple
+    /// events are bounded to 15 seconds.
     static let script = """
         on send_message(addr, textBody)
-            tell application id "com.apple.MobileSMS"
-                set targetService to 1st account whose service type = iMessage
-                set someone to participant addr of targetService
-                send textBody to someone
-            end tell
-            return true
+            with timeout of 15 seconds
+                tell application id "com.apple.MobileSMS"
+                    set targetService to 1st account whose service type = iMessage
+                    set someone to participant addr of targetService
+                    send textBody to someone
+                end tell
+                return true
+            end timeout
         end send_message
         """
 }

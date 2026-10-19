@@ -103,6 +103,10 @@ public struct AppAdapters: Sendable {
 
     /// Runs one verb through the guards: the arguments, the destructive policy, the availability.
     /// A refused call has done nothing.
+    ///
+    /// It runs off the caller's actor: a verb may block its thread on a script, a contacts fetch, a
+    /// database read or a process, and a caller on the main actor keeps the interface answering.
+    @concurrent
     public func call(app: String, verb: String, arguments: JSONValue) async throws -> AdapterOutcome {
         let (adapter, found) = try resolve(app: app, verb: verb, arguments: arguments)
         // An irreversible verb runs only with the person's consent and its read-back contract (`IrreversiblePolicy`).

@@ -5,6 +5,7 @@ import EngineCore
 import Foundation
 import LocalMCP
 import PerceptionCore
+import Synchronization
 import Testing
 
 @Suite("The app adapters through the tools")
@@ -87,6 +88,26 @@ struct AppAdapterToolsTests {
         let call = try #require(records.first)
         #expect(call.hasPrefix("→ app_call") && call.contains("erase") && call.contains("\"count\":2"), "\(call)")
         #expect(records.allSatisfy { !$0.contains("never shown") && !$0.contains("nor this") }, "\(records)")
+    }
+
+    @Test("an app_call runs off the main actor, after its call line and before its answer line")
+    func runsOffTheMainActor() async throws {
+        let adapter    = BlockingAdapter()
+        let tools      = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([adapter]))
+        let transcript = Transcript()
+        tools.record   = { transcript.lines.append($0) }
+        // Released from the main actor while the verb holds its thread: only a verb run elsewhere lets that happen.
+        let probe = Task { @MainActor in
+            while !adapter.hasStarted { try? await Task.sleep(for: .milliseconds(1)) }
+            let during = transcript.lines
+            adapter.release()
+            return during
+        }
+        let answer = try await tools.call("app_call", .object(["app": .string("blocking"), "verb": .string("wait")]))
+        let during = await probe.value
+        #expect(answer.payload["result"]["released"] == .bool(true), "the main actor waited for the verb")
+        #expect(during.count == 1 && during.first?.hasPrefix("→ app_call") == true, "\(during)")
+        #expect(transcript.lines.count == 2 && transcript.lines.last?.hasPrefix("← app_call") == true)
     }
 
     // MARK: open_session and the task router
@@ -222,6 +243,39 @@ private actor ScribeAdapter: AppAdapting {
             return .confirmed("Wrote \(arguments["path"].string ?? "").")
         }
         return .confirmed("Read it.", .object(["text": .string("the file's own words"), "size": .number(19)]))
+    }
+}
+
+/// Transcript keeps the lines the tools record, on the main actor where they are written.
+@MainActor
+private final class Transcript {
+    var lines: [String] = []
+}
+
+/// BlockingAdapter's one verb holds its thread, as a script does, until `release` or two seconds pass, and answers
+/// whether it was released: a task on the main actor can release it only while the verb runs elsewhere.
+private final class BlockingAdapter: AppAdapting {
+    let name                 = "blocking"
+    let appNames             = ["Blocking"]
+    let bundleIDs: Set<String> = ["test.blocking"]
+    let verbs = [AdapterVerb("wait", "Holds its thread.", safety: .read, readBack: "none, a fake")]
+
+    private let started = Mutex(false)
+    private let gate    = DispatchSemaphore(value: 0)
+
+    var hasStarted: Bool { started.withLock { $0 } }
+
+    func release() { gate.signal() }
+
+    func availability() async -> AdapterAvailability { .ready }
+
+    func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome {
+        started.withLock { $0 = true }
+        return .confirmed("Waited.", .object(["released": .bool(waitForRelease())]))
+    }
+
+    private func waitForRelease() -> Bool {
+        gate.wait(timeout: .now() + 2) == .success
     }
 }
 
