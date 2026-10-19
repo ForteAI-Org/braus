@@ -201,7 +201,7 @@ private let keeper      = installedApp("Keeper Password Manager", bundleID: "com
 @Test func aPasswordManagerIsRefusedByNameOrBundleIdentifierInstalledOrNot() {
     let apps = installed + [onePassword, passwords, keeper]
     for name in ["1Password", "1password.app", "com.1password.1password", "Apple Passwords", "passwords",
-                 "Keeper", "com.keepersecurity.passwordmanager", "Bitwarden", "com.bitwarden.desktop",
+                 "Keeper Password Manager", "com.keepersecurity.passwordmanager", "Bitwarden", "com.bitwarden.desktop",
                  "Proton Pass", "NordPass", "Dashlane", "LastPass", "Enpass"] {
         #expect(refusal(for: name, in: apps).hasPrefix("\"\(name.replacingOccurrences(of: ".app", with: ""))\" "
             + "is a password manager, and you never open one"))
@@ -220,6 +220,19 @@ private let keeper      = installedApp("Keeper Password Manager", bundleID: "com
     #expect(ApplicationOpening.isPasswordManager(installedApp("Proton Pass", bundleID: "me.proton.pass.electron")))
     // A localized name is the bundle identifier's to catch.
     #expect(ApplicationOpening.isPasswordManager(installedApp("Passwörter", bundleID: "com.apple.Passwords")))
+}
+
+@Test func keeperIsNamedOnlyAsItsPasswordManager() throws {
+    let game = installedApp("Dungeon Keeper", bundleID: "com.example.DungeonKeeper")
+    let apps = installed + [keeper, game]
+    #expect(!ApplicationOpening.isPasswordManager(game))
+    #expect(try ApplicationOpening.resolve("Dungeon Keeper", in: apps).bundleID == "com.example.DungeonKeeper")
+    // "Keeper" alone is no refusal, and the password manager, listed nowhere, is never what it names.
+    #expect(try ApplicationOpening.resolve("Keeper", in: apps).bundleID == "com.example.DungeonKeeper")
+    let byBundle = installedApp("Keeper", bundleID: "com.keepersecurity.passwordmanager")
+    let byName   = installedApp("Keeper Password Manager", bundleID: "com.example.Keeper")
+    #expect(ApplicationOpening.isPasswordManager(byBundle))
+    #expect(ApplicationOpening.isPasswordManager(byName))
 }
 
 @Test func aPasswordManagerIsListedNowhere() {

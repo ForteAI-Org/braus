@@ -22,21 +22,25 @@ enum ApplicationOpening {
     /// and nothing else has to know. A password manager is listed nowhere, like this product itself.
     static func isOpenable(_ app: TargetApp) -> Bool { !isPasswordManager(app) }
 
-    /// Password managers by bundle identifier, lowercased: 1Password 8 and 7, Bitwarden, LastPass
-    /// and Apple's Passwords.
+    /// Password managers by bundle identifier, lowercased: 1Password 8 and 7, Bitwarden, LastPass,
+    /// Keeper and Apple's Passwords.
     private static let passwordManagerBundleIDs: Set<String> = [
         "com.1password.1password",
         "com.agilebits.onepassword7",
         "com.bitwarden.desktop",
         "com.lastpass.lastpass",
         "com.apple.passwords",
+        "com.keepersecurity.passwordmanager",
     ]
 
     /// Password managers by name, for the builds and vendors whose bundle identifier is not listed.
-    /// Each entry matches whole words of a name, ignoring case, diacritics and punctuation: "Keeper
-    /// Password Manager" and "Proton Pass" are refused, "Timekeeper" and "Password Generator" are not.
+    /// Each entry matches whole words of a name, ignoring case, diacritics and punctuation: "Proton
+    /// Pass" and "Keeper Password Manager" are refused; "Timekeeper", "Dungeon Keeper" and "Password
+    /// Generator" are not. Keeper is named only with its product's words, since "keeper" alone is a
+    /// common word of other applications' names.
     private static let passwordManagerNames = [
-        "1password", "bitwarden", "dashlane", "lastpass", "nordpass", "proton pass", "keeper", "enpass", "passwords",
+        "1password", "bitwarden", "dashlane", "lastpass", "nordpass", "proton pass", "keeper password manager",
+        "enpass", "passwords",
     ]
 
     /// Whether `app` is a password manager, which no worker opens whatever the task: by its bundle
