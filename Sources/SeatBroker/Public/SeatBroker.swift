@@ -170,9 +170,14 @@ public final class SeatBroker {
     /// ledger answers for it: not the lab's, so not the lab's to quit. An application this call
     /// launched that shows no window in time is quit again before the refusal, since no seat ever
     /// took a window of it; one found running is left alone.
+    ///
+    /// From just before the launch, or the request for a window of a running application, until
+    /// this call returns or throws, `LaunchFrontWatch` gives the front back to the person's window
+    /// each time the application takes it. Nothing is watched when no person's window is attested.
     public func launch(_ app: TargetApp, timeout: Duration = .seconds(20)) async throws -> TargetApp {
         let pid: pid_t
-        var comeback: LaunchFocusComeback?
+        var frontWatch: Task<Void, Never>?
+        defer { frontWatch?.cancel() }
         if let running = app.pid {
             pid = running
             let shown = TargetEnumerator.windows(of: running)
@@ -181,6 +186,7 @@ public final class SeatBroker {
                 throw SeatBrokerError.windowOnAnotherDesktop(application: app.name)
             }
             if shown.isEmpty {
+                frontWatch = watchFront { $0 == running }
                 if app.bundleID == "com.avid.ProTools" {
                     try ProToolsWindowRecovery.request(processID: running)
                 } else if let url = app.bundleURL {
@@ -193,8 +199,10 @@ public final class SeatBroker {
             guard let url = app.bundleURL else {
                 throw SeatBrokerError.driver("\(app.name) is not running and has no bundle to launch.")
             }
-            // Read before the launch: the application may take the front as it starts.
-            comeback = LaunchFocusComeback(allowUnvalidatedBuild: self.configuration.allowUnvalidatedBuild)
+            // Read before the launch: the application may take the front before its process is known,
+            // so it is recognized by its bundle identifier, since no copy of it was running.
+            let bundleID = app.bundleID
+            frontWatch = watchFront { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier == bundleID }
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = false
             pid = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration).processIdentifier
@@ -211,7 +219,6 @@ public final class SeatBroker {
         var watch        = LaunchWindowWatch(timeout: timeout, allowance: Self.startupAllowance)
         var shown: [TargetWindow] = []
         while true {
-            comeback?.restore(ifTakenBy: pid)
             shown = TargetEnumerator.windows(of: pid, maximumLayer: maximumLayer)
             guard launched else {
                 if !shown.isEmpty || ContinuousClock.now - started >= timeout { break }
@@ -243,6 +250,23 @@ public final class SeatBroker {
             wasLaunched: wasLaunched,
             wasQuit    : wasLaunched && ledger.quitUnseated(pid)
         )
+    }
+
+    /// Arms the way back to the person's window and starts `LaunchFrontWatch` on it, off the main
+    /// actor, for the application `isLaunched` names. Nil, watching nothing, when there is no way
+    /// back (`LaunchFocusComeback`). The caller cancels the task once it stops waiting for a window.
+    private func watchFront(isLaunched: @escaping @Sendable (pid_t) -> Bool) -> Task<Void, Never>? {
+        guard let comeback = LaunchFocusComeback(allowUnvalidatedBuild: configuration.allowUnvalidatedBuild)
+        else { return nil }
+        let person = comeback.personsProcessID
+        return Task.detached {
+            await LaunchFrontWatch.run(
+                person    : person,
+                read      : LaunchFrontWatch.liveReading,
+                isLaunched: isLaunched,
+                restore   : { comeback.restore($0) }
+            )
+        }
     }
 
     /// A seat with nothing on it, and nothing brought up yet.

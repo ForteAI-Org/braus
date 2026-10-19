@@ -30,7 +30,7 @@ final class LaunchFocusComeback: FrontRestoring {
 
     /// The front is given back this many times at most: an application that keeps taking it is
     /// the seat's focus recovery's to answer once it is adopted.
-    static let restoreLimit = 3
+    nonisolated static let restoreLimit = 3
 
     private static let log = Logger(subsystem: "dev.forte.AgentSeatKit", category: "Lab")
 
@@ -123,23 +123,37 @@ final class LaunchFocusComeback: FrontRestoring {
         NSWorkspace.shared.frontmostApplication?.processIdentifier == window.processID
     }
 
+    /// The process of the person's window, the one the front goes back to.
+    var personsProcessID: pid_t { window.processID }
+
     /// Gives the front back when `pid`, the application being launched, has taken it.
     func restore(ifTakenBy pid: pid_t) {
-        guard restores < Self.restoreLimit,
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
-        else { return }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+        giveBack(takenBy: pid, seen: "")
+    }
+
+    /// Gives the front back once `LaunchFrontWatch` has seen the launched application hold it, and
+    /// logs which reading showed it and when. It counts against the same `restoreLimit`.
+    func restore(_ taking: LaunchFrontWatch.Taking) {
+        let milliseconds = Int(taking.elapsed / .milliseconds(1))
+        giveBack(takenBy: taking.processID, seen: " (\(taking.signal.rawValue), \(milliseconds) ms after the start)")
+    }
+
+    private func giveBack(takenBy pid: pid_t, seen: String) {
+        guard restores < Self.restoreLimit else { return }
         restores += 1
         do {
             let code = try restorer.restore(window)
             Self.log.notice("""
-                \(self.taker, privacy: .public) \(pid, privacy: .public) took the front: sent it back to \
-                window \(self.window.windowNumber, privacy: .public), request code \(code, privacy: .public)
+                \(self.taker, privacy: .public) \(pid, privacy: .public) took the front\(seen, privacy: .public): \
+                sent it back to window \(self.window.windowNumber, privacy: .public), request code \
+                \(code, privacy: .public)
                 """)
             try restorer.prepare(window, targets: [])
         } catch {
             Self.log.notice("""
-                \(self.taker, privacy: .public) \(pid, privacy: .public) took the front and it could not be \
-                given back: \(String(describing: error), privacy: .public)
+                \(self.taker, privacy: .public) \(pid, privacy: .public) took the front\(seen, privacy: .public) \
+                and it could not be given back: \(String(describing: error), privacy: .public)
                 """)
         }
     }
