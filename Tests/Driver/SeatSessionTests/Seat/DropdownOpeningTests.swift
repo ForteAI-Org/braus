@@ -26,6 +26,14 @@ struct DropdownOpeningTests {
         #expect(DropdownOpening.openingAction(in: [kAXCancelAction]) == nil)
     }
 
+    @Test("a contextual menu opens by Show Menu alone, never by the popup's primary Press")
+    func contextMenuAction() {
+        #expect(DropdownOpening.contextMenuAction(in: [kAXPressAction, kAXShowMenuAction]) == kAXShowMenuAction)
+        #expect(DropdownOpening.contextMenuAction(in: [kAXShowMenuAction]) == kAXShowMenuAction)
+        #expect(DropdownOpening.contextMenuAction(in: [kAXPressAction]) == nil)
+        #expect(DropdownOpening.contextMenuAction(in: []) == nil)
+    }
+
     private let popup = CGRect(x: 200, y: 300, width: 160, height: 90)
 
     @Test("CEF's native popup item at depth twelve remains reachable")

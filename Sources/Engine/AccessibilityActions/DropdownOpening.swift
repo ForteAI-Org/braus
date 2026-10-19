@@ -126,6 +126,18 @@ public enum DropdownOpening {
         return painted[index]
     }
 
+    /// The titles of the enabled items painted in `menuFrame`, for a miss to name what the menu holds.
+    public static func menuItemTitles(in menuFrame: CGRect, processID: pid_t) -> [String] {
+        let root = AXUIElementCreateApplication(processID)
+        AXUIElementSetMessagingTimeout(root, 0.2)
+        let reader = LiveAccessibilityReader()
+        return paintedMenuItems(in: menuFrame, under: root,
+                                drawnMenu: { drawnMenu(in: menuFrame, processID: processID) }, reader: reader)
+            .filter { reader.isEnabled($0) == true }
+            .compactMap { reader.title($0) }
+            .filter { !$0.isEmpty }
+    }
+
     private static func paintedMenuItems<Reader: AccessibilityTreeReading>(
         in menuFrame: CGRect, under root: Reader.Node,
         drawnMenu: () -> Reader.Node?, reader: Reader
@@ -210,27 +222,46 @@ public enum DropdownOpening {
     }
 
     public static func canShow(control label: String, in window: Window) throws -> Bool {
+        try offers(openingAction, control: label, in: window)
+    }
+
+    /// The contextual-menu counterpart of `canShow`: true only when the control offers Show Menu.
+    public static func canShowMenu(control label: String, in window: Window) throws -> Bool {
+        try offers(contextMenuAction, control: label, in: window)
+    }
+
+    private static func offers(
+        _ action: ([String]) -> String?,
+        control label: String,
+        in window: Window
+    ) throws -> Bool {
         let control: AXUIElement
         do { control = try uniqueControl(label: label, in: window) }
         catch Failure.controlMissing { return false }
         var actions: CFArray?
         AXUIElementCopyActionNames(control, &actions)
-        return openingAction(in: actions as? [String] ?? []) != nil
+        return action(actions as? [String] ?? []) != nil
     }
 
     public static func show(control label: String, window title: String, processID: pid_t) throws {
         let control = try uniqueControl(label: label, window: title, processID: processID)
-        try show(control)
+        try show(control, action: openingAction)
     }
 
     public static func show(control label: String, in window: Window) throws {
-        try show(uniqueControl(label: label, in: window))
+        try show(uniqueControl(label: label, in: window), action: openingAction)
     }
 
-    private static func show(_ control: AXUIElement) throws {
+    /// Opens the control's contextual menu. Like `show`, a timeout is an uncertain delivery
+    /// that only the menu's window can confirm.
+    public static func showMenu(control label: String, in window: Window) throws {
+        try show(uniqueControl(label: label, in: window), action: contextMenuAction)
+    }
+
+    private static func show(_ control: AXUIElement, action pick: ([String]) -> String?) throws {
         var actions: CFArray?
         AXUIElementCopyActionNames(control, &actions)
-        guard let action = openingAction(in: actions as? [String] ?? []) else { throw Failure.showMenuUnsupported }
+        guard let action = pick(actions as? [String] ?? []) else { throw Failure.showMenuUnsupported }
         AXUIElementSetMessagingTimeout(control, 0.2)
         let result = AXUIElementPerformAction(control, action as CFString)
         guard result == .success || result == .cannotComplete else { throw Failure.actionRefused(result.rawValue) }
@@ -241,6 +272,12 @@ public enum DropdownOpening {
     static func openingAction(in actions: [String]) -> String? {
         if actions.contains(kAXPressAction) { return kAXPressAction }
         return actions.contains(kAXShowMenuAction) ? kAXShowMenuAction : nil
+    }
+
+    /// Show Menu alone opens a contextual menu. A popup's Press is its primary action and
+    /// opens something else, so it is never a fallback here.
+    static func contextMenuAction(in actions: [String]) -> String? {
+        actions.contains(kAXShowMenuAction) ? kAXShowMenuAction : nil
     }
 
     /// Reads the bounds of one exact native dropdown, without opening it. The caller must reject

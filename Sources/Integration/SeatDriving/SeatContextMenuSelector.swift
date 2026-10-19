@@ -1,3 +1,4 @@
+import AccessibilityActions
 import CoreGraphics
 import EngineCore
 import Foundation
@@ -6,6 +7,7 @@ import PerceptionCore
 import SeatCapture
 import SeatCore
 import SeatSession
+import WindowPlacement
 
 /// SeatContextMenuSelector chooses one observed row through the Driver's scoped menu interaction.
 /// The menu's capture and input share its attested identity. The Driver revokes that authority and
@@ -90,57 +92,98 @@ public struct SeatContextMenuSelector {
         ) {
             return ActOutcome(.refused, "'\(item)' requires --allow-destructive", scene: before.scene)
         }
-        if permissions.contextMenusOnTextFieldsOnly,
-           !AccessibilityAugmentation.textEntryRoles.contains(opener.role ?? "") {
-            return ActOutcome(.refused, "\(identity.name) opens this control's menu outside the Seat; use a native text field or a visible button", scene: before.scene)
+        let captured = beforeDelivery.geometry.window
+        let nativeWindow = DropdownOpening.Window(
+            processID    : captured.processID,
+            number       : captured.windowNumber,
+            frame        : captured.frame,
+            resolveNumber: { WindowRelocator.windowNumber(of: $0) }
+        )
+        let route = Self.route(
+            opener        : opener.role,
+            textFieldsOnly: permissions.contextMenusOnTextFieldsOnly,
+            offersShowMenu: { (try? DropdownOpening.canShowMenu(control: opener.label, in: nativeWindow)) == true }
+        )
+        if route == .refused {
+            return ActOutcome(.refused, "\(identity.name) opens this control's menu outside the Seat and the control offers no native menu action; use a native text field or a visible button", scene: before.scene)
         }
         if dryRun {
-            return ActOutcome(.dryRun, "would open '\(opener.label)' and choose '\(item)' in its observed menu", scene: before.scene)
+            let opening = route == .native ? " through its native show-menu action" : ""
+            return ActOutcome(.dryRun, "would open '\(opener.label)'\(opening) and choose '\(item)' in its observed menu", scene: before.scene)
         }
         perception.target = opener
-        guard let location = InputLocation(screenPoint: before.globalPoint(of: opener), observedIn: beforeDelivery.geometry) else {
-            throw SeatDrivingFailure.frameUnusable
-        }
         var selected: String?
         var missing: String?
         var failure: String?
         var menuWindow: PerceivedWindow?
-        let result = try await seat.withContextMenu(
-            openedAt: location, observation: beforeDelivery.reference, turn: turn
-        ) { interaction in
-            do {
+        let cleanup: String
+        let menuNumber: Int
+        if route == .native {
+            // The menu is chosen through its own accessibility items: no pixels, no pointer.
+            @MainActor @Sendable func choose(_ menu: ContextMenu) async throws -> Bool {
                 try Task.checkCancellation()
-                let delivery: SeatObservationDelivery
-                switch await interaction.observe() {
-                    case .success(let observed): delivery = observed
-                    case .failure(let reason): throw reason
-                }
-                let menu = try await perceive(delivery, identity: identity, title: "Contextual menu")
-                menuWindow = menu
-                // The scene's own resolution first, then the menu title rule that names
-                // `Compress “file”` by "Compress"; a miss names what the menu holds.
-                let enabled = menu.scene.elements.filter { !$0.isUnlabeled && $0.isEnabled != false }
-                var chosen: SceneElement?
-                if case .found(let found) = menu.scene.resolve(target: item) {
-                    chosen = found.isEnabled != false ? found : nil
-                } else {
-                    chosen = LabelText.menuItemMatch(item, in: enabled.map(\.label)).map { enabled[$0] }
-                }
-                guard let row = chosen else {
-                    let titles = enabled.map(\.label).filter { LabelText.isNameworthy($0) }
-                    missing = "no unique enabled '\(item)' in the observed menu. It holds: "
+                do {
+                    try DropdownOpening.select(item: item, in: menu.frame, processID: menu.window.processID)
+                } catch DropdownOpening.Failure.controlNotUnique {
+                    let titles = DropdownOpening.menuItemTitles(in: menu.frame, processID: menu.window.processID)
+                    missing = "no unique enabled '\(item)' in the native menu. It holds: "
                         + (titles.isEmpty ? "nothing readable" : titles.joined(separator: ", "))
-                    return
+                    return false
                 }
-                guard let choice = InputLocation(screenPoint: menu.globalPoint(of: row), observedIn: delivery.geometry) else {
-                    throw SeatDrivingFailure.frameUnusable
-                }
-                try Task.checkCancellation()
-                try await interaction.send(.click(choice, button: .left), observation: delivery.reference)
-                selected = row.label
-            } catch {
-                failure = String(describing: error)
+                selected = item
+                return true
             }
+            let receipt = try await seat.useNativePopupMenu(
+                of      : parent,
+                turn    : turn,
+                opening : { try DropdownOpening.showMenu(control: opener.label, in: nativeWindow) },
+                choosing: choose
+            )
+            cleanup    = "\(receipt.closedBy)"
+            menuNumber = receipt.menu.window.windowNumber
+        } else {
+            guard let location = InputLocation(screenPoint: before.globalPoint(of: opener), observedIn: beforeDelivery.geometry) else {
+                throw SeatDrivingFailure.frameUnusable
+            }
+            let result = try await seat.withContextMenu(
+                openedAt: location, observation: beforeDelivery.reference, turn: turn
+            ) { interaction in
+                do {
+                    try Task.checkCancellation()
+                    let delivery: SeatObservationDelivery
+                    switch await interaction.observe() {
+                        case .success(let observed): delivery = observed
+                        case .failure(let reason): throw reason
+                    }
+                    let menu = try await perceive(delivery, identity: identity, title: "Contextual menu")
+                    menuWindow = menu
+                    // The scene's own resolution first, then the menu title rule that names
+                    // `Compress “file”` by "Compress"; a miss names what the menu holds.
+                    let enabled = menu.scene.elements.filter { !$0.isUnlabeled && $0.isEnabled != false }
+                    var chosen: SceneElement?
+                    if case .found(let found) = menu.scene.resolve(target: item) {
+                        chosen = found.isEnabled != false ? found : nil
+                    } else {
+                        chosen = LabelText.menuItemMatch(item, in: enabled.map(\.label)).map { enabled[$0] }
+                    }
+                    guard let row = chosen else {
+                        let titles = enabled.map(\.label).filter { LabelText.isNameworthy($0) }
+                        missing = "no unique enabled '\(item)' in the observed menu. It holds: "
+                            + (titles.isEmpty ? "nothing readable" : titles.joined(separator: ", "))
+                        return
+                    }
+                    guard let choice = InputLocation(screenPoint: menu.globalPoint(of: row), observedIn: delivery.geometry) else {
+                        throw SeatDrivingFailure.frameUnusable
+                    }
+                    try Task.checkCancellation()
+                    try await interaction.send(.click(choice, button: .left), observation: delivery.reference)
+                    selected = row.label
+                } catch {
+                    failure = String(describing: error)
+                }
+            }
+            cleanup    = "\(result.cleanup)"
+            menuNumber = result.menu.window.windowNumber
         }
         try Task.checkCancellation()
         // A failed post-menu reading cannot turn a delivered choice into a dead click or invite
@@ -161,7 +204,7 @@ public struct SeatContextMenuSelector {
         if let failure, selected == nil {
             return ActOutcome(
                 .actedUnverified,
-                "contextual menu interaction: \(failure); cleanup: \(result.cleanup). Inspect the intended effect before further input",
+                "contextual menu interaction: \(failure); cleanup: \(cleanup). Inspect the intended effect before further input",
                 scene: after,
                 check: OperationCheck(
                     condition: .menuItemChosen,
@@ -178,7 +221,7 @@ public struct SeatContextMenuSelector {
             // The menu opened and was withdrawn with no row chosen: the requested choice was not performed.
             return ActOutcome(
                 .honestMiss,
-                "\(missing); cleanup: \(result.cleanup)",
+                "\(missing); cleanup: \(cleanup)",
                 scene: after,
                 check: OperationCheck(
                     condition : .menuItemChosen,
@@ -207,13 +250,22 @@ public struct SeatContextMenuSelector {
         if let failure {
             return ActOutcome(
                 .actedUnverified,
-                "contextual menu interaction: \(failure); cleanup: \(result.cleanup). Inspect the intended effect before further input",
+                "contextual menu interaction: \(failure); cleanup: \(cleanup). Inspect the intended effect before further input",
                 scene: after,
                 check: chosen
             )
         }
-        let message = "requested '\(selected ?? item)' in menu #\(result.menu.window.windowNumber); cleanup: \(result.cleanup). The command's application effect remains unverified: inspect it before further input"
+        let message = "requested '\(selected ?? item)' in menu #\(menuNumber); cleanup: \(cleanup). The command's application effect remains unverified: inspect it before further input"
         return ActOutcome(.actedUnverified, message, scene: after, check: chosen)
+    }
+
+    /// How the opener's menu is reached: a posted right click, the control's own Show Menu action,
+    /// or neither. Where menus open under the person's pointer, only a text field's opens in the Seat.
+    enum Route { case pointer, native, refused }
+
+    static func route(opener role: String?, textFieldsOnly: Bool, offersShowMenu: () -> Bool) -> Route {
+        guard textFieldsOnly, !AccessibilityAugmentation.textEntryRoles.contains(role ?? "") else { return .pointer }
+        return offersShowMenu() ? .native : .refused
     }
 
     private func perceive(

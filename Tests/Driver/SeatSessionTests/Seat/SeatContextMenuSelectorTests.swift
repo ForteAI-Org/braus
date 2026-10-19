@@ -4,7 +4,7 @@ import Foundation
 import Perception
 import PerceptionCore
 import SeatCore
-import SeatDriving
+@testable import SeatDriving
 @testable import SeatSession
 import Testing
 
@@ -138,7 +138,33 @@ struct SeatContextMenuSelectorTests {
             permissions: ActionPermissions(contextMenusOnTextFieldsOnly: true)
         )
         #expect(outcome.kind == .refused)
+        #expect(outcome.message.contains("outside the Seat"), Comment(rawValue: outcome.message))
         #expect(c.sender.sent.isEmpty)
+        #expect(c.sensing.menus.isEmpty)
+    }
+
+    // The native route needs a live accessibility tree the fakes cannot provide: the decision is covered here.
+    @Test("where menus open under the pointer, a non-text opener needs its own Show Menu action")
+    func routeByOpener() {
+        #expect(SeatContextMenuSelector.route(opener: "AXButton", textFieldsOnly: false, offersShowMenu: { true }) == .pointer)
+        #expect(SeatContextMenuSelector.route(opener: "AXTextField", textFieldsOnly: true, offersShowMenu: { false }) == .pointer)
+        #expect(SeatContextMenuSelector.route(opener: "AXPopUpButton", textFieldsOnly: true, offersShowMenu: { true }) == .native)
+        #expect(SeatContextMenuSelector.route(opener: "AXButton", textFieldsOnly: true, offersShowMenu: { false }) == .refused)
+        #expect(SeatContextMenuSelector.route(opener: nil, textFieldsOnly: true, offersShowMenu: { false }) == .refused)
+    }
+
+    @Test("a destructive item refuses before any native menu route is considered")
+    func destructiveRefusesUnderTextFieldsOnly() async throws {
+        let c = try await ContextMenuTests.ready()
+        try c.seat.release(c.turn)
+        let outcome = try await selector(seat: c.seat).select(
+            item: "Delete", on: "button", identity: identity,
+            permissions: ActionPermissions(contextMenusOnTextFieldsOnly: true)
+        )
+        #expect(outcome.kind == .refused)
+        #expect(outcome.message.contains("--allow-destructive"))
+        #expect(c.sender.sent.isEmpty)
+        #expect(c.sensing.menus.isEmpty)
     }
 
     @Test("a rehearsal observes without opening a menu")
