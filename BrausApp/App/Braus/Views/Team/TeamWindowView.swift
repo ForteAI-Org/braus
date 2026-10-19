@@ -32,6 +32,9 @@ struct TeamWindowView: View {
     /// Told once the team is made, so quitting can write what is typed in it.
     var didOpenTeam: (TeamModel) -> Void
 
+    /// The irreversible adapter calls waiting for the person, the app's one queue, which the team's workers use.
+    var approvals: AdapterApprovals? = nil
+
     @State private var team: TeamModel?
 
     /// Closed in a new window, and as the person left it in a restored one.
@@ -56,7 +59,8 @@ struct TeamWindowView: View {
                 let model = TeamModel(
                     store      : store,
                     connections: connections,
-                    broker     : broker
+                    broker     : broker,
+                    approvals  : approvals
                 )
                 didOpenTeam(model)
                 await model.load()

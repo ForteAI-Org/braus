@@ -170,6 +170,9 @@ final class TeamModel {
     /// Where a turn reads the app's preferences as it starts (`AppPreferences`).
     private let preferences: UserDefaults
 
+    /// The irreversible adapter calls waiting for the person's answer, which the window shows; nil refuses them.
+    let approvals: AdapterApprovals?
+
     private static let log = Logger(
         subsystem: "dev.forte.Braus",
         category : "Context"
@@ -217,7 +220,8 @@ final class TeamModel {
         broker          : SeatBroker,
         agents          : @escaping (ModelProvider) throws -> (ChatProvider, URL) = WorkerAgentHost.agent(for:),
         bridgeExecutable: URL = Bundle.main.bundleURL.appending(path: "Contents/Helpers/braus-bridge"),
-        preferences     : UserDefaults = .standard
+        preferences     : UserDefaults = .standard,
+        approvals       : AdapterApprovals? = nil
     ) {
         self.store            = store
         self.connections      = connections
@@ -225,6 +229,7 @@ final class TeamModel {
         self.agents           = agents
         self.bridgeExecutable = bridgeExecutable
         self.preferences      = preferences
+        self.approvals        = approvals
     }
 
     // MARK: Reading
@@ -714,7 +719,8 @@ final class TeamModel {
                     catalogue: connections.catalogues[selection.provider] ?? []
                 )
             },
-            seatLine        : { desktop.turnStatus }
+            seatLine        : { desktop.turnStatus },
+            adapterApprover : approvals.map { AdapterApprover(approvals: $0) }
         )
         host.callProducer = CallProducer(source: .app, streamID: "worker-" + workerID.uuidString)
         hosts[conversationID] = host

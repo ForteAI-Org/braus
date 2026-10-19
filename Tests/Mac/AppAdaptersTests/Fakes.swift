@@ -1,6 +1,35 @@
 import AppAdapters
 import Foundation
 
+/// FakeApprover answers every consent as the person would: allowing it, refusing it, or leaving it until the waiting
+/// task is cancelled, which answers no as the app's approvals do. It keeps what it was asked.
+actor FakeApprover: AdapterApproving {
+
+    enum Answer {
+        case allow, refuse, waitUntilCancelled
+    }
+
+    private let answer: Answer
+    private(set) var asked: [AdapterConsent] = []
+
+    init(_ answer: Answer) {
+        self.answer = answer
+    }
+
+    func approve(_ consent: AdapterConsent) async -> Bool {
+        asked.append(consent)
+        switch answer {
+            case .allow:
+                return true
+            case .refuse:
+                return false
+            case .waitUntilCancelled:
+                while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
+                return false
+        }
+    }
+}
+
 /// FakeSystemTransport keeps the settings in memory; `ignoresWrites` plays a Mac that accepts a change
 /// and does not apply it, and `permissionNeeded` one that would prompt.
 actor FakeSystemTransport: SystemTransporting {

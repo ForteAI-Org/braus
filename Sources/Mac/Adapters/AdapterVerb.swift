@@ -10,8 +10,8 @@ public struct AdapterVerb: Sendable, Equatable {
     /// qualified by the adapter, `calendar.create_event`.
     public typealias Name = String
 
-    /// How far a verb reaches. `irreversible` verbs (send, delete, trash) run only when the person allowed
-    /// destructive actions and the verb reads its change back (`IrreversiblePolicy`).
+    /// How far a verb reaches. `irreversible` verbs (send, delete, trash) run only when the person allows
+    /// that one call and the verb reads its change back (`IrreversiblePolicy`).
     public enum Safety: String, Sendable, Equatable {
         case read, write, irreversible
     }

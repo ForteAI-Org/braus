@@ -67,6 +67,8 @@ final class SeatReleasingDelegate: NSObject, NSApplicationDelegate {
             await Self.bounded(.seconds(5)) { [model] in
                 await model?.mcp.shutdown()
                 for team in agents { await team.closeAgentHosts() }
+                // An external client's call still waiting for the person is refused, so nothing waits on it.
+                model?.approvals.refuseAll()
                 // A worker's seat is parked warm once given back; this takes its display down too.
                 await model?.broker.queue.shutdown()
             }

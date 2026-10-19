@@ -58,7 +58,8 @@ struct BrausApp: App {
                 launch     : workspace,
                 connections: model.settings,
                 broker     : model.broker,
-                didOpenTeam: { delegate.teams.add($0) }
+                didOpenTeam: { delegate.teams.add($0) },
+                approvals  : model.approvals
             )
             // The delegate is made by AppKit and the model by SwiftUI, so
             // this window, the one that always exists, is where they meet.

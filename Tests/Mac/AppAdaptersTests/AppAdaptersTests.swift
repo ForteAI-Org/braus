@@ -9,10 +9,10 @@ import Testing
 @Suite("App adapters: lookup, argument checks, destructive policy, availability")
 struct AppAdaptersTests {
 
-    static func adapters(store: FakeEventStore = FakeEventStore(), allowsIrreversible: Bool = false,
+    static func adapters(store: FakeEventStore = FakeEventStore(), approver: FakeApprover? = nil,
                          system: FakeSystemTransport = FakeSystemTransport()) -> AppAdapters {
         AppAdapters([SystemAdapter(transport: system), CalendarAdapter(store: store), RemindersAdapter(store: store)],
-                    allowsIrreversible: allowsIrreversible)
+                    approver: approver)
     }
 
     @Test("An app is found by adapter name, app name or bundle id, without case")
@@ -51,7 +51,7 @@ struct AppAdaptersTests {
         #expect(await system.writes == 0)
     }
 
-    @Test("An irreversible verb is refused unless destructive actions are allowed, and nothing is done")
+    @Test("An irreversible verb is refused unless the person allows the call, and nothing is done")
     func irreversible() async throws {
         let store = FakeEventStore()
         let event = StoreEvent(id: "e1", title: "Braus test", start: Date(), end: Date().addingTimeInterval(3600),
@@ -61,7 +61,7 @@ struct AppAdaptersTests {
                                                                  arguments: .object(["id": .string("e1")]))
         #expect(refused.kind == .refused)
         #expect(await store.events.count == 1)
-        let deleted = try await Self.adapters(store: store, allowsIrreversible: true)
+        let deleted = try await Self.adapters(store: store, approver: FakeApprover(.allow))
             .call(app: "calendar", verb: "delete_event", arguments: .object(["id": .string("e1")]))
         // R07: confirmed only by its read-back, and the effect is there: the event is gone from the store.
         #expect(deleted.kind == .foundActed && deleted.confirmedByReadBack)
@@ -98,7 +98,7 @@ struct AppAdaptersTests {
     @Test("R07: an irreversible verb that declares no read-back contract is refused, even with the person's consent")
     func irreversibleWithoutContract() async throws {
         let undeclared = ScriptedAdapter(confirms: .none, readsBack: true)
-        let refused = try await AppAdapters([undeclared], allowsIrreversible: true)
+        let refused = try await AppAdapters([undeclared], approver: FakeApprover(.allow))
             .call(app: "scripted", verb: "purge", arguments: .null)
         #expect(refused.kind == .refused && refused.message.contains("cannot read its effect back"),
                 Comment(rawValue: refused.message))
@@ -111,12 +111,13 @@ struct AppAdaptersTests {
     @Test("R07: a confirmed answer its read-back did not give is not a confirmation: it may have happened")
     func confirmationCheckedInTheResult() async throws {
         let liar = ScriptedAdapter(confirms: .readBack, readsBack: false)
-        let outcome = try await AppAdapters([liar], allowsIrreversible: true).call(app: "scripted", verb: "purge",
-                                                                                   arguments: .null)
+        let outcome = try await AppAdapters([liar], approver: FakeApprover(.allow))
+            .call(app: "scripted", verb: "purge", arguments: .null)
         #expect(outcome.kind == .actedUnverified && outcome.message.contains("without reading its change back"),
                 Comment(rawValue: outcome.message))
         #expect(liar.calls == 1, "it ran once, and nothing is repeated")
-        let truthful = AppAdapters([ScriptedAdapter(confirms: .readBack, readsBack: true)], allowsIrreversible: true)
+        let truthful = AppAdapters([ScriptedAdapter(confirms: .readBack, readsBack: true)],
+                                   approver: FakeApprover(.allow))
         let honest = try await truthful.call(app: "scripted", verb: "purge", arguments: .null)
         #expect(honest.kind == .foundActed && honest.confirmedByReadBack)
     }

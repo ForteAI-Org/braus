@@ -101,14 +101,16 @@ final class WorkerAgentHost {
     /// nothing states it (`ModelToolLoop.contextWindow`). `seatLine` describes
     /// the seat as a turn begins (`BrokeredAutomationSession.turnStatus`), nil
     /// when there is none to describe; it goes ahead of the prompt the provider
-    /// receives and is never recorded.
+    /// receives and is never recorded. `adapterApprover` asks the person before
+    /// an adapter's irreversible verb runs; without one those verbs are refused.
     convenience init(
         workingDirectory: URL,
         bridgeExecutable: URL,
         session         : () -> any AutomationSessionOperating,
         transports      : @escaping (ModelSelection) -> any ModelTransport = { $0.transport() },
         contextWindows  : @escaping (ModelSelection) -> Int?               = { _ in nil },
-        seatLine        : @escaping @MainActor () -> String?               = { nil }
+        seatLine        : @escaping @MainActor () -> String?               = { nil },
+        adapterApprover : (any AdapterApproving)?                          = nil
     ) {
         self.init(
             workingDirectory: workingDirectory,
@@ -117,7 +119,8 @@ final class WorkerAgentHost {
             agents          : Self.agent(for:),
             transports      : transports,
             contextWindows  : contextWindows,
-            seatLine        : seatLine
+            seatLine        : seatLine,
+            adapterApprover : adapterApprover
         )
     }
 
@@ -130,7 +133,8 @@ final class WorkerAgentHost {
         agents          : @escaping (ModelProvider) throws -> (ChatProvider, URL),
         transports      : @escaping (ModelSelection) -> any ModelTransport = { $0.transport() },
         contextWindows  : @escaping (ModelSelection) -> Int?               = { _ in nil },
-        seatLine        : @escaping @MainActor () -> String?               = { nil }
+        seatLine        : @escaping @MainActor () -> String?               = { nil },
+        adapterApprover : (any AdapterApproving)?                          = nil
     ) {
         self.workingDirectory = workingDirectory
         self.bridgeExecutable = bridgeExecutable
@@ -139,7 +143,10 @@ final class WorkerAgentHost {
         self.contextWindows   = contextWindows
         self.seatLine         = seatLine
         // A worker's tools offer the app adapters; `instructions` says so in their words.
-        let tools  = AutomationTools(session: session(), adapters: .standard())
+        let tools  = AutomationTools(
+            session : session(),
+            adapters: .standard(approver: adapterApprover)
+        )
         let router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
             try await tools.call(name, arguments)
         }

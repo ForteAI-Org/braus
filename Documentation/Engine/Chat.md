@@ -143,8 +143,17 @@ share these definitions and their validation.
 `app_capabilities` and `app_call` reach an app's adapter (`AppAdapters`) with
 no session, and exist only where the composition passes the adapters to
 `AutomationTools`: the app does for its workers and external clients, CLI chat
-does not. An irreversible verb is refused until destructive actions are
-allowed, which nothing allows yet. An `app_call` keeps the values of its
+does not. An irreversible verb (`mail.send`, `messages.send_message`,
+`calendar.delete_event`, `files.move_to_trash`) runs only when the person
+allows that one call: `AppAdapters` asks its approver (`AdapterApproving`)
+with what the call would do (recipient, subject and first lines of a mail,
+an event's title and date, a path), after the read-back contract and the
+availability pass. The app's approver is the team window's approval sheet
+(`AdapterApprover` over `AdapterApprovals`: Allow Once only, buttons inert
+for a second, refused after two minutes); a no, a timeout or a cancelled
+call is refused with nothing done, an allowed call runs once and is never
+retried. A composition without an approver, CLI chat included, refuses
+every irreversible verb. An `app_call` keeps the values of its
 verb's content parameters out of its record and transcript, and a verb's
 content results out of the transcript line of its answer.
 

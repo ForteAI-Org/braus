@@ -31,14 +31,17 @@ final class ExternalMCPSession {
         }
     }
 
+    /// `adapterApprover` asks the person in the app before an adapter's irreversible verb runs; without one
+    /// those verbs are refused.
     init(
         profile: MCPClientProfile,
         session: any AutomationSessionOperating,
         perform: @escaping Performing = { try await $0() },
-        activity: @escaping @MainActor (String) -> Void = { _ in }
+        activity: @escaping @MainActor (String) -> Void = { _ in },
+        adapterApprover: (any AdapterApproving)? = nil
     ) {
         self.profile = profile
-        self.tools = AutomationTools(session: session, adapters: .standard())
+        self.tools = AutomationTools(session: session, adapters: .standard(approver: adapterApprover))
         self.tools.producer = CallProducer(source: .mcp, streamID: "mcp-" + profile.id.uuidString)
         self.perform = perform
         self.activity = activity

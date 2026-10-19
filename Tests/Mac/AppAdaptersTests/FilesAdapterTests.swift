@@ -16,7 +16,7 @@ struct FilesAdapterTests {
     let root: URL
     let trash: URL
     let adapter: FilesAdapter
-    /// The adapter behind the schema check and the policies, as the tools reach it; destructive verbs allowed here.
+    /// The adapter behind the schema check and the policies, as the tools reach it; the person allows every irreversible call here.
     let guarded: AppAdapters
 
     init() throws {
@@ -25,7 +25,7 @@ struct FilesAdapterTests {
         try FileManager.default.createDirectory(at: root.appendingPathComponent("Library"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
         adapter = FilesAdapter(root: root, trash: Self.trashing(into: trash))
-        guarded = AppAdapters([adapter], allowsIrreversible: true)
+        guarded = AppAdapters([adapter], approver: FakeApprover(.allow))
     }
 
     static func trashing(into bin: URL) -> @Sendable (URL) throws -> URL? {

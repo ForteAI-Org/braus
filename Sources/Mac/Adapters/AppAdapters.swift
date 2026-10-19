@@ -6,20 +6,22 @@ import LocalMCP
 /// adapter an app name stands for, checks a verb's arguments against its schema, applies the
 /// destructive policy and the adapter's availability, and only then runs the verb.
 ///
-/// It holds no state between calls. Adding an adapter is one line in `standard`.
+/// It holds no state between calls, so a call waiting for the person's consent holds back no other
+/// call. Adding an adapter is one line in `standard`.
 public struct AppAdapters: Sendable {
 
     public let adapters: [any AppAdapting]
-    /// Whether `irreversible` verbs may run: the engine's `allowsDestructive`.
-    public let allowsIrreversible: Bool
+    /// Who asks the person before an `irreversible` verb runs, once per call; nil (the command line,
+    /// tests) refuses every irreversible verb.
+    public let approver: (any AdapterApproving)?
 
-    public init(_ adapters: [any AppAdapting], allowsIrreversible: Bool = false) {
-        self.adapters           = adapters
-        self.allowsIrreversible = allowsIrreversible
+    public init(_ adapters: [any AppAdapting], approver: (any AdapterApproving)? = nil) {
+        self.adapters = adapters
+        self.approver = approver
     }
 
     /// The adapters of this build on the Mac's own transports.
-    public static func standard(allowsIrreversible: Bool = false) -> AppAdapters {
+    public static func standard(approver: (any AdapterApproving)? = nil) -> AppAdapters {
         let store = EventKitStore()
         return AppAdapters([
             SystemAdapter(transport: MacSystemTransport()),
@@ -30,7 +32,7 @@ public struct AppAdapters: Sendable {
             MailAdapter(transport: MacMailTransport()),
             MessagesAdapter(transport: MacMessagesTransport()),
             NotesAdapter(transport: MacNotesTransport()),
-        ], allowsIrreversible: allowsIrreversible)
+        ], approver: approver)
     }
 
     /// The adapter an app stands for: its adapter name, one of its app names or one of its bundle
@@ -101,35 +103,53 @@ public struct AppAdapters: Sendable {
         return (adapter, found)
     }
 
-    /// Runs one verb through the guards: the arguments, the destructive policy, the availability.
-    /// A refused call has done nothing.
+    /// Runs one verb through the guards: the arguments, the destructive policy, the availability, and
+    /// for an irreversible verb the person's yes to this call (`approver`). A refused call has done
+    /// nothing; an allowed one runs once and is never repeated here.
     ///
     /// It runs off the caller's actor: a verb may block its thread on a script, a contacts fetch, a
     /// database read or a process, and a caller on the main actor keeps the interface answering.
     @concurrent
     public func call(app: String, verb: String, arguments: JSONValue) async throws -> AdapterOutcome {
         let (adapter, found) = try resolve(app: app, verb: verb, arguments: arguments)
-        // An irreversible verb runs only with the person's consent and its read-back contract (`IrreversiblePolicy`).
+        let arguments = arguments == .null ? JSONValue.object([:]) : arguments
+        let qualified = "\(adapter.name).\(found.name)"
+        let readBack: IrreversiblePolicy.ReadBack = found.confirmation == .readBack ? .confirms : .cannotConfirm
+        // A call nobody here can allow, or one that could not confirm its change, is refused before anyone is asked.
         if found.safety == .irreversible {
-            let readBack: IrreversiblePolicy.ReadBack = found.confirmation == .readBack ? .confirms : .cannotConfirm
-            switch IrreversiblePolicy.decision(allowed: allowsIrreversible, readBack: readBack) {
+            switch IrreversiblePolicy.decision(allowed: approver != nil, readBack: readBack) {
                 case .allowed:
                     break
                 case .needsConsent:
-                    return .refused("\(adapter.name).\(found.name) cannot be undone and destructive actions are off "
-                                    + "here. Ask the person, who can allow it.")
+                    return .refused("\(qualified) cannot be undone and destructive actions are off here. Ask the "
+                                    + "person, who can allow it.")
                 case .cannotReadBack:
-                    return .refused(IrreversiblePolicy.readBackRefusal("\(adapter.name).\(found.name)"))
+                    return .refused(IrreversiblePolicy.readBackRefusal(qualified))
             }
         }
         switch await adapter.availability() {
             case .ready, .unknown:
                 // An unknown grant is checked by the verb itself, before any event reaches the app.
-                let outcome = try await adapter.call(found.name, arguments == .null ? .object([:]) : arguments)
-                return Self.checked(outcome, of: found, in: adapter.name)
+                break
             case .needsPermission(let reason), .unavailable(let reason):
                 return .refused(reason)
         }
+        if found.safety == .irreversible, let approver {
+            let consent = AdapterConsent(
+                adapter  : adapter.name,
+                app      : adapter.appNames.first ?? adapter.name,
+                verb     : found.name,
+                arguments: await adapter.consentArguments(found.name, arguments)
+            )
+            // The yes is for this one call; a call cancelled while it waited does not run.
+            let allowed = await approver.approve(consent) && !Task.isCancelled
+            guard IrreversiblePolicy.decision(allowed: allowed, readBack: readBack) == .allowed else {
+                return .refused("The person did not allow \(qualified), or did not answer in time: nothing was done. "
+                                + "Do not try it again unless the person asks.")
+            }
+        }
+        let outcome = try await adapter.call(found.name, arguments)
+        return Self.checked(outcome, of: found, in: adapter.name)
     }
 
     /// An irreversible verb's confirmed answer, checked against its contract: one its read-back did not give is not a

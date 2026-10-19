@@ -190,6 +190,8 @@ struct TeamShellView: View {
                 Archive the worker instead if you want to keep its history.
                 """)
         }
+        // An irreversible adapter call waits here for the person, one call at a time.
+        .adapterApprovals(team.approvals)
         .alert(
             team.problem?.title ?? "Braus Couldn’t Complete the Action",
             isPresented: Binding(

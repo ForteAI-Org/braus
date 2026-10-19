@@ -25,6 +25,9 @@ final class AppModel {
 
     let settings = ModelSettingsStore()
 
+    /// The irreversible adapter calls waiting for the person, shared by the workers and the external clients.
+    let approvals = AdapterApprovals()
+
     /// External clients share the app's Seat broker and the user's one living memory with the workers
     /// (`KnowledgeLocation`, G76): what a client learns the workers may reuse and the other way round, each
     /// call recorded with the `mcp` source and the profile as its stream, each task its own. A client's
@@ -32,7 +35,7 @@ final class AppModel {
     lazy var mcp = MCPConnectionsModel(
         directory: WorkspaceLaunch.directory.appendingPathComponent("MCP", isDirectory: true),
         executable: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/braus-bridge")
-    ) { [broker] profile, activity in
+    ) { [broker, approvals] profile, activity in
         let desktop = BrokeredAutomationSession(
             broker: broker,
             workerID: UUID(),
@@ -46,7 +49,8 @@ final class AppModel {
                 try await desktop.turn { result = try await body() }
                 return result
             },
-            activity: activity
+            activity: activity,
+            adapterApprover: AdapterApprover(approvals: approvals)
         )
         return MCPHostSession(router: session.router) { await session.close() }
     }

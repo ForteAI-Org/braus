@@ -33,12 +33,21 @@ public protocol AppAdapting: Sendable {
     /// effect back. Throws `AdapterFailure` when the transport fails; a refusal or an effect the
     /// read-back does not confirm is an outcome, not an error.
     func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome
+
+    /// What the person reads about an irreversible call of `verb` before allowing it, by argument. By
+    /// default the arguments as given, each text cut to its first lines; an adapter whose arguments do
+    /// not say what would change (an id) reads it first. Never changes anything.
+    func consentArguments(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async -> [String: JSONValue]
 }
 
 extension AppAdapting {
     /// An adapter that needs no permission, or none the system can ask for, answers its availability.
     public func requestPermission() async -> AdapterAvailability {
         await availability()
+    }
+
+    public func consentArguments(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async -> [String: JSONValue] {
+        AdapterConsent.arguments(arguments)
     }
 }
 

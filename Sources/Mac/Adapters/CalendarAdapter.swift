@@ -83,6 +83,17 @@ public struct CalendarAdapter: AppAdapting {
         }
     }
 
+    /// An event to delete is named by its id, which says nothing to the person: they read its title and when it
+    /// starts. One that cannot be read is shown by its id, and the call answers whether it exists.
+    public func consentArguments(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async -> [String: JSONValue] {
+        guard verb == "delete_event", let id = arguments["id"].string,
+              let event = try? await store.event(id: id) else { return AdapterConsent.arguments(arguments) }
+        return [
+            "title": .string(AdapterConsent.excerpt(event.title)),
+            "date" : .string(event.start.formatted(date: .abbreviated, time: event.isAllDay ? .omitted : .shortened)),
+        ]
+    }
+
     public func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome {
         let arguments = AdapterArguments(arguments)
         switch verb {
