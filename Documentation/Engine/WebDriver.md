@@ -43,8 +43,9 @@ application's knowledge is filed under its bundle id.
 ## Page scripts
 
 The engine reads a page through a few scripts of its own: the toggle under a point, the focused
-field's value, the controls' values, a select's options and the settler's signature. None of them
-runs in the page's own world, where the page could have replaced `elementFromPoint`, a prototype's
+field's value, the controls' values, a select's options and its choice, an ARIA list's option, the
+hit test before a pointer gesture, the observer that counts the DOM's changes and the settler's
+signature. None of them runs in the page's own world, where the page could have replaced `elementFromPoint`, a prototype's
 getter or a built-in such as `Array.prototype.filter`. `WebTabs.evaluate` runs them in an isolated
 world (`Page.createIsolatedWorld`) of the main frame, which shares the page's DOM and its events
 but none of its JavaScript, and keeps that world for the document it was made in. What a
@@ -55,8 +56,51 @@ The handle is the world's global object, called through `Runtime.callFunctionOn`
 context id: Chrome can give the same id to another renderer process after a navigation, while an
 object id names one context only. A navigation to another document ends the world; Chrome then
 refuses the next call, which ran nothing, so the world is made again for the new document and the
-script is sent once more. While a world is made, the main frame's document is read before and after:
-a world whose document changed in between is released and made again.
+script is sent once more. A refusal while the world's document is still there, such as a node gone,
+is the call's own and leaves the world as it is. While a world is made, the main frame's document is
+read before and after: a world whose document changed in between is released and made again.
+
+A script that works on nodes the protocol names (the hit test's targets, the control an ARIA list
+belongs to) gets them resolved into the world's execution context (`DOM.resolveNode`) and passed to
+a call on the world's global object (`WebPage.call`), which Chrome makes only with arguments of that
+same world. A node a script keeps on the world's `window` is named back to the protocol by
+`DOM.describeNode` (`WebPage.node(of:in:)`).
+
+## Gestures
+
+- **The document that was read (W11).** Each scene keeps the document node it was read from. Before
+  any event the actuator reads it again: another document (a navigation, a reload), or a scene whose
+  document could not be read, refuses the gesture with nothing sent (`page_changed`, `page_unread`).
+- **What the page would hit (W10).** A pointer gesture the engine aims at a scene element (a click
+  through `perform(_:expecting:in:)`, a right click, a scroll over it or a drag from it through
+  `perform(_:over:in:)`) goes out only when the page's own hit test at its point lands on that
+  element's node or inside it, through open shadow roots. Something on top of it, a node gone or a
+  label with no node at the point refuses it unsent and says why. `Actuating.perform(_:over:in:)`
+  delivers as `perform(_:in:)` by default, so the desktop and Seat actuators are unchanged.
+- **What a scroll container hides (W09).** The snapshot carries each node's `overflow` and
+  `position`, and the scene keeps only the part of an element its scroll containers let it be seen
+  in, following its containing block: an absolute node escapes the containers below its positioned
+  ancestor, a fixed one escapes them all, `html` and `body` leave theirs to the viewport.
+- **Frames (W07).** A frame shows another document, which the scene does not read: each visible
+  frame is a section named `frame, contents not read`, with its title, and never an element a click
+  could be sent into.
+
+## Busy pages
+
+`WebSettler.prepare`, right before a gesture, installs in the world an observer that counts the
+DOM's changes (nodes, text and every attribute but `style`, so an animation alone does not hold an
+action to its cap) and starts a watch of the tab's requests: the protocol ids of the fetches,
+XMLHttpRequests and documents it starts, never an address, a header or a body. The page is quiet
+only once its signature, the count included, held still and nothing counted is in flight (W12). A
+tab has at most one watch, started and stopped one step at a time; `settle` ends it, or its lifetime
+does when no settle comes.
+
+## Navigation failures
+
+A page that does not load in Braus's Chrome gives the agent the address's origin only (never its
+path, query, fragment or credentials), Chrome's error and what it means, which browser ran (Braus's
+own Chrome on its own profile, with or without its window), the way out, and what is left: Chrome
+closed on a first open, else a tab to observe. Nothing falls back to another browser by itself.
 
 ## Secure fields
 
@@ -93,8 +137,7 @@ named for a secret, a declared secret, a credential's shape).
 Chrome draws a `<select>`'s list outside the page, where neither the scene nor a click reaches it.
 `WebControls.pressControl` therefore opens a list Braus draws instead (`WebSelectPopup`): the scene
 shows the options as `AXMenuItem` elements in a `pop-up (<name>)` section over what they cover, and
-`WebWindows` lists a menu-layer window in front of the page. Escape or a click outside closes it. Custom ARIA
-dropdowns are ordinary page content and are clicked as such.
+`WebWindows` lists a menu-layer window in front of the page. Escape or a click outside closes it.
 
 **Which option (W2).** When the list opens, the page keeps the select node and its option nodes in order, and the
 tab keeps each option's index, value, full text, group and whether it or its group is disabled. A row's label is for
@@ -125,6 +168,18 @@ within the time left of one 3-second deadline for the whole choice. The receipt 
 The engine passes only a confirmed choice, never replays one, and never falls back to the keyboard after a web
 choice was sent or refused. The list Braus drew closes either way, and its closing confirms nothing. The scripts' placeholders are filled in one pass over the script as written, so an option's value or text that
 looks like a placeholder (`$TEXT`) stays data.
+
+## ARIA lists
+
+An ARIA combo box opens its list in the page itself, so `select` waits for no window (W05). The
+control is resolved in the scene as a click resolves it and clicked by its element; the option is
+then looked for by a function run on that control's node, in the list it names by `aria-controls`
+or `aria-owns` (in its own root), else the only list shown when no other control is expanded, in the
+document and every open shadow root. No list, no option of that name, several lists or options, or
+a disabled option answer before any click in the list. The option is clicked through the engine by
+its own node in a fresh read, twins by their ordinal, with the tab held to that node, and the choice
+is judged by what the control reads back once it held one value for 300 ms within 3 s: confirmed,
+contradicted or unread. Nothing is chosen again.
 
 ## Sessions and the memory
 
@@ -170,11 +225,14 @@ that the frontmost application never changes.
 
 ## Limits
 
-- Only the main frame is read: iframes are neither in the scene nor clickable by name. The isolated
-  world is the main frame's alone, and no test covers a script reaching into a frame from it.
+- Only the main frame is read: a frame is a section whose contents are not read, and nothing in it is
+  clickable by name. The isolated world is the main frame's alone. Closed shadow roots are not
+  searched for selects and ARIA lists.
 - A select's choice is judged by what held for the watched window: a page that changes the value only after it
   (here 300 ms) is not seen, and the receipt makes no promise about later changes.
 - `<input list>` suggestions and the date, time and color pickers are drawn outside the page and are
   not handled yet.
-- Nested scroll containers do not clip their content: an element scrolled out of an inner panel but
-  inside the viewport is still in the scene.
+- Clipping reads `overflow` and `position` only: transforms, `contain` and `clip-path` are not read.
+- A page that reacts later than the quiet window with nothing in flight (a timer) is not waited for,
+  and the engine's own wait stays capped at its click settle, so a request answered after it is
+  judged before it ends. A change between the last check and a gesture's events is not seen.
