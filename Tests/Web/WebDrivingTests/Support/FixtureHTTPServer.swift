@@ -95,12 +95,20 @@ actor FixtureHTTPServer {
     }
 
     /// Cancels the listener, ends the stream of new connections, cancels every connection still open, and returns
-    /// once the taking task and every serving task have ended. Idempotent.
+    /// once the listener is cancelled and the taking task and every serving task have ended. Idempotent.
     func stop() async {
         guard !isStopped else { return }
         isStopped = true
         listener.newConnectionHandler = nil
-        listener.cancel()
+        // A cancel closes the port only once the listener reports it cancelled, on its queue.
+        await withCheckedContinuation { (cancelled: CheckedContinuation<Void, Never>) in
+            listener.stateUpdateHandler = { state in
+                guard case .cancelled = state else { return }
+                cancelled.resume()
+            }
+            listener.cancel()
+        }
+        listener.stateUpdateHandler = nil
         incoming.finish()
         for connection in open.values { connection.cancel() }
         let tasks = Array(serving.values)
