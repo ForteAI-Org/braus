@@ -12,7 +12,7 @@ import WebDriver
 /// signature has held still for `quiet`, or at the cap.
 ///
 /// The first read waits one interval, so a page that reacts on the next frame is not judged
-/// before it has drawn.
+/// before it has drawn. The signature is read from the tab's isolated world (`WebTabs.evaluate`).
 public struct WebSettler: Settling {
 
     let tabs    : WebTabs
@@ -28,7 +28,7 @@ public struct WebSettler: Settling {
     public func settle(in processID: pid_t, cap: Duration) async {
         let clock = ContinuousClock()
         let deadline = clock.now + cap
-        guard let page = try? tabs.page(for: processID) else {
+        guard (try? tabs.page(for: processID)) != nil else {
             try? await Task.sleep(until: deadline)
             return
         }
@@ -37,7 +37,7 @@ public struct WebSettler: Settling {
         while clock.now < deadline {
             try? await Task.sleep(for: min(interval, deadline - clock.now))
             guard !Task.isCancelled else { return }
-            let signature = try? await page.evaluate(Self.signatureScript, timeoutSeconds: 2)
+            let signature = try? await tabs.evaluate(Self.signatureScript, in: processID, timeoutSeconds: 2)
             let now = clock.now
             if let signature, signature == last {
                 if now - stillSince >= quiet, signature[0]?.stringValue == "complete" { return }

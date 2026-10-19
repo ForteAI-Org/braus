@@ -63,7 +63,8 @@ public struct WebPage: Sendable, Hashable {
     }
 
     /// Evaluates a script in the page's main world and returns its value by value, awaiting a
-    /// returned promise.
+    /// returned promise. The page's own scripts can change what it reads there; a script that must not
+    /// trust them runs in a `WebWorld` (`evaluate(_:in:timeoutSeconds:)`).
     ///
     /// Throws `CDPError.scriptFailed` with the exception's description when the script throws.
     public func evaluate(_ expression: String, timeoutSeconds: Double? = nil) async throws -> JSONValue {

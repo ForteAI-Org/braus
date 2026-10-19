@@ -26,7 +26,8 @@ public struct WebScenes: SceneProviding {
         async let snapshot = page.send("DOMSnapshot.captureSnapshot", ["computedStyles": []])
         async let metrics  = page.send("Page.getLayoutMetrics")
         let layout = try WebLayout(snapshot: try await snapshot, metrics: try await metrics)
-        let popup  = tabs.window(of: processID)?.popup != nil ? await WebControls.openPopup(on: page) : nil
+        let isOpen = tabs.window(of: processID)?.popup != nil
+        let popup  = isOpen ? await WebControls(tabs: tabs).openPopup(in: processID) : nil
         tabs.setPopup(popup, for: processID)
         let built  = WebSceneBuilder.build(nodes: WebAXNode.nodes(fromFullTree: try await tree), layout: layout,
                                            popup: popup)

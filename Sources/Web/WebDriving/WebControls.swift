@@ -9,7 +9,8 @@ import Foundation
 import PerceptionCore
 import WebDriver
 
-/// WebControls is `ControlPressing` for tabs: it reads controls through the page's own DOM.
+/// WebControls is `ControlPressing` for tabs: it reads controls through the page's own DOM, from the
+/// tab's isolated world (`WebTabs.evaluate`), so the page's scripts cannot change what it reads.
 ///
 /// A native `<select>` is pressed by name: Chrome draws its list outside the page, so Braus opens
 /// a `WebSelectPopup` instead of clicking, and `pressMenuItem` chooses in it. Every read answers
@@ -26,13 +27,12 @@ public struct WebControls: ControlPressing {
     /// option; a trailing ordinal ` #n` picks the n-th of several. False for anything else, which
     /// the engine then clicks.
     public func pressControl(labelled label: String, in processID: pid_t) async -> Bool {
-        guard let page = try? tabs.page(for: processID) else { return false }
         let (name, ordinal) = Self.splitOrdinal(label)
         let script = Self.openSelectScript
             .replacingOccurrences(of: "$LABEL", with: Self.jsString(LabelText.normalize(name)))
             .replacingOccurrences(of: "$ORDINAL", with: String(ordinal))
-        guard (try? await page.evaluate(script, timeoutSeconds: 5))?.boolValue == true,
-              let popup = await Self.openPopup(on: page)
+        guard await evaluate(script, in: processID)?.boolValue == true,
+              let popup = await openPopup(in: processID)
         else { return false }
         tabs.setPopup(popup, for: processID)
         return true
@@ -41,10 +41,10 @@ public struct WebControls: ControlPressing {
     /// Chooses the option titled `title` in the open select's list and closes it. False, with the
     /// list left open, when no option has that title or no list is open.
     public func pressMenuItem(titled title: String, within menuFrame: CGRect, in processID: pid_t) async -> Bool {
-        guard let page = try? tabs.page(for: processID), tabs.window(of: processID)?.popup != nil else { return false }
+        guard tabs.window(of: processID)?.popup != nil else { return false }
         let script = Self.chooseOptionScript
             .replacingOccurrences(of: "$TITLE", with: Self.jsString(LabelText.menuTitleKey(Self.splitOrdinal(title).0)))
-        let answer = try? await page.evaluate(script, timeoutSeconds: 5)
+        let answer = await evaluate(script, in: processID)
         guard answer?["found"]?.boolValue == true else { return false }
         tabs.setPopup(nil, for: processID)
         return true
@@ -54,12 +54,12 @@ public struct WebControls: ControlPressing {
     func closePopup(in processID: pid_t) async {
         guard tabs.window(of: processID)?.popup != nil else { return }
         tabs.setPopup(nil, for: processID)
-        if let page = try? tabs.page(for: processID) { _ = try? await page.evaluate(Self.closeScript) }
+        _ = await evaluate(Self.closeScript, in: processID)
     }
 
     /// The open select's list as the page has it now; nil when none is open or it left the page.
-    static func openPopup(on page: WebPage) async -> WebSelectPopup? {
-        guard let answer = try? await page.evaluate(popupScript, timeoutSeconds: 5),
+    func openPopup(in processID: pid_t) async -> WebSelectPopup? {
+        guard let answer = await evaluate(Self.popupScript, in: processID),
               let rect = answer["rect"]?.arrayValue?.compactMap(\.doubleValue), rect.count == 4
         else { return nil }
         let options = (answer["options"]?.arrayValue ?? []).map {
@@ -105,16 +105,17 @@ public struct WebControls: ControlPressing {
         await evaluate(Self.focusedFieldScript, in: processID)?.stringValue
     }
 
+    /// The script's value from the tab's isolated world; nil when the page cannot say, which every read
+    /// answers as not knowing.
     private func evaluate(_ script: String, in processID: pid_t) async -> JSONValue? {
-        guard let page = try? tabs.page(for: processID) else { return nil }
-        return try? await page.evaluate(script, timeoutSeconds: 5)
+        try? await tabs.evaluate(script, in: processID, timeoutSeconds: 5)
     }
 
     // MARK: Scripts
 
     /// The select a person would call `$LABEL`: normalized like `LabelText.normalize`, matched on
-    /// its accessible name, then its current option. The chosen one is kept on the window, out of
-    /// the DOM, so the page sees no attribute change.
+    /// its accessible name, then its current option. The chosen one is kept on the isolated world's
+    /// window, out of the DOM and of the page's globals, so the page sees no change at all.
     static let openSelectScript = """
     (() => {
       const norm = s => (s || '').toLowerCase().replace(/[^\\p{L}\\p{M}\\p{N}]/gu, '');

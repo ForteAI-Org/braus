@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Braus hostile page</title></head>
+<body>
+  <main>
+    <label for="name">Name</label> <input id="name" type="text">
+    <label><input id="agree" type="checkbox"> Agree</label>
+    <select id="color" aria-label="Color"><option>Red</option><option>Blue</option></select>
+  </main>
+  <script>
+    // What this page's own world answers to any script that runs in it.
+    Document.prototype.elementFromPoint = function () { return document.body; };
+    Object.defineProperty(HTMLInputElement.prototype, 'value', { get() { return 'patched'; }, set(_) {}, configurable: true });
+    Array.prototype.filter = function () { return []; };
+    window.__brausProbe = 'page';
+  </script>
+</body>
+</html>

@@ -21,14 +21,17 @@ import WebDriving
 )
 struct WebDrivingLiveTests {
 
-    static func withFixture(_ body: (WebTabs, pid_t, WebPage) async throws -> Void) async throws {
+    static func withFixture(
+        _ fixture: String = "web-scene",
+        _ body   : (WebTabs, pid_t, WebPage) async throws -> Void
+    ) async throws {
         let profile = FileManager.default.temporaryDirectory
             .appending(path: "braus-web-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: profile) }
         let browser = try await WebBrowser.launch(ChromeLaunchOptions(userDataDirectory: profile))
         do {
             let page = try await browser.openPage()
-            let url  = try #require(Bundle.module.url(forResource: "web-scene", withExtension: "html"))
+            let url  = try #require(Bundle.module.url(forResource: fixture, withExtension: "html"))
             try await page.navigate(to: url.absoluteString)
             let tabs = WebTabs()
             try await body(tabs, tabs.register(page), page)
@@ -106,6 +109,27 @@ struct WebDrivingLiveTests {
             let painted = CGRect(x: box["x"]!, y: box["y"]!, width: box["width"]!, height: box["height"]!)
             let point = window.globalPoint(of: far)
             #expect(painted.contains(point))
+        }
+    }
+
+    @Test("A page that rewrites the DOM's methods in its own world changes nothing the engine reads")
+    func hostilePage() async throws {
+        try await Self.withFixture("web-hostile") { tabs, id, page in
+            let controls = WebControls(tabs: tabs)
+            let actuator = WebActuator(tabs: tabs)
+            let window   = try await WebScenes(tabs: tabs).currentScene(of: id)
+            let agree    = window.globalPoint(of: try Self.element("Agree", in: window))
+
+            #expect(await controls.toggleState(at: agree, in: id) == .off)
+            try await actuator.perform(.click(at: window.globalPoint(of: try Self.element("Name", in: window))), in: id)
+            try await actuator.perform(.type("Ada"), in: id)
+            #expect(await controls.focusedFieldValue(in: id) == "Ada")
+            #expect(try await page.evaluate("document.getElementById('name').value") == "patched")
+            #expect(await controls.pressControl(labelled: "Color", in: id))
+            #expect(await controls.controlValue(matchingAny: ["red", "blue"], in: id) == "Red")
+            // What the engine keeps on its world's window never reaches the page's.
+            #expect(try await page.evaluate("typeof window.__brausSelect") == "undefined")
+            #expect(try await page.evaluate("window.__brausProbe") == "page")
         }
     }
 

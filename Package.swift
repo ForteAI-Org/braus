@@ -571,7 +571,7 @@ let package = Package(
         // roles that act on it over the DevTools protocol. Synthetic process ids name the tabs.
         web("WebDriving", ["WebDriver", "EngineCore", "PerceptionCore"]),
         webTests("WebDriving", ["WebDriving", "WebDriver", "Engine", "EngineCore", "PerceptionCore"],
-                 resources: [.copy("Fixtures/web-scene.html")]),
+                 resources: [.copy("Fixtures/web-scene.html"), .copy("Fixtures/web-hostile.html")]),
 
         // MARK: Engine tests
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",

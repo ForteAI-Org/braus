@@ -10,7 +10,7 @@ application's knowledge is filed under its bundle id.
 
 | Module | What it owns |
 |---|---|
-| `WebDriver` (`Sources/Web`) | Chrome over its DevTools pipe, Foundation only: `ChromeProcess` starts Chrome with `--remote-debugging-pipe`, and `--headless` unless a window is asked for, with the pipe on descriptors 3 and 4; `CDPConnection` is the protocol connection (NUL-framed JSON, command ids, timeouts, flattened sessions, events by session); `WebBrowser` opens, lists and attaches pages; `WebPage` sends commands in its session, navigates and evaluates. `ChromeLaunchOptions.brausProfile` is Braus's own profile, never the user's everyday one |
+| `WebDriver` (`Sources/Web`) | Chrome over its DevTools pipe, Foundation only: `ChromeProcess` starts Chrome with `--remote-debugging-pipe`, and `--headless` unless a window is asked for, with the pipe on descriptors 3 and 4; `CDPConnection` is the protocol connection (NUL-framed JSON, command ids, timeouts, flattened sessions, events by session); `WebBrowser` opens, lists and attaches pages; `WebPage` sends commands in its session, navigates and evaluates, in the page's world or in a `WebWorld`. `ChromeLaunchOptions.brausProfile` is Braus's own profile, never the user's everyday one |
 | `WebDriving` (`Sources/Web`) | a page as the engine's roles see a window. `WebTabs` names each tab with a synthetic negative process id, because every role is keyed by one. `WebScenes` is `SceneProviding`: `Accessibility.getFullAXTree`, `DOMSnapshot.captureSnapshot` and `Page.getLayoutMetrics`, built into a scene by `WebSceneBuilder`. `WebActuator` is `Actuating` over `Input.dispatchMouseEvent`, `dispatchKeyEvent` and `insertText` (`WebKeys` maps macOS key codes to DOM keys). `WebControls` is `ControlPressing` over the page's DOM; `WebSettler` is `Settling` on a DOM signature; `WebWindows` is `WindowListing` for a tab |
 | `WebSession` (`Sources/Integration`) | `WebEngineRuntime`, `EngineRuntime` over the web roles; `WebAutomationSession`, the session on one tab behind the tools; `RoutingAutomationSession`, which sends `web:` and URLs to the web session and every other name to the desktop one, so `AutomationTools` needs no change |
 
@@ -39,6 +39,24 @@ application's knowledge is filed under its bundle id.
   `web:blank` for a page with no host.
 - **Quality.** The tree is read whole, so the capture is complete unless the 600-element limit
   stopped it; the memory relies on that statement as it does on a desktop capture's.
+
+## Page scripts
+
+The engine reads a page through a few scripts of its own: the toggle under a point, the focused
+field's value, the controls' values, a select's options and the settler's signature. None of them
+runs in the page's own world, where the page could have replaced `elementFromPoint`, a prototype's
+getter or a built-in such as `Array.prototype.filter`. `WebTabs.evaluate` runs them in an isolated
+world (`Page.createIsolatedWorld`) of the main frame, which shares the page's DOM and its events
+but none of its JavaScript, and keeps that world for the document it was made in. What a
+script keeps between calls, such as the open select, lives on that world's `window`, so the page
+never sees a `__braus` global.
+
+The handle is the world's global object, called through `Runtime.callFunctionOn`, not its execution
+context id: Chrome can give the same id to another renderer process after a navigation, while an
+object id names one context only. A navigation to another document ends the world; Chrome then
+refuses the next call, which ran nothing, so the world is made again for the new document and the
+script is sent once more. While a world is made, the main frame's document is read before and after:
+a world whose document changed in between is released and made again.
 
 ## Native selects
 
@@ -94,7 +112,8 @@ that the frontmost application never changes.
 
 ## Limits
 
-- Only the main frame is read: iframes are neither in the scene nor clickable by name.
+- Only the main frame is read: iframes are neither in the scene nor clickable by name. The isolated
+  world is the main frame's alone, and no test covers a script reaching into a frame from it.
 - `<input list>` suggestions and the date, time and color pickers are drawn outside the page and are
   not handled yet.
 - Nested scroll containers do not clip their content: an element scrolled out of an inner panel but

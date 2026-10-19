@@ -12,7 +12,7 @@ import WebDriver
 /// one. The ids are negative, so none can be taken for a running process's.
 ///
 /// It also keeps what the window listing must answer synchronously: the viewport and title the last
-/// scene of a tab measured.
+/// scene of a tab measured, and the isolated world the engine's scripts run in (`evaluate`).
 public final class WebTabs: Sendable {
 
     struct Tab {
@@ -21,7 +21,12 @@ public final class WebTabs: Sendable {
         var title   : String
         /// The select whose list Braus draws, while it is open.
         var popup   : WebSelectPopup?
+        /// The world the engine's scripts run in, made on the first script of each document.
+        var world   : WebWorld?
     }
+
+    /// The name Chrome shows for the engine's world in the DevTools context list.
+    static let worldName = "braus"
 
     struct State {
         var tabs  : [pid_t: Tab] = [:]
@@ -38,7 +43,7 @@ public final class WebTabs: Sendable {
         state.withLock { state in
             let id = state.nextID
             state.nextID -= 1
-            state.tabs[id] = Tab(page: page, viewport: viewport, title: "", popup: nil)
+            state.tabs[id] = Tab(page: page, viewport: viewport, title: "", popup: nil, world: nil)
             return id
         }
     }
@@ -57,6 +62,33 @@ public final class WebTabs: Sendable {
     /// The ids of the registered tabs, newest last.
     public var processIDs: [pid_t] {
         state.withLock { $0.tabs.keys.sorted(by: >) }
+    }
+
+    /// Runs one of the engine's scripts in the tab's isolated world, never the page's own, so nothing
+    /// the page redefined changes what it reads and nothing it sets reaches the page's globals.
+    ///
+    /// The world is made on the first script of a document and kept for the next ones. A call Chrome
+    /// refuses ran nothing, which is what a world whose document has gone answers, so the world is made
+    /// again for the document there now and the script is sent once more; any other failure is thrown
+    /// as it came. Errors as `WebPage.evaluate(_:in:timeoutSeconds:)` and `page(for:)`.
+    public func evaluate(
+        _ script      : String,
+        in processID  : pid_t,
+        timeoutSeconds: Double? = nil
+    ) async throws -> JSONValue {
+        let page = try page(for: processID)
+        if let world = state.withLock({ $0.tabs[processID]?.world }) {
+            do {
+                return try await page.evaluate(script, in: world, timeoutSeconds: timeoutSeconds)
+            } catch CDPError.protocolError {
+                state.withLock { state in
+                    if state.tabs[processID]?.world == world { state.tabs[processID]?.world = nil }
+                }
+            }
+        }
+        let world = try await page.makeWorld(named: Self.worldName)
+        state.withLock { $0.tabs[processID]?.world = world }
+        return try await page.evaluate(script, in: world, timeoutSeconds: timeoutSeconds)
     }
 
     func note(viewport: CGSize, title: String, for processID: pid_t) {
