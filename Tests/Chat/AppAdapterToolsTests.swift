@@ -110,6 +110,26 @@ struct AppAdapterToolsTests {
         #expect(transcript.lines.count == 2 && transcript.lines.last?.hasPrefix("← app_call") == true)
     }
 
+    @Test("an app_call on the app the session holds on the seat is refused, and reaches nothing")
+    func refusedOnTheHeldApp() async throws {
+        let scribe  = ScribeAdapter()
+        let session = RoutingSession()
+        let tools   = AutomationTools(session: session, adapters: AppAdapters([scribe]))
+        let call: JSONValue = .object([
+            "app"      : .string("scribe"),
+            "verb"     : .string("write"),
+            "arguments": .object(["path": .string("notes.txt"), "text": .string("draft")]),
+        ])
+        session.held = "test.scribe"
+        let refused = try await tools.call("app_call", call).payload
+        #expect(refused["outcome"].string == "refused")
+        #expect(refused["message"].string?.contains("close_session first, or do the whole task through one route") == true)
+        #expect(await scribe.written.isEmpty)
+        session.held = "com.apple.iCal"
+        #expect(try await tools.call("app_call", call).payload["outcome"].string == "found_acted")
+        #expect(await scribe.written == ["draft"])
+    }
+
     // MARK: open_session and the task router
 
     /// The `named` argument `open_session` takes from these tools, `.null` when it takes none.

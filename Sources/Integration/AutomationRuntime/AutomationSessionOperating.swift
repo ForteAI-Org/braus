@@ -40,7 +40,8 @@ public protocol AutomationSessionOperating: AnyObject {
     /// session with no memory, whose calls are not recorded.
     var memoryDirectory: URL? { get }
     /// The bundle ID of the application the session holds, as a call's event names it; nil before
-    /// `open` and after `close`.
+    /// `open` and after `close`. While it is set, an adapter call on that app is refused
+    /// (`AppAdapters.seatConflict`).
     var memoryApplication: String? { get }
 }
 

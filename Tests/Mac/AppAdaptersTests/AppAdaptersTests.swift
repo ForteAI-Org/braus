@@ -142,6 +142,17 @@ struct AppAdaptersTests {
         #expect(unknown["adapter"] == .null)
     }
 
+    @Test("An adapter whose app the seat holds is refused; one for another app, or files under Finder, is not")
+    func seatConflict() {
+        let adapters = AppAdapters.standard()
+        let refusal  = adapters.seatConflict(app: "Mail", held: "com.apple.mail")
+        #expect(refusal?.contains("Finish with Mail's interface") == true, "\(refusal ?? "no refusal")")
+        #expect(adapters.seatConflict(app: "mail", held: "COM.APPLE.MAIL") != nil)
+        #expect(adapters.seatConflict(app: "calendar", held: "com.apple.mail") == nil)
+        #expect(adapters.seatConflict(app: "files", held: "com.apple.finder") == nil)
+        #expect(adapters.seatConflict(app: "Mail", held: nil) == nil)
+    }
+
     @Test("Every adapter of the build names a read-back for every verb, and no verb twice")
     func standardVerbs() {
         for adapter in AppAdapters.standard().adapters {

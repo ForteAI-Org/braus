@@ -153,7 +153,13 @@ availability pass. The app's approver is the team window's approval sheet
 for a second, refused after two minutes); a no, a timeout or a cancelled
 call is refused with nothing done, an allowed call runs once and is never
 retried. A composition without an approver, CLI chat included, refuses
-every irreversible verb. An `app_call` keeps the values of its
+every irreversible verb. An `app_call` whose adapter stands for the app the
+session holds on the seat (`memoryApplication`, among the adapter's bundle
+ids) is refused with nothing done, telling the model to finish with the
+interface and `close_session` first or to use one route for the whole task;
+the files adapter is exempt, since its verbs are file operations a Finder
+window on the seat neither holds nor reads back. Only the calling session's
+own hold counts. An `app_call` keeps the values of its
 verb's content parameters out of its record and transcript, and a verb's
 content results out of the transcript line of its answer.
 

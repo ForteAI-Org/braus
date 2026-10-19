@@ -46,6 +46,20 @@ public struct AppAdapters: Sendable {
         }
     }
 
+    /// The refusal of a call on `app` while the seat drives `held` (a bundle id): an adapter that stands
+    /// for that app would change it behind the interface the seat is reading, and the seat behind the
+    /// adapter's read-back. Nil when the adapter stands for another app, or for files, whose verbs are
+    /// file operations on paths that a Finder window on the seat neither holds nor has to read back.
+    public func seatConflict(app: String, held: String?) -> String? {
+        guard let held, let adapter = adapter(for: app), !(adapter is FilesAdapter),
+              adapter.bundleIDs.contains(where: { $0.caseInsensitiveCompare(held) == .orderedSame }) else {
+            return nil
+        }
+        let shown = adapter.appNames.first ?? adapter.name
+        return "The seat is driving \(shown) in this session, so the \(adapter.name) adapter is refused: nothing was "
+            + "done. Finish with \(shown)'s interface and close_session first, or do the whole task through one route."
+    }
+
     /// The adapter's availability and its verbs matching `query` (all of them without one).
     public func capabilities(of app: String, query: String?) async -> JSONValue {
         guard let adapter = adapter(for: app) else { return missing(app) }
