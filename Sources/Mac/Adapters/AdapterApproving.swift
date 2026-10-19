@@ -15,8 +15,9 @@ public protocol AdapterApproving: Sendable {
 /// was chosen by the model: it is shown, never followed.
 public struct AdapterConsent: Sendable, Equatable {
 
-    /// The lines of a text the person reads at most, and the characters.
-    public static let excerptLines = 3
+    /// The most lines of a text the person reads.
+    public static let excerptLines  = 3
+    /// The most characters of a text the person reads.
     public static let excerptLength = 300
 
     public let adapter  : String
