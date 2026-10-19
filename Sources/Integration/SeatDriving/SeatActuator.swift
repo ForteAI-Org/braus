@@ -65,8 +65,9 @@ public actor SeatActuator: Actuating {
     /// The refusal as `GestureNotSent` when the seat refused before posting any event of the gesture, and nil
     /// for every other error, which stays a delivery whose effect is unknown: the input endpoint discovery's
     /// refusals (`AgentSeat.send` resolves the endpoint before preflight and before any post), the preflight's
-    /// own stop (`SeatInterruption.beforeAnyEvent`, such as a sheet that changed size since the scene), a remote
-    /// panel's refusal that cannot have taken effect, and a point or a gesture this actuator refuses itself.
+    /// own stop (`SeatInterruption.beforeAnyEvent`, such as a sheet that changed size since the scene), the seat
+    /// not being ready (`seatNotReady` is always thrown before a post), a remote panel's refusal that cannot have
+    /// taken effect, and a point or a gesture this actuator refuses itself.
     static func unsent(_ error: any Error) -> GestureNotSent? {
         switch error {
             case let refusal as InputEndpointRefusal:
@@ -78,6 +79,8 @@ public actor SeatActuator: Actuating {
                     "That point is outside the window the seat holds. Act on an element of the scene.")
             case SeatDrivingFailure.gestureUnsupported(let gesture):
                 return GestureNotSent(reason: "gesture_unsupported", sentence: "The seat has no delivery for \(gesture).")
+            case SessionFailure.seatNotReady(let state):
+                return GestureNotSent(reason: "seat_not_ready", sentence: sentence(forSeatIn: state))
             case let stop as SeatInterruption where stop.beforeAnyEvent:
                 let why = stop.issues.map(Self.words).joined(separator: "; ")
                 return GestureNotSent(reason: "seat_preflight", sentence: why.prefix(1).uppercased() + why.dropFirst()
@@ -93,6 +96,21 @@ public actor SeatActuator: Actuating {
         guard let stop = error as? SeatInterruption else { return nil }
         return GestureInterrupted(sentence: "the seat stopped it: " + stop.issues.map(Self.words).joined(separator: "; ")
             + "; it may have taken effect, so observe before any retry")
+    }
+
+    /// A seat that refused for its state, in words: it throws that before posting anything, so no retry risks a repeat.
+    static func sentence(forSeatIn state: SeatState) -> String {
+        switch state {
+            case .starting:
+                "The seat was still taking in a window that had just opened, and nothing was sent. "
+                    + "Observe again and act on the new scene."
+            case .waiting:
+                "The application is in front of the person's screen, so nothing was sent. Observe again later."
+            case .recovering:
+                "The seat is recovering, and nothing was sent. Observe again."
+            default:
+                "The seat was \(state.rawValue) and nothing was sent; observe again."
+        }
     }
 
     /// An Issue as the model reads it. `SeatIssue` carries no prose and leaves the sentence to its consumer, as

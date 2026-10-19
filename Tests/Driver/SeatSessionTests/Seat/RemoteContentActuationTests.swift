@@ -508,6 +508,14 @@ struct RemoteContentActuationTests {
                 "a refusal after an action that may have taken effect stays a delivery whose effect is unknown")
         #expect(SeatActuator.unsent(SeatDrivingFailure.pointOutsideTarget(CGPoint(x: 1, y: 1)))?.reason == "point_outside_window")
         #expect(SeatActuator.unsent(SeatDrivingFailure.notAdopted) == nil)
+        // A Command sent while the seat took a new window in (or while the app was in front) was never posted.
+        let starting = try #require(SeatActuator.unsent(SessionFailure.seatNotReady(.starting)))
+        #expect(starting.reason == "seat_not_ready")
+        #expect(starting.sentence.contains("nothing was sent") && starting.sentence.contains("Observe again"),
+                "\(starting.sentence)")
+        let waiting = try #require(SeatActuator.unsent(SessionFailure.seatNotReady(.waiting)))
+        #expect(waiting.reason == "seat_not_ready" && waiting.sentence.contains("in front of the person's screen"))
+        #expect(SeatActuator.unsent(SessionFailure.seatNotReady(.failed))?.sentence.contains("failed") == true)
         // A sheet that changed size after its scene (Preview's Save As, 14/10/2026): the preflight's stop.
         let resized = try #require(SeatActuator.unsent(SeatInterruption(issues: [.geometryChanged], beforeAnyEvent: true)))
         #expect(resized.reason == "seat_preflight")

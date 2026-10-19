@@ -191,6 +191,9 @@ public final class AgentSeat {
     private var desktopSettleRemaining: Duration = AgentSeat.desktopSettleBudget
     private static let desktopSettleBudget: Duration = .seconds(1)
 
+    /// How long a Command waits for an adoption in flight before the preflight refuses it.
+    private static let adoptionWait: Duration = .seconds(2)
+
     private var adoptionWaiters: [CheckedContinuation<Void, Never>] = []
     var stagedWindowNumber         : Int?
     private var posted             : [PostedCommand] = []
@@ -1799,9 +1802,7 @@ public final class AgentSeat {
                 obligations: outstandingObligations()
             )
         }
-        while adoptionInFlight, Self.mayContinue(until: limit) {
-            await EventLoopWait.sleep(Self.boundedPause(.milliseconds(10), until: limit))
-        }
+        await awaitAdoption(until: limit)
         guard !adoptionInFlight else {
             return AssignmentReleaseReport(
                 outcome    : .cancelled,
@@ -2323,6 +2324,15 @@ public final class AgentSeat {
         return !actionInFlight && !Task.isCancelled
     }
 
+    /// Sleeps while an adoption is in flight, never past the deadline; the caller reads
+    /// `adoptionInFlight` to tell whether it finished. Sleeping and never pumping, for the
+    /// reason `awaitCommandBoundary` gives.
+    private func awaitAdoption(until limit: UInt64) async {
+        while adoptionInFlight, Self.mayContinue(until: limit) {
+            await EventLoopWait.sleep(Self.boundedPause(.milliseconds(10), until: limit))
+        }
+    }
+
     /// The stop the sender honours at command boundaries, when it has one. The
     /// seat reaches it through the sender because the focus recovery path is
     /// installed only for a host that restores user focus, and a window
@@ -2486,6 +2496,11 @@ public final class AgentSeat {
         }
         guard !observation.role.isTransientMenu else {
             throw ObservationAdmissionRefusal.menuContextRevoked
+        }
+        // A window that just opened is adopted during observation, and preflight refuses
+        // every Command until then. Nothing was posted, so wait a moment rather than fail.
+        if adoptionInFlight, let limit = Self.absoluteDeadline(after: Self.adoptionWait) {
+            await awaitAdoption(until: limit)
         }
         let admitted = try admitOrdinary(observation)
         await realignReportedPosition(of: observation)

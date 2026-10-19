@@ -2225,4 +2225,45 @@ struct AppWindowFollowTests {
         }, within: 2)
         #expect(adopted, "the window born during the adoption waited for the heartbeat")
     }
+
+    @Test("a Command sent while a window is being adopted waits for the adoption instead of being refused as starting")
+    func aCommandWaitsForAnAdoptionInFlight() async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, _) = try await Self.followingSeat(sensing: sensing, placing: placing, marker: 7_070)
+        // Observed before the window exists, so no observation takes it in first.
+        let turn        = try await seat.acquire()
+        let observation = try await observedReference(seat)
+        let window      = Self.offer(Self.secondWindowNumber, to: sensing, placing)
+        sensing.surfaces = [Self.surface(FakeGeometry.adoptedWindow)]
+
+        // The thumbnail makes the adoption stage it, which is where it suspends.
+        let destination = Holder<CGPoint?>(nil)
+        let staged      = Holder<Bool>(false)
+        placing.onMove = { origin in destination.value = destination.value ?? origin }
+        sensing.windowGeometryOverride = { number in
+            guard number == Self.secondWindowNumber else {
+                return number == FakeGeometry.windowNumber ? sensing.geometry : sensing.additionalWindows[number]
+            }
+            guard let origin = destination.value else { return window }
+            let size = staged.value ? Self.physicalFrame.size : CGSize(width: 120, height: 121)
+            return Self.reference(Self.secondWindowNumber, frame: CGRect(origin: origin, size: size))
+        }
+        let send = Holder<Task<InputReceipt, any Error>?>(nil)
+        placing.onStageWait = {
+            send.value = Task { @MainActor in
+                try await seat.send(AgentSeatTests.click, observation: observation, turn: turn)
+            }
+            await EventLoopWait.sleep(.milliseconds(100))
+            #expect(seat.state == .starting, "the Command is neither refused nor posted while the adoption runs")
+            staged.value = true
+        }
+
+        _ = try await seat.adopt(window, platform: AppKitPlatform())
+
+        let result = await (try #require(send.value)).result
+        if case .failure(let error) = result {
+            #expect(error as? SessionFailure != .seatNotReady(.starting), "\(error)")
+        }
+    }
 }
