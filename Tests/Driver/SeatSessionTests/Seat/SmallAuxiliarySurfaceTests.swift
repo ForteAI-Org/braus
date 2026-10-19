@@ -53,7 +53,8 @@ struct SmallAuxiliarySurfaceTests {
     }
 
     /// Puts up an application-modal dialog born in the seat, which blocks the
-    /// document and so ends the standing choice the adoption made.
+    /// document and takes the selection; the document's standing choice comes
+    /// back when the dialog closes.
     static func openModal(
         _ seat : AgentSeat,
         sensing: FakeSensing,
@@ -160,11 +161,11 @@ struct SmallAuxiliarySurfaceTests {
         #expect(seat.currentTarget?.id == Self.newMainNumber)
     }
 
-    @Test("two documents with no observed order still ask for an explicit choice")
-    func twoDocumentsStillAsk() async throws {
+    @Test("a document born after a dialog closed does not replace the one the seat was working in")
+    func theDocumentStaysAfterTheDialog() async throws {
 
         let sensing = FakeSensing()
-        let (seat, _, reader) = try await Self.seat(marker: 1_953, sensing: sensing)
+        let (seat, window, reader) = try await Self.seat(marker: 1_953, sensing: sensing)
 
         let modal = try await Self.openModal(seat, sensing: sensing, reader: reader)
         try Self.closeModal(modal, seat, sensing: sensing, reader: reader)
@@ -176,13 +177,11 @@ struct SmallAuxiliarySurfaceTests {
         await seat.ownWindowBornInSeat(other, level: 0)
         seat.refreshTargetReadings()
 
-        guard case .failure(.suspended(let causes)) = await seat.observe() else {
-            Issue.record("two documents with no observed order must still be chosen between")
-            return
-        }
-        #expect(causes.contains {
-            if case .explicitSelectionRequired = $0 { true } else { false }
-        })
+        // The adoption's standing choice survived the dialog, and a birth is no qualified event:
+        // with no order observed between the two documents, the one chosen stays.
+        let delivery = try await observe(seat)
+        #expect(delivery.reference.recipient == window.reference.identity)
+        #expect(seat.currentTarget?.id == window.id)
     }
 
     @Test("the reader names the indicator a decoration, and a dialog of a real size a dialog")
