@@ -200,6 +200,24 @@ struct AccessibilityAugmentationTests {
         FakeNode("AXStaticText", value: text, frame: box(300, y, 360, 20))
     }
 
+    @Test("an unnamed field takes the form label just before it, and only a label ending with a colon")
+    func fieldsTakeTheirFormLabel() {
+        let name    = FakeNode("AXTextField", value: "Kick", frame: box(300, 200, 300, 20))
+        let comment = FakeNode("AXTextField", value: "", frame: box(300, 260, 300, 80))
+        let search  = FakeNode("AXTextField", value: "drums", frame: box(300, 380, 300, 20))
+        let dialog = FakeNode("AXWindow", frame: window).adding(
+            FakeNode("AXStaticText", value: "Name the track:", frame: box(300, 180, 200, 16)), name,
+            FakeNode("AXStaticText", value: "Comments:", frame: box(300, 240, 200, 16)), comment,
+            FakeNode("AXStaticText", value: "Recent searches", frame: box(300, 360, 200, 16)), search
+        )
+
+        let fields = AccessibilityAugmentation.elements(under: dialog, windowFrame: window, reader: reader)
+            .filter { $0.kind == .control }
+
+        #expect(fields.map(\.label) == ["Name the track:", "Comments:", "drums"])
+        #expect(fields.map(\.value) == ["Kick", "", "drums"])
+    }
+
     @Test("a switch with no name of its own is captioned by the static text just before it, else its identifier")
     func switchesTakeTheirCaption() {
         let hide = settingsSwitch("auto-hide-dock", on: true, y: 300)

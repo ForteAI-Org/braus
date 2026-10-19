@@ -184,6 +184,16 @@ public enum AccessibilityAugmentation {
             return (anonymous, nil)
         }
 
+        // The static text just before a field in its parent, when it reads as a form label: it ends with a
+        // colon. Any other text there is content, not the field's name.
+        func formCaption(before preceding: Reader.Node?) -> String? {
+            guard let preceding, reader.role(preceding) == "AXStaticText",
+                  let (text, _) = firstLabel([(reader.value(preceding), .value), (reader.title(preceding), .title)]),
+                  text.hasSuffix(":"), text.count <= 48
+            else { return nil }
+            return text
+        }
+
         func walk(_ node: Reader.Node, _ depth: Int, _ clip: CGRect, _ container: String?,
                   collectionPath: String?, column: String? = nil, rowName: String? = nil,
                   insideControl: Bool = false, insideWebContent: Bool = false, preceding: Reader.Node? = nil) {
@@ -265,9 +275,13 @@ public enum AccessibilityAugmentation {
                 let rawValue = reader.value(node)
                 // An unnamed empty native editor still has a measured role and frame.
                 let anonymousHandle = role == "AXTextArea" ? "Text area" : "Text field"
+                // A form names an unnamed field by the "Name:" text just before it, and its value is only
+                // what it holds now (Pro Tools' rename dialog): the caption comes before the value.
+                let formLabel = textEntryRoles.contains(role) ? formCaption(before: preceding) : nil
                 let read = column.map { ($0, LabelOrigin.column) } ?? firstLabel([
                     (reader.descriptionText(node), .description),
                     (reader.title(node), .title),
+                    (formLabel, .value),
                     (role == "AXTextArea" ? reader.identifier(node) : nil, .identifier),
                     (rawValue, .value),
                 ])
