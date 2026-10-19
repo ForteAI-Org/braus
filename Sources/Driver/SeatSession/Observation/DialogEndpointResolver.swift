@@ -829,14 +829,14 @@ nonisolated package struct DialogEndpointResolver<Node> {
     /// content `endpoint` names. A remote actuation acts on one of them and on
     /// nothing else (ADR 0031). It reads, as everything here does.
     ///
-    /// The descent starts at the hit test's node, or the attested surface for a qualified
-    /// application whose hit test names a sibling. The walk up goes through `AXParent`. Every
-    /// node belongs to the surface's process or the content's, and names the
-    /// content's window, no window, or the surface, which ends the walk. A node
-    /// naming any other window, a read that failed, more than 64 steps or 300 ms
-    /// refuse. A path naming no window at all is proved only for an endpoint
-    /// attested from the surface's own subtree, `remoteContentOfSurface`, as the
-    /// windowless field of Resolve's Go to Folder sheet was.
+    /// The descent starts at the hit test's node. Only for a qualified application whose hit test
+    /// names a sibling window, a palette over the panel, does it start again from the attested
+    /// surface's `AXWindows` entry, which a long file list can exhaust. The walk up goes through
+    /// `AXParent`. Every node belongs to the surface's process or the content's, and names the
+    /// content's window, no window, or the surface, which ends the walk. A node naming any other
+    /// window, a read that failed, more than 64 steps or 300 ms refuse. A path naming no window at
+    /// all is proved only for an endpoint attested from the surface's own subtree,
+    /// `remoteContentOfSurface`, as the windowless field of Resolve's Go to Folder sheet was.
     package func remoteContentPath(
         at point        : CGPoint,
         of endpoint     : ResolvedInputEndpoint,
@@ -847,43 +847,60 @@ nonisolated package struct DialogEndpointResolver<Node> {
         let content = endpoint.identity
         let (deadline, overflow) = now().addingReportingOverflow(300_000_000)
         guard !overflow, endpoint.relation == .remoteContent else { return .failure(.outsideRemoteContent) }
-        var node: Node
-        let found: Result<Node, RemoteContentActuationRefusal>
-        if searchWindowTree {
-            guard let window = windowNode(surface.windowNumber) else { return .failure(.unreadable) }
-            found = innermostWindowNode(
-                at: point, window: window, surface: surface, content: content, deadline: deadline
-            )
-        } else {
-            found = innermostNode(at: point)
-        }
-        switch found {
-            case .success(let found): node = found
+        switch innermostNode(at: point) {
             case .failure(let refusal): return .failure(refusal)
+            case .success(let hit):
+                let walked = remoteContentWalk(from: hit, of: endpoint, deadline: deadline)
+                guard searchWindowTree, walked.namedSiblingWindow else { return walked.result }
         }
+        guard let window = windowNode(surface.windowNumber) else { return .failure(.unreadable) }
+        let descended = innermostWindowNode(
+            at      : point,
+            window  : window,
+            surface : surface,
+            content : content,
+            deadline: deadline
+        )
+        switch descended {
+            case .failure(let refusal): return .failure(refusal)
+            case .success(let found): return remoteContentWalk(from: found, of: endpoint, deadline: deadline).result
+        }
+    }
+
+    /// The walk up from `start` that `remoteContentPath` runs from either start. `namedSiblingWindow`
+    /// tells a node naming another window apart from the other refusals.
+    private func remoteContentWalk(
+        from start      : Node,
+        of endpoint     : ResolvedInputEndpoint,
+        deadline        : UInt64
+    ) -> (result: Result<[Node], RemoteContentActuationRefusal>, namedSiblingWindow: Bool) {
+
+        let surface = endpoint.logicalSurface
+        let content = endpoint.identity
+        var node = start
         var path: [Node] = []
         var namesContent = false
         while true {
-            guard now() < deadline, path.count <= 64 else { return .failure(.unreadable) }
+            guard now() < deadline, path.count <= 64 else { return (.failure(.unreadable), false) }
             guard let process = nodeProcess(node),
                   process == surface.processID || process == content.processID
-            else { return .failure(.outsideRemoteContent) }
+            else { return (.failure(.outsideRemoteContent), false) }
             switch windowReading(node) {
                 case .window(let number) where number == surface.windowNumber:
                     guard !path.isEmpty, namesContent || endpoint.evidence == .remoteContentOfSurface
-                    else { return .failure(.outsideRemoteContent) }
-                    return .success(path)
+                    else { return (.failure(.outsideRemoteContent), false) }
+                    return (.success(path), false)
                 case .window(let number) where number == content.windowNumber:
                     namesContent = true
                 case .window:
-                    return .failure(.outsideRemoteContent)
+                    return (.failure(.outsideRemoteContent), true)
                 case .windowless:
                     break
                 case .unreadable:
-                    return .failure(.unreadable)
+                    return (.failure(.unreadable), false)
             }
             path.append(node)
-            guard let above = parent(node) else { return .failure(.unreadable) }
+            guard let above = parent(node) else { return (.failure(.unreadable), false) }
             node = above
         }
     }

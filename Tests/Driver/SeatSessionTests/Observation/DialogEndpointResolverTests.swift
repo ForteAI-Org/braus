@@ -259,6 +259,48 @@ struct DialogEndpointResolverTests {
         }
     }
 
+    @Test("a hit test inside the panel resolves without the window-tree descent, even on a long list")
+    func remoteHitInsideThePanelSkipsTheDescent() throws {
+        var tree = hostedPanelTree
+        tree.hit = 3
+        tree.parents = [3: 2, 2: 1]
+        tree.windowNodes = [Self.sheetWindow: 1]
+        // More siblings than the descent's read budget, so it alone would refuse.
+        let siblings = Array(100..<700)
+        tree.children[2] = [3] + siblings
+        for sibling in siblings { tree.processes[sibling] = Self.hostProcessID }
+        let endpoint = try coherentResolver()
+            .pointerEndpoint(at: Self.pointOnCancel, within: chain, selectionGeneration: 12)
+            .get()
+
+        let path = try coherentResolver(tree: tree)
+            .remoteContentPath(at: Self.pointOnCancel, of: endpoint, searchWindowTree: true)
+            .get()
+        #expect(path.map(\.id) == [3, 2])
+    }
+
+    @Test("a hit test met by a foreign process refuses without the window-tree descent")
+    func remoteForeignHitDoesNotFallBack() throws {
+        var tree = hostedPanelTree
+        tree.hit = 9
+        tree.frames[9] = Self.buttonFrame
+        tree.processes[9] = 999
+        tree.parents = [3: 2, 2: 1]
+        tree.windowNodes = [Self.sheetWindow: 1]
+        let endpoint = try coherentResolver()
+            .pointerEndpoint(at: Self.pointOnCancel, within: chain, selectionGeneration: 12)
+            .get()
+
+        // The same tree with a sibling hit resolves through the descent, so a fallback would pass.
+        let result = coherentResolver(tree: tree)
+            .remoteContentPath(at: Self.pointOnCancel, of: endpoint, searchWindowTree: true)
+        guard case .failure(let refusal) = result else {
+            Issue.record("a foreign hit resolved")
+            return
+        }
+        #expect(refusal == .outsideRemoteContent)
+    }
+
     // MARK: The measured case
 
     @Test("the accessibility PID stays the host's while the owner is the remote service")
