@@ -1,13 +1,13 @@
 # Use Braus with your AI assistant
 
-Connect a local MCP client to Braus to observe and operate macOS applications, use Chrome, and optionally access passive interaction events. Your client supplies the model; the running Braus app supplies the tools.
+Connect a local MCP client to Braus to observe and operate macOS applications. Optional native, Chrome and adapter routes depend on the running app's channel configuration. Your client supplies the model; Braus supplies the tools through its local bridge.
 
 Braus exposes its bridge over **local STDIO**. The client and Braus must run on the same Mac. The helper is included in `Braus.app`; it needs no separate Node.js or Python installation. Tool results are passed to your AI client and may be sent to its model provider: a local bridge does not mean local model inference.
 
 ## Set up Braus first
 
 1. Put `Braus.app` in a stable location, such as `/Applications`, then open it. Keep Braus running while using its tools.
-2. Grant the macOS permissions requested by Braus for the features you use: Accessibility and Screen Recording for desktop control/perception; Input Monitoring for passive watching. Chrome connection authorization is separate.
+2. Grant the macOS permissions needed by the routes you use. Desktop control/perception uses Accessibility and Screen Recording; local adapters can require app-specific access. See [permissions and data](README.md#permissions-and-data).
 3. Open **MCP → MCP Connections…** from Braus's menu bar.
 4. Give the client a name, select its capabilities, and click **Add Client**. Create a separate entry for each client you intend to connect.
 5. Turn **Enabled** on. Wait for **Ready**.
@@ -227,13 +227,14 @@ If a client requires an array containing the whole command, place the executable
 
 ## Choose the capabilities to expose
 
-| Braus capability | Tools and behavior |
-| --- | --- |
-| Desktop apps | Discover applications/windows, observe interfaces, resolve targets and perform engine actions. |
-| Browser | Use the Chrome tools through the engine's supported browser connection modes. |
-| Passive Watcher | Explicitly start, read and stop passive interaction observation. |
+The current grant has one **Desktop apps** access switch. With it enabled, the client can use
+the tools available in the running app's composition. There are no separate Browser or Passive
+Watcher checkboxes in this grant.
 
-Desktop and Browser are selected by default when creating a grant. Watcher requires explicit selection. Watcher events are not automatically learned.
+The app's optional `native`, `web` and `adapters` channels are configured independently, at launch.
+The default is the virtual desktop alone. See [advanced channel configuration](Engine/README.md#advanced-channel-configuration)
+and [local MCP scope](Engine/LocalMCP.md#scope-and-lifecycle). A grant does not bypass macOS permissions
+or per-call adapter approval; it also does not expose the standalone passive diagnostics.
 
 Every client shares one living memory and Brain with the app's workers and the `braus` command line: the archive in `Knowledge` under Braus's support directory. What one client learns, the workers and the other clients recall, and the other way round. The private archives earlier grants kept in `MCP/Knowledge/<grant>` are taken into the shared one, read only, when it first opens.
 
@@ -261,7 +262,10 @@ Each Braus grant accepts **one active connection at a time**, including connecti
 
 Shared settings do not remove this limit. For clients sharing one configuration, use one frontend at a time unless you explicitly arrange separate grants and effective configurations. A health check can also encounter an already occupied grant.
 
-All clients still share Braus's Seat broker, browser profile pool and passive Watcher. Separate grants do not mean simultaneous unrestricted control of the same app, Chrome profile or Watcher run.
+Clients share the app's Seat broker and local memory. A native app or Chrome profile can also
+have its own exclusive owner when those routes are enabled. Separate grants do not mean
+simultaneous unrestricted control of the same app or profile. Passive diagnostics are separate
+from this MCP connection.
 
 Turn **Enabled** off to stop access while retaining the grant. **Revoke** removes the saved authorization. Quitting Braus disconnects clients. After reopening Braus, restart or reconnect the client; the helper does not automatically reconnect or replay requests.
 
@@ -272,7 +276,7 @@ Turn **Enabled** off to stop access while retaining the grant. **Revoke** remove
 | `Braus is unavailable` | Braus must be running, the grant enabled, and the connection-file path correct. Copy configuration again if needed. |
 | Server exits immediately | Check both paths, including the helper's execute permission, and keep the whole app bundle intact. |
 | Connection refused or another client works instead | Another process may already hold this grant. Stop it or use a separate grant. |
-| Tools missing | Check the grant's selected capabilities and the client's tool selection, then restart its MCP connection. |
+| Tools missing | Check Desktop apps access, the app's enabled channels and the client's tool selection; reopen Braus after changing channels, then reconnect the client. |
 | Tools connect but desktop work fails | Check Braus's macOS permissions and engine result. MCP registration does not override permission or compatibility checks. |
 | Connection stopped after repeated failures | Inspect the reported cause. Braus pauses a client after three unsuccessful desktop attempts; turn it off and on after resolving the issue. |
 | App moved after setup | Copy new configuration so the helper path points to the current app. |

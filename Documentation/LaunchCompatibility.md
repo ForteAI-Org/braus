@@ -1,8 +1,15 @@
 # Compatibility and limitations
 
 Braus runs on macOS 15+ on Apple silicon and Intel. Supported frameworks are
-AppKit, Chromium, Electron and Qt. UXP support is in development (Adobe apps).
+AppKit, Chromium, Electron and Qt, plus DFW, DUI and BUI for [Pro Tools 2026.4+](Driver/platforms/ProTools.md#ui-frameworks). Pro Tools combines Qt6 with these proprietary Avid/Digidesign UI frameworks; coverage is scoped to the controls and workflows documented in its guide. UXP support is in development (Adobe apps).
 Flutter is an area for contributions, not a claim of launch support.
+
+Optional native, web and adapter routes are configured separately from the virtual desktop.
+A native route uses Mac controls where available and can hand an application to the desktop
+route. The web route works in Chrome. The local adapter set covers System Settings, Calendar,
+Reminders, files, Contacts, Mail, Messages and Notes; each exposes specific operations, not every
+feature of that app. Check [route configuration](Engine/README.md#advanced-channel-configuration)
+and each adapter's availability and permissions before choosing a workflow.
 
 ## Check the workflow you need
 
@@ -21,7 +28,7 @@ text, date, time and timezone. Scheduling a post does not mean it has been publi
 ## Background work
 
 The Driver gives the agent a virtual display within the current Mac session.
-Desktop work takes turns: additional workers wait for access. The display does
+Work that uses this virtual desktop takes turns: additional workers wait for access. Native and web routes do not acquire a Seat, but retain their own app/profile ownership and permission checks; enabling them does not create another unrestricted desktop. The display does
 not create a virtual machine or another user account, and does not restrict the
 agent to a separate filesystem. Keep the physical display awake.
 
@@ -41,13 +48,22 @@ with a small sanitized capture if needed. Avoid sharing unrelated window content
 
 Brain maps each app's controls, relationships and transitions. Memory stores
 experience from past interactions and their outcomes for later recall. Both draw
-on observations and action evidence. Saved knowledge still needs to be checked
-against the current window; it does not retrain the model.
+on observations and action evidence. Procedures can include interface and adapter operations, with current inputs and results bound
+for the new task. A remembered operation is not evidence that the new task succeeded. Saved
+knowledge still needs to be checked against the current interface; it does not retrain the model.
 
 The desktop window-to-text pipeline runs on your Mac. Model requests may include
 window text, task context and recalled knowledge. Remote inference remains remote
 even when the client is local. Review the [data guide](README.md#permissions-and-data)
 for the tools and model connection you use.
+
+## Pro Tools checks
+
+The [Pro Tools guide](Driver/platforms/ProTools.md#live-seat-verification-19-october-2026)
+records the team's 19 October checks of menu opening, rename fields, return from dialogs and
+selection counters. These are accessibility/broker/Seat checks on named software and hardware,
+not a model-driven end-to-end DAW workflow or a new benchmark. Read-back remains necessary
+where a tool result is unverified.
 
 ## Report a result
 
