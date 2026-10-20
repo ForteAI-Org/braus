@@ -48,7 +48,7 @@ nonisolated final class MascotLayer: CALayer {
     private let tintLight = CAGradientLayer()
     private let shading   = CAGradientLayer()
     private let bounce    = CAGradientLayer()
-    private let highlight = CAGradientLayer()
+    private let sheen     = CAGradientLayer()
     private let dimming   = CALayer()
 
     /// The expression last shown.
@@ -65,7 +65,7 @@ nonisolated final class MascotLayer: CALayer {
 
     override init() {
         super.init()
-        for gradient in [base, tintLight, shading, bounce, highlight] {
+        for gradient in [base, tintLight, shading, bounce, sheen] {
             gradient.type = .radial
             body.addSublayer(gradient)
         }
@@ -76,7 +76,7 @@ nonisolated final class MascotLayer: CALayer {
         base.colors = [
             Self.color(hex: 0x343230),
             Self.color(hex: 0x262423),
-            Self.color(hex: 0x141313),
+            Self.color(hex: 0x232120),
         ]
         base.locations = [0, 0.44, 1]
         Self.center(
@@ -97,10 +97,11 @@ nonisolated final class MascotLayer: CALayer {
             radiusY: 0.942
         )
 
-        // Darkens the lower half and the sides for volume, like casa's dark inset shadow.
+        // Darkens the lower half and the sides for volume, lightly, so the edge reads diffuse as the
+        // room's Metal sphere does.
         shading.colors = [
             CGColor(gray: 0, alpha: 0),
-            CGColor(gray: 0, alpha: 0.55),
+            CGColor(gray: 0, alpha: 0.2),
         ]
         shading.locations = [0.55, 1]
         Self.center(
@@ -121,19 +122,26 @@ nonisolated final class MascotLayer: CALayer {
             radiusY: 0.6
         )
 
-        // A sharp white reflection above the brow line, slightly wider than tall.
-        highlight.colors = [
-            CGColor(gray: 1, alpha: 0.9),
-            CGColor(gray: 1, alpha: 0.5),
-            CGColor(gray: 1, alpha: 0),
+        // A broad, faint, warm sheen upper left with no hard core, as the lamp's reflection on the
+        // room's Metal sphere, so the mascot keeps its volume and looks like the same object.
+        let warm = CGColor(
+            srgbRed: 1,
+            green  : 0.92,
+            blue   : 0.84,
+            alpha  : 1
+        )
+        sheen.colors = [
+            warm.copy(alpha: 0.26) as Any,
+            warm.copy(alpha: 0.11) as Any,
+            warm.copy(alpha: 0) as Any,
         ]
-        highlight.locations = [0, 0.025, 0.06]
+        sheen.locations = [0, 0.45, 1]
         Self.center(
-            highlight,
-            x      : 0.31,
-            top    : 0.13,
-            radiusX: 1.0,
-            radiusY: 0.8
+            sheen,
+            x      : 0.34,
+            top    : 0.26,
+            radiusX: 0.42,
+            radiusY: 0.36
         )
 
         dimming.backgroundColor = CGColor(gray: 0, alpha: 1)

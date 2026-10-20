@@ -12,7 +12,7 @@ import Metal
 /// One compute pass per change evaluates the scene of RoomLight.metal analytically: the lamp's
 /// elliptical pool on floor and walls, the light they bounce to each other, the sphere's soft
 /// contact shadow as the share of the lamp it hides, and the sphere's metal with the lamp's soft
-/// highlight and a smooth sheen of the pool and the floor toward the walls; the ray tracer reflects
+/// reflection and a smooth sheen of the pool and the floor toward the walls; the ray tracer reflects
 /// the room itself. The finished frames stay on screen with no further GPU work.
 final class PrecomputedRoomRenderer: RoomRenderer {
     let commandQueue   : MTLCommandQueue

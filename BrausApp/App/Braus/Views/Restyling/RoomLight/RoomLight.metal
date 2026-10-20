@@ -55,7 +55,7 @@ constant float3 ambient     = float3(0.003);  // #0A0A0A, the unlit room
 
 // The lamp's radiance seen in a reflection, against the light it gives the floor under it, and the
 // bright core of its disc that the metal mirrors, as a share of its radius.
-constant float lampGlow      = 2.5;
+constant float lampGlow      = 1.8;
 constant float lampCoreShare = 1.0;
 
 // The sphere's metal: GGX roughness, how much of its tint it reflects head on, the shares of the
@@ -71,9 +71,9 @@ constant float bodyDiffuse      = 0.6;
 constant float3 sphereView = float3(0, 0, 1);
 
 // Where the metal sees the lamp's glow, from the lamp, as fractions of the room's short side: north-
-// west and a little lower, so the soft reflection sits upper left, where MascotLayer's highlight is.
+// west and a little lower, so the soft reflection sits upper left, as MascotLayer's sheen does.
 // Moving the lamp itself there threw a long hard shadow across the room, so only the reflection
-// takes this offset, as MascotLayer's painted highlight follows a key light of its own.
+// takes this offset, as MascotLayer's sheen follows a key light of its own.
 constant float3 glowOffset = float3(-0.45, -0.6, -0.25);
 
 // Points on the lamp the precomputed shadow tests, on the floor and walls seen directly, and where
@@ -287,9 +287,9 @@ static float3 colorBlend(float3 backdrop, float3 source) {
 }
 
 /// The sphere's own body in linear light at `uv`, its unit square with y down, layered as
-/// MascotLayer layers it, with a lighter edge: the dark radial base, the tint, the darker lower half
-/// and the white highlight. A worker that is off is grey and dimmed. It belongs to the base image:
-/// it never pulses.
+/// MascotLayer layers it: the dark radial base, the tint and the darker lower half, with no painted
+/// highlight, since the lamp's reflection is the sphere's only one. A worker that is off is grey and
+/// dimmed. It belongs to the base image: it never pulses.
 static float3 sphereBody(float2 uv, Room room) {
     bool   isOff = room.strength <= 0;
     float  t     = gradientPosition(uv, float2(0.37, 0.30), float2(0.942));
@@ -304,8 +304,6 @@ static float3 sphereBody(float2 uv, Room room) {
     // The darker lower half, lighter at the edge than MascotLayer's, so the rim reads lit by the room.
     float shade = stops3(gradientPosition(uv, float2(0.5, 0.25), float2(0.85)), float3(0.55, 0.775, 1), float3(0, 0.12, 0.2));
     color = mix(color, float3(0), shade);
-    float highlight = stops3(gradientPosition(uv, float2(0.31, 0.13), float2(1.0, 0.8)), float3(0, 0.025, 0.06), float3(0.9, 0.5, 0));
-    color = mix(color, float3(1), highlight);
     return linearFromSRGB(isOff ? color * 0.45 : color);
 }
 
