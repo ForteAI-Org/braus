@@ -26,4 +26,19 @@ struct HouseSidebarTests {
         #expect(SidebarMode(preference: AppPreferences.restylingSidebarModeDefault) == .rooms)
         #expect(SidebarMode(preference: "rows") == .rows)
     }
+
+    @Test("The preference values read the sidebar mode from the defaults")
+    func preferenceValuesReadTheMode() throws {
+        let name     = "HouseSidebarTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        #expect(AppPreferenceValues(defaults: defaults).restylingSidebarMode == .rooms)
+
+        defaults.set(
+            "rows",
+            forKey: AppPreferences.restylingSidebarMode
+        )
+        #expect(AppPreferenceValues(defaults: defaults).restylingSidebarMode == .rows)
+    }
 }

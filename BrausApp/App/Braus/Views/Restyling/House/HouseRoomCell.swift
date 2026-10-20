@@ -12,7 +12,7 @@ import SwiftUI
 /// brows over the sphere the room draws, the name under it and the badge in the top trailing corner.
 ///
 /// The selected worker has left for the conversation, so its room is empty: no sphere, no badge, a
-/// lit door at the bottom in the status colour and the label "With you".
+/// lit door at the bottom in the status colour, the label "With you" and a white ring on its edge.
 struct HouseRoomCell: View {
     let worker    : MockWorker
     let isSelected: Bool
@@ -44,6 +44,7 @@ struct HouseRoomCell: View {
                     label
                     door(roomWidth: proxy.size.width)
                     badge
+                    ring(roomSize: proxy.size)
                 }
             }
             .contentShape(Rectangle())
@@ -97,6 +98,22 @@ struct HouseRoomCell: View {
                 maxWidth : .infinity,
                 maxHeight: .infinity,
                 alignment: .bottom
+            )
+        }
+    }
+
+    /// The selected room's ring, on the room's own rounded edge: the radius follows
+    /// `RoomLightUniforms.Shape`, 14 points for a room 104 points tall.
+    @ViewBuilder
+    private func ring(roomSize: CGSize) -> some View {
+        if isSelected {
+            RoundedRectangle(
+                cornerRadius: CGFloat(RoomLightUniforms.Shape(size: roomSize).cornerRadius),
+                style       : .continuous
+            )
+            .strokeBorder(
+                .white.opacity(0.55),
+                lineWidth: 1.5
             )
         }
     }
