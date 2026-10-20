@@ -1,10 +1,33 @@
 # Web engine
 
 Braus drives web pages with the same engine, the same tools and the same living memory it uses for
-applications. A page is not captured as pixels: Braus starts its own Chrome, talks to it over the
-DevTools protocol through a pipe, and reads each page's accessibility tree and layout. The engine
+applications when the optional web channel is enabled. By default, Braus starts its own Chrome
+and reads the page's accessibility tree and layout through the DevTools pipe. The app also has
+explicit personal and paired-profile modes; the transport and authority depend on the chosen mode. The engine
 sees a tab the way it sees a window, and what a page teaches is filed under `web:<host>` the way an
 application's knowledge is filed under its bundle id.
+
+## Chrome profiles and setup
+
+In the app, open **Settings → Chrome Profiles** and choose **Connect Chrome**. If web pages are
+off, the setup enables the web channel for the next launch and asks to restart Braus; it will not
+restart while a worker or external client is busy. Braus prepares its extension folder and native
+host registration. In the chosen Chrome profile, enable Developer mode and load the folder with
+**Load unpacked**, allow the extension and confirm the profile name on its pairing page. The
+extension is not yet distributed through the Chrome Web Store.
+
+Pairing is not a website login or permission to silently select another account. Choose the paired
+profile for the conversation. If it is unavailable, the operation refuses instead of switching
+profiles. The chosen paired profile takes precedence over personal-Chrome mode.
+
+| Composition | Browser/profile scope |
+| --- | --- |
+| App worker | Braus's own Chrome by default; explicit personal or paired-profile choices per conversation. |
+| Local MCP client | Braus's own Chrome in the current composition when the app's web channel is enabled; no inherited worker profile choice. |
+| CLI chat | Its own headless Chrome and profile under the CLI history directory; no personal or paired app profile. |
+
+Connecting Chrome and granting permissions do not enable the separate native or adapter channels.
+For those options, see [advanced channel configuration](README.md#advanced-channel-configuration).
 
 ## Shape
 
@@ -214,14 +237,15 @@ address loads in the same tab. Every call then goes through the same `ActionEngi
 actions and the task's procedure candidates under `web:<host>` with no change to its logic.
 Opening an application closes the web session, and opening an address closes the desktop one.
 
-In the app, every external MCP client and every worker drives one router,
-`RoutingAutomationSession(native:desktop:web:)`, with the MacDriver as its native session: an address
-goes to the web session, a native app to the MacDriver, and an app the MacDriver gives back
-(`MacHandoff`) to the desktop session by its bundle id. The desktop side goes through the seat queue as
+When native or web routes are enabled, workers and external clients use
+`RoutingAutomationSession(native:desktop:web:)` with only the configured routes. A web address
+uses the web session when enabled; a native app goes to the MacDriver only with the native
+channel. A `MacHandoff` passes an app to the desktop session by its bundle id. The desktop side goes through the seat queue as
 before; the web side and the MacDriver take no seat. A conversation hands the same web session to every
 router it makes, so the Chrome its "Show Chrome Window" setting opened stays the one it drives. They all
-use one Chrome profile, `chrome-web` in the app's directory, and Chrome lets one process at a time use a
-profile, so a second web session is refused with a sentence until the first closes. Releasing a
+use `chrome-web` in the app's directory only in Braus-owned mode. Personal and paired-profile
+modes keep their explicit profile choice. Profile/session ownership still applies; a route that
+cannot acquire the chosen profile refuses instead of reusing a different one. Releasing a
 worker's computer, or quitting, closes its web session too.
 
 ### The router before the drivers
@@ -255,6 +279,11 @@ window test (`BRAUS_WEB_WINDOW_TESTS=1`) opens a Chrome window on the person's s
 that the frontmost application never changes.
 
 ## Limits
+
+- Local `file://` navigation is refused by default (`allowsLocalFiles = false`). The router's ability
+  to recognize a file address is not permission to open it. A test composition can explicitly allow it.
+- The web channel and profile choices must be enabled explicitly. A missing paired profile does not
+  authorize fallback to another profile or account.
 
 - Only the main frame is read: a frame is a section whose contents are not read, and nothing in it is
   clickable by name. The isolated world is the main frame's alone. Closed shadow roots are not

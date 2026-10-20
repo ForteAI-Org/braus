@@ -20,10 +20,28 @@ A separate grant is needed for each simultaneous client process. One grant admit
 one connection at a time. If the app moves, copy its configuration again. Braus
 must stay running; the helper never launches it or silently retries an action.
 
+## Optional routes
+
+[Automation channels](README.md#advanced-channel-configuration) are read when Braus starts.
+The default is the virtual desktop alone. To use additional routes through a local client,
+enable them in the app's launch configuration, reopen Braus and reconnect the client. Granting
+Desktop apps access does not turn on every optional route.
+
+A local MCP client's web session uses Braus's own Chrome profile in the current app composition;
+it does not inherit a worker conversation's chosen personal or paired Chrome profile. See
+[Chrome profiles](WebDriver.md#chrome-profiles-and-setup) for those app-specific choices.
+
+With adapters enabled, irreversible verbs require the app's approval for that call and their
+read-back contract. Stopping the turn cancels pending approval requests; it does not undo an
+action already delivered. Native app ownership and Chrome profile exclusivity remain enforced.
+
 ## Scope and lifecycle
 
 This connection exposes `AutomationTools` from the current engine, through the
-same Seat broker as Braus's workers. It adds no browser engine or Watcher. Its calls
+same Seat broker as Braus's workers. The grant controls desktop-tool access; the running app's
+channel configuration determines whether those tools also route to native controls, Chrome or
+local adapters. Browser and adapter routes are not separate grant checkboxes. This connection
+does not expose the passive Watcher. Its calls
 are recorded with the `mcp` source and the grant as their stream in the user's one
 living memory, `Knowledge` under the app's support directory, shared with the workers
 and the command line (G76, [MemoryFacts](MemoryFacts.md#one-archive-per-user)): what a
