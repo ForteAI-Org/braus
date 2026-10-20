@@ -8,13 +8,15 @@
 import SwiftUI
 
 /// MascotFace shows a worker's mascot at `size` points: a `MascotLayer` in the worker's colour,
-/// breathing, whose brows morph whenever `brows` changes.
+/// breathing, whose brows morph whenever `brows` changes. In a room, `catchesRoomLight` lets the
+/// brows take a faint tint of the room's light, pulsing with it.
 struct MascotFace: NSViewRepresentable {
-    let appearance: WorkerAppearance
-    let status    : WorkerStatus
-    let brows     : BrowState
-    let size      : CGFloat
-    var drawsBody : Bool = true
+    let appearance      : WorkerAppearance
+    let status          : WorkerStatus
+    let brows           : BrowState
+    let size            : CGFloat
+    var drawsBody       : Bool = true
+    var catchesRoomLight: Bool = false
 
     func makeNSView(context: Context) -> HostView {
         let view = HostView(frame: CGRect(
@@ -63,6 +65,7 @@ struct MascotFace: NSViewRepresentable {
             brows,
             animated: animated
         )
+        mascot.catchRoomLight(catchesRoomLight)
     }
 
     /// HostView holds the mascot layer and keeps it the size of the view.

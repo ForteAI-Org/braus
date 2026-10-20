@@ -16,8 +16,9 @@ import MetalKit
 /// light, its bleed on the walls and its reflections on the sphere pulse together while the sphere's
 /// body stays, at the cost of compositing only. Under Reduce Motion nothing pulses.
 ///
-/// The brows belong to a `MascotFace` with `drawsBody` false placed over the sphere, a circle of 34%
-/// of the room's short side at its centre.
+/// The brows belong to a `MascotFace` with `drawsBody` false and `catchesRoomLight` true placed over
+/// the sphere, a circle of 34% of the room's short side at its centre; every pulse is phased to the
+/// host clock, so the brows' tint pulses in step with the room.
 final class RoomLightView: MTKView {
 
     /// What the room shows. Setting a different value draws the room once.
@@ -112,6 +113,14 @@ final class RoomLightView: MTKView {
             into         : [(drawable.texture, 1)] + pulse.map { (texture: $0.0, weight: $0.1) },
             commandBuffer: commandBuffer
         )
+        // A managed frame reaches the CPU only once the GPU's copy is synchronised.
+        if frames.contains(where: { $0.storageMode == .managed }),
+           let blit = commandBuffer.makeBlitCommandEncoder() {
+            for frame in frames {
+                blit.synchronize(resource: frame)
+            }
+            blit.endEncoding()
+        }
         commandBuffer.present(drawable)
         renderCount += 1
         if !pulse.isEmpty {
@@ -163,20 +172,41 @@ final class RoomLightView: MTKView {
         _ frames: [CGImage],
         for status: WorkerStatus
     ) -> CAKeyframeAnimation? {
-        let cycle: Double
-        switch status {
-        case .busy   : cycle = RestylingTiming.roomFlicker
-        case .waiting: cycle = RestylingTiming.waitingBreath
-        case .free, .off: return nil
-        }
-        guard let first = frames.first else { return nil }
+        guard
+            let cycle = pulseCycle(for: status),
+            let first = frames.first
+        else { return nil }
         let animation = CAKeyframeAnimation(keyPath: "contents")
         animation.values          = frames + [first]
         animation.keyTimes        = (0...frames.count).map { NSNumber(value: Double($0) / Double(frames.count)) }
         animation.calculationMode = .linear
         animation.duration        = cycle
         animation.repeatCount     = .infinity
+        animation.beginTime       = pulseBeginTime(in: nil)
         return animation
+    }
+
+    /// The length of one pulse cycle for `status`, or nil when its light holds still.
+    static func pulseCycle(for status: WorkerStatus) -> Double? {
+        switch status {
+        case .busy      : RestylingTiming.roomFlicker
+        case .waiting   : RestylingTiming.waitingBreath
+        case .free, .off: nil
+        }
+    }
+
+    /// The begin time that phases every pulse to the host clock, in the time of `layer`, so the
+    /// room's light and everything that follows it, like the brows, pulse in step whenever each was
+    /// started. A layer whose time runs as the host's, the usual case, may pass nil.
+    static func pulseBeginTime(in layer: CALayer?) -> CFTimeInterval {
+        // Host time 1 lies in the past; zero would mean "now" to Core Animation.
+        layer?.convertTime(1, from: nil) ?? 1
+    }
+
+    /// Where a pulse frame lives: shared memory on a GPU with unified memory, managed memory with a
+    /// synchronising blit on a discrete GPU, where a texture cannot be shared.
+    static func frameStorageMode(hasUnifiedMemory: Bool) -> MTLStorageMode {
+        hasUnifiedMemory ? .shared : .managed
     }
 
     private func startPulse(
@@ -191,6 +221,7 @@ final class RoomLightView: MTKView {
                 for: status
             )
         else { return }
+        animation.beginTime = Self.pulseBeginTime(in: pulseLayer)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pulseLayer.contents = images.first
@@ -220,7 +251,7 @@ final class RoomLightView: MTKView {
             mipmapped  : false
         )
         descriptor.usage       = [.shaderWrite]
-        descriptor.storageMode = .shared
+        descriptor.storageMode = frameStorageMode(hasUnifiedMemory: texture.device.hasUnifiedMemory)
         return texture.device.makeTexture(descriptor: descriptor)
     }
 

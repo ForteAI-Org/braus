@@ -117,9 +117,17 @@ struct RoomLightTests {
         let flicker = try #require(RoomLightView.pulse(frames, for: .busy))
         #expect(flicker.keyPath == "contents" && flicker.duration == 3.4)
         #expect(flicker.values?.count == frames.count + 1)
+        // Phased to the host clock, as the brows' tint is.
+        #expect(flicker.beginTime == RoomLightView.pulseBeginTime(in: nil))
         let breath = try #require(RoomLightView.pulse(frames, for: .waiting))
         #expect(breath.duration == 2.2)
         #expect(RoomLightView.pulse(frames, for: .free) == nil)
+    }
+
+    @Test("Pulse frames are shared on unified memory and managed on a discrete GPU")
+    func frameStorage() {
+        #expect(RoomLightView.frameStorageMode(hasUnifiedMemory: true) == .shared)
+        #expect(RoomLightView.frameStorageMode(hasUnifiedMemory: false) == .managed)
     }
 
     @Test("The precomputed path renders without hardware ray tracing")
@@ -167,21 +175,26 @@ struct RoomLightTests {
         #expect(centre.red > centre.blue)
     }
 
-    /// With the worker in the room, the floor above the sphere, toward the lamp, is brighter than
-    /// the floor just below it, in the sphere's shadow.
+    /// With the worker in the room, the floor just below the sphere is darker than the same floor
+    /// with the room empty: the sphere casts its shadow there.
     private func expectContactShadow(
         _ renderer: any RoomRenderer,
         device    : MTLDevice
     ) throws {
-        let image  = try render(
+        let occupied = try render(
             room(.busy),
             with  : renderer,
             device: device
         )
-        let radius = Int(0.17 * Double(image.height))
-        let above  = image.pixel(image.width / 2, image.height / 2 - radius - 3)
-        let below  = image.pixel(image.width / 2, image.height / 2 + radius + 3)
-        #expect(above.red > below.red)
+        let empty = try render(
+            room(.busy, hasOccupant: false),
+            with  : renderer,
+            device: device
+        )
+        let radius = Int(0.17 * Double(occupied.height))
+        let x      = occupied.width / 2
+        let y      = occupied.height / 2 + radius + 3
+        #expect(occupied.pixel(x, y).red + 6 < empty.pixel(x, y).red)
     }
 
     /// Pixels is a rendered room read back, in BGRA order.

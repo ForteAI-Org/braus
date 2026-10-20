@@ -45,6 +45,11 @@ protocol RoomRenderer: AnyObject {
 /// The kernels whose loading failed and was logged, so each is logged once.
 private var loggedKernelFailures: Set<String> = []
 
+/// The compiled kernels, by device and kernel name, shared by every room: the library is loaded and
+/// each pipeline built once per device.
+private var loadedPipelines: [String: MTLComputePipelineState] = [:]
+private var loadedLibraries: [UInt64: MTLLibrary] = [:]
+
 private let logger = Logger(
     subsystem: "dev.forte.Braus",
     category : "RoomLight"
@@ -133,18 +138,24 @@ extension RoomRenderer {
         encoder.endEncoding()
     }
 
-    /// The compute pipeline of the kernel `name` in RoomLight.metal, or nil when the library or the
-    /// kernel cannot be loaded; the first failure of each kernel is logged.
+    /// The compute pipeline of the kernel `name` in RoomLight.metal, built once per device, or nil
+    /// when the library or the kernel cannot be loaded; the first failure of each kernel is logged.
     static func pipeline(
         named name: String,
         device    : MTLDevice
     ) -> MTLComputePipelineState? {
+        let key = "\(device.registryID)/\(name)"
+        if let pipeline = loadedPipelines[key] { return pipeline }
         do {
-            let library = try device.makeDefaultLibrary(bundle: Bundle(for: Self.self))
+            let library = try loadedLibraries[device.registryID]
+                ?? device.makeDefaultLibrary(bundle: Bundle(for: Self.self))
+            loadedLibraries[device.registryID] = library
             guard let function = library.makeFunction(name: name) else {
                 throw CocoaError(.featureUnsupported)
             }
-            return try device.makeComputePipelineState(function: function)
+            let pipeline = try device.makeComputePipelineState(function: function)
+            loadedPipelines[key] = pipeline
+            return pipeline
         } catch {
             if loggedKernelFailures.insert(name).inserted {
                 logger.error("Room light kernel \(name, privacy: .public) did not load: \(error, privacy: .public)")

@@ -342,6 +342,61 @@ nonisolated final class MascotLayer: CALayer {
         }
     }
 
+    /// Tints the brows faintly with the status light when `catches` is true, as the room's light
+    /// reaches them, at most `roomLightTint` of it, pulsing with the room's busy flicker or waiting
+    /// breath in step with `RoomLightView`. A worker that is off, or not in a room, keeps plain brows;
+    /// under Reduce Motion the tint holds still. Call it after every change of `status`.
+    @MainActor
+    func catchRoomLight(_ catches: Bool) {
+        for brow in [leftBrow, rightBrow] {
+            brow.removeAnimation(forKey: Self.roomLightKey)
+        }
+        guard catches, let light = status.light else {
+            applyColors()
+            return
+        }
+        let strength = status.lightStrength
+        func fill(_ weight: Float) -> CGColor {
+            let share = Self.roomLightTint * strength * Double(weight)
+            return CGColor(
+                srgbRed: 0xF5 / 255.0 * (1 - share) + light.red * share,
+                green  : 0xF5 / 255.0 * (1 - share) + light.green * share,
+                blue   : 0xF7 / 255.0 * (1 - share) + light.blue * share,
+                alpha  : 1
+            )
+        }
+        withoutActions {
+            leftBrow.fillColor  = fill(1)
+            rightBrow.fillColor = fill(1)
+        }
+        let weights = RoomLightView.pulseWeights(
+            for          : status,
+            reducesMotion: RestylingMotion.reducesMotion
+        )
+        guard
+            let first = weights.first,
+            let cycle = RoomLightView.pulseCycle(for: status)
+        else { return }
+        for brow in [leftBrow, rightBrow] {
+            let pulse = CAKeyframeAnimation(keyPath: "fillColor")
+            pulse.values          = (weights + [first]).map(fill)
+            pulse.keyTimes        = (0...weights.count).map { NSNumber(value: Double($0) / Double(weights.count)) }
+            pulse.calculationMode = .linear
+            pulse.duration        = cycle
+            pulse.repeatCount     = .infinity
+            pulse.beginTime       = RoomLightView.pulseBeginTime(in: brow)
+            brow.add(
+                pulse,
+                forKey: Self.roomLightKey
+            )
+        }
+    }
+
+    /// The most of the room's light the brows take, at full strength.
+    static let roomLightTint = 0.18
+
+    static let roomLightKey = "roomLight"
+
     private func applyColors() {
         let isOff    = status == .off
         let strength = status.lightStrength
