@@ -8,57 +8,103 @@
 import MetalKit
 import SwiftUI
 
-/// HouseRoomCell is one worker's room on the floor plan: the room lit by its worker, the worker's
-/// brows over the sphere the room draws, the name under it and the badge in the top trailing corner.
+/// HouseRoomCell is one worker's room, on the floor plan and as a row: the room lit by its worker,
+/// the worker's brows over the sphere the room draws, the name under it and the badge in the top
+/// trailing corner.
 ///
 /// The selected worker has left for the conversation, so its room is empty: no sphere, no badge, a
-/// lit door at the bottom in the status colour, the label "With you" and a white ring on its edge.
+/// lit door at the bottom in the status colour, the plaque "In chat with you" (`HouseAwayPlaque`)
+/// hanging where the worker sat, and a white ring on its edge. On the floor plan the room is a button
+/// that calls `select`; as a row, with no `select`, the list selects it.
 struct HouseRoomCell: View {
     let worker    : MockWorker
     let isSelected: Bool
-    let select    : () -> Void
+    var select    : (() -> Void)?
 
     var body: some View {
-        Button(action: select) {
-            GeometryReader { proxy in
-                ZStack {
-                    RoomLight(uniforms: RoomLightUniforms(
-                        status     : worker.status,
-                        tint       : MascotImages.color(for: worker.appearance),
-                        hasOccupant: !isSelected
-                    ))
-                    .allowsHitTesting(false)
-
-                    if !isSelected {
-                        // The room draws the sphere at its centre, 34% of its short side across.
-                        MascotFace(
-                            appearance      : worker.appearance,
-                            status          : worker.status,
-                            brows           : BrowState(worker.status),
-                            size            : 0.34 * min(proxy.size.width, proxy.size.height),
-                            drawsBody       : false,
-                            catchesRoomLight: true
-                        )
-                    }
-
-                    label
-                    door(roomWidth: proxy.size.width)
-                    badge
-                    ring(roomSize: proxy.size)
-                }
-            }
-            .contentShape(Rectangle())
+        if let select {
+            Button(action: select) { room }
+                .buttonStyle(.plain)
+                .modifier(Spoken(
+                    worker    : worker,
+                    isSelected: isSelected
+                ))
+        } else {
+            room
+                .accessibilityElement(children: .ignore)
+                .modifier(Spoken(
+                    worker    : worker,
+                    isSelected: isSelected
+                ))
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(worker.name), \(worker.activity)")
-        .accessibilityValue(worker.badge.map(HouseBadgeView.spokenText(for:)) ?? "")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    /// What VoiceOver says for `worker`'s room: its name and what it is doing, or that it is in chat.
+    static func spokenLabel(
+        for worker: MockWorker,
+        isSelected: Bool
+    ) -> String {
+        isSelected ? "\(worker.name), \(HouseAwayPlaque.text.lowercased())" : "\(worker.name), \(worker.activity)"
+    }
+
+    private var room: some View {
+        GeometryReader { proxy in
+            ZStack {
+                RoomLight(uniforms: RoomLightUniforms(
+                    status     : worker.status,
+                    tint       : MascotImages.color(for: worker.appearance),
+                    hasOccupant: !isSelected
+                ))
+                .allowsHitTesting(false)
+
+                if isSelected {
+                    plaque(roomHeight: proxy.size.height)
+                } else {
+                    // The room draws the sphere at its centre, 34% of its short side across.
+                    MascotFace(
+                        appearance      : worker.appearance,
+                        status          : worker.status,
+                        brows           : BrowState(worker.status),
+                        size            : 0.34 * min(proxy.size.width, proxy.size.height),
+                        drawsBody       : false,
+                        catchesRoomLight: true
+                    )
+                }
+
+                label
+                door(roomWidth: proxy.size.width)
+                badge
+                ring(roomSize: proxy.size)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// The plaque, centred in the room above the name.
+    private func plaque(roomHeight: CGFloat) -> some View {
+        HouseAwayPlaque(brows: BrowState(worker.status))
+            .padding(
+                .top,
+                max(
+                    4,
+                    (roomHeight - Self.labelBand - HouseAwayPlaque.PlaqueView.size.height) / 2
+                )
+            )
+            .frame(
+                maxWidth : .infinity,
+                maxHeight: .infinity,
+                alignment: .top
+            )
+            .accessibilityHidden(true)
+    }
+
+    /// The height the name takes at the room's foot.
+    private static let labelBand: CGFloat = 22
+
     private var label: some View {
-        Text(isSelected ? "With you" : worker.name)
+        Text(worker.name)
             .font(.system(size: 11))
-            .foregroundStyle(isSelected ? .primary : .secondary)
+            .foregroundStyle(.secondary)
             .lineLimit(1)
             .padding(
                 .horizontal,
@@ -131,6 +177,22 @@ struct HouseRoomCell: View {
                 maxHeight: .infinity,
                 alignment: .topTrailing
             )
+        }
+    }
+
+    /// Spoken gives a room its VoiceOver label, its badge as the value, and the selected trait.
+    private struct Spoken: ViewModifier {
+        let worker    : MockWorker
+        let isSelected: Bool
+
+        func body(content: Content) -> some View {
+            content
+                .accessibilityLabel(HouseRoomCell.spokenLabel(
+                    for       : worker,
+                    isSelected: isSelected
+                ))
+                .accessibilityValue(isSelected ? "" : worker.badge.map(HouseBadgeView.spokenText(for:)) ?? "")
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
         }
     }
 

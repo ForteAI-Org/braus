@@ -7,87 +7,63 @@
 
 import SwiftUI
 
-/// HouseRowsList is the house as the system's sidebar list: a row per worker, and the archive pinned
-/// under the list, outside it, so it cannot be selected.
+/// HouseRowsList is the house as the system's list of rooms: a wide, low room per worker,
+/// one under the other, and the archive's cellar pinned under the list, outside it, so it cannot be
+/// selected. In the compact sidebar the rooms are the compact floor plan's.
 ///
 /// The list keeps the system's selection, by click and by keys, but not its fill: the accent fill
-/// reads as a status light (an orange accent as busy, the blue one as waiting) and drowns the halo,
-/// so `QuietSelection` turns the table's fill off and the selected row gets a neutral one instead.
+/// reads as a status light (an orange accent as busy, the blue one as waiting), so `QuietSelection`
+/// turns the table's fill off and the selected room's ring is the only mark. The rooms are laid out
+/// `roomsWidth` across, which `HouseSidebar` changes together with `isCompact`, so they reshape
+/// from where they were.
 struct HouseRowsList: View {
     let workers      : [MockWorker]
     let archivedCount: Int
     let isCompact    : Bool
+    let roomsWidth   : CGFloat?
 
     @Binding var selection: MockWorker.ID?
 
     var body: some View {
         List(selection: $selection) {
             ForEach(workers) { worker in
-                HouseRowCell(
-                    worker   : worker,
-                    isCompact: isCompact
+                HouseRoomCell(
+                    worker    : worker,
+                    isSelected: selection == worker.id
+                )
+                .frame(
+                    width : roomsWidth,
+                    height: HouseLayout.rowHeight
                 )
                 .background(QuietSelection())
                 .tag(Optional(worker.id))
-                .listRowBackground(selection == worker.id ? selectedBackground : nil)
+                .listRowInsets(EdgeInsets(
+                    top     : HouseLayout.gap / 2,
+                    leading : HouseLayout.margin,
+                    bottom  : HouseLayout.gap / 2,
+                    trailing: HouseLayout.margin
+                ))
+                .listRowSeparator(.hidden)
             }
         }
-        .listStyle(.sidebar)
-        // The archive stays at the foot of the sidebar while the rows scroll above it.
+        .listStyle(.plain)
+        // The archive stays at the foot of the sidebar while the rooms scroll above it.
         .safeAreaInset(edge: .bottom) {
             if archivedCount > 0 {
-                archive
-                    .padding(
-                        .horizontal,
-                        20
-                    )
-                    .padding(
-                        .vertical,
-                        6
-                    )
-                    .background { Color("RestylingSidebar") }
+                HouseRoomsGrid.Cellar(
+                    archivedCount: archivedCount,
+                    isCompact    : isCompact
+                )
+                .padding(HouseLayout.margin)
+                .background { Color("RestylingSidebar") }
             }
         }
     }
 
-    /// The selected row's quiet fill, as the prototype's: white at 9% with a faint inner edge, inset
-    /// as the system's own selection.
-    private var selectedBackground: some View {
-        let shape = RoundedRectangle(
-            cornerRadius: 12,
-            style       : .continuous
-        )
-        return shape
-            .fill(.white.opacity(0.09))
-            .overlay {
-                shape.strokeBorder(.white.opacity(0.08))
-            }
-            .padding(
-                .horizontal,
-                10
-            )
-    }
-
-    private var archive: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "door.left.hand.closed")
-            if !isCompact {
-                Text("Archive · \(archivedCount)")
-            }
-        }
-        .font(.system(size: 12))
-        .foregroundStyle(.tertiary)
-        .frame(
-            maxWidth : .infinity,
-            minHeight: 36,
-            alignment: isCompact ? .center : .leading
-        )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Archive, \(archivedCount) workers")
-    }
-
-    /// QuietSelection turns off the table's own selection fill under the list, so the neutral row
-    /// background is the only mark of the selection; the table still selects by click and by keys.
+    /// QuietSelection turns off the table's own selection fill under the list, so the selected room's
+    /// ring is the only mark of the selection; the table still selects by click and by keys. It also
+    /// removes the table's spacing between cells, which would push every room 8 points right of the
+    /// sidebar's margin.
     ///
     /// Each row carries one. It reaches the table SwiftUI built through public API only: up from
     /// itself to the first enclosing `NSTableView`, which is this list's and never another's. It sets
@@ -95,8 +71,8 @@ struct HouseRowsList: View {
     /// turn of the main queue, outside SwiftUI's update. Were the list ever not backed by a table, it
     /// would change nothing and the accent fill would come back. It takes no clicks and draws nothing.
     ///
-    /// Remove it, with the neutral row background, when SwiftUI honours `.tint` for a sidebar list's
-    /// selection or offers a modifier for its selection style.
+    /// Remove it when SwiftUI honours `.tint` for a list's selection or offers a modifier for its
+    /// selection style, and the list's rows reach its edges.
     private struct QuietSelection: NSViewRepresentable {
 
         func makeNSView(context: Context) -> BridgeView { BridgeView() }
@@ -148,8 +124,16 @@ struct HouseRowsList: View {
             }
 
             private func quiet() {
-                guard let table, table.selectionHighlightStyle != .none else { return }
-                table.selectionHighlightStyle = .none
+                guard let table else { return }
+                if table.intercellSpacing.width != 0 {
+                    table.intercellSpacing = NSSize(
+                        width : 0,
+                        height: table.intercellSpacing.height
+                    )
+                }
+                if table.selectionHighlightStyle != .none {
+                    table.selectionHighlightStyle = .none
+                }
             }
 
             private func enclosingTable() -> NSTableView? {

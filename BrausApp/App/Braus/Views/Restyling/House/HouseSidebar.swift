@@ -10,8 +10,12 @@ import SwiftUI
 /// HouseSidebar is the mockup's sidebar: the house's workers as rooms or as rows, as Settings
 /// chooses, with a search field that finds a worker by name and that Edit > Find… (⌘F) focuses.
 ///
-/// The number of room columns, and whether the rows are compact tiles, follow the width the split
-/// gives the sidebar; nothing here changes that width. While searching, the archive is left out.
+/// The number of room columns, and whether the rows are compact, follow the width the split gives
+/// the sidebar; nothing here changes that width. When the sidebar turns compact or wide again, the
+/// rooms and rows are laid out at the width they had until the new layout is applied, all at once,
+/// with `HouseLayout.reshaping`: each one moves and resizes from where it was, its Metal room showing
+/// its last image scaled until the animation ends. Under Reduce Motion the sidebar cross-fades
+/// (`CrossFade`). While searching, the archive is left out.
 /// The search field draws no focus ring (`SearchFieldWithoutRing`): it keeps the keyboard focus,
 /// and the ring would only outline it against the dark sidebar.
 struct HouseSidebar: View {
@@ -23,6 +27,9 @@ struct HouseSidebar: View {
 
     @State private var columns = 2
 
+    /// The width the rooms and rows are laid out at, which changes with `columns` in one transaction.
+    @State private var layoutWidth: CGFloat?
+
     @FocusState private var isSearchFocused: Bool
 
     var body: some View {
@@ -33,6 +40,7 @@ struct HouseSidebar: View {
                     workers      : workers,
                     archivedCount: archivedCount,
                     columns      : columns,
+                    roomsWidth   : roomsWidth,
                     selection    : $selection
                 )
             case .rows:
@@ -40,10 +48,12 @@ struct HouseSidebar: View {
                     workers      : workers,
                     archivedCount: archivedCount,
                     isCompact    : columns == 1,
+                    roomsWidth   : roomsWidth,
                     selection    : $selection
                 )
             }
         }
+        .background(CrossFade(columns: columns))
         .searchable(
             text     : $query,
             placement: .sidebar
@@ -54,10 +64,29 @@ struct HouseSidebar: View {
             \.findInHouse,
             { isSearchFocused = true }
         )
-        .onGeometryChange(for: Int.self) { proxy in
-            HouseLayout.columns(sidebarWidth: proxy.size.width)
-        } action: { columns in
-            self.columns = columns
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            resize(to: width)
+        }
+    }
+
+    /// The rooms' width inside the sidebar's margins, nil until the sidebar is measured.
+    private var roomsWidth: CGFloat? {
+        layoutWidth.map { max(0, $0 - 2 * HouseLayout.margin) }
+    }
+
+    /// Follows the sidebar's width at once, and reshapes the rooms when it changes their columns.
+    private func resize(to width: CGFloat) {
+        let next = HouseLayout.columns(sidebarWidth: width)
+        guard next != columns, layoutWidth != nil else {
+            columns     = next
+            layoutWidth = width
+            return
+        }
+        withAnimation(HouseLayout.reshaping(reducesMotion: RestylingMotion.reducesMotion)) {
+            columns     = next
+            layoutWidth = width
         }
     }
 
@@ -68,6 +97,54 @@ struct HouseSidebar: View {
 
     private var archivedCount: Int {
         query.isEmpty ? house.archivedCount : 0
+    }
+
+    /// CrossFade cross-fades the sidebar column when the number of room columns changes under Reduce
+    /// Motion, in place of the rooms' movement.
+    ///
+    /// SwiftUI updates it in the same pass that lays out the new columns, so the Core Animation fade it
+    /// adds to the column's view runs from the old layout on screen to the new one. It finds that view
+    /// up from itself: the split view's subview that holds it. It takes no clicks and draws nothing.
+    private struct CrossFade: NSViewRepresentable {
+        let columns: Int
+
+        private static let seconds = 0.2
+
+        func makeNSView(context: Context) -> BridgeView { BridgeView() }
+
+        func updateNSView(
+            _ view : BridgeView,
+            context: Context
+        ) {
+            guard columns != view.columns else { return }
+            defer { view.columns = columns }
+            guard view.columns != nil, RestylingMotion.reducesMotion, let column = view.column?.layer else { return }
+
+            let fade = CATransition()
+            fade.type     = .fade
+            fade.duration = Self.seconds
+            column.add(
+                fade,
+                forKey: kCATransition
+            )
+        }
+
+        /// The AppKit end: it remembers the columns it last saw and finds the sidebar's column.
+        final class BridgeView: NSView {
+
+            var columns: Int?
+
+            override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+            var column: NSView? {
+                var view: NSView? = self
+                while let current = view, let parent = current.superview {
+                    if parent is NSSplitView { return current }
+                    view = parent
+                }
+                return nil
+            }
+        }
     }
 
     /// SearchFieldWithoutRing turns off the focus ring of the sidebar's search field, which SwiftUI
