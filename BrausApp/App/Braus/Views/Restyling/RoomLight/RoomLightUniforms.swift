@@ -17,7 +17,7 @@ nonisolated struct RoomLightUniforms: Equatable {
     var tint       : SIMD3<Float>
     var hasOccupant: Bool
 
-    /// The status the light shows; it picks the room's ambient motion.
+    /// The status the light shows; it picks the light's pulse.
     var status: WorkerStatus
 
     init(
@@ -48,7 +48,8 @@ nonisolated struct RoomLightUniforms: Equatable {
         size      : CGSize,
         pixelWidth: Int
     ) -> Packed {
-        Packed(
+        let shape = Shape(size: size)
+        return Packed(
             light: SIMD4(lightColor, strength),
             tint : SIMD4(tint, hasOccupant ? 1 : 0),
             room : SIMD4(
@@ -56,11 +57,40 @@ nonisolated struct RoomLightUniforms: Equatable {
                 Float(size.height),
                 Float(size.width) / Float(max(1, pixelWidth)),
                 0
+            ),
+            shape: SIMD4(
+                shape.wallHeight,
+                shape.wallReach,
+                shape.sphereRadius,
+                shape.cornerRadius
             )
         )
     }
 
-    /// Packed matches `RoomLightUniforms` in RoomLight.metal field for field: three `float4`s, 48
+    /// Shape is a room's proportions in points, the one source for the shaders and the ray tracer's
+    /// geometry. Every length follows the room's short side.
+    struct Shape {
+        /// How high the walls rise from the floor.
+        let wallHeight: Float
+
+        /// How far a wall's curved face reaches into the room, seen from above.
+        let wallReach: Float
+
+        let sphereRadius: Float
+
+        /// The radius of the room's rounded outline: 14 points for a room 104 points tall.
+        let cornerRadius: Float
+
+        init(size: CGSize) {
+            let side = Float(min(size.width, size.height))
+            wallHeight   = 0.18 * side
+            wallReach    = 0.045 * side
+            sphereRadius = 0.17 * side
+            cornerRadius = 14.0 / 104.0 * side
+        }
+    }
+
+    /// Packed matches `RoomLightUniforms` in RoomLight.metal field for field: four `float4`s, 64
     /// bytes, so no member needs padding on either side.
     struct Packed {
         /// sRGB colour, and the strength in `w`.
@@ -71,5 +101,8 @@ nonisolated struct RoomLightUniforms: Equatable {
 
         /// Room width and height in points, points per pixel, and an unused lane.
         var room: SIMD4<Float>
+
+        /// `Shape`: wall height, wall reach, sphere radius and corner radius, in points.
+        var shape: SIMD4<Float>
     }
 }

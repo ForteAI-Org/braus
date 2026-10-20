@@ -5,13 +5,17 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 20/10/2026.
 //
 
-// A room seen straight from above, orthographic: a floor, four low walls that lean outward so their
-// faces show from above, and the worker as a sphere at the centre resting on the floor. A disc light
-// just above the sphere, facing down, lights the room in the worker's status colour. Scene units are
-// points: x to the right, y down as on screen, z up from the floor.
+// A room seen straight from above, orthographic: a floor with a rounded outline, low walls that curve
+// up from it as a cove, so their faces show from above, and the worker as a glossy metal sphere at
+// the centre resting on the floor. A soft disc lamp above the sphere, a little toward the top, lights
+// the room in the worker's status colour; it casts an elliptical pool as wide as the room. Scene
+// units are points: x to the right, y down as on screen, z up from the floor.
 //
+// Every kernel writes two linear images: `base`, the room without its worker's light, and `light`,
+// the light alone with its bleed on the walls and its reflections on the sphere. `resolveRoom` adds
+// them with a weight, tone maps once and writes sRGB, which lets the light pulse without rendering.
 // `traceRoom` traces the scene against an acceleration structure; `precomputeRoom` evaluates the
-// same scene analytically. Both share the room's geometry, its light and the sphere's look.
+// same scene analytically.
 
 #include <metal_stdlib>
 #include <metal_raytracing>
@@ -19,39 +23,72 @@
 using namespace metal;
 using namespace raytracing;
 
-/// RoomLightUniforms matches `RoomLightUniforms.Packed` in Swift: three float4, 48 bytes.
+/// RoomLightUniforms matches `RoomLightUniforms.Packed` in Swift: four float4, 64 bytes.
 struct RoomLightUniforms {
     float4 light;   // sRGB colour, strength in w
     float4 tint;    // sRGB tint, w is 1 when the worker is in the room
     float4 room;    // width and height in points, points per pixel, unused
+    float4 shape;   // wall height, wall reach, sphere radius, corner radius, in points
 };
 
-// The scene's proportions, as fractions of the room's short side.
-constant float wallHeightShare  = 0.18;
-constant float wallReachShare   = 0.09;  // how far a leaning wall reaches into the room
-constant float sphereShare      = 0.17;
-constant float lampHeightShare  = 0.62;
-constant float lampRadiusShare  = 0.20;
-constant float lampShiftShare   = 0.06;  // toward the top of the room, so the shadow falls below
+// The lamp, a disc facing down, as fractions of the room's short side. Its size keeps every shadow
+// soft.
+constant float lampHeightShare = 0.7;
+constant float lampRadiusShare = 0.32;
 
-constant float floorAlbedo = 0.5;
-constant float wallAlbedo  = 0.8;
-constant float exposure    = 0.36;
-constant float lampFocus   = 6;     // the lamp shines mostly down, so the light pools under it
-constant float3 ambient    = float3(0.003);  // #0A0A0A, the unlit room
+// The pool of light, after the prototype's radial-gradient(62% 78% at 50% 42%), which centres it on
+// the prototype's sphere: centre and radii as fractions of the room's size, a soft core and a faint
+// tail that reaches the walls. The lamp sits over the centre, a little toward the top.
+constant float2 poolCentre = float2(0.5, 0.47);
+constant float2 poolRadii  = float2(0.62, 0.78);
+constant float  poolCore   = 0.32;
+constant float  poolTail   = 0.008;
+constant float  tailWidth  = 1.1;
+constant float  wallCatch  = 13;
 
-// Ray-traced sampling: frames accumulated per change, shadow rays per frame.
-constant uint accumulatedFrames = 16;
-constant uint shadowRays        = 4;
+constant float  floorAlbedo = 0.5;
+constant float  wallAlbedo  = 0.8;
+constant float  exposure    = 0.42;
+constant float3 ambient     = float3(0.003);  // #0A0A0A, the unlit room
 
-// Geometry ids in the acceleration structure: the floor is 0.
-constant uint wallsGeometry  = 1;
-constant uint sphereGeometry = 2;
+// The lamp's radiance seen in a reflection, against the light it gives the floor under it, and the
+// bright core of its disc that the metal mirrors, as a share of its radius.
+constant float lampGlow      = 24;
+constant float lampCoreShare = 0.3;
+
+// The sphere's metal: GGX roughness, how much of its tint it reflects head on, the facets per
+// pixel of the precomputed gloss, and how much of the painted body's own light a metal keeps.
+constant float metalRoughness   = 0.16;
+constant float metalReflectance = 0.75;
+constant uint  glossSamples     = 24;
+constant float bodyDiffuse      = 0.6;
+
+// The sphere faces its viewer as MascotLayer draws it, not the camera above the room: the viewer
+// stands south of it, a little below its centre, and its frame rolls so that the lamp's reflection
+// falls where MascotLayer's highlight is, upper left. The three directions are orthonormal.
+constant float3 sphereView  = float3(-0.0172, 0.9831, -0.1822);
+constant float3 sphereUp    = float3(0.4511, 0.1703, 0.8761);
+constant float3 sphereRight = float3(0.8923, -0.0672, -0.4464);
+
+// Points on the lamp the precomputed shadow tests, on the floor and walls seen directly and in
+// reflections and bounces.
+constant uint occlusionSamples  = 32;
+constant uint reflectionSamples = 6;
+
+// Ray-traced sampling: frames accumulated per change, shadow rays per frame, ambient occlusion reach.
+constant uint  accumulatedFrames = 64;
+constant uint  shadowRays        = 2;
+constant float occlusionReach    = 0.25;  // of the short side
+
+// Geometry ids in the acceleration structure: the room is 0.
+constant uint sphereGeometry = 1;
 
 struct Room {
     float2 size;
+    float  side;
     float  wallHeight;
     float  wallReach;
+    float  cornerRadius;
     float3 sphere;
     float  radius;
     float3 lamp;
@@ -60,6 +97,7 @@ struct Room {
     float3 lightSRGB;
     float  strength;
     float3 tint;
+    float3 metal;        // linear reflectance of the sphere head on
     bool   isOccupied;
     float  pointsPerPixel;
 };
@@ -70,6 +108,14 @@ struct Surface {
     float  albedo;
 };
 
+/// Images is one sample of a pixel: what belongs to the base image and what to the light image.
+struct Images {
+    float3 base;
+    float3 light;
+};
+
+static float square(float x) { return x * x; }
+
 static float3 linearFromSRGB(float3 c) {
     return select(pow((c + 0.055) / 1.055, 2.4), c / 12.92, c <= 0.04045);
 }
@@ -77,6 +123,13 @@ static float3 linearFromSRGB(float3 c) {
 static float3 sRGBFromLinear(float3 c) {
     c = saturate(c);
     return select(1.055 * pow(c, 1.0 / 2.4) - 0.055, c * 12.92, c <= 0.0031308);
+}
+
+/// Keeps radiance up to 0.5 as it is, so the authored sphere keeps its colours, and rolls the rest
+/// off smoothly toward 1.
+static float3 toneMap(float3 radiance) {
+    float3 over = max(radiance - 0.5, 0.0);
+    return min(radiance, 0.5) + 0.5 * (1 - exp(-over / 0.5));
 }
 
 /// The pixel's final colour: `linear` in sRGB with half a step of noise, so the dark gradients do
@@ -89,102 +142,108 @@ static float4 encodedPixel(float3 linear, uint2 pixel) {
 static Room makeRoom(constant RoomLightUniforms& uniforms) {
     Room room;
     room.size           = uniforms.room.xy;
-    float side          = min(room.size.x, room.size.y);
-    room.wallHeight     = wallHeightShare * side;
-    room.wallReach      = wallReachShare * side;
-    room.radius         = sphereShare * side;
+    room.side           = min(room.size.x, room.size.y);
+    room.wallHeight     = uniforms.shape.x;
+    room.wallReach      = uniforms.shape.y;
+    room.radius         = uniforms.shape.z;
+    room.cornerRadius   = uniforms.shape.w;
     room.sphere         = float3(room.size * 0.5, room.radius);
-    room.lamp           = float3(room.size.x * 0.5, room.size.y * 0.5 - lampShiftShare * side, lampHeightShare * side);
-    room.lampRadius     = lampRadiusShare * side;
+    room.lamp           = float3(poolCentre * room.size, lampHeightShare * room.side);
+    room.lampRadius     = lampRadiusShare * room.side;
     room.strength       = uniforms.light.w;
     room.lightSRGB      = uniforms.light.rgb;
     room.light          = linearFromSRGB(uniforms.light.rgb) * uniforms.light.w * exposure;
     room.tint           = uniforms.tint.rgb;
+    // The metal keeps the tint's hue at full brightness, half white, so it colours what it reflects
+    // without swallowing a light of another hue.
+    float brightest     = max(max(room.tint.r, room.tint.g), max(room.tint.b, 0.05));
+    room.metal          = mix(float3(0.5), linearFromSRGB(room.tint / brightest), 0.7) * metalReflectance;
     room.isOccupied     = uniforms.tint.w > 0.5;
     room.pointsPerPixel = uniforms.room.z;
     return room;
 }
 
-/// The inward normal of wall `index`: 0 left, 1 top, 2 right, 3 bottom.
-static float3 wallNormal(uint index, Room room) {
-    float3 normal;
-    switch (index) {
-        case 0:  normal = float3( room.wallHeight, 0, room.wallReach); break;
-        case 1:  normal = float3(0,  room.wallHeight, room.wallReach); break;
-        case 2:  normal = float3(-room.wallHeight, 0, room.wallReach); break;
-        default: normal = float3(0, -room.wallHeight, room.wallReach); break;
+// MARK: - The room
+
+/// The distance from `xy` in to the room's rounded outline, negative outside, and in `inward` the
+/// direction that points into the room.
+static float insideDistance(float2 xy, Room room, thread float2& inward) {
+    float2 p    = xy - room.size * 0.5;
+    float2 sign = select(float2(1), float2(-1), p < 0);
+    float  r    = room.cornerRadius;
+    float2 q    = abs(p) - room.size * 0.5 + r;
+    if (q.x > 0 && q.y > 0) {
+        float length = max(metal::length(q), 1e-4);
+        inward = -q / length * sign;
+        return r - length;
     }
-    return normalize(normal);
+    inward = q.x > q.y ? float2(-sign.x, 0) : float2(0, -sign.y);
+    return r - max(q.x, q.y);
 }
 
-/// The wall nearest to `xy` (0 left, 1 top, 2 right, 3 bottom) and, in `edge`, the distance to
-/// the room's outline.
-static uint nearestWall(float2 xy, Room room, thread float& edge) {
-    float4 edges = float4(xy.x, xy.y, room.size.x - xy.x, room.size.y - xy.y);
-    edge = min(min(edges.x, edges.y), min(edges.z, edges.w));
-    return edge == edges.x ? 0 : (edge == edges.y ? 1 : (edge == edges.z ? 2 : 3));
-}
-
-/// The floor or wall seen from above at `xy`.
+/// The floor or wall seen from above at `xy`. A wall rises as a cove, z = height × t², where t
+/// grows from 0 at its foot to 1 at the outline: its normal turns from the floor's smoothly, so
+/// no groove marks the foot, and its albedo blends the same way.
 static Surface surfaceAt(float2 xy, Room room) {
-    float edge;
-    uint  wall = nearestWall(xy, room, edge);
+    float2 inward;
+    float  edge  = max(insideDistance(xy, room, inward), 0.0);
+    float  t     = saturate(1 - edge / room.wallReach);
+    float  slope = 2 * room.wallHeight * t / room.wallReach;
     Surface surface;
-    if (edge >= room.wallReach) {
-        surface.position = float3(xy, 0);
-        surface.normal   = float3(0, 0, 1);
-        surface.albedo   = floorAlbedo;
-    } else {
-        surface.position = float3(xy, room.wallHeight * (1 - max(edge, 0.0) / room.wallReach));
-        surface.normal   = wallNormal(wall, room);
-        surface.albedo   = wallAlbedo;
-    }
+    surface.position = float3(xy, room.wallHeight * t * t);
+    surface.normal   = normalize(float3(inward * slope, 1));
+    surface.albedo   = mix(floorAlbedo, wallAlbedo, t);
     return surface;
 }
 
-/// The light a point of the disc lamp at `lampPoint` gives a surface, before its colour and albedo.
-/// It is 1 on the floor straight below the lamp.
+/// The lamp's pool at a point of the room, 1 at its centre. The core falls off like the prototype's
+/// gradient; the tail is the lamp's side light, which the walls catch `wallCatch` times more than
+/// the floor, so they read as a lit rim.
+static float pool(float2 xy, float wallShare, Room room) {
+    float distance = length((xy - poolCentre * room.size) / (poolRadii * room.size));
+    float tail     = poolTail * (1 + wallCatch * wallShare);
+    return (1 - poolTail) * exp(-square(distance / poolCore)) + tail * exp(-square(distance / tailWidth));
+}
+
+/// The light a point of the lamp at `lampPoint` gives a surface, before its colour and albedo: the
+/// pool, more on a wall that faces the lamp than on the floor.
 static float lampTerm(float3 position, float3 normal, float3 lampPoint, Room room) {
-    float3 toLamp   = lampPoint - position;
-    float  distance2 = dot(toLamp, toLamp);
-    float3 direction = toLamp * rsqrt(distance2);
-    float  surfaceCos = max(dot(normal, direction), 0.0);
-    float  lampCos    = max(direction.z, 0.0);
-    return surfaceCos * pow(lampCos, 1 + lampFocus) * room.lamp.z * room.lamp.z / distance2;
+    float3 direction = normalize(lampPoint - position);
+    return pool(position.xy, 1 - normal.z, room) * max(dot(normal, direction), 0.0) / max(direction.z, 0.3);
 }
 
-/// The share of the lamp the sphere hides from `position`: the overlap of the two discs as seen
-/// from there, divided by the lamp's.
-static float sphereOcclusion(float3 position, Room room) {
+/// The lamp's radiance along a ray, soft from its centre out, or zero when the ray misses it.
+static float3 lampSeen(float3 origin, float3 direction, Room room) {
+    if (direction.z <= 0 || origin.z >= room.lamp.z) { return float3(0); }
+    float3 hit    = origin + direction * ((room.lamp.z - origin.z) / direction.z);
+    float  offset = length(hit.xy - room.lamp.xy) / room.lampRadius;
+    return lampGlow * room.light * exp(-square(offset / lampCoreShare));
+}
+
+/// The share of the lamp the sphere hides from `position`, over a spiral of points on the lamp's
+/// disc: each counts as hidden by how deep its line to `position` passes inside the sphere, softened
+/// over a tenth of the radius, so the penumbra has no steps.
+static float sphereOcclusion(float3 position, uint samples, Room room) {
     if (!room.isOccupied) { return 0; }
-    float3 toLamp   = room.lamp - position;
-    float3 toSphere = room.sphere - position;
-    float  lampDistance   = length(toLamp);
-    float  sphereDistance = length(toSphere);
-    if (sphereDistance <= room.radius || sphereDistance > lampDistance) { return 0; }
-    float lampAngle   = atan(room.lampRadius / lampDistance);
-    float sphereAngle = asin(room.radius / sphereDistance);
-    float apart       = acos(clamp(dot(toLamp / lampDistance, toSphere / sphereDistance), -1.0, 1.0));
-    if (apart >= lampAngle + sphereAngle) { return 0; }
-    if (apart <= abs(lampAngle - sphereAngle)) {
-        float smaller = min(lampAngle, sphereAngle);
-        return smaller * smaller / (lampAngle * lampAngle);
+    float hidden = 0;
+    for (uint index = 0; index < samples; index++) {
+        float  radius    = room.lampRadius * sqrt((index + 0.5) / samples);
+        float  angle     = 2 * M_PI_F * fract(index * 0.618034);
+        float3 lampPoint = room.lamp + float3(radius * cos(angle), radius * sin(angle), 0);
+        float3 line      = lampPoint - position;
+        float  along     = clamp(dot(room.sphere - position, line) / dot(line, line), 0.0, 1.0);
+        float  miss      = length(position + line * along - room.sphere);
+        hidden += 1 - smoothstep(0.9 * room.radius, 1.1 * room.radius, miss);
     }
-    float a = lampAngle, b = sphereAngle, d = apart;
-    float lens = a * a * acos(clamp((d * d + a * a - b * b) / (2 * d * a), -1.0, 1.0))
-               + b * b * acos(clamp((d * d + b * b - a * a) / (2 * d * b), -1.0, 1.0))
-               - 0.5 * sqrt(max((-d + a + b) * (d + a - b) * (d - a + b) * (d + a + b), 0.0));
-    return saturate(lens / (M_PI_F * a * a));
+    return hidden / samples;
 }
 
-/// The radiance of a floor or wall point lit straight from the lamp, without shadow.
-static float3 directLight(Surface surface, Room room) {
-    return surface.albedo * lampTerm(surface.position, surface.normal, room.lamp, room) * room.light;
-}
-
-/// Compresses radiance into 0...1 while keeping the dark range as it is.
-static float3 toneMap(float3 radiance) {
-    return 1 - exp(-radiance);
+/// The sky the sphere hides from a floor or wall point, for the ambient light.
+static float sphereAmbientOcclusion(Surface surface, Room room) {
+    if (!room.isOccupied) { return 0; }
+    float3 toSphere = room.sphere - surface.position;
+    float  distance = length(toSphere);
+    return saturate(dot(surface.normal, toSphere / distance)) * square(room.radius / max(distance, room.radius));
 }
 
 // MARK: - The sphere, after MascotLayer
@@ -221,111 +280,175 @@ static float3 colorBlend(float3 backdrop, float3 source) {
     return c;
 }
 
-/// The sphere's body in sRGB at `uv`, its unit square with y down, layered as MascotLayer layers
-/// it: the dark radial base, the tint, the darker lower half, the crescent of room light at the
-/// bottom and the white highlight. A worker that is off is grey and dimmed.
+/// The sphere's own body in linear light at `uv`, its unit square with y down, layered as
+/// MascotLayer layers it: the dark radial base, the tint, the darker lower half and the white
+/// highlight. A worker that is off is grey and dimmed. It belongs to the base image: it never pulses.
 static float3 sphereBody(float2 uv, Room room) {
-    bool isOff = room.strength <= 0;
-
-    float  t    = gradientPosition(uv, float2(0.37, 0.30), float2(0.942));
-    float3 dark = t <= 0.44 ? mix(hexColor(0x343230), hexColor(0x262423), t / 0.44)
-                            : mix(hexColor(0x262423), hexColor(0x141313), saturate((t - 0.44) / 0.56));
-    float3 color = dark;
+    bool   isOff = room.strength <= 0;
+    float  t     = gradientPosition(uv, float2(0.37, 0.30), float2(0.942));
+    float3 color = t <= 0.44 ? mix(hexColor(0x343230), hexColor(0x262423), t / 0.44)
+                             : mix(hexColor(0x262423), hexColor(0x141313), saturate((t - 0.44) / 0.56));
     if (!isOff) {
         float tintAlpha = stops3(t, float3(0, 0.5, 1), float3(0.55, 0.28, 0.10));
         color = mix(color, colorBlend(color, room.tint), tintAlpha);
     }
-
+    // Metal has little diffuse light of its own: the painted body is dimmed, the reflections carry it.
+    color *= bodyDiffuse;
     float shade = stops3(gradientPosition(uv, float2(0.5, 0.25), float2(0.85)), float3(0.55, 0.775, 1), float3(0, 0.275, 0.55));
     color = mix(color, float3(0), shade);
-
-    float bounce = stops3(gradientPosition(uv, float2(0.5, 1.1), float2(1.0, 0.6)), float3(0, 0.2, 0.34), float3(0.6, 0.35, 0)) * room.strength;
-    color = mix(color, room.lightSRGB, bounce);
-
     float highlight = stops3(gradientPosition(uv, float2(0.31, 0.13), float2(1.0, 0.8)), float3(0, 0.025, 0.06), float3(0.9, 0.5, 0));
     color = mix(color, float3(1), highlight);
-
-    return isOff ? color * 0.45 : color;
+    return linearFromSRGB(isOff ? color * 0.45 : color);
 }
 
-/// The sphere's unit square coordinate of a point seen from above.
+/// The thin crescent of room light inside the bottom of the outline, MascotLayer's bounce.
+static float3 sphereBounce(float2 uv, Room room) {
+    float alpha = 0.35 * exp(-square(gradientPosition(uv, float2(0.5, 1.1), float2(1.0, 0.6)) / 0.2));
+    return alpha * linearFromSRGB(room.lightSRGB) * room.strength;
+}
+
+/// The sphere's normal under `xy`, in the frame where it faces `sphereView`.
+static float3 sphereNormal(float2 xy, Room room) {
+    float2 disc = (xy - room.sphere.xy) / room.radius;
+    disc       /= max(1.0, length(disc));
+    return normalize(disc.x * sphereRight - disc.y * sphereUp + sqrt(saturate(1 - dot(disc, disc))) * sphereView);
+}
+
+/// The metal's reflectance at `cosine` between the facet and the viewer: its tint head on, white at
+/// grazing angles.
+static float3 metalFresnel(float cosine, Room room) {
+    return room.metal + (1 - room.metal) * pow(1 - saturate(cosine), 5.0);
+}
+
+/// The unit square coordinate of a point seen from above, in the sphere's bounding square.
 static float2 sphereUV(float2 xy, Room room) {
     return (xy - (room.sphere.xy - room.radius)) / (2 * room.radius);
 }
 
-/// The sphere's normal under `xy`, seen from above.
-static float3 sphereNormal(float2 xy, Room room) {
-    float2 flat = (xy - room.sphere.xy) / room.radius;
-    return float3(flat, sqrt(saturate(1 - dot(flat, flat))));
+// MARK: - Sampling
+
+/// Two directions across `normal`.
+static void basis(float3 normal, thread float3& tangent, thread float3& other) {
+    float3 helper = abs(normal.z) < 0.9 ? float3(0, 0, 1) : float3(1, 0, 0);
+    tangent = normalize(cross(helper, normal));
+    other   = cross(normal, tangent);
 }
 
-/// How much the dark, glossy sphere reflects where its normal tilts by `cosine` from the viewer.
-static float fresnel(float cosine) {
-    return 0.04 + 0.96 * pow(1 - saturate(cosine), 5.0);
+/// A microfacet normal around `normal`, GGX distributed for `roughness`.
+static float3 facetSample(float3 normal, float roughness, float2 sample) {
+    float3 tangent, other;
+    basis(normal, tangent, other);
+    float cosine = sqrt((1 - sample.x) / (1 + (roughness * roughness - 1) * sample.x));
+    float sine   = sqrt(max(0.0, 1 - cosine * cosine));
+    float angle  = 2 * M_PI_F * sample.y;
+    return normalize(tangent * sine * cos(angle) + other * sine * sin(angle) + normal * cosine);
+}
+
+/// The lamp mirrored by the sphere's metal at `normal`, from a spiral of `count` GGX facets turned
+/// by `turn`. Nothing stands between the sphere and the lamp above it, so neither path traces it.
+static float3 lampHighlight(float3 normal, uint count, float turn, Room room) {
+    float3 origin = room.sphere + normal * room.radius;
+    float3 total  = float3(0);
+    for (uint index = 0; index < count; index++) {
+        float2 sample   = float2((index + 0.5) / count, fract(index * 0.618034 + turn));
+        float3 facet    = facetSample(normal, metalRoughness, sample);
+        float3 mirrored = reflect(-sphereView, facet);
+        if (dot(mirrored, normal) > 0) {
+            total += metalFresnel(dot(facet, sphereView), room) * lampSeen(origin, mirrored, room);
+        }
+    }
+    return total / count;
 }
 
 // MARK: - Precomputed light
 
-/// The floor or wall radiance with an analytic soft shadow and an estimate of the light bounced
-/// between floor and walls, taken where the nearest wall meets the floor.
-static float3 analyticRadiance(float2 xy, Room room) {
+/// The light alone at a floor or wall point: the lamp with an analytic soft shadow tested against
+/// `samples` points of the lamp, and the light floor and walls bounce to each other, estimated where
+/// the nearest wall meets the floor.
+static float3 analyticLight(float2 xy, uint samples, Room room) {
     Surface surface = surfaceAt(xy, room);
-    float3  lit     = directLight(surface, room) * (1 - sphereOcclusion(surface.position, room));
+    float3  direct  = surface.albedo * lampTerm(surface.position, surface.normal, room.lamp, room)
+                    * (1 - sphereOcclusion(surface.position, samples, room)) * room.light;
 
-    float  edge;
-    uint   wall = nearestWall(xy, room, edge);
-    float2 foot = xy;
-    switch (wall) {
-        case 0:  foot.x = room.wallReach; break;
-        case 1:  foot.y = room.wallReach; break;
-        case 2:  foot.x = room.size.x - room.wallReach; break;
-        default: foot.y = room.size.y - room.wallReach; break;
-    }
-    Surface seam;
-    seam.position = float3(foot, 0);
-    float3 bounce;
-    if (edge < room.wallReach) {
-        // A wall takes the light of the floor below it, less toward its top.
-        seam.normal = float3(0, 0, 1);
-        seam.albedo = floorAlbedo;
-        float height = surface.position.z / room.wallHeight;
-        bounce = directLight(seam, room) * (1 - sphereOcclusion(seam.position, room)) * 0.45 * (1 - 0.5 * height);
-    } else {
-        // The floor takes the colour of the nearest wall, fading away from it.
-        seam.normal = wallNormal(wall, room);
-        seam.albedo = wallAlbedo;
-        bounce = directLight(seam, room) * 0.25 * exp(-(edge - room.wallReach) / room.wallReach);
-    }
-    return ambient + lit + surface.albedo * bounce;
+    float2 inward;
+    float  edge = max(insideDistance(xy, room, inward), 0.0);
+    float2 foot = xy + inward * (room.wallReach - edge);
+    float  rise = saturate(1 - edge / room.wallReach);
+
+    // The wall's middle, which lights the floor in front of it.
+    Surface wall  = surfaceAt(foot - inward * room.wallReach * 0.5, room);
+    float   fromWall = wall.albedo * lampTerm(wall.position, wall.normal, room.lamp, room)
+                     * exp(-max(edge - room.wallReach, 0.0) / (0.08 * room.side));
+    // The floor at the wall's foot, which lights the wall above it.
+    Surface floor = surfaceAt(foot + inward * 0.5, room);
+    float   fromFloor = floor.albedo * lampTerm(floor.position, floor.normal, room.lamp, room)
+                      * (1 - sphereOcclusion(floor.position, reflectionSamples, room)) * rise;
+    return direct + surface.albedo * (0.15 * fromWall + 0.45 * fromFloor) * room.light;
 }
 
-kernel void precomputeRoom(texture2d<float, access::write> output   [[texture(0)]],
+/// The light a ray from the sphere meets on the floor or a wall.
+static float3 analyticLightAlong(float3 origin, float3 direction, Room room) {
+    float  toFloor = direction.z < 0 ? -origin.z / direction.z : INFINITY;
+    float2 bounds  = select(float2(0), room.size, direction.xy > 0);
+    float2 toSides = select(INFINITY, (bounds - origin.xy) / direction.xy, abs(direction.xy) > 1e-5);
+    float  toWall  = min(toSides.x, toSides.y);
+    if (toFloor < toWall) {
+        return analyticLight((origin + direction * toFloor).xy, reflectionSamples, room);
+    }
+    float3 hit    = origin + direction * toWall;
+    float  onWall = 1 - smoothstep(0.85, 1.1, hit.z / room.wallHeight);
+    float2 inside = clamp(hit.xy, float2(0.5), room.size - 0.5);
+    return onWall * analyticLight(inside, reflectionSamples, room);
+}
+
+kernel void precomputeRoom(texture2d<float, access::write> base     [[texture(0)]],
+                           texture2d<float, access::write> light    [[texture(1)]],
                            constant RoomLightUniforms&     uniforms [[buffer(0)]],
                            uint2                           pixel    [[thread_position_in_grid]])
 {
-    if (pixel.x >= output.get_width() || pixel.y >= output.get_height()) { return; }
-    Room   room  = makeRoom(uniforms);
-    float2 xy    = (float2(pixel) + 0.5) * room.pointsPerPixel;
-    float3 color = toneMap(analyticRadiance(xy, room));
+    if (pixel.x >= base.get_width() || pixel.y >= base.get_height()) { return; }
+    Room    room    = makeRoom(uniforms);
+    float2  xy      = (float2(pixel) + 0.5) * room.pointsPerPixel;
+    Surface surface = surfaceAt(xy, room);
+    Images  images  = { ambient * (1 - sphereAmbientOcclusion(surface, room)), analyticLight(xy, occlusionSamples, room) };
 
     if (room.isOccupied) {
         float distance = length(xy - room.sphere.xy);
         float coverage = saturate((room.radius - distance) / room.pointsPerPixel + 0.5);
         if (coverage > 0) {
-            float3 normal     = sphereNormal(xy, room);
-            float3 reflection = reflect(float3(0, 0, -1), normal);
-            float3 reflected  = float3(0);
-            if (reflection.z < 0) {
-                float3 start = float3(xy, room.radius * (1 + normal.z));
-                float3 hit   = start + reflection * (start.z / -reflection.z);
-                float2 seen  = clamp(hit.xy, float2(0), room.size);
-                reflected = toneMap(analyticRadiance(seen, room));
+            float2 uv        = sphereUV(xy, room);
+            float3 normal    = sphereNormal(xy, room);
+            float3 origin    = room.sphere + normal * room.radius;
+            // The metal's gloss, from a fixed spiral of GGX facets.
+            float3 reflected = float3(0);
+            for (uint index = 0; index < glossSamples; index++) {
+                float2 sample   = float2((index + 0.5) / glossSamples, fract(index * 0.618034));
+                float3 facet    = facetSample(normal, metalRoughness, sample);
+                float3 mirrored = reflect(-sphereView, facet);
+                if (dot(mirrored, normal) > 0) {
+                    reflected += metalFresnel(dot(facet, sphereView), room) * analyticLightAlong(origin, mirrored, room);
+                }
             }
-            float3 body = linearFromSRGB(sphereBody(sphereUV(xy, room), room)) + fresnel(normal.z) * reflected;
-            color = mix(color, body, coverage);
+            reflected = reflected / glossSamples + lampHighlight(normal, glossSamples, 0, room);
+            images.base  = mix(images.base, sphereBody(uv, room), coverage);
+            images.light = mix(images.light, reflected + sphereBounce(uv, room), coverage);
         }
     }
-    output.write(encodedPixel(color, pixel), pixel);
+    base.write(float4(images.base, 1), pixel);
+    light.write(float4(images.light, 1), pixel);
+}
+
+// MARK: - Resolve
+
+kernel void resolveRoom(texture2d<float, access::read>  base   [[texture(0)]],
+                        texture2d<float, access::read>  light  [[texture(1)]],
+                        texture2d<float, access::write> output [[texture(2)]],
+                        constant float&                 weight [[buffer(0)]],
+                        uint2                           pixel  [[thread_position_in_grid]])
+{
+    if (pixel.x >= output.get_width() || pixel.y >= output.get_height()) { return; }
+    float3 radiance = base.read(pixel).rgb + weight * light.read(pixel).rgb;
+    output.write(encodedPixel(toneMap(radiance), pixel), pixel);
 }
 
 // MARK: - Ray-traced light
@@ -350,38 +473,36 @@ static float3 lampSample(Room room, float2 sample) {
 
 /// A direction around `normal`, cosine weighted, for `sample` in 0...1 squared.
 static float3 cosineSample(float3 normal, float2 sample) {
-    float  radius  = sqrt(sample.x);
-    float  angle   = 2 * M_PI_F * sample.y;
-    float3 helper  = abs(normal.z) < 0.9 ? float3(0, 0, 1) : float3(1, 0, 0);
-    float3 tangent = normalize(cross(helper, normal));
-    float3 other   = cross(normal, tangent);
-    return normalize(tangent * radius * cos(angle) + other * radius * sin(angle) + normal * sqrt(max(0.0, 1 - radius * radius)));
+    float3 tangent, other;
+    basis(normal, tangent, other);
+    float radius = sqrt(sample.x);
+    float angle  = 2 * M_PI_F * sample.y;
+    return normalize(tangent * radius * cos(angle) + other * radius * sin(angle) + normal * sqrt(max(0.0, 1 - sample.x)));
+}
+
+static intersector<> makeIntersector() {
+    intersector<> rays;
+    rays.assume_geometry_type(geometry_type::triangle);
+    rays.force_opacity(forced_opacity::opaque);
+    return rays;
 }
 
 /// Whether nothing stands between `position` and `lampPoint`.
 static bool sees(float3 position, float3 normal, float3 lampPoint, primitive_acceleration_structure scene, Room room) {
-    float3 start  = position + normal * room.wallHeight * 1e-3;
+    float3 start  = position + normal * room.side * 1e-3;
     float3 toLamp = lampPoint - start;
     float  span   = length(toLamp);
-    intersector<> shadows;
-    shadows.assume_geometry_type(geometry_type::triangle);
-    shadows.force_opacity(forced_opacity::opaque);
+    intersector<> shadows = makeIntersector();
     shadows.accept_any_intersection(true);
-    ray shadow(start, toLamp / span, 0, span);
-    return shadows.intersect(shadow, scene).type == intersection_type::none;
+    return shadows.intersect(ray(start, toLamp / span, 0, span), scene).type == intersection_type::none;
 }
 
-/// The surface a ray hit, or false for the sphere or nothing.
-static bool hitSurface(intersection_result<> hit, ray traced, Room room, thread Surface& surface) {
+/// The floor or wall a ray hit, or false for the sphere or nothing.
+static bool hitRoom(intersection_result<> hit, ray traced, Room room, thread Surface& surface) {
     if (hit.type == intersection_type::none || hit.geometry_id == sphereGeometry) { return false; }
-    surface.position = traced.origin + traced.direction * hit.distance;
-    if (hit.geometry_id == wallsGeometry) {
-        surface.normal = wallNormal(hit.primitive_id / 2, room);
-        surface.albedo = wallAlbedo;
-    } else {
-        surface.normal = float3(0, 0, 1);
-        surface.albedo = floorAlbedo;
-    }
+    float3 position = traced.origin + traced.direction * hit.distance;
+    surface = surfaceAt(position.xy, room);
+    surface.position = position;
     return true;
 }
 
@@ -392,75 +513,104 @@ struct Frame {
     float2 rotation;
 };
 
-/// One frame of a floor or wall point: shadow rays to the lamp and one bounce. Across the frames the
-/// shadow rays cover the disc as a spiral and the bounces cover the hemisphere in strata.
-static float3 tracedRadiance(Surface surface, primitive_acceleration_structure scene, Room room, Frame frame, thread uint& seed) {
-    const float samples = accumulatedFrames * shadowRays;
-    float direct = 0;
-    for (uint index = 0; index < shadowRays; index++) {
-        float  number    = frame.index * shadowRays + index;
-        float3 lampPoint = lampSample(room, float2((number + 0.5) / samples, fract(number * 0.618034 + frame.rotation.x)));
+/// The share of the lamp a floor or wall point sees through `count` shadow rays. Across the frames
+/// the rays cover the disc as a spiral.
+static float tracedLamp(Surface surface, uint count, primitive_acceleration_structure scene, Room room, Frame frame) {
+    float samples = accumulatedFrames * count;
+    float total   = 0;
+    for (uint index = 0; index < count; index++) {
+        float  number    = frame.index * count + index;
+        float2 sample    = float2((number + 0.5) / samples, fract(number * 0.618034 + frame.rotation.x));
+        float3 lampPoint = lampSample(room, sample);
         if (sees(surface.position, surface.normal, lampPoint, scene, room)) {
-            direct += lampTerm(surface.position, surface.normal, lampPoint, room);
+            total += lampTerm(surface.position, surface.normal, lampPoint, room);
         }
     }
-    float3 radiance = surface.albedo * direct / shadowRays * room.light;
-
-    intersector<> nearest;
-    nearest.assume_geometry_type(geometry_type::triangle);
-    nearest.force_opacity(forced_opacity::opaque);
-    float2 stratum = float2(frame.index % 4, frame.index / 4);
-    float2 sample  = fract((stratum + float2(random(seed), random(seed))) / 4 + frame.rotation);
-    ray    bounce(surface.position + surface.normal * room.wallHeight * 1e-3, cosineSample(surface.normal, sample));
-    Surface other;
-    if (hitSurface(nearest.intersect(bounce, scene), bounce, room, other)) {
-        float3 lampPoint = lampSample(room, float2(random(seed), random(seed)));
-        if (sees(other.position, other.normal, lampPoint, scene, room)) {
-            radiance += surface.albedo * other.albedo * lampTerm(other.position, other.normal, lampPoint, room) * room.light;
-        }
-    }
-    return ambient + radiance;
+    return total / count;
 }
 
-kernel void traceRoom(texture2d<float, access::write>  output   [[texture(0)]],
+/// One frame of a floor or wall point: its ambient light, occluded by what stands near it, and
+/// the lamp's light with soft shadows and one bounce.
+static Images tracedRoom(Surface surface, primitive_acceleration_structure scene, Room room, Frame frame, thread uint& seed) {
+    Images images;
+    images.light = surface.albedo * tracedLamp(surface, shadowRays, scene, room, frame) * room.light;
+
+    float2 stratum = float2(frame.index % 8, frame.index / 8);
+    float2 sample  = fract((stratum + float2(random(seed), random(seed))) / 8 + frame.rotation);
+    ray    bounce(surface.position + surface.normal * room.side * 1e-3, cosineSample(surface.normal, sample));
+    intersection_result<> hit = makeIntersector().intersect(bounce, scene);
+    bool isOccluded = hit.type != intersection_type::none && hit.distance < occlusionReach * room.side;
+    images.base = isOccluded ? float3(0) : ambient;
+
+    Surface other;
+    if (hitRoom(hit, bounce, room, other)) {
+        Frame single = { frame.index, frame.rotation.yx };
+        images.light += surface.albedo * other.albedo * tracedLamp(other, 1, scene, room, single) * room.light;
+    }
+    return images;
+}
+
+/// One frame of the sphere under `xy`: its body, the lamp mirrored by its metal, the room reflected
+/// through one traced GGX facet with its shadows, and the crescent of room light at the bottom.
+static Images tracedSphere(float2 xy, primitive_acceleration_structure scene, Room room, Frame frame, thread uint& seed) {
+    float2 uv     = sphereUV(xy, room);
+    float3 normal = sphereNormal(xy, room);
+    float3 origin = room.sphere + normal * room.radius * 1.001;
+
+    float2 stratum = float2(frame.index % 8, frame.index / 8);
+    float2 sample  = fract((stratum + float2(random(seed), random(seed))) / 8 + frame.rotation.yx);
+    float3 facet   = facetSample(normal, metalRoughness, sample);
+    float3 mirrored = reflect(-sphereView, facet);
+
+    float  turn   = float(frame.index) / accumulatedFrames + frame.rotation.x;
+    Images images = { sphereBody(uv, room), sphereBounce(uv, room) + lampHighlight(normal, 8, turn, room) };
+    if (dot(mirrored, normal) <= 0) { return images; }
+    ray reflection(origin, mirrored);
+    intersection_result<> hit = makeIntersector().intersect(reflection, scene);
+    float3 seen = float3(0);
+    Surface surface;
+    if (hitRoom(hit, reflection, room, surface)) {
+        seen = surface.albedo * tracedLamp(surface, 1, scene, room, frame) * room.light;
+    }
+    images.light += metalFresnel(dot(facet, sphereView), room) * seen;
+    return images;
+}
+
+kernel void traceRoom(texture2d<float, access::write>  base     [[texture(0)]],
+                      texture2d<float, access::write>  light    [[texture(1)]],
                       constant RoomLightUniforms&      uniforms [[buffer(0)]],
                       primitive_acceleration_structure scene    [[buffer(1)]],
                       uint2                            pixel    [[thread_position_in_grid]])
 {
-    if (pixel.x >= output.get_width() || pixel.y >= output.get_height()) { return; }
-    Room room = makeRoom(uniforms);
-    uint seed = pcg(pixel.x + pcg(pixel.y));
-    float top = room.wallHeight * 4 + room.radius * 4;
-
-    intersector<> nearest;
-    nearest.assume_geometry_type(geometry_type::triangle);
-    nearest.force_opacity(forced_opacity::opaque);
-
+    if (pixel.x >= base.get_width() || pixel.y >= base.get_height()) { return; }
+    Room   room     = makeRoom(uniforms);
+    uint   seed     = pcg(pixel.x + pcg(pixel.y));
     float2 rotation = float2(random(seed), random(seed));
-    float3 sum      = 0;
+    float  top      = room.lamp.z;
+    intersector<> nearest = makeIntersector();
+
+    Images sum = { float3(0), float3(0) };
     for (uint index = 0; index < accumulatedFrames; index++) {
-        Frame frame = { index, rotation };
-        float2 xy = (float2(pixel) + float2(random(seed), random(seed))) * room.pointsPerPixel;
+        Frame  frame = { index, rotation };
+        float2 xy    = (float2(pixel) + float2(random(seed), random(seed))) * room.pointsPerPixel;
         ray    primary(float3(xy, top), float3(0, 0, -1));
         intersection_result<> hit = nearest.intersect(primary, scene);
 
+        Images  images;
         Surface surface;
-        if (hitSurface(hit, primary, room, surface)) {
-            sum += toneMap(tracedRadiance(surface, scene, room, frame, seed));
+        if (hitRoom(hit, primary, room, surface)) {
+            images = tracedRoom(surface, scene, room, frame, seed);
         } else if (hit.type != intersection_type::none) {
-            float3 position   = primary.origin + primary.direction * hit.distance;
-            float3 normal     = normalize(position - room.sphere);
-            float3 reflection = reflect(primary.direction, normal);
-            ray    mirrored(position + normal * room.radius * 1e-3, reflection);
-            Surface seen;
-            float3 reflected = float3(0);
-            if (hitSurface(nearest.intersect(mirrored, scene), mirrored, room, seen)) {
-                reflected = toneMap(tracedRadiance(seen, scene, room, frame, seed));
-            }
-            sum += linearFromSRGB(sphereBody(sphereUV(xy, room), room)) + fresnel(normal.z) * reflected;
+            images = tracedSphere(xy, scene, room, frame, seed);
         } else {
-            sum += toneMap(ambient);
+            // Outside the rounded outline, which the view's corners clip: the top of the wall.
+            Surface rim = surfaceAt(xy, room);
+            images.base  = ambient;
+            images.light = rim.albedo * lampTerm(rim.position, rim.normal, room.lamp, room) * room.light;
         }
+        sum.base  += images.base;
+        sum.light += images.light;
     }
-    output.write(encodedPixel(sum / accumulatedFrames, pixel), pixel);
+    base.write(float4(sum.base / accumulatedFrames, 1), pixel);
+    light.write(float4(sum.light / accumulatedFrames, 1), pixel);
 }
