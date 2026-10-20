@@ -23,9 +23,9 @@ DERIVED = re.search(r'derivedRows: \[Int32: String\] = \[1: """\n(.*?)\n\s*"""\]
                     (ROOT / "Sources/Engine/SQLiteMemory/SQLiteMemorySchema.swift").read_text(), re.S).group(1) + ";"
 RULE = "-- " + "=" * 109 + "\n"
 segments = SCHEMA.read_text().split(RULE)
-assert len(segments) == 15, len(segments)
+assert len(segments) == 17, len(segments)
 PARTS = {}
-for number in range(1, 8):
+for number in range(1, 9):
     assert segments[2 * number - 1].startswith(f"-- Part {number}. "), segments[2 * number - 1][:40]
     PARTS[number] = segments[2 * number]
 REQUIREMENT = re.search(r"CREATE TRIGGER memory_recall_requirements_valid .*?\nEND;\n", PARTS[7], re.S).group(0)
@@ -797,6 +797,80 @@ rejects("schema 2: a reason for a gesture that went out", lambda: insert("memory
                                                                      performed="requested", not_sent_reason="miss", checked=1))
 insert("memory_call_effects", event_id="v2_y", performed="none", not_sent_reason="honest_miss", checked=1)
 rejects("schema 2: an effect is immutable", lambda: db.execute("UPDATE memory_call_effects SET performed='none', substitute=NULL WHERE event_id='v2_call'"))
+# Schema 11 (M05): the route a routing session dispatched a call on, written once with its end.
+insert("memory_call_routes", event_id="v2_call", route="desktop", handoff_reason="given back")
+insert("memory_call_routes", event_id="v2_y", route="native")
+rejects("schema 11: a route of a call not concluded", lambda: insert("memory_call_routes", event_id="v2_open", route="native"))
+rejects("schema 11: a route the table does not name", lambda: insert("memory_call_routes", event_id="v2_x", route="seat"))
+rejects("schema 11: a hand-back's reason off the desktop", lambda: insert("memory_call_routes", event_id="v2_x",
+                                                                          route="native", handoff_reason="given back"))
+rejects("schema 11: an empty reason", lambda: insert("memory_call_routes", event_id="v2_x", route="desktop",
+                                                     handoff_reason=""))
+rejects("schema 11: a route is immutable", lambda: db.execute("UPDATE memory_call_routes SET route='web' WHERE event_id='v2_y'"))
+ok("schema 11: a call's route, once with its end, a hand-back's reason only on the desktop")
+# Schema 12 (M05): the adapter verb a call invoked, written once with its end; its invocation, not its success.
+insert("memory_call_adapter_dispatches", event_id="v2_call", adapter="Calendar", verb="events.list")
+rejects("schema 12: an adapter dispatch of a call not concluded", lambda: insert("memory_call_adapter_dispatches",
+        event_id="v2_open", adapter="Calendar", verb="events.list"))
+rejects("schema 12: an adapter dispatch without an adapter", lambda: insert("memory_call_adapter_dispatches",
+        event_id="v2_y", adapter="", verb="events.list"))
+rejects("schema 12: an adapter dispatch without a verb", lambda: insert("memory_call_adapter_dispatches",
+        event_id="v2_y", adapter="Calendar", verb=""))
+rejects("schema 12: an adapter dispatch of no call", lambda: insert("memory_call_adapter_dispatches",
+        event_id="no_such_call", adapter="Calendar", verb="events.list"))
+rejects("schema 12: an adapter dispatch is immutable", lambda: db.execute(
+        "UPDATE memory_call_adapter_dispatches SET verb='events.add' WHERE event_id='v2_call'"))
+ok("schema 12: a call's adapter dispatch, once with its end")
+# Schema 14 (M05): the rung the MacDriver's last gesture of a call took, written once with its end.
+insert("memory_call_rungs", event_id="v2_call", rung="in_place", how="events to the process", skipped="element has no AXPress")
+rejects("schema 14: a rung of a call not concluded", lambda: insert("memory_call_rungs", event_id="v2_open", rung="accessibility", how="pressed"))
+rejects("schema 14: a rung the table does not name", lambda: insert("memory_call_rungs", event_id="v2_y", rung="menu", how="pressed"))
+rejects("schema 14: a rung without what it did", lambda: insert("memory_call_rungs", event_id="v2_y", rung="accessibility", how=""))
+rejects("schema 14: an empty skipped reason", lambda: insert("memory_call_rungs", event_id="v2_y", rung="in_place", how="events", skipped=""))
+rejects("schema 14: a rung of no call", lambda: insert("memory_call_rungs", event_id="no_such_call", rung="accessibility", how="pressed"))
+rejects("schema 14: a rung is immutable", lambda: db.execute("UPDATE memory_call_rungs SET rung='in_place' WHERE event_id='v2_call'"))
+ok("schema 14: a call's rung, once with its end")
+# Schema 15 (M05): the Seat's three posting calls are rungs too, on a concluded call (v2_y, completed above), a receipt
+# of no event included; a value the table does not name is still refused, and the row is written once.
+rejects("schema 15: a rung the table does not name", lambda: insert("memory_call_rungs", event_id="v2_y", rung="seat", how="posted"))
+insert("memory_call_rungs", event_id="v2_y", rung="seat_accessibility_action", how="0 events, 0 routed to window 7")
+rejects("schema 15: a second rung for the call", lambda: insert("memory_call_rungs", event_id="v2_y", rung="seat_public_process", how="2 events, 2 routed to window 7"))
+rejects("schema 15: a rung is immutable", lambda: db.execute("UPDATE memory_call_rungs SET rung='seat_skylight_process' WHERE event_id='v2_y'"))
+ok("schema 15: the Seat's rungs, once with the end")
+# Schema 16 (M05): the web's Input commands are a rung too, on a concluded call; a value the table does not name is
+# still refused, the row written once and immutable.
+event("v2_web")
+insert("memory_agent_actions", event_id="v2_web", app_id=1, tool_kind="act", execution_status="completed", started_at_ms=1,
+       completed_at_ms=2)
+rejects("schema 16: a rung the table does not name", lambda: insert("memory_call_rungs", event_id="v2_web", rung="web", how="posted"))
+insert("memory_call_rungs", event_id="v2_web", rung="web_input_event", how="Input.dispatchMouseEvent: 3 planned, 3 attempted, 3 acknowledged, completed")
+rejects("schema 16: a second rung for the call", lambda: insert("memory_call_rungs", event_id="v2_web", rung="seat_public_process", how="2 events, 2 routed to window 7"))
+rejects("schema 16: a rung is immutable", lambda: db.execute("UPDATE memory_call_rungs SET rung='in_place' WHERE event_id='v2_web'"))
+ok("schema 16: the web's rung, once with the end")
+# Schema 17 (M05): the route advice an open_session answered instead of opening, once with the call's end: a use with
+# its route, an ask without; refused: a decision the table does not name, a use without a route, an ask with one,
+# empty words, an empty route, a call not concluded, no call, a second advice, a change.
+insert("memory_call_route_advice", event_id="v2_web", decision="use", route="web:google.com/maps",
+       message="Maps: use web:google.com/maps instead of the app.")
+rejects("schema 17: a decision the table does not name", lambda: insert("memory_call_route_advice", event_id="v2_y", decision="redirect", message="elsewhere"))
+rejects("schema 17: a use without its route", lambda: insert("memory_call_route_advice", event_id="v2_y", decision="use", message="use the web"))
+rejects("schema 17: an ask with a route", lambda: insert("memory_call_route_advice", event_id="v2_y", decision="ask", route="web:x", message="which account?"))
+rejects("schema 17: advice without words", lambda: insert("memory_call_route_advice", event_id="v2_y", decision="ask", message=""))
+rejects("schema 17: an empty route", lambda: insert("memory_call_route_advice", event_id="v2_y", decision="use", route="", message="use"))
+rejects("schema 17: advice of a call not concluded", lambda: insert("memory_call_route_advice", event_id="v2_open", decision="ask", message="which account?"))
+rejects("schema 17: advice of no call", lambda: insert("memory_call_route_advice", event_id="no_such_call", decision="ask", message="which account?"))
+rejects("schema 17: a second advice for the call", lambda: insert("memory_call_route_advice", event_id="v2_web", decision="ask", message="which?"))
+rejects("schema 17: advice is immutable", lambda: db.execute("UPDATE memory_call_route_advice SET decision='ask', route=NULL WHERE event_id='v2_web'"))
+insert("memory_call_route_advice", event_id="v2_y", decision="ask", message="Mail: which account?")
+ok("schema 17: a call's route advice, once with the end")
+# Schema 18 (M05): an open with the router's note is a decision too, on a concluded call, with no route; an open with a
+# route, or with no words, is refused; use and ask as before.
+rejects("schema 18: an open with a route", lambda: insert("memory_call_route_advice", event_id="v2_call", decision="open", route="web:x", message="note"))
+rejects("schema 18: an open without words", lambda: insert("memory_call_route_advice", event_id="v2_call", decision="open", message=""))
+insert("memory_call_route_advice", event_id="v2_call", decision="open", message="Finder has no files adapter in this build yet: driving its interface.")
+rejects("schema 18: a second advice for the opened call", lambda: insert("memory_call_route_advice", event_id="v2_call", decision="open", message="again"))
+rejects("schema 18: an open's advice is immutable", lambda: db.execute("UPDATE memory_call_route_advice SET message='changed' WHERE event_id='v2_call'"))
+ok("schema 18: an open decision's note, once with the end")
 event("v2_check", kind="verification")
 insert("memory_verifications", event_id="v2_check", scope="call", method="scene_difference", verdict="unknown")
 insert("memory_operation_verifications", event_id="v2_check", call_event_id="v2_call", contract_version=1,
@@ -1631,9 +1705,129 @@ insert("memory_schema_migrations", to_version=7, from_version=6, migrated_at_ms=
 assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 ok("schema 7: the migration record")
 
+# ================================================================== schema 8 (version 19): the plans of the unified integration
+db.executescript(PARTS[8])
+assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+ok("schema 8: its text runs on the populated file and every foreign key still holds")
+# P1-06: a confidential surface's content is a gap of its own reason.
+insert("memory_value_redactions", event_id="v2_call", location_kind="result_message", reason="confidential_content")
+ok("schema 19: a gap withheld as confidential content")
+event("p8_read")
+insert("memory_agent_actions", event_id="p8_read", app_id=1, tool_kind="app_call", execution_status="completed",
+       started_at_ms=200, completed_at_ms=201)
+event("p8_write")
+insert("memory_agent_actions", event_id="p8_write", app_id=1, tool_kind="app_call", execution_status="completed",
+       started_at_ms=210, completed_at_ms=211)
+position = db.execute("SELECT max(position) FROM memory_task_events WHERE task_occurrence_id='o1'").fetchone()[0]
+for offset, eid in enumerate(["p8_read", "p8_write"], start=1):
+    insert("memory_task_events", task_occurrence_id="o1", event_id=eid, position=position + offset, role="action")
+event("p8_check", kind="verification")
+insert("memory_verifications", event_id="p8_check", scope="call", method="adapter_read_back", verdict="passed")
+insert("memory_operation_verifications", event_id="p8_check", call_event_id="p8_write", contract_version=1,
+       condition_kind="adapter_effect", method_version="adapter-oracle-1", performed="requested")
+rejects("schema 19: a condition no oracle names", lambda: insert("memory_operation_verifications", event_id="p8_read",
+        call_event_id="p8_read", contract_version=1, condition_kind="adapter_guess", method_version="x", performed="requested"))
+ok("schema 19: an adapter's read-back of its effect")
+# P2-02: result fields kept or withheld, argument fields as constants or references.
+insert("memory_call_result_fields", event_id="p8_read", field_path="/id", value_kind="text", text_value="msg-1")
+insert("memory_call_result_fields", event_id="p8_read", field_path="/subject", value_kind="text",
+       withheld_reason="confidential_content")
+insert("memory_call_result_fields", event_id="p8_read", field_path="/count", value_kind="number", text_value="3")
+rejects("schema 19: a withheld result field with its text", lambda: insert("memory_call_result_fields", event_id="p8_read",
+        field_path="/sender", value_kind="text", text_value="ada@x", withheld_reason="confidential_content"))
+rejects("schema 19: a kept text field without its text", lambda: insert("memory_call_result_fields", event_id="p8_read",
+        field_path="/date", value_kind="text"))
+rejects("schema 19: a result field of a call not concluded", lambda: insert("memory_call_result_fields", event_id="v2_open",
+        field_path="/id", value_kind="text", text_value="x"))
+rejects("schema 19: a path that is no JSON pointer", lambda: insert("memory_call_result_fields", event_id="p8_read",
+        field_path="id", value_kind="text", text_value="x"))
+rejects("schema 19: a result field is immutable", lambda: db.execute("UPDATE memory_call_result_fields SET text_value='y' WHERE field_path='/id'"))
+rejects("schema 19: a result field is kept", lambda: db.execute("DELETE FROM memory_call_result_fields WHERE field_path='/id'"))
+insert("memory_call_argument_fields", event_id="p8_write", field_path="/id", value_kind="text", field_kind="result_reference",
+       text_value="msg-1", source_event_id="p8_read", source_path="/id")
+insert("memory_call_argument_fields", event_id="p8_write", field_path="/body", value_kind="text", field_kind="constant",
+       withheld_reason="confidential_content")
+insert("memory_call_argument_fields", event_id="p8_write", field_path="/n", value_kind="number", field_kind="ambiguous_reference",
+       text_value="3")
+rejects("schema 19: a reference to a withheld result field", lambda: insert("memory_call_argument_fields", event_id="p8_write",
+        field_path="/s", value_kind="text", field_kind="result_reference", source_event_id="p8_read", source_path="/subject"))
+rejects("schema 19: a reference to a later call", lambda: insert("memory_call_argument_fields", event_id="p8_read",
+        field_path="/x", value_kind="text", field_kind="result_reference", text_value="msg-1", source_event_id="p8_write",
+        source_path="/id"))
+rejects("schema 19: a reference without its source", lambda: insert("memory_call_argument_fields", event_id="p8_write",
+        field_path="/y", value_kind="text", field_kind="result_reference", text_value="msg-1"))
+rejects("schema 19: a constant naming a source", lambda: insert("memory_call_argument_fields", event_id="p8_write",
+        field_path="/z", value_kind="text", field_kind="constant", text_value="a", source_event_id="p8_read", source_path="/id"))
+ok("schema 19: a call's result and argument fields: kept, withheld with a reason, a reference to an earlier call's kept field")
+# Definition fields: one form per argument, a parameter of the version.
+insert("memory_operation_argument_fields", route_id="route1", operation_id="op1", argument_name="arguments",
+       argument_position=0, field_path="/to", field_kind="parameter", value_kind="text", parameter_id="param1")
+insert("memory_operation_argument_fields", route_id="route1", operation_id="op1", argument_name="arguments",
+       argument_position=0, field_path="/folder", field_kind="constant", value_kind="text", text_value="Notes")
+insert("memory_operation_argument_fields", route_id="route1", operation_id="op1", argument_name="arguments",
+       argument_position=0, field_path="/body", field_kind="withheld", value_kind="text")
+rejects("schema 19: a withheld definition field with a text", lambda: insert("memory_operation_argument_fields",
+        route_id="route1", operation_id="op1", argument_name="arguments", argument_position=0, field_path="/x",
+        field_kind="withheld", value_kind="text", text_value="x"))
+rejects("schema 19: a step result without its source", lambda: insert("memory_operation_argument_fields", route_id="route1",
+        operation_id="op1", argument_name="arguments", argument_position=0, field_path="/y", field_kind="step_result",
+        value_kind="text"))
+ok("schema 19: a definition's argument fields: a parameter, a constant, a withheld value")
+# P2-05: a data context with a minimal account identifier only when attested.
+insert("memory_call_data_contexts", event_id="p8_write", service="mail", route="adapter", account_ref="0123456789abcdef",
+       account_source="argument", resource_kind="message", resource_ref="msg-1")
+insert("memory_call_data_contexts", event_id="p8_read", service="mail", route="adapter", account_source="default")
+rejects("schema 19: an attested account without its identifier", lambda: insert("memory_call_data_contexts", event_id="p8_conn",
+        service="github", route="adapter", account_source="argument"))
+rejects("schema 19: an account identifier that is not minimal", lambda: insert("memory_call_data_contexts", event_id="p8_conn",
+        service="github", route="adapter", account_ref="ada@example.com", account_source="result"))
+rejects("schema 19: a default account with an identifier", lambda: insert("memory_call_data_contexts", event_id="p8_conn",
+        service="github", route="adapter", account_ref="0123456789abcdef", account_source="default"))
+rejects("schema 19: a resource kind without its identifier", lambda: insert("memory_call_data_contexts", event_id="p8_conn",
+        service="github", route="adapter", account_source="unknown", resource_kind="issue"))
+insert("memory_identity_salts", salt_id=1, salt=bytes(32))
+rejects("schema 19: a second salt", lambda: insert("memory_identity_salts", salt_id=2, salt=bytes(32)))
+ok("schema 19: data contexts: an adapter's account as a minimal identifier, a default account named as such, one salt")
+# P2-06: executors and reconciliations, appended in order and never rewritten.
+insert("memory_executors", executor_id="exec-1", source="app", process_id=4242, started_at_ms=90)
+insert("memory_call_executors", event_id="v2_open", executor_id="exec-1")
+rejects("schema 19: a call's executor is immutable", lambda: db.execute("UPDATE memory_call_executors SET executor_id='x'"))
+insert("memory_call_reconciliations", event_id="v2_open", sequence=1, kind="executor_terminated", declared_by="braus",
+       recorded_at_ms=300)
+rejects("schema 19: an executor's end declared by the agent", lambda: insert("memory_call_reconciliations", event_id="v2_open",
+        sequence=2, kind="executor_terminated", declared_by="agent", recorded_at_ms=301))
+rejects("schema 19: a reconciliation out of order", lambda: insert("memory_call_reconciliations", event_id="v2_open",
+        sequence=3, kind="acknowledged", declared_by="person", recorded_at_ms=301))
+rejects("schema 19: an observation without its finding", lambda: insert("memory_call_reconciliations", event_id="v2_open",
+        sequence=2, kind="observed", evidence_event_id="p8_read", declared_by="agent", recorded_at_ms=301))
+insert("memory_call_reconciliations", event_id="v2_open", sequence=2, kind="observed", finding="not_happened",
+       evidence_event_id="p8_read", declared_by="agent", recorded_at_ms=301)
+rejects("schema 19: an observation resting on an earlier call", lambda: insert("memory_call_reconciliations", event_id="p8_write",
+        sequence=1, kind="observed", finding="happened", evidence_event_id="p8_read", declared_by="agent", recorded_at_ms=302))
+rejects("schema 19: a reconciliation is immutable", lambda: db.execute("UPDATE memory_call_reconciliations SET finding='happened'"))
+rejects("schema 19: a reconciliation is kept", lambda: db.execute("DELETE FROM memory_call_reconciliations"))
+assert db.execute("SELECT execution_status FROM memory_agent_actions WHERE event_id='v2_open'").fetchone()[0] == "started"
+ok("schema 19: an executor that ended and a later reading, appended in order, the call's own state untouched")
+
+# P2-01 and P2-04: step kinds, the evidence's origin and the new reasons and requirements.
+insert("memory_step_occurrences", step_occurrence_id="occ_p8", task_occurrence_id="o1", started_at_ms=210, status="completed",
+       assigned_by="braus-segmentation")
+insert("memory_step_events", step_occurrence_id="occ_p8", event_id="p8_write", position=0, role="action")
+insert("memory_procedure_candidates", candidate_id="c8", task_id="t1", task_occurrence_id="o1", policy_version="app-blocks-3",
+       structure_digest="d8", checkpoint_sequence=1, built_at_ms=300, step_count=1, block_count=1)
+rejects("schema 19: an adapter call as an operation", lambda: insert("memory_candidate_steps", candidate_id="c8", position=0,
+        step_occurrence_id="occ_p8", call_event_id="p8_write", block_index=0, app_id=1, step_kind="operation"))
+insert("memory_candidate_steps", candidate_id="c8", position=0, step_occurrence_id="occ_p8", call_event_id="p8_write",
+       block_index=0, app_id=1, step_kind="adapter_call")
+assert db.execute("SELECT step_kind FROM memory_candidate_steps WHERE candidate_id='c1' AND position=0").fetchone()[0] == "operation"
+for text in ("adapter_unverified", "read_without_result", "reference_unresolved",
+             "adapter_available", "step_result_pending", "account_to_resolve", "'own', 'inherited'"):
+    assert db.execute("SELECT count(*) FROM sqlite_schema WHERE sql LIKE ?", ("%" + text + "%",)).fetchone()[0] >= 1, text
+ok("schema 19: an adapter step of its kind, earlier steps read as operations, the evidence's origin, reasons and requirements")
+
 # ================================================================== integrity, file reopen
 tables = db.execute("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()
-assert len(tables) == 109, len(tables)
+assert len(tables) == 121, len(tables)
 triggers = db.execute("SELECT count(*) FROM sqlite_schema WHERE type='trigger'").fetchone()[0]
 indexes = db.execute("SELECT count(*) FROM sqlite_schema WHERE type='index' AND sql IS NOT NULL").fetchone()[0]
 for (name,) in tables:
@@ -1641,7 +1835,7 @@ for (name,) in tables:
     assert all("json" not in column[1].lower() for column in db.execute(f"PRAGMA table_info({name})"))
 assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 assert db.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
-ok(f"109 tables, {triggers} triggers, {indexes} explicit indexes, all foreign keys prepared, no JSON columns, integrity checks")
+ok(f"121 tables, {triggers} triggers, {indexes} explicit indexes, all foreign keys prepared, no JSON columns, integrity checks")
 
 db.commit()
 with tempfile.TemporaryDirectory(prefix="braus-ddl-v7-") as folder:
@@ -1666,11 +1860,11 @@ with tempfile.TemporaryDirectory(prefix="braus-ddl-v7-") as folder:
 ok("orders, app scope, triggers, retired identities and evidence persist after file reopen; WAL persists in the file")
 
 # The parts are the whole text: the text alone creates what its parts create run in order.
-assert objects_of(SCHEMA.read_text()) == objects_of("".join(PARTS[n] for n in range(1, 8)))
+assert objects_of(SCHEMA.read_text()) == objects_of("".join(PARTS[n] for n in range(1, 9)))
 ok("the one text creates what its parts create in order")
 
 rejected = sum(1 for p in passed if p.startswith("rejects: "))
 print(f"PASS: {len(passed)} DDL checks ({rejected} negative) on SQLite {LIB[0]} [{LIB[1]}] via Python {sys.version.split()[0]} sqlite3 module {sqlite3.sqlite_version}")
-print("109 tables (schema 7); triggers:", triggers, "; explicit indexes:", indexes)
+print("121 tables (schema 19); triggers:", triggers, "; explicit indexes:", indexes)
 for p in passed:
     print(" -", p)

@@ -131,8 +131,17 @@ public enum MenuBarCommand {
         }
         // Before the enabled state, so the answer does not depend on it. Every step counts: Layer > Delete > Layer is destructive in its middle, not at its end.
         // The menu-bar title (File, Format) names a place, not an action, so it is the one step skipped.
-        if !allowsDestructive, trail.dropFirst().contains(where: { ActionPolicy.isDestructive(label: $0) }) {
-            return .outcome(ActOutcome(.refused, "\(path) reads as destructive, and the person has not allowed it."))
+        // A native menu command runs through the scene, which cannot read an irreversible effect back.
+        if trail.dropFirst().contains(where: { ActionPolicy.isDestructive(label: $0) }) {
+            switch IrreversiblePolicy.decision(allowed: allowsDestructive, readBack: .cannotConfirm) {
+                case .allowed:
+                    break
+                case .needsConsent:
+                    return .outcome(ActOutcome(.refused, "\(path) reads as destructive, and the person has not "
+                        + "allowed it."))
+                case .cannotReadBack:
+                    return .outcome(ActOutcome(.refused, IrreversiblePolicy.readBackRefusal(path)))
+            }
         }
         // A Close command may end the application; the caller reads whether it does only for one.
         if ActionPolicy.isWindowClosingMenuTitle(chosen.title), let sentence = closingRefusal?(path) {
@@ -261,7 +270,8 @@ public enum MenuBarCommand {
             allowsDestructive: allowsDestructive,
             closingRefusal   : closingRefusal
         )
-        return run(resolution) { AXUIElementPerformAction($0, kAXPressAction as CFString) }
+        let result = run(resolution) { AXUIElementPerformAction($0, kAXPressAction as CFString) }
+        return (result.pressed, result.outcome, result.disabled)
     }
 
     private static func resolve(
@@ -284,17 +294,21 @@ public enum MenuBarCommand {
         )
     }
 
+    /// The runner's result: what was pressed (nil when nothing was), the outcome, the disabled path, and `answer`,
+    /// the code the press returned, nil when nothing was pressed (M05: the record's fact of the press).
+    typealias Run = (pressed: String?, outcome: ActOutcome, disabled: String?, answer: AXError?)
+
     private static func run<Element>(
         _ resolution: Resolution<Element>, press: (Element) -> AXError
-    ) -> (pressed: String?, outcome: ActOutcome, disabled: String?) {
+    ) -> Run {
         switch resolution {
             case .outcome(let outcome):
-                return (nil, outcome, nil)
+                return (nil, outcome, nil, nil)
             case .disabled(let path):
-                return (nil, disabledRefusal(path), path)
+                return (nil, disabledRefusal(path), path, nil)
             case .list(let path, let items):
                 return (nil, ActOutcome(.actedNoop, "\(path) holds: \(items.joined(separator: ", ")). "
-                    + "Nothing was pressed: name one of them to press it."), nil)
+                    + "Nothing was pressed: name one of them to press it."), nil, nil)
             case .press(let item, let path):
                 let error = press(item)
                 // An item that opens a modal can keep the reply past the timeout: it was pressed.
@@ -305,10 +319,26 @@ public enum MenuBarCommand {
                                                 limits   : [.deliveryUncertain],
                                                 performed: .uncertain
                                             )),
-                            nil)
+                            nil, error)
                 }
-                return (path, ActOutcome(.foundActed, "pressed \(path)"), nil)
+                return (path, ActOutcome(.foundActed, "pressed \(path)"), nil, error)
         }
+    }
+
+    /// The rung of a menu command (M05): the one accessibility action it performed, `AXPress` on the item the path
+    /// resolved to, with the code the system returned, in the driver's words: `success`, or `cannotComplete`, which the
+    /// driver treats as pressed while its delivery stays uncertain. Handed once to the call's recorder right after the
+    /// press and before anything is observed, so the fact outlives an observation that fails. Nothing pressed, or any
+    /// other code (the press refused: unknown, not an effect of none), hands nothing, and nothing is inferred.
+    package static func handMenuRung(pressed: String?, answer: AXError?, to recorder: CallRecorder?) async {
+        guard let recorder, let pressed, let answer else { return }
+        let how: String
+        switch answer {
+            case .success       : how = "AXPress for \(pressed) returned success"
+            case .cannotComplete: how = "AXPress for \(pressed) returned cannotComplete; delivery uncertain, treated as pressed by the driver"
+            default             : return
+        }
+        await recorder.dispatched(rung: CallRung(rung: .accessibility, how: how))
     }
 
     /// Prepares a command before its only dispatch, then resolves its current
@@ -318,7 +348,7 @@ public enum MenuBarCommand {
         read: () -> Resolution<Element>,
         press: (Element) -> AXError,
         refresh: (() async -> Refresh)?
-    ) async -> (pressed: String?, outcome: ActOutcome, disabled: String?) {
+    ) async -> Run {
         var resolution = read()
         var didRefresh = false
         if preparesEnabledItems, case .press(_, let path) = resolution, let refresh {
@@ -328,16 +358,16 @@ public enum MenuBarCommand {
                     resolution = read()
                 case .stillDisabled(let reason):
                     let message = "\(path) was not dispatched because menu preparation did not complete."
-                    return (nil, ActOutcome(.refused, message + (reason.map { " " + $0 } ?? "")), nil)
+                    return (nil, ActOutcome(.refused, message + (reason.map { " " + $0 } ?? "")), nil, nil)
                 case .blockedByDialog:
-                    return (nil, dialogRefusal(path), nil)
+                    return (nil, dialogRefusal(path), nil, nil)
             }
         }
-        var (pressed, outcome, disabled) = run(resolution, press: press)
+        var (pressed, outcome, disabled, answer) = run(resolution, press: press)
         if !didRefresh, let disabledPath = disabled, let refresh {
             switch await refresh() {
                 case .readAgain:
-                    (pressed, outcome, disabled) = run(read(), press: press)
+                    (pressed, outcome, disabled, answer) = run(read(), press: press)
                 case .stillDisabled(let reason?):
                     outcome = ActOutcome(outcome.kind, outcome.message + " " + reason)
                 case .stillDisabled(nil):
@@ -346,7 +376,7 @@ public enum MenuBarCommand {
                     outcome = dialogRefusal(disabledPath)
             }
         }
-        return (pressed, outcome, disabled)
+        return (pressed, outcome, disabled, answer)
     }
 
     /// Resolves an admitted command again inside its bounded foreground scope.
@@ -359,7 +389,7 @@ public enum MenuBarCommand {
         read     : @escaping () -> Resolution<Element>,
         press    : @escaping (Element) -> AXError,
         withFront: (@escaping @MainActor () -> Void) async -> String?
-    ) async -> (pressed: String?, outcome: ActOutcome, disabled: String?) {
+    ) async -> Run {
         let initial = read()
         switch initial {
             case .press, .disabled: break
@@ -368,11 +398,11 @@ public enum MenuBarCommand {
                 return (nil, ActOutcome(result.outcome.kind, result.outcome.message
                     + " This listing was read without activating the application; enabled flags, titles and editing "
                     + "history may be stale. Use the full command path for the intended operation; menu preparation "
-                    + "reads its current item again."), result.disabled)
+                    + "reads its current item again."), result.disabled, nil)
             case .outcome:
                 return run(initial, press: press)
         }
-        var result: (pressed: String?, outcome: ActOutcome, disabled: String?)?
+        var result: Run?
         let issue = await withFront {
             guard result == nil else { return }
             result = run(read(), press: press)
@@ -383,16 +413,16 @@ public enum MenuBarCommand {
             // the menu holds now instead of the moment's refusal.
             if case .outcome(let missing) = read(), missing.kind == .honestMiss {
                 return (nil, ActOutcome(.honestMiss, missing.message
-                    + " The menu was read again after a moment in front, which can rename its items."), nil)
+                    + " The menu was read again after a moment in front, which can rename its items."), nil, nil)
             }
-            return (nil, ActOutcome(.refused, issue ?? "Menu preparation did not dispatch the command."), nil)
+            return (nil, ActOutcome(.refused, issue ?? "Menu preparation did not dispatch the command."), nil, nil)
         }
         guard let issue else { return result }
         let mayHaveActed = result.pressed != nil || result.outcome.kind == .actedUnverified
         return (result.pressed, ActOutcome(
             mayHaveActed ? .actedUnverified : .refused,
             result.outcome.message + " " + issue + (mayHaveActed ? " Do not repeat it blind." : "")
-        ), result.disabled)
+        ), result.disabled, result.answer)
     }
 
     /// Performs an admitted menu command once during the consumer-supplied
@@ -404,6 +434,7 @@ public enum MenuBarCommand {
         _ path           : String,
         processID        : pid_t,
         allowsDestructive: Bool,
+        recorder         : CallRecorder? = nil,
         closingRefusal   : ((String) -> String?)? = nil,
         withFront        : (@escaping @MainActor () -> Void) async -> String?,
         frontReturned    : () -> Bool,
@@ -412,7 +443,7 @@ public enum MenuBarCommand {
     ) async throws -> ActOutcome {
         let before = windowSignature(of: processID)
         var frontIssue: String?
-        let (pressed, outcome, _) = await runInFront(
+        let (pressed, outcome, _, answer) = await runInFront(
             read: {
                 resolve(
                     path,
@@ -427,6 +458,8 @@ public enum MenuBarCommand {
                 return frontIssue
             }
         )
+        // The press is the call's fact before anything is observed (M05).
+        await handMenuRung(pressed: pressed, answer: answer, to: recorder)
         return try await observedOutcome(
             pressed,
             outcome      : outcome,
@@ -452,6 +485,7 @@ public enum MenuBarCommand {
         _ path           : String,
         processID        : pid_t,
         allowsDestructive: Bool,
+        recorder         : CallRecorder? = nil,
         closingRefusal   : ((String) -> String?)? = nil,
         refresh          : (() async -> Refresh)? = nil,
         preparesEnabledItems: Bool = false,
@@ -462,7 +496,7 @@ public enum MenuBarCommand {
         let before = windowSignature(of: processID)
         // A refresh brings the application forward first, which redraws it: no reference then.
         if refresh == nil { await settling?.prepare(in: processID) }
-        let (pressed, outcome, _) = await runPrepared(
+        let (pressed, outcome, _, answer) = await runPrepared(
             preparesEnabledItems: preparesEnabledItems,
             read: {
                 resolve(
@@ -475,6 +509,8 @@ public enum MenuBarCommand {
             press: { AXUIElementPerformAction($0, kAXPressAction as CFString) },
             refresh: refresh
         )
+        // The press is the call's fact before anything is observed (M05).
+        await handMenuRung(pressed: pressed, answer: answer, to: recorder)
         return try await observedOutcome(
             pressed,
             outcome  : outcome,

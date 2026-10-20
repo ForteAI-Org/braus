@@ -82,6 +82,10 @@ public enum AgentCallArguments {
                 return [text("app"), text("query", .optional)]
             case .appCall:
                 return [text("app"), text("verb"), text("arguments")]
+            case .collectPosts:
+                return [Spec(name: "target", kind: .integer, rows: .one),
+                        Spec(name: "max_scrolls", kind: .integer, rows: .one),
+                        Spec(name: "seconds", kind: .integer, rows: .one)]
         }
     }
 }
@@ -157,6 +161,10 @@ extension AgentCallRequest {
                 put("app", text(app))
                 put("verb", text(verb))
                 put("arguments", text(values))
+            case .collectPosts(let target, let maxScrolls, let seconds):
+                put("target", .integer(Int64(target)))
+                put("max_scrolls", .integer(Int64(maxScrolls)))
+                put("seconds", .integer(Int64(seconds)))
         }
         let order = AgentCallArguments.specs(of: tool).map(\.name)
         return rows.enumerated().sorted { lhs, rhs in
@@ -283,6 +291,9 @@ extension AgentCallRequest {
             case .appCall:
                 request = .appCall(app: try required("app"), verb: try required("verb"),
                                    arguments: try required("arguments"))
+            case .collectPosts:
+                request = .collectPosts(target: try integer("target"), maxScrolls: try integer("max_scrolls"),
+                                        seconds: try integer("seconds"))
         }
         do {
             try request.validate()

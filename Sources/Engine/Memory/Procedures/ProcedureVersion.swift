@@ -298,16 +298,20 @@ public enum ProcedureAssembly {
         public let request: AgentCallRequest
         /// The withheld arguments, as `name#position`.
         public let withheldArguments: Set<String>
+        /// The withheld arguments whose only reason is confidential content (P1-06), as `name#position`: a whole
+        /// parameter may take one, since what the method keeps of it is a parameter, never the value.
+        public let confidentialArguments: Set<String>
         public let status: AgentCallStatus?
         public let verifications: [QualificationPolicy.VerificationFact]
 
         public init(position: Int, request: AgentCallRequest, withheldArguments: Set<String>, status: AgentCallStatus? = nil,
-                    verifications: [QualificationPolicy.VerificationFact] = []) {
-            self.position          = position
-            self.request           = request
-            self.withheldArguments = withheldArguments
-            self.status            = status
-            self.verifications     = verifications
+                    verifications: [QualificationPolicy.VerificationFact] = [], confidentialArguments: Set<String> = []) {
+            self.position              = position
+            self.request               = request
+            self.withheldArguments     = withheldArguments
+            self.confidentialArguments = confidentialArguments.intersection(withheldArguments)
+            self.status                = status
+            self.verifications         = verifications
         }
     }
 
@@ -521,10 +525,15 @@ public enum ProcedureAssembly {
                                                       argumentPosition: use.argumentPosition))
             }
             let secrets = use.parameterNames.filter { statements[$0]?.sensitivity == .secret }
-            let withheld = steps[use.stepPosition].withheldArguments.contains("\(use.argumentName)#\(use.argumentPosition)")
+            let argumentKey = "\(use.argumentName)#\(use.argumentPosition)"
+            let withheld = steps[use.stepPosition].withheldArguments.contains(argumentKey)
+            let confidential = steps[use.stepPosition].confidentialArguments.contains(argumentKey)
             if withheld || !secrets.isEmpty {
-                // A withheld value is taken only by a secret parameter, whole: nothing else can be checked.
-                guard withheld, whole, secrets.count == 1 else { finding(.useMismatch); continue }
+                // A withheld value is taken only by a secret parameter, whole: nothing else can be checked. Confidential
+                // content (P1-06) is taken by one whole parameter of any sensitivity: the method keeps the parameter.
+                guard withheld, whole, secrets.count == 1 || (confidential && use.parameterNames.count == 1) else {
+                    finding(.useMismatch); continue
+                }
             } else {
                 guard use.parameterNames.allSatisfy({ values[$0] != nil }) else { finding(.unverifiableUse); continue }
                 var rendered = ""
@@ -580,7 +589,12 @@ public enum ProcedureAssembly {
                 // A section is a search hint: one that names a day, an hour or a file is gone at the next reuse, so the method
                 // looks for the element without it.
                 if argument.name == "section", case .text(let section) = argument.value, !Self.isStableSection(section) { continue }
-                if facts.withheldArguments.contains("\(argument.name)#\(argument.position)") { withheldLiterals.insert(index) }
+                // P2-02: an adapter's object whose only gaps are confidential content is kept field by
+                // field; the Recall delivers each withheld field as the new run's own value, never a literal to reproduce.
+                let argumentKey = "\(argument.name)#\(argument.position)"
+                let byField = argument.name == "arguments" && facts.request.tool == .appCall
+                    && facts.confidentialArguments.contains(argumentKey)
+                if facts.withheldArguments.contains(argumentKey), !byField { withheldLiterals.insert(index) }
                 arguments.append(OperationArgument(name: argument.name, position: argument.position, value: .literal(argument.value)))
             }
             definitionSteps.append(ProcedureStep(

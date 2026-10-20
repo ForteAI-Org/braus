@@ -9,22 +9,38 @@ import WindowServerListing
 @MainActor
 public protocol AutomationSessionOperating: AnyObject {
     var id: UUID? { get }
+    /// The route this session is when no routing session fronts it (M05): the seat, the MacDriver or the browser
+    /// engine; nil for a routing session, which reports the route of each call itself, and for a session that is none.
+    var dispatchRoute: CallRoute.Route? { get }
     func open(application: String, window: String?) async throws -> SceneSnapshot
     func observe() async throws -> SceneSnapshot
     func act(target: String, verb: ActionVerb, section: String?, desiredState: ControlState?) async throws -> ActOutcome
     func select(control: String, item: String) async throws -> ActOutcome
     /// Types, presses a key, scrolls, drags or chooses a contextual menu item, resolved and verified.
     func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome
+    /// Where `input`'s text would go, from a fresh perception, never the scene the model last read (W1): an
+    /// ordinary field the session names physically, a secure one, or unclassified with its cause. Nothing is
+    /// sent or recorded. A session that cannot attest it answers unclassified, so its texts are withheld.
+    func classify(_ input: InputRequest.Input, section: String?) async -> TextTargetClass
+    /// `deliver` of a text the call classified: bound to the field `classify` attested ordinary, typing only into it,
+    /// or with the text withheld, quoted nowhere in the answer and kept out of the check.
+    func deliver(_ input: InputRequest.Input, section: String?, dispatch: TextDispatch) async throws -> ActOutcome
     /// Lists or presses an item of the held application's menu bar by a path such as "File > Close".
     func menu(path: String) async throws -> ActOutcome
     /// Presses a button of the held application's dialog or alert in front, by its title.
     func press(button: String) async throws -> ActOutcome
+    /// Reads the posts or articles of the web page the session holds, scrolling it for more within `request`'s
+    /// bounds; only a web session has one.
+    func collectPosts(_ request: PostCollectionRequest) async throws -> PostCollection
     func close() async
     /// Any work left after the latest completed close, such as an application deferring its quit.
     var closeWarning: String? { get }
     /// What the latest scene went ahead without: other windows of the application it does not
     /// show, such as one left on the person's screen, in one sentence; nil when there are none.
     var seatNotice: String? { get }
+    /// Whose browser the latest page is in when it is not Braus's own, such as the person's Chrome signed in as
+    /// them, with what the agent asks the person first, in one sentence; nil otherwise.
+    var browserNotice: String? { get }
     /// The window server's number for the window the latest scene was read from; nil when the session
     /// does not know it. It tells apart two windows of one application whose titles do not.
     var observedWindowNumber: Int? { get }
@@ -35,7 +51,7 @@ public protocol AutomationSessionOperating: AnyObject {
     /// without opening anything; nil when it names none or several, or the session cannot tell. Read-only.
     func resolvedBundleID(of application: String) async -> String?
     /// Read-only window candidates exposed by this session's discovery policy; no adoption or input.
-    func windowCandidates(ownedBy processID: pid_t) throws -> [WindowRow]
+    func windowCandidates(ownedBy processID: pid_t) async throws -> [WindowRow]
     /// The Knowledge directory whose living memory this session's calls are recorded in; nil for a
     /// session with no memory, whose calls are not recorded.
     var memoryDirectory: URL? { get }
@@ -43,13 +59,20 @@ public protocol AutomationSessionOperating: AnyObject {
     /// `open` and after `close`. While it is set, an adapter call on that app is refused
     /// (`AppAdapters.seatConflict`).
     var memoryApplication: String? { get }
+
+    /// The profile the session's pages are in, as a call's data context names it (P2-05): which Chrome, never an account.
+    var dataProfile: String? { get }
 }
 
 public extension AutomationSessionOperating {
 
+    var dispatchRoute: CallRoute.Route? { nil }
+
     var closeWarning: String? { nil }
 
     var seatNotice: String? { nil }
+
+    var browserNotice: String? { nil }
 
     var observedWindowNumber: Int? { nil }
 
@@ -57,10 +80,27 @@ public extension AutomationSessionOperating {
 
     var memoryApplication: String? { nil }
 
-    /// A session that cannot resolve a name before opening it: nothing is routed, every app opens as asked.
+    /// The profile the session's pages are in (P2-05), a minimal identifier: nil for a session that has none.
+    var dataProfile: String? { nil }
+
+    /// A session that attests no field: every text it would type is withheld as unclassified.
+    func classify(_ input: InputRequest.Input, section: String?) async -> TextTargetClass {
+        .unclassified(.unsupported)
+    }
+
+    /// A session that binds no field refuses a binding it could not keep, with nothing done; a withheld text is
+    /// delivered as any, the tools withholding it from what they write.
+    func deliver(_ input: InputRequest.Input, section: String?, dispatch: TextDispatch) async throws -> ActOutcome {
+        guard dispatch == .withheld else {
+            throw AutomationFailure("This session cannot type only into the field the call recorded, so nothing was typed.")
+        }
+        return try await deliver(input, section: section)
+    }
+
+    /// A session that cannot resolve an application before opening it offers no identity-based redirect.
     func resolvedBundleID(of application: String) async -> String? { nil }
 
-    func windowCandidates(ownedBy processID: pid_t) throws -> [WindowRow] {
+    func windowCandidates(ownedBy processID: pid_t) async throws -> [WindowRow] {
         try WindowServerWindowListing().windows(ownedBy: processID)
     }
 
@@ -72,6 +112,11 @@ public extension AutomationSessionOperating {
     /// A session with no application whose dialog could be read.
     func press(button: String) async throws -> ActOutcome {
         throw AutomationFailure("Pressing a dialog button is not available in this session.")
+    }
+
+    /// A session that holds no web page has no posts to read.
+    func collectPosts(_ request: PostCollectionRequest) async throws -> PostCollection {
+        throw AutomationFailure("collect_posts reads a web page: open the page with open_session web:<host> or a URL.")
     }
 
     /// Running regular applications only, since that is all `RunningApplicationLookup` opens. A query

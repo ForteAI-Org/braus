@@ -11,6 +11,7 @@ import Foundation
 import LocalMCP
 import Memory
 import PerceptionCore
+import Router
 @testable import SQLiteMemory
 import Testing
 import WebDriver
@@ -114,12 +115,12 @@ struct WebSessionTests {
     }
 
     @Test("A negative window id is a tab the web session lists; any other id is the desktop's")
-    func listsWindowsBySide() throws {
+    func listsWindowsBySide() async throws {
         let desktop = DesktopProbe()
         let web     = DesktopProbe()
         let router  = RoutingAutomationSession(desktop: desktop, web: web)
-        _ = try router.windowCandidates(ownedBy: -100)
-        _ = try router.windowCandidates(ownedBy: 42)
+        _ = try await router.windowCandidates(ownedBy: -100)
+        _ = try await router.windowCandidates(ownedBy: 42)
         #expect(web.calls == ["windows -100"])
         #expect(desktop.calls == ["windows 42"])
     }
@@ -162,22 +163,28 @@ struct WebSessionLiveTests {
             launchOptions     : ChromeLaunchOptions(userDataDirectory: temporary.appending(path: "profile")),
             allowsLocalFiles  : true
         )
-        let tools = AutomationTools(session: RoutingAutomationSession(desktop: DesktopProbe(), web: web))
-        tools.producer = CallProducer(source: .app, streamID: "web-1", traceID: "message-1", messageRef: "message-1")
-        let fixture = try #require(Bundle.module.url(forResource: "web-session", withExtension: "html"))
+        // The session is closed on a throw too, so its Chrome never outlives the test (W14).
+        do {
+            let tools = AutomationTools(session: RoutingAutomationSession(desktop: DesktopProbe(), web: web))
+            tools.producer = CallProducer(source: .app, streamID: "web-1", traceID: "message-1", messageRef: "message-1")
+            let fixture = try #require(Bundle.module.url(forResource: "web-session", withExtension: "html"))
 
-        let opened = try await tools.call("open_session", Self.json(#"{"app":"\#(fixture.absoluteString)"}"#))
-        let id = try #require(web.id?.uuidString, "\(opened)")
-        _ = try await tools.call("memory_task", Self.json(#"{"operation":"begin","goal":"Send a note to Ada"}"#))
-        let typed = try await tools.call("type_text", Self.json(#"{"session":"\#(id)","target":"Name","text":"Ada"}"#))
-        #expect(typed["isError"].bool != true, "\(typed)")
-        let sent = try await tools.call("act", Self.json(#"{"session":"\#(id)","target":"Send"}"#))
-        #expect(sent["isError"].bool != true, "\(sent)")
-        let chose = try await tools.call("select", Self.json(#"{"session":"\#(id)","control":"Color","item":"Blue"}"#))
-        #expect(chose["isError"].bool != true, "\(chose)")
-        _ = try await tools.call("memory_task", Self.json(#"{"operation":"end","outcome":"completed"}"#))
-        let seen = try await web.observe()
-        #expect(seen.elements.contains { $0.label == "Color Blue" })
+            let opened = try await tools.call("open_session", Self.json(#"{"app":"\#(fixture.absoluteString)"}"#))
+            let id = try #require(web.id?.uuidString, "\(opened)")
+            _ = try await tools.call("memory_task", Self.json(#"{"operation":"begin","goal":"Send a note to Ada"}"#))
+            let typed = try await tools.call("type_text", Self.json(#"{"session":"\#(id)","target":"Name","text":"Ada"}"#))
+            #expect(typed["isError"].bool != true, "\(typed)")
+            let sent = try await tools.call("act", Self.json(#"{"session":"\#(id)","target":"Send"}"#))
+            #expect(sent["isError"].bool != true, "\(sent)")
+            let chose = try await tools.call("select", Self.json(#"{"session":"\#(id)","control":"Color","item":"Blue"}"#))
+            #expect(chose["isError"].bool != true, "\(chose)")
+            _ = try await tools.call("memory_task", Self.json(#"{"operation":"end","outcome":"completed"}"#))
+            let seen = try await web.observe()
+            #expect(seen.elements.contains { $0.label == "Color Blue" })
+        } catch {
+            await web.close()
+            throw error
+        }
         await web.close()
 
         let archive = knowledge.appendingPathComponent("memory.sqlite")
@@ -233,20 +240,25 @@ struct WebSessionLiveTests {
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }
         let options = ChromeLaunchOptions(userDataDirectory: temporary.appending(path: "profile"))
-        let first   = WebAutomationSession(knowledgeDirectory: temporary.appending(path: "A"), launchOptions: options,
-                                           allowsLocalFiles: true)
-        let second  = WebAutomationSession(knowledgeDirectory: temporary.appending(path: "B"), launchOptions: options,
-                                           allowsLocalFiles: true)
+        let first   = WebAutomationSession(knowledgeDirectory: temporary.appending(path: "A"), launchOptions: options, allowsLocalFiles: true)
+        let second  = WebAutomationSession(knowledgeDirectory: temporary.appending(path: "B"), launchOptions: options, allowsLocalFiles: true)
         let fixture = try #require(Bundle.module.url(forResource: "web-session", withExtension: "html"))
 
-        _ = try await first.open(application: fixture.absoluteString, window: nil)
-        await #expect(throws: AutomationFailure.self) {
+        // Both sessions are closed on a throw too; closing one never opened does nothing (W14).
+        do {
+            _ = try await first.open(application: fixture.absoluteString, window: nil)
+            await #expect(throws: AutomationFailure.self) {
+                _ = try await second.open(application: fixture.absoluteString, window: nil)
+            }
+            #expect(second.id == nil)
+            await first.close()
             _ = try await second.open(application: fixture.absoluteString, window: nil)
+            #expect(second.id != nil)
+        } catch {
+            await first.close()
+            await second.close()
+            throw error
         }
-        #expect(second.id == nil)
-        await first.close()
-        _ = try await second.open(application: fixture.absoluteString, window: nil)
-        #expect(second.id != nil)
         await second.close()
     }
 

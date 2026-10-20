@@ -34,21 +34,20 @@ public enum AgentTool: String, Sendable, Equatable, Hashable, CaseIterable {
     case closeSession = "close_session"
     case appCapabilities = "app_capabilities"
     case appCall         = "app_call"
+    /// Reads the posts of the web page the session holds, scrolling it for more: it takes the session and, since it
+    /// scrolls, its start is confirmed; it is no operation and answers no outcome.
+    case collectPosts    = "collect_posts"
 
-    /// Whether the tool requires the current session: every tool but the three read-only listings,
-    /// `open_session` and the two adapter tools, which reach an app's API without a session. The
-    /// session a call names is its event's `sessionID`.
+    /// Whether this tool requires the current session. Listings and adapter API calls do not.
     public var takesSession: Bool {
         switch self {
             case .status, .windows, .apps, .openSession, .appCapabilities, .appCall: false
-            default                                                                : true
+            default                                                                               : true
         }
     }
 
-    /// Whether a call of the tool must have its start confirmed in the archive before it runs: every
-    /// tool that may change the application or the Seat (the operations, a batch, `menu`, `press`,
-    /// `open_session`, `app_call`). The read-only tools, and `close_session`, which gives the person's
-    /// windows back, run whatever the memory answers, with their record's gap said.
+    /// Calls that may change an application confirm their start before running. Read-only tools
+    /// and session cleanup remain available if the archive cannot confirm a write.
     public var requiresConfirmedStart: Bool {
         switch self {
             case .status, .windows, .apps, .observe, .closeSession, .appCapabilities: false
@@ -64,9 +63,23 @@ public enum AgentTool: String, Sendable, Equatable, Hashable, CaseIterable {
 
     /// Whether a concluded call of the tool answers an outcome: every operation, and `app_call`, whose
     /// adapter reads its own effect back. `app_call` is not an operation: it has no gesture, no scene
-    /// and no check, and it is not a procedure step.
+    /// and no scene check; mixed procedure qualification uses the adapter oracle.
     public var answersOutcome: Bool {
         isOperation || self == .appCall
+    }
+
+    /// Operations and adapter calls keep the result of their own verification rule.
+    public var hasOwnOracle: Bool {
+        isOperation || self == .appCall
+    }
+
+    /// Listings, status and adapter API calls read no screen. Their concluded capture status is
+    /// `not_applicable`; a screen operation that lost its capture remains unknown.
+    public var perceives: Bool {
+        switch self {
+            case .status, .windows, .apps, .appCapabilities, .appCall: false
+            default                                                                 : true
+        }
     }
 
     /// Whether the tool may be a step of a batch: `act`, `select` and the six inputs.
@@ -135,7 +148,8 @@ public enum AgentCallRequest: Sendable {
     case appCapabilities(app: String, query: String?)
     /// One adapter verb, with its arguments as the JSON text the tools wrote: keys sorted, no spaces.
     case appCall(app: String, verb: String, arguments: String)
-
+    /// A collection of the page's posts, with its bounds as the call ran them: how many, how many scrolls, how long.
+    case collectPosts(target: Int, maxScrolls: Int, seconds: Int)
     public var tool: AgentTool {
         switch self {
             case .status      : .status
@@ -157,6 +171,7 @@ public enum AgentCallRequest: Sendable {
             case .closeSession: .closeSession
             case .appCapabilities: .appCapabilities
             case .appCall     : .appCall
+            case .collectPosts: .collectPosts
         }
     }
 
@@ -198,6 +213,10 @@ public enum AgentCallRequest: Sendable {
                 if count < 1 { throw refuse(.notPositive(argument: "count")) }
             case .scroll(_, let lines, _, _):
                 if lines < 1 { throw refuse(.notPositive(argument: "lines")) }
+            case .collectPosts(let target, let maxScrolls, let seconds):
+                if target < 1 { throw refuse(.notPositive(argument: "target")) }
+                if maxScrolls < 0 { throw refuse(.notPositive(argument: "max_scrolls")) }
+                if seconds < 1 { throw refuse(.notPositive(argument: "seconds")) }
             case .drag(_, .offset(let dx, let dy), _):
                 if !dx.isFinite { throw refuse(.notFinite(argument: "dx")) }
                 if !dy.isFinite { throw refuse(.notFinite(argument: "dy")) }

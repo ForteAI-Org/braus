@@ -87,16 +87,22 @@ final class WorkerTurnRecorder {
     private let workerID      : UUID
     private let conversationID: UUID
     private let messageID     : UUID
+    private let withholding   : @MainActor (String) -> String
     private let onRecorded    : @MainActor () async -> Void
 
     /// `messageID` is the person's message the turn answers. `onRecorded` is
     /// called after every write, on the main actor, so a reader can refresh.
+    /// `withholding` takes out of every text the turn writes (a reply, a note,
+    /// a tool record, a failure's reason) what the host's tools withhold, at
+    /// the time it is written: a secret they learn later is not in what came
+    /// before (M07).
     init(
         store         : WorkspaceStore,
         workspaceID   : UUID,
         workerID      : UUID,
         conversationID: UUID,
         messageID     : UUID,
+        withholding   : @escaping @MainActor (String) -> String = { $0 },
         onRecorded    : @escaping @MainActor () async -> Void
     ) {
         self.store          = store
@@ -104,6 +110,7 @@ final class WorkerTurnRecorder {
         self.workerID       = workerID
         self.conversationID = conversationID
         self.messageID      = messageID
+        self.withholding    = withholding
         self.onRecorded     = onRecorded
     }
 
@@ -212,12 +219,12 @@ final class WorkerTurnRecorder {
         case .tool(let text):
             if let note = state.held, Self.isNote(note) {
                 state.held = nil
-                try await append(.toolActivity, subject: execution, text: ToolStep.noteRecord(note))
+                try await append(.toolActivity, subject: execution, text: ToolStep.noteRecord(withholding(note)))
             } else {
                 // An answer written before a last tool call, a list or a long block, is a reply.
                 try await reply(&state)
             }
-            try await append(.toolActivity, subject: execution, text: text)
+            try await append(.toolActivity, subject: execution, text: withholding(text))
         case .processStarted(let identity):
             let encoded = try JSONEncoder().encode(identity)
             try await append(.agentProcessStarted, subject: execution, text: String(decoding: encoded, as: UTF8.self))
@@ -260,7 +267,8 @@ final class WorkerTurnRecorder {
         guard let text = state.held else { return }
 
         state.held = nil
-        try await store.appendMessage(to: conversationID, author: workerID, text: text, delivery: .completed)
+        try await store.appendMessage(to: conversationID, author: workerID, text: withholding(text),
+                                      delivery: .completed)
     }
 
     private func finish(_ ending: Ending, execution: UUID) async throws {
@@ -269,7 +277,7 @@ final class WorkerTurnRecorder {
             try await append(.executionCompleted, subject: execution)
             try await store.update(message: messageID, delivery: .completed)
         case .failed(let reason):
-            try await append(.executionFailed, subject: execution, text: reason)
+            try await append(.executionFailed, subject: execution, text: withholding(reason))
             try await store.update(message: messageID, delivery: .interrupted)
         case .cancelled:
             try await append(.executionCancelled, subject: execution, text: Self.interruptedNote)

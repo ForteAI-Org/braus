@@ -19,8 +19,9 @@ import Memory
 /// shows in the person's language), and those the session offers the `apps` tool for it. Nothing is launched and no window
 /// is read. The tiers are `RunningApplicationLookup.chosen`'s: an exact bundle ID, then an exact name, then a name prefix,
 /// then a name that contains the word.
-/// - A word with a bundle ID's form (two dots or more, no space) is a certain identity even when nothing knows it: it keeps
-///   the filter, which excludes the parts of every other application.
+/// - A word with a bundle ID's form (two dots or more, no space), or a web identity (`web:<host>`, Braus's browser
+///   engine), is a certain identity even when nothing knows it: it keeps the filter, which excludes the parts of every
+///   other application. A site reached through the seat's browser is that browser's bundle ID, another identity (M08).
 /// - A name nothing knows, or one several applications answer to, is not resolved: the need keeps no application, so
 ///   nothing is excluded for it, and a note says why. An unresolved name never becomes an absence of Memory.
 nonisolated public enum RecallApplications {
@@ -72,6 +73,10 @@ nonisolated public enum RecallApplications {
     /// What `word` names among `known`.
     public static func resolve(_ word: String, among known: [Known]) -> Resolution {
         var wanted = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A web identity is whole, a host that ends in `.app` too: only an application's name drops that suffix.
+        if isWebIdentity(wanted) {
+            return .resolved(known.first { fold($0.bundleID) == fold(wanted) }?.bundleID ?? wanted)
+        }
         if wanted.lowercased().hasSuffix(".app") { wanted = String(wanted.dropLast(4)) }
         guard !wanted.isEmpty else { return .unknown }
         let folded = fold(wanted)
@@ -105,6 +110,11 @@ nonisolated public enum RecallApplications {
             return try RecallNeed(text: need.text, bundleID: nil)
         }
         return (resolved, notes)
+    }
+
+    /// Whether a word is a web identity: `web:` and a host, no space.
+    static func isWebIdentity(_ word: String) -> Bool {
+        word.lowercased().hasPrefix("web:") && word.count > 4 && !word.contains(" ")
     }
 
     /// Whether a word has a bundle ID's form: reverse-DNS components, two dots or more, no space.

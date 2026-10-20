@@ -26,14 +26,13 @@ public protocol AppAdapting: Sendable {
 
     /// Asks the system for the permission the adapter needs, showing its prompt when the person has
     /// not answered yet, and answers the availability after. The one path that may prompt: it runs only
-    /// when the person asks for it (a host's menu), never from a tool call.
+    /// when the person asks for it (`braus adapters grant`, a host's menu), never from a tool call.
     func requestPermission() async -> AdapterAvailability
 
     /// Runs one verb, whose arguments `AppAdapters` already checked against its schema, and reads its
     /// effect back. Throws `AdapterFailure` when the transport fails; a refusal or an effect the
     /// read-back does not confirm is an outcome, not an error.
     func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome
-
     /// What the person reads about an irreversible call of `verb` before allowing it, by argument. By
     /// default the arguments as given, each text cut to its first lines; an adapter whose arguments do
     /// not say what would change (an id) reads it first. Never changes anything.
@@ -142,6 +141,31 @@ public struct AdapterOutcome: Sendable, Equatable {
 
     public var json: JSONValue {
         .object(["outcome": .string(kind.rawValue), "message": .string(message), "result": result])
+    }
+
+    /// The check of this answer by the adapters' oracle (P2-03), distinct from whether the verb was accepted: a read
+    /// that answered passes `adapter_read`; a change passes `adapter_effect` only when its read-back gave the
+    /// confirmation (`confirmedByReadBack`), and is unknown otherwise; a change that may have happened is unknown with
+    /// its delivery uncertain; a verb that did nothing (refused, missing, ambiguous, a dry run) sent nothing and fails
+    /// its condition; one with nothing left to do found the state already there.
+    public func check(for verb: AdapterVerb) -> OperationCheck {
+        let condition: OperationCheck.Condition = verb.safety == .read ? .adapterRead : .adapterEffect
+        func check(_ verdict: OperationCheck.Verdict, _ performed: OperationCheck.Performed,
+                   _ limits: [OperationCheck.Limit] = [], as kind: OperationCheck.Condition? = nil) -> OperationCheck {
+            OperationCheck(condition: kind ?? condition, method: .adapterReadBack, methodVersion: OperationCheck.adapterVersion,
+                           verdict: verdict, limits: limits, performed: performed)
+        }
+        switch kind {
+            case .foundActed:
+                if verb.safety == .read || confirmedByReadBack { return check(.passed, .requested) }
+                return check(.unknown, .requested, [.readbackUnavailable])
+            case .actedNoop:
+                return check(.passed, .none, as: .requestedStateAlreadyPresent)
+            case .actedUnverified:
+                return check(.unknown, .uncertain, [.deliveryUncertain, .readbackUnavailable])
+            case .honestMiss, .refused, .ambiguous, .dryRun:
+                return check(.failed, .none)
+        }
     }
 }
 

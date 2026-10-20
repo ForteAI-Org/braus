@@ -187,7 +187,8 @@ extension RecallService {
                 let coverage = suggestions.indices.contains(index) ? suggestions[index].coverage.rawValue : "unknown"
                 return "\(item.key) steps \(range.lowerBound + 1)–\(range.upperBound + 1) (\(coverage))"
             }
-            var rendered = RecallProposalDelivery.Need(need: index + 1, text: need.text, app: need.bundleID.map(RecallDocument.applicationName),
+            var rendered = RecallProposalDelivery.Need(need: index + 1, text: need.text,
+                                                       app: need.bundleID.map(RecallDocument.deliveredName),
                                                        sources: mine.map(\.key), suggested: suggested)
             // The plan item that chooses the suggestion, else the first source's steps a choice admits: one call to record
             // the reuse. A source with steps not offered gives its admitted runs, covering part of the need; one with none
@@ -244,7 +245,8 @@ extension RecallService {
         let parameters = Dictionary(uniqueKeysWithValues: source.parameters.map { ($0.parameterID, $0) })
         func name(_ id: String) -> String { parameters[id]?.name ?? id }
         let steps = source.steps.map { step -> String in
-            var line = "\(step.position + 1) [\(step.bundleID.map(RecallDocument.applicationName) ?? "?")] \(Self.operation(of: step, name: name))"
+            let app  = step.bundleID.map(RecallDocument.deliveredName) ?? "?"
+            var line = "\(step.position + 1) [\(app)] \(Self.operation(of: step, name: name))"
             if let label = step.label { line += " — \(label)" }
             if case .unknown = step.entry { line += " (entry not recorded)" }
             if !step.isOffered { line += " (not offered)" }
@@ -278,7 +280,8 @@ extension RecallService {
             guard let part = output.producedBy.flatMap({ id in source.parts.first { $0.partID == id } }) else { return nil }
             return "{\(output.name)} (\(output.role)): produced at steps \(part.firstPosition + 1)–\(part.lastPosition + 1)"
         }
-        let apps = Array(NSOrderedSet(array: source.steps.compactMap { $0.bundleID.map(RecallDocument.applicationName) })).compactMap { $0 as? String }
+        let apps = Array(NSOrderedSet(array: source.steps.compactMap { $0.bundleID.map(RecallDocument.deliveredName) }))
+            .compactMap { $0 as? String }
         let evidence = Self.evidence(of: source)
             + (source.confirmedUses > 0 ? "; carried out and verified in \(source.confirmedUses) earlier reuse(s)" : "")
         var rendered = RecallProposalDelivery.Source(source: key, version: source.routeID, procedure: source.procedureLabel, apps: apps,

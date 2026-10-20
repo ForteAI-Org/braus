@@ -16,8 +16,8 @@ enum ChatCommand {
     static func run(arguments: [String]) async throws {
         let options = try ChatOptions(arguments: arguments)
         if options.help { print(ChatOptions.usage); return }
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Braus", isDirectory: true)
+        // The Braus support folder, `BRAUS_APP_SUPPORT_DIR` when set.
+        let support = KnowledgeLocation.support()
         let history = options.historyDirectory.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             ?? support.appendingPathComponent("Conversations", isDirectory: true)
         let store = try ConversationStore(directory: history)
@@ -69,73 +69,75 @@ enum ChatCommand {
         let transcript = ChatTranscript(conversation: selected, store: store)
         try transcript.save()
         let session = try ChatSession(options: options, history: history, executable: executable)
-        session.adopt(transcript)
-        try await session.start()
-        defer { session.stop() }
-        print("\nBraus chat · \(selected.provider.displayName) · \(selected.model ?? "provider default")")
-        print("Conversation: \(selected.id.uuidString)")
-        if !selected.entries.isEmpty {
-            print("Resuming saved context; application state will be observed again.")
-            for entry in selected.entries.filter({ $0.kind == .user || $0.kind == .assistant }).suffix(4) {
-                print("\(entry.kind.rawValue) › \(entry.text.prefix(400))")
+        try await closing(session) {
+            session.adopt(transcript)
+            try await session.start()
+            defer { session.stop() }
+            print("\nBraus chat · \(selected.provider.displayName) · \(selected.model ?? "provider default")")
+            print("Conversation: \(selected.id.uuidString)")
+            if !selected.entries.isEmpty {
+                print("Resuming saved context; application state will be observed again.")
+                for entry in selected.entries.filter({ $0.kind == .user || $0.kind == .assistant }).suffix(4) {
+                    print("\(entry.kind.rawValue) › \(entry.text.prefix(400))")
+                }
             }
-        }
-        print("/help for commands. Ctrl+C stops and releases the Seat.\n")
-        try await preflight(options, session, evidence: nil)
-        var next = options.prompt
-        do {
-            while true {
-                let line: String?
-                if let pending = next { line = pending; next = nil }
-                else if interactive { line = await ChatMenu.read("You › ") }
-                else { break }
-                guard let line else { break }
-                let message = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                if message.isEmpty { continue }
-                if message == "/quit" || message == "/exit" { break }
-                if message == "/help" { print(ChatOptions.usage); continue }
-                if message == "/model" {
-                    transcript.conversation.model = try await ChatMenu.model(selected.provider)
-                    try transcript.save()
-                    continue
+            print("/help for commands. Ctrl+C stops and releases the Seat.\n")
+            try await preflight(options, session, evidence: nil)
+            var next = options.prompt
+            do {
+                while true {
+                    let line: String?
+                    if let pending = next { line = pending; next = nil }
+                    else if interactive { line = await ChatMenu.read("You › ") }
+                    else { break }
+                    guard let line else { break }
+                    let message = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if message.isEmpty { continue }
+                    if message == "/quit" || message == "/exit" { break }
+                    if message == "/help" { print(ChatOptions.usage); continue }
+                    if message == "/model" {
+                        transcript.conversation.model = try await ChatMenu.model(selected.provider)
+                        try transcript.save()
+                        continue
+                    }
+                    if message == "/release" {
+                        await session.tools.session.close()
+                        try transcript.append(.tool, "User released the Seat. Any previous session ID is now stale.")
+                        print("Seat released.")
+                        continue
+                    }
+                    if message == "/status" {
+                        let result = try await session.tools.call("status", .object([:]))
+                        print(ChatScript.text(ChatScript.payload(of: result)))
+                        continue
+                    }
+                    if message == "/memory" {
+                        // The archive this process records into and the Recall it runs, as the process resolved them.
+                        let result = try await session.tools.call("memory_task", .object(["operation": .string("status")]))
+                        print(ChatScript.text(ChatScript.payload(of: result)))
+                        continue
+                    }
+                    if message.hasPrefix("/") { print("Unknown command. Use /help."); continue }
+                    try transcript.append(.user, message)
+                    do {
+                        try await session.turn(message)
+                    } catch {
+                        if let shutdown = session.shutdown { await shutdown.value; return }
+                        await session.releaseSeat()
+                        try transcript.append(.error, error.localizedDescription)
+                        print("Chat error: \(transcript.shown(error.localizedDescription))")
+                        if !interactive { throw turnFailure(error, shownBy: transcript) }
+                    }
+                    if options.once { break }
                 }
-                if message == "/release" {
-                    await session.tools.session.close()
-                    try transcript.append(.tool, "User released the Seat. Any previous session ID is now stale.")
-                    print("Seat released.")
-                    continue
-                }
-                if message == "/status" {
-                    let result = try await session.tools.call("status", .object([:]))
-                    print(ChatScript.text(ChatScript.payload(of: result)))
-                    continue
-                }
-                if message == "/memory" {
-                    // The archive this process records into and the Recall it runs, as the process resolved them.
-                    let result = try await session.tools.call("memory_task", .object(["operation": .string("status")]))
-                    print(ChatScript.text(ChatScript.payload(of: result)))
-                    continue
-                }
-                if message.hasPrefix("/") { print("Unknown command. Use /help."); continue }
-                try transcript.append(.user, message)
-                do {
-                    try await session.turn(message)
-                } catch {
-                    if let shutdown = session.shutdown { await shutdown.value; return }
-                    await session.releaseSeat()
-                    try transcript.append(.error, error.localizedDescription)
-                    print("Chat error: \(error.localizedDescription)")
-                    if !interactive { throw error }
-                }
-                if options.once { break }
+                await session.releaseSeat()
+                try transcript.save()
+                await session.finish()
+            } catch {
+                if let shutdown = session.shutdown { await shutdown.value; return }
+                await session.releaseSeat()
+                throw error
             }
-            await session.releaseSeat()
-            try transcript.save()
-            await session.finish()
-        } catch {
-            if let shutdown = session.shutdown { await shutdown.value; return }
-            await session.releaseSeat()
-            throw error
         }
     }
 
@@ -157,110 +159,138 @@ enum ChatCommand {
         let hostLease = try hostLease(support)
         defer { withExtendedLifetime(hostLease) {} }
         let session = try ChatSession(options: options, history: history, executable: executable)
-        try await session.start()
-        defer { session.stop() }
-        let evidence = try options.evidence.map { try ChatEvidence(directory: URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true)) }
-        let archive = session.knowledge.appendingPathComponent("memory.sqlite")
-        print("\nBraus chat script · \(provider.displayName) · \(options.hasModelOption ? (options.model ?? "provider default") : "provider default")"
-              + " · \(requests.count) requests · archive \(archive.path)"
-              + (evidence.map { " · evidence \($0.directory.path)" } ?? ""))
-        try await preflight(options, session, evidence: evidence)
-        // A stop by signal closes the task it cut and writes that request's evidence: no one is there to resume it.
-        session.closesTaskOnStop = true
-        var failed = 0
-        var providerFailed = false
-        // The conversation of the request before, which a `>` request continues; its lease lives as long as it may.
-        var previous: (transcript: ChatTranscript, lease: ConversationLease)?
-        for (index, request) in requests.enumerated() {
-            let number = index + 1
-            let transcript: ChatTranscript
-            if request.continuesPrevious, let earlier = previous {
-                transcript = earlier.transcript
-                print("\n[\(number)/\(requests.count)] continues conversation \(transcript.conversation.id.uuidString)")
-            } else {
-                let conversation = Conversation(provider: provider, model: options.hasModelOption ? options.model : nil)
-                let lease = try store.lease(conversation.id)
-                transcript = ChatTranscript(conversation: conversation, store: store)
-                try transcript.save()
-                session.adopt(transcript)
-                previous = (transcript, lease)
-                print("\n[\(number)/\(requests.count)] conversation \(conversation.id.uuidString)")
-            }
-            print("You › \(request.text)")
-            try transcript.append(.user, request.text)
-            transcript.beginRequest()
-            let started = Date()
-            // The agent's own calls, before Braus's calls of its own (a status, an abandoning end) are added.
-            var calls: Int { transcript.conversation.entries.filter { $0.kind == .tool && $0.text.hasPrefix("→ ") }.count }
-            session.interruption = { [evidence] signal, closed, agentEntries in
-                guard let evidence else { return }
-                let flushed = await MemoryService.shared(for: session.knowledge).flush(within: .seconds(2))
+        try await closing(session) {
+            try await session.start()
+            defer { session.stop() }
+            let evidence = try options.evidence.map { try ChatEvidence(directory: URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true)) }
+            let archive = session.knowledge.appendingPathComponent("memory.sqlite")
+            print("\nBraus chat script · \(provider.displayName) · \(options.hasModelOption ? (options.model ?? "provider default") : "provider default")"
+                  + " · \(requests.count) requests · archive \(archive.path)"
+                  + (evidence.map { " · evidence \($0.directory.path)" } ?? ""))
+            try await preflight(options, session, evidence: evidence)
+            // A stop by signal closes the task it cut and writes that request's evidence: no one is there to resume it.
+            session.closesTaskOnStop = true
+            var failed = 0
+            var providerFailed = false
+            // The conversation of the request before, which a `>` request continues; its lease lives as long as it may.
+            var previous: (transcript: ChatTranscript, lease: ConversationLease)?
+            for (index, request) in requests.enumerated() {
+                let number = index + 1
+                let transcript: ChatTranscript
+                if request.continuesPrevious, let earlier = previous {
+                    transcript = earlier.transcript
+                    print("\n[\(number)/\(requests.count)] continues conversation \(transcript.conversation.id.uuidString)")
+                } else {
+                    let conversation = Conversation(provider: provider, model: options.hasModelOption ? options.model : nil)
+                    let lease = try store.lease(conversation.id)
+                    transcript = ChatTranscript(conversation: conversation, store: store)
+                    try transcript.save()
+                    session.adopt(transcript)
+                    previous = (transcript, lease)
+                    print("\n[\(number)/\(requests.count)] conversation \(conversation.id.uuidString)")
+                }
+                print("You › \(request.text)")
+                try transcript.append(.user, request.text)
+                transcript.beginRequest()
+                let started = Date()
+                // The agent's own calls, before Braus's calls of its own (a status, an abandoning end) are added.
+                var calls: Int { transcript.conversation.entries.filter { $0.kind == .tool && $0.text.hasPrefix("→ ") }.count }
+                session.interruption = { [evidence] signal, closed, agentEntries in
+                    guard let evidence else { return }
+                    let flushed = await MemoryService.shared(for: session.knowledge).flush(within: .seconds(2))
+                    do {
+                        try evidence.record(number: number, request: request.text, continues: request.continuesPrevious,
+                                            transcript: transcript, started: started, ended: Date(), failure: nil, signal: signal,
+                                            abandonment: closed, toolCalls: calls, agentEntries: agentEntries,
+                                            memoryFlushed: flushed, archive: archive)
+                    } catch {
+                        fputs("braus: evidence of the stopped request not written: \(error)\n", stderr)
+                    }
+                }
+                var failure: (any Error)?
                 do {
-                    try evidence.record(number: number, request: request.text, continues: request.continuesPrevious,
-                                        transcript: transcript, started: started, ended: Date(), failure: nil, signal: signal,
-                                        abandonment: closed, toolCalls: calls, agentEntries: agentEntries,
-                                        memoryFlushed: flushed, archive: archive)
+                    try await session.turn(request.text)
                 } catch {
-                    fputs("braus: evidence of the stopped request not written: \(error)\n", stderr)
+                    if let shutdown = session.shutdown { await shutdown.value; return }
+                    failure = error
+                    try transcript.append(.error, error.localizedDescription)
+                    print("Chat error: \(transcript.shown(error.localizedDescription))")
+                }
+                let agentCalls = calls
+                let agentEntries = transcript.conversation.entries.count
+                await session.releaseSeat()
+                // A completed task the agent left uninterpreted, even after its reminder, is interpreted by Braus from its goal
+                // and the phases already known: unattended, it was lost (review I1, BUG-11).
+                var brausInterpreted: String?
+                if let left = await session.tools.interpretLeftCandidate() {
+                    brausInterpreted = left.candidate
+                    let line = "Braus interpreted candidate \(left.candidate) itself: the agent left it uninterpreted."
+                    print(line)
+                    try transcript.append(.tool, line)
+                }
+                // A task the conversation left open would block the next conversation's own: unless the next request continues
+                // this conversation, and the script goes on to it, it is closed as abandoned now, and said in the transcript.
+                let goesOn = failure == nil || options.continueOnError
+                var abandonment: ChatSession.Abandonment?
+                if !(goesOn && requests.indices.contains(index + 1) && requests[index + 1].continuesPrevious),
+                   let closed = await session.abandonOpenTask() {
+                    abandonment = closed
+                    let line = ChatSession.line(for: closed)
+                    print(line)
+                    try transcript.append(.tool, line)
+                }
+                try transcript.save()
+                let ended = Date()
+                if let evidence {
+                    // What the turn recorded reaches the archive before its diagnosis is read.
+                    let flushed = await MemoryService.shared(for: session.knowledge).flush(within: .seconds(15))
+                    try evidence.record(number: number, request: request.text, continues: request.continuesPrevious, transcript: transcript,
+                                        started: started, ended: ended, failure: failure, abandonment: abandonment,
+                                        brausInterpreted: brausInterpreted, toolCalls: agentCalls, agentEntries: agentEntries,
+                                        memoryFlushed: flushed, archive: archive)
+                }
+                session.interruption = nil
+                print("[\(number)/\(requests.count)] \(failure == nil ? "done" : "failed") in \(Int(ended.timeIntervalSince(started))) s")
+                if let failure {
+                    failed += 1
+                    providerFailed = providerFailed || failure is ProviderFailure
+                    if !options.continueOnError {
+                        throw ScriptStop(message: "Request \(number) of \(requests.count) failed; the script stops here (--continue goes on).",
+                                         provider: failure is ProviderFailure)
+                    }
                 }
             }
-            var failure: (any Error)?
-            do {
-                try await session.turn(request.text)
-            } catch {
-                if let shutdown = session.shutdown { await shutdown.value; return }
-                failure = error
-                try transcript.append(.error, error.localizedDescription)
-                print("Chat error: \(error.localizedDescription)")
-            }
-            let agentCalls = calls
-            let agentEntries = transcript.conversation.entries.count
-            await session.releaseSeat()
-            // A completed task the agent left uninterpreted, even after its reminder, is interpreted by Braus from its goal
-            // and the phases already known: unattended, it was lost (review I1, BUG-11).
-            var brausInterpreted: String?
-            if let left = await session.tools.interpretLeftCandidate() {
-                brausInterpreted = left.candidate
-                let line = "Braus interpreted candidate \(left.candidate) itself: the agent left it uninterpreted."
-                print(line)
-                try transcript.append(.tool, line)
-            }
-            // A task the conversation left open would block the next conversation's own: unless the next request continues
-            // this conversation, and the script goes on to it, it is closed as abandoned now, and said in the transcript.
-            let goesOn = failure == nil || options.continueOnError
-            var abandonment: ChatSession.Abandonment?
-            if !(goesOn && requests.indices.contains(index + 1) && requests[index + 1].continuesPrevious),
-               let closed = await session.abandonOpenTask() {
-                abandonment = closed
-                let line = ChatSession.line(for: closed)
-                print(line)
-                try transcript.append(.tool, line)
-            }
-            try transcript.save()
-            let ended = Date()
-            if let evidence {
-                // What the turn recorded reaches the archive before its diagnosis is read.
-                let flushed = await MemoryService.shared(for: session.knowledge).flush(within: .seconds(15))
-                try evidence.record(number: number, request: request.text, continues: request.continuesPrevious, transcript: transcript,
-                                    started: started, ended: ended, failure: failure, abandonment: abandonment,
-                                    brausInterpreted: brausInterpreted, toolCalls: agentCalls, agentEntries: agentEntries,
-                                    memoryFlushed: flushed, archive: archive)
-            }
-            session.interruption = nil
-            print("[\(number)/\(requests.count)] \(failure == nil ? "done" : "failed") in \(Int(ended.timeIntervalSince(started))) s")
-            if let failure {
-                failed += 1
-                providerFailed = providerFailed || failure is ProviderFailure
-                if !options.continueOnError {
-                    throw ScriptStop(message: "Request \(number) of \(requests.count) failed; the script stops here (--continue goes on).",
-                                     provider: failure is ProviderFailure)
-                }
-            }
+            withExtendedLifetime(previous) {}
+            await session.finish()
+            print("\nscript done: \(requests.count) requests, \(failed) failed" + (evidence.map { "; evidence in \($0.directory.path)" } ?? ""))
+            if failed > 0 { throw ScriptStop(message: "\(failed) of \(requests.count) requests failed.", provider: providerFailed) }
         }
-        withExtendedLifetime(previous) {}
+    }
+
+    /// Runs `body` with `session`, then finishes the session however `body` ended, a throw included: its application
+    /// session and its Chrome are closed, and awaited, before the command returns.
+    private static func closing(_ session: ChatSession, _ body: () async throws -> Void) async throws {
+        do { try await body() } catch {
+            await session.finish()
+            throw error
+        }
         await session.finish()
-        print("\nscript done: \(requests.count) requests, \(failed) failed" + (evidence.map { "; evidence in \($0.directory.path)" } ?? ""))
-        if failed > 0 { throw ScriptStop(message: "\(failed) of \(requests.count) requests failed.", provider: providerFailed) }
+    }
+
+    /// TurnFailure is a turn's error as it leaves a chat that stops on it (`--once`, a chat with no terminal): its text
+    /// withheld as the transcript withholds it, so the process's last line holds no declared secret, with the
+    /// provider's kind when the provider failed. The process still exits nonzero.
+    struct TurnFailure: Error, LocalizedError, CustomStringConvertible {
+        let message: String
+        var errorDescription: String? { message }
+        var description: String { message }
+    }
+
+    /// The `TurnFailure` of `error`, its text as `transcript` shows it.
+    static func turnFailure(_ error: any Error, shownBy transcript: ChatTranscript) -> TurnFailure {
+        let shown = transcript.shown(error.localizedDescription)
+        guard let provider = error as? ProviderFailure else { return TurnFailure(message: shown) }
+        return TurnFailure(message: "the provider failed (\(provider.kind.rawValue)): \(shown)")
     }
 
     /// ScriptStop is a script that ended on a failed request. The process exits with 3 when the provider failed (its

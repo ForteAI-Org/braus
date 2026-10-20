@@ -614,7 +614,11 @@ public enum RecallSelector {
                 requirements.append(RecallRequirement(kind: .unknownEntryState, stepPosition: positions.lowerBound,
                                                       bundleID: source.step(positions.lowerBound)?.bundleID))
             }
-            if let first = source.step(positions.lowerBound), !requirements.contains(where: { $0.stepPosition == positions.lowerBound && $0.isGap }) {
+            if let first = source.step(positions.lowerBound), first.entry == .notApplicable {
+                requirements.insert(RecallRequirement(kind: .adapterAvailable, stepPosition: first.position,
+                                                      bundleID: first.bundleID ?? first.tool.rawValue), at: 0)
+            } else if let first = source.step(positions.lowerBound),
+                      !requirements.contains(where: { $0.stepPosition == positions.lowerBound && $0.isGap }) {
                 if case .state(let scene) = first.entry, let bundle = first.bundleID,
                    context.observed.contains(ObservedState(bundleID: bundle, sceneID: scene)) {
                     requirements.insert(RecallRequirement(kind: .observedState, stepPosition: first.position, sceneID: scene, bundleID: bundle),
@@ -631,12 +635,22 @@ public enum RecallSelector {
                 requirements.append(RecallRequirement(kind: .preparedBefore, stepPosition: before, bundleID: source.step(before)?.bundleID))
             }
             for block in source.blocks where positions.contains(block.lowerBound) && block.lowerBound > positions.lowerBound {
-                requirements.append(RecallRequirement(kind: .applicationSwitch, stepPosition: block.lowerBound,
-                                                      bundleID: source.step(block.lowerBound)?.bundleID))
+                let step = source.step(block.lowerBound)
+                let kind: RecallRequirement.Kind = step?.entry == .notApplicable ? .adapterAvailable : .applicationSwitch
+                requirements.append(RecallRequirement(kind: kind, stepPosition: block.lowerBound,
+                                                      bundleID: step?.bundleID ?? step?.tool.rawValue))
             }
 
             // The parameters the interval reads, bound to the task's values; the choices made with them or fixed.
             let steps = source.steps.filter { positions.contains($0.position) }
+            // P2-02, P2-05: a field filled from an earlier step's result is filled from this run's, and an account the source
+            // named is resolved again: conditions of the reuse, never values of the source.
+            for step in steps {
+                if step.fields.contains(where: { if case .stepResult = $0.kind { true } else { false } }) {
+                    requirements.append(RecallRequirement(kind: .stepResultPending, stepPosition: step.position))
+                }
+                if step.requiresAccountResolution { requirements.append(RecallRequirement(kind: .accountToResolve, stepPosition: step.position)) }
+            }
             let parameters = Dictionary(uniqueKeysWithValues: source.parameters.map { ($0.parameterID, $0) })
             var read: [String] = []
             for step in steps { for id in step.parameterIDs where !read.contains(id) { read.append(id) } }

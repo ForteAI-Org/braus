@@ -217,6 +217,10 @@ final class CalculatorSession: AutomationSessionOperating {
     }
 
     func select(control: String, item: String) async throws -> ActOutcome { throw AutomationFailure("not here") }
+    func classify(_ input: InputRequest.Input, section: String?) async -> TextTargetClass { AttestedFields.classify(input) }
+    func deliver(_ input: InputRequest.Input, section: String?, dispatch: TextDispatch) async throws -> ActOutcome {
+        try await deliver(input, section: section)
+    }
     func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome { throw AutomationFailure("not here") }
     func close() async { id = nil }
 

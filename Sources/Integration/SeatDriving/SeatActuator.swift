@@ -38,7 +38,12 @@ public actor SeatActuator: Actuating {
     private var turn: Turn?
     private var receipts: [InputReceipt] = []
     private var lastRoute: DeliveryRoute = .posted
+    /// The recipient and frame of the first gesture since the last confirmation: a later gesture of the same input
+    /// that would reach another surface is refused before any event (`input_target_changed`).
     private var inputSurface: (identity: WindowIdentity, frame: CGRect)?
+    /// The last send's receipt, as the record keeps it: set at every send, left by `confirm`, taken once by the call
+    /// that sent it (`takeLastSend`), so a later call never reads an earlier call's (M05).
+    private var lastSend: SeatSend?
 
     public init(target: SeatTarget) {
         self.target = target
@@ -228,12 +233,21 @@ public actor SeatActuator: Actuating {
                 receipts.append(try await seat.send(path, observation: observation.reference, turn: turn))
         }
         lastRoute = receipts.last?.route.poster == .accessibilityAction ? .accessibility : .posted
+        if let receipt = receipts.last { lastSend = SeatSend(receipt) }
         // The events are out: the observation they rode has spent its authority and the next
         // gesture needs a new one.
         await target.spendObservation()
     }
 
     public func lastDeliveryRoute(in processID: pid_t) async -> DeliveryRoute { lastRoute }
+
+    /// The last send since the last take, nil when none went out since; taking it clears it, so each call records
+    /// only the send it made itself. A gesture refused before any event leaves it as it was, so a call whose first
+    /// gesture went out before a later one was refused still takes the first; `confirm` does not clear it.
+    public func takeLastSend() -> SeatSend? {
+        defer { lastSend = nil }
+        return lastSend
+    }
 
     /// A seat that refuses a confirmation or a release has already failed its Turn and reports that
     /// on its own event stream; there is nothing more to do from here, so those errors are dropped.
@@ -319,3 +333,19 @@ public struct GestureInterrupted: Error, Sendable, Equatable, CustomStringConver
     public var description: String { sentence }
 }
 
+
+/// SeatSend is what the Seat's receipt says of the last send of a call (M05): the call that posted its events and the
+/// counts; fields the record keeps, no prose and nothing of the person's.
+public struct SeatSend: Sendable, Equatable {
+    public let poster          : PostRoute
+    public let eventCount      : Int
+    public let routedEventCount: Int
+    public let windowNumber    : Int
+
+    public init(_ receipt: InputReceipt) {
+        poster           = receipt.route.poster
+        eventCount       = receipt.eventCount
+        routedEventCount = receipt.route.routedEventCount
+        windowNumber     = receipt.route.windowNumber
+    }
+}

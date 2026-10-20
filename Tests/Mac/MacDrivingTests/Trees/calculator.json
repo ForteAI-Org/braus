@@ -1,0 +1,1052 @@
+{
+  "actions" : [
+
+  ],
+  "children" : [
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+        {
+          "actions" : [
+
+          ],
+          "children" : [
+            {
+              "actions" : [
+
+              ],
+              "children" : [
+                {
+                  "actions" : [
+
+                  ],
+                  "children" : [
+                    {
+                      "actions" : [
+
+                      ],
+                      "children" : [
+                        {
+                          "actions" : [
+
+                          ],
+                          "children" : [
+
+                          ],
+                          "frame" : [
+                            [
+                              581,
+                              213
+                            ],
+                            [
+                              38,
+                              26
+                            ]
+                          ],
+                          "isEnabled" : true,
+                          "path" : [
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "role" : "AXStaticText",
+                          "value" : "‎7‎×‎6"
+                        }
+                      ],
+                      "descriptionText" : "Ultima espressione",
+                      "frame" : [
+                        [
+                          409,
+                          211.5
+                        ],
+                        [
+                          210,
+                          29.5
+                        ]
+                      ],
+                      "identifier" : "StandardResultView",
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "role" : "AXScrollArea"
+                    },
+                    {
+                      "actions" : [
+
+                      ],
+                      "children" : [
+                        {
+                          "actions" : [
+
+                          ],
+                          "children" : [
+
+                          ],
+                          "frame" : [
+                            [
+                              582,
+                              243
+                            ],
+                            [
+                              37,
+                              36
+                            ]
+                          ],
+                          "isEnabled" : true,
+                          "path" : [
+                            0,
+                            0,
+                            0,
+                            0,
+                            1,
+                            0
+                          ],
+                          "role" : "AXStaticText",
+                          "value" : "‎42"
+                        }
+                      ],
+                      "descriptionText" : "Modifica campo",
+                      "frame" : [
+                        [
+                          409,
+                          240
+                        ],
+                        [
+                          210,
+                          42
+                        ]
+                      ],
+                      "identifier" : "StandardInputView",
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        1
+                      ],
+                      "role" : "AXScrollArea"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "Elimina",
+                      "frame" : [
+                        [
+                          409,
+                          287
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "help" : "Elimina l’ultima operazione o cifra inserita (tieni premuto per eliminare tutto)",
+                      "identifier" : "Delete",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        2
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "Cancella tutto",
+                      "frame" : [
+                        [
+                          463,
+                          287
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "AllClear",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        3
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "Percento",
+                      "frame" : [
+                        [
+                          517,
+                          287
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Percent",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        4
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "Dividi",
+                      "frame" : [
+                        [
+                          571,
+                          287
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Divide",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        5
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "7",
+                      "frame" : [
+                        [
+                          409,
+                          341
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Seven",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        6
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "8",
+                      "frame" : [
+                        [
+                          463,
+                          341
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Eight",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        7
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "9",
+                      "frame" : [
+                        [
+                          517,
+                          341
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Nine",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        8
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "Moltiplica",
+                      "frame" : [
+                        [
+                          571,
+                          341
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Multiply",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        9
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "4",
+                      "frame" : [
+                        [
+                          409,
+                          395
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Four",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        10
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "5",
+                      "frame" : [
+                        [
+                          463,
+                          395
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Five",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        11
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "6",
+                      "frame" : [
+                        [
+                          517,
+                          395
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Six",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        12
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "Sottrai",
+                      "frame" : [
+                        [
+                          571,
+                          395
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Subtract",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        13
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "1",
+                      "frame" : [
+                        [
+                          409,
+                          449
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "One",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        14
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "2",
+                      "frame" : [
+                        [
+                          463,
+                          449
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Two",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        15
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "3",
+                      "frame" : [
+                        [
+                          517,
+                          449
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Three",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        16
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "Aggiungi",
+                      "frame" : [
+                        [
+                          571,
+                          449
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Add",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        17
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "Modifica segno",
+                      "frame" : [
+                        [
+                          409,
+                          503
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "help" : "Modifica il segno di un valore",
+                      "identifier" : "Negate",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        18
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "0",
+                      "frame" : [
+                        [
+                          463,
+                          503
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Zero",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        19
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "Punto",
+                      "frame" : [
+                        [
+                          517,
+                          503
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Decimal",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        20
+                      ],
+                      "role" : "AXButton"
+                    },
+                    {
+                      "actions" : [
+                        "AXPress"
+                      ],
+                      "children" : [
+
+                      ],
+                      "descriptionText" : "Uguale",
+                      "frame" : [
+                        [
+                          571,
+                          503
+                        ],
+                        [
+                          48,
+                          48
+                        ]
+                      ],
+                      "identifier" : "Equals",
+                      "isEnabled" : true,
+                      "isFocused" : false,
+                      "path" : [
+                        0,
+                        0,
+                        0,
+                        0,
+                        21
+                      ],
+                      "role" : "AXButton"
+                    }
+                  ],
+                  "frame" : [
+                    [
+                      399,
+                      207
+                    ],
+                    [
+                      230,
+                      354
+                    ]
+                  ],
+                  "identifier" : "CalculatorKeypadView",
+                  "isEnabled" : true,
+                  "isFocused" : true,
+                  "path" : [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "role" : "AXGroup"
+                }
+              ],
+              "frame" : [
+                [
+                  399,
+                  154
+                ],
+                [
+                  230,
+                  408
+                ]
+              ],
+              "isFocused" : false,
+              "path" : [
+                0,
+                0,
+                0
+              ],
+              "role" : "AXGroup",
+              "subrole" : "AXHostingView"
+            }
+          ],
+          "frame" : [
+            [
+              399,
+              154
+            ],
+            [
+              230,
+              408
+            ]
+          ],
+          "identifier" : "main, SidebarNavigationSplitView",
+          "isFocused" : false,
+          "path" : [
+            0,
+            0
+          ],
+          "role" : "AXSplitGroup"
+        }
+      ],
+      "frame" : [
+        [
+          399,
+          154
+        ],
+        [
+          230,
+          408
+        ]
+      ],
+      "isFocused" : false,
+      "path" : [
+        0
+      ],
+      "role" : "AXGroup",
+      "subrole" : "AXHostingView"
+    },
+    {
+      "actions" : [
+        "AXShowMenu"
+      ],
+      "children" : [
+        {
+          "actions" : [
+            "AXIncrement",
+            "AXDecrement",
+            "AXDelete",
+            "AXShowMenu",
+            "AXCancel",
+            "AXPress"
+          ],
+          "children" : [
+
+          ],
+          "descriptionText" : "Mostra barra laterale",
+          "frame" : [
+            [
+              499,
+              154
+            ],
+            [
+              48,
+              52
+            ]
+          ],
+          "isEnabled" : true,
+          "isFocused" : false,
+          "isSelected" : false,
+          "path" : [
+            1,
+            0
+          ],
+          "role" : "AXButton"
+        },
+        {
+          "actions" : [
+            "AXIncrement",
+            "AXDecrement",
+            "AXDelete",
+            "AXShowMenu",
+            "AXCancel",
+            "AXPress",
+            "Name:Sposta nella posizione precedente\nTarget:0x0\nSelector:(null)",
+            "Name:Rimuovi dalla barra strumenti\nTarget:0x0\nSelector:(null)"
+          ],
+          "children" : [
+
+          ],
+          "descriptionText" : "Modalità",
+          "frame" : [
+            [
+              581,
+              154
+            ],
+            [
+              44,
+              52
+            ]
+          ],
+          "identifier" : "Mode: basic; unitConversion: false",
+          "isEnabled" : true,
+          "isFocused" : false,
+          "isSelected" : false,
+          "path" : [
+            1,
+            1
+          ],
+          "role" : "AXButton"
+        }
+      ],
+      "frame" : [
+        [
+          399,
+          154
+        ],
+        [
+          230,
+          52
+        ]
+      ],
+      "isFocused" : false,
+      "path" : [
+        1
+      ],
+      "role" : "AXToolbar"
+    },
+    {
+      "actions" : [
+        "AXPress"
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          417,
+          172
+        ],
+        [
+          16,
+          16
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        2
+      ],
+      "role" : "AXButton",
+      "subrole" : "AXCloseButton"
+    },
+    {
+      "actions" : [
+        "AXPress",
+        "AXShowMenu"
+      ],
+      "children" : [
+        {
+          "actions" : [
+
+          ],
+          "children" : [
+            {
+              "actions" : [
+
+              ],
+              "children" : [
+
+              ],
+              "frame" : [
+                [
+                  464,
+                  173
+                ],
+                [
+                  14,
+                  14
+                ]
+              ],
+              "isFocused" : false,
+              "path" : [
+                3,
+                0,
+                0
+              ],
+              "role" : "AXGroup"
+            }
+          ],
+          "frame" : [
+            [
+              464,
+              173
+            ],
+            [
+              14,
+              14
+            ]
+          ],
+          "isFocused" : false,
+          "path" : [
+            3,
+            0
+          ],
+          "role" : "AXGroup"
+        }
+      ],
+      "frame" : [
+        [
+          463,
+          172
+        ],
+        [
+          16,
+          16
+        ]
+      ],
+      "isEnabled" : false,
+      "isFocused" : false,
+      "path" : [
+        3
+      ],
+      "role" : "AXButton",
+      "subrole" : "AXZoomButton"
+    },
+    {
+      "actions" : [
+        "AXPress"
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          440,
+          172
+        ],
+        [
+          16,
+          16
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        4
+      ],
+      "role" : "AXButton",
+      "subrole" : "AXMinimizeButton"
+    }
+  ],
+  "frame" : [
+    [
+      399,
+      154
+    ],
+    [
+      230,
+      408
+    ]
+  ],
+  "identifier" : "main",
+  "isFocused" : false,
+  "path" : [
+
+  ],
+  "role" : "AXWindow",
+  "subrole" : "AXStandardWindow",
+  "title" : "Calcolatrice"
+}

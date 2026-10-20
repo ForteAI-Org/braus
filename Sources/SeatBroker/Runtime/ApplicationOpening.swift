@@ -106,6 +106,11 @@ enum ApplicationOpening {
         /// One of `names(of:)`, ignoring case and diacritics.
         case name
 
+        /// "Apple <name>" for Apple's own application (a bundle identifier under `com.apple.`) whose name is exactly
+        /// `<name>`: never a third party's, never a part of a name. Two Apple applications of one name are refused,
+        /// whichever is running.
+        case appleOwn
+
         /// One of them ignoring spaces and punctuation as well: "ProTools" for "Pro Tools".
         case normalizedName
 
@@ -120,15 +125,23 @@ enum ApplicationOpening {
     /// `precedes` order; every openable application in that order when there is no query.
     ///
     /// `resolve` and the `apps` tool both read this one ranking, so what the model is offered
-    /// and what it may open cannot disagree.
-    static func ranked(_ query: String?, in apps: [TargetApp]) -> [TargetApp] {
+    /// and what it may open cannot disagree: "Apple <name>" ranks Apple's own application of that
+    /// name for both (`Match.appleOwn`).
+    static func ranked(_ query: String?, in apps: [TargetApp],
+                       languages: [String] = Locale.preferredLanguages) -> [TargetApp] {
         let wanted   = query.map(requested) ?? ""
         let openable = apps.filter(isOpenable)
         guard !wanted.isEmpty else { return openable.sorted(by: precedes) }
-        return openable
-            .compactMap { app in match(wanted, app).map { (app: app, match: $0) } }
+        return ranking(wanted, among: openable, languages: languages).map(\.app)
+    }
+
+    /// The openable applications `wanted` matches with how each matched, best first: each application's names
+    /// are read once here, for this call, and nowhere kept.
+    private static func ranking(_ wanted: String, among openable: [TargetApp],
+                                languages: [String]) -> [(app: TargetApp, match: Match)] {
+        openable
+            .compactMap { app in match(wanted, app, names: names(of: app, languages: languages)).map { (app: app, match: $0) } }
             .sorted { $0.match == $1.match ? precedes($0.app, $1.app) : $0.match < $1.match }
-            .map(\.app)
     }
 
     /// The one application `name` names, or a refusal the run can act on.
@@ -140,14 +153,14 @@ enum ApplicationOpening {
     /// one of that tier that is running. An exact name therefore wins
     /// outright, and a part of one name ("Chrome" for "Google Chrome") is
     /// meant when nothing matches better. "Apple <name>" names Apple's own
-    /// application of exactly that name (`appleNamed`) when no application
-    /// answers to the whole query by its identifier or name. Anything that
-    /// names none or several is refused with what the model would need to
+    /// application of exactly that name (`Match.appleOwn`), after an
+    /// identifier or a whole name and before any part of one; two Apple
+    /// applications of that name are refused, whichever is running. Anything
+    /// that names none or several is refused with what the model would need to
     /// correct itself; a name nothing answers to is not said to be "not
-    /// installed", which a name alone cannot tell (`notNamed`). A request that
-    /// names a password manager is refused as one before any matching. One
-    /// that starts with "/" or "~" is a path (`installed(atPath:in:)`).
-    static func resolve(_ name: String, in apps: [TargetApp]) throws -> TargetApp {
+    /// installed", which a name alone cannot tell (`notNamed`).
+    static func resolve(_ name: String, in apps: [TargetApp],
+                        languages: [String] = Locale.preferredLanguages) throws -> TargetApp {
         let path = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if path.hasPrefix("/") || path.hasPrefix("~") { return try installed(atPath: path, in: apps) }
         let wanted = requested(name)
@@ -160,15 +173,13 @@ enum ApplicationOpening {
             || apps.contains(where: { same($0.bundleID, wanted) && isPasswordManager($0) }) {
             throw passwordManagerRefusal(wanted)
         }
-        let candidates = ranked(wanted, in: apps)
-        let found = candidates.first.flatMap { match(wanted, $0) }
-        // Apple's own name comes before a part of a name: never before an identifier or a whole name.
-        if found.map({ $0 > .name }) ?? true, let apple = try appleNamed(wanted, in: apps) { return apple }
-        guard let best = found else { throw notNamed(wanted, in: apps) }
-        let tier    = candidates.prefix { match(wanted, $0) == best }
+        let candidates = ranking(wanted, among: apps.filter(isOpenable), languages: languages)
+        guard let best = candidates.first?.match else { throw notNamed(wanted, in: apps, languages: languages) }
+        let tier    = candidates.prefix { $0.match == best }.map(\.app)
         let running = tier.filter(\.isRunning)
         if tier.count == 1, let only = tier.first { return only }
-        if running.count == 1, let only = running.first { return only }
+        // Two Apple applications of one name are not told apart by which one runs.
+        if best != .appleOwn, running.count == 1, let only = running.first { return only }
         throw ambiguity(wanted, Array(tier))
     }
 
@@ -199,28 +210,23 @@ enum ApplicationOpening {
                 + "Opening it would take the person's own window; choose another application.")
     }
 
-    /// The application "Apple <name>" names: Apple's own, a bundle identifier under `com.apple.`, whose name
-    /// is exactly `<name>` in any of `names(of:)`. Nil when the query has not that shape or no Apple application
-    /// has that name; a refusal when two have. Never a third party's application, never a part of a name.
-    static func appleNamed(_ wanted: String, in apps: [TargetApp]) throws -> TargetApp? {
+    /// Whether `wanted` is "Apple <name>" and `app` is Apple's own application (a bundle identifier under
+    /// `com.apple.`) whose name is exactly `<name>` in any of `names`.
+    private static func isAppleOwn(_ wanted: String, _ app: TargetApp, names: [String]) -> Bool {
         let words = wanted.split(separator: " ", omittingEmptySubsequences: true)
-        guard words.count >= 2, same(String(words[0]), "Apple") else { return nil }
+        guard words.count >= 2, same(String(words[0]), "Apple") else { return false }
         let rest = words.dropFirst().joined(separator: " ")
-        let owned = apps.filter(isOpenable).filter { app in
-            app.bundleID.lowercased().hasPrefix("com.apple.") && names(of: app).contains { same($0, rest) }
-        }
-        guard !owned.isEmpty else { return nil }
-        if owned.count == 1, let only = owned.first { return only }
-        throw ambiguity(wanted, owned.sorted(by: precedes))
+        return app.bundleID.lowercased().hasPrefix("com.apple.") && names.contains { same($0, rest) }
     }
 
     /// The refusal of a name no installed application answers to. It names the installed applications whose
     /// name shares a word with the query, six at most, as identities to choose from, and chooses none of them.
-    static func notNamed(_ wanted: String, in apps: [TargetApp]) -> SeatBrokerError {
+    static func notNamed(_ wanted: String, in apps: [TargetApp],
+                         languages: [String] = Locale.preferredLanguages) -> SeatBrokerError {
         let asked = Set(words(of: wanted))
         let guidance = "call apps with a shorter query, then open_session with the bundleID it lists."
         let nearby = apps.filter(isOpenable)
-            .filter { app in names(of: app).contains { !asked.isDisjoint(with: words(of: $0)) } }
+            .filter { app in names(of: app, languages: languages).contains { !asked.isDisjoint(with: words(of: $0)) } }
             .sorted(by: precedes)
         guard !nearby.isEmpty else {
             return .applicationNotResolved("No installed application is named \"\(wanted)\"; \(guidance)")
@@ -270,11 +276,13 @@ enum ApplicationOpening {
     }
 
     /// Every name an application answers to: the one its bundle declares, its `CFBundleName` when
-    /// a display name hides it, the name of its file and the name the Finder shows in the person's
-    /// language. They differ for many applications: Visual Studio Code's bundle calls it "Code", and
+    /// a display name hides it, the name of its file, the name the Finder shows in the person's
+    /// language, and the names its bundle declares in each of `languages` it localizes, as the launcher
+    /// reads them. They differ for many applications: Visual Studio Code's bundle calls it "Code", and
     /// on an Italian Mac Calculator reads "Calcolatrice". Its bundle identifier is matched as well.
-    static func names(of app: TargetApp) -> [String] {
-        RunningApplicationLookup.names(declared: app.name, bundleName: app.bundleName, bundleURL: app.bundleURL)
+    static func names(of app: TargetApp, languages: [String] = Locale.preferredLanguages) -> [String] {
+        RunningApplicationLookup.names(declared: app.name, bundleName: app.bundleName, bundleURL: app.bundleURL,
+                                       languages: languages)
     }
 
     private static let comparison: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
@@ -289,11 +297,11 @@ enum ApplicationOpening {
         return wanted.lowercased().hasSuffix(".app") ? String(wanted.dropLast(4)) : wanted
     }
 
-    /// How well `wanted` names `app`, or nil when it does not name it at all.
-    private static func match(_ wanted: String, _ app: TargetApp) -> Match? {
+    /// How well `wanted` names `app`, whose names are `names`, or nil when it does not name it at all.
+    private static func match(_ wanted: String, _ app: TargetApp, names: [String]) -> Match? {
         if same(app.bundleID, wanted) { return .bundleID }
-        let names = names(of: app)
         if names.contains(where: { same($0, wanted) }) { return .name }
+        if isAppleOwn(wanted, app, names: names) { return .appleOwn }
         let key = normalized(wanted)
         guard !key.isEmpty else { return nil }
         let keys = names.map(normalized)

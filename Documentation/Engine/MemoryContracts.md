@@ -337,3 +337,34 @@ either writes its own.
   (binding and provenance; see [Shared fixtures](#shared-fixtures)); what a verification proves and who may write
   one (a call's `completed` or an engine outcome is not a verified step); which identity makes a write of theirs
   idempotent; and which producer is responsible for each new row. None of these is decided here.
+
+
+## Uncertain effects and persistent refusals
+
+A command accepted, an effect verified, a task result and a procedure's qualification remain separate facts.
+Adapter tools return compact model-facing text and the typed outcome, result and evidence in MCP `structuredContent`.
+A consumer that needs identifiers or verification facts reads that object; the app model loop retains it alongside
+the compact text. The persisted record and transcript still apply their own minimization before writing.
+An uncertain adapter call blocks repeats and dependent writes in its producer stream. Read-only
+calls remain available. A per-producer advisory claim under the knowledge folder's `effect-claims` directory spans
+preflight, dispatch and recording, so two processes cannot both pass the gate before either records its start.
+Only a digest of the producer identity names that lock; no arguments are stored. The operating system releases the
+claim on process exit. An unavailable claim refuses writes without queuing or replaying them. A new executor records an ended executor as a new fact; it never invents a call's end.
+Executor locks live in the process's temporary directory, so an unknown executor after reboot or across sandbox
+boundaries remains unresolved.
+
+`memory_task reconcile` accepts only unresolved calls of the current producer stream. The store requires a later
+successful read in the same stream, service, route and compatible profile/account context, with resource-specific
+evidence. A reminder completion needs the same reminder's `completed` flag. Creation needs the created identifier;
+GitHub issue creation also needs the declared read-back tool and matching namespace arguments. Linear creation
+currently lacks that namespace evidence in its retained read-back contract and remains unresolved. Generic status,
+unrelated resources, active executors and unsupported effects cannot settle a call. Negative evidence for a timed-out
+creation with no returned identity is insufficient. Append, send, deletion and other effects without a supported
+specific proof stay unresolved. Historical reconciliation records are preserved and revalidated before opening a gate.
+This validation judges the recorded evidence; it does not independently query a live service.
+
+A person's refusal blocks all action routes in that context until the same call is consented to. The shared
+`refusals.json` stores a salted argument digest and context key, never the arguments. Salt initialization and
+read/modify/replace updates share a cross-process file lock. Barriers refresh changes from other owners of the same
+context. An unreadable store fails closed; a failed save retains the in-memory refusal and reports persistence failure.
+After restoring an unreadable store, recreate the context to reload it.

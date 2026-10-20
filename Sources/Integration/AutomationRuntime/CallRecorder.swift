@@ -69,6 +69,11 @@ public actor CallRecorder: ActionObserving {
     private var gaps: [ValueRedaction] = []
     /// The texts withheld from this call's arguments, in memory only.
     public private(set) var withheldTexts: [String] = []
+    /// The content this call saw on a confidential surface or read from a confidential result (P1-06), in memory only:
+    /// texts long enough to be searched for inside others (`confidentialFragments`) and whole values
+    /// (`confidentialValues`). The producer keeps them for its later records, never for its answers.
+    public private(set) var confidentialFragments: Set<String> = []
+    public private(set) var confidentialValues: Set<String> = []
     /// What of the call's facts could not be saved, each said once, in order: shown to the agent as the
     /// record's gap after the call's end, which may add one.
     private var recordingGaps: [String] = []
@@ -80,9 +85,23 @@ public actor CallRecorder: ActionObserving {
     private var lastPerceived: PerceivedWindow?
     /// The observation events this call made for an application its own event does not name.
     private var observationEvents: [String: String] = [:]
+    /// The route a routing session dispatched the call on, the last it reported, or the route of the session the call
+    /// reached unrouted (M05).
+    private var route: CallRoute?
+    /// The adapter verb the call invoked (M05).
+    private var adapterDispatch: AdapterDispatch?
+    /// The rung the MacDriver's last gesture of this call took, as the session read it from the actuator (M05).
+    private var rung: CallRung?
+    /// The router's decision this call answered with its words (use, ask, or open with a note), as the tools handed it (M05).
+    private var advice: CallRouteAdvice?
     /// What the action's record would teach the Brain's projection, kept until the call's end says
     /// whether its check verified the gesture: an effect the check did not verify teaches nothing.
     private var projectionCommand: BrainApplicationCommand?
+    /// The leaves of an adapter's arguments and result, as offered, minimized at the end (P2-02).
+    private var argumentLeaves: [StructuredField] = []
+    private var resultLeaves: [StructuredField] = []
+    private var dataContext: CallDataContext?
+    private var profile: String?
 
     public init(memory: MemoryService, brain: BrainMemory, context: ActionContext,
                 minimization: ValueMinimization = ValueMinimization()) {
@@ -109,7 +128,7 @@ public actor CallRecorder: ActionObserving {
         let clock = memory.clock
         let (admitted, redactions) = admit(request)
         let event = context.event(app: app, occurredAtMS: clock.calendarMS(), monotonicNS: clock.monotonicNS())
-        let opening: OperationOpening
+        var opening: OperationOpening
         do {
             opening = try OperationOpening(
                 call       : try AgentCallRecord(event: event, request: admitted),
@@ -117,14 +136,17 @@ public actor CallRecorder: ActionObserving {
                 attribution: attribution,
                 redactions : redactions
             )
+            // P2-06: the process running the call is linked with its start.
+            opening.executor = MemoryExecutor.current(for: memory.directory, source: context.source)?.record
         } catch {
             throw EssentialWriteFailure.refused(MemoryService.describe(error))
         }
+        let started = opening
         try await memory.confirm(
             "call \(request.tool.rawValue) start",
             beforeEffect: request.tool.requiresConfirmedStart
         ) {
-            _ = try await $0.facts.open(opening)
+            _ = try await $0.facts.open(started)
         }
         self.app          = app
         self.tool         = request.tool
@@ -142,7 +164,7 @@ public actor CallRecorder: ActionObserving {
         let event = context.event(app: app, occurredAtMS: clock.calendarMS(), monotonicNS: clock.monotonicNS())
         var children: [AgentCallRecord] = []
         var redactions: [ValueRedaction] = []
-        let opening: BatchOpening
+        var opening: BatchOpening
         do {
             for step in steps {
                 let child = step.recorder.context.event(
@@ -161,10 +183,12 @@ public actor CallRecorder: ActionObserving {
                 attribution: attribution,
                 redactions : redactions
             )
+            opening.executor = MemoryExecutor.current(for: memory.directory, source: context.source)?.record
         } catch {
             throw EssentialWriteFailure.refused(MemoryService.describe(error))
         }
-        try await memory.confirm("call batch start", beforeEffect: true) { _ = try await $0.facts.open(batch: opening) }
+        let batchOpening = opening
+        try await memory.confirm("call batch start", beforeEffect: true) { _ = try await $0.facts.open(batch: batchOpening) }
         for (step, request) in zip(steps.map(\.recorder), steps.map(\.request)) {
             await step.planned(app: app, tool: request.tool, attribution: attribution)
         }
@@ -204,6 +228,71 @@ public actor CallRecorder: ActionObserving {
         try await memory.confirm("step skipped", afterEffect: true) { _ = try await $0.facts.conclude(conclusion) }
     }
 
+    /// Notes the route a routing session dispatches this call on, before the dispatch and again for each later one:
+    /// the last is the route the call ran on, written with its end (M05).
+    public func dispatched(on route: CallRoute) {
+        self.route = route
+    }
+
+    /// Notes the route of a session the call reaches without a routing session in front of it, at the call that
+    /// reaches it: kept only when no routing session reported one, so a routing session's route and hand-back reason
+    /// stay as it reported them (M05).
+    public func dispatched(unrouted route: CallRoute.Route) {
+        if self.route == nil { self.route = CallRoute(route) }
+    }
+
+    /// Notes the adapter verb the call invokes, right before the adapter runs (`AdapterDispatch`), written with the
+    /// call's end (M05).
+    public func dispatched(adapter dispatch: AdapterDispatch) {
+        adapterDispatch = dispatch
+    }
+
+
+    /// Notes the rung the MacDriver's last gesture of this call took (`CallRung`), as the session read it from the
+    /// actuator's own note of that gesture right after the call's gestures, written with the call's end under the
+    /// call's minimization (M05). A later gesture of the same call replaces it: the row names the last gesture noted.
+    public func dispatched(rung: CallRung) {
+        self.rung = rung
+    }
+
+    /// The router's decision an `open_session` answered with its words (M05): use or ask instead of opening, or open
+    /// with a note; written with the call's end, the address and the words minimized as every text of the call is.
+    public func advised(_ advice: CallRouteAdvice) {
+        self.advice = advice
+    }
+
+    /// Notes the leaves of an adapter's argument object (P2-02), written with the call's end, each
+    /// minimized as every text of the call is; the archive decides which name an earlier call's result.
+    public func noted(arguments leaves: [StructuredField]) {
+        argumentLeaves = leaves
+    }
+
+    /// Notes the leaves of an adapter's result (P2-02), written with the call's end: what the call's
+    /// minimization withholds (a confidential field among them) is kept as a withheld leaf with its reason.
+    public func noted(results leaves: [StructuredField]) {
+        resultLeaves = leaves
+    }
+
+    /// Notes the data the call reached (P2-05), written with its end; the account is kept only as a minimal identifier.
+    public func noted(context: CallDataContext) {
+        dataContext = context
+    }
+
+    /// Notes the profile the session's pages are in (P2-05), for the data context of a call that reached an app or a page.
+    public func noted(profile: String?) {
+        if let profile { self.profile = profile }
+    }
+
+
+    /// The leaves minimized as every text of the call is: a withheld text keeps its reason, never its value.
+    private func admit(leaves: [StructuredField]) -> [StructuredField] {
+        leaves.map { leaf in
+            guard leaf.withheld == nil, let text = leaf.text else { return leaf }
+            let (_, reason) = minimization.minimize(text: text)
+            return reason.map(leaf.withholding) ?? leaf
+        }
+    }
+
     /// Writes the call's end in one transaction: completed with what its tool answered, or failed with
     /// its error, or cancelled; the samples it perceived; for an operation, what it really did and the
     /// check its oracle made. After a call that may have acted, a failure suspends the memory and
@@ -220,6 +309,21 @@ public actor CallRecorder: ActionObserving {
         let duration = startedNS.map { MemoryClock.durationMS(from: $0, to: clock.monotonicNS()) }
         let observed = status == .completed && tool.isBatchStep ? effect.map(ObservedEffect.init) : nil
         let (kept, resultGap) = admit(result)
+        // A hand-back's reason is the driver's sentence: withheld as every text of the call is.
+        let route = self.route.map {
+            CallRoute($0.route, handoffReason: $0.handoffReason.map { minimization.minimize(text: $0).0 })
+        }
+        // The rung's words are the driver's sentences about the call's gestures: withheld as every text of the call is.
+        let rungTaken = self.rung.map {
+            CallRung(rung: $0.rung, how: minimization.minimize(text: $0.how).0,
+                     skipped: $0.skipped.map { minimization.minimize(text: $0).0 })
+        }
+        // The advice's route address and words are texts of the call too: withheld as every text of the call is; the
+        // decision is kept.
+        let adviceTaken = self.advice.map {
+            CallRouteAdvice(decision: $0.decision, route: $0.route.map { minimization.minimize(text: $0).0 },
+                            message: minimization.minimize(text: $0.message).0)
+        }
         let end = AgentCallTransition(context.eventID, AgentCallProgress(
             status, result: kept, endedAtMS: clock.calendarMS(), durationMS: duration, observedEffect: observed
         ))
@@ -232,13 +336,13 @@ public actor CallRecorder: ActionObserving {
             ))
         }
         var operationEffect: OperationEffect?
-        if tool.isOperation {
+        if tool.hasOwnOracle {
             let (fact, targetGaps) = try effectFact(check: check, result: result)
             operationEffect = fact
             redactions += targetGaps
         }
         var verifications: [OperationVerification] = []
-        if tool.isOperation, let check {
+        if tool.hasOwnOracle, let check {
             let (admittedCheck, checkGaps) = admit(check)
             redactions += checkGaps
             let sampleKeys = storedSamples + samples.map(\.key)
@@ -253,8 +357,22 @@ public actor CallRecorder: ActionObserving {
                 samples    : sampleKeys
             ))
         }
+        let arguments = admit(leaves: argumentLeaves).map { CallArgumentField(field: $0) }
+        // A call that reached an app or a page names its service, route and profile (P2-05); its account stays unknown.
+        if dataContext == nil, tool.takesSession || tool == .openSession, let app, let route = route?.route {
+            let reached: CallDataContext.Route = switch route {
+                case .native : .native
+                case .desktop: .desktop
+                case .web    : .web
+            }
+            dataContext = try? CallDataContext(service: app.bundleID, route: reached, profile: profile, accountSource: .unknown)
+        }
+        let results = admit(leaves: resultLeaves)
         let conclusion = try OperationConclusion(end: end, samples: samples, effect: operationEffect,
-                                                 verifications: verifications, redactions: redactions)
+                                                 verifications: verifications, redactions: redactions, route: route,
+                                                 adapterDispatch: adapterDispatch,
+                                                 rung: rungTaken, advice: adviceTaken, argumentFields: arguments,
+                                                 resultFields: results, dataContext: dataContext)
         // The least the end is saved as when the archive refuses the whole: its state and result, with
         // the parts it leaves out declared durably in the same transaction, and why.
         var omitted: [OperationRecordingGap.Part] = []
@@ -262,6 +380,8 @@ public actor CallRecorder: ActionObserving {
         if operationEffect != nil { omitted.append(.effect) }
         if !verifications.isEmpty { omitted.append(.verification) }
         let callID = context.eventID, minimization = self.minimization, omittedParts = omitted
+        let invoked = adapterDispatch, noted = rungTaken, advised = adviceTaken
+        let reached = dataContext
         let least: @Sendable (MemoryRepositories, EssentialWriteFailure) async throws -> Void = {
             repositories, refusal in
             let reason: OperationRecordingGap.Reason = switch refusal {
@@ -273,7 +393,9 @@ public actor CallRecorder: ActionObserving {
                 try OperationRecordingGap(callEventID: callID, part: $0, reason: reason, detail: detail)
             }
             _ = try await repositories.facts.conclude(
-                try OperationConclusion(end: end, redactions: resultGap, unsaved: unsaved)
+                try OperationConclusion(end: end, redactions: resultGap, unsaved: unsaved, route: route,
+                                        adapterDispatch: invoked, rung: noted, advice: advised,
+                                        dataContext: reached)
             )
         }
         let saved = try await memory.confirm(
@@ -324,34 +446,81 @@ public actor CallRecorder: ActionObserving {
     /// end, and what it would teach the Brain's projection, an effect on an element, applied at the end
     /// only when the call's check verified that effect (`end`).
     public func record(_ record: ActionRecord) async {
-        keep(effect: record.effect)
+        let controls = noteConfidential([record.before, record.after], bundleID: record.bundleID)
+        let contentTarget = controls != nil && ConfidentialSurfaces.isContent(record.element)
+        if contentTarget { withholdConfidential(wholes: [record.element.label]) }
+        keep(effect: record.effect, controls: controls)
         attempt = record.attempt
         if let after = record.after { lastPerceived = after }
         target  = OperationCheck.Target(record.element)
         await keep([(record.before, .before), (record.after, .after)], bundleID: record.bundleID)
-        // An effect with a withheld value teaches nothing: its transition would predict the marker.
-        guard eventWritten, record.effect != nil, effectWithheld == nil else { return }
+        // An effect with a withheld value teaches nothing: its transition would predict the marker. Nor does an action
+        // on a confidential surface's content: its target is the person's, not the application's.
+        guard eventWritten, record.effect != nil, effectWithheld == nil, !contentTarget else { return }
         projectionCommand = try? BrainApplicationCommand.record(admit(record), eventID: context.eventID, requestedAt: requestedAt)
     }
 
     /// An input's record: its perceptions as the `before`, `menu` and `after` samples, written with the
     /// call's end. An input teaches the Brain nothing.
     public func record(_ input: InputRecord) async {
-        keep(effect: input.effect)
+        let controls = noteConfidential([input.before, input.menu, input.after], bundleID: input.bundleID)
+        if controls != nil, let element = input.target, ConfidentialSurfaces.isContent(element) {
+            withholdConfidential(wholes: [element.label])
+        }
+        keep(effect: input.effect, controls: controls)
         attempt = input.attempt
         target  = input.target.map(OperationCheck.Target.init)
         await keep([(input.before, .before), (input.menu, .menu), (input.after, .after)], bundleID: input.bundleID)
     }
 
-    /// Keeps the effect the engine attributed with its titles and labels minimized.
-    private func keep(effect observed: SceneEffect?) {
+    /// Keeps the effect the engine attributed with its titles and labels minimized: on a confidential surface only the
+    /// labels of the application's own controls (`controls`) are kept.
+    private func keep(effect observed: SceneEffect?, controls: Set<String>? = nil) {
         guard let observed else {
             effect = nil
             return
         }
-        let (kept, reason) = minimization.minimize(effect: observed)
+        let (kept, reason) = minimization.minimize(effect: observed, confidentialControls: controls)
         effect         = kept
         effectWithheld = reason
+    }
+
+    // MARK: Confidential surfaces
+
+    /// Notes the scenes a call perceived on a confidential surface (P1-06): their content is withheld from every record
+    /// of this call. Answers the labels of the application's own controls in them, which an effect may name; nil when
+    /// none of them is a confidential surface's.
+    private func noteConfidential(_ windows: [PerceivedWindow?], bundleID: String) -> Set<String>? {
+        var controls: Set<String>?
+        for case let window? in windows where ConfidentialSurfaces.surface(of: window.scene.bundleID) != nil {
+            noteConfidential(window.scene)
+            controls = (controls ?? []).union(ConfidentialSurfaces.controlLabels(of: window.scene))
+        }
+        if controls == nil, ConfidentialSurfaces.surface(of: bundleID) != nil { controls = [] }
+        return controls
+    }
+
+    /// Withholds a confidential scene's content from this call's records: its long texts wherever they appear, every
+    /// content label and value, and the title, whole. Answers the scene's surface, nil when it is no confidential one.
+    @discardableResult
+    private func noteConfidential(_ scene: SceneSnapshot) -> ConfidentialSurface? {
+        guard let surface = ConfidentialSurfaces.surface(of: scene.bundleID) else { return nil }
+        let content = scene.elements.filter(ConfidentialSurfaces.isContent)
+        withholdConfidential(fragments: ConfidentialSurfaces.contentTexts(of: scene),
+                             wholes: content.map(\.label) + scene.elements.compactMap(\.value)
+                                 + (ConfidentialSurfaces.contentTitle(of: scene).map { [$0] } ?? []))
+        return surface
+    }
+
+    /// Withholds confidential content (P1-06) from every later record of this call, as `confidential_content`:
+    /// `fragments` wherever they appear, `wholes` where a whole text is one of them. A result's confidential fields
+    public func withholdConfidential(fragments: [String] = [], wholes: [String] = []) {
+        let fragments = fragments.filter { $0.count >= ConfidentialSurfaces.shortestTrackedText && $0 != ValueMinimization.marker }
+        let wholes = wholes.filter { !$0.isEmpty && $0 != ValueMinimization.marker }
+        guard !fragments.isEmpty || !wholes.isEmpty else { return }
+        minimization = minimization.adding(.confidentialContent, fragments: fragments, wholes: wholes)
+        confidentialFragments.formUnion(fragments)
+        confidentialValues.formUnion(wholes)
     }
 
     // MARK: Observations
@@ -373,10 +542,11 @@ public actor CallRecorder: ActionObserving {
             eventID = await observationEvent(for: identity)
         }
         lastPerceived = window
+        let surface = noteConfidential(scene)
         guard let eventID else { return await shown(scene, window: window) }
         let key = CaptureSampleKey(eventID: eventID, phase: .current)
         let (sample, sampleGaps) = minimization.minimize(
-            sample: CaptureSample(key: key, of: window, sessionRevision: nil)
+            sample: CaptureSample(key: key, of: window, sessionRevision: nil), confidential: surface
         )
         guard (try? sample.validate()) != nil else {
             recordingGaps.append("the observation's sample was refused by the contract and not kept")
@@ -396,9 +566,11 @@ public actor CallRecorder: ActionObserving {
         storedSamples.append(key)
         await associate([key])
         if let command = try? BrainApplicationCommand.observe(
-            minimization.minimize(scene: scene),
+            minimization.minimize(scene: scene, confidential: surface),
             sample     : key,
-            requestedAt: requestedAt
+            requestedAt: requestedAt,
+            // P2-07: only a complete capture of a window ages what it does not show; a partial one attests presences.
+            coverage   : BrainObservationCoverage(capture: window.capture, surface: window.surface, route: route?.route)
         ) {
             await memory.enqueue("brain observe") { repositories in
                 _ = try await repositories.applications.apply(command)
@@ -430,6 +602,10 @@ public actor CallRecorder: ActionObserving {
     /// call's end. A selection attributes no scene effect and teaches the Brain nothing.
     public func record(before: PerceivedWindow?, menu: PerceivedWindow?, after: PerceivedWindow?, bundleID: String,
                        target: SceneElement? = nil) async {
+        if noteConfidential([before, menu, after], bundleID: bundleID) != nil, let target,
+           ConfidentialSurfaces.isContent(target) {
+            withholdConfidential(wholes: [target.label])
+        }
         if let target { self.target = OperationCheck.Target(target) }
         if let after { lastPerceived = after }
         await keep([(before, .before), (menu, .menu), (after, .after)], bundleID: bundleID)
@@ -449,11 +625,14 @@ public actor CallRecorder: ActionObserving {
             guard await ensureEvent(app: AppContextIdentity(bundleID: bundleID)) else { return }
             eventID = context.eventID
         }
+        // Every confidential scene is noted before any sample is minimized: one's content may be another's label.
+        for case let (window?, _) in windows { noteConfidential(window.scene) }
         for case let (window?, phase) in windows {
             let key = CaptureSampleKey(eventID: eventID, phase: phase)
             guard !samples.contains(where: { $0.key == key }), !storedSamples.contains(key) else { continue }
             let (sample, sampleGaps) = minimization.minimize(
-                sample: CaptureSample(key: key, of: window, sessionRevision: nil)
+                sample: CaptureSample(key: key, of: window, sessionRevision: nil),
+                confidential: ConfidentialSurfaces.surface(of: window.scene.bundleID)
             )
             // A sample the contract refuses is left out, said as a gap: it never holds up the call's end.
             guard (try? sample.validate()) != nil else {
@@ -527,7 +706,9 @@ public actor CallRecorder: ActionObserving {
     // MARK: Admission
 
     /// The request with what may not be kept withheld, and the gaps; the withheld texts are kept in
-    /// memory to withhold them wherever else they appear in this call.
+    /// memory to withhold them wherever else they appear in this call. A text withheld because the call
+    /// could not attest its target (`unclassifiedTarget`) is already in this call's minimization and stays
+    /// out of `withheldTexts`, which the tools make the producer's secrets: it is withheld for this call only.
     func admit(_ request: AgentCallRequest) -> (AgentCallRequest, [ValueRedaction]) {
         let (admitted, redactions) = minimization.minimize(request, eventID: context.eventID)
         guard !redactions.isEmpty else { return (admitted, []) }
@@ -536,7 +717,10 @@ public actor CallRecorder: ActionObserving {
             if case .text(let text) = argument.value { original["\(argument.name)#\(argument.position)"] = text }
         }
         for redaction in redactions {
+            // Confidential content is the call's, like an unclassified target's text: never one of the producer's secrets,
+            // which its answers would withhold from the model.
             guard case .argument(let name, let position) = redaction.location,
+                  redaction.reason != .unclassifiedTarget, redaction.reason != .confidentialContent,
                   let text = original["\(name)#\(position)"],
                   text != ValueMinimization.marker else { continue }
             // A withheld text is searched for whole elsewhere, never by the parts a rule matched in it.

@@ -12,6 +12,11 @@ import ModelTransports
 import Testing
 @testable import Braus
 
+/// The records with nothing withheld: these tests read their shape (the withholding is `ProviderWebSearchTests`'s).
+private extension WebToolRecords {
+    mutating func lines(for event: ProviderEvent) throws -> [String] { try lines(for: event, withholding: { $0 }) }
+}
+
 /// A recorded turn's stdout, sanitized.
 private func fixture(_ name: String) -> URL {
     URL(fileURLWithPath: #filePath)

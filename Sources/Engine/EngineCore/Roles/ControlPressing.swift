@@ -45,6 +45,11 @@ public protocol ControlPressing: Sendable {
         in processID: pid_t
     ) async -> MenuItemNavigation?
 
+    /// The field that holds the keyboard focus, with the identity its provider attests and whether it is
+    /// secure, never its value; `unknown` when the conformer cannot say. What a bound text's last check before
+    /// its keys reads.
+    func focusedField(in processID: pid_t) async -> FocusedField
+
     /// Presses the one enabled menu item titled `title` painted inside `menuFrame`, an open native
     /// menu. True when a press was made, even one the application refused, because it may have
     /// acted; false when no such item exists, and only then may the keyboard choose instead.
@@ -97,6 +102,11 @@ extension ControlPressing {
         in processID: pid_t
     ) async -> MenuItemNavigation? {
         nil
+    }
+
+    /// A conformer that does not attest the focus says so: a bound text then stops before its keys.
+    public func focusedField(in processID: pid_t) async -> FocusedField {
+        .unknown
     }
 
     /// A conformer that cannot read menu items presses none; the keyboard chooses.

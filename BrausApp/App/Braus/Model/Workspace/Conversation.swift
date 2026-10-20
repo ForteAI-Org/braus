@@ -85,6 +85,7 @@ nonisolated final class Conversation {
     /// own. Nil for an empty queue, and in a store written before the queue.
     var queuedMessages: Data?
 
+
     init(
         id                    : UUID             = UUID(),
         kind                  : ConversationKind = .direct,

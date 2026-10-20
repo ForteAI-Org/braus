@@ -20,6 +20,7 @@ import LocalMCP
 //   braus act     <app> <target> [--verb click|double_click|triple_click|right_click|set_toggle]
 //                                [--value on|off] [--section <name>] [--dry-run] [--allow-destructive]
 //   braus memory  <app>
+//   braus adapters [<app> [<query>] | call <adapter.verb> [<json>] [--allow-destructive]]
 //
 // <app> is a bundle id or an application name; --knowledge <dir> overrides where memory lives;
 // --seat drives on the Seat's virtual display instead of the real screen.
@@ -55,6 +56,8 @@ Task { @MainActor in
             case "batch"  : try await BatchCommand.run(invocation)
             case "memory" : try await MemoryCommand.run(invocation)
             case "doctor" : try await DoctorCommand.run(invocation)
+            case "adapters": try await AdaptersCommand.run(invocation)
+            case "mac"     : try await MacCommand.run(invocation)
             case "help", "--help", "-h":
                 print(Usage.text)
             default:

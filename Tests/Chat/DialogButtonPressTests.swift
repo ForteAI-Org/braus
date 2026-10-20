@@ -45,8 +45,9 @@ struct DialogButtonPressTests {
                                                Button(title: "OK", isEnabled: true, element: "b")]) == .ambiguous)
         #expect(kind("Save", among: [Button(title: "Save", isEnabled: false, element: "save")]) == .refused)
         #expect(kind("Delete", among: [Button(title: "Delete", isEnabled: true, element: "delete")]) == .refused)
+        // R07: a native dialog cannot read the effect back, so the person's consent alone does not press it.
         #expect(kind("Delete", among: [Button(title: "Delete", isEnabled: true, element: "delete")],
-                     allowsDestructive: true) == nil)
+                     allowsDestructive: true) == .refused)
     }
 
     // MARK: Closing the only window

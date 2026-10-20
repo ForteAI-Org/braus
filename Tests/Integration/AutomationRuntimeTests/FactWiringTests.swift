@@ -121,6 +121,10 @@ final class FactSession: AutomationSessionOperating {
         ))
     }
 
+    func classify(_ input: InputRequest.Input, section: String?) async -> TextTargetClass { AttestedFields.classify(input) }
+    func deliver(_ input: InputRequest.Input, section: String?, dispatch: TextDispatch) async throws -> ActOutcome {
+        try await deliver(input, section: section)
+    }
     func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome {
         guard case .typeText(let text, let field, _) = input else {
             gestures.append("input")
@@ -150,6 +154,10 @@ final class RefusingSession: AutomationSessionOperating {
         case refusal, conflict
     }
 
+    /// The rung handed to each call's recorder before the archive refuses the end, nil for none (M05).
+    var injectedRung: CallRung?
+    /// The route advice handed to each call's recorder the same way, nil for none (M05).
+    var injectedAdvice: CallRouteAdvice?
     let base: FactSession
     let fault: Fault
     /// The calls the session acted in, in order.
@@ -179,6 +187,10 @@ final class RefusingSession: AutomationSessionOperating {
         let outcome = try await base.act(target: target, verb: verb, section: section, desiredState: desiredState)
         guard let callID = CallRecorder.current?.eventID else { throw AutomationFailure("no call") }
         calls.append(callID)
+        // The rung a native session would hand the call's recorder right after its gestures (M05): one that names a
+        // declared secret in the driver's words, so the least end's minimization is seen.
+        if let rung = injectedRung { await CallRecorder.current?.dispatched(rung: rung) }
+        if let advice = injectedAdvice { await CallRecorder.current?.advised(advice) }
         guard calls.count == 1 else { return outcome }
         let fault     = self.fault
         let condition = outcome.check?.condition ?? .none
@@ -208,6 +220,10 @@ final class RefusingSession: AutomationSessionOperating {
         try await base.select(control: control, item: item)
     }
 
+    func classify(_ input: InputRequest.Input, section: String?) async -> TextTargetClass { AttestedFields.classify(input) }
+    func deliver(_ input: InputRequest.Input, section: String?, dispatch: TextDispatch) async throws -> ActOutcome {
+        try await deliver(input, section: section)
+    }
     func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome {
         try await base.deliver(input, section: section)
     }
@@ -342,6 +358,63 @@ struct FactWiringTests {
         await service(session).close()
     }
 
+    @Test("M06: a call the earlier attempt started and never ended is named at the resumption; none ended or replayed")
+    func unfinishedAtResumption() async throws {
+        let session = FactSession(directory: try W.directory())
+        let tools   = tools(session)
+        let begun   = try await task(tools, ["operation": .string("begin"), "goal": .string("Send the report")])
+        let taskID  = try #require(begun["task"].string)
+        let attempt = try #require(begun["attempt"].string)
+        // The process dies between the call's confirmed start and its end: the start is in the archive, no end.
+        let call = try AgentCallRecord(
+            event  : MemoryEventRecord(eventID: "e-crashed", source: .app, streamID: "worker-1", traceID: "message-1",
+                                       sessionID: session.id!.uuidString, kind: .action,
+                                       app: AppContextIdentity(bundleID: "test.fixture.app"),
+                                       occurredAtMS: service(session).clock.calendarMS()),
+            request: .act(target: "Send", verb: .click, value: nil, section: nil)
+        )
+        let attribution = try TaskCallAttribution(taskID: taskID, attemptID: attempt, revision: 1)
+        let started = service(session).clock.calendarMS()
+        _ = try await service(session).perform {
+            try await $0.facts.open(try OperationOpening(call: call, startedAtMS: started, attribution: attribution))
+        }
+        let gestures = session.gestures
+
+        let restarted = self.tools(session)
+        let resumed = try await task(restarted, ["operation": .string("resume"), "task": .string(taskID)])
+        #expect(resumed["status"].string == "resumed", "\(resumed)")
+        let unfinished = resumed["unfinished_calls"].array ?? []
+        #expect(unfinished.count == 1 && unfinished.first?["event"].string == "e-crashed"
+                    && unfinished.first?["tool"].string == "act", "\(resumed)")
+        #expect(resumed["guidance"].string?.contains("1 call without an end: each may have run") == true, "\(resumed)")
+        #expect(session.gestures == gestures, "nothing of the earlier attempt went out again")
+        let stored = try await service(session).perform { try await $0.calls.call("e-crashed") }
+        #expect(stored?.progress.status == .started, "the resumption ends nothing: a late end stays accepted")
+
+        // The second attempt is interrupted in turn without resolving it: the third still hears of it, once.
+        let again = try await task(self.tools(session), ["operation": .string("resume"), "task": .string(taskID)])
+        let named = (again["unfinished_calls"].array ?? []).compactMap { $0["event"].string }
+        #expect(named == ["e-crashed"], "\(again)")
+        #expect(again["attempt"].string != resumed["attempt"].string && session.gestures == gestures)
+        let attempts = try await service(session).perform {
+            try await $0.tasks.attempts(of: taskID, for: try TaskProducer(source: .app, streamID: "worker-1"))
+        }
+        #expect(attempts.map(\.status) == [.interrupted, .interrupted, .inProgress])
+        await service(session).close()
+    }
+
+    @Test("M06: an earlier attempt whose calls all ended: the resumption names none")
+    func noUnfinishedAtResumption() async throws {
+        let session = FactSession(directory: try W.directory())
+        let tools   = tools(session)
+        let begun   = try await task(tools, ["operation": .string("begin"), "goal": .string("Fill the form")])
+        let taskID  = try #require(begun["task"].string)
+        _ = try await act(tools, session, "Save")
+        let resumed = try await task(self.tools(session), ["operation": .string("resume"), "task": .string(taskID)])
+        #expect(resumed["status"].string == "resumed" && resumed["unfinished_calls"] == .null, "\(resumed)")
+        await service(session).close()
+    }
+
     // MARK: S03, S04, S08: what the checks say
 
     @Test("S03: a toggle already on is a verified no-op with no gesture; a click replaced by closing a pop-up verifies the closing, never the click")
@@ -455,6 +528,33 @@ struct FactWiringTests {
         #expect(try await memory.ready().brains.brain(of: W.bundle)?.transitions.isEmpty ?? true,
                 "no effect, nothing learned")
         await memory.close()
+    }
+
+    @Test("W12: a verdict a capped wait made unknown is kept unknown with its limit, and the Brain learns nothing from the effect seen")
+    func cappedWaitStaysUnknown() async throws {
+        let session = FactSession(directory: try W.directory())
+        session.plans["Save"] = FactSession.Plan(
+            outcome: ActOutcome(.actedUnverified, "clicked 'Save'. The wait after it ended at its cap (300 ms)",
+                                check: OperationCheck(
+                                    condition: .structuralEffect, method: .sceneDifference, verdict: .unknown,
+                                    observed: "menuOpened", limits: [.settleCapped], performed: .requested,
+                                    target: OperationCheck.Target(elementID: "control|save", role: "AXButton", label: "Save",
+                                                                  section: nil))),
+            effect: .menuOpened(labels: ["Recent", "Cancel"])
+        )
+        _ = try await act(tools(session), session, "Save")
+        let memory = service(session)
+        #expect(await memory.flush(within: .seconds(10)))
+        let call  = try #require(try await memory.calls(inTrace: "message-1").first)
+        let check = try #require(try await memory.perform {
+            try await $0.facts.verifications(of: call.event.eventID)
+        }.first)
+        #expect(check.check.verdict == .unknown && check.check.limits.contains(.settleCapped), "\(check.check)")
+        #expect(try await memory.brain(of: W.bundle)?.transitions.isEmpty ?? true,
+                "nothing learned from an effect the wait could not settle")
+        await memory.close()
+        let archive = session.directory.appendingPathComponent("memory.sqlite")
+        #expect(try rawRows("SELECT limit_kind FROM memory_operation_verification_limits", at: archive).contains("settle_capped"))
     }
 
     // MARK: S12, S14: producers
@@ -607,9 +707,25 @@ struct FactWiringTests {
         let tools   = AutomationTools(session: session)
         tools.producer = CallProducer(source: .app, streamID: "worker-1", traceID: "message-1", messageRef: "message-1")
         let id = JSONValue.string(session.id!.uuidString)
+        // A secret the task declares, which the driver's words of the rung carry (M05): the least end withholds it too.
+        let secret = "Sentinel-least-rung-3f8w"
+        _ = try await tools.call("memory_task", .object([
+            "operation": .string("begin"), "goal": .string("Save the file"), "remaining": .string("Save the file"),
+            "inputs": .array([.object(["name": .string("code"), "value": .string(secret), "secret": .bool(true)])]),
+        ]))
+        session.injectedRung = CallRung(rung: .accessibility, how: "pressed AXButton, uncertain: \(secret) did not answer",
+                                        skipped: ["element has no \(secret)"])
+        // The advice's route address and words carry the secret too (M05): the least end withholds both, keeps the decision.
+        session.injectedAdvice = CallRouteAdvice(decision: .use, route: "web:\(secret).example.com/maps",
+                                                 message: "Maps: use web:\(secret).example.com/maps instead of the app.")
         let first = try await tools.call("act", .object(["session": id, "target": .string("Save")])).payload
         let notice = try #require(first["memory"].string, "the answer says what was not recorded")
         #expect(notice.contains("was not recorded") && notice.contains("incomplete evidence"), "\(notice)")
+        // The next call's rung is the Seat's, as a desktop session hands it (M05): the receipt's poster, the counts.
+        let seatRung = CallRung(rung: .seatPublicProcess, how: "2 events, 2 routed to window 111000")
+        session.injectedRung = seatRung
+        let plainAdvice = CallRouteAdvice(decision: .ask, route: nil, message: "Mail: which account?")
+        session.injectedAdvice = plainAdvice
         _ = try await tools.call("act", .object(["session": id, "target": .string("Open")]))
         #expect(session.base.gestures == ["Save", "Open"], "nothing replayed, and a least is no suspension")
         let shared = MemoryService.shared(for: session.base.directory)
@@ -626,6 +742,20 @@ struct FactWiringTests {
         #expect(gaps.map(\.part) == [.samples, .effect, .verification])
         #expect(gaps.allSatisfy { $0.reason == (fault == .refusal ? .refused : .conflict) && $0.detail != nil })
         #expect(try await reopened.call(refused)?.progress.status == .completed, "the state and result are kept")
+        // The rung is written with the least end too, under the call's minimization: the words kept, the secret not.
+        let leastRung = try await reopened.perform { try await $0.facts.rung(of: refused) }
+        #expect(leastRung?.rung == .accessibility && leastRung?.how.contains("uncertain") == true
+                && leastRung?.how.contains(ValueMinimization.marker) == true && leastRung?.how.contains(secret) == false
+                && leastRung?.skipped == ["element has no \(ValueMinimization.marker)"], "\(String(describing: leastRung))")
+        let nextRung = try await reopened.perform { try await $0.facts.rung(of: next) }
+        #expect(nextRung == seatRung, "the Seat's rung with the normal end, its counts whole: \(String(describing: nextRung))")
+        // The advice is written with the least end too, its address and words under the call's minimization.
+        let leastAdvice = try await reopened.perform { try await $0.facts.advice(of: refused) }
+        #expect(leastAdvice?.decision == .use && leastAdvice?.route?.contains(ValueMinimization.marker) == true
+                && leastAdvice?.route?.contains(secret) == false && leastAdvice?.message.contains(ValueMinimization.marker) == true
+                && leastAdvice?.message.contains(secret) == false && leastAdvice?.message.hasPrefix("Maps: use") == true,
+                "\(String(describing: leastAdvice))")
+        #expect(try await reopened.perform { try await $0.facts.advice(of: next) } == plainAdvice, "the next call's own, whole")
         #expect(try await reopened.perform { try await $0.facts.verifications(of: refused) }.isEmpty,
                 "a missing verification stays missing, never a pass")
         if fault == .conflict {

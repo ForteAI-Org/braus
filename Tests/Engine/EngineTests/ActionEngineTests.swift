@@ -101,6 +101,13 @@ struct ActionEngineTests {
         func menuItemNavigation(titled title: String, within menuFrame: CGRect, in processID: pid_t) async -> MenuItemNavigation? {
             submenu
         }
+        /// The focus the reads answer in turn, the last one kept.
+        var focus: [FocusedField] = [.unknown]
+        var focusReads = 0
+        func focusedField(in processID: pid_t) async -> FocusedField {
+            focusReads += 1
+            return focus.count > 1 ? focus.removeFirst() : focus.first ?? .unknown
+        }
         var menuItemPresses = false
         var pressedMenuItems: [(title: String, frame: CGRect)] = []
         /// The receipt `chooseMenuItem` answers; nil keeps the protocol's default, a press by title.
@@ -328,16 +335,36 @@ struct ActionEngineTests {
         #expect(actuator.confirmations == [.observed])
     }
 
-    @Test("a destructive target is refused unless the person allowed it")
+    @Test("R07: a destructive target is refused without the person's consent, and with it: no route here verifies it")
     func destructive() async {
         let trash = SceneElement(id: "control|delete", kind: .control, label: "Delete", bounds: rect(0.5, 0.5))
-        let refused = await engine(scenes: ScriptedScenes([scene([trash])])).act(request("Delete"))
-        #expect(refused.kind == .refused)
-        let actuator = RecordingActuator()
-        let allowed = await engine(scenes: ScriptedScenes([scene([trash]), scene([trash], title: "Gone")]), actuator: actuator,
-                                   permissions: ActionPermissions(allowsDestructive: true)).act(request("Delete"))
-        #expect(allowed.kind == .foundActed)
-        #expect(actuator.gestures.count == 1)
+        let unconsented = RecordingActuator()
+        let refused = await engine(scenes: ScriptedScenes([scene([trash])]), actuator: unconsented)
+            .act(request("Delete"))
+        #expect(refused.kind == .refused && refused.message.contains("person must allow destructive actions"))
+        // The person's consent is necessary, never sufficient: the scene read again is no verifier of a delete.
+        let blind = RecordingActuator()
+        let unconfirmed = await engine(scenes: ScriptedScenes([scene([trash]), scene([trash], title: "Gone")]),
+                                       actuator: blind, permissions: ActionPermissions(allowsDestructive: true))
+            .act(request("Delete"))
+        #expect(unconfirmed.kind == .refused, Comment(rawValue: unconfirmed.message))
+        #expect(unconfirmed.message.contains("cannot read its effect back"), Comment(rawValue: unconfirmed.message))
+        #expect(unconsented.gestures.isEmpty && blind.gestures.isEmpty)
+    }
+
+    @Test("R10: what the memory learned of a destructive step grants nothing: refused with or without consent")
+    func learnedStepUnderCurrentPolicy() async {
+        let trash = SceneElement(id: "control|delete", kind: .control, label: "Delete", bounds: rect(0.5, 0.5))
+        // The memory expects this step's effect: it was learned, and would be proposed again.
+        let learned = FixedExpectation(effect: .windowTitleChanged(title: "Trash"))
+        for permissions in [ActionPermissions(), ActionPermissions(allowsDestructive: true)] {
+            let actuator = RecordingActuator()
+            let outcome = await engine(scenes: ScriptedScenes([scene([trash]), scene([trash], title: "Trash")]),
+                                       actuator: actuator, expectations: learned, permissions: permissions)
+                .act(request("Delete"))
+            #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
+            #expect(actuator.gestures.isEmpty, "the current policy decides, not the learned expectation")
+        }
     }
 
     @Test("a dry run performs nothing and names the point and the expectation")
@@ -782,6 +809,88 @@ struct ActionEngineTests {
         let window = await engine(scenes: ScriptedScenes([scene([export]), scene([export])])).deliver(goTo)
         #expect(window.message.contains("click the control that should receive it first"))
         #expect(!window.message.contains("name field"))
+    }
+
+    /// An actuator that refuses from its nth gesture on, before sending it, as `MacActuator` does once the
+    /// person touched the app (`MacActuationFailure.personActed` leaves it as `GestureNotSent`).
+    final class RefusingActuator: Actuating, @unchecked Sendable {
+        static let personActed = GestureNotSent(reason: "person_acted", sentence: "The person changed the app; read it again.")
+        let refusesFrom: Int
+        var attempts = 0
+        var gestures: [Gesture] = []
+        init(refusesFrom: Int) { self.refusesFrom = refusesFrom }
+        func perform(_ gesture: Gesture, in processID: pid_t) async throws {
+            attempts += 1
+            if attempts >= refusesFrom { throw Self.personActed }
+            gestures.append(gesture)
+        }
+        func confirm(_ effect: DeliveryEffect, in processID: pid_t) async {}
+    }
+
+    @Test("a timecode that ticks during a click is no effect on the Seat; a source that reads displays asks for it")
+    func aTickingTextIsNoEffectByDefault() async {
+        var clock = SceneElement(id: "text|clock", kind: .text, label: "00:00:01:12", bounds: rect(0.4, 0.05))
+        clock.value = "00:00:01:12"
+        var later = clock
+        later.label = "00:00:01:19"
+        later.value = "00:00:01:19"
+        let seat = await engine(scenes: ScriptedScenes([scene([export, clock]), scene([export, later])])).act(request("Export"))
+        #expect(seat.kind != .foundActed, Comment(rawValue: seat.message))
+        let displays = ActionEngine(ActionEngine.Dependencies(
+            scenes: ScriptedScenes([scene([export, clock]), scene([export, later])]), actuator: RecordingActuator(),
+            windows: ScriptedWindows([[mainWindow]]), countsNativeTextChange: true
+        ), pause: { _ in })
+        let driver = await displays.act(request("Export"))
+        #expect(driver.kind == .foundActed, Comment(rawValue: driver.message))
+    }
+
+    @Test("W1: a secure field is never read back: no value in the outcome or the check, which says so")
+    func secureFieldIsNeverReadBack() async throws {
+        let sentinel = "Prefilled-Secret-4417"
+        let secure = SceneElement(id: "field|access", kind: .control, label: "Accesso", bounds: rect(0.2, 0.2),
+                                  role: "AXSecureTextField")
+        // A reader that failed to protect it would still answer the value: the engine does not ask.
+        let controls = FakeControls()
+        controls.focused = sentinel
+        let outcome = await engine(scenes: ScriptedScenes([scene([secure]), scene([secure])]), controls: controls)
+            .deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
+                                  input: .typeText("typed-word", into: "Accesso", replacing: true)))
+        #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
+        #expect(!outcome.message.contains(sentinel) && !outcome.message.contains("typed-word"),
+                Comment(rawValue: outcome.message))
+        let check = try #require(outcome.check)
+        #expect(check.verdict == .unknown)
+        #expect(check.expected == nil && check.observed == nil)
+        #expect(check.limits.contains(.readbackUnavailable) && check.limits.contains(.valueWithheld))
+    }
+
+    @Test("the person first: a refusal before any gesture is refused with its reason, never retried")
+    func personActedBeforeGesture() async {
+        let actuator = RefusingActuator(refusesFrom: 1)
+        let engine = ActionEngine(ActionEngine.Dependencies(
+            scenes: ScriptedScenes([scene([export])]), actuator: actuator, windows: ScriptedWindows([[mainWindow]])
+        ), pause: { _ in })
+        let outcome = await engine.act(request("Export"))
+        #expect(outcome.kind == .refused)
+        #expect(outcome.message.contains("nothing was sent. The person changed the app; read it again."))
+        #expect(outcome.check?.performed == OperationCheck.Performed.none)
+        #expect(actuator.attempts == 1, "no retry")
+    }
+
+    @Test("the person first: a refusal after part of an input went out stays uncertain and says why")
+    func personActedMidInput() async {
+        let field = SceneElement(id: "field|name", kind: .control, label: "Name", bounds: rect(0.2, 0.2), role: "AXTextField")
+        let actuator = RefusingActuator(refusesFrom: 2)
+        let engine = ActionEngine(ActionEngine.Dependencies(
+            scenes: ScriptedScenes([scene([field])]), actuator: actuator, windows: ScriptedWindows([[mainWindow]])
+        ), pause: { _ in })
+        let outcome = await engine.deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
+                                                        input: .typeText("Braus", into: "Name", replacing: false)))
+        #expect(outcome.kind == .actedUnverified)
+        #expect(outcome.message.contains("delivery failed"), Comment(rawValue: outcome.message))
+        #expect(outcome.message.contains("The person changed the app; read it again."), Comment(rawValue: outcome.message))
+        #expect(actuator.gestures.count == 1)
+        #expect(actuator.attempts == 2, "no retry")
     }
 
     // MARK: set_toggle

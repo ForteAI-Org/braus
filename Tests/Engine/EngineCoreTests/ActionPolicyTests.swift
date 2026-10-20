@@ -56,6 +56,26 @@ struct ActionPolicyTests {
         #expect(ActionPolicy.isDestructive(label: "Format"), "the label alone keeps every match")
     }
 
+    @Test("the two context rules compose: each exception needs its own context and lends none to the other")
+    func contextRulesCompose() {
+        let bank = "Kick / Sends A-E"
+        // The audio send selector is recognized only as Pro Tools' button in its bank.
+        #expect(!ActionPolicy.isDestructive(label: "Send selector A", bundleID: "com.avid.ProTools",
+                                            role: "AXButton", container: bank))
+        #expect(ActionPolicy.isDestructive(label: "Send selector A", bundleID: "com.avid.ProTools",
+                                           role: "AXRadioButton", container: bank))
+        #expect(ActionPolicy.isDestructive(label: "Send selector A", role: "AXButton", container: bank))
+        // A pane selector stays a pane selector in any application, and a destructive pane name in Pro Tools' bank
+        // gains nothing from the bank.
+        #expect(!ActionPolicy.isDestructive(label: "Format", bundleID: "com.avid.ProTools",
+                                            role: "AXRadioButton", container: bank))
+        #expect(ActionPolicy.isDestructive(label: "Delete", bundleID: "com.avid.ProTools",
+                                           role: "AXButton", container: bank))
+        // A menu item opened by a pane selector keeps the label's rule.
+        #expect(ActionPolicy.isDestructiveMenuItem("no send", openedBy: "Format", bundleID: "com.avid.ProTools",
+                                                   role: "AXRadioButton", container: bank))
+    }
+
     @Test("activation is skipped in front or while a pop-up is open")
     func activation() {
         #expect(ActivationPolicy.needsActivation(target: 5, frontmost: 7, isPopupOpen: false))

@@ -62,6 +62,13 @@ public enum RecallDocument {
         }
     }
 
+    /// The name a delivery gives an application, which the agent opens it by: a web identity (`web:<host>`, Braus's
+    /// browser engine) whole, since it is a route of its own and its last component names nothing (M08); any other, its
+    /// `applicationName`. The index, the constraints and the selector keep `applicationName`.
+    public static func deliveredName(_ bundleID: String) -> String {
+        bundleID.lowercased().hasPrefix("web:") ? bundleID : applicationName(bundleID)
+    }
+
     /// The name of an application from its bundle id: its last component, which is how people call most of them.
     public static func applicationName(_ bundleID: String) -> String {
         let last = bundleID.split(separator: ".").last.map(String.init) ?? bundleID

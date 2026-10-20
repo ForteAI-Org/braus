@@ -16,7 +16,7 @@ public enum RecallContract {
     public static let version = 1
 
     /// The selection rules' version, recorded with every query so a result can be traced to its rules.
-    public static let selectorVersion = "recall-selector-4"
+    public static let selectorVersion = "recall-selector-5"
 
     /// The most needs one query may name: more is refused, not cut.
     public static let maximumNeeds = 8
@@ -182,6 +182,15 @@ public struct RecallRequirement: Sendable, Equatable {
         case certainConflict            = "certain_conflict"
         /// Of an excluded selection: a step does what one of the task's constraints forbids.
         case constraintExcluded         = "constraint_excluded"
+        /// An adapter's step (P2-01): its adapter must be available now; it starts from
+        /// no screen state, so it raises no switch of application.
+        case adapterAvailable           = "adapter_available"
+        /// A step uses the result of an earlier step of this run (P2-02): fill it from that step's own result when it
+        /// ran, never from the source's episode; before then it is pending.
+        case stepResultPending          = "step_result_pending"
+        /// Resolve the account for this task, including a source's default or unknown account; the source's is never
+        /// delivered, and the same site, profile or service does not imply the same account.
+        case accountToResolve           = "account_to_resolve"
     }
 
     /// BindingMatch is how a parameter was bound to the task's value: by the same name, by the same role, through

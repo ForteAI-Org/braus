@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Reddit-shaped posts fixture</title></head>
+<body>
+<!-- A Reddit-shaped post for the post reader, read under a test location of https://www.reddit.com/r/swift/
+     (WebPostReaderLiveTests): its link, author, date and subreddit come from the element's attributes. -->
+<shreddit-post id="t3_abc123" permalink="/r/swift/comments/abc123/a_reddit_title/" post-title="A Reddit title"
+               author="carla_dev" created-timestamp="2026-10-17T08:00:00.000+0000" subreddit-prefixed-name="r/swift">
+  <div slot="text-body"><p>The body of the Reddit post, with more than eighty characters so that nothing is lost. END-REDDIT</p></div>
+  <form><input name="csrf" value="SENTINEL-REDDIT-FORM"></form>
+</shreddit-post>
+</body>
+</html>

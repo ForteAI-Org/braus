@@ -95,36 +95,37 @@ public struct NotesAdapter: AppAdapting {
     }
 
     public var verbs: [AdapterVerb] {
-        let folder = AdapterParameter("folder", .string, "a folder's name or id from list_folders", required: false)
+        let folder = AdapterParameter("folder", .string, "a folder's name or id from list_folders", required: false,
+                                      confidential: .sensitiveMetadata)
         return [
             AdapterVerb("list_folders", "List the folders, with their account and how many notes they hold.",
-                        safety: .read, readBack: "Notes' folders"),
+                        safety: .read, readBack: "Notes' folders", results: .identifiersAndDates),
             AdapterVerb("find_notes", "Find notes whose title or text contains a text, optionally in one folder.",
                         parameters: [
                             AdapterParameter("query", .string, "text the title or the note contains", required: false,
-                                             content: true),
+                                             confidential: .sensitiveMetadata),
                             folder,
                             AdapterParameter("limit", .integer, "at most this many; default 10", required: false,
                                              range: 1...Double(Self.maximumNotes)),
                         ],
-                        safety: .read, readBack: "Notes' notes", contentResults: Self.contentResults),
+                        safety: .read, readBack: "Notes' notes", contentResults: Self.contentResults, results: .identifiersAndDates),
             AdapterVerb("read_note", "Read one note's title, folder and plain text.",
                         parameters: [AdapterParameter("id", .string, "the note's id from find_notes")],
-                        safety: .read, readBack: "the note by its id", contentResults: Self.contentResults),
+                        safety: .read, readBack: "the note by its id", contentResults: Self.contentResults, results: .identifiersAndDates),
             AdapterVerb("create_note", "Create a note with a title and a text.",
                         parameters: [
-                            AdapterParameter("title", .string, "the note's title, its first line", content: true),
+                            AdapterParameter("title", .string, "the note's title, its first line", confidential: .content),
                             AdapterParameter("text", .string, "the text under the title", required: false,
-                                             content: true),
+                                             confidential: .content),
                             folder,
                         ],
-                        safety: .write, readBack: "the new note read by its id", contentResults: Self.contentResults),
-            AdapterVerb("append_to_note", "Add text at the end of a note without images or attachments.",
+                        safety: .write, readBack: "the new note read by its id", contentResults: Self.contentResults, results: .identifiersAndDates),
+            AdapterVerb("append_to_note", "Add text at the end of a note.",
                         parameters: [
                             AdapterParameter("id", .string, "the note's id from find_notes"),
-                            AdapterParameter("text", .string, "the text to add, on new lines", content: true),
+                            AdapterParameter("text", .string, "the text to add, on new lines", confidential: .content),
                         ],
-                        safety: .write, readBack: "the note's text read again", contentResults: Self.contentResults),
+                        safety: .write, readBack: "the note's text read again", contentResults: Self.contentResults, results: .identifiersAndDates),
         ]
     }
 

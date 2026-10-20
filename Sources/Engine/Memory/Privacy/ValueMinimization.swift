@@ -22,8 +22,13 @@ import PerceptionCore
 /// withheld from "The PIN is 731", at the cost of the same digits in an ordinary text). The length
 /// thresholds belong to the credential heuristics only. The rules cannot see what they are not told:
 /// a password typed into a field whose label names no secret, which the task did not declare secret
-/// and which has no credential shape, is kept, because the perception does not report a field as
-/// secure. That limit is stated, not hidden.
+/// and which has no credential shape, is kept unless the call classified it (`classified`). That limit
+/// is stated, not hidden.
+///
+/// A call that types classifies its text before its first write (W1): typed into a secure field
+/// (`secureField`), or where it could not attest an ordinary target (`unclassifiedTarget`). Those texts
+/// are withheld from every record of that call wherever they appear, with their own reason; a text the
+/// call attested ordinary is not classified and is kept, so the memory keeps learning it.
 public struct ValueMinimization: Sendable {
 
     /// The text a withheld value is replaced with.
@@ -32,9 +37,26 @@ public struct ValueMinimization: Sendable {
     /// Secrets the current task declared, in memory only, never stored.
     public let secrets: [String]
 
-    public init(secrets: [String] = []) {
-        self.secrets = secrets.filter { !$0.isEmpty }
+    /// Texts the current call classified before its first write, with why each is withheld: in memory
+    /// only, never stored, and only for the records of that call.
+    public let classified: [String: WithholdingReason]
+    /// Texts withheld only where a whole text is one of them, never as a fragment of a longer one: a confidential
+    /// surface's short content (a name, a subject of two letters) and a result's field values (P1-06). In memory only.
+    public let exact: [String: WithholdingReason]
+    /// Whether credential shapes are withheld too: true for whatever is kept; false for what is only shown, an
+    /// answer to the model, where the known secrets alone are withheld.
+    public let scrubsCredentials: Bool
+
+    public init(secrets: [String] = [], classified: [String: WithholdingReason] = [:],
+                exact: [String: WithholdingReason] = [:], scrubsCredentials: Bool = true) {
+        self.secrets           = secrets.filter { !$0.isEmpty }
+        self.classified        = classified.filter { !$0.key.isEmpty }
+        self.exact             = exact.filter { !$0.key.isEmpty && $0.key != Self.marker }
+        self.scrubsCredentials = scrubsCredentials
     }
+
+    /// Whether it withholds nothing but credential shapes: no secret, no classified text.
+    public var knowsNoText: Bool { secrets.isEmpty && classified.isEmpty && exact.isEmpty }
 
     // MARK: Requests
 
@@ -53,7 +75,7 @@ public struct ValueMinimization: Sendable {
         func keepOptional(_ text: String?, _ name: String) -> String? { text.map { keep($0, name) } }
         let minimized: AgentCallRequest
         switch request {
-            case .status, .batch, .closeSession, .observe:
+            case .status, .batch, .closeSession, .observe, .collectPosts:
                 minimized = request
             case .windows(let app):
                 minimized = .windows(app: keepOptional(app, "app"))
@@ -100,43 +122,92 @@ public struct ValueMinimization: Sendable {
     // MARK: Texts
 
     /// A text with what must be withheld removed: the whole text when it went to a control named for
-    /// a secret, the declared secrets and the credential shapes inside it otherwise. The reason is
-    /// the first rule that withheld something, nil when the text is kept as it is.
+    /// a secret, the call's classified texts, the declared secrets and the credential shapes inside it
+    /// otherwise, every match found on the text as given and withheld at once (`withholding`). The reason
+    /// is the strongest of what was found: a secure field's, an unclassified target's, a secret target's,
+    /// a declared secret's, a credential's; nil when the text is kept as it is.
     public func minimize(text: String, typedInto target: String? = nil) -> (String, WithholdingReason?) {
-        if let target, Self.namesSecret(target), !text.isEmpty { return (Self.marker, .secretTarget) }
-        let (kept, declared) = withholdingDeclared(text)
-        var reason: WithholdingReason? = declared ? .declaredSecret : nil
-        let (scrubbed, found) = Self.scrubCredentials(kept)
-        if found { reason = reason ?? .credentialPattern }
-        return (scrubbed, reason)
+        let (kept, reasons) = Self.withholding(text, classified: classified, secrets: secrets, credentials: scrubsCredentials)
+        if let target, Self.namesSecret(target), !text.isEmpty {
+            return (Self.marker, Self.strongest(reasons.union([.secretTarget])))
+        }
+        if let whole = exact[text] { return (Self.marker, Self.strongest(reasons.union([whole]))) }
+        return (kept, Self.strongest(reasons))
     }
 
     /// The text with every declared secret replaced by the marker wherever it appears, and whether one
-    /// was. The longest secret goes first, so one inside another leaves no piece behind, and the
-    /// markers already in the text are never searched, so a secret that is part of the marker cannot
-    /// break it.
+    /// was.
     func withholdingDeclared(_ text: String) -> (String, Bool) {
-        guard !secrets.isEmpty else { return (text, false) }
-        // nil is a marker; every other segment is text still to be searched.
-        var segments: [String?] = []
-        for (index, part) in text.components(separatedBy: Self.marker).enumerated() {
-            if index > 0 { segments.append(nil) }
-            segments.append(part)
+        let (kept, reasons) = Self.withholding(text, classified: [:], secrets: secrets, credentials: false)
+        return (kept, !reasons.isEmpty)
+    }
+
+    /// The reason a gap is declared with when several apply: what the call knew of the field first.
+    public static func strongest(_ reasons: Set<WithholdingReason>) -> WithholdingReason? {
+        [.secureField, .unclassifiedTarget, .secretTarget, .declaredSecret, .confidentialContent, .credentialPattern]
+            .first(where: reasons.contains)
+    }
+
+    /// The text with every sensitive range of it withheld at once, and the reasons of what was found. Every
+    /// match is found on the text as given, never on a text another rule already changed: each occurrence of
+    /// a classified text and of a declared secret, overlapping ones included, and, with `credentials`, every
+    /// credential shape. Ranges that overlap are withheld as one, so no rule's match can leave a piece of
+    /// another's visible or break a credential's shape before it is recognized. A match that overlaps a
+    /// marker already in the text is not one: a secret that is part of the marker cannot break it.
+    static func withholding(
+        _ text     : String,
+        classified : [String: WithholdingReason],
+        secrets    : [String],
+        credentials: Bool
+    ) -> (String, Set<WithholdingReason>) {
+        let markers = occurrences(of: marker, in: text)
+        func outsideMarkers(_ range: Range<String.Index>) -> Bool { !markers.contains { $0.overlaps(range) } }
+        var ranges : [Range<String.Index>] = []
+        var reasons: Set<WithholdingReason> = []
+        func add(_ found: [Range<String.Index>], _ reason: WithholdingReason) {
+            let kept = found.filter(outsideMarkers)
+            guard !kept.isEmpty else { return }
+            ranges += kept
+            reasons.insert(reason)
         }
-        var withheld = false
-        for secret in secrets.sorted(by: { $0.utf8.count > $1.utf8.count }) {
-            segments = segments.flatMap { segment -> [String?] in
-                guard let segment, segment.contains(secret) else { return [segment] }
-                withheld = true
-                var split: [String?] = []
-                for (index, part) in segment.components(separatedBy: secret).enumerated() {
-                    if index > 0 { split.append(nil) }
-                    split.append(part)
-                }
-                return split
+        for (piece, reason) in classified { add(occurrences(of: piece, in: text), reason) }
+        for secret in secrets { add(occurrences(of: secret, in: text), .declaredSecret) }
+        if credentials { add(credentialRanges(in: text), .credentialPattern) }
+        guard !ranges.isEmpty else { return (text, []) }
+        return (replacing(ranges, in: text), reasons)
+    }
+
+    /// Every occurrence of `piece` in `text`, overlapping ones included; none for an empty piece.
+    static func occurrences(of piece: String, in text: String) -> [Range<String.Index>] {
+        guard !piece.isEmpty else { return [] }
+        var found: [Range<String.Index>] = []
+        var start = text.startIndex
+        while start < text.endIndex, let range = text.range(of: piece, range: start..<text.endIndex) {
+            found.append(range)
+            start = text.index(after: range.lowerBound)
+        }
+        return found
+    }
+
+    /// The text with each run of overlapping ranges replaced by one marker.
+    static func replacing(_ ranges: [Range<String.Index>], in text: String) -> String {
+        var merged: [Range<String.Index>] = []
+        for range in ranges.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+            if let last = merged.last, range.lowerBound < last.upperBound {
+                merged[merged.count - 1] = last.lowerBound..<max(last.upperBound, range.upperBound)
+            } else {
+                merged.append(range)
             }
         }
-        return (segments.map { $0 ?? Self.marker }.joined(), withheld)
+        var kept = ""
+        var position = text.startIndex
+        for range in merged {
+            kept += text[position..<range.lowerBound]
+            kept += marker
+            position = range.upperBound
+        }
+        kept += text[position...]
+        return kept
     }
 
     /// An optional text minimized the same way, with the same answer for nil.
@@ -186,6 +257,80 @@ public struct ValueMinimization: Sendable {
         return (kept, gaps)
     }
 
+    /// The sample of a confidential surface (P1-06): its title, and every content element's label and container path,
+    /// withheld whole with the `confidential_content` gap (`ConfidentialSurfaces.isContent`), then every text minimized
+    /// as `minimize(sample:)` does. Roles, kinds, states, bounds and the controls' labels stay. Without a surface it is
+    /// `minimize(sample:)`.
+    public func minimize(sample: CaptureSample, confidential surface: ConfidentialSurface?) -> (CaptureSample, [ValueRedaction]) {
+        guard surface != nil else { return minimize(sample: sample) }
+        var kept = sample
+        var gaps: [ValueRedaction] = []
+        let key = sample.key
+        if let title = sample.windowTitle, !title.isEmpty, title != Self.marker {
+            kept.windowTitle = Self.marker
+            gaps.append(ValueRedaction(eventID: key.eventID, location: .sampleTitle(phase: key.phase, ordinal: key.ordinal),
+                                       reason: .confidentialContent))
+        }
+        for index in kept.elements.indices where ConfidentialSurfaces.isContent(kept.elements[index]) {
+            if kept.elements[index].label != Self.marker {
+                kept.elements[index].label = Self.marker
+                gaps.append(ValueRedaction(
+                    eventID : key.eventID,
+                    location: .sampleLabel(phase: key.phase, ordinal: key.ordinal, element: index),
+                    reason  : .confidentialContent
+                ))
+            }
+            if !kept.elements[index].containerPath.isEmpty, kept.elements[index].containerPath != Self.marker {
+                kept.elements[index].containerPath = Self.marker
+                gaps.append(ValueRedaction(
+                    eventID : key.eventID,
+                    location: .sampleContainer(phase: key.phase, ordinal: key.ordinal, element: index),
+                    reason  : .confidentialContent
+                ))
+            }
+        }
+        let (rest, more) = minimize(sample: kept)
+        return (rest, gaps + more)
+    }
+
+    /// What the Brain may learn from a scene of a confidential surface: its controls only, minimized
+    /// (`ConfidentialSurfaces.structure`); any other scene minimized as `minimize(scene:)`.
+    public func minimize(scene: SceneSnapshot, confidential surface: ConfidentialSurface?) -> SceneSnapshot {
+        minimize(scene: surface == nil ? scene : ConfidentialSurfaces.structure(of: scene))
+    }
+
+    /// An effect on a confidential surface: each label kept only when it is one of the application's own controls in
+    /// the scenes around it (`controls`), the title and a value always withheld, with the `confidential_content`
+    /// reason; then minimized as `minimize(effect:)`. Without controls it is `minimize(effect:)`.
+    public func minimize(effect: SceneEffect, confidentialControls controls: Set<String>?) -> (SceneEffect, WithholdingReason?) {
+        guard let controls else { return minimize(effect: effect) }
+        var withheld = false
+        func label(_ text: String) -> String {
+            guard !controls.contains(text) else { return text }
+            withheld = true
+            return Self.marker
+        }
+        let kept: SceneEffect
+        switch effect {
+            case .windowTitleChanged:
+                withheld = true
+                kept = .windowTitleChanged(title: Self.marker)
+            case .menuOpened(let labels):
+                kept = .menuOpened(labels: labels.map(label))
+            case .elementsAppeared(let labels):
+                kept = .elementsAppeared(labels: labels.map(label))
+            case .elementsDisappeared(let labels):
+                kept = .elementsDisappeared(labels: labels.map(label))
+            case .valueChanged(let name, _):
+                withheld = true
+                kept = .valueChanged(label: label(name), value: Self.marker)
+            case .stateFlip, .textSelectionChanged:
+                kept = effect
+        }
+        let (minimized, reason) = minimize(effect: kept)
+        return (minimized, withheld ? Self.strongest([.confidentialContent, reason ?? .confidentialContent]) : reason)
+    }
+
     /// The scene with its title and every text of its elements minimized: what the Brain may learn
     /// from it.
     public func minimize(scene: SceneSnapshot) -> SceneSnapshot {
@@ -227,24 +372,26 @@ public struct ValueMinimization: Sendable {
     /// secret is withheld as written and normalized; a credential's shape as in any text.
     public func minimize(identifier: String, label: String?) -> (String, WithholdingReason?) {
         var kept = identifier
-        var reason: WithholdingReason?
+        var reasons: Set<WithholdingReason> = []
         if let label {
             let (minimized, why) = minimize(text: label)
             let original = LabelText.normalize(label)
             if let why, !original.isEmpty, kept.contains(original) {
-                kept   = kept.replacingOccurrences(of: original, with: LabelText.normalize(minimized))
-                reason = why
+                kept = kept.replacingOccurrences(of: original, with: LabelText.normalize(minimized))
+                reasons.insert(why)
             }
         }
-        let normalized = ValueMinimization(secrets: secrets + secrets.map(LabelText.normalize))
-        let (declared, found) = normalized.withholdingDeclared(kept)
-        if found {
-            kept   = declared
-            reason = reason ?? .declaredSecret
+        // The classified texts and the declared secrets as written and normalized, and the credential shapes,
+        // all found on the identity as it now is and withheld at once.
+        var normalizedClassified = classified
+        for (text, why) in classified {
+            let key = LabelText.normalize(text)
+            normalizedClassified[key] = Self.strongest([why, normalizedClassified[key] ?? why])
         }
-        let (scrubbed, shaped) = Self.scrubCredentials(kept)
-        if shaped { reason = reason ?? .credentialPattern }
-        return (scrubbed, reason)
+        let (scrubbed, found) = Self.withholding(kept, classified: normalizedClassified,
+                                                 secrets: secrets + secrets.map(LabelText.normalize),
+                                                 credentials: scrubsCredentials)
+        return (scrubbed, Self.strongest(reasons.union(found)))
     }
 
     /// The element a call resolved with its label, section, identity and role minimized, and the
@@ -401,7 +548,7 @@ public struct ValueMinimization: Sendable {
                 input = .setName(anchorKey: anchorKey, name: scrub(name))
         }
         let kept = try BrainApplicationCommand(key: command.key, bundleID: command.bundleID,
-                                               requestedAtMS: command.requestedAtMS, input: input)
+                                               requestedAtMS: command.requestedAtMS, input: input, coverage: command.coverage)
         return (kept, withheld)
     }
 
@@ -456,9 +603,24 @@ public struct ValueMinimization: Sendable {
         return (kept, withheld)
     }
 
-    /// A text with the secrets withheld from earlier arguments added to the declared ones.
+    /// A text with the secrets withheld from earlier arguments added to the declared ones; the call's
+    /// classification is kept.
     public func adding(secrets more: [String]) -> ValueMinimization {
-        ValueMinimization(secrets: secrets + more.filter { !secrets.contains($0) })
+        ValueMinimization(secrets: secrets + more.filter { !secrets.contains($0) }, classified: classified, exact: exact,
+                          scrubsCredentials: scrubsCredentials)
+    }
+
+    /// The same minimization withholding more texts for `reason`: `fragments` wherever they appear, `wholes` only where
+    /// a whole text is one of them. A text already withheld keeps the stronger of its reasons.
+    public func adding(_ reason: WithholdingReason, fragments: [String] = [], wholes: [String] = []) -> ValueMinimization {
+        var classified = self.classified, exact = self.exact
+        for text in fragments where !text.isEmpty && text != Self.marker {
+            classified[text] = Self.strongest([reason, classified[text] ?? reason])
+        }
+        for text in wholes where !text.isEmpty && text != Self.marker {
+            exact[text] = Self.strongest([reason, exact[text] ?? reason])
+        }
+        return ValueMinimization(secrets: secrets, classified: classified, exact: exact, scrubsCredentials: scrubsCredentials)
     }
 
     // MARK: Rules
@@ -481,23 +643,26 @@ public struct ValueMinimization: Sendable {
     /// keys, well-known token prefixes (`sk-`, `ghp_`, `github_pat_`, `xox?-`, `AKIA`, `AIza`), JSON
     /// web tokens, and long mixed-case alphanumeric strings that read as generated keys.
     public static func scrubCredentials(_ text: String) -> (String, Bool) {
+        let (kept, reasons) = withholding(text, classified: [:], secrets: [], credentials: true)
+        return (kept, !reasons.isEmpty)
+    }
+
+    /// Where the credential shapes of `text` are: every match of the patterns and every word that reads as
+    /// a generated key, found on the text as given.
+    static func credentialRanges(in text: String) -> [Range<String.Index>] {
         // The shortest shape searched for is a Slack token's 15 characters: a shorter text holds none.
-        guard text.utf8.count >= 15 else { return (text, false) }
-        var kept  = text
-        var found = false
+        guard text.utf8.count >= 15 else { return [] }
+        var found: [Range<String.Index>] = []
+        let whole = NSRange(text.startIndex..., in: text)
         for pattern in credentialPatterns {
-            let range = NSRange(kept.startIndex..., in: kept)
-            guard pattern.firstMatch(in: kept, range: range) != nil else { continue }
-            kept  = pattern.stringByReplacingMatches(in: kept, range: range, withTemplate: marker)
-            found = true
+            for match in pattern.matches(in: text, range: whole) {
+                if let range = Range(match.range, in: text), !range.isEmpty { found.append(range) }
+            }
         }
-        var tokens: [String] = []
-        var changed = false
-        for token in kept.split(separator: " ", omittingEmptySubsequences: false).map(String.init) {
-            if looksGenerated(token) { tokens.append(marker); changed = true } else { tokens.append(token) }
+        for token in text.split(separator: " ") where looksGenerated(String(token)) {
+            found.append(token.startIndex..<token.endIndex)
         }
-        if changed { kept = tokens.joined(separator: " "); found = true }
-        return (kept, found)
+        return found
     }
 
     /// Whether a text has a credential's shape anywhere in it.

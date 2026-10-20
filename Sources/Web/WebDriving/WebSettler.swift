@@ -38,9 +38,8 @@ public struct WebSettler: Settling {
         self.lifetime = lifetime
     }
 
-    /// Installs, once per document, the observer that counts the page's DOM changes, in the tab's isolated
-    /// world, where the signature reads its count, and starts the watch of the tab's requests, or keeps the one
-    /// running for a later gesture of the same action.
+    /// Installs, once per document, the observer that counts the page's DOM changes, and starts the watch of the
+    /// tab's requests, or keeps the one running for a later gesture of the same action.
     public func prepare(in processID: pid_t) async {
         guard let page = try? tabs.page(for: processID), let lane = tabs.lane(of: processID) else { return }
         _ = try? await tabs.evaluate(Self.observerScript, in: processID, timeoutSeconds: 2)
@@ -59,25 +58,32 @@ public struct WebSettler: Settling {
         }
     }
 
-    public func settle(in processID: pid_t, cap: Duration) async {
+    /// Settled once the page held still and nothing counted is in flight; capped when the cap came first; unavailable
+    /// when the tab is gone, no read of the page answered, or the page held still with no watch of its requests (no
+    /// `prepare`, or its `Network.enable` failed): a still DOM alone does not say that no request is on its way.
+    @discardableResult
+    public func settle(in processID: pid_t, cap: Duration) async -> SettleResult {
         let clock = ContinuousClock()
         let deadline = clock.now + cap
         let watch = tabs.requests(of: processID)
         guard (try? tabs.page(for: processID)) != nil else {
             await Self.end(watch, of: processID, tabs: tabs)
             try? await Task.sleep(until: deadline)
-            return
+            return .unavailable
         }
         var last: JSONValue?
         var stillSince = clock.now
+        var result = SettleResult.unavailable
         while clock.now < deadline {
             try? await Task.sleep(for: min(interval, deadline - clock.now))
             guard !Task.isCancelled else { break }
             let signature = try? await tabs.evaluate(Self.signatureScript, in: processID, timeoutSeconds: 2)
             let now = clock.now
+            if signature != nil, result == .unavailable { result = .capped }
             if let signature, signature == last {
                 // The watch counted, inline, every request whose start came before this read's answer.
                 if now - stillSince >= quiet, signature[0]?.stringValue == "complete", (watch?.inFlight ?? 0) == 0 {
+                    result = watch.map { $0.isClosed ? .unavailable : .settled } ?? .unavailable
                     break
                 }
             } else {
@@ -86,6 +92,7 @@ public struct WebSettler: Settling {
             }
         }
         await Self.end(watch, of: processID, tabs: tabs)
+        return result
     }
 
     /// Stops `watch`, on its tab's lane, when it is still the tab's watch; one already replaced or stopped is left

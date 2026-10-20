@@ -37,17 +37,35 @@ public struct SeatContextMenuSelector {
         dryRun: Bool = false,
         report: @escaping @MainActor (SelectorPerception) async -> Void = { _ in }
     ) async throws -> ActOutcome {
+        try await selectWithReceipt(item: item, on: control, identity: identity, section: section,
+                                    permissions: permissions, dryRun: dryRun, report: report).outcome
+    }
+
+    /// `select`, with the Seat's outcome of the menu when the Seat was asked (M05): the opener's receipt and the
+    /// receipts posted inside the menu, for the call's record; nil when the choice was refused before the Seat was
+    /// asked (no item, no control, destructive refused, the text-field rule, a dry run). A throw returns nothing: the
+    /// receipts of what went out before it are not recovered.
+    package func selectWithReceipt(
+        item: String,
+        on control: String,
+        identity: ApplicationIdentity,
+        section: String? = nil,
+        permissions: ActionPermissions = ActionPermissions(),
+        dryRun: Bool = false,
+        report: @escaping @MainActor (SelectorPerception) async -> Void = { _ in }
+    ) async throws -> (outcome: ActOutcome, receipt: SeatMenuOutcome?) {
         let seat = try target.agentSeat()
         let turn = try await seat.acquire()
         var perception = SelectorPerception()
+        var receipt: SeatMenuOutcome?
         do {
             let outcome = try await perform(
                 item: item, on: control, identity: identity, section: section,
-                permissions: permissions, dryRun: dryRun, seat: seat, turn: turn, perception: &perception
+                permissions: permissions, dryRun: dryRun, seat: seat, turn: turn, perception: &perception, receipt: &receipt
             )
             try seat.release(turn)
             await report(perception)
-            return outcome
+            return (outcome, receipt)
         } catch {
             do { try seat.release(turn) }
             catch let cleanup {
@@ -66,7 +84,8 @@ public struct SeatContextMenuSelector {
         dryRun: Bool,
         seat: AgentSeat,
         turn: Turn,
-        perception: inout SelectorPerception
+        perception: inout SelectorPerception,
+        receipt: inout SeatMenuOutcome?
     ) async throws -> ActOutcome {
         guard !LabelText.normalize(item).isEmpty else {
             return ActOutcome(.refused, "context_menu needs the item's title")
@@ -86,11 +105,20 @@ public struct SeatContextMenuSelector {
             case .ambiguous(let count):
                 return ActOutcome(.ambiguous, "\(count) targets match '\(control)'; choose a section or unique ID", scene: before.scene)
         }
-        if !permissions.allowsDestructive, ActionPolicy.isDestructiveMenuItem(
+        // The item is classified with the control that opened its menu first. The seat's menus are chosen
+        // through the scene, which cannot read an irreversible effect back.
+        if ActionPolicy.isDestructiveMenuItem(
             item, openedBy: opener.label, bundleID: identity.bundleID,
             role: opener.role, container: opener.container
         ) {
-            return ActOutcome(.refused, "'\(item)' requires --allow-destructive", scene: before.scene)
+            switch IrreversiblePolicy.decision(allowed: permissions.allowsDestructive, readBack: .cannotConfirm) {
+                case .allowed:
+                    break
+                case .needsConsent:
+                    return ActOutcome(.refused, "'\(item)' requires --allow-destructive", scene: before.scene)
+                case .cannotReadBack:
+                    return ActOutcome(.refused, IrreversiblePolicy.readBackRefusal("'\(item)'"), scene: before.scene)
+            }
         }
         let captured = beforeDelivery.geometry.window
         let nativeWindow = DropdownOpening.Window(
@@ -184,6 +212,8 @@ public struct SeatContextMenuSelector {
             }
             cleanup    = "\(result.cleanup)"
             menuNumber = result.menu.window.windowNumber
+            // The pointer path has a Seat menu outcome; the native popup uses its own AX receipt.
+            receipt = result
         }
         try Task.checkCancellation()
         // A failed post-menu reading cannot turn a delivered choice into a dead click or invite

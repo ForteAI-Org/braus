@@ -40,6 +40,8 @@ public final class WebTabs: Sendable {
         var held    : (document: Int, node: Int)?
         /// The watch of the tab's requests in flight, from a settler's prepare to its settle (W12); at most one.
         var requests: WebRequests?
+        /// What the actuator knows of the last gesture it started sending to the tab, until a call takes it (M05).
+        var lastSend: WebSend?
         /// Where the watch is started and stopped, one step at a time, so a stop under way and a start never cross.
         let lane = AsyncLane()
     }
@@ -163,6 +165,20 @@ public final class WebTabs: Sendable {
 
     func setPopup(_ popup: WebSelectPopup?, for processID: pid_t) {
         state.withLock { $0.tabs[processID]?.popup = popup }
+    }
+
+    /// Keeps what the actuator knows of the last gesture it started sending to the tab (M05).
+    func note(send: WebSend, for processID: pid_t) {
+        state.withLock { $0.tabs[processID]?.lastSend = send }
+    }
+
+    /// The last send since the last take, nil when none started since; taking it clears it, so each call records
+    /// only the send it made itself. A gesture refused before any command leaves it as it was.
+    public func takeLastSend(for processID: pid_t) -> WebSend? {
+        state.withLock { state in
+            defer { state.tabs[processID]?.lastSend = nil }
+            return state.tabs[processID]?.lastSend
+        }
     }
 
     /// Keeps the document node a scene was read from, nil when it could not be read.

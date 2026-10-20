@@ -150,17 +150,6 @@ the divergence.
 **Problem.** A procedure must be cut from what happened, not from what the agent says happened; the agent
 cannot be trusted to list its own steps, and a split by time or focus breaks on a passing change of window.
 
-**Choice.** `ProcedureSegmentation` (`app-blocks-2`) makes one step per UI operation that started (`act`,
-`select`, the six inputs, `menu`, `press`, neither planned nor skipped), in the order the attempt started
-them. A batch is a container whose started children are the steps; context tools (`open_session`,
-`observe`, the listings, `close_session`) and `memory_task` are no step, and neither is a `menu` whose
-path ended on a menu: it listed the items and pressed nothing (`acted_noop`), a read of the application
-that a reuse never repeats and no check could judge, so it is read as context (since `app-blocks-2`, 13
-October 2026; the candidates `app-blocks-1` made stay as they were). A block is a run of consecutive
-steps on one application, the application of the call's session, so Finder, Preview, Finder is three
-blocks. Each step is one occurrence (`occurrence-<call id>`), written once in `memory_step_occurrences`
-with the call as its `action` member and every verification of the call attributed to it.
-
 The candidate's id is `candidate-<attempt>-<digest>`, the FNV-1a 64 digest of the segmentation version
 and the ordered calls: built again over the same calls it is the same candidate (`alreadyApplied`), and its
 occurrences are brought up to date with calls that concluded since. A later checkpoint with more calls is
@@ -280,10 +269,6 @@ correspondence covers the prefix only: a parameter the origin shares between a p
 is not compared past the divergence, where the steps differ anyway.
 
 ## Qualification A
-
-Since 14 October 2026 the policy in force is version B (`qualification-b-1`), which keeps A for steps and
-adds the task's result check and the evidence of an identical earlier run
-([below](#the-method-phases-result-and-repeated-runs)). Evaluations made under A stay as written.
 
 **Problem.** A label and a declared completion are statements; reuse needs proof that each operation did
 what was asked, within what the method could see.
@@ -926,3 +911,18 @@ On 14 October 2026, after the PhotoCraft runs:
 - The interpretation's idempotency compares a 64-bit digest and the length, not the statements.
 - Contexts (application version, locale) are mostly unknown and prove no compatibility.
 - An occurrence's end is left unknown when the calendar placed it before its start.
+
+## Adapter steps and typed reuse
+
+A procedure may combine verified UI operations, adapter mutations and read-only adapter calls whose results a later
+step uses. Unused reads remain exploration. An adapter mutation needs its declared read-back evidence; an accepted
+request alone does not prove an effect. Every step keeps its own verification and the origin of its evidence.
+
+Structured arguments are delivered as constants, typed task parameters or references to results from earlier steps
+of the current run. A reference with several possible sources stays unresolved. Confidential content is withheld
+from durable records and supplied anew by the current task. Reuse resolves the current application, account and
+required capabilities before acting; recalled values and earlier authorization confer no authority.
+
+An uncertain mutation blocks repeats and dependent writes until later read evidence supports a reconciliation.
+Read-only calls remain available for that check. Producer write claims cover concurrent callers, and persistent
+refusals remain separate from episodic memory.

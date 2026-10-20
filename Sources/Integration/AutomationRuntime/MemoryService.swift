@@ -394,6 +394,13 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         }
     }
 
+    /// Makes `service` the shared service of its directory, before any `shared(for:)` of it: for tests that need a
+    /// memory with a configuration of their own behind the producers (a short lock budget, one attempt).
+    package static func install(_ service: MemoryService) {
+        let key = service.directory.standardizedFileURL.resolvingSymlinksInPath().path
+        services.withLock { $0[key] = service }
+    }
+
     /// Forgets the shared service of the directory, closed by the caller, so the next `shared(for:)` opens
     /// the archive anew, as another process would: for tests that reopen it through the producers.
     package static func forget(_ directory: URL) {

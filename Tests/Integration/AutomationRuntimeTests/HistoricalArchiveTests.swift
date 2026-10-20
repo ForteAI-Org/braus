@@ -43,6 +43,32 @@ struct HistoricalArchiveTests {
         try text("schema-rename-app-7", sha256: "6018958381a1ac8b913bad090c0204a655fc1024615009fc629efae1b029aa8e")
     }
 
+    static func mainEight() throws -> String {
+        try text("schema-main-8", sha256: "cc5688999fc470b79affa66fc3d021f2b7dd85d17d53fb60011cf99b71ff0634")
+    }
+
+    static func unifiedNine() throws -> String {
+        try text("schema-unified-9", sha256: "d2c7248afbcca8391675d988650d6fe289c048468ef70c73caa78b3ab0e97306")
+    }
+
+    static func unifiedTen() throws -> String {
+        try text("schema-unified-10", sha256: "fe7152d763e829d51eacff90a9c4aacf23966eafe08e7a12f3a493583c7c52c1")
+    }
+
+    static func unifiedEleven() throws -> String {
+        try text("schema-unified-11", sha256: "ca0739d52e3ffd83671001aa1f0061de1df4d88eaa18a009b38127867bed1746")
+    }
+
+    static func unifiedTwelve() throws -> String {
+        try text("schema-unified-12", sha256: "9c2088d161532ca7281cc831a813d43e7338f2dc8b5b416c8a0e2d8e2b5d07b4")
+    }
+
+
+
+
+
+
+
     static func dThreeSeven() throws -> String {
         try text("schema-d3-7", sha256: "f899eb33bc4184c2e676fd40773f2ddf6c99d274a06c2350d0fc620130b92bac")
     }
@@ -130,10 +156,19 @@ struct HistoricalArchiveTests {
         let main = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try Self.mainOne()))
         let d3 = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try Self.dThreeSeven()))
         let renameApp = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try Self.renameAppSeven()))
+        let mainEight = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try Self.mainEight()))
+        let unifiedNine = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try Self.unifiedNine()))
+        let unifiedTen = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try Self.unifiedTen()))
+        let unifiedEleven = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try Self.unifiedEleven()))
+        let unifiedTwelve = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try Self.unifiedTwelve()))
         #expect(main == Self.digest("main-1") && d3 == Self.digest("d3-7") && renameApp == Self.digest("rename-app-7"))
+        #expect(mainEight == Self.digest("main-8") && unifiedNine == Self.digest("unified-9"))
+        #expect(unifiedTen == Self.digest("unified-10") && unifiedEleven == Self.digest("unified-11"))
+        #expect(unifiedTwelve == Self.digest("unified-12"))
         let current = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.text()))
         let partOne = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.text(of: 1)))
-        #expect(Set([main, d3, renameApp, current, partOne]).count == 5, "five distinct shapes")
+        #expect(Set([main, d3, renameApp, mainEight, unifiedNine, unifiedTen, unifiedEleven, unifiedTwelve, current, partOne]).count == 10,
+                "ten distinct shapes")
     }
 
     // MARK: Migrations
@@ -152,7 +187,7 @@ struct HistoricalArchiveTests {
         let status = await memory.status()
         _ = try await memory.perform { try await $0.procedures.version(routeID) }
         let migrated = await memory.status()
-        #expect(migrated.lastMigration?.contains("from schema d3-7 to 8") == true, "\(String(describing: migrated.lastMigration)) \(status)")
+        #expect(migrated.lastMigration?.contains("from schema d3-7 to \(SQLiteMemorySchema.version)") == true, "\(String(describing: migrated.lastMigration)) \(status)")
         #expect(await memory.flush(within: .seconds(10)))
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
         await memory.close()
@@ -165,7 +200,7 @@ struct HistoricalArchiveTests {
         #expect(try rawRows("SELECT count(*) FROM brain_transitions WHERE effect_label IS NOT NULL OR effect_value IS NOT NULL", at: url) == ["0"])
         #expect(try rawRows("SELECT count(*) FROM memory_agent_actions WHERE observed_effect_label IS NOT NULL", at: url) == ["0"])
         let records = try rawRows("SELECT from_version || ':' || to_version || ':' || ifnull(copy_name, '') FROM memory_schema_migrations ORDER BY to_version", at: url)
-        #expect(records.count == 2 && records.first == "0:7:" && records.last?.hasPrefix("7:8:memory.sqlite.schema-d3-7-") == true,
+        #expect(records.count == 2 && records.first == "0:7:" && records.last?.hasPrefix("7:\(SQLiteMemorySchema.version):memory.sqlite.schema-d3-7-") == true,
                 "the bootstrap of the D3 build, then this migration with its copy: \(records)")
         let copies = try FileManager.default.contentsOfDirectory(atPath: session.directory.path).filter { $0.hasPrefix("memory.sqlite.schema-d3-7-") && !$0.contains("-wal") && !$0.contains("-shm") }
         #expect(copies.count == 1)
@@ -198,7 +233,7 @@ struct HistoricalArchiveTests {
         let tools = P.tools(session, stream: "after-main")
         let begun = try await P.task(tools, #"{"operation":"begin","goal":"Rotate the photo again","recall":false}"#)
         #expect(begun["status"].string == "begun", "\(begun)")
-        #expect((await memory.status()).lastMigration?.contains("from schema main-1 to 8") == true)
+        #expect((await memory.status()).lastMigration?.contains("from schema main-1 to \(SQLiteMemorySchema.version)") == true)
         _ = try await P.task(tools, #"{"operation":"end","outcome":"abandoned"}"#)
         #expect(await memory.flush(within: .seconds(10)))
         await L.close(session)
@@ -212,7 +247,7 @@ struct HistoricalArchiveTests {
         }
         #expect(try rawRows("SELECT count(*) > 0 FROM brain_anchor_label_keys", at: url) == ["1"], "derived in the migration")
         #expect(try rawRows("SELECT (SELECT count(*) FROM brain_scene_shapes) = (SELECT count(*) FROM brain_scenes WHERE scene_kind <> 'app')", at: url) == ["1"])
-        #expect(try rawRows("SELECT from_version || ':' || to_version FROM memory_schema_migrations", at: url) == ["1:8"])
+        #expect(try rawRows("SELECT from_version || ':' || to_version FROM memory_schema_migrations", at: url) == ["1:\(SQLiteMemorySchema.version)"])
         #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty)
     }
 
@@ -250,7 +285,7 @@ struct HistoricalArchiveTests {
             await store.close()
         }
         #expect(migrations == 1)
-        #expect(try rawRows("SELECT count(*) FROM memory_schema_migrations WHERE from_version = 7 AND to_version = 8", at: url) == ["1"])
+        #expect(try rawRows("SELECT count(*) FROM memory_schema_migrations WHERE from_version = 7 AND to_version = \(SQLiteMemorySchema.version)", at: url) == ["1"])
     }
 
     @Test("an archive of version 7 as rename-app wrote it since the merge (rename-app-7) migrates whole: every row, its origins table rebuilt, its copy beside it")
@@ -261,14 +296,313 @@ struct HistoricalArchiveTests {
         let before = try Self.rows(url, columnsOf: text)
         let store = try await SQLiteMemoryStore.open(at: url)
         let migration = try await store.diagnostics().migration
-        #expect(migration?.fromVersion == 7 && migration?.toVersion == 8 && migration?.fromShape == "rename-app-7", "\(String(describing: migration))")
+        #expect(migration?.fromVersion == 7 && migration?.toVersion == SQLiteMemorySchema.version && migration?.fromShape == "rename-app-7", "\(String(describing: migration))")
         await store.close()
         let after = try Self.rows(url, columnsOf: text)
         for (table, kept) in before where !["memory_schema_migrations", "memory_recall_work"].contains(table) {
             #expect(after[table] == kept, "\(table) is unchanged")
         }
-        #expect(try rawRows("SELECT from_version || ':' || to_version FROM memory_schema_migrations ORDER BY to_version", at: url) == ["0:7", "7:8"])
+        #expect(try rawRows("SELECT from_version || ':' || to_version FROM memory_schema_migrations ORDER BY to_version", at: url) == ["0:7", "7:\(SQLiteMemorySchema.version)"])
         #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty)
+    }
+
+    @Test("an archive of version 8 as main wrote it (main-8) migrates whole: every row and declared gap kept, its gaps table rebuilt, unclassified_target admitted only after")
+    func mainEightMigrates() async throws {
+        let (_, url, _) = try await Self.learned()
+        // A declared gap of every reason version 8 admits, on one of the archive's events: the rows the rebuild must keep.
+        let writer = try SQLiteConnection(path: url.path)
+        let event = try writer.query("SELECT event_id FROM memory_events ORDER BY event_id LIMIT 1") { try $0.text(0) ?? "" }.first ?? ""
+        for (position, reason) in ["declared_secret", "credential_pattern", "secret_target", "secure_field"].enumerated() {
+            try writer.execute("""
+                INSERT INTO memory_value_redactions (event_id, location_kind, argument_name, argument_position, reason)
+                VALUES ('\(event)', 'argument', 'w1-probe', \(position), '\(reason)')
+                """)
+        }
+        writer.close()
+        let text = try Self.mainEight()
+        #expect(try Self.convert(url, to: text, version: 8) == Self.digest("main-8"), "the fixture is exactly main-8")
+        let before = try Self.rows(url, columnsOf: text)
+        #expect(before["memory_value_redactions"]?.count == 4)
+        // Version 8 refuses the new reason: the CHECK the migration widens.
+        let probe = try SQLiteConnection(path: url.path)
+        #expect(throws: (any Error).self) {
+            try probe.execute("""
+                INSERT INTO memory_value_redactions (event_id, location_kind, argument_name, argument_position, reason)
+                VALUES ('\(event)', 'argument', 'w1-probe', 9, 'unclassified_target')
+                """)
+        }
+        probe.close()
+
+        let store = try await SQLiteMemoryStore.open(at: url)
+        let migration = try await store.diagnostics().migration
+        #expect(migration?.fromVersion == 8 && migration?.toVersion == SQLiteMemorySchema.version && migration?.fromShape == "main-8", "\(String(describing: migration))")
+        await store.close()
+        let after = try Self.rows(url, columnsOf: text)
+        for (table, kept) in before where !["memory_schema_migrations", "memory_recall_work"].contains(table) {
+            #expect(after[table] == kept, "\(table) is unchanged")
+        }
+        let records = try rawRows("SELECT from_version || ':' || to_version || ':' || ifnull(copy_name, '') FROM memory_schema_migrations ORDER BY to_version", at: url)
+        #expect(records.count == 2 && records.first == "0:8:"
+                && records.last?.hasPrefix("8:\(SQLiteMemorySchema.version):memory.sqlite.schema-main-8-") == true, "\(records)")
+        #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty && rawRows("PRAGMA integrity_check", at: url) == ["ok"])
+        let copies = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
+            .filter { $0.hasPrefix("memory.sqlite.schema-main-8-") && !$0.contains("-wal") && !$0.contains("-shm") }
+        #expect(copies.count == 1, "the way back to version 8 beside it")
+        // The triggers of the rebuilt table are the current text's: a gap stays immutable and kept.
+        let migrated = try SQLiteConnection(path: url.path)
+        defer { migrated.close() }
+        try migrated.execute("""
+            INSERT INTO memory_value_redactions (event_id, location_kind, argument_name, argument_position, reason)
+            VALUES ('\(event)', 'argument', 'w1-probe', 9, 'unclassified_target')
+            """)
+        #expect(throws: (any Error).self) { try migrated.execute("UPDATE memory_value_redactions SET reason = 'secure_field' WHERE argument_position = 9") }
+        #expect(throws: (any Error).self) { try migrated.execute("DELETE FROM memory_value_redactions WHERE argument_position = 9") }
+    }
+
+    @Test("an archive of version 9 as this branch wrote it (unified-9) migrates whole: every row and limit kept, its limits table rebuilt, the settling limits admitted only after")
+    func unifiedNineMigrates() async throws {
+        let (_, url, _) = try await Self.learned()
+        let text = try Self.unifiedNine()
+        #expect(try Self.convert(url, to: text, version: 9) == Self.digest("unified-9"), "the fixture is exactly unified-9")
+        // A limit of every kind version 9 admits, on a verification of the archive: the rows the rebuild must keep.
+        let writer = try SQLiteConnection(path: url.path)
+        let verification = try writer.query("SELECT event_id FROM memory_operation_verifications ORDER BY event_id LIMIT 1") {
+            try $0.text(0) ?? ""
+        }.first ?? ""
+        try writer.execute("DELETE FROM memory_operation_verification_limits WHERE event_id = '\(verification)'")
+        let kinds = ["delivery_uncertain", "no_after_scene", "readback_unavailable", "previous_value_unknown", "no_expectation",
+                     "window_wide", "command_effect_unchecked", "label_match_only", "no_expected_value",
+                     "target_not_resolved", "unattributed", "value_withheld"]
+        for (position, kind) in kinds.enumerated() {
+            try writer.execute("""
+                INSERT INTO memory_operation_verification_limits (event_id, position, limit_kind)
+                VALUES ('\(verification)', \(position), '\(kind)')
+                """)
+        }
+        // Version 9 refuses the settling limits: the CHECK the migration widens.
+        #expect(throws: (any Error).self) {
+            try writer.execute("""
+                INSERT INTO memory_operation_verification_limits (event_id, position, limit_kind)
+                VALUES ('\(verification)', 20, 'settle_capped')
+                """)
+        }
+        writer.close()
+        #expect(!verification.isEmpty, "the learned archive holds a verification")
+        let before = try Self.rows(url, columnsOf: text)
+        #expect((before["memory_operation_verification_limits"]?.count ?? 0) >= kinds.count)
+
+        let store = try await SQLiteMemoryStore.open(at: url)
+        let migration = try await store.diagnostics().migration
+        #expect(migration?.fromVersion == 9 && migration?.toVersion == SQLiteMemorySchema.version
+                && migration?.fromShape == "unified-9",
+                "\(String(describing: migration))")
+        await store.close()
+        let after = try Self.rows(url, columnsOf: text)
+        for (table, kept) in before where !["memory_schema_migrations", "memory_recall_work"].contains(table) {
+            #expect(after[table] == kept, "\(table) is unchanged")
+        }
+        let records = try rawRows("SELECT from_version || ':' || to_version || ':' || ifnull(copy_name, '') FROM memory_schema_migrations ORDER BY to_version", at: url)
+        #expect(records.count == 2 && records.first == "0:9:"
+                && records.last?.hasPrefix("9:\(SQLiteMemorySchema.version):memory.sqlite.schema-unified-9-") == true,
+                "\(records)")
+        #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty && rawRows("PRAGMA integrity_check", at: url) == ["ok"])
+        let copies = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
+            .filter { $0.hasPrefix("memory.sqlite.schema-unified-9-") && !$0.contains("-wal") && !$0.contains("-shm") }
+        #expect(copies.count == 1, "the way back to version 9 beside it")
+        // The rebuilt table admits the settling limits and keeps its trigger: a limit stays immutable.
+        let migrated = try SQLiteConnection(path: url.path)
+        defer { migrated.close() }
+        for (position, kind) in ["settle_capped", "settle_unwatched"].enumerated() {
+            try migrated.execute("""
+                INSERT INTO memory_operation_verification_limits (event_id, position, limit_kind)
+                VALUES ('\(verification)', \(20 + position), '\(kind)')
+                """)
+        }
+        #expect(throws: (any Error).self) {
+            try migrated.execute("UPDATE memory_operation_verification_limits SET limit_kind = 'window_wide' WHERE position = 20")
+        }
+    }
+
+    @Test("M05: an archive of version 10 as this branch wrote it (unified-10) migrates whole: a reader refuses it as found, a producer keeps every row and adds the call routes, whose CHECKs hold")
+    func unifiedTenMigrates() async throws {
+        let (_, url, _) = try await Self.learned()
+        let text = try Self.unifiedTen()
+        #expect(try Self.convert(url, to: text, version: 10) == Self.digest("unified-10"), "the fixture is exactly unified-10")
+        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 10, supported: SQLiteMemorySchema.version))) {
+            _ = try await SQLiteMemoryStore.open(at: url, opening: .existingArchive)
+        }
+        let before = try Self.rows(url, columnsOf: text)
+        #expect((before["memory_agent_actions"]?.count ?? 0) > 0 && (before["memory_call_effects"]?.count ?? 0) > 0)
+        #expect(try rawRows("SELECT name FROM sqlite_schema WHERE name = 'memory_call_routes'", at: url).isEmpty)
+
+        let store = try await SQLiteMemoryStore.open(at: url)
+        let migration = try await store.diagnostics().migration
+        #expect(migration?.fromVersion == 10 && migration?.toVersion == SQLiteMemorySchema.version
+                && migration?.fromShape == "unified-10",
+                "\(String(describing: migration))")
+        await store.close()
+        let after = try Self.rows(url, columnsOf: text)
+        for (table, kept) in before where !["memory_schema_migrations", "memory_recall_work"].contains(table) {
+            #expect(after[table] == kept, "\(table) is unchanged")
+        }
+        let records = try rawRows("SELECT from_version || ':' || to_version || ':' || ifnull(copy_name, '') FROM memory_schema_migrations ORDER BY to_version", at: url)
+        #expect(records.count == 2 && records.first == "0:10:"
+                && records.last?.hasPrefix("10:\(SQLiteMemorySchema.version):memory.sqlite.schema-unified-10-") == true,
+                "\(records)")
+        #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty && rawRows("PRAGMA integrity_check", at: url) == ["ok"])
+        let current = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.text()))
+        let migratedDigest = { () throws -> String in
+            let connection = try SQLiteConnection(path: url.path, readOnly: true, mayCreate: false)
+            defer { connection.close() }
+            return SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: connection))
+        }
+        #expect(try migratedDigest() == current, "exactly the current shape")
+        // The copy made before the migration is the way back: readable, exactly unified-10, every row as it was.
+        let folder = url.deletingLastPathComponent()
+        let copies = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .filter { $0.hasPrefix("memory.sqlite.schema-unified-10-") && !$0.contains("-wal") && !$0.contains("-shm") }
+        #expect(copies.count == 1, "\(copies)")
+        let copy = folder.appendingPathComponent(try #require(copies.first))
+        let reader = try SQLiteConnection(path: copy.path, readOnly: true, mayCreate: false)
+        #expect(try reader.query("PRAGMA user_version") { $0.integer(0) ?? 0 }.first == 10)
+        #expect(SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: reader)) == Self.digest("unified-10"))
+        reader.close()
+        let copied = try Self.rows(copy, columnsOf: text)
+        for (table, kept) in before where table != "memory_recall_work" {
+            #expect(copied[table] == kept, "the copy's \(table) is the archive's before")
+        }
+        // The added table takes a route, and refuses one it does not name or a reason off the desktop.
+        let call = try #require(try rawRows("SELECT event_id FROM memory_agent_actions ORDER BY event_id LIMIT 1", at: url).first)
+        let migrated = try SQLiteConnection(path: url.path)
+        defer { migrated.close() }
+        try migrated.execute("INSERT INTO memory_call_routes (event_id, route, handoff_reason) VALUES ('\(call)', 'desktop', 'given back')")
+        for (route, reason) in [("seat", "NULL"), ("native", "'given back'")] {
+            #expect(throws: (any Error).self) {
+                try migrated.execute("INSERT OR REPLACE INTO memory_call_routes (event_id, route, handoff_reason) VALUES ('\(call)', '\(route)', \(reason))")
+            }
+        }
+        // The rebuild wrote the table's triggers too: a route stays as written.
+        #expect(throws: (any Error).self) {
+            try migrated.execute("UPDATE memory_call_routes SET handoff_reason = 'another' WHERE event_id = '\(call)'")
+        }
+    }
+
+    @Test("M05: an archive of version 11 as this branch wrote it (unified-11) migrates whole: a reader refuses it as found, a producer keeps every row and adds the adapter dispatches, whose CHECKs, reference and triggers hold, and the copy before is the way back")
+    func unifiedElevenMigrates() async throws {
+        let (_, url, _) = try await Self.learned()
+        let text = try Self.unifiedEleven()
+        #expect(try Self.convert(url, to: text, version: 11) == Self.digest("unified-11"), "the fixture is exactly unified-11")
+        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 11, supported: SQLiteMemorySchema.version))) {
+            _ = try await SQLiteMemoryStore.open(at: url, opening: .existingArchive)
+        }
+        let before = try Self.rows(url, columnsOf: text)
+        #expect((before["memory_agent_actions"]?.count ?? 0) > 0)
+        #expect(try rawRows("SELECT name FROM sqlite_schema WHERE name = 'memory_call_adapter_dispatches'", at: url).isEmpty)
+
+        let store = try await SQLiteMemoryStore.open(at: url)
+        let migration = try await store.diagnostics().migration
+        #expect(migration?.fromVersion == 11 && migration?.toVersion == SQLiteMemorySchema.version
+                && migration?.fromShape == "unified-11",
+                "\(String(describing: migration))")
+        await store.close()
+        let after = try Self.rows(url, columnsOf: text)
+        for (table, kept) in before where !["memory_schema_migrations", "memory_recall_work"].contains(table) {
+            #expect(after[table] == kept, "\(table) is unchanged")
+        }
+        let records = try rawRows("SELECT from_version || ':' || to_version || ':' || ifnull(copy_name, '') FROM memory_schema_migrations ORDER BY to_version", at: url)
+        #expect(records.count == 2 && records.first == "0:11:"
+                && records.last?.hasPrefix("11:\(SQLiteMemorySchema.version):memory.sqlite.schema-unified-11-") == true,
+                "\(records)")
+        #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty && rawRows("PRAGMA integrity_check", at: url) == ["ok"])
+        let current = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.text()))
+        let connection = try SQLiteConnection(path: url.path, readOnly: true, mayCreate: false)
+        #expect(SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: connection)) == current,
+                "exactly the current shape")
+        connection.close()
+        // The copy made before the migration is the way back: readable, exactly unified-11, every row as it was.
+        let folder = url.deletingLastPathComponent()
+        let copies = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .filter { $0.hasPrefix("memory.sqlite.schema-unified-11-") && !$0.contains("-wal") && !$0.contains("-shm") }
+        #expect(copies.count == 1, "\(copies)")
+        let copy = folder.appendingPathComponent(try #require(copies.first))
+        let reader = try SQLiteConnection(path: copy.path, readOnly: true, mayCreate: false)
+        #expect(try reader.query("PRAGMA user_version") { $0.integer(0) ?? 0 }.first == 11)
+        #expect(SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: reader)) == Self.digest("unified-11"))
+        reader.close()
+        let copied = try Self.rows(copy, columnsOf: text)
+        for (table, kept) in before where table != "memory_recall_work" {
+            #expect(copied[table] == kept, "the copy's \(table) is the archive's before")
+        }
+        // The added table takes a concluded call's dispatch once; it refuses an empty name, a call that is not there,
+        // and a change once written.
+        let call = try #require(try rawRows(
+            "SELECT event_id FROM memory_agent_actions WHERE execution_status IN ('completed', 'failed') ORDER BY event_id LIMIT 1",
+            at: url).first)
+        let migrated = try SQLiteConnection(path: url.path)
+        defer { migrated.close() }
+        try migrated.execute("PRAGMA foreign_keys = ON")
+        try migrated.execute("INSERT INTO memory_call_adapter_dispatches (event_id, adapter, verb) VALUES ('\(call)', 'Calendar', 'events.list')")
+        for (event, adapter, verb) in [(call, "Calendar", "events.add"), ("no-such-call", "Calendar", "events.list")] {
+            #expect(throws: (any Error).self) {
+                try migrated.execute("INSERT INTO memory_call_adapter_dispatches (event_id, adapter, verb) VALUES ('\(event)', '\(adapter)', '\(verb)')")
+            }
+        }
+        #expect(throws: (any Error).self) {
+            try migrated.execute("UPDATE memory_call_adapter_dispatches SET verb = 'events.add' WHERE event_id = '\(call)'")
+        }
+    }
+
+
+
+
+
+
+
+
+    @Test("M05: a version 10 file one statement off unified-10 is refused untouched, with no copy made")
+    func unifiedTenAlteredRefused() async throws {
+        let (_, url, _) = try await Self.learned()
+        _ = try Self.convert(url, to: try Self.unifiedTen(), version: 10)
+        let digest = { () throws -> String in
+            let connection = try SQLiteConnection(path: url.path, readOnly: true, mayCreate: false)
+            defer { connection.close() }
+            return SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: connection))
+        }
+        #expect(try digest() == Self.digest("unified-10"))
+        let connection = try SQLiteConnection(path: url.path)
+        try connection.execute("DROP TRIGGER memory_operation_verification_limits_immutable")
+        connection.close()
+        let altered = try digest()
+        let before = try Self.rows(url, columnsOf: try Self.unifiedTen())
+        await #expect(throws: (any Error).self) { _ = try await SQLiteMemoryStore.open(at: url) }
+        #expect(try digest() == altered, "refused untouched")
+        #expect(try Self.rows(url, columnsOf: try Self.unifiedTen()) == before, "every row as it was")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
+            .filter { $0.contains(".schema-") }
+        #expect(leftovers.isEmpty, "no copy is made of a file that is not migrated")
+    }
+
+    @Test("a reader refuses a unified-9 archive as found; a version 9 file one statement off unified-9 is refused untouched")
+    func unifiedNineRefusals() async throws {
+        let (_, url, _) = try await Self.learned()
+        _ = try Self.convert(url, to: try Self.unifiedNine(), version: 9)
+        let digest = { () throws -> String in
+            let connection = try SQLiteConnection(path: url.path, readOnly: true, mayCreate: false)
+            defer { connection.close() }
+            return SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: connection))
+        }
+        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 9, supported: SQLiteMemorySchema.version))) {
+            _ = try await SQLiteMemoryStore.open(at: url, opening: .existingArchive)
+        }
+        #expect(try digest() == Self.digest("unified-9"))
+        let connection = try SQLiteConnection(path: url.path)
+        try connection.execute("DROP TRIGGER memory_operation_verification_limits_immutable")
+        connection.close()
+        let altered = try digest()
+        await #expect(throws: (any Error).self) { _ = try await SQLiteMemoryStore.open(at: url) }
+        #expect(try digest() == altered, "refused untouched")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path).filter { $0.contains(".schema-") }
+        #expect(leftovers.isEmpty, "no copy is made of a file that is not migrated")
     }
 
     /// Real archives of earlier builds, copied with their logs into a fresh folder and opened by the product: what each
@@ -305,7 +639,8 @@ struct HistoricalArchiveTests {
             probe.close()
             let known = SQLiteMemorySchema.historicalShapes.first { $0.digest == digest }?.name
             let text = known == "main-1" ? try Self.mainOne() : known == "d3-7" ? try Self.dThreeSeven()
-                : known == "rename-app-7" ? try Self.renameAppSeven() : nil
+                : known == "rename-app-7" ? try Self.renameAppSeven() : known == "main-8" ? try Self.mainEight()
+                : known == "unified-9" ? try Self.unifiedNine() : known == "unified-10" ? try Self.unifiedTen() : nil
             let before = try text.map { try Self.rows(url, columnsOf: $0) }
             var entry: [String: JSONValue] = ["user_version": .number(Double(version)), "digest": .string(digest),
                                               "rows": .number(Double(counts.values.reduce(0, +)))]
@@ -326,7 +661,7 @@ struct HistoricalArchiveTests {
                 }
                 entry["foreign_key_check"] = .number(Double(try rawRows("PRAGMA foreign_key_check", at: url).count))
                 entry["integrity_check"] = .string(try rawRows("PRAGMA integrity_check", at: url).joined(separator: ";"))
-                // The migrated copy, closed, with its log files, for the readers that inspect archives of version 8.
+                // The migrated copy, closed, with its log files, for the readers that inspect archives of version 9.
                 let kept = out.appendingPathComponent("migrated").appendingPathComponent(label, isDirectory: true)
                 try FileManager.default.createDirectory(at: kept, withIntermediateDirectories: true)
                 for suffix in ["", "-wal", "-shm"] where FileManager.default.fileExists(atPath: url.path + suffix) {
@@ -354,13 +689,36 @@ struct HistoricalArchiveTests {
             defer { connection.close() }
             return SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: connection))
         }
-        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 7, supported: 8))) {
+        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 7, supported: SQLiteMemorySchema.version))) {
             _ = try await SQLiteMemoryStore.open(at: url, opening: .existingArchive)
         }
         #expect(try digest() == Self.digest("d3-7"))
         // One trigger dropped: no known shape any more.
         let connection = try SQLiteConnection(path: url.path)
         try connection.execute("DROP TRIGGER memory_recall_requirements_valid")
+        connection.close()
+        let altered = try digest()
+        await #expect(throws: (any Error).self) { _ = try await SQLiteMemoryStore.open(at: url) }
+        #expect(try digest() == altered, "refused untouched")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path).filter { $0.contains(".schema-") }
+        #expect(leftovers.isEmpty, "no copy is made of a file that is not migrated")
+    }
+
+    @Test("a reader refuses a main-8 archive as found; a version 8 file one statement off main-8 is refused untouched")
+    func mainEightRefusals() async throws {
+        let (_, url, _) = try await Self.learned()
+        _ = try Self.convert(url, to: try Self.mainEight(), version: 8)
+        let digest = { () throws -> String in
+            let connection = try SQLiteConnection(path: url.path, readOnly: true, mayCreate: false)
+            defer { connection.close() }
+            return SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: connection))
+        }
+        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 8, supported: SQLiteMemorySchema.version))) {
+            _ = try await SQLiteMemoryStore.open(at: url, opening: .existingArchive)
+        }
+        #expect(try digest() == Self.digest("main-8"))
+        let connection = try SQLiteConnection(path: url.path)
+        try connection.execute("DROP TRIGGER memory_value_redactions_kept")
         connection.close()
         let altered = try digest()
         await #expect(throws: (any Error).self) { _ = try await SQLiteMemoryStore.open(at: url) }

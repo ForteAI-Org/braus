@@ -68,9 +68,11 @@ struct SQLiteLifecycleTests {
     func failedOpenCanBeRetried() async throws {
         let url = try temporaryDatabase()
         let raw = try SQLiteConnection(path: url.path)
-        try raw.execute("PRAGMA user_version = 9")
+        // One version past this build's, whatever it is.
+        let future = SQLiteMemorySchema.version + 1
+        try raw.execute("PRAGMA user_version = \(future)")
         let store = SQLiteMemoryStore(url: url)
-        #expect(await storeError { try await store.open() } == .schema(.future(found: 9, supported: SQLiteMemorySchema.version)))
+        #expect(await storeError { try await store.open() } == .schema(.future(found: future, supported: SQLiteMemorySchema.version)))
         #expect(await store.liveHandles == 0)
         try raw.execute("PRAGMA user_version = 0")
         raw.close()

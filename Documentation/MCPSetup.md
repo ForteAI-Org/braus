@@ -59,8 +59,6 @@ Open **Settings → Developer → Edit Config** and merge the shared JSON templa
 
 Quit Claude Desktop completely and reopen it. Check Braus's connection status in Developer settings and confirm its tools appear in the conversation's tool controls.
 
-This is the local MCP setup for Claude Desktop. It does not install a hosted connector for claude.ai or establish Cowork compatibility.
-
 Reference: [MCP local-server setup for Claude Desktop](https://modelcontextprotocol.io/docs/develop/connect-local-servers).
 
 ## Claude Code
@@ -226,8 +224,6 @@ Arguments:
 ```
 
 If a client requires an array containing the whole command, place the executable first, followed by those three arguments. Follow that client's configuration schema; not every client uses an `mcpServers` wrapper.
-
-If the interface only accepts a server URL, this local configuration cannot be pasted there. Braus currently provides no public HTTP/SSE endpoint or hosted OAuth connector. Direct web/cloud connection requires a separate integration; do not describe this feature as universal ChatGPT web, claude.ai or cloud-agent support.
 
 ## Choose the capabilities to expose
 

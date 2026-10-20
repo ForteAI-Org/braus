@@ -29,10 +29,10 @@ private let statusCall = ToolCall(
     arguments: Data("{}".utf8)
 )
 
-private let openFinder = ToolCall(
+private let openTextEdit = ToolCall(
     id       : "call_0",
     name     : "open_session",
-    arguments: Data(#"{"app":"Finder"}"#.utf8)
+    arguments: Data(#"{"app":"TextEdit"}"#.utf8)
 )
 
 private let ollama = ModelSelection(
@@ -370,7 +370,7 @@ struct ModelToolLoopTests {
         let transport = ScriptedTransport(
             supportsTools: true,
             rounds       : [
-                [.toolCall(openFinder), .completed(usage)],
+                [.toolCall(openTextEdit), .completed(usage)],
                 [.delta("I can’t open apps here."), .completed(usage)],
             ]
         )
@@ -382,10 +382,10 @@ struct ModelToolLoopTests {
             transport: transport,
             role     : nil,
             history  : [],
-            prompt   : "Open Finder."
+            prompt   : "Open TextEdit."
         ) { events.append($0) }
 
-        #expect(events.first == .tool(#"→ open_session {"app":"Finder"}"#))
+        #expect(events.first == .tool(#"→ open_session {"app":"TextEdit"}"#))
         #expect(events.last == .provider(.completed))
 
         let answered = try #require(transport.sent.last?.messages.last)
@@ -581,7 +581,7 @@ struct ModelToolLoopTests {
     @Test func aStopWhileAToolRunsLetsItFinishAndStartsNoOther() async throws {
         let transport = ScriptedTransport(
             supportsTools: true,
-            rounds       : [[.toolCall(openFinder), .toolCall(statusCall), .completed(usage)]]
+            rounds       : [[.toolCall(openTextEdit), .toolCall(statusCall), .completed(usage)]]
         )
         let session = RecordingSession()
         let host    = WorkerAgentHost(
@@ -594,7 +594,7 @@ struct ModelToolLoopTests {
         var events = [WorkerAgentEvent]()
         let turn   = Task {
             try await host.run(
-                prompt   : "Open Finder.",
+                prompt   : "Open TextEdit.",
                 selection: ollama,
                 sessionID: nil,
                 role     : nil
@@ -616,7 +616,7 @@ struct ModelToolLoopTests {
     @Test func closingDuringAToolCallWaitsForItThenClosesTheSession() async throws {
         let transport = ScriptedTransport(
             supportsTools: true,
-            rounds       : [[.toolCall(openFinder), .toolCall(statusCall), .completed(usage)]]
+            rounds       : [[.toolCall(openTextEdit), .toolCall(statusCall), .completed(usage)]]
         )
         let session = RecordingSession()
         let host    = WorkerAgentHost(
@@ -629,7 +629,7 @@ struct ModelToolLoopTests {
         var events = [WorkerAgentEvent]()
         let turn   = Task {
             try await host.run(
-                prompt   : "Open Finder.",
+                prompt   : "Open TextEdit.",
                 selection: ollama,
                 sessionID: nil,
                 role     : nil

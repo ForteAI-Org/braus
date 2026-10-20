@@ -35,6 +35,16 @@ enum SyntheticWorld {
         guard method == "Runtime.callFunctionOn", params["objectId"]?.stringValue == objectID,
               let function = params["functionDeclaration"]?.stringValue
         else { return nil }
-        return "(\(function))()"
+        let arguments = (params["arguments"]?.arrayValue ?? []).map { argument -> String in
+            if let value = argument["value"], let data = try? JSONEncoder().encode(value) {
+                return String(decoding: data, as: UTF8.self)
+            }
+            if let object = argument["objectId"]?.stringValue {
+                if object.hasPrefix("field-"), let id = Int(object.dropFirst(6)) { return "__node(\(id))" }
+                if object.hasPrefix("obj-"), let id = Int(object.dropFirst(4)) { return "__objects[\(id)]" }
+            }
+            return "null"
+        }
+        return "(\(function))(\(arguments.joined(separator: ",")))"
     }
 }

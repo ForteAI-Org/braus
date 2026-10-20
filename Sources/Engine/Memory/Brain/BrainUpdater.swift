@@ -31,12 +31,29 @@ public enum BrainUpdater {
     /// them, then detects and persists sibling groups. Texts name groups only. `window` is the
     /// captured window's title letters family; forgetting is scoped to it, nil is unscoped. `keys`
     /// names what this ingest creates; the default draws the random UUIDs it always drew.
+    ///
+    /// `coverage` is what the observation could see; nil is an observation made before coverage
+    /// existed and is ingested exactly as `brain-updater-1` did. With a coverage:
+    ///
+    /// - Only a coverage that `attestsAbsence` makes the scene an observation of the application:
+    ///   it may tick the clock and the window's counter and run the decay. Any other observation
+    ///   records presence only (it refreshes what it shows, stamps it with the current counter and
+    ///   creates new anchors), so an anchor it does not show never ages from it.
+    /// - `provenance` answers the representations known to have seen an anchor, by its key; the
+    ///   empty set is unknown (an anchor seen only before coverage existed). A weak match (see
+    ///   `BrainMatcher.match`) may bind an anchor only when its provenance is unknown or contains
+    ///   the observation's known representation, so an anchor seen only by another representation
+    ///   (the MacDriver's tree against the Seat's pixels) is bound only by an exact label and kind;
+    ///   an observation of unknown representation binds a known anchor only exactly. A pure
+    ///   in-memory brain stores no provenance: its default answers unknown for every anchor.
     public static func ingest(
         _ detections: [BrainDetection],
         into brain  : inout UIBrain,
         now         : Date,
         window      : String? = nil,
-        keys        : BrainKeys = .random
+        coverage    : BrainObservationCoverage? = nil,
+        keys        : BrainKeys = .random,
+        provenance  : (String) -> Set<BrainObservationCoverage.Representation> = { _ in [] }
     ) -> IngestStats {
         var stats = IngestStats()
         let interactive = detections.filter {
@@ -44,8 +61,17 @@ public enum BrainUpdater {
         }
         let texts = detections.filter { $0.kind == .text }
         var anchorFor: [Int: String] = [:]
-        // A substantial scene (three or more interactive detections) is an observation; a lone upsert is not.
-        let advanced = brain.beginIngest(now: now, window: window, substantial: interactive.count >= 3)
+        var seenBy: [String: Set<BrainObservationCoverage.Representation>] = [:]
+        func admitsWeakMatch(_ anchor: ObjectAnchor) -> Bool {
+            guard let coverage else { return true }
+            let known = seenBy[anchor.anchorKey] ?? provenance(anchor.anchorKey).subtracting([.unknown])
+            seenBy[anchor.anchorKey] = known
+            return known.isEmpty || (coverage.representation != .unknown && known.contains(coverage.representation))
+        }
+        // A substantial scene (three or more interactive detections) is an observation; a lone upsert is
+        // not, and neither is a scene whose coverage cannot attest absence.
+        let substantial = interactive.count >= 3 && (coverage?.attestsAbsence ?? true)
+        let advanced = brain.beginIngest(now: now, window: window, substantial: substantial)
         let epoch = brain.ingestEpoch
         let stamp = brain.stamp(for: window)
 
@@ -56,7 +82,8 @@ public enum BrainUpdater {
         var claimed = Set<String>()
 
         for (i, detection) in interactive.enumerated() {
-            switch BrainMatcher.match(detection, in: baseline, index: index, excluding: claimed) {
+            switch BrainMatcher.match(detection, in: baseline, index: index, excluding: claimed,
+                                      admitsWeakMatch: admitsWeakMatch) {
                 case .found(let key):
                     guard let oi = brain.objectIndex(withKey: key) else { continue }
                     refresh(&brain.objects[oi], with: detection, now: now, stamp: stamp, window: window)
@@ -101,8 +128,43 @@ public enum BrainUpdater {
             mergeGroup(candidate, members: members, interactive: interactive, into: &brain, now: now, epoch: epoch,
                        keys: keys)
         }
-        if advanced { stats.decay = decay(&brain, now: now) }
+        if advanced {
+            stats.decay = decay(&brain, now: now)
+        } else if let coverage, coverage.spatialScope != .legacyWindow {
+            stats.decay = enforceCapacity(&brain)
+        }
         return stats
+    }
+
+    /// Presence-only ingestion still enforces capacity, without turning unseen anchors into absence evidence.
+    private static func enforceCapacity(_ brain: inout UIBrain, maximum: Int = 3000) -> DecayReport? {
+        guard brain.objects.count > maximum else { return nil }
+        let ranked = brain.objects.filter { !$0.isProtected }.sorted { lhs, rhs in
+            lhs.seenCount != rhs.seenCount ? lhs.seenCount > rhs.seenCount : lhs.lastSeen > rhs.lastSeen
+        }
+        let removed = Set(ranked.dropFirst(maximum).map(\.anchorKey))
+        guard !removed.isEmpty else { return nil }
+        var report = DecayReport()
+        for key in removed { report.anchors[key] = .cap }
+        brain.objects.removeAll { removed.contains($0.anchorKey) }
+        brain.groups = brain.groups.compactMap { original in
+            var group = original
+            group.memberAnchors.removeAll { removed.contains($0) }
+            guard group.memberAnchors.count >= 3 else {
+                report.groups[group.id] = .members
+                for key in group.memberAnchors {
+                    if let index = brain.objectIndex(withKey: key) { brain.objects[index].groupID = nil }
+                }
+                return nil
+            }
+            return group
+        }
+        brain.transitions.removeAll { transition in
+            guard removed.contains(transition.anchorKey) else { return false }
+            report.transitions[transition.key] = .anchor
+            return true
+        }
+        return report
     }
 
     /// Updates a matched anchor: counts, recency, bounds, state, and the label ledger. A model-assigned

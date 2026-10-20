@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Posts fixture</title>
+<style>
+  article.post { min-height: 260px; border-bottom: 1px solid #ccc; }
+  /* Off-screen articles are skipped by rendering, as feeds do, yet still in the document: they must be read. */
+  #feed article.post { content-visibility: auto; contain-intrinsic-size: auto 260px; }
+  .gone { display: none; }
+  .invisible { visibility: hidden; }
+</style>
+</head>
+<body>
+<!-- A page built of <article> elements for the post reader (WebPostReaderLiveTests), the 30 in the feed with
+     content-visibility: auto, so most are skipped off screen and must still be read. What must never be read carries
+     SENTINEL: a hidden article, an invisible one, an aria-hidden one, a form value, a nested comment's text. -->
+<main id="feed"></main>
+<article class="post gone"><h2>Hidden root</h2><p>SENTINEL-HIDDEN</p></article>
+<article class="post invisible"><h2>Invisible root</h2><p>SENTINEL-INVISIBLE</p></article>
+<div aria-hidden="true"><article class="post"><h2>Aria hidden</h2><p>SENTINEL-ARIA</p></article></div>
+<script>
+  const feed = document.getElementById("feed");
+  const long = "This first post has a body much longer than eighty characters, so a reader that cut texts there would lose its end. END-OF-LONG";
+  for (let index = 1; index <= 30; index += 1) {
+    const article = document.createElement("article");
+    article.className = "post";
+    article.innerHTML =
+      '<h2><a href="/posts/' + index + '">Post ' + index + '</a></h2>' +
+      '<span class="author">Author ' + index + '</span>' +
+      '<time datetime="2026-10-17T10:' + String(index).padStart(2, "0") + ':00Z">10:' + index + '</time>' +
+      '<p>' + (index === 1 ? long : "Body of post " + index + ".") + '</p>' +
+      '<form><input name="token" value="SENTINEL-FORM"></form>' +
+      '<article class="comment"><p>SENTINEL-NESTED comment</p></article>';
+    feed.appendChild(article);
+  }
+</script>
+</body>
+</html>
