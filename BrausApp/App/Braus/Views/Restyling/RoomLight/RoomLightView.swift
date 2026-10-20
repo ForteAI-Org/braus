@@ -203,10 +203,14 @@ final class RoomLightView: MTKView {
         layer?.convertTime(1, from: nil) ?? 1
     }
 
-    /// Where a pulse frame lives: shared memory on a GPU with unified memory, managed memory with a
-    /// synchronising blit on a discrete GPU, where a texture cannot be shared.
-    static func frameStorageMode(hasUnifiedMemory: Bool) -> MTLStorageMode {
-        hasUnifiedMemory ? .shared : .managed
+    /// Where a pulse frame lives: shared memory on an Apple GPU, managed memory with a synchronising
+    /// blit on Intel and AMD GPUs, which take no shared textures even when integrated and reporting
+    /// unified memory.
+    static func frameStorageMode(
+        isAppleGPU      : Bool,
+        hasUnifiedMemory: Bool
+    ) -> MTLStorageMode {
+        isAppleGPU && hasUnifiedMemory ? .shared : .managed
     }
 
     private func startPulse(
@@ -251,7 +255,10 @@ final class RoomLightView: MTKView {
             mipmapped  : false
         )
         descriptor.usage       = [.shaderWrite]
-        descriptor.storageMode = frameStorageMode(hasUnifiedMemory: texture.device.hasUnifiedMemory)
+        descriptor.storageMode = frameStorageMode(
+            isAppleGPU      : texture.device.supportsFamily(.apple1),
+            hasUnifiedMemory: texture.device.hasUnifiedMemory
+        )
         return texture.device.makeTexture(descriptor: descriptor)
     }
 

@@ -76,23 +76,42 @@ struct MascotLayerTests {
         #expect(breathing.animation(forKey: "breathe") != nil)
     }
 
-    @Test("In a room the brows take a faint pulsing tint of its light, never when off")
+    @Test("In a room the brows' top edge catches its light, white below it, never when off")
     func roomLight() throws {
         defer { RestylingMotion.overrideReducesMotion = nil }
         RestylingMotion.overrideReducesMotion = false
         let white  = CGColor(srgbRed: 0xF5 / 255.0, green: 0xF5 / 255.0, blue: 0xF7 / 255.0, alpha: 1)
+        let srgb   = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        func components(_ color: CGColor?) throws -> [CGFloat] {
+            try #require(color?.converted(to: srgb, intent: .defaultIntent, options: nil)?.components)
+        }
         let mascot = makeMascot()
         mascot.status = .busy
         mascot.catchRoomLight(true)
-        let fill = try #require(mascot.leftBrow.fillColor?.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components)
-        // Warmer than white, by at most the tint's share.
-        #expect(fill[0] > fill[2])
-        #expect(abs(fill[0] - 0xF5 / 255.0) <= MascotLayer.roomLightTint + 1e-6)
+
+        // The edge: warm, at most `roomLightTint` of the light.
+        let edge = try components(mascot.leftBrow.fillColor)
+        #expect(edge[0] - edge[2] > 0.2)
+        #expect(0xF7 / 255.0 - edge[2] <= MascotLayer.roomLightTint + 1e-6)
+        // Below it, half way, then white: green and blue stay near white away from the edge.
+        let copies = mascot.lightCopies(of: mascot.leftBrow)
+        #expect(copies.count == 2 && copies.allSatisfy { !$0.isHidden && $0.mask != nil })
+        let half = try components(copies[0].fillColor)
+        #expect(half[2] > edge[2] && half[2] < 0xF7 / 255.0)
+        let inner = try components(copies[1].fillColor)
+        #expect(abs(inner[1] - 0xF5 / 255.0) < 0.01 && abs(inner[2] - 0xF7 / 255.0) < 0.01)
+
+        // The edge and the half step pulse with the room, phased like it.
         let pulse = try #require(mascot.leftBrow.animation(forKey: MascotLayer.roomLightKey) as? CAKeyframeAnimation)
         #expect(pulse.keyPath == "fillColor" && pulse.duration == 3.4)
         #expect(pulse.values?.count == RoomLightView.framesPerCycle + 1)
         #expect(pulse.beginTime == RoomLightView.pulseBeginTime(in: mascot.leftBrow))
-        #expect(mascot.rightBrow.animation(forKey: MascotLayer.roomLightKey) != nil)
+        #expect(copies[0].animation(forKey: MascotLayer.roomLightKey) != nil)
+
+        // The copies morph with the brow.
+        mascot.show(.working, animated: true)
+        #expect(copies.allSatisfy { $0.animation(forKey: "path") != nil })
+        #expect(copies[1].path == mascot.leftBrow.path)
 
         RestylingMotion.overrideReducesMotion = true
         mascot.catchRoomLight(true)
@@ -102,12 +121,13 @@ struct MascotLayerTests {
         mascot.status = .off
         mascot.catchRoomLight(true)
         #expect(mascot.leftBrow.animation(forKey: MascotLayer.roomLightKey) == nil)
+        #expect(copies.allSatisfy { $0.isHidden })
         #expect(mascot.leftBrow.fillColor == CGColor(srgbRed: 0x6E / 255.0, green: 0x6E / 255.0, blue: 0x6E / 255.0, alpha: 1))
 
         mascot.status = .busy
         mascot.catchRoomLight(false)
         #expect(mascot.leftBrow.fillColor == white)
-        #expect(mascot.leftBrow.animation(forKey: MascotLayer.roomLightKey) == nil)
+        #expect(copies.allSatisfy { $0.isHidden })
     }
 
     private func makeMascot() -> MascotLayer {

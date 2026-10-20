@@ -55,24 +55,26 @@ constant float3 ambient     = float3(0.003);  // #0A0A0A, the unlit room
 
 // The lamp's radiance seen in a reflection, against the light it gives the floor under it, and the
 // bright core of its disc that the metal mirrors, as a share of its radius.
-constant float lampGlow      = 12;
-constant float lampCoreShare = 0.3;
+constant float lampGlow      = 2.5;
+constant float lampCoreShare = 1.0;
 
-// The sphere's metal: GGX roughness, how much of its tint it reflects head on, the share of the
+// The sphere's metal: GGX roughness, how much of its tint it reflects head on, the shares of the
 // room the precomputed path shows on it, and how much of the painted body's own light a metal keeps.
 constant float metalRoughness   = 0.24;
-constant float metalReflectance = 0.75;
-constant float sheenShare       = 0.6;   // the precomputed estimate of the room on the metal
+constant float metalReflectance = 0.9;
+constant float sheenShare       = 0.2;   // the precomputed estimate of the floor on the metal
+constant float rimShare         = 0.6;   // the precomputed estimate of the walls at the silhouette
 constant float bodyDiffuse      = 0.6;
 
-// The sphere faces its viewer as MascotLayer draws it, not the camera above the room: the viewer
-// stands north of it, a little below its centre, and its frame rolls so that the lamp's reflection
-// falls on MascotLayer's highlight, upper left. From the north the metal's lower half sees the lit
-// pool on the floor, away from its own shadow, which falls south, and a flank sees the floor out to
-// the wall. The three directions are orthonormal.
-constant float3 sphereView  = float3(0.0, -0.9703, -0.2419);
-constant float3 sphereUp    = float3(-0.4695, -0.2136, 0.8567);
-constant float3 sphereRight = float3(-0.8829, 0.1136, -0.4555);
+// The metal reflects for the room's camera, straight down: its centre looks up at the lamp, its
+// silhouette sideways into the walls, the ring between down onto the floor beside it.
+constant float3 sphereView = float3(0, 0, 1);
+
+// Where the metal sees the lamp's glow, from the lamp, as fractions of the room's short side: north-
+// west and a little lower, so the soft reflection sits upper left, where MascotLayer's highlight is.
+// Moving the lamp itself there threw a long hard shadow across the room, so only the reflection
+// takes this offset, as MascotLayer's painted highlight follows a key light of its own.
+constant float3 glowOffset = float3(-0.45, -0.6, -0.25);
 
 // Points on the lamp the precomputed shadow tests, on the floor and walls seen directly, and where
 // it estimates bounces and the room's sheen on the sphere.
@@ -82,6 +84,9 @@ constant uint reflectionSamples = 6;
 // Ray-traced sampling: frames accumulated per change, shadow rays per frame, ambient occlusion reach.
 constant uint  accumulatedFrames = 64;
 constant uint  shadowRays        = 2;
+constant uint  glossRays         = 4;     // reflection rays per frame on the sphere
+constant float backdropRise      = 3;     // how high the walls seem to rise in the metal
+constant float backdropGlow      = 3;     // how much more light the risen walls catch
 constant float occlusionReach    = 0.25;  // of the short side
 // The share of the lamp's light that ambient occlusion also takes, in corners and at walls' foot.
 constant float occlusionLightShare = 0.35;
@@ -282,37 +287,40 @@ static float3 colorBlend(float3 backdrop, float3 source) {
 }
 
 /// The sphere's own body in linear light at `uv`, its unit square with y down, layered as
-/// MascotLayer layers it: the dark radial base, the tint, the darker lower half and the white
-/// highlight. A worker that is off is grey and dimmed. It belongs to the base image: it never pulses.
+/// MascotLayer layers it, with a lighter edge: the dark radial base, the tint, the darker lower half
+/// and the white highlight. A worker that is off is grey and dimmed. It belongs to the base image:
+/// it never pulses.
 static float3 sphereBody(float2 uv, Room room) {
     bool   isOff = room.strength <= 0;
     float  t     = gradientPosition(uv, float2(0.37, 0.30), float2(0.942));
     float3 color = t <= 0.44 ? mix(hexColor(0x343230), hexColor(0x262423), t / 0.44)
-                             : mix(hexColor(0x262423), hexColor(0x141313), saturate((t - 0.44) / 0.56));
+                             : mix(hexColor(0x262423), hexColor(0x232120), saturate((t - 0.44) / 0.56));
     if (!isOff) {
         float tintAlpha = stops3(t, float3(0, 0.5, 1), float3(0.55, 0.28, 0.10));
         color = mix(color, colorBlend(color, room.tint), tintAlpha);
     }
     // Metal has little diffuse light of its own: the painted body is dimmed, the reflections carry it.
     color *= bodyDiffuse;
-    float shade = stops3(gradientPosition(uv, float2(0.5, 0.25), float2(0.85)), float3(0.55, 0.775, 1), float3(0, 0.275, 0.55));
+    // The darker lower half, lighter at the edge than MascotLayer's, so the rim reads lit by the room.
+    float shade = stops3(gradientPosition(uv, float2(0.5, 0.25), float2(0.85)), float3(0.55, 0.775, 1), float3(0, 0.12, 0.2));
     color = mix(color, float3(0), shade);
     float highlight = stops3(gradientPosition(uv, float2(0.31, 0.13), float2(1.0, 0.8)), float3(0, 0.025, 0.06), float3(0.9, 0.5, 0));
     color = mix(color, float3(1), highlight);
     return linearFromSRGB(isOff ? color * 0.45 : color);
 }
 
-/// The thin crescent of room light inside the bottom of the outline, MascotLayer's bounce.
+/// The crescent of room light inside the bottom of the outline, MascotLayer's bounce, wide and faint
+/// with a long soft falloff.
 static float3 sphereBounce(float2 uv, Room room) {
-    float alpha = 0.35 * exp(-square(gradientPosition(uv, float2(0.5, 1.1), float2(1.0, 0.6)) / 0.2));
+    float alpha = 0.1 * exp(-square(gradientPosition(uv, float2(0.5, 1.2), float2(1.4, 0.9)) / 0.4));
     return alpha * linearFromSRGB(room.lightSRGB) * room.strength;
 }
 
-/// The sphere's normal under `xy`, in the frame where it faces `sphereView`.
+/// The sphere's normal under `xy`, seen from above.
 static float3 sphereNormal(float2 xy, Room room) {
     float2 disc = (xy - room.sphere.xy) / room.radius;
     disc       /= max(1.0, length(disc));
-    return normalize(disc.x * sphereRight - disc.y * sphereUp + sqrt(saturate(1 - dot(disc, disc))) * sphereView);
+    return float3(disc, sqrt(saturate(1 - dot(disc, disc))));
 }
 
 /// The metal's reflectance at `cosine` between the facet and the viewer: its tint head on, white at
@@ -351,7 +359,7 @@ static float3 facetSample(float3 normal, float roughness, float2 sample) {
 /// evaluate it the same way, without tracing.
 static float3 lampHighlight(float3 normal, Room room) {
     float3 origin   = room.sphere + normal * room.radius;
-    float3 toLamp   = room.lamp - origin;
+    float3 toLamp   = room.lamp + glowOffset * room.side - origin;
     float  distance = length(toLamp);
     float3 mirrored = reflect(-sphereView, normal);
     float  apart    = acos(clamp(dot(mirrored, toLamp / distance), -1.0, 1.0));
@@ -390,17 +398,20 @@ static float3 analyticLight(float2 xy, uint samples, Room room) {
     return direct + surface.albedo * (0.08 * fromWall + 0.45 * fromFloor) * room.light;
 }
 
-/// The room's light on the sphere's metal, estimated without tracing: the pool, seen where the
-/// metal faces down, and the floor out toward the walls on its flanks, both as smooth washes of
-/// the light found there. The ray tracer reflects the room itself instead.
+/// The room's light on the sphere's metal, estimated without tracing, for the camera straight down:
+/// the ring between the top and the silhouette sees the floor beside the sphere, the silhouette the
+/// wall in the same direction, each as a smooth wash of the light found there, weakened by
+/// `sheenShare` and `rimShare`. The ray tracer reflects the room itself instead.
 static float3 roomSheen(float3 normal, Room room) {
-    float2 ahead   = normalize(sphereView.xy + 1e-4);
-    float3 pool    = analyticLight(room.sphere.xy + ahead * 1.6 * room.radius, reflectionSamples, room);
-    float2 aside   = normalize(sphereRight.xy + 1e-4) * sign(dot(normal, sphereRight));
-    float3 flank   = analyticLight(room.sphere.xy + aside * 2.4 * room.radius, reflectionSamples, room);
-    float  down    = smoothstep(-0.1, 0.7, -dot(normal, sphereUp));
-    float  side    = smoothstep(0.3, 0.9, abs(dot(normal, sphereRight))) * (1 - down);
-    return metalFresnel(dot(normal, sphereView), room) * (down * pool + side * flank) * sheenShare;
+    float  across   = length(normal.xy);
+    float2 outward  = normal.xy / max(across, 1e-4);
+    float2 toEdges  = select(room.sphere.xy, room.size - room.sphere.xy, outward > 0) / max(abs(outward), 1e-4);
+    float  toWall   = min(toEdges.x, toEdges.y) - 0.5 * room.wallReach;
+    float3 wall     = analyticLight(room.sphere.xy + outward * toWall, reflectionSamples, room);
+    float3 floor    = analyticLight(room.sphere.xy + outward * 1.8 * room.radius, reflectionSamples, room);
+    float  ring     = smoothstep(0.55, 0.85, across) * (1 - smoothstep(0.8, 1.0, across));
+    float  rim      = smoothstep(0.75, 1.0, across);
+    return metalFresnel(normal.z, room) * (ring * floor * sheenShare + rim * wall * rimShare);
 }
 
 kernel void precomputeRoom(texture2d<float, access::write> base     [[texture(0)]],
@@ -543,28 +554,62 @@ static Images tracedRoom(Surface surface, primitive_acceleration_structure scene
     return images;
 }
 
+/// How much more of the lamp's side light a wall catches at `height`, as the metal sees it: rising
+/// toward the lamp, up to `backdropGlow` times what its foot catches.
+static float reflectedWallGlow(float height, Room room) {
+    return mix(1.0, backdropGlow, smoothstep(0.2, 1.5, height / room.wallHeight));
+}
+
+/// The walls' glow a reflection ray meets above their top. The walls are low beside the sphere, so
+/// the metal sees them as rising on, brighter toward the lamp and fading out by `backdropRise` times
+/// their height: the room's lit rim reflected on the sphere's flanks, as in a taller room.
+static float3 wallsAbove(float3 origin, float3 direction, Room room) {
+    float across = length(direction.xy);
+    if (across < 1e-3) { return float3(0); }
+    float  travelled = 0;
+    float2 inward;
+    for (uint step = 0; step < 12; step++) {
+        float edge = insideDistance(origin.xy + direction.xy * travelled, room, inward);
+        if (edge < 0.05) { break; }
+        travelled += edge / across;
+    }
+    float3  hit  = origin + direction * travelled;
+    float   rise = hit.z / room.wallHeight;
+    Surface wall = surfaceAt(hit.xy + inward * 0.05 * room.wallReach, room);
+    wall.position.z = hit.z;
+    float fade = 1 - smoothstep(1.0, backdropRise, rise);
+    return fade * reflectedWallGlow(hit.z, room) * wall.albedo * lampTerm(wall.position, wall.normal, room.lamp, room) * room.light;
+}
+
 /// One frame of the sphere under `xy`: its body, the lamp mirrored by its metal, the room reflected
-/// through one traced GGX facet with its shadows, and the crescent of room light at the bottom.
+/// through `glossRays` traced GGX facets with their shadows, and the crescent of room light at the
+/// bottom.
 static Images tracedSphere(float2 xy, primitive_acceleration_structure scene, Room room, Frame frame, thread uint& seed) {
     float2 uv     = sphereUV(xy, room);
     float3 normal = sphereNormal(xy, room);
     float3 origin = room.sphere + normal * room.radius * 1.001;
-
-    float2 stratum = float2(frame.index % 8, frame.index / 8);
-    float2 sample  = fract((stratum + float2(random(seed), random(seed))) / 8 + frame.rotation.yx);
-    float3 facet   = facetSample(normal, metalRoughness, sample);
-    float3 mirrored = reflect(-sphereView, facet);
-
     Images images = { sphereBody(uv, room), sphereBounce(uv, room) + lampHighlight(normal, room) };
-    if (dot(mirrored, normal) <= 0) { return images; }
-    ray reflection(origin, mirrored);
-    intersection_result<> hit = makeIntersector().intersect(reflection, scene);
-    float3 seen = float3(0);
-    Surface surface;
-    if (hitRoom(hit, reflection, room, surface)) {
-        seen = surface.albedo * tracedLamp(surface, 1, scene, room, frame) * room.light;
+
+    const float total = accumulatedFrames * glossRays;
+    for (uint index = 0; index < glossRays; index++) {
+        float  number   = frame.index * glossRays + index;
+        float2 sample   = float2((number + random(seed)) / total, fract(number * 0.618034 + frame.rotation.y));
+        float3 facet    = facetSample(normal, metalRoughness, sample);
+        float3 mirrored = reflect(-sphereView, facet);
+        if (dot(mirrored, normal) <= 0) { continue; }
+        ray reflection(origin, mirrored);
+        intersection_result<> hit = makeIntersector().intersect(reflection, scene);
+        Surface surface;
+        float3  seen = float3(0);
+        if (hitRoom(hit, reflection, room, surface)) {
+            Frame single = { uint(number) % accumulatedFrames, frame.rotation.yx };
+            seen = surface.albedo * tracedLamp(surface, 1, scene, room, single) * room.light
+                 * reflectedWallGlow(surface.position.z, room);
+        } else if (hit.type == intersection_type::none) {
+            seen = wallsAbove(origin, mirrored, room);
+        }
+        images.light += metalFresnel(dot(facet, sphereView), room) * seen / glossRays;
     }
-    images.light += metalFresnel(dot(facet, sphereView), room) * seen;
     return images;
 }
 

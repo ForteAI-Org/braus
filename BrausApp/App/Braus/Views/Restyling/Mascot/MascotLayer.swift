@@ -37,6 +37,12 @@ nonisolated final class MascotLayer: CALayer {
     let leftBrow  = CAShapeLayer()
     let rightBrow = CAShapeLayer()
 
+    /// The copies that keep each brow white below its lit top edge, by brow: one half way down in
+    /// the half-lit colour, one a full step down in white, each clipped to the brow by a mask that
+    /// morphs with it. Hidden unless the brows catch a room's light.
+    private var leftLight : [CAShapeLayer] = []
+    private var rightLight: [CAShapeLayer] = []
+
     private let body      = CALayer()
     private let base      = CAGradientLayer()
     private let tintLight = CAGradientLayer()
@@ -146,14 +152,40 @@ nonisolated final class MascotLayer: CALayer {
             brow.path = outlines[.idle].map(Self.path)
             addSublayer(brow)
         }
+        leftLight  = Self.lightCopies(over: leftBrow)
+        rightLight = Self.lightCopies(over: rightBrow)
         applyColors()
+    }
+
+    /// The two copies under `brow`'s lit edge, a half step and a full `litEdge` step down.
+    private static func lightCopies(over brow: CAShapeLayer) -> [CAShapeLayer] {
+        [0.5, 1].map { share in
+            let step = litEdge * share
+            let copy = CAShapeLayer()
+            copy.frame    = brow.bounds.offsetBy(dx: 0, dy: -step)
+            copy.path     = brow.path
+            copy.isHidden = true
+            let mask = CAShapeLayer()
+            mask.frame = copy.bounds.offsetBy(dx: 0, dy: step)
+            mask.path  = brow.path
+            copy.mask  = mask
+            brow.addSublayer(copy)
+            return copy
+        }
+    }
+
+    /// Every layer that holds `brow`'s outline: the brow, its light copies and their masks.
+    private func outlineLayers(of brow: CAShapeLayer) -> [CAShapeLayer] {
+        let copies = lightCopies(of: brow)
+        return [brow] + copies + copies.compactMap { $0.mask as? CAShapeLayer }
     }
 
     /// Forwards the scale to every sublayer, so the gradients and brows render at the display's
     /// resolution.
     override var contentsScale: CGFloat {
         didSet {
-            for layer in [body, leftBrow, rightBrow] + (body.sublayers ?? []) {
+            let lit = (leftLight + rightLight).flatMap { [$0, $0.mask].compactMap { $0 } }
+            for layer in [body, leftBrow, rightBrow] + (body.sublayers ?? []) + lit {
                 layer.contentsScale = contentsScale
             }
         }
@@ -301,9 +333,16 @@ nonisolated final class MascotLayer: CALayer {
         guard let points else { return }
         let target = Self.path(points)
         let start  = brow.presentation()?.path ?? brow.path
-        withoutActions { brow.path = target }
+        let layers = outlineLayers(of: brow)
+        withoutActions {
+            for layer in layers {
+                layer.path = target
+            }
+        }
         guard animated else {
-            brow.removeAnimation(forKey: "path")
+            for layer in layers {
+                layer.removeAnimation(forKey: "path")
+            }
             return
         }
         let morph = CABasicAnimation(keyPath: "path")
@@ -313,7 +352,9 @@ nonisolated final class MascotLayer: CALayer {
         morph.beginTime      = begin
         morph.fillMode       = .backwards
         morph.timingFunction = Self.morphCurve
-        brow.add(morph, forKey: "path")
+        for layer in layers {
+            layer.add(morph, forKey: "path")
+        }
     }
 
     /// Places the brows by the ibrows layout: together they span 54% of the width, 9% of that is
@@ -342,32 +383,54 @@ nonisolated final class MascotLayer: CALayer {
         }
     }
 
-    /// Tints the brows faintly with the status light when `catches` is true, as the room's light
-    /// reaches them, at most `roomLightTint` of it, pulsing with the room's busy flicker or waiting
-    /// breath in step with `RoomLightView`. A worker that is off, or not in a room, keeps plain brows;
-    /// under Reduce Motion the tint holds still. Call it after every change of `status`.
+    /// Lights the brows' top edge with the status light when `catches` is true, as the room's light
+    /// above reaches them: up to `roomLightTint` of the light at the edge, fading to white within the
+    /// brow, pulsing with the room's busy flicker or waiting breath in step with `RoomLightView`. A
+    /// worker that is off, or not in a room, keeps plain brows; under Reduce Motion the light holds
+    /// still. Call it after every change of `status`.
     @MainActor
     func catchRoomLight(_ catches: Bool) {
-        for brow in [leftBrow, rightBrow] {
-            brow.removeAnimation(forKey: Self.roomLightKey)
+        let litLayers = [leftBrow, rightBrow] + leftLight + rightLight
+        for layer in litLayers {
+            layer.removeAnimation(forKey: Self.roomLightKey)
         }
         guard catches, let light = status.light else {
+            withoutActions {
+                for copy in leftLight + rightLight {
+                    copy.isHidden = true
+                }
+            }
             applyColors()
             return
         }
         let strength = status.lightStrength
-        func fill(_ weight: Float) -> CGColor {
-            let share = Self.roomLightTint * strength * Double(weight)
+        let white    = Self.color(hex: 0xF5F5F7)
+        // The edge, and half way to white below it, at a weight of the pulse.
+        func fill(
+            _ weight: Float,
+            share   : Double
+        ) -> CGColor {
+            let amount = Self.roomLightTint * strength * Double(weight) * share
             return CGColor(
-                srgbRed: 0xF5 / 255.0 * (1 - share) + light.red * share,
-                green  : 0xF5 / 255.0 * (1 - share) + light.green * share,
-                blue   : 0xF7 / 255.0 * (1 - share) + light.blue * share,
+                srgbRed: 0xF5 / 255.0 * (1 - amount) + light.red * amount,
+                green  : 0xF5 / 255.0 * (1 - amount) + light.green * amount,
+                blue   : 0xF7 / 255.0 * (1 - amount) + light.blue * amount,
                 alpha  : 1
             )
         }
+        let layers: [(layer: CAShapeLayer, share: Double)] =
+            [leftBrow, rightBrow].map { ($0, 1) }
+            + [leftLight[0], rightLight[0]].map { ($0, 0.5) }
         withoutActions {
-            leftBrow.fillColor  = fill(1)
-            rightBrow.fillColor = fill(1)
+            for (layer, share) in layers {
+                layer.fillColor = fill(1, share: share)
+            }
+            for copy in [leftLight[1], rightLight[1]] {
+                copy.fillColor = white
+            }
+            for copy in leftLight + rightLight {
+                copy.isHidden = false
+            }
         }
         let weights = RoomLightView.pulseWeights(
             for          : status,
@@ -377,25 +440,33 @@ nonisolated final class MascotLayer: CALayer {
             let first = weights.first,
             let cycle = RoomLightView.pulseCycle(for: status)
         else { return }
-        for brow in [leftBrow, rightBrow] {
+        for (layer, share) in layers {
             let pulse = CAKeyframeAnimation(keyPath: "fillColor")
-            pulse.values          = (weights + [first]).map(fill)
+            pulse.values          = (weights + [first]).map { fill($0, share: share) }
             pulse.keyTimes        = (0...weights.count).map { NSNumber(value: Double($0) / Double(weights.count)) }
             pulse.calculationMode = .linear
             pulse.duration        = cycle
             pulse.repeatCount     = .infinity
-            pulse.beginTime       = RoomLightView.pulseBeginTime(in: brow)
-            brow.add(
+            pulse.beginTime       = RoomLightView.pulseBeginTime(in: layer)
+            layer.add(
                 pulse,
                 forKey: Self.roomLightKey
             )
         }
     }
 
-    /// The most of the room's light the brows take, at full strength.
-    static let roomLightTint = 0.18
+    /// The share of the room's light at the brows' top edge, at full strength.
+    static let roomLightTint = 0.4
 
     static let roomLightKey = "roomLight"
+
+    /// How deep the lit edge reaches into a brow, in the 240 × 170 artboard.
+    private static let litEdge: CGFloat = 46
+
+    /// The layers that keep `brow` white below its lit edge, nearest the edge first.
+    func lightCopies(of brow: CAShapeLayer) -> [CAShapeLayer] {
+        brow === leftBrow ? leftLight : rightLight
+    }
 
     private func applyColors() {
         let isOff    = status == .off

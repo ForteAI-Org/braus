@@ -124,10 +124,14 @@ struct RoomLightTests {
         #expect(RoomLightView.pulse(frames, for: .free) == nil)
     }
 
-    @Test("Pulse frames are shared on unified memory and managed on a discrete GPU")
+    @Test("Pulse frames are shared only on Apple GPUs, managed on Intel and AMD")
     func frameStorage() {
-        #expect(RoomLightView.frameStorageMode(hasUnifiedMemory: true) == .shared)
-        #expect(RoomLightView.frameStorageMode(hasUnifiedMemory: false) == .managed)
+        // Apple silicon.
+        #expect(RoomLightView.frameStorageMode(isAppleGPU: true, hasUnifiedMemory: true) == .shared)
+        // An integrated Intel GPU reports unified memory, yet takes no shared textures.
+        #expect(RoomLightView.frameStorageMode(isAppleGPU: false, hasUnifiedMemory: true) == .managed)
+        // A discrete AMD or Intel GPU.
+        #expect(RoomLightView.frameStorageMode(isAppleGPU: false, hasUnifiedMemory: false) == .managed)
     }
 
     @Test("The precomputed path renders without hardware ray tracing")
