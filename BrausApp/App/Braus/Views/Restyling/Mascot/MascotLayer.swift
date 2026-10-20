@@ -23,7 +23,7 @@ nonisolated final class MascotLayer: CALayer {
         didSet { applyColors() }
     }
 
-    /// What the worker is doing: its light colours the highlight and the bounce at the bottom.
+    /// What the worker is doing: its light colours the bounce at the bottom.
     var status = WorkerStatus.free {
         didSet { applyColors() }
     }
@@ -40,6 +40,7 @@ nonisolated final class MascotLayer: CALayer {
     private let body      = CALayer()
     private let base      = CAGradientLayer()
     private let tintLight = CAGradientLayer()
+    private let shading   = CAGradientLayer()
     private let bounce    = CAGradientLayer()
     private let highlight = CAGradientLayer()
     private let dimming   = CALayer()
@@ -58,7 +59,7 @@ nonisolated final class MascotLayer: CALayer {
 
     override init() {
         super.init()
-        for gradient in [base, tintLight, bounce, highlight] {
+        for gradient in [base, tintLight, shading, bounce, highlight] {
             gradient.type = .radial
             body.addSublayer(gradient)
         }
@@ -90,22 +91,43 @@ nonisolated final class MascotLayer: CALayer {
             radiusY: 0.942
         )
 
-        bounce.locations = [0, 0.38, 0.46]
+        // Darkens the lower half and the sides for volume, like casa's dark inset shadow.
+        shading.colors = [
+            CGColor(gray: 0, alpha: 0),
+            CGColor(gray: 0, alpha: 0.55),
+        ]
+        shading.locations = [0.55, 1]
+        Self.center(
+            shading,
+            x      : 0.5,
+            top    : 0.25,
+            radiusX: 0.85,
+            radiusY: 0.85
+        )
+
+        // A crescent of status light on the lowest tenth, inside the outline.
+        bounce.locations = [0, 0.2, 0.34]
         Self.center(
             bounce,
             x      : 0.5,
-            top    : 1.25,
-            radiusX: 1.2,
+            top    : 1.1,
+            radiusX: 1.0,
             radiusY: 0.6
         )
 
-        highlight.locations = [0, 0.025, 0.05, 0.11]
+        // A sharp white reflection above the brow line, slightly wider than tall.
+        highlight.colors = [
+            CGColor(gray: 1, alpha: 0.9),
+            CGColor(gray: 1, alpha: 0.5),
+            CGColor(gray: 1, alpha: 0),
+        ]
+        highlight.locations = [0, 0.025, 0.06]
         Self.center(
             highlight,
-            x      : 0.36,
-            top    : 0.24,
-            radiusX: 0.994,
-            radiusY: 0.994
+            x      : 0.31,
+            top    : 0.13,
+            radiusX: 1.0,
+            radiusY: 0.8
         )
 
         dimming.backgroundColor = CGColor(gray: 0, alpha: 1)
@@ -125,6 +147,16 @@ nonisolated final class MascotLayer: CALayer {
             addSublayer(brow)
         }
         applyColors()
+    }
+
+    /// Forwards the scale to every sublayer, so the gradients and brows render at the display's
+    /// resolution.
+    override var contentsScale: CGFloat {
+        didSet {
+            for layer in [body, leftBrow, rightBrow] + (body.sublayers ?? []) {
+                layer.contentsScale = contentsScale
+            }
+        }
     }
 
     override init(layer: Any) {
@@ -311,28 +343,25 @@ nonisolated final class MascotLayer: CALayer {
     }
 
     private func applyColors() {
-        let isOff = status == .off
-        // A worker that is off has no light; its highlight takes the prototype's grey.
-        let rgb   = status.light ?? (red: 120.0 / 255, green: 120.0 / 255, blue: 124.0 / 255)
-        let light = CGColor(
-            srgbRed: rgb.red,
-            green  : rgb.green,
-            blue   : rgb.blue,
-            alpha  : 1
-        )
+        let isOff    = status == .off
         let strength = status.lightStrength
         let tint     = self.tint.cgColor
+        // A worker that is off has no light, so the bounce is clear.
+        let light = status.light.map {
+            CGColor(
+                srgbRed: $0.red,
+                green  : $0.green,
+                blue   : $0.blue,
+                alpha  : 1
+            )
+        } ?? CGColor(gray: 0, alpha: 0)
         withoutActions {
             tintLight.colors = [0.55, 0.28, 0.10].map { tint.copy(alpha: $0) as Any }
+            // Offline greys the head: the worker's colour goes with its light.
+            tintLight.isHidden = isOff
             bounce.colors = [
-                light.copy(alpha: strength * 0.9) as Any,
+                light.copy(alpha: strength * 0.6) as Any,
                 light.copy(alpha: strength * 0.35) as Any,
-                light.copy(alpha: 0) as Any,
-            ]
-            highlight.colors = [
-                CGColor(gray: 1, alpha: 0.9),
-                CGColor(gray: 1, alpha: 0.5),
-                light.copy(alpha: 0.45) as Any,
                 light.copy(alpha: 0) as Any,
             ]
             dimming.opacity = isOff ? 0.55 : 0

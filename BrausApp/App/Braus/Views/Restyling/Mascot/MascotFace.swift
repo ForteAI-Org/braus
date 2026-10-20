@@ -82,6 +82,20 @@ struct MascotFace: NSViewRepresentable {
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            matchBackingScale()
+        }
+
+        override func viewDidChangeBackingProperties() {
+            super.viewDidChangeBackingProperties()
+            matchBackingScale()
+        }
+
+        private func matchBackingScale() {
+            mascot.contentsScale = window?.backingScaleFactor ?? 2
+        }
+
         override func layout() {
             super.layout()
             CATransaction.begin()

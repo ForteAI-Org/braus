@@ -28,6 +28,24 @@ struct MascotLayerTests {
         #expect(abs(right.beginTime - left.beginTime - 0.04) < 1e-9)
     }
 
+    @Test("Looking right morphs both brows together in 0.2 s")
+    func pointerLook() throws {
+        defer { RestylingMotion.overrideReducesMotion = nil }
+        RestylingMotion.overrideReducesMotion = false
+        let mascot = makeMascot()
+        mascot.look(
+            yaw  : 0.5,
+            pitch: 0
+        )
+
+        let left  = try #require(mascot.leftBrow.animation(forKey: "path") as? CABasicAnimation)
+        let right = try #require(mascot.rightBrow.animation(forKey: "path") as? CABasicAnimation)
+        #expect(left.duration == 0.2 && right.duration == 0.2)
+        #expect(left.beginTime == right.beginTime)
+        let look = try #require(BrowOutlines.bundled.left[.look])
+        #expect(mascot.leftBrow.path == MascotLayer.path(look))
+    }
+
     @Test("Reduce Motion cuts instead of morphing")
     func reduceMotionCuts() throws {
         defer { RestylingMotion.overrideReducesMotion = nil }
