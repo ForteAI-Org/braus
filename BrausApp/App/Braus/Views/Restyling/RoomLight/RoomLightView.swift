@@ -9,8 +9,10 @@ import MetalKit
 
 /// RoomLightView shows one room lit by its worker, seen from above.
 ///
-/// It renders only on demand: once when it appears or changes size, and once when `uniforms`
-/// change. A render draws the room with its light at full strength and, for a light that pulses, a
+/// Size changes settle for 150 milliseconds, then RoomRenderQueue spreads renders across frames.
+/// Uniform changes enter the queue immediately; during resize they use the last rendered size.
+/// Resizing alone stretches the last drawable and pulse frames without Metal work or CPU readback.
+/// A render draws the room with its light at full strength and, for a light that pulses, a
 /// cycle of frames with the light at the pulse's weights, each tone mapped after the light is added;
 /// `pulseLayer` plays them over the drawable with a keyframe animation of its contents, so the
 /// light, its bleed on the walls and its reflections on the sphere pulse together while the sphere's
@@ -21,12 +23,15 @@ import MetalKit
 /// host clock, so the brows' tint pulses in step with the room.
 final class RoomLightView: MTKView {
 
-    /// What the room shows. Setting a different value draws the room once.
+    /// What the room shows. Selection and status updates bypass the geometry debounce.
     var uniforms: RoomLightUniforms {
         didSet {
             guard uniforms != oldValue else { return }
             requestedRenders += 1
-            needsDisplay      = true
+            renderRevision += 1
+            hasPendingRender   = true
+            hasPendingUniforms = true
+            enqueueRenderIfReady()
         }
     }
 
@@ -47,8 +52,23 @@ final class RoomLightView: MTKView {
 
     private let renderer: (any RoomRenderer)?
 
-    /// Counts renders, so frames that finish after a newer render are dropped.
-    private var renderCount = 0
+    /// Invalidates completions as soon as an input changes, before the next render begins.
+    private var renderRevision = 0
+
+    private var renderSize     : CGSize?
+    private var renderPixelSize: CGSize?
+    private var settleTask     : Task<Void, Never>?
+
+    private var lastRenderedSize     : CGSize?
+    private var lastRenderedPixelSize: CGSize?
+
+    private var hasPendingRender = false
+    private var isRendering      = false
+    private var hasRenderPermit  = false
+
+    private(set) var hasPendingUniforms = false
+
+    private static let resizeDelay = Duration.milliseconds(150)
 
     init(
         device  : MTLDevice,
@@ -71,10 +91,13 @@ final class RoomLightView: MTKView {
         )
         isPaused              = true
         enableSetNeedsDisplay = true
+        // Layout stretches the last drawable; only a settled render changes its pixel size.
+        autoResizeDrawable    = false
         // The kernels write the drawable's texture directly.
         framebufferOnly  = false
         colorPixelFormat = .bgra8Unorm
         colorspace       = CGColorSpace(name: CGColorSpace.sRGB)
+        layer?.contentsGravity     = .resize
         pulseLayer.isHidden        = true
         pulseLayer.contentsGravity = .resize
         layer?.addSublayer(pulseLayer)
@@ -84,6 +107,7 @@ final class RoomLightView: MTKView {
 
     override func layout() {
         super.layout()
+        updateRenderSize()
         guard let layer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -94,13 +118,110 @@ final class RoomLightView: MTKView {
         CATransaction.commit()
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateRenderSize()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            RoomRenderQueue.shared.remove(self)
+            settleTask?.cancel()
+            settleTask      = nil
+            renderRevision += 1
+            renderSize      = nil
+            renderPixelSize = nil
+        } else {
+            updateRenderSize()
+        }
+    }
+
+    /// Records geometry without resizing the drawable or disturbing the current pulse animation.
+    private func updateRenderSize() {
+        guard window != nil else { return }
+        let size   = bounds.size
+        let pixels = convertToBacking(bounds).size
+        let pixelSize = CGSize(
+            width : pixels.width.rounded(.up),
+            height: pixels.height.rounded(.up)
+        )
+        guard size != renderSize || pixelSize != renderPixelSize else { return }
+        renderSize      = size
+        renderPixelSize = pixelSize
+        scheduleSizeRender()
+    }
+
+    /// Debounces geometry only, cancelling its queue slot when another resize arrives.
+    private func scheduleSizeRender() {
+        renderRevision += 1
+        hasPendingRender = true
+        RoomRenderQueue.shared.remove(self)
+        settleTask?.cancel()
+        settleTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.resizeDelay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.settleTask = nil
+            self.enqueueRenderIfReady()
+        }
+        enqueueRenderIfReady()
+    }
+
+    /// Allows a uniform update at the previous size while the next geometry is still settling.
+    var canRenderQueuedFrame: Bool {
+        hasPendingRender && !isRendering && window != nil && renderer != nil
+            && (settleTask == nil || (hasPendingUniforms && lastRenderedSize != nil))
+    }
+
+    private func enqueueRenderIfReady() {
+        guard canRenderQueuedFrame else { return }
+        RoomRenderQueue.shared.enqueue(self)
+    }
+
+    /// Uses MTKView's explicit draw entry point so it releases its drawable after the submission.
+    /// Called only by RoomRenderQueue after reserving its sole slot.
+    /// Returns false when newer geometry or a missing drawable prevented work from being submitted.
+    func renderQueuedFrame() -> Bool {
+        guard canRenderQueuedFrame else { return false }
+        hasRenderPermit = true
+        defer { hasRenderPermit = false }
+        draw()
+        return isRendering
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        stopPulse()
+        // AppKit can request display before layout, so check geometry before touching a drawable.
+        updateRenderSize()
+        guard hasRenderPermit else {
+            enqueueRenderIfReady()
+            return
+        }
+        let isSizeSettled = settleTask == nil
         guard
-            let renderer,
+            canRenderQueuedFrame,
+            let size      = isSizeSettled ? renderSize : lastRenderedSize,
+            let pixelSize = isSizeSettled ? renderPixelSize : lastRenderedPixelSize,
+            size.width > 0,
+            size.height > 0,
+            pixelSize.width > 0,
+            pixelSize.height > 0,
+            let renderer
+        else { return }
+        drawableSize = pixelSize
+        guard
             let drawable      = currentDrawable,
             let commandBuffer = renderer.commandQueue.makeCommandBuffer()
         else { return }
+        hasPendingRender      = !isSizeSettled
+        hasPendingUniforms    = false
+        isRendering           = true
+        lastRenderedSize      = size
+        lastRenderedPixelSize = pixelSize
+        stopPulse()
         let weights = Self.pulseWeights(
             for          : uniforms.status,
             reducesMotion: RestylingMotion.reducesMotion
@@ -109,7 +230,7 @@ final class RoomLightView: MTKView {
         let pulse  = frames.count == weights.count ? Array(zip(frames, weights)) : []
         renderer.encode(
             uniforms,
-            size         : bounds.size,
+            size         : size,
             into         : [(drawable.texture, 1)] + pulse.map { (texture: $0.0, weight: $0.1) },
             commandBuffer: commandBuffer
         )
@@ -122,20 +243,23 @@ final class RoomLightView: MTKView {
             blit.endEncoding()
         }
         commandBuffer.present(drawable)
-        renderCount += 1
-        if !pulse.isEmpty {
-            let render = renderCount
-            let status = uniforms.status
-            let pulseFrames = pulse.map(\.0)
-            commandBuffer.addCompletedHandler { @Sendable [weak self] _ in
-                let images = pulseFrames.compactMap(Self.image(from:))
-                Task { @MainActor in
-                    self?.startPulse(
+        let render      = renderRevision
+        let status      = uniforms.status
+        let pulseFrames = pulse.map(\.0)
+        commandBuffer.addCompletedHandler { @Sendable [weak self] buffer in
+            let images = buffer.status == .completed ? pulseFrames.compactMap(Self.image(from:)) : []
+            Task { @MainActor in
+                defer { RoomRenderQueue.shared.didFinishRender() }
+                guard let self else { return }
+                self.isRendering = false
+                if self.window != nil {
+                    self.startPulse(
                         images,
                         status: status,
                         render: render
                     )
                 }
+                self.enqueueRenderIfReady()
             }
         }
         commandBuffer.commit()
@@ -219,7 +343,7 @@ final class RoomLightView: MTKView {
         render  : Int
     ) {
         guard
-            render == renderCount,
+            render == renderRevision,
             let animation = Self.pulse(
                 images,
                 for: status

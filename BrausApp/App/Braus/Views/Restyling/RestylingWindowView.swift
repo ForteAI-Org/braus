@@ -18,12 +18,12 @@ import SwiftUI
 /// draws unemphasized; one chosen with the arrow keys leaves it in the sidebar to keep browsing, and
 /// Return there moves it to the composer.
 ///
-/// The window is divided by the team shell's rule (`TeamShellView`, `ShellMetrics.division`): the
+/// RestylingWindowLayout budgets for the columns' ideal widths, including without an inspector: the
 /// division is decided from the window's own width, never from a width measured inside the split,
 /// the sidebar turns compact before the inspector closes, and a new division gives room first and
-/// takes it after. The sidebar is never hidden, and the window's minimum leaves out the inspector's
-/// width while it is asked for or shown, as AppKit adds that width itself. The division code mirrors
-/// `TeamShellView`'s line for line; share one implementation when the mockup is wired to the team.
+/// takes it after. The sidebar is never hidden. The root minimum always leaves out the inspector's
+/// width, which AppKit adds itself, so automatically closing it cannot raise the root minimum.
+/// Only the toolbar action or its shortcut changes the person's inspector request.
 ///
 /// The window, sidebar and inspector backgrounds are the asset catalogue's `RestylingGround`,
 /// `RestylingSidebar` and `RestylingInspector`, darker than the system's greys.
@@ -42,7 +42,7 @@ struct RestylingWindowView: View {
     /// Whether the person asked for the inspector, which a narrow window may not show yet.
     @State private var isInspectorRequested = false
 
-    /// The window's width as AppKit last reported it, nil before the first report.
+    /// The last reported width, used only by resize and toggle actions, never by column modifiers.
     @State private var windowWidth: Double?
 
     /// What the window shows now, which lags `target` while a division is applied in two steps.
@@ -86,9 +86,9 @@ struct RestylingWindowView: View {
                 }
             }
             .navigationSplitViewColumnWidth(
-                min  : ShellMetrics.compactSidebar,
-                ideal: division.isSidebarCompact ? ShellMetrics.compactSidebar : ShellMetrics.sidebar.ideal,
-                max  : division.isSidebarCompact ? ShellMetrics.compactSidebar : ShellMetrics.sidebar.maximum
+                min  : sidebarWidth.minimum,
+                ideal: sidebarWidth.ideal,
+                max  : sidebarWidth.maximum
             )
         } detail: {
             detail
@@ -112,9 +112,9 @@ struct RestylingWindowView: View {
                     )
                     .background { Color("RestylingInspector").ignoresSafeArea() }
                     .inspectorColumnWidth(
-                        min  : ShellMetrics.inspector.minimum,
-                        ideal: ShellMetrics.inspector.ideal,
-                        max  : ShellMetrics.inspector.maximum
+                        min  : RestylingWindowLayout.inspectorWidth.minimum,
+                        ideal: RestylingWindowLayout.inspectorWidth.ideal,
+                        max  : RestylingWindowLayout.inspectorWidth.maximum
                     )
                 }
         }
@@ -126,7 +126,7 @@ struct RestylingWindowView: View {
         )
         .background(FirstWindowSize())
         .frame(
-            minWidth : isInspectorInWindow ? ShellMetrics.windowMinimumBesideInspector : ShellMetrics.windowMinimum,
+            minWidth : RestylingWindowLayout.minimumWidth,
             minHeight: 560
         )
         .background(WindowWidthReader(onWidth: windowResized))
@@ -174,7 +174,7 @@ struct RestylingWindowView: View {
 
         ToolbarItem {
             Button(
-                target.isInspectorShown ? "Hide Inspector" : "Show Inspector",
+                isInspectorRequested ? "Hide Inspector" : "Show Inspector",
                 systemImage: "info.circle",
                 action     : toggleInspector
             )
@@ -188,38 +188,28 @@ struct RestylingWindowView: View {
 
     // MARK: Division
 
-    /// Whether the inspector is asked for or still shown, when the window's minimum leaves out its width.
-    private var isInspectorInWindow: Bool {
-        target.isInspectorShown || division.isInspectorShown
+    private var sidebarWidth: ColumnWidth {
+        RestylingWindowLayout.sidebarWidth(for: division)
     }
 
-    /// What the inspector shows, and a close from the inspector's own edge.
+    /// Presents the width rule's result. SwiftUI also writes back an automatic dismissal after its
+    /// animation, possibly after a newer division, so writebacks cannot change the person's request.
     private var inspectorPresentation: Binding<Bool> {
         Binding(
             get: { division.isInspectorShown },
-            set: { isShown in
-                guard !isShown else { return }
-
-                isInspectorRequested = false
-                divide(into: .withoutInspector)
-            }
+            set: { _ in }
         )
     }
 
-    /// Closes a shown inspector, or opens it, compacting the sidebar when that is what makes room.
+    /// Toggles the person's request, including cancelling one temporarily hidden by a narrow window.
     private func toggleInspector() {
-        guard !target.isInspectorShown else {
-            isInspectorRequested = false
-            divide(into: .withoutInspector)
-            return
-        }
-
-        isInspectorRequested = true
+        isInspectorRequested.toggle()
         guard let windowWidth else { return }
 
-        divide(into: ShellMetrics.division(
-            window  : windowWidth,
-            previous: nil
+        divide(into: RestylingWindowLayout.division(
+            window              : windowWidth,
+            isInspectorRequested: isInspectorRequested,
+            previous            : nil
         ))
     }
 
@@ -229,19 +219,26 @@ struct RestylingWindowView: View {
         guard width != windowWidth else { return }
 
         windowWidth = width
-        guard isInspectorRequested else { return }
-
-        divide(into: ShellMetrics.division(
-            window  : width,
-            previous: isFirst ? nil : target
+        divide(into: RestylingWindowLayout.division(
+            window              : width,
+            isInspectorRequested: isInspectorRequested,
+            previous            : isFirst ? nil : target
         ))
     }
 
     /// Applies `next` in two steps: at once what gives room, then, after the split has made it,
-    /// what takes room. A newer division cancels the second step of an older one.
+    /// what takes room. Only a different target cancels the second step, so live resize cannot
+    /// postpone it indefinitely. Sidebar-only changes need no inspector animation wait.
     private func divide(into next: ShellMetrics.Division) {
+        guard next != target else { return }
         secondStep?.cancel()
+        secondStep = nil
         target = next
+
+        if !division.isInspectorShown, !next.isInspectorShown {
+            division = next
+            return
+        }
 
         let first = ShellMetrics.Division(
             isInspectorShown: division.isInspectorShown && next.isInspectorShown,
@@ -255,7 +252,9 @@ struct RestylingWindowView: View {
         secondStep = Task {
             // A cancelled wait belongs to a division that a newer one replaced.
             do { try await Task.sleep(for: wait) } catch { return }
+            guard !Task.isCancelled, target == next else { return }
             division = next
+            secondStep = nil
         }
     }
 

@@ -19,21 +19,11 @@ struct HouseRoomsGrid: View {
     var body: some View {
         ScrollView {
             VStack(spacing: HouseLayout.gap) {
-                // LazyVGrid has no spanning cell, so the wide first room sits above it.
-                if columns > 1, let first = workers.first {
-                    room(first)
-                }
-                LazyVGrid(
-                    columns: Array(
-                        repeating: GridItem(
-                            .flexible(),
-                            spacing: HouseLayout.gap
-                        ),
-                        count: columns
-                    ),
-                    spacing: HouseLayout.gap
+                RoomGridLayout(
+                    columns: columns,
+                    height : isCompact ? HouseLayout.compactRoomHeight : HouseLayout.roomHeight
                 ) {
-                    ForEach(columns > 1 ? Array(workers.dropFirst()) : workers) { worker in
+                    ForEach(workers) { worker in
                         room(worker)
                     }
                 }
@@ -90,5 +80,64 @@ struct HouseRoomsGrid: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Archive, \(archivedCount) workers")
+    }
+}
+
+/// RoomGridLayout keeps every room in one stable subtree as the sidebar changes columns.
+/// The first room spans the width; the remaining rooms fill equal columns at a fixed height.
+/// Keeping the small floor plan eager retains each room's last Metal frame through compaction.
+nonisolated private struct RoomGridLayout: Layout {
+    let columns: Int
+    let height : CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache   : inout ()
+    ) -> CGSize {
+        let count = max(
+            1,
+            columns
+        )
+        let rows  = subviews.isEmpty ? 0 : 1 + (subviews.count - 1 + count - 1) / count
+        let gaps  = max(
+            0,
+            rows - 1
+        )
+        return CGSize(
+            width : proposal.width ?? ShellMetrics.sidebar.ideal - 20,
+            height: CGFloat(rows) * height + CGFloat(gaps) * HouseLayout.gap
+        )
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal : ProposedViewSize,
+        subviews : Subviews,
+        cache    : inout ()
+    ) {
+        let count = max(
+            1,
+            columns
+        )
+        let width = max(
+            0,
+            (bounds.width - CGFloat(count - 1) * HouseLayout.gap) / CGFloat(count)
+        )
+        for (index, subview) in subviews.enumerated() {
+            let row    = index == 0 ? 0 : 1 + (index - 1) / count
+            let column = index == 0 ? 0 : (index - 1) % count
+            subview.place(
+                at: CGPoint(
+                    x: bounds.minX + CGFloat(column) * (width + HouseLayout.gap),
+                    y: bounds.minY + CGFloat(row) * (height + HouseLayout.gap)
+                ),
+                anchor  : .topLeading,
+                proposal: ProposedViewSize(
+                    width : index == 0 ? bounds.width : width,
+                    height: height
+                )
+            )
+        }
     }
 }
