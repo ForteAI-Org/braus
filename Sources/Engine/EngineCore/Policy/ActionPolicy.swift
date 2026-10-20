@@ -36,7 +36,8 @@ public enum ActionPolicy {
         role     : String? = nil,
         container: String? = nil
     ) -> Bool {
-        guard let lowered = label?.lowercased() else { return false }
+        guard let label else { return false }
+        let lowered = label.lowercased()
         if isAudioSendSelector(label: lowered, bundleID: bundleID, role: role, container: container) {
             return false
         }

@@ -233,7 +233,7 @@ let package = Package(
     products : [
         .library(name: "BrausChat",
                  targets: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
-                           "AutomationRuntime", "AutomationMCP", "AppAdapters"]),
+                           "AutomationRuntime", "AutomationMCP"]),
         .library(
             name: "BrausDriver",
             targets: ["SeatCore", "PrivateSymbols", "VirtualScreens", "WindowPlacement",
@@ -250,13 +250,17 @@ let package = Package(
             targets: ["EngineCore", "Engine", "HIDActuation", "AccessibilityActions", "WorkspaceActivation",
                       "Memory", "FileKnowledge", "LiveScenes", "LocalEmbedding"]
         ),
-        .library(name: "BrausWeb", targets: ["WebDriver", "WebDriving", "WebSession"]),
+        .library(name: "BrausMac", targets: ["AppAdapters", "MacDriver", "MacDriving", "MacDelivery", "MacSession"]),
+        .library(name: "BrausWeb", targets: ["WebDriver", "WebDriving", "WebSession", "ChromeProfiles"]),
         .library(name: "UserInteractions", targets: ["InteractionListener", "InteractionObservation"]),
+        .library(name: "Router", targets: ["Router"]),
         .library(name: "SeatBroker", targets: ["SeatBroker"]),
         .library(name: "ModelTransports", targets: ["ModelTransports"]),
         .executable(name: "braus", targets: ["braus"]),
         // The tool bridge a worker's agent launches, which the app bundles in place of the whole command line.
         .executable(name: "braus-bridge", targets: ["braus-bridge"]),
+        // The native messaging host Chrome starts for the Braus extension, one per paired profile.
+        .executable(name: "braus-chrome-host", targets: ["braus-chrome-host"]),
     ],
     targets: [
         
@@ -334,18 +338,22 @@ let package = Package(
         driverTests("SeatInput", ["SeatInput", "SeatCore", "PrivateSymbols"]),
         driverTests("CursorGuard", ["CursorGuard", "SeatCore"]),
         driverTests("SeatCapture", ["SeatCapture", "SeatCore"]),
-        driverTests("SeatSession", ["SeatSession", "SeatCore", "CursorGuard", "SeatInput", "SeatDriving", "EngineCore"]),
+        // AutomationRuntime, Memory, SQLiteMemory and SeatBroker for the Seat rung's wiring oracle alone (M05): test
+        // target only.
+        driverTests("SeatSession", ["SeatSession", "SeatCore", "CursorGuard", "SeatInput", "SeatDriving", "EngineCore",
+                                    "AutomationRuntime", "Memory", "SQLiteMemory", "SeatBroker"]),
         driverTests("TargetReader", ["TargetReader"]),
 
         // MARK: Broker tests
         // The folders tests write, under one root per test process that the process removes when it exits.
-        .target(name: "TestScratch", path: "Tests/Support/TestScratch", swiftSettings: pure),
+        .target(name: "TestScratch", dependencies: ["LocalMCP"], path: "Tests/Support/TestScratch",
+                swiftSettings: pure),
         brokerTests(
             "SeatBroker",
             ["SeatBroker", "PerceptionCore", "SeatCore", "SeatCapture",
              "SeatSession", "SeatInput", "TargetReader", "EngineCore", "ModelTransports",
              "SeatDriving", "AutomationRuntime", "Engine", "AutomationMCP", "LocalMCP", "Memory", "TestScratch",
-             "TaskRouting"]
+             "WindowServerListing", "TaskRouting"]
         ),
         brokerTests("ModelTransports", ["ModelTransports"]),
         // The living memory wired to the tools, the sessions and the engine: the queue, the recorder, the
@@ -353,30 +361,37 @@ let package = Package(
         .testTarget(
             name         : "AutomationRuntimeTests",
             dependencies : ["AutomationRuntime", "AutomationMCP", "AppAdapters", "Memory", "SQLiteMemory", "EngineCore",
-                            "PerceptionCore", "LocalMCP", "LocalEmbedding", "TestScratch"].map { .target(name: $0) },
+                            "Engine", "PerceptionCore", "LocalMCP", "LocalEmbedding", "WindowServerListing",
+                            "TestScratch"].map { .target(name: $0) },
             path         : "Tests/Integration/AutomationRuntimeTests",
             // The Recall's quality corpus: knowledge learned through the tools and queries split by family.
             resources    : [.copy("Fixtures/recall-corpus-v1.json"), .copy("Fixtures/recall-calibration-v1.json"),
                             .copy("Fixtures/recall-corpus-v2.json"), .copy("Fixtures/recall-calibration-v2.json"),
                             .copy("Fixtures/recall-corpus-v3.json"), .copy("Fixtures/recall-calibration-v3.json"),
                             .copy("Fixtures/recall-corpus-v4.json"),
-                            // The exact texts two earlier builds ran (main f44fb67, D3 7ee2552), for the historical archives.
+                            // The exact texts earlier builds ran (main f44fb67 and cd5c77c, D3 7ee2552, rename-app 7a64595), for the historical archives.
                             .copy("Fixtures/schema-main-1.sql"), .copy("Fixtures/schema-d3-7.sql"),
-                            .copy("Fixtures/schema-rename-app-7.sql")],
+                            .copy("Fixtures/schema-rename-app-7.sql"), .copy("Fixtures/schema-main-8.sql"),
+                            .copy("Fixtures/schema-unified-9.sql"), .copy("Fixtures/schema-unified-10.sql"),
+                            .copy("Fixtures/schema-unified-11.sql"), .copy("Fixtures/schema-unified-12.sql")],
             swiftSettings: suite
         ),
 
         // The web session through the tools: routing, the engine on a real tab and what the memory keeps of it.
         .testTarget(
             name         : "WebSessionTests",
-            dependencies : ["WebSession", "WebDriving", "WebDriver", "AutomationRuntime", "AutomationMCP", "Memory",
-                            "SQLiteMemory", "EngineCore", "PerceptionCore", "LocalMCP"].map { .target(name: $0) },
+            dependencies : ["WebSession", "Router", "WebDriving", "WebDriver", "AutomationRuntime", "AutomationMCP", "Memory",
+                            "SQLiteMemory", "EngineCore", "PerceptionCore", "LocalMCP", "ChatCore",
+                            "CLIProviders"].map { .target(name: $0) },
             path         : "Tests/Integration/WebSessionTests",
-            resources    : [.copy("Fixtures/web-session.html"), .copy("Fixtures/web-secure.html"),
+            resources    : [.copy("Fixtures/web-session.html"), .copy("Fixtures/web-secure.html"), .copy("Fixtures/secure-fields.html"),
                             .copy("Fixtures/select-choices.html"), .copy("Fixtures/aria-listbox.html"),
-                            .copy("Fixtures/shadow.html")],
+                            .copy("Fixtures/shadow.html"), .copy("Fixtures/posts.html"),
+                            .copy("Fixtures/posts-x.html"), .copy("Fixtures/posts-reddit.html"),
+                            .copy("Fixtures/posts-virtual.html")],
             swiftSettings: suite
         ),
+
 
         // Host (TCC, real display) and Live (fixture and reader) tiers, gated by
         // AGENTSEAT_HOST_TESTS=1 and AGENTSEAT_LIVE_TESTS=1 and run serialized.
@@ -496,17 +511,24 @@ let package = Package(
         .target(name: "FileConversations", dependencies: ["ChatCore"],
                 path: "Sources/Chat/FileConversations", swiftSettings: pure),
         .target(name: "LocalMCP", path: "Sources/Chat/LocalMCP", swiftSettings: facility),
-        integration("AutomationRuntime", ["Perception", "VisionText", "PixelSections", "PixelRegions", "WindowServerListing", "AccessibilityFacts",
+        integration("AutomationRuntime", ["LocalMCP", "Perception", "VisionText", "PixelSections", "PixelRegions", "WindowServerListing", "AccessibilityFacts",
                     "ScreenCapture", "Engine", "EngineCore", "HIDActuation", "AccessibilityActions",
                     "WorkspaceActivation", "Memory", "SQLiteMemory", "LiveScenes", "PerceptionCore",
-                    "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding"]),
+                    "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding",
+                    // The one reader of an app's names in the person's languages (`BundleNames`); MacDriver depends on nothing.
+                    "MacDriver"]),
         integration("AutomationMCP", ["AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts",
                                      "AppAdapters", "TaskRouting"]),
         // The task router's rules and its catalogue of default routes: pure, and consulted before a session opens.
         integration("TaskRouting", settings: pure),
-        // A Chrome tab as a session, with the same engine, recorder and memory, and the session that routes
-        // `web:` and URLs to it and everything else to the desktop.
+        // The session before the drivers: it sends each open to the web, the native driver or the desktop
+        // (seat) session it is handed, and knows none of them.
+        integration("Router", ["AutomationRuntime", "EngineCore", "PerceptionCore", "WindowServerListing"]),
+        // The MacDriver as a session: its runtime over the Mac roles and its session on one native app.
+        integration("MacSession", ["AutomationRuntime", "Router", "MacDriving", "MacDriver", "MacDelivery", "Engine", "EngineCore",
+                                   "PerceptionCore", "Memory", "AccessibilityActions", "WindowServerListing"]),
+        // A Chrome tab as a session, with the same engine, recorder and memory.
         integration("WebSession", ["AutomationRuntime", "WebDriving", "WebDriver", "Engine", "EngineCore",
                                    "PerceptionCore", "Memory"]),
         // The foreground command line: windows, scene, act, memory. What a model host does, by hand.
@@ -517,7 +539,9 @@ let package = Package(
                            "WorkspaceActivation", "Memory", "FileKnowledge", "SQLiteMemory", "LiveScenes",
                            "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "AutomationRuntime",
                            "ChatCore", "CLIProviders", "FileConversations", "LocalMCP", "AutomationMCP", "SceneOverlay", "InteractionListener", "InteractionObservation",
-                           "LocalEmbedding", "SeatBroker"].map { .target(name: $0) },
+                           "LocalEmbedding", "SeatBroker", "AppAdapters", "MacDriver", "MacDriving", "MacDelivery",
+                           "MacSession", "Router", "WebSession", "WebDriver", "TaskRouting"]
+                .map { .target(name: $0) },
             path: "Tools/Engine/braus",
             swiftSettings: facility
         ),
@@ -527,6 +551,13 @@ let package = Package(
             dependencies: [.target(name: "LocalMCP")],
             path: "Tools/Engine/braus-bridge",
             swiftSettings: facility
+        ),
+        // Chrome's native messaging host for the Braus extension: it relays one extension instance, that is one
+        // Chrome profile, to the app's `ChromeProfileHub` socket and interprets nothing.
+        .executableTarget(
+            name: "braus-chrome-host",
+            path: "Tools/Engine/braus-chrome-host",
+            swiftSettings: pure
         ),
         // The living memory's process helper: a second real process on one store file, driven by lines on its
         // standard input, for the two-process and crash proofs of `SQLiteMemoryTests` and the cost measures.
@@ -543,8 +574,26 @@ let package = Package(
         // App adapters: EventKit, CoreAudio, CoreWLAN, FileManager and fixed scripts, each behind a transport
         // role so the unit tests run on fakes. JSONValue comes from LocalMCP, which has no other dependency.
         mac("AppAdapters", path: "Adapters", ["EngineCore", "LocalMCP"]),
+        // The MacDriver's accessibility side (tree reader, launcher) and the engine roles built on it
+        // (scenes, windows, coverage). The builder is pure and tested on recorded trees.
+        mac("MacDriver", path: "Driver"),
+        mac("MacDriving", path: "Driving", ["MacDriver", "EngineCore", "PerceptionCore"]),
+        // Mode 2 in place: the seat's Background Driver aimed at a window on the person's screen.
+        mac("MacDelivery", path: "Delivery", ["MacDriving", "EngineCore", "SeatCore", "SeatInput", "WindowPlacement"],
+            settings: facility),
         .testTarget(name: "AppAdaptersTests", dependencies: ["AppAdapters", "EngineCore", "LocalMCP"],
                     path: "Tests/Mac/AppAdaptersTests", swiftSettings: suite),
+        .testTarget(name: "MacDrivingTests", dependencies: ["MacDriving", "MacDriver", "EngineCore", "PerceptionCore"],
+                    path: "Tests/Mac/MacDrivingTests", resources: [.copy("Trees")], swiftSettings: suite),
+        .testTarget(name: "MacSessionTests", dependencies: ["MacSession", "Router", "MacDriving", "MacDriver", "AutomationRuntime",
+                                                          "AutomationMCP", "TaskRouting", "EngineCore", "PerceptionCore",
+                                                          "LocalMCP", "AppAdapters", "SeatBroker", "SeatDriving",
+                                                          "Memory", "SQLiteMemory"],
+                    path: "Tests/Integration/MacSessionTests", swiftSettings: suite),
+        .testTarget(name: "RouterTests", dependencies: ["Router", "AutomationRuntime", "EngineCore",
+                                                     "PerceptionCore", "WindowServerListing", "Memory", "SQLiteMemory",
+                                                     "TestScratch"],
+                    path: "Tests/Integration/RouterTests", swiftSettings: suite),
         .testTarget(name: "TaskRoutingTests", dependencies: ["TaskRouting"],
                     path: "Tests/Integration/TaskRoutingTests", swiftSettings: suite),
 
@@ -572,7 +621,11 @@ let package = Package(
         // A page as the engine sees a window: the scene from the accessibility tree and the layout, and the
         // roles that act on it over the DevTools protocol. Synthetic process ids name the tabs.
         web("WebDriving", ["WebDriver", "EngineCore", "PerceptionCore"]),
-        webTests("WebDriving", ["WebDriving", "WebDriver", "Engine", "EngineCore", "PerceptionCore"],
+        // The person's paired Chrome profiles: the hub the Braus extension's native host reaches, and the
+        // DevTools transport that drives Braus's own tabs in one profile through its extension instance.
+        web("ChromeProfiles", ["WebDriver"]),
+        webTests("ChromeProfiles", ["ChromeProfiles", "WebDriver"]),
+        webTests("WebDriving", ["WebDriving", "WebDriver", "Engine", "EngineCore", "PerceptionCore", "TestScratch"],
                  resources: [.copy("Fixtures/web-scene.html"), .copy("Fixtures/web-hostile.html"),
                              .copy("Fixtures/web-secure.html"), .copy("Fixtures/hit-test.html"),
                              .copy("Fixtures/settle.html"), .copy("Fixtures/frames.html"),
@@ -581,12 +634,13 @@ let package = Package(
         // MARK: Engine tests
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
-                                                    "AppAdapters", "TaskRouting"],
+                                                    "TestScratch", "AppAdapters", "TaskRouting"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
             name: "BrausCLITests",
             dependencies: ["braus", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
-                           "Memory", "SQLiteMemory", "SeatBroker", "SeatDriving", "FileConversations", "TestScratch"],
+                           "Memory", "SQLiteMemory", "SeatBroker", "SeatDriving", "FileConversations", "TestScratch",
+                           "AppAdapters"],
             path: "Tests/Engine/BrausCLITests",
             swiftSettings: facility
         ),

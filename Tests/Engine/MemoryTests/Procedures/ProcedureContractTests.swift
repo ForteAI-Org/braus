@@ -40,6 +40,7 @@ struct ProcedureContractTests {
             .contextMenu(target: "P", item: "Copy", section: nil), .menu(path: "File > Save"),
             .press(button: "OK"), .closeSession,
             .appCapabilities(app: "Calendar", query: nil), .appCall(app: "calendar", verb: "list_calendars", arguments: "{}"),
+            .collectPosts(target: 50, maxScrolls: 30, seconds: 60),
         ]
         let operations = requests.enumerated().map { StepOperation(operationID: "o\($0.offset)", position: $0.offset, request: $0.element) }
         let children = requests.filter(\.tool.isBatchStep).enumerated().map { StepOperation(operationID: "b\($0.offset)", position: $0.offset, request: $0.element) }

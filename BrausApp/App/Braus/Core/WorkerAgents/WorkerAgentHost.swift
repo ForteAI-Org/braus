@@ -13,6 +13,7 @@ import CLIProviders
 import Foundation
 import LocalMCP
 import ModelTransports
+import TaskRouting
 
 /// WorkerAgentHost answers one conversation, through a signed-in agent command
 /// line with the same agent, tools and instructions as `braus chat`, or through
@@ -23,14 +24,22 @@ import ModelTransports
 /// It owns what `ChatCommand` composes for a terminal: `AutomationTools` over the
 /// session its composer supplies, the router, the loopback MCP host, the connection
 /// file (0600, in a 0700 temporary directory), the working directory and the
-/// provider runner. The loopback host starts with the first command line turn
-/// and lives until `close`, so each turn's provider child reconnects to the same
-/// tools; a loop turn calls the tools directly and starts none of it.
+/// provider runner. The router and the tools live until `close`; each command
+/// line turn's child connects to them through that turn's own loopback host. A
+/// loop turn calls the tools directly and starts none of it.
 ///
 /// One turn at a time: a second `run` while one is running is refused. The
 /// host keeps no provider session of its own: the caller passes the one to
 /// resume, and `WorkerTurnRecorder` keeps it on the conversation. A loop turn
 /// has none, and remembers through the history the caller passes.
+///
+/// A command line's turn has a loopback host of its own (I02): a new endpoint,
+/// token and connection file, and the router admits tool calls only while the
+/// turn runs. Once the turn ends, however it ends, the router is paused and
+/// drained, that host stops with every connection it served, and its file
+/// goes, so a connection or a configuration from an earlier turn authorizes
+/// nothing, between turns or in a later one. `retire` closes the host's
+/// sessions when its worker goes on in another conversation.
 ///
 /// Stopping follows `ChatSignals`: pause the router, interrupt the provider,
 /// then drain the router, close the session and wait for the child to stop,
@@ -54,7 +63,8 @@ final class WorkerAgentHost {
         set { tools.producer = newValue }
     }
     private let router          : MCPRouter
-    private let host            : LocalMCPHost
+    /// The running command line turn's loopback host; nil between turns.
+    private var host            : LocalMCPHost?
     private let provider        = CLIProvider()
     private let agents          : (ModelProvider) throws -> (ChatProvider, URL)
     private let transports      : (ModelSelection) -> any ModelTransport
@@ -82,6 +92,15 @@ final class WorkerAgentHost {
     /// What the running command line turn reported it cost, held until its child has exited.
     private var reportedUsage: ProviderUsage?
 
+    /// This conversation's barrier (R05): every turn shares it, and Braus's own tools pass it
+    /// on every path, so a refusal by the person stops the conversation's other actions until they allow that call.
+    private let barrier: ActionBarrier
+
+    /// Braus's own tools behind the barrier.
+    private let brausCall: @MainActor (String, JSONValue) async throws -> JSONValue
+
+    var servedTools: [JSONValue] { tools.toolDefinitions }
+
     /// Where this conversation's approvals wait, and the scope they wait in: stopping a turn refuses them.
     private let approvals    : AdapterApprovals?
     private let approvalScope: UUID
@@ -99,6 +118,8 @@ final class WorkerAgentHost {
     /// takes for the same bridge. `session` is called once, here,
     /// for the desktop the tools drive; the host closes it after a failed or
     /// stopped turn and in `close`, and never builds a seat of its own (§22.3).
+    /// `channels` are the routes beyond the Seat it was composed with, which
+    /// decide the tools it serves (`AutomationTools.toolDefinitions`).
     /// `transports` makes the transport a loop turn talks through, once per
     /// turn, so it reads the connection settings as they are then, and
     /// `contextWindows` names the window that turn's model runs in, nil when
@@ -114,6 +135,7 @@ final class WorkerAgentHost {
         workingDirectory: URL,
         bridgeExecutable: URL,
         session         : () -> any AutomationSessionOperating,
+        channels        : AutomationChannels = [],
         transports      : @escaping (ModelSelection) -> any ModelTransport = { $0.transport() },
         contextWindows  : @escaping (ModelSelection) -> Int?               = { _ in nil },
         seatLine        : @escaping @MainActor () -> String?               = { nil },
@@ -125,6 +147,7 @@ final class WorkerAgentHost {
             workingDirectory: workingDirectory,
             bridgeExecutable: bridgeExecutable,
             session         : session,
+            channels        : channels,
             agents          : Self.agent(for:),
             transports      : transports,
             contextWindows  : contextWindows,
@@ -136,18 +159,23 @@ final class WorkerAgentHost {
     }
 
     /// `agents` finds the command line for a provider; a test passes a stand-in,
-    /// and a stand-in transport through `transports`.
+    /// and a stand-in transport through `transports`. `adapters` replaces the Mac's app adapters with a test's
+    /// (on a temporary root) only where `channels` already composes them: it never turns the channel on, and nil,
+    /// what the app passes, keeps the composition as it is.
     init(
         workingDirectory: URL,
         bridgeExecutable: URL,
         session         : () -> any AutomationSessionOperating,
+        channels        : AutomationChannels = [],
         agents          : @escaping (ModelProvider) throws -> (ChatProvider, URL),
         transports      : @escaping (ModelSelection) -> any ModelTransport = { $0.transport() },
         contextWindows  : @escaping (ModelSelection) -> Int?               = { _ in nil },
         seatLine        : @escaping @MainActor () -> String?               = { nil },
-        adapterApprover : (any AdapterApproving)?                          = nil,
-        approvals       : AdapterApprovals?                                = nil,
-        offersWeb       : Bool                                             = false
+        adapters        : AppAdapters?                                     = nil,
+        barrier         : ActionBarrier                                    = ActionBarrier(),
+        adapterApprover: (any AdapterApproving)? = nil,
+        approvals: AdapterApprovals? = nil,
+        offersWeb: Bool = false
     ) {
         self.approvals        = approvals
         self.workingDirectory = workingDirectory
@@ -156,20 +184,25 @@ final class WorkerAgentHost {
         self.transports       = transports
         self.contextWindows   = contextWindows
         self.seatLine         = seatLine
-        // A worker's tools offer the app adapters; `instructions` says so in their words.
-        let tools  = AutomationTools(
-            session  : session(),
-            adapters : .standard(approver: adapterApprover),
-            offersWeb: offersWeb
-        )
-        let scope  = UUID()
+        let scope = UUID()
         self.approvalScope = scope
-        let router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
-            try await ApprovalScope.$current.withValue(scope) { try await tools.call(name, arguments) }
+        let tools  = AutomationTools(session: session(), channels: channels,
+                                     adapters: channels.contains(.adapters) ? (adapters ?? .standard(approver: adapterApprover)) : nil,
+                                     offersWeb: offersWeb)
+        if let adapters, channels.contains(.adapters) { tools.adapters = adapters }
+        let brausCall: @MainActor (String, JSONValue) async throws -> JSONValue = { name, arguments in
+            if let refusal = barrier.refusal(of: name, arguments) { throw AutomationFailure(refusal) }
+            return try await ApprovalScope.$current.withValue(scope) { try await tools.call(name, arguments) }
         }
+        let router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
+            try await brausCall(name, arguments)
+        }
+        self.barrier   = barrier
+        self.brausCall = brausCall
         self.tools  = tools
         self.router = router
-        self.host   = LocalMCPHost(router: router)
+        // Calls are admitted only during a command line's turn, through that turn's own host.
+        router.pause()
         tools.record = { [weak self] text in self?.onEvent?(.tool(text)) }
     }
 
@@ -196,17 +229,17 @@ final class WorkerAgentHost {
     /// the app's line, the web line when the turn may search the web, and the
     /// worker's own instructions after them, never instead of them (§6.2). A
     /// model without tools gets `textOnlyInstructions` as its base, which names no tool.
+    /// `tools` is the base text of the channels the turn's tools serve (`AutomationTools.instructions`, R09).
     static func instructions(
         role       : String?,
-        hasTools   : Bool = true,
-        searchesWeb: Bool = false,
-        offersWeb  : Bool = false
+        hasTools   : Bool    = true,
+        searchesWeb: Bool    = false,
+        offersWeb  : Bool = false,
+        tools      : String  = AutomationTools.instructions
     ) -> String {
-        let tools = AutomationTools.instructions(
-            offeringAdapters: true,
-            offeringWeb     : offersWeb
-        )
-        var base  = hasTools ? tools + "\n" + appInstructions : textOnlyInstructions
+        let effectiveTools = offersWeb && tools == AutomationTools.instructions
+            ? AutomationTools.instructions(for: [.web, .adapters]) : tools
+        var base = hasTools ? effectiveTools + "\n" + appInstructions : textOnlyInstructions
         if searchesWeb { base += "\n" + webInstructions }
         guard let role = role?.trimmingCharacters(in: .whitespacesAndNewlines), !role.isEmpty else {
             return base
@@ -261,10 +294,8 @@ final class WorkerAgentHost {
 
         if WorkerAnswer(provider: selection.provider) == .modelLoop {
             let loop  = ModelToolLoop(
-                call       : { [tools] name, arguments in try await tools.call(name, arguments) },
-                reminder   : { [tools] in tools.takeInterpretationReminder() },
-                definitions: tools.toolDefinitions,
-                offersWeb  : tools.offersWeb
+                call    : brausCall,
+                reminder: { [tools] in tools.takeInterpretationReminder() }
             )
             self.loop = loop
             defer { endLoop() }
@@ -275,7 +306,9 @@ final class WorkerAgentHost {
                     history      : history,
                     prompt       : prompt,
                     seat         : seat,
-                    contextWindow: contextWindows(selection)
+                    contextWindow: contextWindows(selection),
+                    baseTools    : tools.toolDefinitions,
+                    instructions : tools.instructions
                 ) { event in
                     guard case .provider(.usage(let reported)) = event else { return onEvent(event) }
 
@@ -306,7 +339,7 @@ final class WorkerAgentHost {
         let instructions = Self.instructions(
             role       : role,
             searchesWeb: allowsWebSearch,
-            offersWeb  : tools.offersWeb
+            tools      : tools.instructions
         )
         // The seat line opens the person's message, so a reminder puts the text explaining it first.
         var message      = seat.map { $0 + "\n\n" + prompt } ?? prompt
@@ -326,17 +359,19 @@ final class WorkerAgentHost {
             workingDirectory    : workingDirectory,
             inheritedEnvironment: inheritedEnvironment,
             allowsWebSearch     : allowsWebSearch,
-            offersWeb           : tools.offersWeb
+            tools               : tools.instructions
         )
         var web = WebToolRecords()
         do {
             // A stop during `start` found no child to interrupt; it ends the turn here instead.
             if isStopRequested { throw CancellationError() }
+            router.resume()
             try await provider.run(turn, executable: executable, onStart: { onEvent(.processStarted($0)) }) { event in
                 if case .session(let id) = event { self.reportedSession = id }
                 switch event {
                 case .usage(let usage): self.reportedUsage = usage
-                case .web:              for line in try web.lines(for: event) { onEvent(.tool(line)) }
+                case .web:
+                    for line in try web.lines(for: event, withholding: self.tools.withheld) { onEvent(.tool(line)) }
                 default:                onEvent(.provider(event))
                 }
             }
@@ -356,17 +391,23 @@ final class WorkerAgentHost {
                     workingDirectory    : workingDirectory,
                     inheritedEnvironment: inheritedEnvironment,
                     allowsWebSearch     : allowsWebSearch,
-                    offersWeb           : tools.offersWeb
+                    tools               : tools.instructions
                 )
                 try await provider.run(follow, executable: executable, onStart: { onEvent(.processStarted($0)) }) { event in
                     if case .session(let id) = event { self.reportedSession = id }
                     switch event {
                     case .usage(let usage): self.reportedUsage = usage
-                    case .web:              for line in try web.lines(for: event) { onEvent(.tool(line)) }
+                    case .web:
+                        for line in try web.lines(for: event, withholding: self.tools.withheld) { onEvent(.tool(line)) }
                     default:                onEvent(.provider(event))
                     }
                 }
             }
+            // The turn's children are done: nothing more is admitted, a call still in flight finishes, and the
+            // turn's host and connection file go.
+            router.pause()
+            await router.drain()
+            await endTurnHost()
             if let session = reportedSession ?? sessionID {
                 record(instructions, deliveredTo: session)
             }
@@ -383,7 +424,7 @@ final class WorkerAgentHost {
             await router.drain()
             await tools.session.close()
             await provider.waitUntilStopped()
-            router.resume()
+            await endTurnHost()
             await reportUsage(
                 of         : chatProvider,
                 selection  : selection,
@@ -499,7 +540,8 @@ final class WorkerAgentHost {
             workingDirectory    : workingDirectory,
             inheritedEnvironment: inheritedEnvironment,
             isCompaction        : true,
-            offersWeb           : tools.offersWeb
+            offersWeb           : tools.offersWeb,
+            tools               : tools.instructions
         )
         let started  = Date()
         var boundary : (pre: Int?, post: Int?)?
@@ -516,11 +558,12 @@ final class WorkerAgentHost {
                 case .session, .activity, .failure, .web, .completed: break
                 }
             }
+            await endTurnHost()
         } catch {
             router.pause()
             await router.drain()
             await provider.waitUntilStopped()
-            router.resume()
+            await endTurnHost()
             throw error
         }
 
@@ -684,6 +727,13 @@ final class WorkerAgentHost {
         try? JSONEncoder().encode(record).write(to: instructionRecord, options: .atomic)
     }
 
+    /// `text` with what this host's tools withhold withheld: the secrets a task declared or a call typed into a
+    /// secure field, and credential shapes (`AutomationTools.withheld`). The recorder passes everything it writes to
+    /// the workspace through it (M07).
+    func withheld(_ text: String) -> String {
+        tools.withheld(text)
+    }
+
     /// Stops the running turn: no further tool call is accepted and the
     /// provider is interrupted. `run` then finishes the cleanup and throws.
     func stop() {
@@ -701,6 +751,17 @@ final class WorkerAgentHost {
         provider.cancel()
     }
 
+    /// Retires the host's context when its worker starts a turn in another conversation (I02): no call is admitted
+    /// from any connection, one in flight finishes, and the session closes, so no session ID it gave is valid again.
+    /// The host stays for the conversation's next turn, which opens what it needs again. Never during a turn: the
+    /// worker runs one at a time.
+    func retire() async {
+        router.pause()
+        await router.drain()
+        await endTurnHost()
+        await tools.session.close()
+    }
+
     /// Ends the host: stops any turn, releases the session, closes the
     /// loopback host and removes the connection file's directory. The host
     /// is not used again afterwards. Throws when that directory could not be
@@ -716,8 +777,7 @@ final class WorkerAgentHost {
         await router.drain()
         await tools.session.close()
         await provider.waitUntilStopped()
-        host.stop()
-        connectionFile = nil
+        await endTurnHost()
         guard let temporary else { return }
         self.temporary = nil
         try FileManager.default.removeItem(at: temporary)
@@ -738,7 +798,8 @@ final class WorkerAgentHost {
         inheritedEnvironment: [String: String],
         isCompaction        : Bool = false,
         allowsWebSearch     : Bool = false,
-        offersWeb           : Bool = false
+        offersWeb           : Bool = false,
+        tools               : String = AutomationTools.instructions
     ) -> ProviderTurn {
         let searchesWeb = allowsWebSearch && !isCompaction
         let efforts = ModelSelection.supportedEfforts(provider: selection.provider, model: selection.model)
@@ -750,7 +811,8 @@ final class WorkerAgentHost {
             instructions    : instructions(
                 role       : role,
                 searchesWeb: searchesWeb,
-                offersWeb  : offersWeb
+                offersWeb  : offersWeb,
+                tools      : tools
             ),
             bridgeExecutable: bridgeExecutable.path,
             connectionFile  : connectionFile.path,
@@ -778,26 +840,33 @@ final class WorkerAgentHost {
         }
     }
 
-    /// Starts the loopback host and writes its connection file, once. A start
-    /// that fails part way releases what it made, so a later turn starts clean.
+    /// Starts the turn's own loopback host, with a token, and writes its own connection file (I02): what an
+    /// earlier turn's child was given authorizes nothing in this one. A start that fails part way releases what it
+    /// made, so a later turn starts clean.
     private func start() async throws -> URL {
-        if let connectionFile { return connectionFile }
         let files = FileManager.default
         do {
             try files.createDirectory(at: workingDirectory, withIntermediateDirectories: true,
                                       attributes: [.posixPermissions: 0o700])
-            let directory = files.temporaryDirectory.appendingPathComponent("braus-worker-\(UUID().uuidString)")
-            try files.createDirectory(at: directory, withIntermediateDirectories: false,
-                                      attributes: [.posixPermissions: 0o700])
-            temporary = directory
-            let endpoint = try await host.start()
-            let file = directory.appendingPathComponent("connection.json")
+            let directory: URL
+            if let temporary {
+                directory = temporary
+            } else {
+                directory = files.temporaryDirectory.appendingPathComponent("braus-worker-\(UUID().uuidString)")
+                try files.createDirectory(at: directory, withIntermediateDirectories: false,
+                                          attributes: [.posixPermissions: 0o700])
+                temporary = directory
+            }
+            let served = LocalMCPHost(router: router)
+            host = served
+            let endpoint = try await served.start()
+            let file = directory.appendingPathComponent("connection-\(UUID().uuidString).json")
+            connectionFile = file
             try JSONEncoder().encode(endpoint).write(to: file, options: .atomic)
             try files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-            connectionFile = file
             return file
         } catch let primary {
-            host.stop()
+            await endTurnHost()
             if let temporary {
                 self.temporary = nil
                 do { try files.removeItem(at: temporary) }
@@ -805,6 +874,18 @@ final class WorkerAgentHost {
                                                 + "directory could not be removed: \(temporary.path)") }
             }
             throw primary
+        }
+    }
+
+    /// Ends the turn's loopback host: its connections close, what they still served ends, and its connection file
+    /// goes, so neither authorizes anything again.
+    private func endTurnHost() async {
+        let served = host
+        host = nil
+        await served?.stopAndDrain()
+        if let connectionFile {
+            self.connectionFile = nil
+            try? FileManager.default.removeItem(at: connectionFile)
         }
     }
 }

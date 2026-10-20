@@ -82,15 +82,15 @@ public struct ContactsAdapter: AppAdapting {
         [
             AdapterVerb("find_contacts", "Find people by name, with their phones and email addresses.",
                         parameters: [
-                            AdapterParameter("name", .string, "a name or part of one", content: true),
+                            AdapterParameter("name", .string, "a name or part of one", confidential: .sensitiveMetadata),
                             AdapterParameter("limit", .integer, "at most this many; default 10", required: false,
                                              range: 1...Double(Self.maximumContacts)),
                         ],
-                        safety: .read, readBack: "the address book", contentResults: Self.contentResults),
+                        safety: .read, readBack: "the address book", contentResults: Self.contentResults, results: .identifiersAndDates),
             AdapterVerb("read_contact", "Read one person: phones, emails, postal addresses, organization, birthday.",
                         parameters: [AdapterParameter("id", .string, "the contact's id from find_contacts")],
                         safety: .read, readBack: "the address book by the contact's id",
-                        contentResults: Self.contentResults),
+                        contentResults: Self.contentResults, results: .identifiersAndDates),
         ]
     }
 

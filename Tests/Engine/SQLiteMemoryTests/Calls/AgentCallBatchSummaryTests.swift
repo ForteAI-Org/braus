@@ -140,6 +140,27 @@ struct AgentCallBatchSummaryTests {
         await memory.store.close()
     }
 
+    @Test("P1-07: a tool that never perceives (an adapter's, a listing) reads not applicable once concluded, a started act that wrote no sample stays unknown")
+    func capturesOfToolsThatNeverPerceive() async throws {
+        let memory = try await F.open()
+        let calls: [(String, AgentCallRequest, AgentCallProgress)] = [
+            ("adapter", .appCall(app: "Mail", verb: "read_message", arguments: "{}"), F.outcome(.foundActed)),
+            ("listing", .apps(query: nil), F.ended(.completed)),
+            ("gesture", Self.click, F.outcome(.foundActed)),
+        ]
+        for (id, request, end) in calls {
+            _ = try await memory.calls.record(try F.call(id, request, app: request.tool == .apps
+                                                        ? nil : F.app))
+            #expect(try await memory.calls.advance([AgentCallTransition(id, .started)]) == .committed)
+            #expect(try await memory.calls.advance([AgentCallTransition(id, end)]) == .committed, "\(id)")
+        }
+        for id in ["adapter", "listing"] {
+            #expect(try await memory.captures.event(id)?.captureStatus == .notApplicable, "\(id) has no capture to lose")
+        }
+        #expect(try await memory.captures.event("gesture")?.captureStatus == .unknown, "a gesture's missing sample is not explained away")
+        await memory.store.close()
+    }
+
     @Test("cancellation and interruption keep their states and carry no summary")
     func cancelledAndInterrupted() async throws {
         let memory = try await F.open()

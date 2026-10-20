@@ -23,7 +23,7 @@ described in [MemoryProcedures](MemoryProcedures.md).
 | Operation effect | `OperationEffect` | What a call really did beside its request: the gesture performed (`requested`, `substitute` with its name, `none` with the reason, `uncertain`), the element it resolved, whether its path reported a check | `memory_call_effects` |
 | Operation verification | `OperationVerification` wrapping `OperationCheck` (EngineCore) | One check of one call: its own `verification` event, the call, the condition judged, the method and its version, the verdict (`passed`, `failed`, `unknown`), the expected and observed texts, the limits of the evidence, the target and the samples | `memory_verifications` (scope `call`), `memory_operation_verifications`, `…_limits`, `…_samples` |
 | Recording gap | `OperationRecordingGap` (Memory) | A part of a call's end (`samples`, `effect`, `verification`) the archive refused as offered and the call was concluded without, why (`refused`, `conflict`) and what the archive said, minimized; a call with one is incomplete evidence | `memory_call_recording_gaps` |
-| Withheld value | `ValueRedaction`, `ValueMinimization` (Memory) | Where a withheld value was (an argument, the result's message, a verification's text, the target's label, section or identity, a sample's label, container or title, the observed effect, a listing's application) and why (`declared_secret`, `credential_pattern`, `secret_target`, `secure_field`); never the value, its length or a digest | `memory_value_redactions` |
+| Withheld value | `ValueRedaction`, `ValueMinimization` (Memory) | Where a withheld value was (an argument, the result's message, a verification's text, the target's label, section or identity, a sample's label, container or title, the observed effect, a listing's application) and why (`declared_secret`, `credential_pattern`, `secret_target`, `secure_field`, and since schema 9 `unclassified_target`: a text typed where the call could not attest an ordinary target); never the value, its length or a digest | `memory_value_redactions` |
 | Origin | `SQLiteArchiveTransfer`, `BrainMerge` (SQLiteMemory) | Each earlier archive or JSON directory the shared archive took knowledge from, the state of its transfer (`partial` when some of it could not be taken in), the source of every event taken (`added`, `duplicate`, `renamed`), and what its JSON Brains gave each application's Brain, element by element (`added`, `present`, `excluded`) | `memory_archive_origins`, `memory_origin_events`, `memory_origin_brain_contributions` |
 
 A task call is not an operation: `memory_task` is never recorded in `memory_agent_actions` and never
@@ -116,6 +116,20 @@ Limits: `delivery_uncertain`, `no_after_scene`, `readback_unavailable`, `previou
 `no_expectation`, `window_wide`, `command_effect_unchecked`, `label_match_only`, `no_expected_value`,
 `target_not_resolved`, `unattributed`, `value_withheld`.
 
+**A sample that was not read whole (M2, T2B4).** A `scene_difference` over a capture that says it is
+partial or failed, or whose facts are inconsistent, on either side, concludes nothing. That holds whatever the
+cause, a list that did not answer or a budget.
+- The check is `unknown` with `unattributed`, and the call keeps no observed effect.
+- It teaches no projection, and its relation is excluded (`verdict_unknown`): no removal, success or contradiction
+  is learned from what was not read.
+- The samples keep their real status, the observed fact. A partial sample is `walk_completed = 0` with `stopped_by`
+  as observed, and nothing is stored for a list that did not answer. No field and no schema change: the count and
+  the cause of what did not answer stay in the runtime's read (`MacTreeRead`, `MacScene`), and the archive does not
+  say "timed out".
+- A direct read-back (`control_state`, `control_value`) keeps its own verdict.
+- A sample of unknown quality (legacy) is compared as before. That is a limit, and such a sample is never called
+  complete.
+
 ### Values withheld before anything is kept
 
 `ValueMinimization` runs before a call's start, its samples, its end, its verification, the Brain's
@@ -164,11 +178,50 @@ not only arguments, samples' labels and the verification's texts:
   (`minimize(application:)`); one whose effect held a withheld value is journaled `excluded`, and the
   origin is `partial`.
 
-Limits: the perception does not report a field as secure, so a password typed into a field whose label
-names no secret, which the task did not declare secret and which has no credential shape, is kept. A
-declared secret is searched for in identities in its normalized form, which may withhold the same
-letters in another identity. `OperationConclusion.withdrawn` lets a later fact replace an argument
-already kept with the marker, for when such a signal exists.
+Every match of every rule is found on the text as given and the union of the ranges is withheld at once, so
+a classified fragment of a declared secret, or one inside a credential, leaves no piece of either visible, and
+the reason is the strongest of what was found (review of `1106ec6`, `ClassifiedWithholdingTests`).
+
+Limits: a declared secret is searched for in identities in its normalized form, which may withhold the same
+letters in another identity. `OperationConclusion.withdrawn` lets a later fact replace an argument already
+kept with the marker; W1's typed texts never use it, since nothing is corrected after an effect.
+
+#### Typed texts, classified before the first write (W1)
+
+A text a call types (`type_text`, `insert_text` and its `expected_value`, a batch's text steps) is classified
+before anything of the call is written, its transcript line and its record included (`AutomationTools.call`,
+`scope(of:_:)`). The session classifies it on a fresh perception (`AutomationSessionOperating.classify`, the
+engine's `ActionEngine.classify`), never on the scene the model last read:
+
+- **Ordinary.** The field takes text and its provider attests its physical identity. The text is kept, so
+  the memory learns it, and the dispatch is bound to that field (`TextDispatch.bound`): the engine types
+  only into it, or stops ([Web driver](WebDriver.md#typed-text-and-the-focus)).
+- **Secure.** The field is a secure one. The text is withheld with `secure_field` and becomes one of the
+  producer's secrets, withheld from everything after it.
+- **Unclassified.** The target is absent or ambiguous, takes no text, has no attested identity, or the
+  session attests nothing (the MacDriver and the Seat today). The text is withheld with
+  `unclassified_target` for this call only (`CallScope`), never as a producer secret, so a later ordinary
+  record holding the same word keeps it. The engine is told (`TextDispatch.withheld`, which the web session,
+  the MacDriver's and the Seat's pass on as `InputRequest.withholdsText`): it quotes no value of the field in
+  its answer and keeps the texts out of its check, whose verdict stands. As a second line of defence, the call
+  withholds the forms in which the engine quotes a value too (`ActionEngine.quotedForms`: line breaks as spaces,
+  a long text's first 59 characters), for a session that would not pass the dispatch on (T15).
+
+A batch's first text step is classified the same way; a later one comes after an earlier step's effect, so
+it is withheld in the plan as unclassified, and nothing is added back when it starts. A text whose call
+names another session, or whose step the call will refuse, is withheld as unclassified too.
+
+The call's scope (`CallScope`, a task-local value) lasts from the classification to the call's last output:
+every record of its recorders (`ValueMinimization.classified`), every transcript line, its answer, the scene
+written into that answer (minimized before it is rendered as text) and the error it throws. The transcript
+and the answer are minimized value by value before they are encoded, so a text JSON escapes (a quote, a
+backslash, a line break) is found as written; a text's line breaks read as spaces in a sentence, so that form
+is withheld too. A secure field's text, a producer secret from then on, is withheld the same way from every later call's
+answer, scene and error, its line-flattened form too (T14). A concurrent call runs in another task and does
+not see the scope. Proofs:
+`TypedSecretTests` (T1 to T14 of the proposal and its review, each text as written and as JSON escapes it, in the
+transcript's and the answers' decoded values and in every byte of the archive) and `HistoricalArchiveTests`
+for the reason's schema.
 
 #### Every text kept, and what filters it
 
@@ -177,7 +230,7 @@ declared or recognized secret could be kept. A row with no proof named is shown 
 
 | Destination | Input | Filter | Proof |
 | --- | --- | --- | --- |
-| `memory_operation_arguments.text_value` of a call | the agent's arguments | `minimize(request)`; texts withheld join the producer's secrets | `FactWiringTests.canariesAreWithheld`, `.declaredSecretCopiesAreWithheld` |
+| `memory_operation_arguments.text_value` of a call | the agent's arguments | the call's classification first (W1), then `minimize(request)`; texts withheld join the producer's secrets, an unclassified target's for the call only | `FactWiringTests.canariesAreWithheld`, `.declaredSecretCopiesAreWithheld`, `TypedSecretTests` |
 | `memory_operation_arguments` of a Brain application | the acted element and its effect | `admit(record)`: the element minimized; no application when the effect withheld a value, a value change's label and value included | `FactWiringTests.effectTextsAreWithheld`, `FactContractTests.applications` |
 | `memory_agent_actions.result_message` | the tool's answer | `minimize(result:)` | `UnificationTests.transferAdmitsAsLive` |
 | `memory_agent_action_windows.title`, `memory_agent_action_applications` (name, version, location) | a `windows` or `apps` listing | `minimize(listing:)`, gap `listing_entry` | `FactWiringTests.listingTextsAreWithheld` |
@@ -192,7 +245,8 @@ declared or recognized secret could be kept. A row with no proof named is shown 
 | `memory_origin_brain_contributions.element_key` | a merge or a transfer | identities only: anchor and group ids, a transition's minimized effect, an application's event | `UnificationTests.jsonMergeAdmitsAsLive` |
 | `memory_value_redactions` | every filter | where and why, never the value, its length or a digest | all of the above |
 | `memory_events` identities, `memory_archive_origins.location`, `detail` | Braus's producers and the transfer | identifiers Braus draws (UUIDs, stream names, message ids, client folders) and counts | by reading |
-| The tools' transcript (the app's events, `braus chat`) | requests and answers | `AutomationTools.transcribe`: the producer's secrets and credential shapes | `FactWiringTests.canariesAreWithheld`, `.declaredSecretCopiesAreWithheld` |
+| The tools' transcript (the app's events, `braus chat`) | requests and answers | `AutomationTools.transcribe`: the producer's secrets, the call's withheld texts and credential shapes, value by value before encoding | `FactWiringTests.canariesAreWithheld`, `.declaredSecretCopiesAreWithheld`, `TypedSecretTests` |
+| The tools' answers and thrown errors | the call's result | the producer's secrets and the call's withheld texts, value by value, the scene before it is rendered; no credential scrub (the answer is shown, not kept) | `TypedSecretTests` |
 | Copies (daily backups, migration copy, unification staging) | the archive | copies of what was already minimized; the staging is removed | `FactWiringTests.canariesAreWithheld` (scans the copy) |
 | The service's log | write labels and failure kinds | no value: write labels are Braus's, failures name their kind | by reading |
 
@@ -429,7 +483,11 @@ be read (`malformedCall`, result kind `found_acted`). The reader now admits an o
 
 - Live desktop runs of this recording were not made in D1; every proof is a unit or integration test on
   temporary archives with doubles of the sessions, plus one real killed process.
-- A field the perception cannot tell secure (see above).
+- A provider that attests no field (the MacDriver, the Seat) has every typed text withheld as unclassified:
+  the memory learns no typed value there, and an `insert_text` is never read back. This is the limit accepted
+  for W1's increment; a native attestation of fields is later work, not part of it.
+- A bound text's last focus check and the text itself are two steps: a node swapped between them would
+  receive it ([Web driver](WebDriver.md#limits)).
 - An origin with facts the transfer does not carry is refused whole; it stays where it was. No build
   before G76 could write such facts (inventory above).
 - An element of an origin's JSON Brain that cannot be taken in as it was (an identity another

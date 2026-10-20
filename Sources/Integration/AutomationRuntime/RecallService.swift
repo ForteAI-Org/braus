@@ -839,6 +839,10 @@ public actor RecallService {
         _ = await memory.flush(within: Self.observationFlush)
         let since = memory.clock.calendarMS() - Self.observationFreshnessMS
         let observed = try await memory.perform { try await $0.recall.observedState(of: producer.source, stream: producer.streamID, since: since) }
+        // P2-09: a version last judged under an earlier policy is judged again, appended beside its history, before any is
+        // offered: what the catalogue proposes follows the current rule, and an earlier admission certifies nothing now.
+        // The index catches up with the new evaluations in `prepare`, as with any change of the catalogue.
+        _ = try await memory.perform { try await $0.procedures.reevaluateOutdated(at: self.memory.clock.brainMS()) }
         var prepared = try await prepare(request, observed: observed.map { [$0] } ?? [])
         var clock = ContinuousClock.now
         var outcomes = outcomes(prepared)
@@ -1036,7 +1040,42 @@ public actor RecallService {
             .scroll: ["target": "element"], .drag: ["from": "element", "to": "element"], .contextMenu: ["target": "element"],
         ]
         let steps = source.steps.filter { selection.positions.contains($0.position) }.map { step -> RecallDelivery.Step in
-            let arguments = step.arguments.filter(Self.isDelivered).map { argument -> RecallDelivery.Argument in
+            // P2-02: an adapter's arguments are delivered field by field, never as the source's object.
+            let fields = step.fields.map { field -> RecallDelivery.Argument in
+                var argument: RecallDelivery.Argument = switch field.kind {
+                    case .parameter(let id): RecallDelivery.Argument(name: "arguments" + field.path,
+                                                                     value: "{\(name(id))}", kind: "parameter")
+                    case .constant(let text): RecallDelivery.Argument(name: "arguments" + field.path, value: text ?? "null", kind: "fixed")
+                    case .withheld: RecallDelivery.Argument(name: "arguments" + field.path, value: "[withheld]: this task's own value",
+                                                            kind: "parameter")
+                    case .stepResult(let position, let path):
+                        RecallDelivery.Argument(name: "arguments" + field.path, value: "{@step \(position + 1):\(path)}", kind: "result")
+                    case .unresolved: RecallDelivery.Argument(name: "arguments" + field.path,
+                                                              value: "resolve in this run (read it first)", kind: "parameter")
+                }
+                argument.valueType = field.valueKind?.rawValue
+                return argument
+            }
+            let structure: [RecallDelivery.Argument] = step.fields.isEmpty ? [] : step.arguments.compactMap { argument in
+                guard argument.name == "arguments", case .literal(.text(let text)) = argument.value,
+                      let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)) else { return nil }
+                func shape(_ value: Any, at path: String = "") -> Any {
+                    if let fields = value as? [String: Any] {
+                        return Dictionary(uniqueKeysWithValues: fields.map { key, item in
+                            let escaped = key.replacingOccurrences(of: "~", with: "~0").replacingOccurrences(of: "/", with: "~1")
+                            return (key, shape(item, at: path + "/" + escaped))
+                        })
+                    }
+                    if let items = value as? [Any] {
+                        return items.enumerated().map { shape($0.element, at: path + "/\($0.offset)") }
+                    }
+                    return "{field:\(path)}"
+                }
+                guard let encoded = try? JSONSerialization.data(withJSONObject: shape(value), options: [.sortedKeys]) else { return nil }
+                return RecallDelivery.Argument(name: "arguments", value: String(decoding: encoded, as: UTF8.self), kind: "structure")
+            }
+            let arguments = step.arguments.filter(Self.isDelivered).filter { !(step.fields.isEmpty == false && $0.name == "arguments") }
+                .map { argument -> RecallDelivery.Argument in
                 let kind = roles[step.tool]?[argument.name] ?? "fixed"
                 switch argument.value {
                     case .literal(let value):
@@ -1061,8 +1100,9 @@ public actor RecallService {
                     case .menu(let path): return RecallDelivery.Argument(name: argument.name, value: path, kind: "fixed")
                 }
             }
-            return RecallDelivery.Step(step: step.position + 1, label: step.label, app: step.bundleID.map(RecallDocument.applicationName),
-                                       tool: step.tool.rawValue, arguments: arguments, verifiedAs: nil)
+            return RecallDelivery.Step(step: step.position + 1, label: step.label,
+                                       app: step.bundleID.map(RecallDocument.deliveredName),
+                                       tool: step.tool.rawValue, arguments: arguments + structure + fields, verifiedAs: nil)
         }
         var rendered: [RecallDelivery.Parameter] = []
         var conditions: [RecallDelivery.Condition] = []
@@ -1081,17 +1121,30 @@ public actor RecallService {
                     if requirement.kind == .parameterMissing { item.producedBy = Self.dependency(of: parameter, in: source, candidates: candidates) }
                     rendered.append(item)
                 case .entryState:
-                    let app = requirement.bundleID.map(RecallDocument.applicationName) ?? "the application"
+                    let app = requirement.bundleID.map(RecallDocument.deliveredName) ?? "the application"
                     conditions.append(RecallDelivery.Condition(kind: requirement.kind.rawValue, step: step, detail: requirement.sceneID == nil
                         ? "start in \(app) where step \(step ?? 0) began in the source; that state was not recognized, observe it"
                         : "start in \(app) in the state step \(step ?? 0) began from in the source (open the application or document as needed, then observe)"))
                 case .applicationSwitch:
-                    let app = requirement.bundleID.map(RecallDocument.applicationName) ?? "the next application"
+                    let app = requirement.bundleID.map(RecallDocument.deliveredName) ?? "the next application"
                     conditions.append(RecallDelivery.Condition(kind: requirement.kind.rawValue, step: step,
                         detail: "before step \(step ?? 0), the source switched to \(app): open or focus it with the task's document"))
                 case .unknownEntryState:
                     conditions.append(RecallDelivery.Condition(kind: requirement.kind.rawValue, step: step,
                         detail: "what step \(step ?? 0) needs on screen was not recorded: earlier steps of the source may be needed; observe and prepare"))
+                case .adapterAvailable:
+                    let what = requirement.bundleID.map(RecallDocument.deliveredName) ?? "its adapter"
+                    conditions.append(RecallDelivery.Condition(kind: requirement.kind.rawValue, step: step,
+                        detail: "step \(step ?? 0) calls \(what) without a window: check it is available here (app_capabilities); its "
+                            + "evidence is its own read-back, not the screen"))
+                case .stepResultPending:
+                    conditions.append(RecallDelivery.Condition(kind: requirement.kind.rawValue, step: step,
+                        detail: "step \(step ?? 0) uses what an earlier step of this run answers: take it from that step's result now, "
+                            + "never from the source; if that step did not run or answered nothing, stop"))
+                case .accountToResolve:
+                    conditions.append(RecallDelivery.Condition(kind: requirement.kind.rawValue, step: step,
+                        detail: "resolve and confirm which account this task uses before this step, including when the source used a default or unknown account; the "
+                            + "source's is not given, and the same site or profile does not mean the same account"))
                 case .prerequisiteOutOfCatalogue:
                     conditions.append(RecallDelivery.Condition(kind: requirement.kind.rawValue, step: step,
                         detail: "step \(step ?? 0) of the source prepares this selection but is not offered by the catalogue: prepare that state yourself"))
@@ -1103,13 +1156,13 @@ public actor RecallService {
                         detail: "the task still lacks \(requirement.taskValueName ?? "a value") and step \(step ?? 0) fixes this choice: resolve "
                             + "the value first; if it differs, this method does not fit"))
                 case .observedState:
-                    let app = requirement.bundleID.map(RecallDocument.applicationName) ?? "the application"
+                    let app = requirement.bundleID.map(RecallDocument.deliveredName) ?? "the application"
                     conditions.append(RecallDelivery.Condition(kind: requirement.kind.rawValue, step: step,
                         detail: "your latest observation showed \(app) in the state step \(step ?? 0) began from in the source: continue from it; "
                             + "the source's steps that reached it are not repeated, so if the screen changed, prepare it again. The observation "
                             + "shows the state, not which document it is for: check it is the task's"))
                 case .preparedBefore:
-                    let app = requirement.bundleID.map(RecallDocument.applicationName) ?? "the application"
+                    let app = requirement.bundleID.map(RecallDocument.deliveredName) ?? "the application"
                     let block = source.block(of: requirement.stepPosition ?? 0)
                     let label = source.step(requirement.stepPosition ?? 0)?.label.map { " (last: \($0))" } ?? ""
                     // The data those steps read that the task does not give: what preparing them again would need.

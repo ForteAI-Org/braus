@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Virtual feed fixture</title>
+<style>body { margin: 0; } article { height: 200px; box-sizing: border-box; border-bottom: 1px solid #ccc; }</style>
+</head>
+<body>
+<!-- A virtualized feed of 50 articles for the post collector (WebPostReaderLiveTests): only 10 are in the document at
+     a time, replaced as the page scrolls, so the node count never changes while the IDs do. -->
+<div id="spacer" style="position: relative; height: 10000px"><div id="window" style="position: absolute; left: 0; right: 0"></div></div>
+<script>
+  const total = 50, size = 10, height = 200, view = document.getElementById("window");
+  const render = () => {
+    const start = Math.max(0, Math.min(total - size, Math.floor(scrollY / height)));
+    view.style.top = (start * height) + "px";
+    view.innerHTML = "";
+    for (let index = start; index < start + size; index += 1) {
+      const article = document.createElement("article");
+      article.innerHTML = '<h2><a href="/posts/' + (index + 1) + '">Post ' + (index + 1) + '</a></h2><p>Body ' + (index + 1) + '</p>';
+      view.appendChild(article);
+    }
+  };
+  addEventListener("scroll", render);
+  render();
+</script>
+</body>
+</html>

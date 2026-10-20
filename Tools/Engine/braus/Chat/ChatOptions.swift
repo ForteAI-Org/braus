@@ -1,3 +1,4 @@
+import AutomationRuntime
 import ChatCore
 import Foundation
 
@@ -23,6 +24,10 @@ struct ChatOptions {
     var preflight: String?
     /// Whether a script goes on after a request that failed (`--continue`).
     var continueOnError = false
+    /// The routes beyond the Seat the chat composes (`--channels`); none by default, the Seat alone.
+    var channels: AutomationChannels = []
+    /// The Chrome executable of the chat's own browser (`--chrome`, with `--channels web`); Google Chrome by default.
+    var chromeExecutable: String?
 
     init(arguments: [String]) throws {
         var index = 0
@@ -49,7 +54,8 @@ struct ChatOptions {
             case "--allow-unvalidated-build": allowUnvalidated = true
             case "--allow-destructive": allowDestructive = true
             case "--continue": continueOnError = true
-            case "--provider", "--model", "--resume", "--history-dir", "--knowledge", "--script", "--evidence", "--preflight":
+            case "--provider", "--model", "--resume", "--history-dir", "--knowledge", "--script", "--evidence", "--preflight",
+                 "--channels", "--chrome":
                 index += 1
                 guard index < arguments.count, !arguments[index].hasPrefix("--"), !arguments[index].isEmpty else {
                     throw invalid("Missing value for \(word).")
@@ -69,6 +75,12 @@ struct ChatOptions {
                 case "--script": script = value
                 case "--evidence": evidence = value
                 case "--preflight": preflight = value
+                case "--channels":
+                    do { channels = try AutomationChannels(parsing: value) }
+                    catch { throw invalid("--channels: \(error)") }
+                case "--chrome":
+                    guard value.hasPrefix("/") else { throw invalid("--chrome needs the executable's absolute path.") }
+                    chromeExecutable = value
                 default: knowledgeDirectory = value
                 }
             default: throw invalid("Unknown chat option: \(word)")
@@ -83,6 +95,7 @@ struct ChatOptions {
         if script != nil && provider == nil { throw invalid("--script needs --provider claude|codex.") }
         if continueOnError && script == nil { throw invalid("--continue goes with --script.") }
         if evidence != nil && script == nil { throw invalid("--evidence goes with --script.") }
+        if chromeExecutable != nil && !channels.contains(.web) { throw invalid("--chrome goes with --channels web.") }
     }
 
     private func invalid(_ text: String) -> NSError {
@@ -110,6 +123,13 @@ struct ChatOptions {
       --preflight <file.json>      before any turn, the identity the process must answer to memory_task
                                    status (archive, recall.channel, …); a difference stops the chat
       --continue                   with --script: go on after a request that failed
+      --channels <list>            routes beyond the Seat, comma separated: native (the MacDriver first,
+                                   the Seat when it gives the app back), adapters (app_capabilities,
+                                   app_call), web (pages in the chat's own headless Chrome, on a profile
+                                   of its own under the history folder; never the person's Chrome or a
+                                   paired profile)
+                                   default none
+      --chrome <executable>        with web: the Chrome executable, by absolute path
 
     Interactive: /help, /model, /status, /memory, /release, /quit
     Ctrl+C stops the turn, releases the Seat, and saves the conversation for --resume.

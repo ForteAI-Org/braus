@@ -54,6 +54,15 @@ public struct OperationCheck: Sendable, Equatable {
 
         /// The path has no oracle for the operation: nothing was compared.
         case none
+
+        /// An adapter verb's change read back after it, under the verb's declared read-back (P2-03): the adapter's own
+        /// reading of its effect, never its acceptance of the request.
+        case adapterEffect = "adapter_effect"
+
+        /// An adapter read verb answered what it reads: the data a later step may use, no effect.
+        case adapterRead = "adapter_read"
+
+
     }
 
     /// Method is how the condition was judged.
@@ -82,6 +91,10 @@ public struct OperationCheck: Sendable, Equatable {
 
         /// Nothing was read.
         case none
+
+        /// The adapter's own reading, after its change, of the store or the application it changed.
+        case adapterReadBack = "adapter_read_back"
+
     }
 
     /// Verdict is the closed result of the check.
@@ -130,6 +143,15 @@ public struct OperationCheck: Sendable, Equatable {
         /// The value compared is withheld from the record (a secret): the verdict stands, the texts
         /// are not kept.
         case valueWithheld = "value_withheld"
+
+        /// The wait after the gesture ended at its cap with the window still changing, or a request
+        /// still in flight: what was read may not be what the gesture leaves.
+        case settleCapped = "settle_capped"
+
+        /// The wait after the gesture had nothing to watch, or could not watch all of it (a page's
+        /// requests): it was the cap, and what was read may not be what the gesture leaves yet.
+        case settleUnwatched = "settle_unwatched"
+
     }
 
     /// Performed is the gesture that really went out, apart from the one requested.
@@ -205,6 +227,10 @@ public struct OperationCheck: Sendable, Equatable {
     /// The version of the engine's oracles this build reports: bump it when a method's rule changes,
     /// so verdicts of two rules are never read as one.
     public static let engineVersion = "engine-oracle-1"
+
+    /// The version of the adapters' oracle (`adapterEffect`, `adapterRead`): bump it when the rule changes.
+    public static let adapterVersion = "adapter-oracle-1"
+
 
     /// The check of a path with no oracle: nothing compared, the verdict unknown.
     public static func unchecked(performed: Performed, limits: [Limit] = [], target: Target? = nil) -> OperationCheck {

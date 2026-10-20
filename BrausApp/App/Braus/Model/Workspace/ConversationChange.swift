@@ -28,4 +28,5 @@ nonisolated enum ConversationChange: Sendable, Equatable {
 
     /// No provider session: the next turn starts a new one, whichever provider answers it.
     case providerSessionCleared
+
 }

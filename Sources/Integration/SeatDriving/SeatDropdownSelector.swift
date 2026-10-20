@@ -98,7 +98,7 @@ public struct SeatDropdownSelector {
         let beforeDelivery = try await target.observe()
         let beforeStill = beforeDelivery.frame
         let capturedWindow = beforeDelivery.geometry.window
-        let beforeTitle = try title(of: beforeStill)
+        let beforeTitle = try await title(of: beforeStill)
         let nativeWindow = DropdownOpening.Window(
             processID: capturedWindow.processID,
             number: capturedWindow.windowNumber,
@@ -139,14 +139,23 @@ public struct SeatDropdownSelector {
                     + "then act on the visible menu item or submenu. To clear it, choose 'no send'. "
                     + "No input was sent; select is for flat dropdowns.", scene: before.scene), nil)
         }
-        if !permissions.allowsDestructive,
-           ActionPolicy.isDestructive(
+        // The opener and the item are classified with their context first. The seat's dropdowns are chosen
+        // through the scene, which cannot read an irreversible effect back.
+        if ActionPolicy.isDestructive(
                label: opener.label, bundleID: identity.bundleID, role: opener.role, container: opener.container
            ) || ActionPolicy.isDestructiveMenuItem(
                item, openedBy: opener.label, bundleID: identity.bundleID,
                role: opener.role, container: opener.container
            ) {
-            return (ActOutcome(.refused, "selection requires --allow-destructive", scene: before.scene), nil)
+            switch IrreversiblePolicy.decision(allowed: permissions.allowsDestructive, readBack: .cannotConfirm) {
+                case .allowed:
+                    break
+                case .needsConsent:
+                    return (ActOutcome(.refused, "selection requires --allow-destructive", scene: before.scene), nil)
+                case .cannotReadBack:
+                    return (ActOutcome(.refused, IrreversiblePolicy.readBackRefusal("Selecting '\(item)'"),
+                                       scene: before.scene), nil)
+            }
         }
         if dryRun {
             return (ActOutcome(.dryRun, "would open '\(opener.label)' and select '\(item)' in its own menu window", scene: before.scene), nil)
@@ -249,7 +258,7 @@ public struct SeatDropdownSelector {
             }
         }
         let afterStill = try await target.windowStill()
-        let afterTitle = try title(of: afterStill)
+        let afterTitle = try await title(of: afterStill)
         let sameWindow = capturedWindow.identity.map {
             afterStill.geometry.windowObservation?.window.identity == $0
         } ?? false
@@ -333,10 +342,10 @@ public struct SeatDropdownSelector {
     }
 
     /// Names the captured recipient, which can be a dialog above the held document.
-    private func title(of still: SeatFrame) throws -> String {
+    private func title(of still: SeatFrame) async throws -> String {
         guard let window = still.geometry.windowObservation?.window else { return "" }
         if let windows {
-            let rows = try windows.windows(ownedBy: window.processID).filter { $0.number == window.windowNumber }
+            let rows = try await windows.windows(ownedBy: window.processID).filter { $0.number == window.windowNumber }
             return rows.count == 1 ? rows[0].title ?? "" : ""
         }
         guard let captured = target.lastCapturedWindow,

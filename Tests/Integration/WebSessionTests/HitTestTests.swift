@@ -1,11 +1,14 @@
+import AutomationRuntime
 import CoreGraphics
 import Engine
 import EngineCore
 import Foundation
+import Memory
 import PerceptionCore
 import Testing
 import WebDriver
 @testable import WebDriving
+import WebSession
 
 /// W10 and W09: a click, and any pointer gesture over a target (a right click, the click that focuses a field, a
 /// scroll, a drag), reaches only the element the page would hit at its point. Something on top of it (an overlay, a
@@ -15,14 +18,14 @@ import WebDriver
 @Suite("A click reaches what the page would hit (W10, W09)")
 struct HitTestTests {
 
-    private static func click(_ target: String, _ stack: SyntheticForm.Stack) async -> ActOutcome {
+    private static func click(_ target: String, _ stack: TextTargetWebTests.Stack) async -> ActOutcome {
         await stack.engine.act(ActionRequest(processID: stack.processID, bundleID: "web:fixture.test", appName: "fixture.test",
                                              target: target, verb: .click))
     }
 
     @Test("a banner over the field: the click is refused, the banner named, nothing was sent, no press reached the page")
     func covered() async throws {
-        let stack = await SyntheticForm.stack()
+        let stack = await TextTargetWebTests.stack()
         stack.page.change([.cover(CGRect(x: 0, y: 180, width: 1280, height: 80), name: "Cookie")])
         let outcome = await Self.click("Nome", stack)
         #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
@@ -33,7 +36,7 @@ struct HitTestTests {
 
     @Test("a banner elsewhere: the click on the field goes out (positive control)")
     func coverElsewhere() async throws {
-        let stack = await SyntheticForm.stack()
+        let stack = await TextTargetWebTests.stack()
         stack.page.change([.cover(CGRect(x: 0, y: 600, width: 1280, height: 80), name: "Cookie")])
         let outcome = await Self.click("Nome", stack)
         #expect(outcome.kind != .refused, Comment(rawValue: outcome.message))
@@ -42,7 +45,7 @@ struct HitTestTests {
 
     @Test("the field replaced by a new node in its place after the engine read the scene: refused, nothing was sent")
     func replacedBeforeDispatch() async throws {
-        let stack = await SyntheticForm.stack()
+        let stack = await TextTargetWebTests.stack()
         stack.page.schedule([.replace(12, by: 52)], afterScene: 1)
         let outcome = await Self.click("Nome", stack)
         #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
@@ -55,7 +58,7 @@ struct HitTestTests {
     private static let gestures = ["right click", "type", "scroll", "drag"]
 
     /// The gesture named over the field Nome, through the engine.
-    private static func over(_ gesture: String, _ stack: SyntheticForm.Stack) async -> ActOutcome {
+    private static func over(_ gesture: String, _ stack: TextTargetWebTests.Stack) async -> ActOutcome {
         func input(_ input: InputRequest.Input) async -> ActOutcome {
             await stack.engine.deliver(InputRequest(processID: stack.processID, bundleID: "web:fixture.test",
                                                     appName: "fixture.test", input: input))
@@ -73,7 +76,7 @@ struct HitTestTests {
     @Test("a right click, the focusing click of a text, a scroll, a drag over a covered field: refused, nothing sent",
           arguments: gestures)
     func coveredPointerGestures(gesture: String) async throws {
-        let stack = await SyntheticForm.stack()
+        let stack = await TextTargetWebTests.stack()
         stack.page.change([.cover(CGRect(x: 0, y: 180, width: 1280, height: 80), name: "Cookie")])
         let outcome = await Self.over(gesture, stack)
         #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
@@ -84,16 +87,41 @@ struct HitTestTests {
 
     @Test("the same gestures with the banner elsewhere go out (positive control)", arguments: gestures)
     func uncoveredPointerGestures(gesture: String) async throws {
-        let stack = await SyntheticForm.stack()
+        let stack = await TextTargetWebTests.stack()
         stack.page.change([.cover(CGRect(x: 0, y: 600, width: 1280, height: 80), name: "Cookie")])
         let outcome = await Self.over(gesture, stack)
         #expect(outcome.kind != .refused, Comment(rawValue: outcome.message))
         #expect(stack.page.count(of: "Input.dispatchMouseEvent") > 0, "the gesture went out")
     }
 
+    // MARK: Irreversible steps on the web (R07)
+
+    @Test("R07: a page read again is no verifier of a send: a destructive label is refused on the web, consent or not",
+          arguments: [false, true])
+    @MainActor
+    func destructiveOnTheWeb(allowed: Bool) async throws {
+        let page = SyntheticPage(fields: [SyntheticPage.Field(backendID: 21, type: "text", name: "Invia", value: "",
+                                                              box: CGRect(x: 100, y: 300, width: 300, height: 30))])
+        let connection = await CDPConnection(transport: page)
+        let tabs = WebTabs()
+        let processID = tabs.register(WebPage(connection: connection, targetID: "target-1", sessionID: "session-1"))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("braus-r07-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let runtime = WebEngineRuntime(knowledgeDirectory: directory, tabs: tabs)
+        let recorder = runtime.recorder(ActionContext(source: .app, streamID: "r07", traceID: "r07", sessionID: "s1"))
+        let outcome = await runtime.engine(recorder: recorder, allowsDestructive: allowed)
+            .act(ActionRequest(processID: processID, bundleID: "web:fixture.test", appName: "fixture.test",
+                               target: "Invia", verb: .click))
+        await runtime.service.close()
+        #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
+        let expected = allowed ? "cannot read its effect back" : "person must allow destructive actions"
+        #expect(outcome.message.contains(expected), Comment(rawValue: outcome.message))
+        #expect(page.pressCount == 0, "nothing was pressed")
+    }
+
     @Test("a label the last scene does not give at the point names no node: the click is refused before any event")
     func unbound() async throws {
-        let stack = await SyntheticForm.stack()
+        let stack = await TextTargetWebTests.stack()
         let window = try await WebScenes(tabs: stack.tabs).currentScene(of: stack.processID)
         let field = try #require(window.scene.elements.first { $0.label == "Nome" })
         let refused = await #expect(throws: GestureNotSent.self) {

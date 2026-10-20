@@ -1,17 +1,5 @@
 # Memory schema
 
-The SQLite schema of the living memory: what the `SQLiteMemory` module ships, how its store treats a
-file, the observation contract its repositories write and read, the stored projection of the brain,
-the agent calls, how production writes all of it, and how the shipped resource differs from the
-candidate it was copied from. Status on 2026-10-13, branch `rename-app` with G76 D1 to D3 merged: one
-schema text at version 8, 109 tables, 187 triggers, 73 explicit indexes, resource sha256
-`cc5688999fc470b79affa66fc3d021f2b7dd85d17d53fb60011cf99b71ff0634`. Version 8 has the objects version 7 had since the
-merge, with one CHECK widened (`memory_archive_origins.origin_kind` admits `previous_product`, the Knowledge of the
-product's earlier name), and its own number ([Historical shapes](#historical-shapes)). Its part 1 is schema 1 (48 tables, 48 triggers, 31 explicit indexes) with
-the value change ([below](#the-value-change)), whose resource had sha256
-`b93622990ea5ec285c53aed98af4ffac956c3bf2ddd7c65aa11de99e68452141` ([One schema text](#one-schema-text)).
-Everything below about schema 1 still holds for the tables of the base.
-
 The store and its repositories were built on `tommaso/memory-model` and documented there at
 `f163651`. This branch transplanted that data layer onto main, extended the contract to main's
 tools, effects and sources (`4f6f075`), made an archive open only at the exact shape of the shipped
@@ -39,35 +27,19 @@ contract items listed at the end were carried into S2 as they stand.
 ## One schema text
 
 Since 2026-10-13 the module ships one text, `brain-living-memory-schema.sql`, that creates the whole
-schema, at version 8 since the historical shapes were recognized, and edits it in place: a change of shape before a
+schema, at version 19, and edits it in place: a change of shape before a
 release adds no file. Its part 1 is schema 1 with the value change, statement for statement; the store reads the shape
 of version 1 from that part (`SQLiteMemorySchema.part(_:of:)`), and the shape of version 7 from parts 1 to 7, to
 recognize those archives before migrating them.
 
-- **New archive.** The bootstrap runs the one text and sets `user_version = 8` in the same transaction.
+- **New archive.** The bootstrap runs the one text and sets `user_version = 19` in the same transaction.
 - **Archive of version 1** at exactly part 1's shape, the one `rename-app`'s builds create. A producer's open
   migrates it after a verified copy, in one transaction (`SQLiteMemorySchema.migrationText(from: 1)`):
   - every table of the one text that schema 1 lacks, each statement as the one text writes it, in its order;
   - the shapes of the structural scenes it holds, derived from its own rows (`SQLiteMemorySchema.derivedRows`);
   - the indexes, then the triggers;
   - the anchors' label keys, filled by the store, and one rebuild of the Recall's index queued;
-  - the record `8:1` in `memory_schema_migrations`.
-
-  The migration only adds: no later part alters a table of part 1 (`SchemaMigrationTests.oneText`). A reader
-  refuses the archive until then (`migrationRequired`).
-- **Archive of version 7 as `rename-app` wrote it** since the merge (`rename-app-7`, the whole text, parts 1 to 7):
-  recognized by the digest of its objects and rebuilt as the historical shapes are, after a verified copy. Only
-  `memory_archive_origins` differs (its `origin_kind` CHECK); every row is kept, the record is `8:7` and one rebuild of
-  the Recall's index is queued (`HistoricalArchiveTests.renameAppSevenMigrates`).
-- **Archive of main before the value change** (`main-1`) **and archive of the D3 build** (`d3-7`, as R01's): recognized
-  by the digest of their objects and migrated by a rebuild ([Historical shapes](#historical-shapes)). Editing part 1
-  again moves the line of version 1: an archive bootstrapped before the edit is refused untouched unless it is a
-  recognized historical shape, and `SchemaMigrationTests.partOneShape` names the shape part 1 must keep.
-- **Versions 2 to 6.** They were the development steps of the G76 plans, one text each, never released. An
-  archive at one of them, which only a development build of D1, D2 or D3 could create, is refused untouched,
-  with no copy beside it (`schema(.unsupported)`, `ProcedureRepositoryTests.developmentVersionsRefused`).
-  The real ones found are copies of D2's development archives (versions 3, 4 and 5): refused untouched
-  (`HistoricalArchiveTests.realArchivesMigrate`).
+  - the record `19:1` in `memory_schema_migrations`.
 
 **Why.** The six development texts each added to the one before, so the shape of version 7 was spread
 over seven files and a migration existed for every step, though only version 1 was ever released. R63
@@ -88,17 +60,16 @@ whole text.
 
 ## Historical shapes
 
-Three shapes earlier builds created are recognized whole and migrated, never by their version alone
+Eight shapes earlier builds created are recognized whole and migrated, never by their version alone
 (`SQLiteMemorySchema.historicalShapes`). The digest is the sha256 of the objects sorted by type and name, one
 `type|name|sql` line each, taken from the text each build ran; `HistoricalArchiveTests` pins the texts
-(`Tests/Integration/AutomationRuntimeTests/Fixtures/schema-main-1.sql`, `schema-d3-7.sql` and
-`schema-rename-app-7.sql`) to their commits.
+(`Tests/Integration/AutomationRuntimeTests/Fixtures/schema-main-1.sql`, `schema-d3-7.sql`,
+`schema-rename-app-7.sql`, `schema-main-8.sql`, `schema-unified-9.sql`, `schema-unified-10.sql`,
+`schema-unified-11.sql` and `schema-unified-12.sql`) to their commits.
 
-| Shape | `user_version` | Built by | Text sha256 | Object digest | Differs from version 8 in |
-| --- | --- | --- | --- | --- | --- |
-| `main-1` | 1 | main `a9a7f8c`..`f44fb67` | `9df535ab…24b9e4` | `858ba5c5…227f93` | `brain_transitions` and `memory_agent_actions` without the value change; the 61 tables of D1–D3 absent |
-| `d3-7` | 7 | D3 `e600a65`..`7ee2552`, the build of R01 | `cb8debcd…81121d` (one text; the chain of seven is `c34e4c39…`) | `c5b10b67…139825` | the same two tables, and the effect CHECKs of `brain_relations` and `brain_relation_evaluations` without `valueChanged` |
-| `rename-app-7` | 7 | `rename-app` `d30a16b`..`7a64595` | `8ad0d557…ecbac6` at `d30a16b`, `60189583…29aa8e` at `7a64595` (the same objects) | `aee1cd5d…f196f4` | `memory_archive_origins` without `previous_product` in its `origin_kind` CHECK |
+Every shape before `unified-9` also lacks the settling limits: its `memory_operation_verification_limits` is as in
+`unified-9`, and the rebuild writes that table again. Every shape before `unified-10` also lacks `memory_call_routes`,
+which the rebuild creates empty: no earlier build recorded a route.
 
 A producer's open migrates such an archive as it migrates version 1: a verified copy beside it first
 (`memory.sqlite.schema-<shape>-<instant>`, the way back to the earlier build), then one write transaction with the
@@ -113,8 +84,8 @@ foreign keys off, which the pragma allows only outside it (`SQLiteMemorySchema.r
    current CHECK holds).
 4. Every object the archive lacks is created as the migration from version 1 creates them, with the derived rows
    when the tables they fill are new (`main-1`: the scene shapes, then the label keys).
-5. `foreign_key_check` must be empty and the result exactly version 8; one rebuild of the Recall's index is queued,
-   and the record `8:<version>` names the copy, whose name names the shape.
+5. `foreign_key_check` must be empty and the result exactly version 11; one rebuild of the Recall's index is queued,
+   and the record `11:<version>` names the copy, whose name names the shape.
 
 Any failure rolls back the whole transaction: the archive stays at its shape, rows unchanged, with the copy beside it,
 and the next open tries again (`HistoricalArchiveTests.failedMigrationRollsBack`). Two producers opening one archive at
@@ -126,6 +97,73 @@ to the historical text object for object; the migration keeps every row of every
 `main-1` files of the unification evidence) every row is kept, with no dangling reference and `integrity_check` ok;
 the copies of D2's development archives stay refused untouched (`realArchivesMigrate`, gated by
 `BRAUS_HISTORICAL_ARCHIVES`).
+
+**Why version 18.** An `open_session` the router let open as asked could carry a note, why the interface is driven
+instead of an adapter this build lacks or that cannot run (the remaining fallback reason the M05 row names, beside the
+MacDriver's hand-back reason already on the route row) or the advice on a contact's channel, and the note went to the
+model as `routeNote` and nowhere else. It is the same fact as a `use` or an `ask`: the router's decision and its words.
+The advice table's decision admits `open`, with no route (the route row is the dispatch); the tools hand the note to the
+call's recorder before the session opens, so it is the call's fact whether the opening then succeeds or fails; an open
+with no note records nothing. The note's words are minimized under the call's declared secrets at both ends.
+
+**Why version 17.** An `open_session` the router answered with another route (`use`) or a question (`ask`) opened
+nothing, and the record kept nothing of it but a completed call with no result: an archive could not tell it from a
+call that failed to answer, while the decision and its reason existed only in the tool's answer. `memory_call_route_advice`
+keeps the decision typed, the route's address for a `use`, and the words given, written once with the call's end by the
+same recorder; it is advice, never a dispatch (`memory_call_routes` stays a real dispatch), and such a call keeps no
+route row, sample, effect or rung. The address and the words are minimized under the call's declared secrets at the
+normal end and at the least end alike. A call that opened (`open`, with or without a note) records its dispatch as
+before and no advice (version 18 records the note given while opening, as an `open` decision). The router, its rules and
+the tool's answer are unchanged.
+
+**Why version 16.** The web's gestures had no rung on the record: the web actuator sends every gesture as DevTools
+`Input` commands (`Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`, `Input.insertText`), each answered by the
+browser or thrown (`protocolError`: rejected, no effect; closed, timed out, cancelled: unanswered), and kept nothing of
+it. It now notes, once, as the sequence ends or as a command throws, the method, the commands planned, the ones
+handed to the connection up to then (which is not the wire: a closed connection throws before its transport sends),
+the ones acknowledged, and the outcome, in the tab's registry; the web session takes it once right
+after the engine in `act` and `deliver`, before the scene is enriched, and hands it to the recorder the engine was
+given. An acknowledgement is not an effect and none acknowledged is not none: the call's effect stays what its check
+says. The controls' script paths (a native select's option, an ARIA option, the popup's close) send nothing through
+the actuator and have no rung; a gesture refused before any command notes nothing.
+
+**Why version 15.** The Seat's gestures had no rung on the record: the Seat knows how each send went out, in the
+receipt it keeps for the action (`InputReceipt.route.poster`: `CGEventPostToPid`, `SLEventPostToPid`, or an accessibility
+action with no event, with the event counts and the window), but the actuator collapsed it to the engine's two-valued
+`DeliveryRoute` and cleared it at `confirm`, before the session could record anything. The actuator now keeps the last
+send past `confirm` for the call that made it, the desktop session takes it once right after the engine in `act` and
+`deliver`, and the recorder writes it as the call's rung under the Seat's own three values, the counts as `how`, nothing
+skipped: a receipt with zero events (an accessibility action) is a valid send and proves no effect; a send that threw
+without a receipt leaves nothing, its effect uncertain as before. The foreground's HID events carry no receipt and the web
+posts none: those calls have no row, and none is inferred. The dropdown and context-menu selectors send outside the
+actuator and are not described by it; a redirect's advice stays unrecorded.
+
+**Why version 14.** How the engine acted was nowhere on the record: the MacDriver's actuator noted, for every gesture,
+the rung it took (`MacDeliveryNote`: rung 1 an accessibility action, rung 2 events posted to the process, what it did
+and why rung 1 was passed over), and nothing but a unit test read it; the engine's own `DeliveryRoute` stays `posted` on
+the native route by design, so it could not stand for it (M05). The native session now takes the actuator's note once,
+for the call that sent the gestures, right after them, and the recorder writes it with the end as the call's rung,
+under the call's minimization: the last gesture noted, not the whole sequence (a `select` is two clicks, a typed text a
+click and keys); a call refused before any gesture, a call on the desktop or the web, an adapter call has
+none; a call whose first gesture went out before a later one failed keeps that first gesture's note; an uncertain rung 1
+keeps the word `uncertain` in `how`. The Seat's and the web's rungs are not recorded, and never inferred from the tool
+called, the consent or the answer; a redirect's advice dispatches nothing and stays unrecorded.
+
+**Why version 11.** A call of a routed session ran on one of three routes, and the MacDriver may give its app back
+to the seat mid-call with a reason; nothing in version 10 kept either, so the path a call took could not be
+reconstructed from the record (M05). The route is the dispatch attempted, not an effect: a desktop open that fails
+after a hand-back stays a desktop attempt of a failed call. A new table, not a column, keeps every earlier table as it
+was written. Version 10 was written by this branch's builds, so the table takes its own number and version 10 is a
+historical shape.
+
+**Why version 10.** A verification whose wait after the gesture did not settle names it with a limit of its own
+(`settle_capped`, the cap came with the window still changing or a request in flight; `settle_unwatched`, nothing could
+be watched), so a verdict made uncertain by the wait says why; the limit CHECK of version 9 refuses both. Version 9 was
+written by this branch's builds, so the widened CHECK takes its own number and version 9 is a historical shape.
+
+**Why version 9.** A text typed where the call could not attest an ordinary target is withheld with a reason of its own
+(`unclassified_target`), told apart from a secure field's (`secure_field`); the reason CHECK of version 8 refuses it.
+Main shipped version 8, so the widened CHECK takes its own number and version 8 is a historical shape, as version 7 was.
 
 **Why version 8.** The D3 build and the merged build both wrote `user_version = 7` for two different shapes.
 `memory_schema_migrations` keeps one row per version reached (`to_version` is its key, and `from_version` must be
@@ -145,6 +183,12 @@ change of shape left to a later edit of the one text.
 The sections below record each part as it was added, when each was a version of its own, with the counts
 and checks of that day; the files they name were merged into the one text, and the migrations from
 versions 2 to 6 removed.
+
+## Schema 19 (plans 1 and 2)
+
+Version 19 keeps every fact of version 18 and adds what plans 1 and 2 need to tell apart what a call was asked, what it
+reached and what is known of its effect. Part 8 of the text (`verify-memory-schema.py` checks its segments) holds nine
+tables, each written once and kept (an `_immutable` and a `_kept` trigger, a reference trigger where a row names a call):
 
 ## Schema 2 (G76 D1)
 
@@ -265,7 +309,7 @@ Shape: 48 tables, all `STRICT`; 48 triggers; 31 explicit indexes; no JSON column
 `FileKnowledge` wrote are never read at run time; their Brains are copied once, when an open creates
 the archive beside them, and `braus memory --import-json <dir>` copies any directory's by hand
 ([The brain's projection](#the-brains-projection). The resource has no version of
-its own: the bootstrap sets `user_version = 8` in the same transaction that creates the tables. No
+its own: the bootstrap sets `user_version = 10` in the same transaction that creates the tables. No
 `application_id` is set or checked: a file is recognized by its version and its shape.
 
 A file at version 1 must carry every table of schema 1 before it migrates; every column this build writes that an
@@ -274,8 +318,8 @@ earlier development form lacked (`SQLiteMemorySchema.requiredColumns`: `brain_an
 `memory_agent_actions.duration_ms`, `memory_agent_actions.observed_state_before`,
 `memory_events.origin_event_id`, `brain_transitions.effect_label` and
 `memory_agent_actions.observed_effect_label`); and exactly the tables, indexes and triggers the resource creates,
-compared with a scratch bootstrap of part 1 in memory. A file at version 8 is compared, the same way,
-with the whole text, and one at version 7 with parts 1 to 7. Before any of that, a file at version 1 or 7 whose objects
+compared with a scratch bootstrap of part 1 in memory. A file at version 11 is compared, the same way,
+with the whole text, and one at version 7 with parts 1 to 7. Before any of that, a file at version 1, 7, 8, 9 or 10 whose objects
 have the digest of a historical shape is recognized as that shape ([Historical shapes](#historical-shapes)). A difference is
 `schema(.differentShape)`, naming each object as `type name`. The archives `tommaso/memory-model`'s
 builds created are at version 1 with every table and required column, and their CHECKs and triggers
@@ -305,18 +349,18 @@ is open.
 
 | The file at `open` | What the store does |
 |---|---|
-| Does not exist, directory writable | Creates it, puts it in WAL, runs the one text under the write lock, sets `user_version = 8` |
+| Does not exist, directory writable | Creates it, puts it in WAL, runs the one text under the write lock, sets `user_version = 19` |
 | `user_version` 0, no tables (a file `sqlite3` created and left empty) | Same as above |
-| `user_version` 8, every table, index and trigger written exactly as the one text writes it | Verifies and opens; `bootstrappedNow` is false |
-| `user_version` 1, all 48 tables, every required column, and every table, index and trigger written exactly as schema 1 writes it | A producer migrates it to 8 after a verified copy, in one transaction ([One schema text](#one-schema-text)); a reader refuses it with `schema(.migrationRequired)` |
-| `user_version` 1 or 7, objects with the digest of a historical shape (`main-1`, `d3-7`, `rename-app-7`) | A producer rebuilds it to 8 after a verified copy, in one transaction ([Historical shapes](#historical-shapes)); a reader refuses it with `schema(.migrationRequired)` |
+| `user_version` 11, every table, index and trigger written exactly as the one text writes it | Verifies and opens; `bootstrappedNow` is false |
+| `user_version` 1, all 48 tables, every required column, and every table, index and trigger written exactly as schema 1 writes it | A producer migrates it to 11 after a verified copy, in one transaction ([One schema text](#one-schema-text)); a reader refuses it with `schema(.migrationRequired)` |
+| `user_version` 1, 7, 8, 9 or 10, objects with the digest of a historical shape (`main-1`, `d3-7`, `rename-app-7`, `main-8`, `unified-9`, `unified-10`) | A producer rebuilds it to 11 after a verified copy, in one transaction ([Historical shapes](#historical-shapes)); a reader refuses it with `schema(.migrationRequired)` |
 | `user_version` 2 to 6, a development step of the G76 plans never released | Refuses with `schema(.unsupported)`, file untouched, no copy |
 | `user_version` 1, the 42 tables of the S3-d build | Refuses with `schema(.missingTables)`, file untouched: the person moves it aside, nothing migrates |
 | `user_version` 0 with tables of its own | Refuses with `schema(.unknownTables)`, file untouched (journal mode included) |
 | `user_version` 1 with a table missing, the form before `brain_applications` included | Refuses with `schema(.missingTables)`, file untouched |
 | `user_version` 1, every table, a required column missing (the form before `current_group_id`) | Refuses with `schema(.missingColumns(["brain_anchors.current_group_id"]))`, file untouched (journal mode included); never migrated or reset |
 | `user_version` 1, every table and required column, but a table, index or trigger missing, extra or written differently (an archive `tommaso/memory-model`'s builds created, whose CHECKs and triggers differ) | Refuses with `schema(.differentShape(["table memory_events", …]))`, the objects named `type name`, file untouched; never migrated or reset |
-| `user_version` above 8 | Refuses with `schema(.future)`: no downgrade, no reset, and no reading either, since a typed reader of an unknown layout would be a guess |
+| `user_version` above 9 | Refuses with `schema(.future)`: no downgrade, no reset, and no reading either, since a typed reader of an unknown layout would be a guess |
 | Not a database, or corrupt | `open` error with the library's code (`SQLITE_NOTADB` 26, `SQLITE_CORRUPT` 11), file untouched by the store; `MemoryService` then moves it aside ([Copies and recovery](#copies-and-recovery)) |
 | Directory missing or unwritable | `open` error (`SQLITE_CANTOPEN` 14 or `SQLITE_READONLY` 8), nothing created |
 
@@ -850,7 +894,13 @@ their operation, phase and ordinal match: `BrainApplicationKey`'s equality and h
 id's UTF-8, as the file's binary TEXT keys do, so two canonically equivalent ids (`café`, composed
 and decomposed) are two keys and two applications; no id is normalized. Nothing in the key is content, a digest, a clock or an identifier
 drawn at retry. Each application records `contract_version` (the arguments' contract, 1) and
-`algorithm_version` (`brain-updater-1`); neither is in the key, so a new algorithm does not re-apply a
+`algorithm_version` of its own command: `brain-updater-1` under contract 1, and `brain-updater-2` under contract 2 for an
+observation that carries its coverage (P2-07: the capture's completeness, its surface and the representation that read
+it). Contract 3 uses `brain-updater-3` and adds `spatial_coverage`: new captures default to `visible` and update
+presence only, even when every visible node was read. Absence-based decay additionally requires explicit `whole_surface`
+coverage. Presence-only ingestion still enforces the existing capacity cap, with explicit `cap` retirements and
+without absence-based decay. Historical contract 2 commands retain their original window-wide rule as `legacy_window`, and contract 1
+remains unchanged. A weak match never binds an anchor seen only through another representation; neither is in the key, so a new algorithm does not re-apply a
 concluded event: offering it under another version is a conflict, the version compared as bytes like every text of
 the contract. Decay is no operation: it runs
 inside the ingest that ticks. `BrainStoring.decay` stays for low-level tests.

@@ -28,7 +28,7 @@ import Synchronization
 /// nothing done; after one (an append under way, a parent folder made), the answer says so and nothing is repeated.
 ///
 /// Not here, with the reason: `reveal` and `open_with` open a window in another app and are read back from its
-/// accessibility tree, which an adapter does not read. No shell, no delete.
+/// accessibility tree; they are `MacBackgroundOpener`'s (MacDriver). No shell, no delete.
 public struct FilesAdapter: AppAdapting {
 
     public let name       = "files"

@@ -33,14 +33,25 @@ enum AppPreferences {
     static let seatRefreshRate        = "computer.refreshRate"
     static let seatRefreshRateDefault = 60
 
-    /// Whether workers and external clients open `web:<host>` and http(s) addresses as pages in Braus's own
-    /// Chrome, read with `UserDefaults.bool(forKey:)`, so off unless set. A team window reads it as it opens
-    /// and a client as it connects; a launch argument (`-computer.web YES`) turns it on for one run.
-    static let web = "computer.web"
-
     /// The conversations whose worker shows Braus's Chrome as a window; every other one keeps it headless.
     static let showsBrowserWindow = "computer.showsBrowserWindow"
 
+    /// The conversations whose worker opens its pages in the person's own Chrome, signed in as them, instead of
+    /// Braus's; every other one keeps Braus's Chrome. None by default.
+    static let usesPersonalChrome = "computer.usesPersonalChrome"
+
+    /// The paired Chrome profile each conversation's worker opens its pages in (`ChromeProfileHub`): by conversation,
+    /// the Braus extension instance's ID and the name the person confirmed for it. None by default; a choice takes
+    /// precedence over `usesPersonalChrome`.
+    static let chromeProfiles = "computer.chromeProfiles"
+
+    /// The routes beyond the Seat this run composes (`AutomationChannels`), comma separated, read once as
+    /// app on the Seat. A launch argument (`-computer.channels native,web`) sets it for one run.
+    static let channels        = "computer.channels"
+    static let channelsDefault = ""
+
+    /// Legacy web-only composition switch, honored alongside the channel selection.
+    static let web = "computer.web"
     // MARK: Sidebar
 
     /// Whether a worker's row shows its model under the name when nothing else is said there.

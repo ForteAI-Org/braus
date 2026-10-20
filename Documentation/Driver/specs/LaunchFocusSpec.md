@@ -6,6 +6,10 @@ implemented. It amends `adr/Adr0010BoundUserFocusRecovery.md`; the new section
 is drafted in section 7 and is not part of the ADR until this specification is
 approved.
 
+Amended October 15, 2026 (issue #60) with what the MacDriver's `revert` launch
+style measured (section 0.1). Each amended point says *(amended)*. The seat team
+decides whether the amendments stand.
+
 References that constrain the design: `CONTEXT.md` for vocabulary, ADR 0010 for
 the focus recovery contract, its budgets and the closure transition this design
 reuses, and `measurements/` for the format of the evidence a live row records.
@@ -57,6 +61,37 @@ it has a window. It does not give the front back on its own.
 T1 fixed the terminal failure that followed: releasing the window no longer fails
 the seat. The steal itself is untouched, and so is the seat waiting forever.
 
+### 0.1 What `revert` measured (October 15)
+
+The MacDriver launches with `activates = false` and, in its `revert` style
+(`Sources/Mac/Driver/LiveMacWorkspace.swift`), watches the launched application
+for 4 s and brings the person's application back through
+`NSRunningApplication.activate`. It ran over the live matrix of 126
+applications (#52, #54). What it found bears on this design:
+
+- **Steals repeat.** Figma took the front three times in 4 s, and again later.
+  A fixed count of two answers does not cover it; `revert` extends its watch by
+  4 s after each answer, up to 15 s.
+- **A steal is not always an activation.** Figma orders a window above the
+  person's without becoming the active application. Phone activated 0.8 s
+  before it had a window. `revert` therefore samples two signals every 5 ms: the
+  active application and the owner of the topmost layer-0 window.
+- **The flash is short when detection is fast.** With 5 ms sampling and the
+  restore issued before any other check, the measured interruption is 15-42 ms
+  (Calibre 25 ms, Phone 20 ms), down from 45-858 ms.
+- **Some fronts are wanted.** A login or permission dialog is what the
+  application came forward to show. `revert` gives the front back when the
+  application's focused window is `AXDialog`/`AXSystemDialog` or carries an
+  `AXSheet`, and hands the application on. A login drawn as a plain window is
+  still pushed back.
+- **The person's input wins.** `revert` answers nothing once the person has used
+  the keyboard or mouse since the watch began.
+- **Late steals remain.** The only failures left in the matrix are steals by
+  applications already handed on, after the launch window closed.
+- **Approach C is measured.** `NSRunningApplication.activate` from the Braus
+  process brought the person's application back across the matrix. Its other
+  defects (no attested destination, no Facility gate) stand.
+
 ## 1. What "does not steal the focus" means
 
 macOS lets an application that is starting take the front, and Chrome takes it
@@ -68,24 +103,34 @@ guarantee, and what the tests of section 4 measure, is this:
   before the open: the same process and the same Window ID.
 - **F2. The interruption is bounded.** For each steal, the time from the launched
   application becoming frontmost to the person's application being frontmost
-  again is at most **300 ms**. That covers the activation notification, one
-  restore call (8 ms in ADR 0010) and the verification window (250 ms). This is a
-  budget to be qualified, exactly like the rows of the ADR 0010 table, and not a
-  measurement.
-- **F3. No fight.** At most **two** automatic restorations per launch, the same
-  budget as a closure transition and for the same reason: an application may take
-  the front a second time when its first window appears. A third steal is not
-  answered. The episode ends `unrecoverable`.
+  again is at most **100 ms** *(amended, was 300 ms)*. That covers detection by
+  sampling (5 ms) and one restore call (8 ms in ADR 0010), with margin; the
+  verification window (250 ms) runs after the person's application is back and is
+  not part of the interruption. `revert` measured 15-42 ms (0.1). This is a
+  budget to be qualified, exactly like the rows of the ADR 0010 table.
+- **F3. No fight.** *(amended)* The budget is time, not a count. Each answered
+  steal extends the episode by 4 s, up to 15 s after the launch, so an
+  application that takes the front again when its window appears, or several
+  times as Figma did, is answered each time. A loop is still refused: more than
+  **five** answers within 1 s ends the episode `unrecoverable`.
 - **F4. The seat works afterwards.** The seat ends `ready` with the launched
   window adopted on the virtual display. The recovery posts no pointer or
   keyboard event and does not move the cursor.
 - **F5. The person's choice wins.** If the person switches to another application
   or window during the launch, that becomes the destination, and nothing sends
-  them back to the one they had before.
+  them back to the one they had before. *(amended)* So does any keyboard or
+  pointer input from the person since the episode opened (HID idle time shorter
+  than the episode's age): a click into the launching application is their
+  choice, not a steal.
 - **F6. A failure is said, never silent.** When the focus cannot be given back,
   the seat waits and the agent is told why, in the `waiting` sentence of
   `SeatAdmission`. The release that follows ends the wait (T1), and it also ends a
   recovery that is paused (section 3.4).
+- **F7. A dialog keeps the front.** *(amended, new)* When the steal actor's
+  focused window is a dialog (`AXDialog`, `AXSystemDialog`) or carries an
+  `AXSheet`, the front is the application's to keep: no restoration is requested
+  after it, the episode ends, and the agent is told that the application is
+  waiting for the person.
 
 Non-goals:
 
@@ -114,18 +159,23 @@ and none has to be known in advance.
 **B. Prevent the steal with launch options.** `OpenConfiguration.hides = true`,
 or launching without a startup window, might keep Chrome from activating. This
 is unmeasured, and it would be per application: a remedy for Chrome says
-nothing about the next application. It becomes spike S0 (section 5). If a
+nothing about the next application. It becomes spike S0 (section 5). A `hidden`
+launch style was built on the MacDriver branch and cut at merge (#52); its
+results should be recovered before S0 is run again. If a
 variant prevents the steal without costing the adoption, it is applied on top of
 A, and A stays the safety net.
 
 **C. The broker activates the previous application again**, through
-`NSRunningApplication.activate`. Rejected for three reasons:
+`NSRunningApplication.activate`. Rejected as the main path for two reasons:
 
-- Under macOS cooperative activation, an application that is not active cannot
-  make another one active reliably, and nobody has measured it here.
 - It has no attested destination: whatever is found afterwards would be the
   "destination discovered after the steal" that ADR 0010 forbids.
 - It would bypass the Facility gate and the verification that ADR 0010 requires.
+
+*(amended)* The third reason given here, that it is unreliable under cooperative
+activation, did not hold: `revert` used it across 126 applications (0.1). C is
+therefore the **fallback** when the Facility is not admitted, aimed at the
+destination taken before the launch, instead of answering nothing.
 
 ## 3. Design (approach A)
 
@@ -142,7 +192,9 @@ A, and A stays the safety net.
 4. `use(window, of:)`, as today;
 5. `driver.endLaunch()`, on **every** exit path: success, `noWindowShown`, a
    title that names no window, `notSeated`, and cancellation. An episode left
-   open is an armed restoration nobody asked for.
+   open is an armed restoration nobody asked for. *(amended)* On every exit
+   path but success it ends the episode; on success it leaves it armed until the
+   extended window of F3 closes (3.2), since late steals come after adoption.
 
 The same applies when `launch` sends a reopen to a running application that has
 no window, because a reopen can activate too. An application already running
@@ -173,35 +225,48 @@ So the actors are named by **bundle identifier**, resolved from the activating
 pid (`NSRunningApplication(processIdentifier:).bundleIdentifier`) when an
 activation arrives. The pid joins them once it is known. As with a closure's
 remote service, belonging to that set attributes nothing and adopts nothing: it
-only decides whose activation it was.
+only decides whose activation it was. *(amended)* A helper with a bundle
+identifier of its own (Electron and Chromium helpers, updaters) is attributed
+through its responsible process, so its activation is a steal rather than
+unclassifiable.
 
-**Classification of an activation while the episode is open:**
+**Signals.** *(amended)* An activation notification is not enough (0.1). While
+the episode is open the seat samples, every 5 ms and off the main actor, the
+active application and the owner of the topmost layer-0 window. A steal actor in
+either is a steal, whether or not it activated.
+
+**Classification of an activation or a top window while the episode is open:**
 
 - By a steal actor: this is the steal. The input gate closes, and one
-  restoration to the saved destination is requested (3.3).
+  restoration to the saved destination is requested (3.3). If the actor shows a
+  dialog or a sheet, F7 applies instead.
 - By the destination's own process, or by another application the person
   chose: this is the person. The destination becomes their current window, read
   the ordinary way (F5). The episode is not spent.
 - Unclassifiable: the destination and the gate stay as they are, as in a closure
   transition.
 
-**The request.** It uses the closure transition's reconciliation unchanged in
-kind:
+**The request.** *(amended: the order)* Every millisecond before the request is
+on the person's screen, so the request comes first and the reconciliation after:
 
-- The saved destination is renewed: the same Window ID must still carry the same
-  identity, and its retained PSN is re-bound.
-- The window server snapshot is read again for the adopted processes plus the
-  steal actors plus the destination.
-- Then one request is made through the restorer.
+- One request is made through the restorer, to the PSN retained when the
+  episode opened.
+- Then the closure transition's reconciliation, unchanged in kind: the same
+  Window ID must still carry the same identity, and the window server snapshot
+  is read again for the adopted processes plus the steal actors plus the
+  destination.
+- Then the dialog check of F7.
 
-A destination that is no longer the window it was answers nothing, and the seat
-waits for a real choice. Verification is ADR 0010's: two agreeing readings of
-the exact destination, within 250 ms.
+A destination that is no longer the window it was fails the reconciliation; the
+result is reported as refused and the seat waits for a real choice. Verification
+is ADR 0010's: two agreeing readings of the exact destination, within 250 ms.
 
-**Budget and end.** At most two requests per episode (F3). A third steal is
-refused, and the report says `unrecoverable`, naming the elapsed time, the
-requests made and the last refusal. The episode ends at `endLaunch`, and its
-deadline is only a backstop:
+**Budget and end.** *(amended)* The budget of F3: each answer extends the
+episode by 4 s, up to 15 s after the launch; more than five answers within 1 s
+is refused, and the report says `unrecoverable`, naming the elapsed time, the
+requests made and the last refusal. The episode does **not** end at `endLaunch`:
+it stays armed until its extended window closes, because the late steals of 0.1
+come after adoption. Its deadline is only a backstop:
 
 - A long launch is not a reason to keep an automatic request armed forever.
 - The deadline is the launch's own allowance (the 20 s first-window wait, or the
@@ -299,6 +364,20 @@ restorer), next to `ClosureTransitionTests`.
   gate opens and the seat leaves `waiting`. This is the T1 leftover.
 - **U9.** An activation that arrives before the pid is known is classified by
   bundle identifier.
+- **U10.** *(amended)* A steal actor owning the topmost window without being
+  active is a steal and requests one restoration.
+- **U11.** *(amended)* Repeated steals inside the extended window are each
+  answered; a sixth answer within 1 s ends `unrecoverable`.
+- **U12.** *(amended)* A steal actor showing a dialog or a sheet keeps the front
+  after the check, the episode ends, and nothing more is requested (F7).
+- **U13.** *(amended)* With person input since the episode opened, a steal
+  requests nothing (F5).
+- **U14.** *(amended)* A steal after `endLaunch` but inside the extended window is
+  answered.
+- **U15.** *(amended)* A helper with its own bundle identifier is attributed to
+  the launched application through its responsible process.
+- **U16.** *(amended)* With the Facility not admitted, a steal is answered through
+  the fallback of approach C, towards the pre-launch destination.
 
 ### 4.2 Broker tier (offline, `SeatBrokerTests`)
 
@@ -339,8 +418,8 @@ neither opened nor read. The row quits only the Chrome it started.
   is at most 300 ms, and the row prints each interval. Without the sampler, the
   same is read from a public-API sampler process (activation notifications plus
   `frontmostApplication` every 5 ms), labelled lower fidelity in the record.
-- **L3 (F3).** `lastFocusRecovery` is `restored`, with request code 0, at most two
-  requests and the activating bundle `com.google.Chrome`.
+- **L3 (F3).** `lastFocusRecovery` is `restored`, with request code 0, no
+  `unrecoverable` episode and the activating bundle `com.google.Chrome`.
 - **L4 (F4).** The seat is `ready`, and Chrome's window is adopted inside the
   virtual display.
 - **L5 (F4).** The fence counted no physical event during the trial, and the
@@ -360,6 +439,12 @@ passing trial is not a qualification.
   expected. A request here is a false steal.
 - **Chrome running with no window** (the reopen path of 3.1). The same
   assertions as the Chrome launch.
+- **Figma, not running.** *(amended)* Several steals and a window ordered above
+  without activation (0.1). Every steal is answered within F2, none after 15 s.
+- **Phone, not running.** *(amended)* Activates before its window. The steal is
+  answered before the window appears.
+- **An application that opens on a login or permission dialog.** *(amended)*
+  The dialog keeps the front (F7) and the agent is told.
 
 ### 4.5 Manual check in Braus
 
@@ -401,7 +486,7 @@ code is not kept.
 - `LaunchTransition` in `UserFocusRecovery`.
 - `AgentSeat` entry points and report fields.
 - The pause that ends on release (3.4).
-- U1 to U9.
+- U1 to U16.
 
 **T5.2: the broker.**
 - The order of 3.1 and `endLaunch` on every exit path.
@@ -438,8 +523,10 @@ code is not kept.
 > the adopted processes, the steal actors and the destination. A launch is the
 > beginning of a delivery, so the containment exception applies unchanged.
 >
-> The budget is two requests per launch, qualified like every other row. A third
-> steal is `unrecoverable`, and the seat waits and says so. A recovery that stays
+> The budget is time: each answered steal extends the episode by 4 s, up to
+> 15 s after the launch, and the episode outlives the adoption. More than five
+> answers within 1 s is `unrecoverable`, and the seat waits and says so. A
+> dialog or a sheet keeps the front. A recovery that stays
 > paused after every window of its application was released ends as
 > `cancelled`, because there is nothing left for it to protect.
 >
@@ -447,13 +534,20 @@ code is not kept.
 
 ## 8. Open decisions for review
 
-1. **Interruption budget, F2.** 300 ms per steal. A tighter value means that
-   detection latency, which is the notification path, not the restore call, has
-   to be measured first.
-2. **Requests per launch, F3.** Two, as a closure. One would leave Chrome's likely
-   second activation, at window time, unanswered.
+1. **Interruption budget, F2.** *(amended)* Proposed closed at 100 ms: detection
+   by 5 ms sampling was measured at 15-42 ms end to end (0.1).
+2. **Requests per launch, F3.** *(amended)* Proposed closed: a time budget (4 s
+   per answer, 15 s cap) with a loop guard, not a count. Two would leave Figma
+   `unrecoverable` on every launch.
 3. **The reopen path.** Should a reopen of a running application also open an
    episode (proposed: yes, 3.1)?
 4. **If S0b prevents the steal:** hide at launch for every application, or only for
    Chromium browsers (proposed: every launch; a hidden launch that cannot be
    unhidden without activating falls back to A)?
+5. *(amended, new)* **Sampling cost.** A 5 ms sampler of the window list for up
+   to 15 s per launch: acceptable, or sample faster only around the launch and
+   slower in the tail?
+6. *(amended, new)* **Share the detector.** Reuse the `revert` watcher's
+   detection (two signals, dialog check, person input) in the seat, so there is
+   one detector and the seat adds the attested destination, the Facility gate
+   and the verification?

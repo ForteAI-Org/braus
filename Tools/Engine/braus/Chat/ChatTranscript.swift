@@ -13,6 +13,14 @@ final class ChatTranscript {
     /// the difference from the session's total before the request. Nil when the provider reported nothing.
     private(set) var requestTokens: ProviderUsage.Tokens?
     private var totalBefore: ProviderUsage.Tokens?
+    /// What a reply, a failure or a turn's error keeps before it is shown or saved. The session gives its tools'
+    /// withholding when it adopts the transcript (`ChatSession.adopt`): a secret `memory_task` declared, a typed
+    /// secret and a credential shape never reach the console line, the conversation file or a script's evidence. The
+    /// person's messages, Braus's own words and the tool lines (which the tools minimized) are kept as they are, and so
+    /// are the entries saved before.
+    var withholding: (String) -> String = { $0 }
+    /// Where a reply's console line goes: standard output, or a test's capture.
+    var output: (String) -> Void = { print($0) }
 
     init(conversation: Conversation, store: ConversationStore) {
         self.conversation = conversation
@@ -26,9 +34,12 @@ final class ChatTranscript {
     }
 
     func append(_ kind: Conversation.Entry.Kind, _ text: String) throws {
-        conversation.append(kind, text)
+        conversation.append(kind, kind == .assistant || kind == .error ? withholding(text) : text)
         try save()
     }
+
+    /// `text`, a reply's or an error's, as it may be shown: withheld.
+    func shown(_ text: String) -> String { withholding(text) }
 
     func event(_ event: ProviderEvent) throws {
         switch event {
@@ -38,8 +49,10 @@ final class ChatTranscript {
                 try save()
             }
         case .assistant(let text):
-            print("\n\(conversation.provider.displayName) › \(text)\n")
-            try append(.assistant, text)
+            let kept = withholding(text)
+            output("\n\(conversation.provider.displayName) › \(kept)\n")
+            conversation.append(.assistant, kept)
+            try save()
         case .activity(let text): print(text)
         case .failure(let text): try append(.error, text)
         case .usage(let usage):

@@ -24,29 +24,28 @@ public struct RemindersAdapter: AppAdapting {
     public var verbs: [AdapterVerb] {
         [
             AdapterVerb("list_lists", "List the reminder lists, with account.",
-                        safety: .read, readBack: "the store's lists"),
+                        safety: .read, readBack: "the store's lists", results: .identifiersAndDates),
             AdapterVerb("find_reminders", "Find reminders, optionally in one list or matching a text.",
                         parameters: [
                             AdapterParameter("list", .string, "a list's title or id", required: false),
                             AdapterParameter("query", .string, "words the title or notes contain", required: false,
-                                             content: true),
+                                             confidential: .sensitiveMetadata),
                             AdapterParameter("include_completed", .boolean, "default false", required: false),
                         ],
-                        safety: .read, readBack: "the store's reminders", contentResults: Self.contentResults),
+                        safety: .read, readBack: "the store's reminders", contentResults: Self.contentResults, results: .identifiersAndDates),
             AdapterVerb("create_reminder", "Create a reminder.",
                         parameters: [
-                            AdapterParameter("title", .string, "what to remember", content: true),
+                            AdapterParameter("title", .string, "what to remember", confidential: .content),
                             AdapterParameter("list", .string, "a list's title or id; default: the default list",
                                              required: false),
                             AdapterParameter("due", .string, "ISO 8601 date or instant", required: false),
-                            AdapterParameter("notes", .string, "notes", required: false, content: true),
+                            AdapterParameter("notes", .string, "notes", required: false, confidential: .content),
                         ],
                         safety: .write, readBack: "the new reminder read from the store by its id",
-                        contentResults: Self.contentResults),
+                        contentResults: Self.contentResults, results: .identifiersAndDates),
             AdapterVerb("complete_reminder", "Mark a reminder as done.",
                         parameters: [AdapterParameter("id", .string, "the reminder's id from find_reminders")],
-                        safety: .write, readBack: "the reminder read again, completed",
-                        contentResults: Self.contentResults),
+                        safety: .write, readBack: "the reminder read again, completed", contentResults: Self.contentResults, results: .identifiersAndDates),
         ]
     }
 

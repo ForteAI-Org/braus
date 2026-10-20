@@ -127,7 +127,14 @@ struct MenuBarCommandTests {
         guard case .disabled("File > Save") = resolve("File > Save") else { Issue.record("not read as disabled"); return }
         #expect(kind("Photoshop 2026 > Hide Photoshop") == .refused)
         #expect(kind("Photoshop 2026 > Quit Photoshop") == .refused)
-        #expect(kind("Photoshop 2026 > Quit Photoshop", allowsDestructive: true) == nil)
+        // R07: a native menu cannot read the effect back, so the person's consent alone does not press it.
+        #expect(kind("Photoshop 2026 > Quit Photoshop", allowsDestructive: true) == .refused)
+        let quit = resolve("Photoshop 2026 > Quit Photoshop", allowsDestructive: true)
+        guard case .outcome(let unconfirmed) = quit else {
+            Issue.record("pressed")
+            return
+        }
+        #expect(unconfirmed.message.contains("cannot read its effect back"), Comment(rawValue: unconfirmed.message))
         // Measured on 30/09/2026: Layer > Delete > Layer was pressed, its last step being "Layer".
         #expect(kind("Layer > Delete > Layer") == .refused)
         // Disabled in the fake, as it was in Photoshop: destructive is still the answer.
@@ -351,8 +358,9 @@ struct MenuBarCommandTests {
         var observations = 0
         var prepares: [pid_t] = []
         func prepare(in processID: pid_t) async { prepares.append(processID) }
-        func settle(in processID: pid_t, cap: Duration) async {
+        func settle(in processID: pid_t, cap: Duration) async -> SettleResult {
             waits.append((processID, cap, observations))
+            return .settled
         }
     }
 
@@ -644,5 +652,18 @@ struct MenuBarCommandTests {
         #expect(newWindow(Self.browser(file: [Node("New Window", enabled: false, key: "N")])) == nil)
         #expect(newWindow(Self.browser(file: [], applicationMenu: [Node("New Window", key: "N")])) == nil)
         #expect(newWindow(Self.browser(file: [], appleMenu: [Node("New Window", key: "N")])) == nil)
+    }
+
+    @Test("M05: the runner's answer is the code the press returned, and nil when nothing was pressed")
+    func typedAnswer() async {
+        let pressed = await MenuBarCommand.runPrepared(preparesEnabledItems: false, read: { self.resolve("File > New...") },
+                                                       press: { _ in .cannotComplete }, refresh: nil)
+        #expect(pressed.pressed == "File > New..." && pressed.answer == .cannotComplete && pressed.outcome.kind == .foundActed)
+        let refused = await MenuBarCommand.runPrepared(preparesEnabledItems: false, read: { self.resolve("File > New...") },
+                                                       press: { _ in .actionUnsupported }, refresh: nil)
+        #expect(refused.pressed == nil && refused.answer == .actionUnsupported && refused.outcome.kind == .actedUnverified)
+        let listed = await MenuBarCommand.runPrepared(preparesEnabledItems: false, read: { self.resolve("File") },
+                                                      press: { _ in Issue.record("nothing to press"); return .success }, refresh: nil)
+        #expect(listed.pressed == nil && listed.answer == nil)
     }
 }

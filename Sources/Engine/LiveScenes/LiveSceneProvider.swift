@@ -47,7 +47,7 @@ public struct LiveSceneProvider: SceneProviding {
         guard let application = identity(processID) else {
             throw LiveSceneFailure.unknownApplication(processID: processID)
         }
-        let rows = try windows.windows(ownedBy: processID)
+        let rows = try await windows.windows(ownedBy: processID)
         let surfaces = WindowSurfaceClassifier.classify(rows)
         guard let target = surfaces.interaction else {
             throw LiveSceneFailure.noInteractionWindow(processID: processID, rows: rows.count)

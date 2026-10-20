@@ -38,6 +38,10 @@ public struct ActionEngine: Sendable {
         public var settling: (any Settling)?
         /// Carries out a text format toggle through its menu item; nil clicks the toggle.
         public var menus: (any MenuCommanding)?
+        /// Whether a static text whose native value changed counts as an effect
+        /// (`SceneDifference.effect`): true only for scenes whose texts show the app's state, as the
+        /// MacDriver's do; false for the Seat's, whose texts include clocks and timecodes.
+        public var countsNativeTextChange: Bool
 
         public init(
             scenes      : any SceneProviding,
@@ -48,7 +52,8 @@ public struct ActionEngine: Sendable {
             expectations: (any EffectExpecting)? = nil,
             observer    : (any ActionObserving)? = nil,
             settling    : (any Settling)? = nil,
-            menus       : (any MenuCommanding)? = nil
+            menus       : (any MenuCommanding)? = nil,
+            countsNativeTextChange: Bool = false
         ) {
             self.scenes       = scenes
             self.actuator     = actuator
@@ -59,6 +64,7 @@ public struct ActionEngine: Sendable {
             self.observer     = observer
             self.settling     = settling
             self.menus        = menus
+            self.countsNativeTextChange = countsNativeTextChange
         }
     }
 
@@ -86,6 +92,18 @@ public struct ActionEngine: Sendable {
         #else
         self.pause        = pause
         #endif
+    }
+
+    /// The refusal of a destructive or irreversible step (`IrreversiblePolicy`): without the person's consent,
+    /// `needsConsent`; with it, the shared refusal, since no route the engine drives has a verifier of such a step's
+    /// own effect. A scene or a page read again is not one: a send can close its dialog and save a draft on the web
+    /// too, and the engine judges a gesture by generic differences. Never nil today.
+    private func refusal(destructive what: String, scene: SceneSnapshot?, needsConsent: String) -> ActOutcome? {
+        switch IrreversiblePolicy.decision(allowed: permissions.allowsDestructive, readBack: .cannotConfirm) {
+            case .allowed:        nil
+            case .needsConsent:   ActOutcome(.refused, needsConsent, scene: scene)
+            case .cannotReadBack: ActOutcome(.refused, IrreversiblePolicy.readBackRefusal(what), scene: scene)
+        }
     }
 
     // MARK: Observe
@@ -148,7 +166,10 @@ public struct ActionEngine: Sendable {
     /// Performs one request and answers with an outcome a model can act on next, with the check its
     /// path made (`OperationCheck`): an outcome no gesture produced says so.
     public func act(_ request: ActionRequest) async -> ActOutcome {
-        Self.checked(await performAct(request))
+        let settles = SettleTrail()
+        let outcome = await Self.$settleTrail.withValue(settles) { await performAct(request) }
+        return Self.checked(Self.qualified(outcome, after: settles.last, readBackFromScene: settles.readBackFromScene,
+                                           cap: timing.clickSettle))
     }
 
     /// The check of an outcome whose path stated none (`ActOutcome.withStatedCheck`).
@@ -176,9 +197,10 @@ public struct ActionEngine: Sendable {
         let point = perceived.globalPoint(of: element)
         let surfaces = await surfaces(pid)
         let containingPopup = surfaces.popups.first { $0.insetBy(dx: -4, dy: -4).contains(point) }
+        // The operation is classified with its context first; consent and read-back apply afterwards.
         if ActionPolicy.isDestructive(
             label: element.label, bundleID: request.bundleID, role: element.role, container: element.container
-        ), !permissions.allowsDestructive {
+        ) {
             // A native routing menu supplies context even when its opener is hidden by the popup.
             // The same words in text, another application or another menu keep the normal refusal.
             var audioRemoval = false
@@ -189,9 +211,11 @@ public struct ActionEngine: Sendable {
                ) {
                 audioRemoval = navigation.hasMatchingItem && navigation.isAudioSendMenu && !navigation.hasSubmenu
             }
-            if !audioRemoval {
-                return ActOutcome(.refused, "'\(element.label)' looks destructive/irreversible: refused. "
-                    + "If you want the agent to do this, the person must allow destructive actions.", scene: scene)
+            if !audioRemoval,
+               let refused = refusal(destructive: "'\(element.label)'", scene: scene, needsConsent: "'\(element.label)' "
+                   + "looks destructive/irreversible: refused. If you want the agent to do this, the person must allow "
+                   + "destructive actions.") {
+                return refused
             }
         }
         if request.verb == .rightClick,
@@ -238,10 +262,10 @@ public struct ActionEngine: Sendable {
             await pause(timing.popupDismiss)
             let afterWindow = await perceive(pid)
             let after = afterWindow?.scene
-            let dismissed = (try? dependencies.windows.windows(ownedBy: pid)).map {
+            let dismissed = (try? await dependencies.windows.windows(ownedBy: pid)).map {
                 !WindowSurfaceClassifier.classify($0).hasOpenPopup
             } ?? false
-            await dependencies.actuator.confirm(dismissed ? .observed : .unknown, in: pid)
+            await confirm(dismissed ? .observed : .unknown, in: pid)
             // The requested click never went out: what is checked is the recovery's own effect, and only that.
             let recovery = OperationCheck(
                 condition: .recoveryInsteadOfRequest, method: .windowCensus, verdict: dismissed ? .passed : .unknown,
@@ -277,7 +301,12 @@ public struct ActionEngine: Sendable {
     /// again. Only a seen effect is `found_acted`.
     public func deliver(_ request: InputRequest) async -> ActOutcome {
         let trail = InputTrail()
-        let outcome = Self.checked(await Self.$inputTrail.withValue(trail) { await self.deliverInput(request) })
+        let settles = SettleTrail()
+        let delivered = await Self.$inputTrail.withValue(trail) {
+            await Self.$settleTrail.withValue(settles) { await self.deliverInput(request) }
+        }
+        let outcome = Self.checked(Self.qualified(delivered, after: settles.last, readBackFromScene: settles.readBackFromScene,
+                                                  cap: timing.clickSettle))
         guard let observer = dependencies.observer else { return outcome }
         let windows = trail.windows
         var isMenuChoice = false
@@ -301,6 +330,55 @@ public struct ActionEngine: Sendable {
             attempt : attempt
         ))
         return outcome
+    }
+
+    /// What a fresh perception attests about where the request's text would go, before anything of the call
+    /// is written: never the scene the model last read. A typed text's field is resolved as `typeText` resolves
+    /// it; it is secure by its role, and ordinary only when it takes text and its provider attests its physical
+    /// identity, which the dispatch is then bound to. An inserted text goes to the focus, as its provider attests
+    /// it. Anything else is unclassified, with its cause. Nothing is sent.
+    public func classify(_ request: InputRequest) async -> TextTargetClass {
+        switch request.input {
+            case .typeText(_, let field, _):
+                guard let perceived = try? await dependencies.scenes.currentScene(of: request.processID) else {
+                    return .unclassified(.noScene)
+                }
+                let element: SceneElement
+                do throws(Unresolved) {
+                    element = try resolved(
+                        field, section: request.section, in: perceived.scene, appName: request.appName,
+                        preferNativeControls: true, preferTextEntry: true
+                    )
+                } catch {
+                    return .unclassified(.unresolved)
+                }
+                if element.role == Self.secureFieldRole { return .secure }
+                guard AccessibilityAugmentation.textEntryRoles.contains(element.role ?? "") else {
+                    return .unclassified(.notTextEntry)
+                }
+                guard let identity = perceived.identities[element.id] else { return .unclassified(.identityUnattested) }
+                return .ordinary(TextTargetBinding(identity: identity, role: element.role, label: element.label))
+            case .insertText:
+                switch await dependencies.controls?.focusedField(in: request.processID) ?? .unknown {
+                    case .ordinary(let identity): return .ordinary(TextTargetBinding(identity: identity, role: nil, label: ""))
+                    case .secure                : return .secure
+                    case .unknown               : return .unclassified(.focusUnknown)
+                }
+            case .pressKey, .scroll, .drag, .contextMenu:
+                return .unclassified(.unsupported)
+        }
+    }
+
+    /// Why the focus is not the field a bound text was classified for, nil when it is: read after the click,
+    /// before each preparation key and again right before the text, so the type is checked with the identity.
+    /// A race remains between the last read and the text, which no read can close.
+    static func focusMismatch(_ focus: FocusedField, bound binding: TextTargetBinding) -> String? {
+        switch focus {
+            case .ordinary(let identity) where identity == binding.identity: nil
+            case .ordinary: "the focus is on another field"
+            case .secure  : "the focused field is a secure field now"
+            case .unknown : "the focus could not be attested"
+        }
     }
 
     /// The input as `deliver` performs it, every perception it takes and the effect it attributes left
@@ -405,10 +483,11 @@ public struct ActionEngine: Sendable {
         let after = afterWindow.scene
         let surfacesAfter = await surfaces(pid)
         // A capture that says it is not whole compares to nothing (M2): no effect, and no verdict but unknown.
+        // A comparable pair is judged within the selected control's scope, never a homonym's.
         let comparable = ActVerification.comparable(before: perceived.capture, after: afterWindow.capture)
         let effect = comparable ? Self.gatedEffect(
-            before: perceived.scene, after: after, targetID: element.id,
-            popupIsOpen: surfacesAfter.hasOpenPopup, target: element
+            before: perceived.scene, after: after, targetID: element.id, popupIsOpen: surfacesAfter.hasOpenPopup,
+            target: element, countsNativeTextChange: dependencies.countsNativeTextChange
         ) : nil
         let verdict = ActVerification.verdict(before: perceived, after: afterWindow, effect: effect, expected: expected)
         await dependencies.observer?.record(ActionRecord(
@@ -429,7 +508,7 @@ public struct ActionEngine: Sendable {
             case .ghost         : .absent
             case .unattributable: .unknown
         }
-        await dependencies.actuator.confirm(delivery, in: pid)
+        await confirm(delivery, in: pid)
         // A press through accessibility found its control by label, anywhere in the application.
         let check = OperationCheck.sceneDifference(verdict, expected: expected, target: OperationCheck.Target(element),
                                                    limits: [.windowWide] + (openedByPress ? [.labelMatchOnly] : []))
@@ -576,6 +655,8 @@ public struct ActionEngine: Sendable {
         await settle(pid)
         let afterWindow = await perceive(pid)
         let after = afterWindow?.scene
+        // Only the one control in the selected scope answers for it: a homonym in another container, section or
+        // collection never verifies it, and a moved control is not read at its old point.
         let matching = after?.elements.filter {
             $0.kind == element.kind && $0.container == element.container && $0.section == element.section
                 && $0.role == element.role && $0.collectionPath == element.collectionPath
@@ -589,12 +670,18 @@ public struct ActionEngine: Sendable {
         if answered == nil, mayReadLabel, selected != nil {
             answered = await dependencies.controls?.toggleState(labelled: element.label, in: pid)
         }
-        let readBack = answered ?? selected?.state
+        // The control's own state is a direct read-back; the scene's element is the scene.
+        if answered == nil { Self.settleTrail?.noteReadBackFromScene() }
+        // A partial capture shows what it read, never that nothing else is there: its one match stands for the
+        // selected control only at that control's place, so a homonym in the unread part never answers for it.
+        let afterIsWhole = afterWindow.map { !ActVerification.refusesComparison($0.capture) } ?? false
+        let readBack = answered ?? selected.flatMap { afterIsWhole || $0.bounds == element.bounds ? $0.state : nil }
         // The read-back judges the toggle; the scenes name an effect only when both were read in full (M2).
         let effect = afterWindow.flatMap { window in
             ActVerification.comparable(before: perceived.capture, after: window.capture)
                 ? SceneDifference.effect(before: perceived.scene, after: window.scene, targetID: element.id,
-                                         target: element)
+                                         target: element,
+                                         countsNativeTextChange: dependencies.countsNativeTextChange)
                 : nil
         }
         await dependencies.observer?.record(ActionRecord(
@@ -606,7 +693,7 @@ public struct ActionEngine: Sendable {
             before          : perceived,
             after           : afterWindow
         ))
-        await dependencies.actuator.confirm(readBack == desired ? .observed : .unknown, in: pid)
+        await confirm(readBack == desired ? .observed : .unknown, direct: answered != nil, in: pid)
         let check = OperationCheck(
             condition: .stateAfterGesture, method: .controlState,
             verdict: readBack == desired ? .passed : readBack == nil ? .unknown : .failed,
@@ -719,6 +806,8 @@ public struct ActionEngine: Sendable {
         perceived  : PerceivedWindow
     ) async -> ActOutcome {
         let pid = request.processID
+        // A readable native menu is navigated first: an item it cannot match uniquely sends nothing, and one with a
+        // submenu opens it in observed steps.
         if let navigation = await dependencies.controls?.menuItemNavigation(
             titled: element.label, within: popupFrame, in: pid
         ) {
@@ -770,7 +859,7 @@ public struct ActionEngine: Sendable {
             let afterWindow = await perceive(pid)
             let after = afterWindow?.scene
             let picked = value.map { LabelText.normalize($0) == LabelText.normalize(element.label) } ?? false
-            await dependencies.actuator.confirm(picked ? .observed : .unknown, in: pid)
+            await confirm(picked ? .observed : .unknown, direct: true, in: pid)
             await recordPick(request, element: element, before: perceived, after: afterWindow)
             let check = OperationCheck(
                 condition: .valueReadBack, method: .controlValue,
@@ -810,7 +899,7 @@ public struct ActionEngine: Sendable {
             await pause(timing.popupArrow)
             if (await surfaces(pid)).popups.count > popupsBefore {
                 let afterWindow = await perceive(pid)
-                await dependencies.actuator.confirm(.observed, in: pid)
+                await confirm(.observed, in: pid)
                 await recordPick(request, element: element, before: perceived, after: afterWindow)
                 return ActOutcome(.foundActed, "'\(element.label)' opened a SUBMENU: its items are in the scene "
                     + "below; act the one you want next.", scene: afterWindow?.scene, check: OperationCheck(
@@ -1022,27 +1111,56 @@ public struct ActionEngine: Sendable {
             return ActOutcome(.dryRun, "would insert \(text.count) characters at the current focus and selection")
         }
         let pid = request.processID
+        // The focus as its provider attests it, read right before the text: a bound insertion goes only into the field
+        // it was classified for, and only a focus attested ordinary is read back or keeps the expected value in the
+        // check. A secure field, an unknown focus or no controls role: never read back, the texts kept out.
+        let focus = await dependencies.controls?.focusedField(in: pid) ?? .unknown
+        if let binding = request.binding, let why = Self.focusMismatch(focus, bound: binding) {
+            return ActOutcome(.refused, "inserting text: \(why), not the field this call recorded: nothing was sent. "
+                + "Observe, then insert again.")
+        }
+        var attested = false
+        if case .ordinary = focus { attested = true }
         if let error = await send([.insert(text)], to: pid) {
             if let refused = Self.notSent(error, "inserting text") { return refused }
             return ActOutcome(.actedUnverified, "inserting text: delivery failed: \(error); observe before any retry",
                               check: Self.undelivered(expecting == nil ? .none : .valueReadBack, method: .controlValue,
-                                                      expected: expecting))
+                                                      expected: attested ? expecting : nil))
         }
         await settle(pid)
+        if !attested {
+            let after = await perceive(pid)?.scene
+            await dependencies.actuator.confirm(.unknown, in: pid)
+            var isSecure = false
+            if case .secure = focus { isSecure = true }
+            let check = expecting == nil
+                ? OperationCheck(condition: .none, method: .none, verdict: .unknown, limits: [.noExpectedValue],
+                                 performed: .requested)
+                : OperationCheck(condition: .valueReadBack, method: .controlValue, verdict: .unknown,
+                                 limits: [.readbackUnavailable, .valueWithheld], performed: .requested)
+            return ActOutcome(.actedUnverified, (isSecure ? "inserted text into a secure field: it is never read back"
+                : "inserted text at a focus that could not be attested as an ordinary field: it is not read back")
+                + ", so the text cannot be confirmed here; observe its effect before further input and never insert "
+                + "again blindly", scene: after, check: check)
+        }
         let after = await perceive(pid)?.scene
         let value = await dependencies.controls?.focusedFieldValue(in: pid)
         let verified = expecting != nil && value != nil && value == expecting
-        await dependencies.actuator.confirm(verified ? .observed : .unknown, in: pid)
+        await confirm(verified ? .observed : .unknown, direct: true, in: pid)
+        // A text the call withholds is judged here but kept out of the check and the answer.
+        let withholds = request.withholdsText
         // Without an expected value there is nothing to compare: the insertion stays unknown, never passed.
         let check = expecting == nil
             ? OperationCheck(condition: .none, method: .none, verdict: .unknown, limits: [.noExpectedValue],
                              performed: .requested)
             : OperationCheck(condition: .valueReadBack, method: .controlValue,
-                             verdict: verified ? .passed : value == nil ? .unknown : .failed, expected: expecting,
-                             observed: value, limits: value == nil ? [.readbackUnavailable] : [], performed: .requested)
+                             verdict: verified ? .passed : value == nil ? .unknown : .failed,
+                             expected: withholds ? nil : expecting, observed: withholds ? nil : value,
+                             limits: (value == nil ? [.readbackUnavailable] : []) + (withholds ? [.valueWithheld] : []),
+                             performed: .requested)
         if verified, let value {
-            return ActOutcome(.foundActed, "inserted text: the focused field reads '\(Self.shortened(value))'",
-                              scene: after, check: check)
+            return ActOutcome(.foundActed, withholds ? "inserted text: the focused field reads the expected value"
+                              : "inserted text: the focused field reads '\(Self.shortened(value))'", scene: after, check: check)
         }
         return ActOutcome(.actedUnverified,
             "inserted text at the current focus and selection, but the exact resulting value is unconfirmed; "
@@ -1071,6 +1189,18 @@ public struct ActionEngine: Sendable {
             return error.outcome
         }
         Self.inputTrail?.resolve(element)
+        // A bound text goes only into the field it was classified for: the same node, the same role, still not
+        // secure. Anything else is refused before any gesture.
+        if let binding = request.binding {
+            let identity = perceived.identities[element.id]
+            if element.role == Self.secureFieldRole || element.role != binding.role || identity != binding.identity {
+                let why = element.role == Self.secureFieldRole ? "it is a secure field now"
+                    : identity == nil ? "its identity can no longer be attested"
+                    : identity != binding.identity ? "another node is in its place" : "its role changed"
+                return ActOutcome(.refused, "'\(element.label)' is not the field this call recorded (\(why)): nothing "
+                    + "was typed. Observe, then type again.", scene: perceived.scene)
+            }
+        }
         let point = perceived.globalPoint(of: element)
         let kept = replacing && permissions.selectsFieldsByTripleClick
             ? Self.keptExtension(of: element.value, replacedBy: text)
@@ -1098,31 +1228,72 @@ public struct ActionEngine: Sendable {
         // Text kept in a field the click placed its caret in goes through accessibility too, which a key
         // in between would forget.
         let endOfField = Self.textFieldRoles.contains(element.role ?? "") ? Self.endOfField : nil
-        if let error = await send(
-            gestures, to: pid, redundantAfterAccessibilityClick: endOfField, expecting: element.label
-        ) {
+        // A secure field's value is never read, nor what was typed into it kept as the check's expectation.
+        let isSecure = element.role == Self.secureFieldRole
+        let controls = dependencies.controls
+        let focusGate: (@Sendable () async -> String?)? = request.binding.map { binding in
+            { @Sendable in await Self.focusMismatch(controls?.focusedField(in: pid) ?? .unknown, bound: binding) }
+        }
+        // The field's click is aimed at the element (`send`), and the gate asks before every later gesture.
+        if let error = await send(gestures, to: pid, over: element.label, redundantAfterAccessibilityClick: endOfField,
+                                  afterTheClick: focusGate) {
+            if let stopped = error as? TextStopped {
+                // The click, and any preparation key, went out and may have moved the focus or the selection: a
+                // partial delivery, closed as unknown, never replayed.
+                let keys = stopped.sentBefore > 1 ? " and pressed \(stopped.sentBefore - 1) of its preparation keys" : ""
+                return ActOutcome(.actedUnverified, "clicked '\(element.label)'\(keys), but \(stopped.reason): nothing "
+                    + "was typed. Observe before typing again.",
+                    check: Self.undelivered(.valueReadBack, method: .controlValue, target: element))
+            }
             if let refused = Self.notSent(error, "typing into '\(element.label)'", scene: perceived.scene) { return refused }
             return ActOutcome(.actedUnverified, "typing into '\(element.label)': delivery failed: \(error)",
-                              check: Self.undelivered(.valueReadBack, method: .controlValue, expected: typed,
+                              check: Self.undelivered(.valueReadBack, method: .controlValue,
+                                                      expected: isSecure || request.withholdsText ? nil : typed,
                                                       target: element))
         }
         await settle(pid)
         let after = await perceive(pid)?.scene
-        let readBack = await dependencies.controls?.focusedFieldValue(in: pid)
+        let composing = inserts ? " This text is inserted as one event; an active input method may reject it." : ""
+        if isSecure {
+            await dependencies.actuator.confirm(.unknown, in: pid)
+            let check = OperationCheck(
+                condition: .valueReadBack, method: .controlValue, verdict: .unknown,
+                limits: [.readbackUnavailable, .valueWithheld], performed: .requested,
+                target: OperationCheck.Target(element)
+            )
+            return ActOutcome(.actedUnverified, "typed into '\(element.label)'\(keeping): a secure field is never "
+                + "read back, so the text cannot be confirmed here; judge by what follows (the page that "
+                + "answers) instead of typing it again.\(composing)", scene: after, check: check)
+        }
+        let focused = await dependencies.controls?.focusedFieldValue(in: pid)
+        // The focused field's own value is a direct read-back; the scene's element is the scene.
+        if focused == nil { Self.settleTrail?.noteReadBackFromScene() }
+        let readBack = focused
             ?? after?.elements.first(where: { $0.id == element.id })?.value
             ?? after.flatMap { Self.sameField(as: element, in: $0) }?.value
         let wanted = replacing ? typed : element.value.map { $0 + text }
-        await dependencies.actuator.confirm(readBack != nil && readBack == wanted ? .observed : .unknown, in: pid)
-        let composing = inserts ? " This text is inserted as one event; an active input method may reject it." : ""
+        await confirm(readBack != nil && readBack == wanted ? .observed : .unknown, direct: focused != nil, in: pid)
         let verdict: OperationCheck.Verdict = switch (readBack, wanted) {
             case (.some(let value), .some(let wanted)): value == wanted ? .passed : .failed
             default                                   : .unknown
         }
+        // A text the call withholds is judged here but kept out of the check, and no value of the field is quoted.
+        let withholds = request.withholdsText
         let check = OperationCheck(
-            condition: .valueReadBack, method: .controlValue, verdict: verdict, expected: wanted, observed: readBack,
-            limits: (readBack == nil ? [.readbackUnavailable] : []) + (wanted == nil ? [.previousValueUnknown] : []),
+            condition: .valueReadBack, method: .controlValue, verdict: verdict,
+            expected: withholds ? nil : wanted, observed: withholds ? nil : readBack,
+            limits: (readBack == nil ? [.readbackUnavailable] : []) + (wanted == nil ? [.previousValueUnknown] : [])
+                + (withholds ? [.valueWithheld] : []),
             performed: .requested, target: OperationCheck.Target(element)
         )
+        if withholds, readBack != nil {
+            return verdict == .passed
+                ? ActOutcome(.foundActed, "typed into '\(element.label)'\(keeping): the field reads the typed text",
+                             scene: after, check: check)
+                : ActOutcome(.actedUnverified, "typed into '\(element.label)'\(keeping), but the field's value could not "
+                             + "be confirmed as the typed text: observe and re-decide, do not type it again blindly."
+                             + composing, scene: after, check: check)
+        }
         switch (readBack, wanted) {
             case (.some(let value), .some(let wanted)) where value == wanted:
                 return ActOutcome(.foundActed, "typed into '\(element.label)'\(keeping): the field reads "
@@ -1170,9 +1341,11 @@ public struct ActionEngine: Sendable {
             return ActOutcome(.refused, "\(chord) quits or closes what this session drives: refused. Use the "
                 + "window's own control, or close the session.", scene: perceived.scene)
         }
-        if ActionPolicy.isDestructive(chord), !permissions.allowsDestructive {
-            return ActOutcome(.refused, "\(chord) deletes in most applications: refused. If you want the agent "
-                + "to do this, the person must allow destructive actions.", scene: perceived.scene)
+        if ActionPolicy.isDestructive(chord),
+           let refused = refusal(destructive: "\(chord)", scene: perceived.scene, needsConsent: "\(chord) deletes in "
+               + "most applications: refused. If you want the agent to do this, the person must allow destructive "
+               + "actions.") {
+            return refused
         }
         if chord.key == .escape, permissions.windowClosure.mayEndTheApplication, !permissions.allowsDestructive {
             let hasOpenPopup = (await surfaces(pid)).hasOpenPopup
@@ -1327,10 +1500,11 @@ public struct ActionEngine: Sendable {
                 guard other.id != element.id else {
                     return ActOutcome(.refused, "a drag needs two different targets", scene: scene)
                 }
-                if ActionPolicy.isDestructive(label: other.label), !permissions.allowsDestructive {
-                    return ActOutcome(.refused, "dropping on '\(other.label)' looks destructive/irreversible: "
-                        + "refused. If you want the agent to do this, the person must allow destructive actions.",
-                        scene: scene)
+                if ActionPolicy.isDestructive(label: other.label),
+                   let refused = refusal(destructive: "Dropping on '\(other.label)'", scene: scene,
+                                         needsConsent: "dropping on '\(other.label)' looks destructive/irreversible: "
+                       + "refused. If you want the agent to do this, the person must allow destructive actions.") {
+                    return refused
                 }
                 finish = perceived.globalPoint(of: other)
                 destination = "'\(other.label)'"
@@ -1378,12 +1552,15 @@ public struct ActionEngine: Sendable {
             return error.outcome
         }
         Self.inputTrail?.resolve(element)
+        // The item is classified with the control that opens its menu; consent and read-back apply afterwards.
         if ActionPolicy.isDestructiveMenuItem(
             item, openedBy: element.label, bundleID: request.bundleID,
             role: element.role, container: element.container
-        ), !permissions.allowsDestructive {
-            return ActOutcome(.refused, "'\(item)' looks destructive/irreversible: refused. If you want the agent "
-                + "to do this, the person must allow destructive actions.", scene: perceived.scene)
+        ),
+           let refused = refusal(destructive: "'\(item)'", scene: perceived.scene, needsConsent: "'\(item)' looks "
+               + "destructive/irreversible: refused. If you want the agent to do this, the person must allow "
+               + "destructive actions.") {
+            return refused
         }
         if let refusal = menuOutsideTheSeat(on: element, appName: request.appName, scene: perceived.scene) {
             return refusal
@@ -1422,7 +1599,7 @@ public struct ActionEngine: Sendable {
             await pause(timing.popupDismiss)
             let closed = !(await surfaces(pid)).hasOpenPopup
             let after = await perceive(pid)?.scene
-            await dependencies.actuator.confirm(closed ? .observed : .unknown, in: pid)
+            await confirm(closed ? .observed : .unknown, in: pid)
             let offered = rows.compactMap { $0.first?.label }.prefix(14).map { "'\($0)'" }
             return ActOutcome(.honestMiss, "no item '\(item)' in the contextual menu of '\(element.label)'"
                 + (offered.isEmpty ? "" : ": it offered \(offered.joined(separator: ", "))")
@@ -1441,6 +1618,10 @@ public struct ActionEngine: Sendable {
 
     /// The roles whose contextual menu opens where the click landed, in every toolkit measured.
     private static let textFieldRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox"]
+
+    /// The role of a field whose value no reader may return: a password field. The MacDriver's scenes and the
+    /// web's name it so; it carries no value, and typing into it is never read back.
+    static let secureFieldRole = "AXSecureTextField"
 
     /// The refusal of a right click whose menu would open outside the seat, nil when it may go ahead.
     private func menuOutsideTheSeat(on element: SceneElement, appName: String, scene: SceneSnapshot) -> ActOutcome? {
@@ -1502,21 +1683,71 @@ public struct ActionEngine: Sendable {
     /// settle, when the composition gave one, and otherwise the click settle itself.
     private func settle(_ processID: pid_t) async {
         guard let settling = dependencies.settling else { return await pause(timing.clickSettle) }
-        await settling.settle(in: processID, cap: timing.clickSettle)
+        Self.settleTrail?.note(await settling.settle(in: processID, cap: timing.clickSettle))
+    }
+
+    /// The outcome of an action whose last wait did not settle (`SettleResult`): what was read after it may not be
+    /// what the gesture leaves. A verdict from the scene or a transition is then unknown, whichever it was; a direct
+    /// read-back that found the effect stays passed, and one that did not find it is unknown, since the effect may
+    /// still come. The check names the limit, and the message says why. An outcome no gesture produced, or a wait
+    /// with no settling role (the fixed pause), is as it was.
+    static func qualified(_ outcome: ActOutcome, after ended: SettleResult?, readBackFromScene: Bool = false,
+                          cap: Duration) -> ActOutcome {
+        guard let ended, ended != .settled, [.foundActed, .actedUnverified].contains(outcome.kind),
+              let check = outcome.check, check.performed != .none
+        else { return outcome }
+        let limit: OperationCheck.Limit = ended == .capped ? .settleCapped : .settleUnwatched
+        // A read-back method whose value came from the scene's element is the scene.
+        let isDirect = [.controlState, .controlValue, .driverReceipt].contains(check.method) && !readBackFromScene
+        let verdict: OperationCheck.Verdict = switch check.verdict {
+            case .passed : isDirect ? .passed : .unknown
+            case .failed : .unknown
+            case .unknown: .unknown
+        }
+        let qualified = OperationCheck(
+            condition: check.condition, method: check.method, methodVersion: check.methodVersion, verdict: verdict,
+            expected: check.expected, observed: check.observed, limits: check.limits + [limit], performed: check.performed,
+            substitute: check.substitute, target: check.target
+        )
+        let milliseconds = cap.components.seconds * 1000 + cap.components.attoseconds / 1_000_000_000_000_000
+        var message = outcome.message + (ended == .capped
+            ? " The wait after it ended at its cap (\(milliseconds) ms) with the window still changing, or a request "
+                + "still in flight: what was read may not be what it leaves."
+            : " Nothing could be watched while waiting after it, or not all of it (a page's requests): the wait was its "
+                + "cap (\(milliseconds) ms), and what was read may not be what it leaves yet.")
+        if verdict != check.verdict {
+            message += " So whether it had its effect is not known yet: observe again before acting, and do not repeat it "
+                + "from this answer."
+        }
+        let kind: ActOutcomeKind = outcome.kind == .foundActed && verdict != .passed ? .actedUnverified : outcome.kind
+        return ActOutcome(kind, message, scene: outcome.scene, check: qualified)
+    }
+
+    /// Closes the gestures delivered with what the engine saw, in step with the verdict: after a wait that did not
+    /// settle, only a direct read-back that found the effect is observed, and anything else is unknown (`qualified`),
+    /// so an actuator that keeps receipts never keeps one the verdict does not.
+    private func confirm(_ effect: DeliveryEffect, direct: Bool = false, in processID: pid_t) async {
+        var effect = effect
+        if let ended = Self.settleTrail?.last, ended != .settled, !(direct && effect == .observed) { effect = .unknown }
+        await dependencies.actuator.confirm(effect, in: processID)
     }
 
     /// Delivers the gestures in order and answers the error that stopped them, nil when all went out.
     /// A failure closes the delivery as unknown: what went out before it is never repeated.
     /// A `redundantAfterAccessibilityClick` gesture right after a click that went through accessibility
     /// is not delivered: that click left its caret where the gesture would have moved it.
-    /// The first gesture goes `over` the element so named, when there is one and it is no click aimed `expecting` a
-    /// label: an actuator that sees what lies under its point may refuse it before any event.
+    /// `afterTheClick` is asked before every gesture that follows the first, a click: before each key that
+    /// prepares the field and again right before the text. A reason stops the input there, as `TextStopped`,
+    /// with what went out before it standing. The first gesture is aimed at the element so named, when there is
+    /// one: a left click `expecting` it, so an actuator that acts through the element may refuse another one and
+    /// bind the input to its surface, and any other pointer gesture `over` it, so one that sees what lies under its
+    /// point may refuse it before any event.
     private func send(
         _ gestures: [Gesture],
         to processID: pid_t,
-        over target: String? = nil,
+        over label: String? = nil,
         redundantAfterAccessibilityClick redundant: Gesture? = nil,
-        expecting label: String? = nil
+        afterTheClick gate: (@Sendable () async -> String?)? = nil
     ) async -> (any Error)? {
         var sent = 0
         do {
@@ -1527,10 +1758,13 @@ public struct ActionEngine: Sendable {
                    await dependencies.actuator.lastDeliveryRoute(in: processID) == .accessibility {
                     continue
                 }
-                if index == 0, case .click = gesture, let label {
+                if let gate, index > 0, let reason = await gate() {
+                    throw TextStopped(reason: reason, sentBefore: sent)
+                }
+                if index == 0, case .click(_, .left, _) = gesture, let label {
                     try await dependencies.actuator.perform(gesture, expecting: label, in: processID)
-                } else if index == 0, let target {
-                    try await dependencies.actuator.perform(gesture, over: target, in: processID)
+                } else if index == 0, let label {
+                    try await dependencies.actuator.perform(gesture, over: label, in: processID)
                 } else {
                     try await dependencies.actuator.perform(gesture, in: processID)
                 }
@@ -1539,10 +1773,19 @@ public struct ActionEngine: Sendable {
             return nil
         } catch {
             await dependencies.actuator.confirm(.unknown, in: processID)
+            if error is TextStopped { return error }
             // A gesture refused unsent after others went out leaves the effect of those others unknown.
             if sent > 0, error is GestureNotSent { return SentBefore(refusal: error) }
             return error
         }
+    }
+
+    /// An input stopped after its click and before its text, for `reason`, after `sentBefore` gestures went out
+    /// (the click and the preparation keys before it): a partial delivery, never retried.
+    struct TextStopped: Error, CustomStringConvertible {
+        let reason    : String
+        let sentBefore: Int
+        var description: String { reason }
     }
 
     /// A refusal that came after earlier gestures of the same input went out: the input as a whole was sent in
@@ -1594,7 +1837,8 @@ public struct ActionEngine: Sendable {
         let comparable = ActVerification.comparable(before: beforeWindow.capture, after: afterWindow.capture)
         let effect = comparable ? Self.gatedEffect(
             before: before, after: after, targetID: targetID ?? "", popupIsOpen: (await surfaces(pid)).hasOpenPopup,
-            countsValueChange: countsValueChange, ignoresTextRereads: ignoresTextRereads
+            countsValueChange: countsValueChange, ignoresTextRereads: ignoresTextRereads,
+            countsNativeTextChange: dependencies.countsNativeTextChange
         ) : nil
         let verdict = ActVerification.verdict(before: beforeWindow, after: afterWindow, effect: effect)
         if movesFocus, comparable, verdict != .ghost, Self.showsFocus(before: before, after: after, effect: effect) {
@@ -1606,7 +1850,7 @@ public struct ActionEngine: Sendable {
             case .ghost         : .absent
             case .unattributable: .unknown
         }
-        await dependencies.actuator.confirm(delivery, in: pid)
+        await confirm(delivery, in: pid)
         // An input has no learned expectation: any structural change anywhere in the window passes.
         let check = OperationCheck.sceneDifference(verdict, expected: nil, target: target, limits: [.windowWide])
         switch verdict {
@@ -1635,7 +1879,7 @@ public struct ActionEngine: Sendable {
     ) async -> ActOutcome {
         let moved = Self.focusMove(before: before, after: after)
         Self.inputTrail?.attribute(moved == nil ? nil : effect)
-        await dependencies.actuator.confirm(moved == nil ? .unknown : .observed, in: pid)
+        await confirm(moved == nil ? .unknown : .observed, in: pid)
         let check = OperationCheck(
             condition: .structuralEffect, method: .sceneDifference, verdict: moved == nil ? .unknown : .passed,
             expected: "focus moved", observed: moved == nil ? effect?.family : "focus moved",
@@ -1733,6 +1977,14 @@ public struct ActionEngine: Sendable {
         return flat.count > 60 ? flat.prefix(59) + "…" : flat
     }
 
+    /// The forms in which an answer of the engine quotes a value (`shortened`): its line breaks as spaces, and past
+    /// 60 characters its first 59. A text withheld from the answers is withheld in these forms too, in case a
+    /// session delivers it without telling the engine (`InputRequest.withholdsText`), which is what keeps it out.
+    public static func quotedForms(of value: String) -> [String] {
+        let flat = value.replacingOccurrences(of: "\n", with: " ")
+        return flat.count > 60 ? [flat, String(flat.prefix(59))] : [flat]
+    }
+
     /// Why a comparison was refused (M2): a capture said it was not read in full. The cause is not named,
     /// since a capture stores none: a list that did not answer and a budget both leave it partial.
     static let notComparable = "the window before or after it was not read in full, so what changed cannot be "
@@ -1744,14 +1996,16 @@ public struct ActionEngine: Sendable {
         before            : SceneSnapshot,
         after             : SceneSnapshot,
         targetID          : String,
-        popupIsOpen       : Bool,
-        target            : SceneElement? = nil,
-        countsValueChange : Bool = false,
-        ignoresTextRereads: Bool = false
+        popupIsOpen           : Bool,
+        target                : SceneElement? = nil,
+        countsValueChange     : Bool = false,
+        ignoresTextRereads    : Bool = false,
+        countsNativeTextChange: Bool = false
     ) -> SceneEffect? {
         let (was, now) = ignoresTextRereads ? withoutTextRereads(before: before, after: after) : (before, after)
         var effect = SceneDifference.effect(
-            before: was, after: now, targetID: targetID, target: target, countsValueChange: countsValueChange
+            before: was, after: now, targetID: targetID, target: target, countsValueChange: countsValueChange,
+            countsNativeTextChange: countsNativeTextChange
         )
         if case .menuOpened(let labels) = effect, !popupIsOpen { effect = .elementsAppeared(labels: labels) }
         switch effect {
@@ -1796,13 +2050,32 @@ public struct ActionEngine: Sendable {
     /// The trail of the input being delivered in this task, when one is.
     @TaskLocal static var inputTrail: InputTrail?
 
+    /// How the waits of the action performed in this task ended, the last one kept: what was read after it judges.
+    final class SettleTrail: @unchecked Sendable {
+        private let lock = NSLock()
+        private var ended: SettleResult?
+        private var fromScene = false
+
+        var last: SettleResult? { lock.withLock { ended } }
+
+        /// Whether the read-back that judged the action came from the scene's element, not from the control.
+        var readBackFromScene: Bool { lock.withLock { fromScene } }
+
+        func note(_ result: SettleResult) { lock.withLock { ended = result } }
+
+        func noteReadBackFromScene() { lock.withLock { fromScene = true } }
+    }
+
+    /// The trail of the waits of the action being performed in this task, when one is.
+    @TaskLocal static var settleTrail: SettleTrail?
+
     private func surfaces(_ processID: pid_t) async -> WindowSurfaces {
-        let rows = (try? dependencies.windows.windows(ownedBy: processID)) ?? []
+        let rows = (try? await dependencies.windows.windows(ownedBy: processID)) ?? []
         return WindowSurfaceClassifier.classify(rows)
     }
 
     private func noSceneReason(appName: String, processID: pid_t) async -> String {
-        let rows = (try? dependencies.windows.windows(ownedBy: processID)) ?? []
+        let rows = (try? await dependencies.windows.windows(ownedBy: processID)) ?? []
         let ordinary = rows.filter { $0.layer == 0 && $0.frame.width >= 60 }
         if ordinary.isEmpty {
             return "no scene: \(appName) has NO window open right now "

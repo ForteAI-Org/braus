@@ -54,6 +54,7 @@ struct AgentCallContractTests {
         ("app_call", .appCall(app: "calendar", verb: "create_event",
                               arguments: #"{"start":"2026-10-15T09:00:00Z","title":"Zoë ☕️"}"#)),
         ("app_call empty", .appCall(app: "system", verb: "get_volume", arguments: "{}")),
+        ("collect_posts", .collectPosts(target: 50, maxScrolls: 30, seconds: 60)),
     ]
 
     @Test("every tool and variant becomes its contract's rows and is rebuilt exactly from them; every name is the tool's own and admitted")

@@ -8,6 +8,7 @@
 import AppKit
 import AutomationMCP
 import AutomationRuntime
+import EngineCore
 import Foundation
 import LocalMCP
 import PerceptionCore
@@ -59,6 +60,10 @@ struct BrokeredAutomationSessionTests {
         }
     }
 
+    /// The fixtures' resolution of a name: "Test" is the `test.process` their seating names; any other word is taken
+    /// as the bundle ID, as `open` claims it before seating.
+    static let resolvedForTheFixtures: BrokeredAutomationSession.Resolving = { $0 == "Test" ? "test.process" : $0 }
+
     private static func session(
         _ broker  : SeatBroker,
         workerID  : UUID = workerID,
@@ -78,6 +83,7 @@ struct BrokeredAutomationSessionTests {
             knowledgeDirectory: Scratch.directory("braus-brokered"),
             allowsDestructive : false,
             grantee           : grantee,
+            resolving         : resolvedForTheFixtures,
             missingGrant      : { missing },
             requestGrants     : requests,
             seating           : seating,
@@ -312,6 +318,7 @@ struct BrokeredAutomationSessionTests {
             workerID          : UUID(),
             knowledgeDirectory: Scratch.directory("braus-brokered"),
             allowsDestructive : false,
+            resolving         : Self.resolvedForTheFixtures,
             missingGrant      : { nil },
             requestGrants     : {},
             seating           : { _, _, _ in
@@ -1067,5 +1074,18 @@ struct BrokeredAutomationSessionTests {
         #expect(BrokeredAutomationSession.candidates(apps, defaultBrowser: nil).allSatisfy { !$0.isDefaultBrowser })
         #expect(BrokeredAutomationSession.candidates(apps, defaultBrowser: "").allSatisfy { !$0.isDefaultBrowser },
                 "an application with no bundle ID is nobody's browser")
+    }
+
+    @Test("W1: a text the call withholds reaches the Seat's engine as withheld; a binding the Seat cannot keep is refused, nothing typed")
+    func withheldTextReachesTheEngine() async throws {
+        let input = InputRequest.Input.typeText("Withheld-Sentinel-90", into: "Nome", replacing: true)
+        let withheld = BrokeredAutomationSession.request(input, section: "form", application: .current, withholdsText: true)
+        #expect(withheld.withholdsText && withheld.input == input && withheld.section == "form" && withheld.binding == nil)
+        #expect(!BrokeredAutomationSession.request(input, section: nil, application: .current, withholdsText: false).withholdsText)
+        let session = Self.session(SeatBroker()) { _, _, _ in throw Opened() }
+        let binding = TextTargetBinding(identity: TargetIdentity("double|nome"), role: "AXTextField", label: "Nome")
+        await #expect(throws: AutomationFailure.self) {
+            _ = try await session.deliver(input, section: nil, dispatch: .bound(binding))
+        }
     }
 }

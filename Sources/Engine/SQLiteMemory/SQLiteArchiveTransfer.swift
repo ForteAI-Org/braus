@@ -69,7 +69,11 @@ package enum SQLiteArchiveTransfer {
         "brain_menu_commands", "memory_tasks", "memory_call_effects", "memory_value_redactions",
         "memory_call_recording_gaps", "memory_origin_brain_contributions", "memory_procedure_candidates",
         "brain_relations", "brain_relation_applications", "brain_relation_evaluations", "memory_variant_prefixes",
-        "memory_variant_prefix_checks", "memory_recall_queries",
+        "memory_variant_prefix_checks", "memory_recall_queries", "memory_call_routes",
+        "memory_call_adapter_dispatches", "memory_call_rungs",
+        "memory_call_route_advice", "memory_call_argument_fields", "memory_call_result_fields",
+        "memory_operation_argument_fields", "memory_call_data_contexts", "memory_identity_salts", "memory_executors",
+        "memory_call_executors", "memory_call_reconciliations",
     ]
 
     /// The statuses an origin keeps once its transfer ended: it is not offered again unless its archive
@@ -788,7 +792,7 @@ package enum SQLiteArchiveTransfer {
         _ mapping: [String: String]
     ) throws -> BrainApplicationCommand {
         try BrainApplicationCommand(key: remapped(command.key, mapping), bundleID: command.bundleID,
-                                    requestedAtMS: command.requestedAtMS, input: command.input)
+                                    requestedAtMS: command.requestedAtMS, input: command.input, coverage: command.coverage)
     }
 
     private static func remapped(_ key: BrainApplicationKey, _ mapping: [String: String]) -> BrainApplicationKey {

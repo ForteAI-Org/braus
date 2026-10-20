@@ -283,4 +283,19 @@ struct ProcedureConstructionTests {
         #expect(evaluate(withheld: true) == ["withheld_literal"])
         #expect(evaluate(missing: ["p"]) == ["missing_input"])
     }
+
+    @Test("qualification C: an adapter's own oracle proves it, an unread change does not; a read needs a result; an ambiguous reference keeps the step out")
+    func stepKinds() throws {
+        let part = try Self.part()
+        func evaluate(_ kind: ProcedureSegmentation.StepKind, _ verifications: [QualificationPolicy.VerificationFact],
+                      ambiguous: Bool = false) -> [String] {
+            Self.evaluate(part, QualificationPolicy.StepFacts(position: 0, callEventID: "c", status: .completed, hasRecordingGap: false,
+                                                              verifications: verifications, kind: kind,
+                                                              hasUnresolvedReference: ambiguous))
+        }
+        #expect(evaluate(.adapterCall, [Self.verification(.adapterEffect)]) == ["admitted"])
+        #expect(evaluate(.adapterCall, [Self.verification(.adapterEffect, .unknown, performed: .uncertain)]) == ["adapter_unverified"])
+        #expect(evaluate(.requiredRead, [Self.verification(.adapterRead)]) == ["admitted"])
+        #expect(evaluate(.adapterCall, [Self.verification(.adapterEffect)], ambiguous: true) == ["reference_unresolved"])
+    }
 }

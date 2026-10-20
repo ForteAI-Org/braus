@@ -59,6 +59,109 @@ struct AutomationToolsTests {
         #expect(field == "control|textfield")
     }
 
+    @Test("open_session tells every client that a kind of thing is not an app's name (rule 1)")
+    func namedMeansTheAppOrItsBrand() throws {
+        let definition = try #require(AutomationTools.definitions(for: .web).first { $0["name"].string == "open_session" })
+        let named = definition["inputSchema"]["properties"]["named"]
+        #expect(named["type"].string == "boolean")
+        for text in [definition["description"].string, named["description"].string] {
+            #expect(text?.contains("\"the X app\" or its brand") == true)
+            #expect(text?.contains("\"with Maps\") is not a name: leave named false") == true)
+        }
+    }
+
+    @Test("R09: the instructions and open_session say where the composed channels drive an app or a page, in the same words; the Seat alone keeps its text")
+    func instructionsFollowTheChannels() throws {
+        func openSession(_ channels: AutomationChannels) throws -> String {
+            try #require(AutomationTools.definitions(for: channels).first { $0["name"].string == "open_session" }?[
+                "description"].string)
+        }
+        let seatOnly = "All app actions happen on a background Seat."
+        let browserApps = "For anything on the web, use the browser apps marks as the default"
+        let native = "A native app is driven where it is, in the background behind the person's windows (the "
+            + "MacDriver); when the MacDriver gives it back, it moves to a background Seat."
+        let web = "A web page opens in Braus's own browser engine, with no window of the person's: open_session with "
+            + "web:<host> or the page's URL."
+        let seat = AutomationTools.instructions(for: [])
+        #expect(seat == AutomationTools.instructions)
+        #expect(seat.contains(seatOnly) && seat.contains(browserApps) && !seat.contains("web:<host>"))
+        #expect(try openSession([]).hasPrefix("Adopt an app into one persistent background Seat"))
+        for channels: AutomationChannels in [[.native], [.web], [.native, .web], .all] {
+            let text = AutomationTools.instructions(for: channels)
+            let opening = try openSession(channels)
+            #expect(!text.contains(seatOnly) && !opening.contains("Adopt an app into one persistent background Seat"))
+            for (sentence, channel) in [(native, AutomationChannels.native), (web, .web)] {
+                #expect(text.contains(sentence) == channels.contains(channel), "\(channels)")
+                #expect(opening.contains(sentence) == channels.contains(channel), "\(channels)")
+            }
+            #expect(text.contains(browserApps) != channels.contains(.web), "\(channels)")
+            #expect(text.contains("use the browser engine (open_session with web:<host> or the page's URL) unless the "
+                                  + "person names a browser app") == channels.contains(.web))
+        }
+        #expect(AutomationTools.instructions(for: [.native]).contains("A native app is driven on a background Seat")
+                == false)
+        #expect(AutomationTools.instructions(for: [.web]).contains("A native app is driven on a background Seat."))
+        // An instance says what it serves.
+        let tools = AutomationTools(session: SyntheticSession(), channels: [.native, .web])
+        #expect(tools.instructions == AutomationTools.instructions(for: [.native, .web]))
+        #expect(AutomationTools(session: SyntheticSession()).instructions == AutomationTools.instructions)
+    }
+
+    @Test("with no channel beyond the Seat the tools are the Seat's alone; each channel adds only its own")
+    func channelsDecideTheTools() throws {
+        func names(_ channels: AutomationChannels) -> Set<String> {
+            Set(AutomationTools.definitions(for: channels).compactMap { $0["name"].string })
+        }
+        func openSession(_ channels: AutomationChannels) throws -> JSONValue {
+            try #require(AutomationTools.definitions(for: channels).first { $0["name"].string == "open_session" })
+        }
+        #expect(AutomationTools.definitions == AutomationTools.definitions(for: []))
+        #expect(names([]).isDisjoint(with: ["app_capabilities", "app_call"]))
+        #expect(try openSession([])["inputSchema"]["properties"]["named"] == .null)
+        #expect(try openSession([])["description"].string?.contains("Set named true") == false)
+        #expect(names(.adapters).subtracting(names([])) == ["app_capabilities", "app_call"])
+        // R02: the adapters are a route of their own, so `named` is offered with them; no web page is named.
+        #expect(try openSession(.adapters)["inputSchema"]["properties"]["named"]["type"].string == "boolean")
+        let adapterOnly = try openSession(.adapters)["description"].string
+        #expect(adapterOnly?.contains("a better route (an app_call adapter)") == true, "\(adapterOnly ?? "")")
+        // The web adds its one tool, collect_posts, which reads the page it holds.
+        #expect(names(.web).subtracting(names([])) == ["collect_posts"])
+        #expect(names([]).isSubset(of: names(.web)))
+        #expect(try openSession(.web)["inputSchema"]["properties"]["named"]["type"].string == "boolean")
+        #expect(try openSession(.web)["description"].string?.contains("app_call") == false, "no adapter to point at")
+        #expect(try openSession([.web, .adapters])["description"].string?.contains("an app_call adapter") == true)
+        #expect(names([.native]) == names([]))
+        let tools = AutomationTools(session: SyntheticSession())
+        #expect(tools.adapters == nil && tools.router == nil)
+        #expect(tools.toolDefinitions == AutomationTools.definitions)
+        let routed = AutomationTools(session: SyntheticSession(), channels: [.web, .adapters])
+        #expect(routed.adapters != nil && routed.router != nil)
+        #expect(routed.toolDefinitions == AutomationTools.definitions(for: [.web, .adapters]))
+        routed.adapters = nil
+        #expect(routed.toolDefinitions == AutomationTools.definitions(for: .web), "the tools follow what it can do")
+    }
+
+    @Test("an adapter tool in a composition without adapters is refused and touches no session")
+    func adapterToolsNeedTheirChannel() async throws {
+        let session = SyntheticSession()
+        let tools = AutomationTools(session: session)
+        await #expect(throws: AutomationFailure.self) {
+            _ = try await tools.call("app_call", .object(["app": .string("Notes"), "verb": .string("notes.list")]))
+        }
+        #expect(session.calls.isEmpty)
+    }
+
+    @Test("channels parse from a list, all or none, and a word that is not a channel is refused")
+    func channelsParse() throws {
+        #expect(try AutomationChannels(parsing: "") == [])
+        #expect(try AutomationChannels(parsing: "none") == [])
+        #expect(try AutomationChannels(parsing: " Native , web") == [.native, .web])
+        #expect(try AutomationChannels(parsing: "all") == .all)
+        #expect(AutomationChannels.all.description == "native,web,adapters")
+        #expect(throws: AutomationFailure.self) { try AutomationChannels(parsing: "native,wbe") }
+        #expect(throws: AutomationFailure.self) { try AutomationChannels(parsing: "unsupported") }
+    }
+
     @Test("exact native window titles distinguish an omitted selector from an untitled window")
     func nativeWindowTitleIsPreserved() async throws {
         let definition = try #require(AutomationTools.definitions.first { $0["name"].string == "open_session" })
@@ -135,6 +238,27 @@ struct AutomationToolsTests {
         #expect(records.last?.contains("\"notice\"") == false, "only an answer with a scene carries it")
     }
 
+    @Test("a page in the person's own Chrome says so under browser in each answer with a scene, beside the seat's")
+    func aSceneCarriesTheBrowserNotice() async throws {
+        let session = SyntheticSession()
+        let id = try #require(session.id)
+        var records: [String] = []
+        let tools = AutomationTools(session: session)
+        tools.record = { records.append($0) }
+
+        _ = try await tools.call("observe", .object(["session": .string(id.uuidString)]))
+        #expect(records.last?.contains("\"browser\"") == false)
+
+        session.browserNotice = "This page is in the person's own Chrome"
+        session.seatNotice    = "window 7 is on the person's screen"
+        _ = try await tools.call("observe", .object(["session": .string(id.uuidString)]))
+        let answer = try #require(records.last)
+        #expect(answer.contains("\"browser\"") && answer.contains("This page is in the person's own Chrome"))
+        #expect(answer.contains("window 7 is on the person's screen"), "the seat's notice is kept")
+        _ = try await tools.call("status", .object([:]))
+        #expect(records.last?.contains("\"browser\"") == false, "only an answer with a scene carries it")
+    }
+
     @Test
     func staleSessionCannotReachTheDriver() async throws {
         let session = SyntheticSession()
@@ -143,6 +267,20 @@ struct AutomationToolsTests {
             _ = try await tools.call("act", .object(["session": .string("old"), "target": .string("Create")]))
             Issue.record("Stale session accepted.")
         } catch { #expect(session.calls.isEmpty) }
+    }
+
+    @Test("I04: a client that reconnects gets a session of its own; the old connection's ID reaches neither, and nothing runs")
+    func reconnectRefusesTheOldID() async throws {
+        let before = SyntheticSession()
+        let old = try #require(before.id).uuidString
+        await before.close()
+        let after = SyntheticSession()
+        let tools = AutomationTools(session: after)
+        #expect(after.id?.uuidString != old)
+        await #expect(throws: (any Error).self) {
+            _ = try await tools.call("act", .object(["session": .string(old), "target": .string("Create")]))
+        }
+        #expect(before.calls == ["close"] && after.calls.isEmpty, "no replay on either session")
     }
 
     @Test
@@ -758,6 +896,7 @@ private final class SyntheticSession: AutomationSessionOperating {
     var id: UUID? = UUID()
     var closeWarning: String?
     var seatNotice: String?
+    var browserNotice: String?
     var observedWindowNumber: Int?
     var calls: [String] = []
     var openedWindowTitles: [String?] = []

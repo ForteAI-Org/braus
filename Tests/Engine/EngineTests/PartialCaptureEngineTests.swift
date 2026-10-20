@@ -110,6 +110,37 @@ struct PartialCaptureEngineTests {
         }
     }
 
+    @Test("a scoped toggle over a partial capture: a moved match in the scope is no read-back, nor is a homonym's flip")
+    func scopedToggleOverPartialCapture() async {
+        func mute(_ container: String, x: Double, _ state: ControlState) -> SceneElement {
+            var control = element("control|mute", "Mute", x: x, state: state)
+            control.role = "AXButton"
+            control.container = container
+            return control
+        }
+        let before = [mute("Bus", x: 0.1, .off), mute("Kick", x: 0.4, .off)]
+        let cases: [(String, [SceneElement], CaptureQuality, ControlState?)] = [
+            // The selected control read at its place in a partial capture: presence is reliable there.
+            ("in place, partial", [mute("Kick", x: 0.4, .on)], Self.unanswered, .on),
+            // One match in the scope, at another place, in a partial capture: the target may be in the unread part.
+            ("moved, partial", [mute("Kick", x: 0.6, .on)], Self.unanswered, nil),
+            // The same moved match in a whole capture is the only one there is.
+            ("moved, complete", [mute("Bus", x: 0.1, .off), mute("Kick", x: 0.6, .on)], Self.complete, .on),
+            // Only the homonym flipped: never the target's read-back.
+            ("homonym, partial", [mute("Bus", x: 0.1, .on)], Self.unanswered, nil),
+        ]
+        for (name, after, capture, readBack) in cases {
+            let actuator = RecordingActuator(), observer = RecordingObserver()
+            let outcome = await engine([window(before, Self.complete, token: "1"), window(after, capture, token: "2")],
+                                       actuator: actuator, observer: observer, controls: FakeControls())
+                .act(ActionRequest(processID: pid, bundleID: "com.x", appName: "X", target: "Mute {Kick}",
+                                   verb: .setToggle, desiredState: .on))
+            #expect(outcome.check?.observed == readBack?.rawValue, Comment(rawValue: "\(name): \(outcome.message)"))
+            #expect(outcome.check?.verdict == (readBack == .on ? .passed : .unknown), Comment(rawValue: name))
+            #expect((observer.records.last?.effect != nil) == (capture == Self.complete), Comment(rawValue: name))
+        }
+    }
+
     @Test("an input judged by the scenes: a scroll over a partial capture is unattributable and never confirmed absent; over complete ones, a ghost as before")
     func input() async {
         for (capture, expected) in [(Self.unanswered, DeliveryEffect.unknown), (Self.complete, .absent)] {

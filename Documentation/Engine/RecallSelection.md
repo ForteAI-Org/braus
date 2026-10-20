@@ -1,7 +1,7 @@
 # Recall selection
 
 How the Recall goes from a task's request to the few steps it proposes, which data each decision rests on, what that
-data proves, and what it leaves unknown. Selector `recall-selector-4` (2026-10-12, after the third review), in
+data proves, and what it leaves unknown. Selector `recall-selector-5` (2026-10-19, typed mixed fields and current account requirements), in
 [RecallSelector.swift](../../Sources/Engine/Memory/Recall/RecallSelector.swift). The rest of the Recall (index,
 lifecycle, delivery, use) is in [MemoryRecall.md](MemoryRecall.md). Since 2026-10-13 the product's path is the agent's
 choice ([RecallAgentChoice.md](RecallAgentChoice.md)), which validates the agent's tracts with these same rules

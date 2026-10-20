@@ -53,13 +53,8 @@ struct SchemaShape: Equatable, Sendable {
         self.init(tables: byType["table"] ?? 0, triggers: byType["trigger"] ?? 0, indexes: byType["index"] ?? 0)
     }
 
-    /// Schema 7, the one this build bootstraps and opens, in its seven parts: the base (version 1) with 48
-    /// tables, 48 triggers and 31 indexes; D1's facts, 18 tables, 27 triggers and 10 indexes; D2's procedures
-    /// and relations, 20 tables, 47 triggers and 11 indexes; its review, 4 tables, 10 triggers and 8 indexes;
-    /// its second review, a table and 3 triggers; D3's Recall, 12 tables, 34 triggers and 12 indexes (five
-    /// of its triggers and four of its indexes on part 3's tables); the agent's choice, 6 tables, 18 triggers
-    /// and 1 index (one of its triggers on a part 6 table, and the check of a requirement's step).
-    static let current = SchemaShape(tables: 109, triggers: 187, indexes: 73)
+    /// The exact table, trigger and explicit index counts of the current shipped schema.
+    static let current = SchemaShape(tables: 121, triggers: 217, indexes: 75)
 
     /// Leaves a file of this build at an earlier schema: every trigger, index and table added since is
     /// dropped, in that order, and the version set back. The current text writes every object of an earlier

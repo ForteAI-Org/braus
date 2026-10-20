@@ -99,7 +99,9 @@ Likewise, `--allow-destructive` belongs to this invocation, not the saved model 
 - **ChatCore:** provider/turn/event/conversation values. No process, MCP, storage,
   AppKit, perception or Driver dependency.
 - **CLIProviders:** argv construction, Claude/Codex JSONL decoding, streaming
-  child process ownership and cancellation. No shell command interpolation.
+  child process ownership and cancellation. No shell command interpolation. The
+  command lines' own web searches and page reads become tool records
+  (`WebToolRecords`), through the withholding the host passes (M07).
 - **FileConversations:** private atomic transcripts and exclusive conversation leases.
 - **LocalMCP:** JSON-RPC stdio bridge, authenticated ephemeral loopback host and
   serialized tool router. No application behavior.

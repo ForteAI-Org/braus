@@ -34,6 +34,8 @@ struct ProcedureLearningTests {
     static func tools(_ session: LearningSession, source: MemoryEventSource = .app, stream: String = "worker-1") -> AutomationTools {
         let tools = AutomationTools(session: session)
         tools.producer = CallProducer(source: source, streamID: stream, traceID: "message-1", messageRef: "message-1")
+        // These tests learn Finder's interface; the router would send an unnamed Finder to its adapter.
+        tools.router = nil
         return tools
     }
 

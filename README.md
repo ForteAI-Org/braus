@@ -74,7 +74,7 @@ Check registration with `claude mcp get braus` or `codex mcp list`. Start a new 
 
 Each connection entry accepts one active client. Create separate entries for independently running clients. Never share the contents of `*.connection.json`.
 
-The [local MCP guide](Documentation/Engine/LocalMCP.md) covers generated configurations, access scope and connection lifecycle. Not every client has been tested end to end. URL-only web connectors cannot use this local bridge.
+The [local MCP guide](Documentation/Engine/LocalMCP.md) covers generated configurations, access scope and connection lifecycle. Not every client has been tested end to end.
 
 </details>
 

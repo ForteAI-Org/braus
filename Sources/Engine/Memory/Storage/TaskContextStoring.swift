@@ -5,6 +5,8 @@
 //  Created by Tommaso Mazzarini on 09/10/2026.
 //
 
+import EngineCore
+
 /// StoredTaskAttempt is an attempt read back with where its episode stands: running while
 /// `in_progress`, then completed, failed, cancelled (abandoned) or interrupted (a resumption replaced
 /// it). An attempt left `in_progress` by a process that ended stays so: incomplete, never completed.
@@ -104,4 +106,65 @@ public protocol OperationFactStoring: Sendable {
     func recordingGaps(of callEventID: String) async throws -> [OperationRecordingGap]
 
     func attribution(of callEventID: String) async throws -> TaskCallAttribution?
+
+    /// The route a routing session dispatched the call on, with a hand-back's reason (M05); nil when none was
+    /// recorded.
+    func route(of callEventID: String) async throws -> CallRoute?
+
+    /// The rung the MacDriver's last gesture of the call took, with what it did and why rung 1 was passed over (M05);
+    /// nil when the call sent no gesture of the MacDriver's, or none was recorded.
+    func rung(of callEventID: String) async throws -> CallRung?
+
+    /// The router's decision an `open_session` answered with its words, use or ask instead of opening, or open with a
+    /// note (M05); nil when none was recorded.
+    func advice(of callEventID: String) async throws -> CallRouteAdvice?
+
+    /// The adapter verb the call invoked (M05), its invocation and not its success; nil when it invoked none.
+    func adapterDispatch(of callEventID: String) async throws -> AdapterDispatch?
+
+
+    /// The leaves of the call's structured result the record kept or withheld (P2-02), in pointer order.
+    func resultFields(of callEventID: String) async throws -> [StructuredField]
+
+    /// The leaves of the call's structured arguments, each a constant or a reference the archive decided (P2-02).
+    func argumentFields(of callEventID: String) async throws -> [CallArgumentField]
+
+
+    /// The data context the call attested (P2-05), its account as a minimal identifier; nil when none was recorded.
+    func dataContext(of callEventID: String) async throws -> StoredDataContext?
+
+    /// Appends a reconciliation of an earlier call (P2-06) at its next sequence; the call's end is never rewritten.
+    func reconcile(_ reconciliation: CallReconciliation) async throws -> MemoryReceipt
+
+    func reconciliations(of callEventID: String) async throws -> [CallReconciliation]
+
+    /// The calls of a producer's stream whose effect is unknown and unresolved (P2-06): started and never ended under
+    /// another executor than `executorID`, or concluded with an uncertain effect, with no fact resolving them since.
+    func unresolvedCalls(source: MemoryEventSource, streamID: String, excludingExecutor executorID: String?)
+        async throws -> [UnresolvedCall]
+
+    /// The started calls that never ended under an executor other than `executorID`, with that executor (P2-06).
+    func startedCalls(excludingExecutor executorID: String) async throws -> [(eventID: String, executorID: String)]
+}
+
+/// StoredDataContext is a call's data context as the archive keeps it (P2-05): the account only as its minimal identifier.
+public struct StoredDataContext: Sendable, Equatable {
+    public let service: String
+    public let route: CallDataContext.Route
+    public let profile: String?
+    public let accountRef: String?
+    public let accountSource: CallDataContext.AccountSource
+    public let resourceKind: String?
+    public let resource: String?
+
+    public init(service: String, route: CallDataContext.Route, profile: String?, accountRef: String?,
+                accountSource: CallDataContext.AccountSource, resourceKind: String?, resource: String?) {
+        self.service       = service
+        self.route         = route
+        self.profile       = profile
+        self.accountRef    = accountRef
+        self.accountSource = accountSource
+        self.resourceKind  = resourceKind
+        self.resource      = resource
+    }
 }

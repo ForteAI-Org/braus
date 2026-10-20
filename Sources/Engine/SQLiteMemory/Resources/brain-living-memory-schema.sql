@@ -1,11 +1,17 @@
--- Braus Brain and living memory: the schema of the SQLiteMemory module, version 8.
+-- Braus Brain and living memory: the schema of the SQLiteMemory module, version 19.
 -- This one text creates a new archive in its bootstrap transaction, and the store compares every archive with the
 -- exact shape it creates at each open. It is edited in place: a change of shape before a release adds no file, and
 -- an archive of an earlier development shape is refused untouched, except the historical shapes the store recognizes
--- by the digest of their objects and rebuilds (main before the value change, the D3 build's version 7).
+-- by the digest of their objects and rebuilds (main before the value change, the D3 build's version 7, rename-app's
+-- version 7, main's version 8, this branch's version 9).
 -- Version 8 is the shape version 7 had since D1-D3 were merged into rename-app with one CHECK widened (the origins of
 -- the product's earlier name, `previous_product`); its number tells it apart from both versions 7 (the D3 build's and
 -- rename-app's), so every migration records the version it came from. Both are recognized whole and rebuilt.
+-- Version 9 is version 8 with one CHECK widened: a declared gap's reason admits `unclassified_target`, a text typed
+-- where the call could not attest an ordinary target (W1). Version 8 as main shipped it is recognized whole and rebuilt.
+-- Version 10 is version 9 with one CHECK widened: a verification's limit admits `settle_capped` and `settle_unwatched`,
+-- a wait after the gesture that ended at its cap with the window still busy, or had nothing to watch (W12). Version 9
+-- as this branch wrote it is recognized whole and rebuilt.
 -- Part 1 is version 1, the base: an archive of version 1 at exactly its shape migrates in one transaction after a
 -- verified copy. The store reads that shape from part 1 itself, creates every table, index and trigger of the
 -- later parts the archive lacks, each as written here, and derives the rows a text cannot. Editing part 1 changes
@@ -13,7 +19,10 @@
 -- change of rename-app already refuses the archives created before it. Versions 2 to 6 were development steps of
 -- the G76 plans, never released: an archive at one of them is refused untouched.
 -- Documentation/Engine/MemorySchema.md says how and why.
--- Seven parts, in the order they were written; no later part alters a table of an earlier one, and no column is
+-- Version 19 adds typed adapter evidence, confidential-content minimization, procedural step kinds, references,
+-- account requirements, execution ownership and reconciliation. Its current shape has 121 tables, 217 triggers
+-- and 75 explicit indexes. The exact shapes listed by SQLiteMemorySchema are the only migration sources.
+-- Eight parts, in the order they were written; no later part alters a table of an earlier one, and no column is
 -- reused with another meaning:
 --   1. the base, version 1, with the value change;
 --   2. the facts of plan D1 (Documentation/Engine/MemoryFacts.md);
@@ -21,7 +30,8 @@
 --   4. evaluations, the anchors' label keys and variant prefixes, plan D2 after its review;
 --   5. the checks of a variant's prefix with its parameters' correspondence, plan D2 after its second review;
 --   6. the Recall, plan D3 (Documentation/Engine/MemoryRecall.md);
---   7. the experiment of the Recall by the agent's choice, plan D3 (Documentation/Engine/RecallAgentChoice.md).
+--   7. the experiment of the Recall by the agent's choice, plan D3 (Documentation/Engine/RecallAgentChoice.md);
+--   8. mixed procedures, reconciliation and data contexts, plans P1 and P2 (Documentation/Engine/MemoryProcedures.md).
 -- Conventions: STRICT tables, no JSON column, no import. SQLite >= 3.37 (STRICT); >= 3.51.3 for concurrent WAL.
 -- foreign_keys on EVERY connection. This text carries no PRAGMA, BEGIN or COMMIT of its own: the store runs it inside
 -- one write transaction, enables foreign keys per connection and sets user_version in that same transaction.
@@ -1613,13 +1623,62 @@ CREATE TABLE memory_call_effects (
     CHECK (target_element_id IS NOT NULL OR (target_role IS NULL AND target_section IS NULL))
 ) STRICT;
 
+-- M05 (schema 11): the route a routing session dispatched a call on, written with the call's end from what the
+-- session did, never from what was asked: the MacDriver in the app ('native'), the seat ('desktop') or the browser
+-- engine ('web'), and the MacDriver's reason when it gave the app back to the desktop during the call. A call of a
+-- session that is not routed, or that reached none, has no row.
+CREATE TABLE memory_call_routes (
+    event_id TEXT PRIMARY KEY REFERENCES memory_agent_actions(event_id),
+    route TEXT NOT NULL CHECK (route IN ('native', 'desktop', 'web')),
+    handoff_reason TEXT CHECK (handoff_reason IS NULL OR length(handoff_reason) > 0),
+    CHECK (handoff_reason IS NULL OR route = 'desktop')
+) STRICT;
+
+CREATE TABLE memory_call_adapter_dispatches (
+    event_id TEXT PRIMARY KEY REFERENCES memory_agent_actions(event_id),
+    adapter TEXT NOT NULL CHECK (length(adapter) > 0),
+    verb TEXT NOT NULL CHECK (length(verb) > 0)
+) STRICT;
+
+
+-- The rung the last gesture of a call took (M05). On the MacDriver: the accessibility action it performed (rung 1)
+-- or the events it posted to the process in place (rung 2), what it did in the driver's words, and why rung 1 was
+-- passed over, each separated by char(31). On the Seat: the call that posted the last send's events, as its receipt
+-- says (CGEventPostToPid, SLEventPostToPid, or an accessibility action with no event), with the send's counts in
+-- `how` and nothing skipped. On the web: the DevTools Input commands the last gesture was sent as, with the method's
+-- name, the commands planned, handed to the connection and acknowledged by the browser, and how the sequence ended,
+-- in `how`; an acknowledgement is not an effect. The actuator's own note or receipt of that gesture, taken once for
+-- the call that sent it, never inferred from the tool, the consent or the answer; a call that sent no gesture, a
+-- foreground call, an adapter call, has no row. It names the last gesture noted, not the whole sequence.
+CREATE TABLE memory_call_rungs (
+    event_id TEXT PRIMARY KEY REFERENCES memory_agent_actions(event_id),
+    rung TEXT NOT NULL CHECK (rung IN ('accessibility', 'in_place', 'seat_public_process', 'seat_skylight_process',
+                                       'seat_accessibility_action', 'web_input_event')),
+    how TEXT NOT NULL CHECK (length(how) > 0),
+    skipped TEXT CHECK (skipped IS NULL OR length(skipped) > 0)
+) STRICT;
+
+-- The router's decision an open_session answered with its words (M05): `use` with the address of the route it named
+-- and its message, or `ask` with its question, instead of opening; or `open`, the decision to open as asked, with the
+-- note given with it (why the interface is driven instead of an adapter, or the advice on a contact's channel). A
+-- decision and its words, not a dispatch: `use` and `ask` opened nothing (no route row, no sample, no effect, no rung);
+-- `open` is the decision, not the opening's success: the route row says where the call went and the call's own result
+-- how it ended, and the note stays when the opening fails. Written once with the call's end, the address and the words
+-- minimized as every text of the call is; an open with no note, and a call refused before the router, have no row.
+CREATE TABLE memory_call_route_advice (
+    event_id TEXT PRIMARY KEY REFERENCES memory_agent_actions(event_id),
+    decision TEXT NOT NULL CHECK (decision IN ('use', 'ask', 'open')),
+    route TEXT CHECK (((decision = 'use') = (route IS NOT NULL)) AND (route IS NULL OR length(route) > 0)),
+    message TEXT NOT NULL CHECK (length(message) > 0)
+) STRICT;
+
 CREATE TABLE memory_operation_verifications (
     event_id TEXT PRIMARY KEY REFERENCES memory_verifications(event_id),
     call_event_id TEXT NOT NULL REFERENCES memory_agent_actions(event_id),
     contract_version INTEGER NOT NULL CHECK (contract_version > 0),
     condition_kind TEXT NOT NULL CHECK (condition_kind IN ('requested_state_already_present', 'state_after_gesture',
         'value_read_back', 'structural_effect', 'menu_closed_after_choice', 'submenu_opened', 'window_set_changed',
-        'recovery_instead_of_request', 'menu_item_chosen', 'none')),
+        'recovery_instead_of_request', 'menu_item_chosen', 'none', 'adapter_effect', 'adapter_read')),
     method_version TEXT NOT NULL CHECK (length(method_version) > 0),
     performed TEXT NOT NULL CHECK (performed IN ('requested', 'substitute', 'none', 'uncertain')),
     substitute TEXT,
@@ -1639,7 +1698,8 @@ CREATE TABLE memory_operation_verification_limits (
     position INTEGER NOT NULL CHECK (position >= 0),
     limit_kind TEXT NOT NULL CHECK (limit_kind IN ('delivery_uncertain', 'no_after_scene', 'readback_unavailable',
         'previous_value_unknown', 'no_expectation', 'window_wide', 'command_effect_unchecked', 'label_match_only',
-        'no_expected_value', 'target_not_resolved', 'unattributed', 'value_withheld')),
+        'no_expected_value', 'target_not_resolved', 'unattributed', 'value_withheld', 'settle_capped',
+        'settle_unwatched')),
     PRIMARY KEY (event_id, position),
     UNIQUE (event_id, limit_kind)
 ) STRICT;
@@ -1670,7 +1730,10 @@ CREATE TABLE memory_call_recording_gaps (
     PRIMARY KEY (event_id, part)
 ) STRICT;
 
--- A value withheld from an event's facts: where it was and why. Never the value, its length or a digest.
+-- A value withheld from an event's facts: where it was and why. Never the value, its length or a digest. A secure
+-- field's text (`secure_field`), a text typed where the call could not attest an ordinary target
+-- (`unclassified_target`, version 9) and the content of a confidential surface, mail, messages, notes, contacts,
+-- calendars or reminders (`confidential_content`, version 19), are gaps of their own reasons.
 CREATE TABLE memory_value_redactions (
     redaction_id INTEGER PRIMARY KEY,
     event_id TEXT NOT NULL REFERENCES memory_events(event_id),
@@ -1683,7 +1746,8 @@ CREATE TABLE memory_value_redactions (
     sample_phase TEXT CHECK (sample_phase IS NULL OR sample_phase IN ('before', 'menu', 'after', 'current')),
     sample_ordinal INTEGER CHECK (sample_ordinal IS NULL OR sample_ordinal >= 0),
     element_position INTEGER CHECK (element_position IS NULL OR element_position >= 0),
-    reason TEXT NOT NULL CHECK (reason IN ('declared_secret', 'credential_pattern', 'secret_target', 'secure_field')),
+    reason TEXT NOT NULL CHECK (reason IN ('declared_secret', 'credential_pattern', 'secret_target', 'secure_field',
+        'unclassified_target', 'confidential_content')),
     CHECK ((location_kind = 'argument') = (argument_name IS NOT NULL AND argument_position IS NOT NULL)),
     CHECK (location_kind = 'argument' OR (argument_name IS NULL AND argument_position IS NULL)),
     CHECK ((location_kind IN ('verification_expected', 'verification_observed')) = (condition_kind IS NOT NULL)),
@@ -1859,6 +1923,57 @@ BEGIN
           NOT IN ('completed', 'failed', 'cancelled', 'interrupted');
 END;
 
+-- M05 (schema 11): a call's route is written once, with its end, as its effect is.
+CREATE TRIGGER memory_call_routes_immutable BEFORE UPDATE ON memory_call_routes
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s route is immutable');
+END;
+
+CREATE TRIGGER memory_call_routes_concluded_call BEFORE INSERT ON memory_call_routes
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s route belongs to a concluded call')
+    WHERE (SELECT execution_status FROM memory_agent_actions WHERE event_id = NEW.event_id)
+          NOT IN ('completed', 'failed', 'cancelled', 'interrupted');
+END;
+
+CREATE TRIGGER memory_call_adapter_dispatches_immutable BEFORE UPDATE ON memory_call_adapter_dispatches
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s adapter dispatch is immutable');
+END;
+
+CREATE TRIGGER memory_call_adapter_dispatches_concluded_call BEFORE INSERT ON memory_call_adapter_dispatches
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s adapter dispatch belongs to a concluded call')
+    WHERE (SELECT execution_status FROM memory_agent_actions WHERE event_id = NEW.event_id)
+          NOT IN ('completed', 'failed', 'cancelled', 'interrupted');
+END;
+
+
+
+CREATE TRIGGER memory_call_rungs_immutable BEFORE UPDATE ON memory_call_rungs
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s rung is immutable');
+END;
+
+CREATE TRIGGER memory_call_rungs_concluded_call BEFORE INSERT ON memory_call_rungs
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s rung belongs to a concluded call')
+    WHERE (SELECT execution_status FROM memory_agent_actions WHERE event_id = NEW.event_id)
+          NOT IN ('completed', 'failed', 'cancelled', 'interrupted');
+END;
+
+CREATE TRIGGER memory_call_route_advice_immutable BEFORE UPDATE ON memory_call_route_advice
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s route advice is immutable');
+END;
+
+CREATE TRIGGER memory_call_route_advice_concluded_call BEFORE INSERT ON memory_call_route_advice
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s route advice belongs to a concluded call')
+    WHERE (SELECT execution_status FROM memory_agent_actions WHERE event_id = NEW.event_id)
+          NOT IN ('completed', 'failed', 'cancelled', 'interrupted');
+END;
+
 CREATE TRIGGER memory_operation_verifications_immutable BEFORE UPDATE ON memory_operation_verifications
 BEGIN
     SELECT RAISE(ABORT, 'an operation verification is immutable');
@@ -1966,6 +2081,8 @@ CREATE TABLE memory_candidate_steps (
     call_event_id TEXT NOT NULL REFERENCES memory_agent_actions(event_id),
     block_index INTEGER NOT NULL CHECK (block_index >= 0),
     app_id INTEGER REFERENCES brain_apps(app_id),
+    step_kind TEXT NOT NULL DEFAULT 'operation'
+        CHECK (step_kind IN ('operation', 'adapter_call', 'required_read')),
     PRIMARY KEY (candidate_id, position),
     UNIQUE (candidate_id, call_event_id),
     UNIQUE (candidate_id, step_occurrence_id)
@@ -2168,7 +2285,8 @@ CREATE TABLE memory_part_qualification_reasons (
     reason TEXT NOT NULL CHECK (reason IN ('missing_label', 'completion_not_declared', 'declared_failed',
         'declared_late', 'call_incomplete', 'call_failed', 'call_cancelled', 'call_interrupted', 'recording_gap',
         'no_verification', 'verification_failed', 'verification_unknown', 'verification_not_positive',
-        'use_mismatch', 'unverifiable_use', 'missing_input', 'withheld_literal')),
+        'use_mismatch', 'unverifiable_use', 'missing_input', 'withheld_literal', 'adapter_unverified',
+        'read_without_result', 'reference_unresolved')),
     step_position INTEGER CHECK (step_position IS NULL OR step_position >= 0),
     call_event_id TEXT REFERENCES memory_agent_actions(event_id),
     PRIMARY KEY (part_id, sequence, position),
@@ -2182,6 +2300,7 @@ CREATE TABLE memory_part_qualification_evidence (
     step_position INTEGER NOT NULL CHECK (step_position >= 0),
     call_event_id TEXT NOT NULL REFERENCES memory_agent_actions(event_id),
     verification_event_id TEXT NOT NULL REFERENCES memory_operation_verifications(event_id),
+    origin TEXT NOT NULL DEFAULT 'own' CHECK (origin IN ('own', 'inherited')),
     PRIMARY KEY (part_id, sequence, call_event_id),
     FOREIGN KEY (part_id, sequence) REFERENCES memory_part_qualifications(part_id, sequence)
 ) STRICT;
@@ -2314,9 +2433,12 @@ END;
 -- batch, a context tool and a step that never started are no step. Blocks follow the order.
 CREATE TRIGGER memory_candidate_steps_operation BEFORE INSERT ON memory_candidate_steps
 BEGIN
-    SELECT RAISE(ABORT, 'a candidate step is a started UI operation')
-    WHERE (SELECT tool_kind FROM memory_agent_actions WHERE event_id = NEW.call_event_id) NOT IN
-              ('act', 'select', 'type_text', 'insert_text', 'press_key', 'scroll', 'drag', 'context_menu', 'menu', 'press')
+    SELECT RAISE(ABORT, 'a candidate step is a started UI operation or adapter call of its kind')
+    WHERE NOT ((NEW.step_kind = 'operation' AND (SELECT tool_kind FROM memory_agent_actions WHERE event_id = NEW.call_event_id)
+                  IN ('act', 'select', 'type_text', 'insert_text', 'press_key', 'scroll', 'drag', 'context_menu', 'menu', 'press'))
+            OR (NEW.step_kind IN ('adapter_call', 'required_read')
+                AND (SELECT tool_kind FROM memory_agent_actions WHERE event_id = NEW.call_event_id) IN ('app_call'))
+)
        OR (SELECT execution_status FROM memory_agent_actions WHERE event_id = NEW.call_event_id) IN ('planned', 'skipped');
     SELECT RAISE(ABORT, 'a candidate step belongs to the candidate''s attempt')
     WHERE NOT EXISTS (SELECT 1 FROM memory_task_events e JOIN memory_procedure_candidates c
@@ -3053,7 +3175,7 @@ CREATE TABLE memory_recall_requirements (
     kind TEXT NOT NULL CHECK (kind IN ('entry_state', 'observed_state', 'application_switch', 'prepared_before',
         'unknown_entry_state', 'prerequisite_out_of_catalogue', 'parameter_bound', 'parameter_missing', 'parameter_ambiguous',
         'input_produced', 'output_ready', 'compatibility_unknown', 'unbound_task_input', 'constraint_unchecked',
-        'certain_conflict', 'constraint_excluded')),
+        'certain_conflict', 'constraint_excluded', 'adapter_available', 'step_result_pending', 'account_to_resolve')),
     step_position INTEGER CHECK (step_position IS NULL OR step_position >= 0),
     parameter_id TEXT CHECK (parameter_id IS NULL OR length(parameter_id) > 0),
     scene_id TEXT CHECK (scene_id IS NULL OR length(scene_id) > 0),
@@ -3072,7 +3194,9 @@ CREATE TABLE memory_recall_requirements (
     CHECK (kind <> 'observed_state' OR (scene_id IS NOT NULL AND bundle_id IS NOT NULL)),
     CHECK (kind NOT IN ('observed_state', 'prepared_before', 'input_produced', 'output_ready', 'certain_conflict',
         'constraint_excluded', 'unknown_entry_state', 'prerequisite_out_of_catalogue', 'application_switch', 'entry_state',
-        'compatibility_unknown', 'unbound_task_input') OR step_position IS NOT NULL)
+        'compatibility_unknown', 'unbound_task_input', 'adapter_available', 'step_result_pending', 'account_to_resolve')
+        OR step_position IS NOT NULL),
+    CHECK (kind <> 'adapter_available' OR bundle_id IS NOT NULL)
 ) STRICT;
 
 -- A call of the task's attempt after a query delivered, linked to the step of the selection it carried out
@@ -3628,4 +3752,252 @@ BEGIN
         SELECT 1 FROM memory_route_parameters r JOIN memory_recall_selections s ON s.route_id = r.route_id
         WHERE r.parameter_id = NEW.parameter_id AND s.query_id = NEW.query_id AND s.need_position = NEW.need_position
           AND s.position = NEW.selection_position);
+END;
+
+-- =============================================================================================================
+-- Part 8. Mixed procedures, reconciliation and data contexts (version 19, plans P1 and P2 of the unified integration,
+-- Documentation/Engine/MemoryProcedures.md). The facts a call's structured arguments and results, its data context, its
+-- earlier table changes meaning. Every row is append-only; a later fact never rewrites an earlier one.
+-- =============================================================================================================
+
+-- P2-02: the fields of an adapter's argument object, as the call's end admits them, one row per leaf
+-- with its JSON pointer. A field is a constant as recorded, a reference to the one result field of an earlier call of
+-- the same attempt that held exactly its value (`result_reference`), or a value two or more earlier results held
+-- (`ambiguous_reference`), which is never resolved implicitly. A withheld value keeps its reason, never its text.
+CREATE TABLE memory_call_argument_fields (
+    event_id TEXT NOT NULL REFERENCES memory_agent_actions(event_id),
+    field_path TEXT NOT NULL CHECK (length(field_path) > 0 AND substr(field_path, 1, 1) = '/'),
+    value_kind TEXT NOT NULL CHECK (value_kind IN ('text', 'number', 'boolean', 'null')),
+    field_kind TEXT NOT NULL CHECK (field_kind IN ('constant', 'result_reference', 'ambiguous_reference')),
+    text_value TEXT,
+    withheld_reason TEXT CHECK (withheld_reason IS NULL OR withheld_reason IN ('declared_secret', 'credential_pattern', 'secret_target', 'secure_field',
+        'unclassified_target', 'confidential_content')),
+    source_event_id TEXT REFERENCES memory_agent_actions(event_id),
+    source_path TEXT CHECK (source_path IS NULL OR (length(source_path) > 0 AND substr(source_path, 1, 1) = '/')),
+    PRIMARY KEY (event_id, field_path),
+    CHECK (withheld_reason IS NULL OR text_value IS NULL),
+    CHECK (withheld_reason IS NOT NULL OR value_kind = 'null' OR text_value IS NOT NULL),
+    CHECK ((field_kind = 'result_reference') = (source_event_id IS NOT NULL AND source_path IS NOT NULL)),
+    CHECK (field_kind = 'result_reference' OR (source_event_id IS NULL AND source_path IS NULL)),
+    CHECK (source_event_id IS NULL OR source_event_id <> event_id)
+) STRICT;
+
+-- P2-02: the fields of an adapter's result as the record may keep them, one row per leaf: an
+-- identifier, a date, a flag or a count kept; a confidential or secret text withheld with its reason, never its value,
+-- its length or a digest.
+CREATE TABLE memory_call_result_fields (
+    event_id TEXT NOT NULL REFERENCES memory_agent_actions(event_id),
+    field_path TEXT NOT NULL CHECK (length(field_path) > 0 AND substr(field_path, 1, 1) = '/'),
+    value_kind TEXT NOT NULL CHECK (value_kind IN ('text', 'number', 'boolean', 'null')),
+    text_value TEXT,
+    withheld_reason TEXT CHECK (withheld_reason IS NULL OR withheld_reason IN ('declared_secret', 'credential_pattern', 'secret_target', 'secure_field',
+        'unclassified_target', 'confidential_content')),
+    PRIMARY KEY (event_id, field_path),
+    CHECK (withheld_reason IS NULL OR text_value IS NULL),
+    CHECK (withheld_reason IS NOT NULL OR value_kind = 'null' OR text_value IS NOT NULL)
+) STRICT;
+
+-- P2-02: a field of a definition's adapter argument: a constant, a parameter of the version, a value the
+-- definition keeps withheld, or the result field of an earlier step of the same version, which a run fills from its
+-- own step's result and never from the episode it was learned from.
+CREATE TABLE memory_operation_argument_fields (
+    route_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    argument_name TEXT NOT NULL CHECK (length(argument_name) > 0),
+    argument_position INTEGER NOT NULL CHECK (argument_position >= 0),
+    field_path TEXT NOT NULL CHECK (length(field_path) > 0 AND substr(field_path, 1, 1) = '/'),
+    field_kind TEXT NOT NULL CHECK (field_kind IN ('constant', 'parameter', 'withheld', 'step_result')),
+    value_kind TEXT NOT NULL CHECK (value_kind IN ('text', 'number', 'boolean', 'null')),
+    text_value TEXT,
+    parameter_id TEXT,
+    source_step_position INTEGER CHECK (source_step_position IS NULL OR source_step_position >= 0),
+    source_path TEXT CHECK (source_path IS NULL OR (length(source_path) > 0 AND substr(source_path, 1, 1) = '/')),
+    PRIMARY KEY (operation_id, argument_name, argument_position, field_path),
+    CHECK ((field_kind = 'parameter') = (parameter_id IS NOT NULL)),
+    CHECK ((field_kind = 'step_result') = (source_step_position IS NOT NULL AND source_path IS NOT NULL)),
+    CHECK (field_kind = 'step_result' OR (source_step_position IS NULL AND source_path IS NULL)),
+    CHECK (field_kind = 'constant' OR text_value IS NULL),
+    CHECK (field_kind <> 'constant' OR value_kind = 'null' OR text_value IS NOT NULL),
+    FOREIGN KEY (route_id, operation_id) REFERENCES memory_step_operations(route_id, operation_id),
+    FOREIGN KEY (route_id, parameter_id) REFERENCES memory_route_parameters(route_id, parameter_id)
+) STRICT;
+
+-- route, the profile, the account and the resource, each only when the call attests it. The account is a minimal
+-- identifier (`account_ref`, sixteen hex digits of a digest salted per archive), never an address; a profile is the
+-- instance a page was bound to; a resource is an item's kind and identifier. Unknown stays NULL, never inferred.
+CREATE TABLE memory_call_data_contexts (
+    event_id TEXT PRIMARY KEY REFERENCES memory_agent_actions(event_id),
+    service TEXT NOT NULL CHECK (length(service) > 0),
+    route TEXT NOT NULL CHECK (route IN ('native', 'desktop', 'web', 'adapter')),
+    profile_ref TEXT CHECK (profile_ref IS NULL OR length(profile_ref) > 0),
+    account_ref TEXT CHECK (account_ref IS NULL OR length(account_ref) = 16),
+    account_source TEXT NOT NULL CHECK (account_source IN ('argument', 'result', 'default', 'unknown')),
+    resource_kind TEXT CHECK (resource_kind IS NULL OR length(resource_kind) > 0),
+    resource_ref TEXT CHECK (resource_ref IS NULL OR length(resource_ref) > 0),
+    CHECK ((account_source IN ('argument', 'result')) = (account_ref IS NOT NULL)),
+    CHECK ((resource_kind IS NULL) = (resource_ref IS NULL))
+) STRICT;
+
+-- The salt of this archive's account identifiers: one random row, made the first time an account is noted.
+CREATE TABLE memory_identity_salts (
+    salt_id INTEGER PRIMARY KEY CHECK (salt_id = 1),
+    salt BLOB NOT NULL CHECK (length(salt) = 32)
+) STRICT;
+
+-- P2-06: the processes that ran calls, one row per process instance, and the executor of each call, written with its
+-- start. Whether an executor still runs is not a fact of the archive: its lock file says it (`MemoryExecutor`).
+CREATE TABLE memory_executors (
+    executor_id TEXT PRIMARY KEY CHECK (length(executor_id) > 0),
+    source TEXT NOT NULL CHECK (length(source) > 0),
+    process_id INTEGER NOT NULL CHECK (process_id > 0),
+    started_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE memory_call_executors (
+    event_id TEXT PRIMARY KEY REFERENCES memory_agent_actions(event_id),
+    executor_id TEXT NOT NULL REFERENCES memory_executors(executor_id)
+) STRICT;
+
+-- P2-06: what later evidence says of an earlier call, appended in order, never rewriting the call's own end: its executor
+-- ended while the call was started (`executor_terminated`), a result arrived after the call concluded
+-- (`late_result`), a later completed call of the same attempt read whether the effect happened (`observed`, with its
+-- finding and that call as evidence), or the person acknowledged it (`acknowledged`). A finding is the declarer's.
+CREATE TABLE memory_call_reconciliations (
+    event_id TEXT NOT NULL REFERENCES memory_agent_actions(event_id),
+    sequence INTEGER NOT NULL CHECK (sequence >= 1),
+    kind TEXT NOT NULL CHECK (kind IN ('executor_terminated', 'late_result', 'observed', 'acknowledged')),
+    finding TEXT CHECK (finding IS NULL OR finding IN ('happened', 'not_happened', 'unknown')),
+    evidence_event_id TEXT REFERENCES memory_agent_actions(event_id),
+    declared_by TEXT NOT NULL CHECK (declared_by IN ('braus', 'agent', 'person')),
+    recorded_at_ms INTEGER NOT NULL,
+    detail TEXT CHECK (detail IS NULL OR (length(detail) > 0 AND length(CAST(detail AS BLOB)) <= 512)),
+    PRIMARY KEY (event_id, sequence),
+    CHECK ((kind = 'observed') = (evidence_event_id IS NOT NULL)),
+    CHECK (kind IN ('observed', 'acknowledged') OR finding IS NULL),
+    CHECK (kind <> 'observed' OR finding IS NOT NULL),
+    CHECK (kind <> 'executor_terminated' OR declared_by = 'braus'),
+    CHECK (evidence_event_id IS NULL OR evidence_event_id <> event_id)
+) STRICT;
+
+
+CREATE INDEX memory_call_result_fields_value ON memory_call_result_fields(text_value) WHERE text_value IS NOT NULL;
+CREATE INDEX memory_call_reconciliations_evidence ON memory_call_reconciliations(evidence_event_id)
+    WHERE evidence_event_id IS NOT NULL;
+
+CREATE TRIGGER memory_call_argument_fields_immutable BEFORE UPDATE ON memory_call_argument_fields
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s argument field is immutable');
+END;
+CREATE TRIGGER memory_call_argument_fields_kept BEFORE DELETE ON memory_call_argument_fields
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s argument field is kept');
+END;
+CREATE TRIGGER memory_call_argument_fields_concluded_call BEFORE INSERT ON memory_call_argument_fields
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s argument field belongs to a concluded call')
+    WHERE (SELECT execution_status FROM memory_agent_actions WHERE event_id = NEW.event_id)
+          NOT IN ('completed', 'failed', 'cancelled', 'interrupted');
+END;
+CREATE TRIGGER memory_call_result_fields_immutable BEFORE UPDATE ON memory_call_result_fields
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s result field is immutable');
+END;
+CREATE TRIGGER memory_call_result_fields_kept BEFORE DELETE ON memory_call_result_fields
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s result field is kept');
+END;
+CREATE TRIGGER memory_call_result_fields_concluded_call BEFORE INSERT ON memory_call_result_fields
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s result field belongs to a concluded call')
+    WHERE (SELECT execution_status FROM memory_agent_actions WHERE event_id = NEW.event_id)
+          NOT IN ('completed', 'failed', 'cancelled', 'interrupted');
+END;
+CREATE TRIGGER memory_call_data_contexts_immutable BEFORE UPDATE ON memory_call_data_contexts
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s data context is immutable');
+END;
+CREATE TRIGGER memory_call_data_contexts_kept BEFORE DELETE ON memory_call_data_contexts
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s data context is kept');
+END;
+CREATE TRIGGER memory_call_data_contexts_concluded_call BEFORE INSERT ON memory_call_data_contexts
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s data context belongs to a concluded call')
+    WHERE (SELECT execution_status FROM memory_agent_actions WHERE event_id = NEW.event_id)
+          NOT IN ('completed', 'failed', 'cancelled', 'interrupted');
+END;
+CREATE TRIGGER memory_operation_argument_fields_immutable BEFORE UPDATE ON memory_operation_argument_fields
+BEGIN
+    SELECT RAISE(ABORT, 'a definition''s argument field is immutable');
+END;
+CREATE TRIGGER memory_operation_argument_fields_kept BEFORE DELETE ON memory_operation_argument_fields
+BEGIN
+    SELECT RAISE(ABORT, 'a definition''s argument field is kept');
+END;
+CREATE TRIGGER memory_identity_salts_immutable BEFORE UPDATE ON memory_identity_salts
+BEGIN
+    SELECT RAISE(ABORT, 'the archive''s salt is immutable');
+END;
+CREATE TRIGGER memory_identity_salts_kept BEFORE DELETE ON memory_identity_salts
+BEGIN
+    SELECT RAISE(ABORT, 'the archive''s salt is kept');
+END;
+CREATE TRIGGER memory_executors_immutable BEFORE UPDATE ON memory_executors
+BEGIN
+    SELECT RAISE(ABORT, 'an executor is immutable');
+END;
+CREATE TRIGGER memory_executors_kept BEFORE DELETE ON memory_executors
+BEGIN
+    SELECT RAISE(ABORT, 'an executor is kept');
+END;
+CREATE TRIGGER memory_call_executors_immutable BEFORE UPDATE ON memory_call_executors
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s executor is immutable');
+END;
+CREATE TRIGGER memory_call_executors_kept BEFORE DELETE ON memory_call_executors
+BEGIN
+    SELECT RAISE(ABORT, 'a call''s executor is kept');
+END;
+CREATE TRIGGER memory_call_reconciliations_immutable BEFORE UPDATE ON memory_call_reconciliations
+BEGIN
+    SELECT RAISE(ABORT, 'a reconciliation is immutable');
+END;
+CREATE TRIGGER memory_call_reconciliations_kept BEFORE DELETE ON memory_call_reconciliations
+BEGIN
+    SELECT RAISE(ABORT, 'a reconciliation is kept');
+END;
+CREATE TRIGGER memory_call_argument_fields_reference BEFORE INSERT ON memory_call_argument_fields
+BEGIN
+    SELECT RAISE(ABORT, 'a reference names a kept result field of an earlier call of the same attempt')
+    WHERE NEW.field_kind = 'result_reference' AND NOT EXISTS (
+        SELECT 1 FROM memory_call_result_fields r
+        JOIN memory_task_events s ON s.event_id = NEW.source_event_id AND s.role = 'action'
+        JOIN memory_task_events c ON c.event_id = NEW.event_id AND c.role = 'action'
+                                 AND c.task_occurrence_id = s.task_occurrence_id
+        WHERE r.event_id = NEW.source_event_id AND r.field_path = NEW.source_path AND r.withheld_reason IS NULL
+          AND s.position < c.position);
+END;
+CREATE TRIGGER memory_operation_argument_fields_one_form BEFORE INSERT ON memory_operation_argument_fields
+BEGIN
+    SELECT RAISE(ABORT, 'a definition argument is a row, a template or fields, never two')
+    WHERE EXISTS (SELECT 1 FROM memory_operation_arguments a WHERE a.operation_id = NEW.operation_id
+                    AND a.argument_name = NEW.argument_name AND a.position = NEW.argument_position)
+       OR EXISTS (SELECT 1 FROM memory_operation_argument_segments g WHERE g.operation_id = NEW.operation_id
+                    AND g.argument_name = NEW.argument_name AND g.argument_position = NEW.argument_position);
+    SELECT RAISE(ABORT, 'a step result names an earlier step of the same version')
+    WHERE NEW.field_kind = 'step_result' AND NEW.source_step_position >= (
+        SELECT p.first_position FROM memory_procedure_parts p JOIN memory_route_steps rs
+          ON rs.route_id = p.route_id AND rs.step_id = p.step_id
+        JOIN memory_step_operations o ON o.route_id = rs.route_id AND o.step_id = rs.step_id
+        WHERE o.operation_id = NEW.operation_id AND p.part_kind = 'step');
+END;
+CREATE TRIGGER memory_call_reconciliations_order BEFORE INSERT ON memory_call_reconciliations
+BEGIN
+    SELECT RAISE(ABORT, 'a reconciliation follows the last one by one')
+    WHERE NEW.sequence <> 1 + ifnull((SELECT max(sequence) FROM memory_call_reconciliations WHERE event_id = NEW.event_id), 0);
+    SELECT RAISE(ABORT, 'an observation rests on a later completed call')
+    WHERE NEW.evidence_event_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM memory_agent_actions e JOIN memory_agent_actions c ON c.event_id = NEW.event_id
+        WHERE e.event_id = NEW.evidence_event_id AND e.execution_status = 'completed'
+          AND e.started_at_ms IS NOT NULL AND c.started_at_ms IS NOT NULL AND e.started_at_ms >= c.started_at_ms);
 END;

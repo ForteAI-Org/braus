@@ -5,11 +5,12 @@
 
 import Foundation
 
-/// IrreversiblePolicy decides whether a destructive or irreversible step (send, delete, pay) may run: only when the
-/// person allowed it and the route has a verifier of that step's own effect. The person's consent is
-/// necessary and never sufficient, and reading a scene again is no proof: a mail client's send button can report
-/// success, close its window and save a draft. Today only an adapter verb that reads its change back, under its
-/// declared contract, confirms, and only `AppAdapters` consults this policy.
+/// IrreversiblePolicy is rule 4 of the routing design (2026-10-14-mac-driver-design, section 2): a destructive or
+/// irreversible step (send, delete, pay) runs only when the person allowed destructive actions and the route has a
+/// verifier of that step's own effect. The person's consent is necessary and never sufficient, and neither a route
+/// nor reading a scene or a page again is proof: on 14 Oct Mail's "Invia" reported success, closed its window and
+/// saved a draft, and a web send can close its dialog the same way. Today only an adapter verb that reads its change
+/// back, under its declared contract, confirms; the engine's routes, native, seat and web, do not.
 /// `ActionPolicy` names what is destructive; this decides whether it may run where it was asked.
 public enum IrreversiblePolicy {
 

@@ -131,7 +131,7 @@ struct PreviousProductTests {
         let memory = try await Self.open(folders)
         let status = await memory.status()
         #expect(status.lastUnification?.contains("Earlier/Knowledge: adopted whole") == true, "\(status.lastUnification ?? "")")
-        #expect(status.lastMigration?.contains("from schema d3-7 to 8") == true, "\(status.lastMigration ?? "")")
+        #expect(status.lastMigration?.contains("from schema d3-7 to \(SQLiteMemorySchema.version)") == true, "\(status.lastMigration ?? "")")
         let url = memory.url
         #expect(try U.count("SELECT count(*) FROM memory_events", at: url) == earlierEvents)
         #expect(try rawRows("SELECT origin_id || ':' || origin_kind || ':' || status || ':' || location FROM memory_archive_origins", at: url)

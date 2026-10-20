@@ -19,14 +19,9 @@ import Memory
 /// one text; the header of brain-living-memory-schema.sql names the document of each of its parts.
 enum SQLiteMemorySchema {
 
-    /// The schema version this build bootstraps and opens. A file at version 0 with no tables is empty
-    /// and is bootstrapped; a file at a version of `migrations`, or at a historical shape (`historicalShapes`), is
-    /// migrated; any other is refused, versions 2 to 6 among them: development steps of the G76 plans, never released.
-    /// Version 8 is the shape version 7 had since the merge of D1–D3 into rename-app, with the origins of the product's
-    /// earlier name admitted in `memory_archive_origins`. Its own number tells it apart from both versions 7, the D3
-    /// build's (`d3-7`, four tables without the value change) and rename-app's (`rename-app-7`), so that every migration
-    /// records the version it came from (`memory_schema_migrations` keeps one row per version reached).
-    static let version: Int32 = 8
+    /// The schema version bootstrapped by this build. Public historical schemas are recognized by their
+    /// exact object digests and rebuilt transactionally; unknown or modified shapes are refused.
+    static let version: Int32 = 19
 
     /// The resource of the current schema, the one text a new archive runs.
     static let resourceName      = "brain-living-memory-schema"
@@ -37,13 +32,7 @@ enum SQLiteMemorySchema {
     /// to recognize such an archive; what the migration creates comes from the later parts.
     static let migrations: [Int32: Int] = [1: 1]
 
-    /// HistoricalShape is the exact shape of an archive an earlier released or tested build bootstrapped, which this build
-    /// recognizes by the digest of its objects and migrates by rebuilding the tables the current text writes otherwise
-    /// (`rebuild`): `main-1`, schema 1 as main shipped it before the value change; `d3-7`, version 7 of the D3 build
-    /// before the value change, which the live run R01 and its fixtures were made with; `rename-app-7`, version 7 as
-    /// rename-app wrote it from the merge of D1–D3 to the origins of the earlier name. The digests are those of the texts
-    /// those builds ran, taken from their commits (Documentation/Engine/MemorySchema.md#historical-shapes); a file whose
-    /// objects differ by one statement is none of them and is refused as before.
+    /// HistoricalShape identifies a supported earlier schema by its exact object digest.
     struct HistoricalShape: Sendable, Equatable {
         let name   : String
         let version: Int32
@@ -61,6 +50,23 @@ enum SQLiteMemorySchema {
                         derivedFrom: nil),
         // d30a16b..7a64595, the one text (sha256 60189583… at 7a64595, 8ad0d557… at d30a16b), the same objects.
         HistoricalShape(name: "rename-app-7", version: 7, digest: "aee1cd5dcd45884a4488c2e4290ed3754230ce6e27f83b5add866a824cf196f4",
+                        derivedFrom: nil),
+        // 5ed5118..cd5c77c (main), the one text (sha256 cc568899…): only memory_value_redactions differs, by its reason CHECK.
+        HistoricalShape(name: "main-8", version: 8, digest: "fabb6a92a8dcedd34562a2700cdac9075b5bc8a4520541d17a32a5d07ae937c6",
+                        derivedFrom: nil),
+        // 1106ec6a..0760d604 (ron/unified-engine-integration), the one text (sha256 d2c7248a…): only
+        // memory_operation_verification_limits differs, by its limit CHECK.
+        HistoricalShape(name: "unified-9", version: 9, digest: "39d1a2145b35a9843b8400086d44050ca7d819af0fdd548548a28bdec17f210f",
+                        derivedFrom: nil),
+        // 800ad2f9..7b9d8dee (ron/unified-engine-integration), the one text (sha256 fe7152d7…): it lacks
+        // memory_call_routes only.
+        HistoricalShape(name: "unified-10", version: 10, digest: "9c5dfb5eefc3b48023f4f6e9236a8e143cf2a9b8efce23f4d3aa32779e0d39a0",
+                        derivedFrom: nil),
+        // 2069ed04..66f16f21 (ron/unified-engine-integration), the one text (sha256 ca0739d5…): it lacks
+        // memory_call_adapter_dispatches only.
+        HistoricalShape(name: "unified-11", version: 11, digest: "d6ebbc90e13e9d2535df237101d4c9d12a8403f3ce2d0041e435fd7c4f5d6bda",
+                        derivedFrom: nil),
+        HistoricalShape(name: "unified-12", version: 12, digest: "678cada0d20db43f38c32a3c20e50f4770ca1a647ef53e5344e828d74c77ee69",
                         derivedFrom: nil),
     ]
 

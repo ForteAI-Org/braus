@@ -616,6 +616,10 @@ final class RecordedSession: AutomationSessionOperating {
         ActOutcome(.foundActed, "clicked '\(target)'")
     }
     func select(control: String, item: String) async throws -> ActOutcome { ActOutcome(.foundActed, "selected") }
+    func classify(_ input: InputRequest.Input, section: String?) async -> TextTargetClass { AttestedFields.classify(input) }
+    func deliver(_ input: InputRequest.Input, section: String?, dispatch: TextDispatch) async throws -> ActOutcome {
+        try await deliver(input, section: section)
+    }
     func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome { ActOutcome(.actedUnverified, "typed") }
     func close() async {}
 }

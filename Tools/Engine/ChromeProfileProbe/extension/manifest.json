@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Braus profile probe (test fixture)",
+  "version": "0.1.0",
+  "description": "Test fixture only: pairs this Chrome profile with a Braus probe run when the person confirms it, then opens, reads and closes local test pages only when asked by that run.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnzpjntpcCFmbqJlNs0+pTmBg4RV2HAnK3a8rNe4AyIXIgKBvawfUUkBuIcPf85R0ZljpjYh6oVz62y51p34LyoIayLOt7yN9fyGt6JCemyfnrgyjdVJP/AWv4YI1WTtrjMM0GN5uYq8lF/0ml4EopsIMNU+prFq4Nr7qbTlFhqN14+46oILqu3ezouZeSzEuDWFpZw5njXGnjzT9XUEvRNC9JnnIQ4/xoA2fxqF+aAJ+vFj3GFJC0aFK3J6yIi8ZKQ9/cbnKenAn+V1rGFi+jlDjKbdYerL0QfRl40EDnbYrJpz6sSXGIrwdU0L4TRslELkgwbKVcuQWmdoYRLD8kQIDAQAB",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "nativeMessaging",
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "minimum_chrome_version": "120"
+}

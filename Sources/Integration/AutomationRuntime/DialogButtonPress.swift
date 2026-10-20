@@ -116,8 +116,17 @@ public enum DialogButtonPress {
            let sentence = closingRefusal?("Pressing '\(only.title)'") {
             return .outcome(ActOutcome(.refused, sentence))
         }
-        if !allowsDestructive, ActionPolicy.isDestructive(label: only.title) {
-            return .outcome(ActOutcome(.refused, "'\(only.title)' reads as destructive, and the person has not allowed it."))
+        // A native dialog's button is pressed through the scene, which cannot read an irreversible effect back.
+        if ActionPolicy.isDestructive(label: only.title) {
+            switch IrreversiblePolicy.decision(allowed: allowsDestructive, readBack: .cannotConfirm) {
+                case .allowed:
+                    break
+                case .needsConsent:
+                    return .outcome(ActOutcome(.refused, "'\(only.title)' reads as destructive, and the person has not "
+                        + "allowed it."))
+                case .cannotReadBack:
+                    return .outcome(ActOutcome(.refused, IrreversiblePolicy.readBackRefusal("'\(only.title)'")))
+            }
         }
         guard only.isEnabled else {
             return .outcome(ActOutcome(.refused, "'\(only.title)' is disabled right now."))

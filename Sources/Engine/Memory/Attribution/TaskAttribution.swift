@@ -33,6 +33,8 @@ public enum VerificationMethod: String, Sendable, Equatable, Hashable, CaseItera
     /// never what admits or refuses a procedure.
     case guardCheck      = "guard"
     case none
+    /// An adapter's own reading after its change, or of what it read (P2-03).
+    case adapterReadBack = "adapter_read_back"
 
     /// The stored method of an engine oracle's method: the same word.
     public init(_ method: OperationCheck.Method) {
@@ -45,6 +47,7 @@ public enum VerificationMethod: String, Sendable, Equatable, Hashable, CaseItera
             case .windowSignature: self = .windowSignature
             case .driverReceipt  : self = .driverReceipt
             case .none           : self = .none
+            case .adapterReadBack: self = .adapterReadBack
         }
     }
 
@@ -60,6 +63,7 @@ public enum VerificationMethod: String, Sendable, Equatable, Hashable, CaseItera
             case .windowSignature: .windowSignature
             case .driverReceipt  : .driverReceipt
             case .none           : OperationCheck.Method.none
+            case .adapterReadBack: .adapterReadBack
             case .person, .fileCheck, .guardCheck: nil
         }
     }

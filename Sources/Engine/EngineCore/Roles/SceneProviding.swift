@@ -32,17 +32,23 @@ public struct PerceivedWindow: Sendable, Equatable {
     public let frame: CGRect
     public let capture: CaptureQuality
     public let surface: CaptureSurface
+    /// The physical identity its provider attests for each element of this capture, by the element's id in
+    /// this scene. The id only finds the element here; the identity is the proof. A provider fills it only
+    /// where it also says which fields are secure, and leaves out an element whose id two elements share.
+    public let identities: [String: TargetIdentity]
 
     public init(
-        scene  : SceneSnapshot,
-        frame  : CGRect,
-        capture: CaptureQuality = .unknown,
-        surface: CaptureSurface = .unknown
+        scene     : SceneSnapshot,
+        frame     : CGRect,
+        capture   : CaptureQuality = .unknown,
+        surface   : CaptureSurface = .unknown,
+        identities: [String: TargetIdentity] = [:]
     ) {
-        self.scene   = scene
-        self.frame   = frame
-        self.capture = capture
-        self.surface = surface
+        self.scene      = scene
+        self.frame      = frame
+        self.capture    = capture
+        self.surface    = surface
+        self.identities = identities
     }
 
     /// The global point at the center of an element of this scene.

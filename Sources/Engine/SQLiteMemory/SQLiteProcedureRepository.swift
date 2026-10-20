@@ -155,7 +155,8 @@ public struct SQLiteProcedureRepository: Sendable {
                 return ProcedureAssembly.StepFacts(position: step.position, request: call.request,
                                                    withheldArguments: try SQLiteProcedureRows.withheldArguments(transaction, step.callEventID),
                                                    status: call.progress.status,
-                                                   verifications: try SQLiteProcedureRows.verifications(transaction, call: step.callEventID))
+                                                   verifications: try SQLiteProcedureRows.verifications(transaction, call: step.callEventID),
+                                                   confidentialArguments: try SQLiteProcedureRows.confidentialArguments(transaction, step.callEventID))
             }
             // The procedure is taken to be completed by its stated outcome, else by the attempt's end: its
             // version keeps the method only.
@@ -420,6 +421,27 @@ public struct SQLiteProcedureRepository: Sendable {
         }
     }
 
+    /// Evaluates again, under the policy in force, every version whose parts' latest evaluation was made under another
+    /// (P2-09): each appends its new evaluation beside the old one, which stays with its evidence. What the catalogue
+    /// offers then follows the current rule. Answers the versions evaluated again.
+    @discardableResult
+    public func reevaluateOutdated(at nowMS: Int64) async throws -> [String] {
+        try await store.write { transaction in
+            try SQLiteProcedureRows.ensurePolicy(transaction, at: nowMS)
+            let routes = try transaction.query(
+                """
+                SELECT DISTINCT p.route_id FROM memory_procedure_parts p
+                JOIN memory_part_qualifications q ON q.part_id = p.part_id
+                    AND q.sequence = (SELECT max(sequence) FROM memory_part_qualifications WHERE part_id = p.part_id)
+                WHERE q.policy_version <> ? ORDER BY p.route_id
+                """,
+                [.text(QualificationPolicy.version)]
+            ) { try $0.text(0) ?? "" }
+            for route in routes { _ = try SQLiteProcedureRows.qualify(transaction, routeID: route, at: nowMS) }
+            return routes
+        }
+    }
+
     /// Evaluates the attempt's current version again, when it has one: the qualification after an end or
     /// a conclusion the version was built before.
     @discardableResult
@@ -552,7 +574,9 @@ enum SQLiteProcedureRows {
     static func attemptCalls(_ handle: some SQLiteQuerying, attemptID: String) throws -> [ProcedureSegmentation.Call] {
         try handle.query(
             """
-            SELECT e.event_id, a.tool_kind, a.execution_status, b.bundle_id, a.result_kind
+            SELECT e.event_id, a.tool_kind, a.execution_status, b.bundle_id, a.result_kind,
+                   (SELECT min(v.condition_kind) FROM memory_operation_verifications v WHERE v.call_event_id = e.event_id),
+                   EXISTS (SELECT 1 FROM memory_call_argument_fields f WHERE f.source_event_id = e.event_id)
             FROM memory_task_events e
             JOIN memory_agent_actions a ON a.event_id = e.event_id
             LEFT JOIN brain_apps b ON b.app_id = a.app_id
@@ -566,7 +590,9 @@ enum SQLiteProcedureRows {
                 throw malformed("memory_agent_actions", id, "tool or status")
             }
             return ProcedureSegmentation.Call(callEventID: id, tool: tool, status: status, bundleID: try row.text(3),
-                                              resultKind: try row.text(4).flatMap(ActOutcomeKind.init(rawValue:)))
+                                              resultKind: try row.text(4).flatMap(ActOutcomeKind.init(rawValue:)),
+                                              checkCondition: try row.text(5).flatMap(OperationCheck.Condition.init(rawValue:)),
+                                              isReferenced: (row.integer(6) ?? 0) != 0)
         }
     }
 
@@ -576,6 +602,18 @@ enum SQLiteProcedureRows {
             """
             SELECT argument_name, argument_position FROM memory_value_redactions
             WHERE event_id = ? AND location_kind = 'argument'
+            """,
+            [.text(callEventID)]
+        ) { "\(try $0.text(0) ?? "")#\($0.integer(1) ?? 0)" })
+    }
+
+    /// The arguments withheld from the call only as confidential content (P1-06), as `name#position`.
+    static func confidentialArguments(_ handle: some SQLiteQuerying, _ callEventID: String) throws -> Set<String> {
+        Set(try handle.query(
+            """
+            SELECT argument_name, argument_position FROM memory_value_redactions
+            WHERE event_id = ? AND location_kind = 'argument'
+            GROUP BY argument_name, argument_position HAVING min(reason) = 'confidential_content' AND max(reason) = 'confidential_content'
             """,
             [.text(callEventID)]
         ) { "\(try $0.text(0) ?? "")#\($0.integer(1) ?? 0)" })
@@ -673,11 +711,11 @@ enum SQLiteProcedureRows {
             let appID = try step.bundleID.map { try SQLiteIdentityRows.ensureApp(transaction, bundleID: $0) }
             try transaction.execute(
                 """
-                INSERT INTO memory_candidate_steps (candidate_id, position, step_occurrence_id, call_event_id, block_index, app_id)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO memory_candidate_steps (candidate_id, position, step_occurrence_id, call_event_id, block_index, app_id,
+                    step_kind) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 [.text(candidate.candidateID), .integer(Int64(step.position)), .text(step.stepOccurrenceID), .text(step.callEventID),
-                 .integer(Int64(step.blockIndex)), appID.map(SQLiteValue.integer) ?? .null]
+                 .integer(Int64(step.blockIndex)), appID.map(SQLiteValue.integer) ?? .null, .text(step.kind.rawValue)]
             )
         }
     }
@@ -694,7 +732,7 @@ enum SQLiteProcedureRows {
         ).first else { return nil }
         let steps = try handle.query(
             """
-            SELECT s.position, s.step_occurrence_id, s.call_event_id, s.block_index, b.bundle_id
+            SELECT s.position, s.step_occurrence_id, s.call_event_id, s.block_index, b.bundle_id, s.step_kind
             FROM memory_candidate_steps s LEFT JOIN brain_apps b ON b.app_id = s.app_id
             WHERE s.candidate_id = ? ORDER BY s.position
             """,
@@ -702,7 +740,8 @@ enum SQLiteProcedureRows {
         ) { row in
             ProcedureCandidate.Step(position: Int(row.integer(0) ?? -1), stepOccurrenceID: try row.text(1) ?? "",
                                     callEventID: try row.text(2) ?? "", blockIndex: Int(row.integer(3) ?? -1),
-                                    bundleID: try row.text(4))
+                                    bundleID: try row.text(4),
+                                    kind: try row.text(5).flatMap(ProcedureSegmentation.StepKind.init(rawValue:)) ?? .operation)
         }
         guard Int64(steps.count) == head.count else { throw malformed("memory_candidate_steps", candidateID, "step count") }
         do {
@@ -955,9 +994,13 @@ enum SQLiteProcedureRows {
                   ).first, let call = row.call else { continue }
             candidatePositions.append(row.position)
             let keys = try withheldArguments(handle, call)
+            // P2-02: an adapter's object withheld only as confidential content is delivered field by field.
+            let byField = try confidentialArguments(handle, call)
             for operation in step.operations {
                 for argument in operation.arguments {
-                    if case .literal = argument.value, keys.contains("\(argument.name)#\(argument.position)") { withheld.insert(step.position) }
+                    let key = "\(argument.name)#\(argument.position)"
+                    if argument.name == "arguments", operation.tool == .appCall, byField.contains(key) { continue }
+                    if case .literal = argument.value, keys.contains(key) { withheld.insert(step.position) }
                 }
             }
         }
@@ -1067,7 +1110,9 @@ enum SQLiteProcedureRows {
 
     // MARK: Qualification
 
-    /// The policy in force is recorded once, active, before it decides anything.
+    /// The policy in force is recorded once, active, before it decides anything; an earlier version still active is
+    /// marked superseded (`quarantined`, with the reason): its evaluations stay, and the catalogue offers a part again only
+    /// once the current rule evaluated it (`reevaluateOutdated`, P2-09).
     static func ensurePolicy(_ transaction: SQLiteTransaction, at nowMS: Int64) throws {
         try transaction.execute(
             """
@@ -1076,6 +1121,15 @@ enum SQLiteProcedureRows {
             """,
             [.text(QualificationPolicy.version), .integer(nowMS)]
         )
+        for earlier in QualificationPolicy.earlierVersions {
+            try transaction.execute(
+                """
+                UPDATE memory_qualification_policies SET status = 'quarantined', reason = ?, changed_at_ms = ?
+                WHERE policy_version = ? AND status = 'active'
+                """,
+                [.text("superseded by \(QualificationPolicy.version)"), .integer(nowMS), .text(earlier)]
+            )
+        }
     }
 
     /// The element a call resolved, as its check named it, or nil.
@@ -1322,6 +1376,13 @@ enum SQLiteProcedureRows {
                     }
                 }
             }
+            let tool = stored.request.tool
+            let reads_ = verifications.contains { $0.condition == .adapterRead }
+            let kind: ProcedureSegmentation.StepKind = tool.isOperation ? .operation
+                : reads_ ? .requiredRead : .adapterCall
+            let ambiguous = tool.isOperation ? false : try !transaction.query(
+                "SELECT 1 FROM memory_call_argument_fields WHERE event_id = ? AND field_kind = 'ambiguous_reference' LIMIT 1",
+                [.text(call)]) { $0.integer(0) }.isEmpty
             steps[position] = QualificationPolicy.StepFacts(
                 position            : position,
                 callEventID         : call,
@@ -1331,7 +1392,9 @@ enum SQLiteProcedureRows {
                 findings            : version.findings.filter { $0.stepPosition == version.candidatePositions[position] }.map(\.kind),
                 keepsWithheldLiteral: version.withheldLiteralSteps.contains(position),
                 missingInputs       : reads.filter(missing.contains),
-                inherited           : inherited[position]
+                inherited           : inherited[position],
+                kind                : kind,
+                hasUnresolvedReference: ambiguous
             )
         }
         var current: [PartQualification] = []
@@ -1385,11 +1448,11 @@ enum SQLiteProcedureRows {
         for item in evaluation.evidence {
             try transaction.execute(
                 """
-                INSERT INTO memory_part_qualification_evidence (part_id, sequence, step_position, call_event_id, verification_event_id)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO memory_part_qualification_evidence (part_id, sequence, step_position, call_event_id, verification_event_id,
+                    origin) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 [.text(evaluation.partID), .integer(sequence), .integer(Int64(item.stepPosition)), .text(item.callEventID),
-                 .text(item.verificationEventID)]
+                 .text(item.verificationEventID), .text(item.isInherited ? "inherited" : "own")]
             )
         }
     }
@@ -1417,12 +1480,12 @@ enum SQLiteProcedureRows {
         }
         let evidence = try handle.query(
             """
-            SELECT step_position, call_event_id, verification_event_id FROM memory_part_qualification_evidence
+            SELECT step_position, call_event_id, verification_event_id, origin FROM memory_part_qualification_evidence
             WHERE part_id = ? AND sequence = ? ORDER BY step_position
             """,
             [.text(partID), .integer(head.0)]
         ) { PartQualification.Evidence(stepPosition: Int($0.integer(0) ?? 0), callEventID: try $0.text(1) ?? "",
-                                       verificationEventID: try $0.text(2) ?? "") }
+                                       verificationEventID: try $0.text(2) ?? "", isInherited: try $0.text(3) == "inherited") }
         return PartQualification(partID: partID, policyVersion: head.1, findings: findings, evidence: evidence)
     }
 

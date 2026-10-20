@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 22/09/2026.
 //
 
+import AutomationRuntime
 import Foundation
 import Security
 
@@ -14,6 +15,9 @@ import Security
 /// connection names as its `credentialReference`. The team's connection card
 /// and the Settings window read and write the same items, so a key entered
 /// once serves both: they are one person's key to one provider, in one app.
+///
+/// An isolated run (`LaunchIsolation`) queries and writes no item: a read finds
+/// nothing, and a write is refused as if no keychain were available.
 enum Keychain {
 
     private static let service = "dev.forte.Braus"
@@ -33,6 +37,8 @@ enum Keychain {
     }
 
     static func string(for account: String) -> String {
+        // An isolated run, and the host of the unit tests, read no item of the person's.
+        guard !LaunchIsolation.current.isIsolated, !BrausApp.isTestHost else { return "" }
         let query: [String: Any] = [
             kSecClass as String      : kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -59,6 +65,7 @@ enum Keychain {
         _ value    : String,
         for account: String
     ) throws {
+        guard !LaunchIsolation.current.isIsolated else { throw WriteFailure(status: errSecNotAvailable) }
         let query: [String: Any] = [
             kSecClass as String      : kSecClassGenericPassword,
             kSecAttrService as String: service,

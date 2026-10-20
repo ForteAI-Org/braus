@@ -38,6 +38,12 @@ public struct PartQualification: Sendable, Equatable {
         case unverifiableUse         = "unverifiable_use"
         case missingInput            = "missing_input"
         case withheldLiteral         = "withheld_literal"
+        /// An adapter's change its read-back did not confirm (P2-04): unproven, as an unknown check is.
+        case adapterUnverified        = "adapter_unverified"
+        /// A read the method needs whose answer did not read what a later step used.
+        case readWithoutResult        = "read_without_result"
+        /// A reference to an earlier step's result the run could not decide.
+        case referenceUnresolved      = "reference_unresolved"
     }
 
     /// Finding is one reason, about the part or about one of its steps.
@@ -58,11 +64,14 @@ public struct PartQualification: Sendable, Equatable {
         public let stepPosition: Int
         public let callEventID: String
         public let verificationEventID: String
+        /// Whether the check is an earlier run's (P2-04): it qualifies the method, never certifies this run.
+        public let isInherited: Bool
 
-        public init(stepPosition: Int, callEventID: String, verificationEventID: String) {
+        public init(stepPosition: Int, callEventID: String, verificationEventID: String, isInherited: Bool = false) {
             self.stepPosition        = stepPosition
             self.callEventID         = callEventID
             self.verificationEventID = verificationEventID
+            self.isInherited         = isInherited
         }
     }
 
@@ -108,8 +117,11 @@ public struct PartQualification: Sendable, Equatable {
 /// refused a parent for are no part of it.
 public enum QualificationPolicy {
 
-    /// The version of the rule, kept with every evaluation.
-    public static let version = "qualification-b-1"
+    /// The version of the rule, kept with every evaluation: `qualification-c-1` since adapter steps and
+    /// required reads are steps (P2-04). The evaluations of the earlier versions stay, under a policy the store marks
+    /// superseded, so the catalogue offers only what the current rule admitted, after an explicit re-evaluation.
+    public static let version = "qualification-c-1"
+    public static let earlierVersions = ["qualification-b-1"]
 
     /// The conditions whose pass verifies the operation that was requested, within the method's scope:
     /// the state already present (no gesture), the state after the gesture, the value read back, a
@@ -118,7 +130,7 @@ public enum QualificationPolicy {
     /// recovery gesture instead of the request, and a path with no oracle verify no requested operation.
     public static let positiveConditions: Set<OperationCheck.Condition> = [
         .requestedStateAlreadyPresent, .stateAfterGesture, .valueReadBack, .structuralEffect, .submenuOpened,
-        .windowSetChanged, .menuItemChosen,
+        .windowSetChanged, .menuItemChosen, .adapterEffect, .adapterRead,
     ]
 
     /// VerificationFact is what the policy reads of one verification of a step's call.
@@ -164,11 +176,20 @@ public enum QualificationPolicy {
         /// The positive check of the same step in the identical version this one repeats, when the step's own
         /// check is not positive: the call and verification of that earlier run.
         public let inherited: (callEventID: String, verificationEventID: String)?
+        /// What the step is (P2-01); only a UI operation inherits an earlier run's check.
+        public let kind: ProcedureSegmentation.StepKind
+        /// For an adapter's step, whether a field holds a value two or more earlier results of the attempt
+        /// held, so the method cannot say which result it refers to (P2-02).
+        public let hasUnresolvedReference: Bool
 
         public init(position: Int, callEventID: String, status: AgentCallStatus, hasRecordingGap: Bool,
                     verifications: [VerificationFact], findings: [InterpretationFinding.Kind] = [],
                     keepsWithheldLiteral: Bool = false, missingInputs: [String] = [],
-                    inherited: (callEventID: String, verificationEventID: String)? = nil) {
+                    inherited: (callEventID: String, verificationEventID: String)? = nil,
+                    kind: ProcedureSegmentation.StepKind = .operation,
+                    hasUnresolvedReference: Bool = false) {
+            self.kind        = kind
+            self.hasUnresolvedReference = hasUnresolvedReference
             self.position             = position
             self.callEventID          = callEventID
             self.status               = status
@@ -186,6 +207,8 @@ public enum QualificationPolicy {
                 && lhs.findings == rhs.findings && lhs.keepsWithheldLiteral == rhs.keepsWithheldLiteral
                 && lhs.missingInputs == rhs.missingInputs && lhs.inherited?.callEventID == rhs.inherited?.callEventID
                 && lhs.inherited?.verificationEventID == rhs.inherited?.verificationEventID
+                && lhs.kind == rhs.kind
+                && lhs.hasUnresolvedReference == rhs.hasUnresolvedReference
         }
 
         /// Whether the step's own checks leave its operation unproven without contradicting it: unknown or
@@ -275,13 +298,17 @@ public enum QualificationPolicy {
         let resultProves = isMethod && facts.result == .passed
         if isMethod, facts.result == .failed { add(.verificationFailed) }
         for step in facts.steps {
-            // A step only unproven by its own check and proven by an identical earlier run counts as verified.
-            if let inherited = step.inherited, step.isOnlyUnproven, !step.verifications.contains(where: \.isPositive) {
+            // A field that names a value several earlier results held refers to none of them: nothing chooses (P2-02).
+            if step.hasUnresolvedReference { add(.referenceUnresolved, step) }
+            // A step only unproven by its own check and proven by an identical earlier run counts as verified: a UI
+            // operation only, and as inherited evidence, which qualifies the method and never certifies this run (P2-04).
+            if step.kind == .operation, let inherited = step.inherited, step.isOnlyUnproven,
+               !step.verifications.contains(where: \.isPositive) {
                 for finding in step.findings { add(finding == .useMismatch ? .useMismatch : .unverifiableUse, step) }
                 if step.keepsWithheldLiteral { add(.withheldLiteral, step) }
                 if !step.missingInputs.isEmpty { add(.missingInput, step) }
                 evidence.append(PartQualification.Evidence(stepPosition: step.position, callEventID: inherited.callEventID,
-                                                          verificationEventID: inherited.verificationEventID))
+                                                          verificationEventID: inherited.verificationEventID, isInherited: true))
                 continue
             }
             if resultProves, step.isOnlyUnproven {
@@ -305,7 +332,10 @@ public enum QualificationPolicy {
             if step.hasRecordingGap { add(.recordingGap, step) }
             if step.verifications.isEmpty, !step.hasRecordingGap { add(.noVerification, step) }
             if step.verifications.contains(where: { $0.verdict == .failed }) { add(.verificationFailed, step) }
-            if step.verifications.contains(where: { $0.verdict == .unknown }) { add(.verificationUnknown, step) }
+            if step.verifications.contains(where: { $0.verdict == .unknown }) {
+                add(step.kind == .adapterCall ? .adapterUnverified : .verificationUnknown, step)
+            }
+            if step.kind == .requiredRead, !step.verifications.contains(where: \.isPositive) { add(.readWithoutResult, step) }
             if step.verifications.contains(where: { $0.verdict == .passed && !$0.isPositive }) { add(.verificationNotPositive, step) }
             for finding in step.findings {
                 add(finding == .useMismatch ? .useMismatch : .unverifiableUse, step)

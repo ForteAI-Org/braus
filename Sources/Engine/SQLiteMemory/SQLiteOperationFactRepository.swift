@@ -40,6 +40,9 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
             for redaction in opening.redactions {
                 receipts.append(try SQLiteOperationFactRows.record(transaction, redaction))
             }
+            if let executor = opening.executor {
+                receipts.append(try SQLiteReconciliationRows.link(transaction, call: call.event.eventID, to: executor))
+            }
             return receipts.contains(.committed) ? .committed : .alreadyApplied
         }
     }
@@ -63,6 +66,9 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
             }
             for redaction in opening.redactions {
                 receipts.append(try SQLiteOperationFactRows.record(transaction, redaction))
+            }
+            if let executor = opening.executor {
+                receipts.append(try SQLiteReconciliationRows.link(transaction, call: batch.event.eventID, to: executor))
             }
             return receipts.contains(.committed) ? .committed : .alreadyApplied
         }
@@ -119,6 +125,25 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
             for gap in conclusion.unsaved {
                 receipts.append(try SQLiteOperationFactRows.record(transaction, gap))
             }
+            if let route = conclusion.route {
+                receipts.append(try SQLiteOperationFactRows.record(transaction, route, of: conclusion.end.eventID))
+            }
+            if let dispatch = conclusion.adapterDispatch {
+                receipts.append(try SQLiteOperationFactRows.record(transaction, dispatch, of: conclusion.end.eventID))
+            }
+            if let rung = conclusion.rung {
+                receipts.append(try SQLiteOperationFactRows.record(transaction, rung, of: conclusion.end.eventID))
+            }
+            if let advice = conclusion.advice {
+                receipts.append(try SQLiteOperationFactRows.record(transaction, advice, of: conclusion.end.eventID))
+            }
+            // Version 19: the result's leaves before the arguments', so a reference never names this call's own result.
+            let call = conclusion.end.eventID
+            receipts.append(try SQLiteCallFieldRows.record(transaction, results: conclusion.resultFields, of: call))
+            receipts.append(try SQLiteCallFieldRows.record(transaction, arguments: conclusion.argumentFields, of: call))
+            if let context = conclusion.dataContext {
+                receipts.append(try SQLiteCallFieldRows.record(transaction, context: context, of: call))
+            }
             return receipts.contains(.committed) ? .committed : .alreadyApplied
         }
     }
@@ -147,6 +172,71 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
 
     public func recordingGaps(of callEventID: String) async throws -> [OperationRecordingGap] {
         try await store.read { snapshot in try SQLiteOperationFactRows.recordingGaps(snapshot, callEventID) }
+    }
+
+    public func route(of callEventID: String) async throws -> CallRoute? {
+        try await store.read { snapshot in try SQLiteOperationFactRows.route(snapshot, callEventID) }
+    }
+
+    public func adapterDispatch(of callEventID: String) async throws -> AdapterDispatch? {
+        try await store.read { snapshot in try SQLiteOperationFactRows.adapterDispatch(snapshot, callEventID) }
+    }
+
+
+    public func rung(of callEventID: String) async throws -> CallRung? {
+        try await store.read { snapshot in try SQLiteOperationFactRows.rung(snapshot, callEventID) }
+    }
+
+    public func advice(of callEventID: String) async throws -> CallRouteAdvice? {
+        try await store.read { snapshot in try SQLiteOperationFactRows.advice(snapshot, callEventID) }
+    }
+
+    public func resultFields(of callEventID: String) async throws -> [StructuredField] {
+        try await store.read { snapshot in try SQLiteCallFieldRows.results(snapshot, callEventID) }
+    }
+
+    public func argumentFields(of callEventID: String) async throws -> [CallArgumentField] {
+        try await store.read { snapshot in try SQLiteCallFieldRows.arguments(snapshot, callEventID) }
+    }
+
+    /// The values among `values` an attempt would take from another attempt's results (P2-02).
+    public func historicalValues(_ values: [String], attemptID: String) async throws -> [String] {
+        try await store.read { snapshot in try SQLiteCallFieldRows.historicalValues(snapshot, values, attemptID: attemptID) }
+    }
+
+    public func reconcile(_ reconciliation: CallReconciliation) async throws -> MemoryReceipt {
+        try await store.write { transaction in try SQLiteReconciliationRows.append(transaction, reconciliation) }
+    }
+
+    public func reconciliations(of callEventID: String) async throws -> [CallReconciliation] {
+        try await store.read { snapshot in try SQLiteReconciliationRows.reconciliations(snapshot, callEventID) }
+    }
+
+    public func unresolvedCalls(source: MemoryEventSource, streamID: String, excludingExecutor executorID: String?)
+        async throws -> [UnresolvedCall] {
+        try await store.read { snapshot in
+            try SQLiteReconciliationRows.unresolved(snapshot, source: source.rawValue, streamID: streamID,
+                                                    excludingExecutor: executorID).compactMap { row in
+                guard let call = try SQLiteAgentCallRows.call(snapshot, eventID: row.eventID) else { return nil }
+                return UnresolvedCall(eventID: row.eventID, request: call.request, reason: row.reason, resource: row.resource)
+            }
+        }
+    }
+
+    public func startedCalls(excludingExecutor executorID: String) async throws -> [(eventID: String, executorID: String)] {
+        try await store.read { snapshot in try SQLiteReconciliationRows.started(snapshot, excludingExecutor: executorID) }
+    }
+
+
+    public func dataContext(of callEventID: String) async throws -> StoredDataContext? {
+        try await store.read { snapshot in
+            try SQLiteCallFieldRows.context(snapshot, callEventID).map {
+                StoredDataContext(service: $0.service, route: CallDataContext.Route(rawValue: $0.route) ?? .desktop,
+                                  profile: $0.profile, accountRef: $0.accountRef,
+                                  accountSource: CallDataContext.AccountSource(rawValue: $0.accountSource) ?? .unknown,
+                                  resourceKind: $0.resourceKind, resource: $0.resource)
+            }
+        }
     }
 }
 
@@ -249,6 +339,129 @@ enum SQLiteOperationFactRows {
         )
         return .committed
     }
+
+    // MARK: Routes
+
+    /// Records the route a routing session dispatched the call on, once: the same route again is `alreadyApplied`,
+    /// another a conflict (M05).
+    static func record(_ transaction: SQLiteTransaction, _ route: CallRoute,
+                       of eventID: String) throws -> MemoryReceipt {
+        if let stored = try self.route(transaction, eventID) {
+            guard stored == route else {
+                throw SQLiteFactRows.conflict("\(eventID):route", stored: "\(stored)", offered: "\(route)")
+            }
+            return .alreadyApplied
+        }
+        try transaction.execute(
+            "INSERT INTO memory_call_routes (event_id, route, handoff_reason) VALUES (?, ?, ?)",
+            [.text(eventID), .text(route.route.rawValue), text(route.handoffReason)]
+        )
+        return .committed
+    }
+
+    static func route(_ handle: some SQLiteQuerying, _ eventID: String) throws -> CallRoute? {
+        try handle.query(
+            "SELECT route, handoff_reason FROM memory_call_routes WHERE event_id = ?",
+            [.text(eventID)]
+        ) { row in
+            guard let route = CallRoute.Route(rawValue: try row.text(0) ?? "") else {
+                throw malformed("memory_call_routes", eventID, "route")
+            }
+            return CallRoute(route, handoffReason: try row.text(1))
+        }.first
+    }
+
+    /// Records the adapter verb the call invoked, once: the same again is `alreadyApplied`, another a conflict (M05).
+    static func record(_ transaction: SQLiteTransaction, _ dispatch: AdapterDispatch,
+                       of eventID: String) throws -> MemoryReceipt {
+        if let stored = try adapterDispatch(transaction, eventID) {
+            guard stored == dispatch else {
+                throw SQLiteFactRows.conflict("\(eventID):adapter", stored: "\(stored)", offered: "\(dispatch)")
+            }
+            return .alreadyApplied
+        }
+        try transaction.execute(
+            "INSERT INTO memory_call_adapter_dispatches (event_id, adapter, verb) VALUES (?, ?, ?)",
+            [.text(eventID), .text(dispatch.adapter), .text(dispatch.verb)]
+        )
+        return .committed
+    }
+
+    /// The separator between the reasons rung 1 was passed over, as the memory keeps lists elsewhere: char(31).
+    static let rungReasonSeparator = "\u{1F}"
+
+    /// Records the rung the MacDriver's last gesture of the call took, once: the same again is `alreadyApplied`,
+    /// another a conflict (M05).
+    static func record(_ transaction: SQLiteTransaction, _ rung: CallRung, of eventID: String) throws -> MemoryReceipt {
+        if let stored = try self.rung(transaction, eventID) {
+            guard stored == rung else {
+                throw SQLiteFactRows.conflict("\(eventID):rung", stored: "\(stored)", offered: "\(rung)")
+            }
+            return .alreadyApplied
+        }
+        let skipped = rung.skipped.isEmpty ? nil : rung.skipped.joined(separator: rungReasonSeparator)
+        try transaction.execute(
+            "INSERT INTO memory_call_rungs (event_id, rung, how, skipped) VALUES (?, ?, ?, ?)",
+            [.text(eventID), .text(rung.rung.rawValue), .text(rung.how), text(skipped)]
+        )
+        return .committed
+    }
+
+    static func rung(_ handle: some SQLiteQuerying, _ eventID: String) throws -> CallRung? {
+        try handle.query(
+            "SELECT rung, how, skipped FROM memory_call_rungs WHERE event_id = ?",
+            [.text(eventID)]
+        ) { row in
+            guard let rawRung = try row.text(0), let rung = CallRung.Rung(rawValue: rawRung), let how = try row.text(1) else {
+                throw malformed("memory_call_rungs", eventID, "rung")
+            }
+            let skipped = try row.text(2).map { $0.components(separatedBy: rungReasonSeparator) } ?? []
+            return CallRung(rung: rung, how: how, skipped: skipped)
+        }.first
+    }
+
+    /// Records the router's decision an `open_session` answered with its words (use, ask, or open with a note), once: the
+    /// same again is `alreadyApplied`, another a conflict (M05).
+    static func record(_ transaction: SQLiteTransaction, _ advice: CallRouteAdvice, of eventID: String) throws -> MemoryReceipt {
+        if let stored = try self.advice(transaction, eventID) {
+            guard stored == advice else {
+                throw SQLiteFactRows.conflict("\(eventID):route_advice", stored: "\(stored)", offered: "\(advice)")
+            }
+            return .alreadyApplied
+        }
+        try transaction.execute(
+            "INSERT INTO memory_call_route_advice (event_id, decision, route, message) VALUES (?, ?, ?, ?)",
+            [.text(eventID), .text(advice.decision.rawValue), text(advice.route), .text(advice.message)]
+        )
+        return .committed
+    }
+
+    static func advice(_ handle: some SQLiteQuerying, _ eventID: String) throws -> CallRouteAdvice? {
+        try handle.query(
+            "SELECT decision, route, message FROM memory_call_route_advice WHERE event_id = ?",
+            [.text(eventID)]
+        ) { row in
+            guard let raw = try row.text(0), let decision = CallRouteAdvice.Decision(rawValue: raw),
+                  let message = try row.text(2) else {
+                throw malformed("memory_call_route_advice", eventID, "decision")
+            }
+            return CallRouteAdvice(decision: decision, route: try row.text(1), message: message)
+        }.first
+    }
+
+    static func adapterDispatch(_ handle: some SQLiteQuerying, _ eventID: String) throws -> AdapterDispatch? {
+        try handle.query(
+            "SELECT adapter, verb FROM memory_call_adapter_dispatches WHERE event_id = ?",
+            [.text(eventID)]
+        ) { row in
+            guard let adapter = try row.text(0), let verb = try row.text(1) else {
+                throw malformed("memory_call_adapter_dispatches", eventID, "adapter")
+            }
+            return AdapterDispatch(adapter: adapter, verb: verb)
+        }.first
+    }
+
+
 
     static func effect(_ handle: some SQLiteQuerying, _ eventID: String) throws -> OperationEffect? {
         try handle.query(

@@ -15,6 +15,7 @@ enum SettingsPane: Hashable, Identifiable {
     case sidebar
     case chat
     case computer
+    case chromeProfiles
     case virtualDisplay
     case brain
     case provider(ModelProvider)
@@ -27,6 +28,7 @@ enum SettingsPane: Hashable, Identifiable {
 
     static let computerPanes: [SettingsPane] = [
         .computer,
+        .chromeProfiles,
         .virtualDisplay,
         .brain,
     ]
@@ -39,6 +41,7 @@ enum SettingsPane: Hashable, Identifiable {
         case .sidebar            : "Sidebar"
         case .chat               : "Chat"
         case .computer           : "This Mac"
+        case .chromeProfiles     : "Chrome Profiles"
         case .virtualDisplay     : "Virtual Display"
         case .brain              : "Brain"
         case .provider(let model): model.title
@@ -51,6 +54,7 @@ enum SettingsPane: Hashable, Identifiable {
         case .sidebar       : "sidebar.left"
         case .chat          : "bubble.left.and.bubble.right"
         case .computer      : "desktopcomputer"
+        case .chromeProfiles: "globe"
         case .virtualDisplay: "display"
         case .brain         : "brain"
         case .provider(let provider):

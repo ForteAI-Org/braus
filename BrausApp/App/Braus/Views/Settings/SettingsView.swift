@@ -25,28 +25,33 @@ struct SettingsView: View {
     let store : ModelSettingsStore
     let broker: SeatBroker
 
+    /// The pairing of the person's Chrome profiles, which the Chrome Profiles page shows and sets up.
+    let chromeProfiles: ChromeProfilesSettings?
+
     @State private var pane: SettingsPane?
 
     /// - Parameter pane: the page shown first, General unless a snapshot asks for another.
     init(
-        store : ModelSettingsStore,
-        broker: SeatBroker,
-        pane  : SettingsPane = .general
+        store     : ModelSettingsStore,
+        broker    : SeatBroker,
+        chromeProfiles   : ChromeProfilesSettings? = nil,
+        pane             : SettingsPane = .general
     ) {
-        self.store  = store
-        self.broker = broker
-        _pane       = State(initialValue: pane)
+        self.store             = store
+        self.broker            = broker
+        self.chromeProfiles = chromeProfiles
+        _pane               = State(initialValue: pane)
     }
 
     var body: some View {
         NavigationSplitView {
             List(selection: $pane) {
                 Section {
-                    ForEach(SettingsPane.appPanes) { row($0) }
+                    ForEach(SettingsPane.appPanes.filter(isListed)) { row($0) }
                 }
 
                 Section("Computer") {
-                    ForEach(SettingsPane.computerPanes) { row($0) }
+                    ForEach(SettingsPane.computerPanes.filter(isListed)) { row($0) }
                 }
 
                 Section("Providers") {
@@ -89,6 +94,8 @@ struct SettingsView: View {
             GeneralSettings()
         case .computer:
             ComputerSettings(broker: broker)
+        case .chromeProfiles:
+            if let chromeProfiles { ChromeProfilesSettingsPage(settings: chromeProfiles) }
         case .virtualDisplay:
             VirtualDisplaySettings(broker: broker)
         case .brain:
@@ -107,5 +114,11 @@ struct SettingsView: View {
             )
             .id(provider)
         }
+    }
+
+    /// Chrome Profiles is listed wherever the app provides pairing, including while web pages are off.
+    private func isListed(_ pane: SettingsPane) -> Bool {
+        if case .chromeProfiles = pane { return chromeProfiles != nil }
+        return true
     }
 }

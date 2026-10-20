@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>X-shaped posts fixture</title></head>
+<body>
+<!-- X-shaped markup for the post reader, read under a test location of https://x.com/home (WebPostReaderLiveTests).
+     The first post quotes another by a different author; its text is longer than 80 characters with an emoji image;
+     a span inside it is hidden. A hidden post must not be read. SENTINEL marks what must never be read. -->
+<article data-testid="tweet">
+  <div data-testid="socialContext">Dario reposted</div>
+  <div data-testid="User-Name"><div><span>Carla Rossi</span></div><div><span>@carla</span></div></div>
+  <a href="/carla/status/1001"><time datetime="2026-10-17T09:00:00.000Z">9h</time></a>
+  <div data-testid="tweetText"><span>A post with a body much longer than eighty characters, so cutting it there would lose its end </span><img alt="🙂"><span style="display:none">SENTINEL-X-HIDDEN</span><span> END-X-LONG</span></div>
+  <div role="link" tabindex="0">
+    <div data-testid="User-Name"><div><span>Dario Bianchi</span></div><div><span>@dario</span></div></div>
+    <a href="/dario/status/900"><time datetime="2026-10-16T08:00:00.000Z">1d</time></a>
+    <div data-testid="tweetText"><span>QUOTED-TEXT by Dario</span></div>
+  </div>
+</article>
+<article data-testid="tweet">
+  <div data-testid="User-Name"><div><span>Elena Verdi</span></div><div><span>@elena</span></div></div>
+  <a href="/elena/status/1002/photo/1"><time datetime="2026-10-17T08:30:00.000Z">10h</time></a>
+  <div data-testid="tweetText"><span>A short second post.</span></div>
+  <div data-testid="tweet-text-show-more-link">Show more</div>
+</article>
+<article data-testid="tweet" style="display:none">
+  <div data-testid="User-Name"><div><span>Hidden</span></div><div><span>@hidden</span></div></div>
+  <a href="/hidden/status/1003"><time datetime="2026-10-17T08:00:00.000Z">11h</time></a>
+  <div data-testid="tweetText"><span>SENTINEL-X-HIDDEN-POST</span></div>
+</article>
+</body>
+</html>

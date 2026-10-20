@@ -193,12 +193,57 @@ enum SQLiteRecallRows {
             offered.contains(part.partID)
                 || offeredMethods.contains { $0.firstPosition <= part.firstPosition && part.lastPosition <= $0.lastPosition }
         }
-        let steps = version.definition.steps.compactMap { step -> RecallSource.Step? in
+        // P2-02, P2-05: the call each step's occurrence is, so a field's reference is read as a step of this version.
+        let stepCalls = Dictionary(try handle.query(
+            """
+            SELECT o.step_id, m.event_id FROM memory_procedure_step_occurrences o
+            JOIN memory_step_events m ON m.step_occurrence_id = o.step_occurrence_id AND m.role = 'action'
+            WHERE o.route_id = ?
+            """,
+            [.text(routeID)]
+        ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }, uniquingKeysWith: { first, _ in first })
+        let positionOfCall = Dictionary(version.definition.steps.compactMap { step in stepCalls[step.stepID].map { ($0, step.position) } },
+                                        uniquingKeysWith: { first, _ in first })
+        let steps = try version.definition.steps.compactMap { step -> RecallSource.Step? in
             guard let part = stepParts[step.position], let operation = step.operations.first else { return nil }
+            let mixed = operation.tool == .appCall
+            let context = try stepCalls[step.stepID].flatMap { try SQLiteCallFieldRows.context(handle, $0) }
+            var fields: [RecallSource.Step.Field] = []
+            var namesAccount = false
+            if mixed, let call = stepCalls[step.stepID] {
+                fields = try SQLiteCallFieldRows.arguments(handle, call).map { argument in
+                    let kind: RecallSource.Step.Field.Kind
+                    switch argument.kind {
+                        case .resultReference:
+                            if let source = argument.sourceEventID, let position = positionOfCall[source], let path = argument.sourcePath {
+                                kind = .stepResult(position: position, path: path)
+                            } else {
+                                kind = .unresolved
+                            }
+                        case .ambiguousReference: kind = .unresolved
+                        case .constant:
+                            if argument.field.withheld != nil {
+                                kind = .withheld
+                            } else {
+                                let candidates = SQLiteCallFieldRows.parameters(
+                                    for: argument.field, among: version.definition.parameters,
+                                    bindings: version.bindings, attemptID: version.attemptID
+                                )
+                                kind = candidates.count == 1 ? .parameter(candidates[0])
+                                    : candidates.isEmpty ? .constant(argument.field.text) : .unresolved
+                            }
+                    }
+                    return RecallSource.Step.Field(path: argument.field.path, kind: kind, valueKind: argument.field.kind)
+                }
+                namesAccount = context?.accountSource == "argument" || context?.accountSource == "result"
+            }
             return RecallSource.Step(position: step.position, partID: part.partID, label: part.label, bundleID: step.bundleID,
-                                     tool: operation.tool, arguments: operation.arguments, entry: entry(of: part),
-                                     exit: exits[step.stepID].map(RecallSource.Entry.state) ?? .unknown,
-                                     isOffered: isOffered(part), elementKey: keys[step.stepID])
+                                     tool: operation.tool, arguments: operation.arguments,
+                                     entry: mixed ? .notApplicable : entry(of: part),
+                                     exit: mixed ? .notApplicable : exits[step.stepID].map(RecallSource.Entry.state) ?? .unknown,
+                                     isOffered: isOffered(part), elementKey: keys[step.stepID], fields: fields,
+                                     namesAccount: namesAccount, requiresAccountResolution:
+                                        (mixed || context?.route == "web") && context?.service != "files")
         }
         let parts = version.parts.map {
             RecallSource.Part(partID: $0.partID, kind: $0.kind, firstPosition: $0.firstPosition, lastPosition: $0.lastPosition,
@@ -425,7 +470,8 @@ enum SQLiteRecallRows {
             [.text(attemptID), .integer(afterMS)]
         ) { try $0.text(0) ?? "" }
         return try ids.compactMap { id in
-            guard let call = try SQLiteAgentCallRows.call(handle, eventID: id), call.request.tool.isOperation,
+            // An operation, or an adapter's call, which a mixed procedure's step may be (P2-01).
+            guard let call = try SQLiteAgentCallRows.call(handle, eventID: id), call.request.tool.hasOwnOracle,
                   call.progress.status != .planned, call.progress.status != .skipped else { return nil }
             let passed = try handle.query(
                 """

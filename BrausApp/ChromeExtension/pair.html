@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Braus: pair this Chrome profile</title>
+  <style>body { font: 13px -apple-system, sans-serif; width: 320px; margin: 12px; } input { width: 100%; }</style>
+</head>
+<body>
+  <h1>Pair this profile with Braus</h1>
+  <p>Braus will open, drive and close its own tabs in this profile, under the name you give here. It reads no
+     cookies or passwords and leaves your other tabs alone.</p>
+  <p>Instance: <code id="instance">…</code></p>
+  <label>Name Braus shows for this profile: <input id="label" type="text" autocomplete="off"></label>
+  <p><button id="confirm" type="button">Confirm pairing</button> <button id="revoke" type="button">Revoke</button></p>
+  <p id="status" role="status"></p>
+  <script src="pair.js"></script>
+</body>
+</html>

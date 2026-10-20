@@ -41,7 +41,7 @@ catalogue writes ──triggers──▶ memory_recall_work ──worker after t
 
 ## The contract
 
-`RecallContract` (version 1, selector `recall-selector-4`) is reached through `memory_task`, the same tool
+`RecallContract` (version 1, selector `recall-selector-5`) is reached through `memory_task`, the same tool
 for the app's workers, external MCP clients and `braus chat` ([MemoryFacts](MemoryFacts.md)). Since 2026-10-13 `begin`
 and `recall` answer a proposal and `choose` delivers the agent's choice ([RecallAgentChoice](RecallAgentChoice.md));
 `recall_mode: "propose"`, which the experiment's clients sent, is accepted and changes nothing. The delivery described
@@ -278,28 +278,6 @@ the same in an archive of one procedure and among thousands (review F01); the th
 semantic channel scores the inner product of normalized vectors; the hybrid one `(1 − w) · semantic + w · lexical`.
 
 ## Use and feedback
-
-At a checkpoint or the end, `RecallUseLinking` links each call the attempt made after a delivery to the step it
-carried out, in order, from the facts only (review F04): the same tool, on the same application (a call on an
-application the facts do not name is no step), from the same functional state when both are known, on the same
-element (the same functional identity when the Brain identified the element of both calls, so a field labelled by
-its value is the same field under another value; else the same label), with the arguments that define the
-operation equal (the verb and the toggle's state, the item, the typed text, the key with its modifiers and count,
-the scroll's direction and amount, the drag's offset, the menu path, the button). A parameter or a template not
-bound to a value matches nothing. An item template (`item_template|…`, what every row of a collection offers) is
-not one row: the row is told by its label, so it is compared too (second review, F07); and an element the step
-takes from the task (a parameter or a template) must be the task's value, bound and equal, whatever the identity
-says. A whole parameter of a number or a flag (`lines`, `count`, `dx`, `dy`, `replace`) matches the call's value
-its textual binding spells as that type, the rule D2 checks a use with (`BrainArgument.Value.isSpelled(by:)`, F08);
-a text, digits or not, compares as a text. Typed text and file names compare as written (only canonical Unicode equivalence
-is ignored); names the application shows compare without case or surrounding space. The values are those of the
-task revision the query was made under. A call that matches a later step skips the ones between; a call that
-matches none is the agent's own operation (adapted or a connector), or `undetermined` when it would carry out the
-next step were the facts it lacks to agree (its application not recorded, the element's identity not derived while
-its label differs): neither a confirmation nor a deviation. A link is confirmed when its call's own check passed. The
-answer to `use` separates the steps carried out, those verified, those not carried out, the agent's own operations
-and the undetermined ones; the declared use (followed, adapted, abandoned, not executed) stays beside them. A version's confirmed reuses count only selections whose every step was carried out by a confirmed call; a
-declared `followed` with no call credits nothing, and nothing changes a part's qualification or state.
 
 A need answered by the agent's choice (A, the product's path) delivers its tracts in order, each a selected row. Its calls are linked
 tract by tract:
@@ -835,9 +813,6 @@ indexed parts, 4,840 distinct documents, a 217 MB archive with every fact of tho
   272 MB, 2.1 ms, 382 documents a second. Both read 512 tokens at most; a longer text is cut and the vector says so;
   no document of the load was cut.
 
-What is not measured here: archives of real users, concurrent writers during a rebuild, and the cost of a whole
-task (turns, tokens, retries, connectors) with and without the Recall, which needs live agents.
-
 ## Tests and proofs
 
 | Suite | What it proves |
@@ -938,3 +913,17 @@ ablations of a task's cost remain to be run in a dedicated session.
   measured on one holdout with one model.
 - Schema 7's tables of the agent's choice exist in every archive and are immutable; since 2026-10-13 every search of the
   product records a proposal, and every choice a query.
+
+
+## Mixed argument delivery
+
+Mixed-call arguments retain a JSON pointer and scalar type (`text`, `number`, `boolean`, `null`). Invalid numeric,
+boolean and null encodings are rejected. Recall delivers `valueType` beside the rendered field value and a content-free
+`structure` template that preserves empty objects and arrays. A step-result placeholder always names the new run's
+earlier result, never a historical identifier; withheld fields require the current task's own content.
+
+A field with the same name, compatible type and recorded value as a declared input parameter of this version's
+source attempt is delivered as that parameter. Bindings from other attempts are not defaults. Multiple matching
+parameters are unresolved. Other retained fields remain constants; this does not infer arbitrary nested mappings or
+content transformations. Missing or ambiguous bindings remain explicit prerequisites. The binding is derived from
+authoritative facts when reading the source; the unused operation-field table is not treated as authoritative data.

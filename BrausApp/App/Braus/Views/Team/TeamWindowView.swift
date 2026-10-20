@@ -5,6 +5,8 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 22/09/2026.
 //
 
+import AutomationRuntime
+import ChromeProfiles
 import SeatBroker
 import SwiftUI
 
@@ -32,6 +34,12 @@ struct TeamWindowView: View {
     /// Told once the team is made, so quitting can write what is typed in it.
     var didOpenTeam: (TeamModel) -> Void
 
+
+    /// The routes beyond the Seat the team's workers compose, the app's (`AppModel.channels`).
+    var channels: AutomationChannels = []
+
+    /// The person's Chrome profiles paired with Braus, the app's hub (`AppModel.chromeProfiles`); nil offers none.
+    var chromeProfiles: ChromeProfileHub? = nil
     /// The irreversible adapter calls waiting for the person, the app's one queue, which the team's workers use.
     var approvals: AdapterApprovals? = nil
 
@@ -60,6 +68,8 @@ struct TeamWindowView: View {
                     store      : store,
                     connections: connections,
                     broker     : broker,
+                    channels      : channels,
+                    chromeProfiles: chromeProfiles,
                     approvals  : approvals
                 )
                 didOpenTeam(model)

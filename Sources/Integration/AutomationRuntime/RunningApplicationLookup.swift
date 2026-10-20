@@ -7,6 +7,7 @@
 
 import AppKit
 import LiveScenes
+import MacDriver
 import SeatDriving
 
 /// ApplicationLookup resolves the word on the command line to a running application, and a process
@@ -52,15 +53,18 @@ public enum RunningApplicationLookup {
     }
 
     /// Every name an application answers to: the one its bundle declares, its `CFBundleName` when
-    /// a display name hides it, the name of its file and the name the Finder shows in the person's
-    /// language. They differ for many applications: Visual Studio Code's bundle calls it "Code", and
-    /// on an Italian Mac Calculator reads "Calcolatrice". Empty names and repeats are left out.
-    nonisolated public static func names(declared name: String, bundleName: String?, bundleURL: URL?) -> [String] {
+    /// a display name hides it, the name of its file, the name the Finder shows in the person's
+    /// language, then the names its bundle declares in each of `languages` it localizes (`BundleNames`,
+    /// read now, kept nowhere). They differ for many applications: Visual Studio Code's bundle calls it
+    /// "Code", and on an Italian Mac Calculator reads "Calcolatrice". Empty names and repeats are left out.
+    nonisolated public static func names(declared name: String, bundleName: String?, bundleURL: URL?,
+                                         languages: [String] = Locale.preferredLanguages) -> [String] {
         var names = [name, bundleName ?? ""]
         if let url = bundleURL {
             names.append(url.deletingPathExtension().lastPathComponent)
             let shown = FileManager.default.displayName(atPath: url.path)
             names.append(shown.lowercased().hasSuffix(".app") ? String(shown.dropLast(4)) : shown)
+            if let bundle = Bundle(url: url) { names += BundleNames.names(of: bundle, for: languages) }
         }
         var seen = Set<String>()
         return names.filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }

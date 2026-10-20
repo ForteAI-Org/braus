@@ -19,12 +19,16 @@ public enum SceneDifference {
     /// must identify one before element. A state flip needs one counterpart in that same scope.
     /// `countsValueChange` also names a text field that reads another value; a key press has no
     /// target, so only it asks.
+    /// `countsNativeTextChange` also names a static text whose native value changed: only for a scene
+    /// source whose texts show the app's state (the MacDriver's display of a result), never for the
+    /// Seat's, whose texts include clocks, timecodes and "saved a minute ago" lines that change alone.
     public static func effect(
-        before           : SceneSnapshot,
-        after            : SceneSnapshot,
-        targetID         : String?,
-        target           : SceneElement? = nil,
-        countsValueChange: Bool = false
+        before                : SceneSnapshot,
+        after                 : SceneSnapshot,
+        targetID              : String?,
+        target                : SceneElement? = nil,
+        countsValueChange     : Bool = false,
+        countsNativeTextChange: Bool = false
     ) -> SceneEffect? {
         if LabelText.letters(before.windowTitle) != LabelText.letters(after.windowTitle) {
             return .windowTitleChanged(title: String(after.windowTitle.prefix(40)))
@@ -74,8 +78,48 @@ public enum SceneDifference {
         }
         if gone.count >= 3 { return .elementsDisappeared(labels: canonicalLabels(gone)) }
         if countsValueChange, let changed = valueChanged(before: before, after: after) { return changed }
+        if countsNativeTextChange, let changed = nativeTextChanged(before: before, after: after) { return changed }
         if textSelectionChanged(before: before, after: after) { return .textSelectionChanged }
         return nil
+    }
+
+    /// A text read from the accessibility tree, present once in each scene with the same id, or else
+    /// alone at the same place, whose value differs: a display that now reads another result. The
+    /// place covers an id that moved with its siblings: on = Calculator shows the expression in an
+    /// area above the display, so the display's path shifts and its old id names the expression.
+    /// Only a native reading carries a text's value; a recognized text has its words in the label
+    /// alone and never counts, so pixels that repaint differently name no effect.
+    private static func nativeTextChanged(before: SceneSnapshot, after: SceneSnapshot) -> SceneEffect? {
+        guard before.bundleID == after.bundleID else { return nil }
+        for text in before.elements where text.kind == .text {
+            let matches: (SceneElement) -> Bool = { $0.id == text.id && $0.kind == .text }
+            guard before.elements.filter(matches).count == 1 else { continue }
+            let current = after.elements.filter(matches)
+            guard current.count == 1, let counterpart = current.first,
+                  let previous = text.value, let value = counterpart.value, previous != value
+            else { continue }
+            return .valueChanged(label: text.label, value: value)
+        }
+        let readBefore = before.elements.filter { $0.kind == .text && $0.value != nil }
+        let readAfter  = after.elements.filter { $0.kind == .text && $0.value != nil }
+        for text in readBefore {
+            let here: (SceneElement) -> Bool = { samePlace($0.bounds, text.bounds) }
+            guard readBefore.filter(here).count == 1 else { continue }
+            let current = readAfter.filter(here)
+            guard current.count == 1, let counterpart = current.first,
+                  let previous = text.value, let value = counterpart.value, previous != value
+            else { continue }
+            return .valueChanged(label: text.label, value: value)
+        }
+        return nil
+    }
+
+    /// Two texts on the same line that overlap: a right-aligned display keeps its line while its
+    /// width follows the digits, so the frames need not match.
+    private static func samePlace(_ first: NormalizedRect, _ second: NormalizedRect) -> Bool {
+        first.midY > second.y && first.midY < second.maxY
+            && second.midY > first.y && second.midY < first.maxY
+            && first.x < second.maxX && second.x < first.maxX
     }
 
     /// A text field present once in each scene with the same id, kind and role, whose value is

@@ -188,6 +188,36 @@ struct ApplicationResolverIntakeTests {
         #expect(try ApplicationOpening.resolve("Calendar", in: installed).bundleID == "com.apple.iCal")
     }
 
+    @Test("discovery and open agree: the ranking the apps tool reads holds the Apple application \"Apple Calendar\" and \"Apple Notes\" name, exactly what open_session resolves; a third party's calendar, a literal \"Apple Calendar\" and two Apple homonyms (one running) rank and resolve the same way")
+    func discoveryAndOpenAgree() throws {
+        let installed = [Self.notion, Self.calendar, Self.notes, Self.safari]
+        func ids(_ query: String, in apps: [TargetApp]) -> [String] {
+            ApplicationOpening.ranked(query, in: apps).map(\.bundleID)
+        }
+        // The same identity from both, so an agent that searches first is not told the application is not there.
+        #expect(ids("Apple Calendar", in: installed).first == "com.apple.iCal", "\(ids("Apple Calendar", in: installed))")
+        #expect(try ApplicationOpening.resolve("Apple Calendar", in: installed).bundleID == "com.apple.iCal")
+        #expect(ids("Apple Notes", in: installed).first == "com.apple.Notes", "\(ids("Apple Notes", in: installed))")
+        #expect(try ApplicationOpening.resolve("Apple Notes", in: installed).bundleID == "com.apple.Notes")
+        // A third party's "Calendar" is not Apple's: nothing ranked for it, nothing resolved.
+        let custom = Self.app("Calendar", "com.example.cal", at: "/Applications/Calendar.app")
+        #expect(!ids("Apple Calendar", in: [Self.notion, custom, Self.notes]).contains("com.example.cal"))
+        #expect(Self.refusal("Apple Calendar", in: [Self.notion, custom, Self.notes]).hasPrefix("No installed application is named"))
+        // A literal "Apple Calendar" ranks first by its whole name and is what open resolves.
+        let literal = Self.app("Apple Calendar", "com.example.applecal", at: "/Applications/Apple Calendar.app")
+        #expect(ids("Apple Calendar", in: installed + [literal]).first == "com.example.applecal")
+        #expect(try ApplicationOpening.resolve("Apple Calendar", in: installed + [literal]).bundleID == "com.example.applecal")
+        // Two Apple applications of one name, one of them running: both ranked, and open refuses to choose.
+        let twin = Self.app("Calendar", "com.apple.CalendarTwin", at: "/System/Applications/Calendar Twin.app", running: true)
+        let ranked = ids("Apple Calendar", in: installed + [twin])
+        #expect(Set(ranked.prefix(2)) == ["com.apple.iCal", "com.apple.CalendarTwin"], "\(ranked)")
+        let twins = Self.refusal("Apple Calendar", in: installed + [twin])
+        #expect(twins.contains("names 2 installed applications") && twins.contains("com.apple.iCal")
+                && twins.contains("com.apple.CalendarTwin"), "\(twins)")
+        // An identifier or a whole name still ranks first for every other query, as before.
+        #expect(ids("Calendar", in: installed).first == "com.apple.iCal" && ids("com.cron.electron", in: installed).first == "com.cron.electron")
+    }
+
     @Test("installable keeps a /System/Applications row, so a listing that holds one is not the filter's loss")
     func systemApplicationsAreInstallable() {
         let rows = [Self.row("/System/Applications/Calendar.app", "com.apple.iCal", name: "Calendar"),
