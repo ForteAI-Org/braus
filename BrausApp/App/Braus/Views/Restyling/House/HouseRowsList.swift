@@ -7,8 +7,8 @@
 
 import SwiftUI
 
-/// HouseRowsList is the house as the system's sidebar list: a row per worker and the archive as the
-/// last row, which cannot be selected.
+/// HouseRowsList is the house as the system's sidebar list: a row per worker, and the archive pinned
+/// under the list, outside it, so it cannot be selected.
 ///
 /// The list keeps the system's selection, by click and by keys, but not its fill: the accent fill
 /// reads as a status light (an orange accent as busy, the blue one as waiting) and drowns the halo,
@@ -31,11 +31,23 @@ struct HouseRowsList: View {
                 .tag(Optional(worker.id))
                 .listRowBackground(selection == worker.id ? selectedBackground : nil)
             }
-            if archivedCount > 0 {
-                archive
-            }
         }
         .listStyle(.sidebar)
+        // The archive stays at the foot of the sidebar while the rows scroll above it.
+        .safeAreaInset(edge: .bottom) {
+            if archivedCount > 0 {
+                archive
+                    .padding(
+                        .horizontal,
+                        20
+                    )
+                    .padding(
+                        .vertical,
+                        6
+                    )
+                    .background { Color("RestylingSidebar") }
+            }
+        }
     }
 
     /// The selected row's quiet fill, as the prototype's: white at 9% with a faint inner edge, inset
@@ -70,7 +82,6 @@ struct HouseRowsList: View {
             minHeight: 36,
             alignment: isCompact ? .center : .leading
         )
-        .selectionDisabled()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Archive, \(archivedCount) workers")
     }

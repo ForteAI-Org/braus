@@ -12,6 +12,8 @@ import SwiftUI
 ///
 /// The number of room columns, and whether the rows are compact tiles, follow the width the split
 /// gives the sidebar; nothing here changes that width. While searching, the archive is left out.
+/// The search field draws no focus ring (`SearchFieldWithoutRing`): it keeps the keyboard focus,
+/// and the ring would only outline it against the dark sidebar.
 struct HouseSidebar: View {
     let house: MockHouse
 
@@ -47,6 +49,7 @@ struct HouseSidebar: View {
             placement: .sidebar
         )
         .searchFocused($isSearchFocused)
+        .background(SearchFieldWithoutRing())
         .focusedSceneValue(
             \.findInHouse,
             { isSearchFocused = true }
@@ -65,5 +68,47 @@ struct HouseSidebar: View {
 
     private var archivedCount: Int {
         query.isEmpty ? house.archivedCount : 0
+    }
+
+    /// SearchFieldWithoutRing turns off the focus ring of the sidebar's search field, which SwiftUI
+    /// draws as an `NSSearchField` with no modifier for its ring; `.focusEffectDisabled()` leaves it.
+    ///
+    /// Once in a window, on the next turn, it walks up to the window's frame view and down to the one
+    /// search field there, the sidebar's, and sets its `focusRingType`. The field keeps the keyboard
+    /// focus and ⌘F. It takes no clicks and draws nothing. Remove it when SwiftUI's focus effect
+    /// reaches the searchable field.
+    private struct SearchFieldWithoutRing: NSViewRepresentable {
+
+        func makeNSView(context: Context) -> BridgeView { BridgeView() }
+
+        func updateNSView(
+            _ view : BridgeView,
+            context: Context
+        ) {}
+
+        /// The AppKit end: it finds the field once it is in a window.
+        final class BridgeView: NSView {
+
+            override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+            override func viewDidMoveToWindow() {
+                super.viewDidMoveToWindow()
+                guard window != nil else { return }
+
+                // The searchable field is placed in the same pass as this view, after it.
+                DispatchQueue.main.async { [weak self] in
+                    guard let frame = self?.window?.contentView?.superview else { return }
+                    Self.searchField(in: frame)?.focusRingType = .none
+                }
+            }
+
+            private static func searchField(in view: NSView) -> NSSearchField? {
+                if let field = view as? NSSearchField { return field }
+                for subview in view.subviews {
+                    if let field = searchField(in: subview) { return field }
+                }
+                return nil
+            }
+        }
     }
 }

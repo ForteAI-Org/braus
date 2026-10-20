@@ -111,6 +111,11 @@ struct RestylingWindowView: View {
                         maxHeight: .infinity
                     )
                     .background { Color("RestylingInspector").ignoresSafeArea() }
+                    // The system's separator between the conversation and the inspector.
+                    .overlay(alignment: .leading) {
+                        HStack(spacing: 0) { Divider() }
+                            .ignoresSafeArea()
+                    }
                     .inspectorColumnWidth(
                         min  : RestylingWindowLayout.inspectorWidth.minimum,
                         ideal: RestylingWindowLayout.inspectorWidth.ideal,
@@ -277,12 +282,10 @@ struct RestylingWindowView: View {
         }
     }
 
-    /// FirstWindowSize opens the house at the design's 1180 × 720 when no frame of it was saved.
-    /// The scene is shared with the team window, so the size is set here rather than with
-    /// `.defaultSize`, and the content's ideal size does not size a new window. It draws nothing.
-    ///
-    /// The window has no autosave name yet when this view joins it and has saved its frame by the
-    /// next turn, so whether a frame was saved is read at once, by the house's own key.
+    /// FirstWindowSize opens the house at the design's 1180 × 720 the first time, then never again,
+    /// so later launches keep the frame the person left. The scene is shared with the team window,
+    /// whose saved frame the house inherits, so the first time is the house's own defaults flag
+    /// (`AppPreferences.restylingDidSizeWindow`), not a saved frame. It draws nothing.
     private struct FirstWindowSize: NSViewRepresentable {
 
         func makeNSView(context: Context) -> BridgeView { BridgeView() }
@@ -295,17 +298,18 @@ struct RestylingWindowView: View {
         /// The AppKit end: it sizes its window once, on the turn after it joins it.
         final class BridgeView: NSView {
 
-            private var isSized = false
-
             override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
             override func viewDidMoveToWindow() {
                 super.viewDidMoveToWindow()
-                guard !isSized, window != nil else { return }
+                let defaults = UserDefaults.standard
+                guard window != nil, !defaults.bool(forKey: AppPreferences.restylingDidSizeWindow) else { return }
 
-                isSized = true
-                guard !Self.hasSavedFrame else { return }
-
+                defaults.set(
+                    true,
+                    forKey: AppPreferences.restylingDidSizeWindow
+                )
+                // After SwiftUI has restored the scene's saved frame, which would otherwise win.
                 DispatchQueue.main.async { [weak self] in
                     guard let window = self?.window else { return }
 
@@ -314,14 +318,6 @@ struct RestylingWindowView: View {
                         height: 720
                     ))
                     window.center()
-                }
-            }
-
-            /// Whether a house window's frame is in the defaults: its key names this view's type.
-            private static var hasSavedFrame: Bool {
-                let house = String(describing: RestylingWindowView.self)
-                return UserDefaults.standard.dictionaryRepresentation().keys.contains {
-                    $0.hasPrefix("NSWindow Frame ") && $0.contains(house)
                 }
             }
         }

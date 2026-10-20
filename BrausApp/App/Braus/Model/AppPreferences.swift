@@ -59,6 +59,10 @@ enum AppPreferences {
     static let restylingSidebarMode        = "restyling.sidebarMode"
     static let restylingSidebarModeDefault = "rooms"
 
+    /// Set once the restyling mockup's house window has opened at its design size, so later
+    /// launches keep the frame the person left.
+    static let restylingDidSizeWindow      = "restyling.didSizeWindow"
+
     // MARK: Chat
 
     /// Whether the time is written under the messages.

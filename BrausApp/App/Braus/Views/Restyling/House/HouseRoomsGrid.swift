@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// HouseRoomsGrid is the house as a floor plan: a room per worker in `columns` columns, the first
-/// room across both when there are two, and the archive's closed cellar last.
+/// room across both when there are two, and the archive's closed cellar pinned under them.
 struct HouseRoomsGrid: View {
     let workers      : [MockWorker]
     let archivedCount: Int
@@ -27,14 +27,19 @@ struct HouseRoomsGrid: View {
                         room(worker)
                     }
                 }
-                if archivedCount > 0 {
-                    cellar
-                }
             }
             .padding(
                 .horizontal,
                 10
             )
+        }
+        // The archive stays at the foot of the sidebar while the rooms scroll above it.
+        .safeAreaInset(edge: .bottom) {
+            if archivedCount > 0 {
+                cellar
+                    .padding(10)
+                    .background { Color("RestylingSidebar") }
+            }
         }
     }
 
