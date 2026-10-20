@@ -9,9 +9,14 @@ import MetalKit
 
 /// RoomLightView shows one room lit by its worker, seen from above.
 ///
-/// Size changes settle for 150 milliseconds, then RoomRenderQueue spreads renders across frames.
-/// Uniform changes enter the queue immediately; during resize they use the last rendered size.
-/// Resizing alone stretches the last drawable and pulse frames without Metal work or CPU readback.
+/// While the room is resized it renders nothing: the last image stays on screen scaled uniformly by
+/// the change of the room's short side and centred (`contentsRect`), so the sphere keeps the size and
+/// centre the brows follow; the walls may look cropped and an uncovered edge repeats the wall's edge
+/// pixels. Once the size has been still for 70 milliseconds, a visible room on a ray-tracing GPU is
+/// drawn at once with the precomputed light, then refined with the ray tracer through RoomRenderQueue,
+/// the preview fading out over the refinement; only the refinement bakes the pulse. Uniform changes
+/// enter the queue immediately; during a resize they use the last rendered size.
+///
 /// A render draws the room with its light at full strength and, for a light that pulses, a
 /// cycle of frames with the light at the pulse's weights, each tone mapped after the light is added;
 /// `pulseLayer` plays them over the drawable with a keyframe animation of its contents, so the
@@ -52,6 +57,19 @@ final class RoomLightView: MTKView {
 
     private let renderer: (any RoomRenderer)?
 
+    /// The precomputed light drawn first after a resize when `renderer` is the ray tracer; nil
+    /// when the renderer is already the precomputed one.
+    private let previewRenderer: PrecomputedRoomRenderer?
+
+    /// Shows the preview over the refinement while the ray tracer works, then fades it out.
+    private let refineLayer = CALayer()
+
+    /// The preview's image, kept for `refineLayer`; nil until the preview has completed.
+    private var previewImage: CGImage?
+
+    /// Whether the drawable shows a preview the ray tracer has not replaced yet.
+    private var needsRefinement = false
+
     /// Invalidates completions as soon as an input changes, before the next render begins.
     private var renderRevision = 0
 
@@ -68,7 +86,10 @@ final class RoomLightView: MTKView {
 
     private(set) var hasPendingUniforms = false
 
-    private static let resizeDelay = Duration.milliseconds(150)
+    private static let resizeDelay = Duration.milliseconds(70)
+
+    /// How long the refinement takes to replace the preview.
+    private static let refineFade = 0.15
 
     init(
         device  : MTLDevice,
@@ -82,8 +103,9 @@ final class RoomLightView: MTKView {
         // A ray tracer that cannot load falls back to the precomputed light.
         let tracer: RayTracedRoomRenderer? = wanted == .rayTraced ? RayTracedRoomRenderer(device: device) : nil
         let precomputed = tracer == nil ? PrecomputedRoomRenderer(device: device) : nil
-        renderer      = tracer ?? precomputed
-        path          = tracer != nil ? .rayTraced : (precomputed != nil ? .precomputed : nil)
+        renderer        = tracer ?? precomputed
+        previewRenderer = tracer != nil ? PrecomputedRoomRenderer(device: device) : nil
+        path            = tracer != nil ? .rayTraced : (precomputed != nil ? .precomputed : nil)
         self.uniforms = uniforms
         super.init(
             frame : frame,
@@ -91,7 +113,7 @@ final class RoomLightView: MTKView {
         )
         isPaused              = true
         enableSetNeedsDisplay = true
-        // Layout stretches the last drawable; only a settled render changes its pixel size.
+        // Layout scales the last drawable through `contentsRect`; only a render changes its pixel size.
         autoResizeDrawable    = false
         // The kernels write the drawable's texture directly.
         framebufferOnly  = false
@@ -101,6 +123,9 @@ final class RoomLightView: MTKView {
         pulseLayer.isHidden        = true
         pulseLayer.contentsGravity = .resize
         layer?.addSublayer(pulseLayer)
+        refineLayer.isHidden        = true
+        refineLayer.contentsGravity = .resize
+        layer?.addSublayer(refineLayer)
     }
 
     required init(coder: NSCoder) { fatalError("RoomLightView is code-only") }
@@ -112,6 +137,8 @@ final class RoomLightView: MTKView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pulseLayer.frame    = bounds
+        refineLayer.frame   = bounds
+        applyContentsRect()
         layer.cornerRadius  = CGFloat(RoomLightUniforms.Shape(size: bounds.size).cornerRadius)
         layer.cornerCurve   = .continuous
         layer.masksToBounds = true
@@ -149,6 +176,8 @@ final class RoomLightView: MTKView {
         guard size != renderSize || pixelSize != renderPixelSize else { return }
         renderSize      = size
         renderPixelSize = pixelSize
+        needsRefinement = false
+        hideRefinement()
         scheduleSizeRender()
     }
 
@@ -166,9 +195,87 @@ final class RoomLightView: MTKView {
             }
             guard !Task.isCancelled, let self else { return }
             self.settleTask = nil
-            self.enqueueRenderIfReady()
+            if self.canPreview {
+                RoomRenderQueue.shared.preview(self)
+            } else {
+                self.enqueueRenderIfReady()
+            }
         }
         enqueueRenderIfReady()
+    }
+
+    /// Whether a settled size can be shown at once with the precomputed light: the room is visible,
+    /// idle, and its renderer is the ray tracer.
+    var canPreview: Bool {
+        previewRenderer != nil && !isRendering && settleTask == nil && window != nil
+            && !visibleRect.isEmpty && !isHiddenOrHasHiddenAncestor
+    }
+
+    /// Draws the room at its settled size with the precomputed light and leaves the ray-traced
+    /// refinement to RoomRenderQueue, which calls this for every room settled in the same frame inside
+    /// one transaction. A room that cannot be previewed any more joins the queue directly.
+    func renderPreview() {
+        if !renderPreviewIfPossible() { enqueueRenderIfReady() }
+    }
+
+    private func renderPreviewIfPossible() -> Bool {
+        guard
+            canPreview,
+            let previewRenderer,
+            let size      = renderSize,
+            let pixelSize = renderPixelSize,
+            size.width > 0,
+            size.height > 0,
+            pixelSize.width > 0,
+            pixelSize.height > 0,
+            let metalLayer = layer as? CAMetalLayer
+        else { return false }
+        // MTKView's own drawableSize reaches the layer later, so its next drawable would keep the old size.
+        metalLayer.drawableSize = pixelSize
+        guard
+            let drawable      = metalLayer.nextDrawable(),
+            Self.drawable(drawable, fits: pixelSize),
+            let commandBuffer = previewRenderer.commandQueue.makeCommandBuffer()
+        else { return false }
+        let copy = Self.frameTexture(like: drawable.texture)
+        previewRenderer.encode(
+            uniforms,
+            size         : size,
+            into         : [(drawable.texture, 1)] + (copy.map { [(texture: $0, weight: Float(1))] } ?? []),
+            commandBuffer: commandBuffer
+        )
+        if let copy, copy.storageMode == .managed, let blit = commandBuffer.makeBlitCommandEncoder() {
+            blit.synchronize(resource: copy)
+            blit.endEncoding()
+        }
+        hasPendingRender   = true
+        hasPendingUniforms = false
+        needsRefinement    = true
+        previewImage       = nil
+        isRendering        = true
+        let render = renderRevision
+        commandBuffer.addCompletedHandler { @Sendable [weak self] buffer in
+            let image = buffer.status == .completed ? copy.flatMap(Self.image(from:)) : nil
+            Task { @MainActor in
+                guard let self else { return }
+                self.isRendering = false
+                if render == self.renderRevision { self.previewImage = image }
+                self.enqueueRenderIfReady()
+            }
+        }
+        // The new size reaches the screen with the contentsRect that frames it.
+        metalLayer.presentsWithTransaction = true
+        commandBuffer.commit()
+        commandBuffer.waitUntilScheduled()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        drawable.present()
+        lastRenderedSize      = size
+        lastRenderedPixelSize = pixelSize
+        stopPulse()
+        applyContentsRect()
+        CATransaction.commit()
+        return true
     }
 
     /// Allows a uniform update at the previous size while the next geometry is still settling.
@@ -182,8 +289,8 @@ final class RoomLightView: MTKView {
         RoomRenderQueue.shared.enqueue(self)
     }
 
-    /// Uses MTKView's explicit draw entry point so it releases its drawable after the submission.
-    /// Called only by RoomRenderQueue after reserving its sole slot.
+    /// Uses MTKView's explicit draw entry point; the drawable comes straight from the layer, so it
+    /// always has the size just asked for. Called only by RoomRenderQueue after reserving its sole slot.
     /// Returns false when newer geometry or a missing drawable prevented work from being submitted.
     func renderQueuedFrame() -> Bool {
         guard canRenderQueuedFrame else { return false }
@@ -209,19 +316,22 @@ final class RoomLightView: MTKView {
             size.height > 0,
             pixelSize.width > 0,
             pixelSize.height > 0,
-            let renderer
+            let renderer,
+            let metalLayer = layer as? CAMetalLayer
         else { return }
-        drawableSize = pixelSize
+        // MTKView's own drawableSize reaches the layer later, so its next drawable would keep the old size.
+        metalLayer.drawableSize = pixelSize
         guard
-            let drawable      = currentDrawable,
+            let drawable      = metalLayer.nextDrawable(),
+            Self.drawable(drawable, fits: pixelSize),
             let commandBuffer = renderer.commandQueue.makeCommandBuffer()
         else { return }
+        let refines      = needsRefinement && previewImage != nil && size == lastRenderedSize
+        let resizesImage = size != lastRenderedSize || pixelSize != lastRenderedPixelSize
         hasPendingRender      = !isSizeSettled
         hasPendingUniforms    = false
+        needsRefinement       = false
         isRendering           = true
-        lastRenderedSize      = size
-        lastRenderedPixelSize = pixelSize
-        stopPulse()
         let weights = Self.pulseWeights(
             for          : uniforms.status,
             reducesMotion: RestylingMotion.reducesMotion
@@ -242,7 +352,6 @@ final class RoomLightView: MTKView {
             }
             blit.endEncoding()
         }
-        commandBuffer.present(drawable)
         let render      = renderRevision
         let status      = uniforms.status
         let pulseFrames = pulse.map(\.0)
@@ -259,10 +368,117 @@ final class RoomLightView: MTKView {
                         render: render
                     )
                 }
+                if refines, render == self.renderRevision { self.fadeOutRefinement() }
                 self.enqueueRenderIfReady()
             }
         }
+        // An image of a new size must reach the screen with the contentsRect that frames it; one of
+        // the same size is presented as soon as the GPU has drawn it, without waiting here.
+        metalLayer.presentsWithTransaction = resizesImage
+        if !resizesImage { commandBuffer.present(drawable) }
         commandBuffer.commit()
+        if resizesImage { commandBuffer.waitUntilScheduled() }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if refines, let previewImage {
+            // The preview stays in front until the ray-traced image is ready beneath it.
+            refineLayer.removeAllAnimations()
+            refineLayer.contents = previewImage
+            refineLayer.opacity  = 1
+            refineLayer.isHidden = false
+        }
+        if resizesImage { drawable.present() }
+        lastRenderedSize      = size
+        lastRenderedPixelSize = pixelSize
+        stopPulse()
+        applyContentsRect()
+        CATransaction.commit()
+    }
+
+    /// Whether `drawable` has the pixel size the room is about to be rendered at; an image drawn for
+    /// one size into a texture of another would reach the screen stretched.
+    private static func drawable(
+        _ drawable: CAMetalDrawable,
+        fits size : CGSize
+    ) -> Bool {
+        drawable.texture.width == Int(size.width) && drawable.texture.height == Int(size.height)
+    }
+
+    /// The part of an image rendered at `rendered` points that a room of `bounds` points shows: the
+    /// image scaled by the change of the short side and centred, so its sphere, 34% of the short side
+    /// across, keeps the size and centre the brows follow. Outside the unit square Core Animation
+    /// repeats the image's edge pixels.
+    static func contentsRect(
+        rendered: CGSize?,
+        bounds  : CGSize
+    ) -> CGRect {
+        let unit = CGRect(
+            x     : 0,
+            y     : 0,
+            width : 1,
+            height: 1
+        )
+        guard
+            let rendered,
+            rendered != bounds,
+            rendered.width > 0,
+            rendered.height > 0,
+            bounds.width > 0,
+            bounds.height > 0
+        else { return unit }
+        let scale  = min(bounds.width, bounds.height) / min(rendered.width, rendered.height)
+        let width  = bounds.width / scale / rendered.width
+        let height = bounds.height / scale / rendered.height
+        return CGRect(
+            x     : (1 - width) / 2,
+            y     : (1 - height) / 2,
+            width : width,
+            height: height
+        )
+    }
+
+    /// Frames the drawable, the pulse and the preview by the size they were rendered at. Called
+    /// inside a transaction with actions disabled.
+    private func applyContentsRect() {
+        let rect = Self.contentsRect(
+            rendered: lastRenderedSize,
+            bounds  : bounds.size
+        )
+        layer?.contentsRect      = rect
+        pulseLayer.contentsRect  = rect
+        refineLayer.contentsRect = rect
+    }
+
+    /// Fades the preview out over the ray-traced image now beneath it.
+    private func fadeOutRefinement() {
+        guard !refineLayer.isHidden else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue   = 0
+        fade.duration  = Self.refineFade
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            // A newer refinement shows the preview again at full opacity; leave that one alone.
+            MainActor.assumeIsolated {
+                if self?.refineLayer.opacity == 0 { self?.hideRefinement() }
+            }
+        }
+        refineLayer.opacity = 0
+        refineLayer.add(
+            fade,
+            forKey: "fade"
+        )
+        CATransaction.commit()
+    }
+
+    private func hideRefinement() {
+        guard !refineLayer.isHidden else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        refineLayer.removeAllAnimations()
+        refineLayer.isHidden = true
+        refineLayer.contents = nil
+        CATransaction.commit()
     }
 
     /// The light's weight in each frame of one pulse cycle: the prototype's busy flicker or waiting

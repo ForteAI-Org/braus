@@ -80,6 +80,42 @@ struct RoomLightTests {
         #expect(view.requestedRenders == before + 1)
     }
 
+    @Test("A resized room shows its last image scaled by the short side and centred, so the sphere fits the brows")
+    func resizedRoomKeepsTheSphere() {
+        let unit = CGRect(
+            x     : 0,
+            y     : 0,
+            width : 1,
+            height: 1
+        )
+        #expect(RoomLightView.contentsRect(
+            rendered: nil,
+            bounds  : CGSize(width: 127, height: 104)
+        ) == unit)
+        #expect(RoomLightView.contentsRect(
+            rendered: CGSize(width: 127, height: 104),
+            bounds  : CGSize(width: 127, height: 104)
+        ) == unit)
+        let resizes: [(rendered: CGSize, bounds: CGSize)] = [
+            (CGSize(width: 97, height: 104), CGSize(width: 157, height: 104)),
+            (CGSize(width: 157, height: 104), CGSize(width: 97, height: 104)),
+            (CGSize(width: 127, height: 104), CGSize(width: 120, height: 92)),
+            (CGSize(width: 260, height: 104), CGSize(width: 320, height: 104))
+        ]
+        for resize in resizes {
+            let rect = RoomLightView.contentsRect(
+                rendered: resize.rendered,
+                bounds  : resize.bounds
+            )
+            // The sphere is a share of the short side, so it must grow by the short side's change in both axes.
+            let wanted = min(resize.bounds.width, resize.bounds.height) / min(resize.rendered.width, resize.rendered.height)
+            #expect(abs(resize.bounds.width / (rect.width * resize.rendered.width) - wanted) < 1e-9)
+            #expect(abs(resize.bounds.height / (rect.height * resize.rendered.height) - wanted) < 1e-9)
+            #expect(abs(rect.midX - 0.5) < 1e-9)
+            #expect(abs(rect.midY - 0.5) < 1e-9)
+        }
+    }
+
     @Test("A busy light flickers and a waiting light breathes, neither under Reduce Motion")
     func pulse() throws {
         let busy = RoomLightView.pulseWeights(
