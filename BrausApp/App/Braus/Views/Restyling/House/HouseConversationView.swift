@@ -12,7 +12,8 @@ import SwiftUI
 ///
 /// The messages are a static sample; what the person sends is added after them.
 struct HouseConversationView: View {
-    let worker: MockWorker
+    let worker           : MockWorker
+    let isComposerFocused: FocusState<Bool>.Binding
 
     @State private var sent: [String] = []
 
@@ -64,7 +65,10 @@ struct HouseConversationView: View {
                     endPoint  : .bottom
                 )
             }
-            HouseComposer(worker: worker) { sent.append($0) }
+            HouseComposer(
+                worker   : worker,
+                isFocused: isComposerFocused
+            ) { sent.append($0) }
                 .frame(maxWidth: Self.columnWidth)
                 .padding(
                     .horizontal,

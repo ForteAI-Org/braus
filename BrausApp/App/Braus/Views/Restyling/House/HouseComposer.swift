@@ -10,12 +10,14 @@ import SwiftUI
 /// HouseComposer is the mockup's composer: a 52 point glass pill holding, from leading to trailing,
 /// the `+` menu, the message field, the model and effort menu, the context ring and Send.
 ///
-/// The field takes the keyboard focus when the composer appears, which is when a worker is chosen,
-/// so the sidebar's selection draws unemphasized. Return sends a message that is not blank, hands it
-/// to `onSend` and clears the field. The `+` menu's items and the ring's actions are placeholders.
+/// The field's focus belongs to the window, through `isFocused`, which moves it here when a worker
+/// is chosen by pointer or Return pressed in the sidebar. Return sends a message that is not blank,
+/// hands it to `onSend` and clears the field. The `+` menu's items and the ring's actions are
+/// placeholders.
 struct HouseComposer: View {
-    let worker: MockWorker
-    let onSend: (String) -> Void
+    let worker   : MockWorker
+    let isFocused: FocusState<Bool>.Binding
+    let onSend   : (String) -> Void
 
     @State private var text = ""
 
@@ -27,8 +29,6 @@ struct HouseComposer: View {
 
     @State private var showsContext = false
 
-    @FocusState private var isFieldFocused: Bool
-
     var body: some View {
         HStack(spacing: 10) {
             addMenu
@@ -38,7 +38,7 @@ struct HouseComposer: View {
             )
             .textFieldStyle(.plain)
             .font(.system(size: 14))
-            .focused($isFieldFocused)
+            .focused(isFocused)
             // Return in the field sends too; a second call from Send's shortcut finds the field empty.
             .onSubmit(send)
             modelMenu
@@ -69,11 +69,6 @@ struct HouseComposer: View {
             radius: 20,
             y     : 20
         )
-        .task {
-            // Asked for before the field is in its window, the focus is dropped and stays on the sidebar.
-            await Task.yield()
-            isFieldFocused = true
-        }
     }
 
     /// The mock context: a third of a 200k window.

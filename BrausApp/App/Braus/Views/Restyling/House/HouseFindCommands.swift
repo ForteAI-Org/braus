@@ -28,6 +28,6 @@ struct HouseFindCommands: Commands {
 
 extension FocusedValues {
 
-    /// Focuses the key house window's search field, published by `RestylingWindowView`.
+    /// Focuses the key house window's search field, published by `HouseSidebar`.
     @Entry var findInHouse: (() -> Void)?
 }
