@@ -208,8 +208,10 @@ Prototype: `prototypes/anello.html`.
 Braus closed lives in the menu bar [decided]. When the last window closes the
 app keeps running and its Dock icon disappears; opening a window brings it back
 [decided]. A global shortcut opens the ring
-over whatever app is in front [decided]. The prototype uses ⌥Space; the real
-combination is open (see Open points).
+over whatever app is in front [decided]. The shortcut is Control-Option
+pressed together and released with no other key [decided]. Control-Option is
+also VoiceOver's modifier, so while VoiceOver runs the chord does nothing and
+the ring opens from the menu-bar menu instead [proposed].
 
 **Form** [decided]. One continuous ring of dark glass, thick (about 82 pt wide
 on a 370 pt diameter), like Spotlight's material. Each element owns a zone of the
@@ -415,7 +417,5 @@ be changed without touching the rest.
 
 ## Open points
 
-- **The ring's shortcut.** ⌥Space in the prototype; the real one must not clash
-  with Spotlight or common apps.
 - **Cost of room light without hardware ray tracing.** Measure the precomputed
   path on the M1 that is available for testing before committing to the look.
