@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// HouseSidebar is the mockup's sidebar: the house's workers as rooms or as rows, as Settings
-/// chooses, with a search field that finds a worker by name.
+/// chooses, with a search field that finds a worker by name and that Edit > Find… (⌘F) focuses.
 ///
 /// The number of room columns, and whether the rows are compact tiles, follow the width the split
 /// gives the sidebar; nothing here changes that width. While searching, the archive is left out.
@@ -20,6 +20,8 @@ struct HouseSidebar: View {
     @State private var query = ""
 
     @State private var columns = 2
+
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         Group {
@@ -43,6 +45,11 @@ struct HouseSidebar: View {
         .searchable(
             text     : $query,
             placement: .sidebar
+        )
+        .searchFocused($isSearchFocused)
+        .focusedSceneValue(
+            \.findInHouse,
+            { isSearchFocused = true }
         )
         .onGeometryChange(for: Int.self) { proxy in
             HouseLayout.columns(sidebarWidth: proxy.size.width)

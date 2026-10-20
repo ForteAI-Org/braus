@@ -45,6 +45,12 @@ struct BrausApp: App {
         }
     }
 
+    /// The size the restyling mockup's window first opens at.
+    private static let restylingWindowSize = CGSize(
+        width : 1180,
+        height: 720
+    )
+
     init() {
         // A restored team window would open the person's workspace; a snapshot run must not.
         if Self.isCheckRun { UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true]) }
@@ -72,6 +78,10 @@ struct BrausApp: App {
                 }
             }
         }
+        // The mockup's house opens at the design's size; a nil size leaves the team window to the system.
+        .defaultWindowPlacement { _, _ in
+            WindowPlacement(size: RestylingMode.isRequested ? Self.restylingWindowSize : nil)
+        }
         // A snapshot run draws offscreen and quits; it opens no window and no workspace.
         .defaultLaunchBehavior(Self.isCheckRun ? .suppressed : .automatic)
         .commands {
@@ -82,6 +92,7 @@ struct BrausApp: App {
             DebugAppearanceCommands(choice: $debugAppearance)
             #endif
             TeamMenuCommands()
+            HouseFindCommands()
             SettingsCommands()
             MCPConnectionsCommands()
         }
