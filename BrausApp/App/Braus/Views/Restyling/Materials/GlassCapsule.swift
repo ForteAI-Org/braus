@@ -9,14 +9,14 @@ import SwiftUI
 
 /// GlassCapsule sets its content on the system's glass in a capsule: `.glassEffect` on macOS 26,
 /// the regular material before it, and an opaque surface of the same dark tone under Reduce
-/// Transparency.
+/// Transparency (the asset catalogue's `RestylingOpaqueGlass`).
 struct GlassCapsule: ViewModifier {
 
     func body(content: Content) -> some View {
         if RestylingMotion.reducesTransparency {
             content
                 .background(
-                    Color(white: 0.11),
+                    Color("RestylingOpaqueGlass"),
                     in: Capsule()
                 )
                 .overlay { edge }

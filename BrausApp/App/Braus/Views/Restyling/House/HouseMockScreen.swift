@@ -1,5 +1,5 @@
 //
-//  ScreenSlab.swift
+//  HouseMockScreen.swift
 //  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 20/10/2026.
@@ -7,45 +7,22 @@
 
 import SwiftUI
 
-/// ScreenSlab is the inspector's slab of the worker's live screen: the app it drives and a 16:10
-/// mock of that screen, a few tracks under a menu bar, with the worker's amber pointer wandering.
+/// HouseMockScreen is the worker's live screen as the mockup draws it: a 16:10 mock of the app it
+/// drives, a few tracks under a menu bar, with the worker's amber pointer wandering, in a rounded clip.
 ///
 /// The inspector shows it only while the worker is busy. Its click will open the worker's screen
 /// window; until that window exists it does nothing.
-struct ScreenSlab: View {
+struct HouseMockScreen: View {
     let worker: MockWorker
 
     var body: some View {
-        VStack(
-            alignment: .leading,
-            spacing  : 10
-        ) {
-            HStack {
-                Text("Screen")
-                    .font(.system(
-                        size  : 10,
-                        design: .monospaced
-                    ))
-                    .tracking(1.4)
-                    .textCase(.uppercase)
-                    .foregroundStyle(.tertiary)
-                Spacer()
-                Text(appName)
-                    .font(.system(
-                        size  : 11,
-                        weight: .medium
-                    ))
-                    .foregroundStyle(.secondary)
-            }
-            screen
-        }
-        .modifier(SatinSlabStyle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Screen, \(appName)")
+        screen
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(Self.appName(of: worker)) screen")
     }
 
     /// The app the mock worker drives, after its kind.
-    private var appName: String {
+    static func appName(of worker: MockWorker) -> String {
         switch worker.category {
         case .audio  : "Pro Tools"
         case .video  : "DaVinci Resolve"
@@ -96,7 +73,7 @@ struct ScreenSlab: View {
             }
         }
         .clipShape(RoundedRectangle(
-            cornerRadius: 13,
+            cornerRadius: 8,
             style       : .continuous
         ))
     }

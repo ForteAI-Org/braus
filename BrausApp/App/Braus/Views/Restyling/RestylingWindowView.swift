@@ -8,8 +8,7 @@
 import SwiftUI
 
 /// RestylingWindowView is the restyling mockup's house window, dark only: the house in the sidebar,
-/// the conversation with the chosen worker, and an inspector that opens from the toolbar. Window,
-/// sidebar and inspector keep the system's own backgrounds; only their content is drawn.
+/// the conversation with the chosen worker, and an inspector that opens from the toolbar.
 ///
 /// The toolbar holds New Worker beside the traffic lights, and at the trailing edge the Screen and
 /// Inspector controls; the window has no title, as the worker sits at the top of its conversation.
@@ -23,7 +22,11 @@ import SwiftUI
 /// division is decided from the window's own width, never from a width measured inside the split,
 /// the sidebar turns compact before the inspector closes, and a new division gives room first and
 /// takes it after. The sidebar is never hidden, and the window's minimum leaves out the inspector's
-/// width while it is asked for or shown, as AppKit adds that width itself.
+/// width while it is asked for or shown, as AppKit adds that width itself. The division code mirrors
+/// `TeamShellView`'s line for line; share one implementation when the mockup is wired to the team.
+///
+/// The window, sidebar and inspector backgrounds are the asset catalogue's `RestylingGround`,
+/// `RestylingSidebar` and `RestylingInspector`, darker than the system's greys.
 struct RestylingWindowView: View {
 
     /// Longer than AppKit takes to close the inspector column, as in `TeamShellView`.
@@ -64,6 +67,9 @@ struct RestylingWindowView: View {
                 house    : house,
                 selection: $selection
             )
+            // The system's sidebar material reads grey; the house's sidebar is darker, from the asset catalogue.
+            .scrollContentBackground(.hidden)
+            .background { Color("RestylingSidebar").ignoresSafeArea() }
             .onKeyPress(.return) {
                 guard selection != nil else { return .ignored }
                 isComposerFocused = true
@@ -92,12 +98,19 @@ struct RestylingWindowView: View {
                     minHeight: 0,
                     maxHeight: .infinity
                 )
+                .background { Color("RestylingGround").ignoresSafeArea() }
                 .toolbar { toolbar }
                 .inspector(isPresented: inspectorPresentation) {
                     HouseInspector(
                         worker     : selectedWorker,
                         showsScreen: showsScreen
                     )
+                    .scrollContentBackground(.hidden)
+                    .frame(
+                        maxWidth : .infinity,
+                        maxHeight: .infinity
+                    )
+                    .background { Color("RestylingInspector").ignoresSafeArea() }
                     .inspectorColumnWidth(
                         min  : ShellMetrics.inspector.minimum,
                         ideal: ShellMetrics.inspector.ideal,
@@ -106,6 +119,11 @@ struct RestylingWindowView: View {
                 }
         }
         .toolbar(removing: .title)
+        // The toolbar's own grey would band the dark ground; the ground runs up under it instead.
+        .toolbarBackgroundVisibility(
+            .hidden,
+            for: .windowToolbar
+        )
         .background(FirstWindowSize())
         .frame(
             minWidth : isInspectorInWindow ? ShellMetrics.windowMinimumBesideInspector : ShellMetrics.windowMinimum,
