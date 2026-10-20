@@ -54,18 +54,22 @@ struct BrausApp: App {
 
         // The team is the front door. It asks for no grant until a worker first opens an app.
         WindowGroup("Braus") {
-            TeamWindowView(
-                launch     : workspace,
-                connections: model.settings,
-                broker     : model.broker,
-                didOpenTeam: { delegate.teams.add($0) },
-                approvals  : model.approvals
-            )
-            // The delegate is made by AppKit and the model by SwiftUI, so
-            // this window, the one that always exists, is where they meet.
-            .task {
-                delegate.model = model
-                if !Self.isCheckRun { await model.mcp.prepare() }
+            if RestylingMode.isRequested {
+                RestylingWindowView()
+            } else {
+                TeamWindowView(
+                    launch     : workspace,
+                    connections: model.settings,
+                    broker     : model.broker,
+                    didOpenTeam: { delegate.teams.add($0) },
+                    approvals  : model.approvals
+                )
+                // The delegate is made by AppKit and the model by SwiftUI, so
+                // this window, the one that always exists, is where they meet.
+                .task {
+                    delegate.model = model
+                    if !Self.isCheckRun { await model.mcp.prepare() }
+                }
             }
         }
         // A snapshot run draws offscreen and quits; it opens no window and no workspace.
