@@ -55,6 +55,10 @@ enum AppPreferences {
     static let sidebarShowsSearch        = "sidebar.showsSearch"
     static let sidebarShowsSearchDefault = true
 
+    /// How the restyling mockup's sidebar shows the workers, a `SidebarMode` raw value.
+    static let restylingSidebarMode        = "restyling.sidebarMode"
+    static let restylingSidebarModeDefault = "rooms"
+
     // MARK: Chat
 
     /// Whether the time is written under the messages.

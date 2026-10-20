@@ -20,8 +20,24 @@ struct SidebarSettings: View {
     @AppStorage(AppPreferences.sidebarShowsSearch)
     private var showsSearch = AppPreferences.sidebarShowsSearchDefault
 
+    @AppStorage(AppPreferences.restylingSidebarMode)
+    private var restylingSidebarMode = SidebarMode(preference: AppPreferences.restylingSidebarModeDefault)
+
     var body: some View {
         Form {
+            if RestylingMode.isRequested {
+                Section {
+                    Picker(
+                        "Workers",
+                        selection: $restylingSidebarMode
+                    ) {
+                        Text("Rooms").tag(SidebarMode.rooms)
+                        Text("Rows").tag(SidebarMode.rows)
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+
             Section {
                 Toggle(
                     "Show model names",
