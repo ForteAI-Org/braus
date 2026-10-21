@@ -53,7 +53,7 @@ struct HouseRoomCell: View {
             ZStack {
                 RoomLight(uniforms: RoomLightUniforms(
                     status     : worker.status,
-                    tint       : MascotImages.color(for: worker.appearance),
+                    shape      : worker.shape,
                     hasOccupant: !isSelected
                 ))
                 .allowsHitTesting(false)
@@ -61,7 +61,7 @@ struct HouseRoomCell: View {
                 if !isSelected {
                     // The room draws the sphere at its centre, 34% of its short side across.
                     MascotFace(
-                        appearance      : worker.appearance,
+                        shape           : worker.shape,
                         status          : worker.status,
                         brows           : BrowState(worker.status),
                         size            : 0.34 * min(proxy.size.width, proxy.size.height),

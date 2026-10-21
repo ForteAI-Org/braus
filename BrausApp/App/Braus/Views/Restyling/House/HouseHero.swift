@@ -15,10 +15,10 @@ struct HouseHero: View {
     var body: some View {
         VStack(spacing: 0) {
             MascotFace(
-                appearance: worker.appearance,
-                status    : worker.status,
-                brows     : BrowState(worker.status),
-                size      : 56
+                shape : worker.shape,
+                status: worker.status,
+                brows : BrowState(worker.status),
+                size  : 56
             )
             Text(worker.name)
                 .font(.system(
