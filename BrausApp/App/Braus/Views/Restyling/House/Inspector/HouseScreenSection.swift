@@ -11,21 +11,15 @@ import SwiftUI
 /// `InspectorScreenSection` and `WorkerScreenCard` show it: the app it drives, then its screen
 /// (`HouseMockScreen`). The caller shows it only while there is a screen to watch.
 ///
-/// A click on the card, or its Enlarge Screen button, shows the screen larger in a popover beside
-/// the inspector, which stands in for the app's enlarged screen over the conversation. The button
-/// shows while the pointer is over the card or it has the keyboard, and is always there for
-/// VoiceOver.
+/// A click on the card, or its Open Screen button, opens the worker's screen in its own window
+/// (`WorkerScreenWindowController`). The button shows while the pointer is over the card or it has
+/// the keyboard, and is always there for VoiceOver.
 struct HouseScreenSection: View {
     let worker: MockWorker
 
     @Binding var isExpanded: Bool
 
-    /// The enlarged screen's width.
-    static let enlargedWidth: CGFloat = 560
-
     @State private var isHovering = false
-
-    @State private var isEnlarged = false
 
     @FocusState private var isButtonFocused: Bool
 
@@ -42,50 +36,36 @@ struct HouseScreenSection: View {
                 .overlay {
                     Color.clear
                         .contentShape(Rectangle())
-                        .onTapGesture { isEnlarged = true }
+                        .onTapGesture { Self.openScreen(of: worker) }
                         .accessibilityHidden(true)
                 }
-                .overlay(alignment: .topTrailing) { enlargeButton }
+                .overlay(alignment: .topTrailing) { openButton }
                 .onHover { isHovering = $0 }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("\(worker.name)'s screen")
-                .accessibilityAction(named: "Enlarge Screen") { isEnlarged = true }
-                .popover(
-                    isPresented: $isEnlarged,
-                    arrowEdge  : .leading
-                ) {
-                    HouseMockScreen(worker: worker)
-                        .frame(width: Self.enlargedWidth)
-                        .padding(16)
-                }
+                .accessibilityAction(named: "Open Screen") { Self.openScreen(of: worker) }
         }
     }
 
-    private var enlargeButton: some View {
+    /// Opens `worker`'s screen window, as the card's click and its button do.
+    static func openScreen(of worker: MockWorker) {
+        WorkerScreenWindowController.open(worker: worker)
+    }
+
+    private var openButton: some View {
         Button(
-            "Enlarge Screen",
-            systemImage: "arrow.up.left.and.arrow.down.right"
+            "Open Screen",
+            systemImage: "macwindow"
         ) {
-            isEnlarged = true
+            Self.openScreen(of: worker)
         }
         .labelStyle(.iconOnly)
-        .buttonStyle(.plain)
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.circle)
+        .controlSize(.small)
         .focused($isButtonFocused)
-        .font(.system(
-            size  : 11,
-            weight: .semibold
-        ))
-        .foregroundStyle(.white)
-        .frame(
-            width : 22,
-            height: 22
-        )
-        .background(
-            .black.opacity(0.55),
-            in: Circle()
-        )
         .padding(8)
         .opacity(isHovering || isButtonFocused ? 1 : 0)
-        .help("Enlarge the worker’s screen.")
+        .help("Open the worker’s screen in its own window.")
     }
 }

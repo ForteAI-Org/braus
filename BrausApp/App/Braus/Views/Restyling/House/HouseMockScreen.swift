@@ -11,8 +11,8 @@ import SwiftUI
 /// app's window it drives (title bar, toolbar, tracks with clips and a playhead), with the worker's
 /// amber pointer wandering over it.
 ///
-/// The inspector shows it only while the worker is busy. Its click will open the worker's screen
-/// window; until that window exists it does nothing.
+/// The inspector shows it only while the worker is busy; the inspector opens the worker's screen
+/// window (`WorkerScreenWindowController`) from it.
 struct HouseMockScreen: View {
     let worker: MockWorker
 
@@ -35,7 +35,7 @@ struct HouseMockScreen: View {
     }
 
     /// The clips' colours, one per lane, after the prototype's tracks.
-    private static let laneColors: [Color] = [
+    static let laneColors: [Color] = [
         Color(red: 0x5B / 255.0, green: 0x8D / 255.0, blue: 0xEF / 255.0),
         Color(red: 0xE0 / 255.0, green: 0xA3 / 255.0, blue: 0x46 / 255.0),
         Color(red: 0x58 / 255.0, green: 0xC4 / 255.0, blue: 0x8D / 255.0),
