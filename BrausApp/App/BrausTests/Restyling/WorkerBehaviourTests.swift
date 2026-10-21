@@ -83,6 +83,22 @@ struct WorkerBehaviourTests {
         #expect(off.contains(.sleepBreath) && !off.contains(.flick))
     }
 
+    @Test("Each status has its extra action, and a loop plays it, while off stays calm")
+    func extras() {
+        let extras: [(WorkerStatus, BrowAction)] = [(.busy, .doubleGlance), (.waiting, .leanIn), (.free, .lookAround)]
+        for (status, extra) in extras {
+            let behaviour = WorkerBehaviour(status)
+            #expect(behaviour.vocabulary.contains { $0.action == extra })
+            #expect((UInt64(0)..<20).contains { behaviour.loop(seed: $0).actions.contains(extra) })
+        }
+        let off = WorkerBehaviour(.off)
+        #expect(off.rests == 0.3...1.2)
+        for seed in UInt64(0)..<20 {
+            let track = off.loop(seed: seed).left
+            #expect(track.allSatisfy { abs($0.pose.dy) <= 0.03 && $0.pose.dx == 0 })
+        }
+    }
+
     @Test("The loop runs forever as keyframe animations, additive shifts and turns")
     func animations() throws {
         defer { RestylingMotion.overrideReducesMotion = nil }
@@ -103,7 +119,7 @@ struct WorkerBehaviourTests {
             #expect(animation.timingFunctions?.count == loop.left.count - 1)
         }
         let shifts = try #require(position.values as? [NSValue]).map(\.pointValue)
-        #expect(shifts.allSatisfy { abs($0.x) <= 5 && $0.y >= -4 && $0.y <= 6 })
+        #expect(shifts.allSatisfy { abs($0.x) <= 5 && $0.y >= -5 && $0.y <= 7 })
     }
 
     @Test("Reduce Motion plays no behaviour")

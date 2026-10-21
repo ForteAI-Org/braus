@@ -19,6 +19,9 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
     case lookAtScreen
     case lookAtCamera
     case raise
+    case leanIn
+    case doubleGlance
+    case lookAround
     case frown
     case flick
     case impatient
@@ -74,18 +77,18 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
             // An idle brow looking right takes the look outline, as the pointer makes it do.
             let outline: BrowState? = side > 0 && base == .idle ? .look : nil
             let pose = BrowPose(
-                dx     : side * 0.03 * reach,
+                dx     : side * 0.039 * reach,
                 outline: outline
             )
             return Self.glance(
                 at    : pose,
                 hold  : 0.8...2.0,
-                intent: .tilt(side * 0.03),
+                intent: .tilt(side * 0.04),
                 random: &random
             )
         case .lookUp:
             return Self.glance(
-                at    : BrowPose(dy: 0.025 * reach),
+                at    : BrowPose(dy: 0.032 * reach),
                 hold  : 0.6...1.5,
                 intent: nil,
                 random: &random
@@ -94,8 +97,8 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
             let side = Bool.random(using: &random) ? -1.0 : 1.0
             return Self.glance(
                 at    : BrowPose(
-                    dx: side * 0.012 * reach,
-                    dy: -0.022 * reach
+                    dx: side * 0.016 * reach,
+                    dy: -0.029 * reach
                 ),
                 hold  : 1.5...4.0,
                 intent: .tilt(side * 0.02),
@@ -104,8 +107,8 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
         case .lookAtCamera:
             return Self.glance(
                 at    : BrowPose(
-                    dy      : 0.012 * reach,
-                    rotation: 0.04 * reach
+                    dy      : 0.016 * reach,
+                    rotation: 0.052 * reach
                 ),
                 hold  : 1.5...3.5,
                 intent: nil,
@@ -114,17 +117,71 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
         case .raise:
             return Self.glance(
                 at    : BrowPose(
-                    dy      : 0.04 * reach,
-                    rotation: 0.06 * reach
+                    dy      : 0.052 * reach,
+                    rotation: 0.078 * reach
                 ),
                 hold  : 0.6...1.4,
                 intent: nil,
                 random: &random
             )
+        case .leanIn:
+            // A slower, smaller raise than `raise`, held longer, as if leaning toward the person.
+            return Self.glance(
+                at    : BrowPose(
+                    dy      : 0.03 * reach,
+                    rotation: 0.05 * reach
+                ),
+                hold  : 1.2...2.4,
+                intent: nil,
+                random: &random
+            )
+        case .doubleGlance:
+            let side = Bool.random(using: &random) ? -1.0 : 1.0
+            let first  = BrowPose(
+                dx: side * 0.03 * reach,
+                dy: -0.012 * reach
+            )
+            let second = BrowPose(
+                dx: -side * 0.026 * reach,
+                dy: -0.012 * reach
+            )
+            return Performance(
+                moves   : Self.mirrored([
+                    (first, 0.2, .snap),
+                    (first, Self.hold(0.25...0.45, &random), .move),
+                    (second, 0.2, .snap),
+                    (second, Self.hold(0.3...0.6, &random), .move),
+                    (.rest, 0.4, .move),
+                ]),
+                staggers: false,
+                intent  : .tilt(side * 0.02)
+            )
+        case .lookAround:
+            let side   = Bool.random(using: &random) ? -1.0 : 1.0
+            // As in lookRight, an idle brow looking right takes the look outline.
+            let first  = BrowPose(
+                dx     : side * 0.036 * reach,
+                outline: base == .idle && side > 0 ? .look : nil
+            )
+            let second = BrowPose(
+                dx     : -side * 0.036 * reach,
+                outline: base == .idle && side < 0 ? .look : nil
+            )
+            return Performance(
+                moves   : Self.mirrored([
+                    (first, 0.7, .move),
+                    (first, Self.hold(1.0...1.6, &random), .move),
+                    (second, 0.9, .move),
+                    (second, Self.hold(1.0...1.6, &random), .move),
+                    (.rest, 0.7, .move),
+                ]),
+                staggers: true,
+                intent  : .tilt(side * 0.03)
+            )
         case .frown:
             let pose = BrowPose(
-                dy      : -0.015 * reach,
-                rotation: -0.1 * reach
+                dy      : -0.02 * reach,
+                rotation: -0.13 * reach
             )
             return Performance(
                 moves   : Self.mirrored([
@@ -137,8 +194,8 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
             )
         case .flick:
             let lifted = BrowPose(
-                dy      : 0.045 * reach,
-                rotation: 0.05
+                dy      : 0.058 * reach,
+                rotation: 0.065
             )
             let isLeft = Bool.random(using: &random)
             let left   = isLeft ? lifted : .rest
@@ -161,7 +218,7 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
                 intent  : nil
             )
         case .impatient:
-            let up = BrowPose(dy: 0.03 * reach)
+            let up = BrowPose(dy: 0.039 * reach)
             return Performance(
                 moves   : Self.mirrored([
                     (up, 0.15, .snap),
@@ -174,8 +231,8 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
             )
         case .settle:
             let low = BrowPose(
-                dy      : -0.01 * reach,
-                rotation: -0.02
+                dy      : -0.013 * reach,
+                rotation: -0.026
             )
             return Performance(
                 moves   : Self.mirrored([
@@ -187,7 +244,7 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
             )
         case .sleepBreath, .deepBreath:
             let isDeep = self == .deepBreath
-            let low    = BrowPose(dy: (isDeep ? -0.022 : -0.014) * reach)
+            let low    = BrowPose(dy: (isDeep ? -0.0242 : -0.0154) * reach)
             return Performance(
                 moves   : Self.mirrored([
                     (low, Self.hold(isDeep ? 3.2...3.8 : 2.2...2.8, &random), .breath),

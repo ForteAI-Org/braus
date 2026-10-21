@@ -24,7 +24,7 @@ nonisolated struct BrowPose: Equatable, Sendable {
     static let allowedDX = -0.05...0.05
 
     /// How far a brow may travel down and up, as a share of the face's width.
-    static let allowedDY = -0.04...0.06
+    static let allowedDY = -0.05...0.07
 
     /// How far a brow may turn, in radians.
     static let allowedRotation = -0.2...0.2
