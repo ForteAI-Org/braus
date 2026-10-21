@@ -8,7 +8,7 @@
 import AppKit
 import SwiftUI
 
-/// TranscriptCopyCheck shows the team shell in a real key window when the app
+/// TranscriptCopyCheck shows the house window in a real key window when the app
 /// is launched with BRAUS_WINDOW_CHECK=copy, focuses the composer, drags across
 /// a reply with real mouse events, then copies through the app's own Edit
 /// menu, by its Copy item and by its Command C key equivalent. It prints each
@@ -99,18 +99,27 @@ enum TranscriptCopyCheck {
         if let composer { window.makeFirstResponder(composer) }
         print("copy check: before the drag, first responder \(describe(window.firstResponder))")
 
-        // The reply's last line sits above its bubble's bottom padding and the time line under the bubble.
-        let line  = reply.isFlipped ? reply.bounds.height - 34 : 34
-        let start = reply.convert(
+        // Across the reply's last line, from its first letter, inside the text the row laid out.
+        guard let row  = firstView(
+                  in   : reply,
+                  where: { $0 is TranscriptRowView }
+              ) as? TranscriptRowView,
+              let text = row.textFrame
+        else {
+            print("copy check: the reply has no text laid out")
+            return false
+        }
+        let line  = text.maxY - 8
+        let start = row.convert(
             NSPoint(
-                x: 70,
+                x: text.minX + 2,
                 y: line
             ),
             to: nil
         )
-        let end   = reply.convert(
+        let end   = row.convert(
             NSPoint(
-                x: 320,
+                x: text.minX + min(250, text.width - 2),
                 y: line
             ),
             to: nil

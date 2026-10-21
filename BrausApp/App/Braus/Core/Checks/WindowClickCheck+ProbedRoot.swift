@@ -23,7 +23,7 @@ extension WindowClickCheck {
         let probe: Probe
 
         var body: some View {
-            TeamShellView(
+            HouseShellView(
                 team                : team,
                 isInspectorRequested: Binding(
                     get: { probe.isInspectorRequested },

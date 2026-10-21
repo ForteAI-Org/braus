@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import CoreImage
 import Memory
 import Metal
 import MetalKit
@@ -15,9 +16,9 @@ import SwiftUI
 
 extension WindowSnapshots {
 
-    /// Writes the house window (`HouseShellView`, the new look) of the synthetic team as
-    /// `house-*.png`: rooms, rows, compact, the inspector open, an empty team, and teams of 30 and 60
-    /// workers for the performance pass. The flag-off snapshots are untouched.
+    /// Writes the house window (`HouseShellView`) of the synthetic team as `house-*.png`: rooms,
+    /// rows, compact, the inspector open, an empty team, and teams of 30 and 60 workers for the
+    /// performance pass.
     ///
     /// The split's sidebar column and a Metal room draw nothing offscreen, so the sidebar is drawn on
     /// its own, layer by layer, over the column, and each room is lit again with the precomputed
@@ -29,17 +30,7 @@ extension WindowSnapshots {
         to output: URL
     ) async throws {
         guard let appStorage else { throw HouseSnapshotFailure("no defaults of the snapshots' own") }
-        defer {
-            appStorage.set(
-                false,
-                forKey: AppPreferences.newLook
-            )
-            appStorage.removeObject(forKey: AppPreferences.restylingSidebarMode)
-        }
-        appStorage.set(
-            true,
-            forKey: AppPreferences.newLook
-        )
+        defer { appStorage.removeObject(forKey: AppPreferences.restylingSidebarMode) }
 
         let minimum = RestylingWindowLayout.minimumWidth
         let cases: [(name: String, mode: SidebarMode, width: Double, inspector: Bool)] = [
@@ -156,21 +147,6 @@ extension WindowSnapshots {
 
     // MARK: Drawing
 
-    /// The window's memory as plain state, as `Root` does for today's shell.
-    private struct HouseRoot: View {
-
-        let team: TeamModel
-
-        @State var isInspectorRequested: Bool
-
-        var body: some View {
-            HouseShellView(
-                team                : team,
-                isInspectorRequested: $isInspectorRequested
-            )
-        }
-    }
-
     /// What one offscreen drawing gives back: the picture, and what the caller needs of the window.
     private struct Drawn {
 
@@ -183,9 +159,9 @@ extension WindowSnapshots {
         let allocated    : Int
     }
 
-    /// Draws the house window at `width` by 900. Its sidebar column draws blank offscreen, as the old
-    /// shell's does, so the sidebar is drawn again on its own over the same column.
-    private static func writeHouseWindow(
+    /// Draws the house window at `width` by 900. Its sidebar column draws blank offscreen, so the
+    /// sidebar is drawn again on its own over the same column, and the inspector's likewise.
+    static func writeHouseWindow(
         _ team   : TeamModel,
         width    : Double,
         inspector: Bool,
@@ -193,7 +169,7 @@ extension WindowSnapshots {
     ) async throws {
         let height = 900.0
         let window = try await draw(
-            HouseRoot(
+            Root(
                 team                : team,
                 isInspectorRequested: inspector
             ),
@@ -273,15 +249,12 @@ extension WindowSnapshots {
 
         var body: some View {
             HouseSidebar(
-                house    : MockHouse(
-                    workers      : HouseRoster.workers(
-                        of              : team,
-                        showsUnreadCount: AppPreferenceValues.shared.sidebarShowsUnreadCount
-                    ),
-                    archivedCount: team.archived.count,
-                    mostUsed     : []
+                workers  : HouseRoster.workers(
+                    of              : team,
+                    showsUnreadCount: AppPreferenceValues.shared.sidebarShowsUnreadCount
                 ),
-                selection: $team.selection
+                selection: $team.selection,
+                team     : team
             )
             .safeAreaInset(
                 edge   : .top,
@@ -303,20 +276,7 @@ extension WindowSnapshots {
         let top: CGFloat
 
         var body: some View {
-            Group {
-                if let worker = team.selectedWorker {
-                    WorkerInspectorView(
-                        team  : team,
-                        worker: worker
-                    )
-                } else {
-                    ContentUnavailableView(
-                        "No Worker Selected",
-                        systemImage: "info.circle",
-                        description: Text("Select a worker to view current activity and turn details.")
-                    )
-                }
-            }
+            HouseLiveInspector(team: team)
             .safeAreaInset(
                 edge   : .top,
                 spacing: 0
@@ -396,7 +356,7 @@ extension WindowSnapshots {
         let bitmap: NSBitmapImageRep
 
         if titled {
-            // The window's frame, toolbar included, as the old shell's snapshots draw it.
+            // The window's frame, toolbar included.
             guard let cached = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else {
                 throw HouseSnapshotFailure("no bitmap")
             }
@@ -424,7 +384,11 @@ extension WindowSnapshots {
                 x: scale,
                 y: scale
             )
-            layer.render(in: context)
+            render(
+                layer,
+                in   : context,
+                scale: scale
+            )
             guard let image = context.makeImage() else { throw HouseSnapshotFailure("no image") }
             bitmap      = NSBitmapImageRep(cgImage: image)
             bitmap.size = frame.bounds.size
@@ -441,6 +405,156 @@ extension WindowSnapshots {
         for picture in pictures { picture.removeFromSuperlayer() }
         window.close()
         return drawn
+    }
+
+    /// Renders `root` into `context`, which is scaled by `scale`, as `render(in:)` does, except for the
+    /// layers seen in perspective, such as a room's plaque, whose transform `render(in:)` ignores, which
+    /// would draw them flat in a corner. Each of those is drawn flat on its own, warped onto where its
+    /// corners fall in `root` (`CIPerspectiveTransform`) and drawn over the rest. A layer masked by one
+    /// in perspective, the plaque's frosted glass, is left out: its material draws nothing true offscreen.
+    private static func render(
+        _ root    : CALayer,
+        in context: CGContext,
+        scale     : CGFloat
+    ) {
+        let projected = projectedLayers(
+            under  : root,
+            opacity: 1
+        )
+        let hidden    = projected.map(\.layer) + maskedInPerspective(under: root)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for layer in hidden { layer.isHidden = true }
+        root.render(in: context)
+        for layer in hidden { layer.isHidden = false }
+        CATransaction.commit()
+
+        let images = CIContext()
+        for (layer, opacity) in projected {
+            guard let warped = warped(
+                layer,
+                onto : root,
+                scale: scale
+            ), let image = images.createCGImage(
+                warped,
+                from: warped.extent
+            ) else { continue }
+
+            context.saveGState()
+            context.setAlpha(CGFloat(opacity))
+            context.draw(
+                image,
+                in: CGRect(
+                    x     : warped.extent.minX / scale,
+                    y     : warped.extent.minY / scale,
+                    width : warped.extent.width / scale,
+                    height: warped.extent.height / scale
+                )
+            )
+            context.restoreGState()
+        }
+    }
+
+    /// The shown layers under `layer` whose transform is not affine, with the opacity their
+    /// superlayers give them; what is under one of them is drawn with it.
+    private static func projectedLayers(
+        under layer: CALayer,
+        opacity    : Float
+    ) -> [(layer: CALayer, opacity: Float)] {
+        (layer.sublayers ?? []).flatMap { sublayer -> [(layer: CALayer, opacity: Float)] in
+            guard !sublayer.isHidden, sublayer.opacity > 0 else { return [] }
+            guard CATransform3DIsAffine(sublayer.transform) else { return [(sublayer, opacity)] }
+
+            return projectedLayers(
+                under  : sublayer,
+                opacity: opacity * sublayer.opacity
+            )
+        }
+    }
+
+    /// The shown layers under `layer` whose mask holds a layer in perspective.
+    private static func maskedInPerspective(under layer: CALayer) -> [CALayer] {
+        func isProjected(_ layer: CALayer) -> Bool {
+            !CATransform3DIsAffine(layer.transform) || (layer.sublayers ?? []).contains(where: isProjected)
+        }
+
+        return (layer.sublayers ?? []).flatMap { sublayer -> [CALayer] in
+            guard !sublayer.isHidden, sublayer.opacity > 0 else { return [] }
+            if let mask = sublayer.mask, isProjected(mask) { return [sublayer] }
+
+            return maskedInPerspective(under: sublayer)
+        }
+    }
+
+    /// `layer` drawn flat at `scale`, then warped so its corners fall where they do in `root`, in
+    /// pixels with y up; nil for an empty layer.
+    private static func warped(
+        _ layer   : CALayer,
+        onto root : CALayer,
+        scale     : CGFloat
+    ) -> CIImage? {
+        let bounds = layer.bounds
+        let width  = Int((bounds.width * scale).rounded(.up))
+        let height = Int((bounds.height * scale).rounded(.up))
+        guard
+            width > 0,
+            height > 0,
+            let flat = CGContext(
+                data            : nil,
+                width           : width,
+                height          : height,
+                bitsPerComponent: 8,
+                bytesPerRow     : 0,
+                space           : CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo      : CGImageAlphaInfo.premultipliedFirst.rawValue
+            )
+        else { return nil }
+        flat.scaleBy(
+            x: scale,
+            y: scale
+        )
+        flat.translateBy(
+            x: -bounds.minX,
+            y: -bounds.minY
+        )
+        layer.render(in: flat)
+        guard let image = flat.makeImage() else { return nil }
+
+        func corner(
+            _ x: CGFloat,
+            _ y: CGFloat
+        ) -> CIVector {
+            let point = root.convert(
+                CGPoint(
+                    x: x,
+                    y: y
+                ),
+                from: layer
+            )
+            let up = root.contentsAreFlipped() ? root.bounds.height - point.y : point.y
+            return CIVector(
+                x: point.x * scale,
+                y: up * scale
+            )
+        }
+
+        let filter = CIFilter(name: "CIPerspectiveTransform")
+        filter?.setValue(
+            CIImage(cgImage: image),
+            forKey: kCIInputImageKey
+        )
+        for (key, point) in [
+            ("inputBottomLeft", corner(bounds.minX, bounds.minY)),
+            ("inputBottomRight", corner(bounds.maxX, bounds.minY)),
+            ("inputTopRight", corner(bounds.maxX, bounds.maxY)),
+            ("inputTopLeft", corner(bounds.minX, bounds.maxY)),
+        ] {
+            filter?.setValue(
+                point,
+                forKey: key
+            )
+        }
+        return filter?.outputImage
     }
 
     /// The width of the sidebar column (`leading`) or of the inspector's, 0 when the window has none: a
