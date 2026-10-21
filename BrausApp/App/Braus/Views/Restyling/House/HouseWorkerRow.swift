@@ -24,11 +24,12 @@ struct HouseWorkerRow: View {
             : AnyLayout(HStackLayout(spacing: 8))
         layout {
             HouseWorkerPortrait(
-                shape    : worker.shape,
-                status   : worker.status,
-                seed     : WorkerBehaviour.seed(for: worker.id),
-                showsHalo: true,
-                gaze     : gaze
+                shape     : worker.shape,
+                status    : worker.status,
+                seed      : WorkerBehaviour.seed(for: worker.id),
+                showsHalo : true,
+                gaze      : gaze,
+                usesScreen: worker.usesScreen
             )
             .frame(
                 width : 56,

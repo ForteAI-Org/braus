@@ -128,7 +128,8 @@ struct HeroActionTests {
                 shape      : .circle,
                 hasOccupant: true,
                 camera     : .tilted,
-                lean       : HouseWorkerPortrait.lean
+                lean       : HouseWorkerPortrait.lean,
+                screenLit  : true
             ),
             frame   : CGRect(
                 origin: .zero,

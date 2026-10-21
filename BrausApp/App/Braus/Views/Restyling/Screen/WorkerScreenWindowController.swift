@@ -136,9 +136,10 @@ final class WorkerScreenWindowController: NSWindowController, NSWindowDelegate, 
 
         var body: some View {
             HouseWorkerPortrait(
-                shape : worker.shape,
-                status: worker.status,
-                seed  : WorkerBehaviour.seed(for: worker.id)
+                shape     : worker.shape,
+                status    : worker.status,
+                seed      : WorkerBehaviour.seed(for: worker.id),
+                usesScreen: worker.usesScreen
             )
             .scaleEffect(0.6)
             .frame(

@@ -172,7 +172,8 @@ struct HouseRoomCell: View {
                             shape      : worker.shape,
                             hasOccupant: !isSelected,
                             camera     : camera,
-                            lean       : Float(lean)
+                            lean       : Float(lean),
+                            screenLit  : worker.usesScreen
                         ),
                         bodyLink: bodyLink
                     )

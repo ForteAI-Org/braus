@@ -269,7 +269,8 @@ struct RoomDenoiseTests {
                 shape      : .circle,
                 hasOccupant: hasOccupant,
                 camera     : .tilted,
-                lean       : lean
+                lean       : lean,
+                screenLit  : true
             )
         }
         func difference(

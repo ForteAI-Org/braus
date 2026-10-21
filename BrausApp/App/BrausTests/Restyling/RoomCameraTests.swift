@@ -147,7 +147,8 @@ struct RoomCameraTests {
                         shape      : shape,
                         hasOccupant: true,
                         camera     : .tilted,
-                        lean       : lean
+                        lean       : lean,
+                        screenLit  : true
                     ),
                     at    : points,
                     size  : size,
@@ -297,10 +298,12 @@ struct RoomCameraTests {
             let size = sizes[index % sizes.count]
             return Sample(
                 name    : "\(room.0)-\(room.1)-\(room.2 ? "in" : "empty")-\(Int(size.width))x\(Int(size.height))",
+                // Recorded while a busy worker always had its screen.
                 uniforms: RoomLightUniforms(
                     status     : room.0,
                     shape      : room.1,
-                    hasOccupant: room.2
+                    hasOccupant: room.2,
+                    screenLit  : room.0 == .busy
                 ),
                 size    : size
             )

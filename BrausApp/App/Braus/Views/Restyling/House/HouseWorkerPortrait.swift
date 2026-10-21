@@ -37,6 +37,10 @@ struct HouseWorkerPortrait: View {
     /// The gaze that makes the brows follow the pointer, or nil for none.
     var gaze: WorkerGaze?
 
+    /// Whether the worker uses a screen, which lights it from the front where no capsule does
+    /// (`RoomLightUniforms.screenLit`).
+    var usesScreen = false
+
     /// The light of the name's capsule below the worker (`RoomLightUniforms.capsuleLight`), or zero.
     var capsuleLight = SIMD4<Float>.zero
 
@@ -217,6 +221,7 @@ struct HouseWorkerPortrait: View {
                 hasOccupant : true,
                 camera      : .tilted,
                 lean        : HouseWorkerPortrait.lean,
+                screenLit   : portrait.usesScreen,
                 capsuleLight: portrait.capsuleLight
             )
             if let room {

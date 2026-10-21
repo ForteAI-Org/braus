@@ -15,10 +15,11 @@ import Testing
 @MainActor
 struct RoomLightingTests {
 
-    @Test("Only a busy worker in its tilted room has its screen lit")
-    func screenOnlyWhenBusy() throws {
+    @Test("A worker's screen lights its tilted room while it uses one, whatever its status")
+    func screenFollowsUsesScreen() throws {
         func screen(
             _ status   : WorkerStatus,
+            screenLit  : Bool = true,
             camera     : RoomCamera = .tilted,
             hasOccupant: Bool = true
         ) -> Float {
@@ -26,27 +27,28 @@ struct RoomLightingTests {
                 status     : status,
                 shape      : .circle,
                 hasOccupant: hasOccupant,
-                camera     : camera
+                camera     : camera,
+                screenLit  : screenLit
             ).screenStrength
         }
-        #expect(screen(.busy) == 1)
+        for status in WorkerStatus.allCases {
+            #expect(screen(status) == 1, "\(status)")
+            #expect(screen(status, screenLit: false) == 0, "\(status)")
+        }
         #expect(screen(.busy, camera: .top) == 0)
         #expect(screen(.busy, hasOccupant: false) == 0)
-        for status in [WorkerStatus.waiting, .free, .off] {
-            #expect(screen(status) == 0, "\(status)")
-        }
 
-        // The screen's image changes a busy room's pixels, and nothing in a waiting one.
+        // The screen's image changes a busy room's pixels while its worker uses one, and nothing otherwise.
         let device   = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(PrecomputedRoomRenderer(device: device))
-        for (status, lit) in [(WorkerStatus.busy, true), (.waiting, false)] {
+        for screenLit in [true, false] {
             let images = try Self.render(
-                Self.room(status),
+                Self.room(.busy, screenLit: screenLit),
                 weights : [SIMD2(1, 1), SIMD2(1, 0)],
                 renderer: renderer,
                 device  : device
             )
-            #expect((images[0] != images[1]) == lit, "\(status)")
+            #expect((images[0] != images[1]) == screenLit, "\(screenLit)")
         }
     }
 
@@ -209,12 +211,16 @@ struct RoomLightingTests {
         }
     }
 
-    private static func room(_ status: WorkerStatus) -> RoomLightUniforms {
+    private static func room(
+        _ status : WorkerStatus,
+        screenLit: Bool = false
+    ) -> RoomLightUniforms {
         RoomLightUniforms(
             status     : status,
             shape      : .circle,
             hasOccupant: true,
-            camera     : .tilted
+            camera     : .tilted,
+            screenLit  : screenLit
         )
     }
 

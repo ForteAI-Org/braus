@@ -267,7 +267,8 @@ struct RoomPassageTests {
             status     : .busy,
             shape      : .circle,
             hasOccupant: hasOccupant,
-            camera     : .tilted
+            camera     : .tilted,
+            screenLit  : true
         )
     }
 
