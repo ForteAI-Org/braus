@@ -58,7 +58,6 @@ struct HouseModelSection: View {
                         .top,
                         provider == ModelProvider.allCases.first ? 5 : 0
                     )
-                    .listRowSeparatorTint(Color(nsColor: .tertiaryLabelColor))
                 }
             }
 
