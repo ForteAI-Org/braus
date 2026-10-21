@@ -447,7 +447,9 @@ kernel void resolveRoom(texture2d<float, access::read>  base   [[texture(0)]],
                         uint2                           pixel  [[thread_position_in_grid]])
 {
     if (pixel.x >= output.get_width() || pixel.y >= output.get_height()) { return; }
-    float3 radiance = base.read(pixel).rgb + weight * light.read(pixel).rgb;
+    // An output wider than the room repeats the room's edge, as Core Animation does past an image.
+    uint2  source   = min(pixel, uint2(base.get_width(), base.get_height()) - 1);
+    float3 radiance = base.read(source).rgb + weight * light.read(source).rgb;
     output.write(encodedPixel(toneMap(radiance), pixel), pixel);
 }
 

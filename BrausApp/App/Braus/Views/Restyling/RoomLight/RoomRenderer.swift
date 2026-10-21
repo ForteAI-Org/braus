@@ -90,17 +90,27 @@ extension RoomRenderer {
     }
 
     /// Encodes the room once and resolves it into every target with the light at its weight. The
-    /// targets are writable `bgra8Unorm` textures of one pixel size.
+    /// targets are writable `bgra8Unorm` textures of one pixel size. The room covers `extent` pixels
+    /// from their top leading corner, or all of them when nil; beyond it each row repeats its last pixel.
     func encode(
         _ uniforms   : RoomLightUniforms,
         size         : CGSize,
         into targets : [(texture: MTLTexture, weight: Float)],
+        extent       : MTLSize? = nil,
         commandBuffer: MTLCommandBuffer
     ) {
         guard
             let first = targets.first?.texture,
-            let base  = Self.linearImage(like: first),
-            let light = Self.linearImage(like: first)
+            let base  = Self.linearImage(
+                width : extent?.width ?? first.width,
+                height: extent?.height ?? first.height,
+                device: first.device
+            ),
+            let light = Self.linearImage(
+                width : base.width,
+                height: base.height,
+                device: first.device
+            )
         else { return }
         encodeImages(
             uniforms,
@@ -217,16 +227,20 @@ extension RoomRenderer {
         )
     }
 
-    /// A linear half-float image the size of `texture`, private to the GPU.
-    private static func linearImage(like texture: MTLTexture) -> MTLTexture? {
+    /// A linear half-float image of `width` by `height` pixels, private to the GPU.
+    private static func linearImage(
+        width : Int,
+        height: Int,
+        device: MTLDevice
+    ) -> MTLTexture? {
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .rgba16Float,
-            width      : texture.width,
-            height     : texture.height,
+            width      : width,
+            height     : height,
             mipmapped  : false
         )
         descriptor.usage       = [.shaderRead, .shaderWrite]
         descriptor.storageMode = .private
-        return texture.device.makeTexture(descriptor: descriptor)
+        return device.makeTexture(descriptor: descriptor)
     }
 }

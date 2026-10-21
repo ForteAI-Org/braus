@@ -19,6 +19,9 @@ nonisolated enum HouseLayout {
     /// rows keep one and only their width changes.
     static let rowHeight: CGFloat = 84
 
+    /// The height the worker's name takes at a room's foot.
+    static let nameBand: CGFloat = 22
+
     /// The space between the rooms and the sidebar's edges.
     static let margin: CGFloat = 10
 

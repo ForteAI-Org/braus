@@ -116,6 +116,111 @@ struct RoomLightTests {
         }
     }
 
+    @Test("While its size changes a room draws one precomputed frame per coalesced change, and the full render once it settles")
+    func liveFramesWhileResizing() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let window = Self.window()
+        defer { window.close() }
+        let view = RoomLightView(
+            device  : device,
+            uniforms: room(.busy),
+            frame   : CGRect(
+                x     : 0,
+                y     : 0,
+                width : 127,
+                height: 104
+            )
+        )
+        window.contentView?.addSubview(view)
+        try await until { view.renderCounts.full >= 1 }
+        // Lets the first render's completion and pulse land.
+        try await Task.sleep(for: .milliseconds(300))
+        let settled = view.renderCounts
+
+        resize(
+            view,
+            width: 140
+        )
+        #expect(view.renderCounts == RoomLightView.RenderCounts(
+            live   : settled.live + 1,
+            preview: settled.preview,
+            full   : settled.full
+        ))
+        // Both arrive while the first live frame is in flight: one frame follows, at the last size.
+        resize(
+            view,
+            width: 150
+        )
+        resize(
+            view,
+            width: 160
+        )
+        #expect(view.renderCounts.live == settled.live + 1)
+        try await until { view.renderCounts.live == settled.live + 2 }
+        #expect(view.renderCounts.preview == settled.preview)
+        #expect(view.renderCounts.full == settled.full)
+        let layer  = try #require(view.layer as? CAMetalLayer)
+        let pixels = view.convertToBacking(view.bounds).size
+        #expect(abs(layer.contentsRect.width * layer.drawableSize.width - pixels.width) < 0.5)
+        #expect(layer.drawableSize.height == pixels.height.rounded(.up))
+
+        // Settled: today's path, a preview and the ray tracer's refinement, or one precomputed render.
+        try await until { view.renderCounts.full == settled.full + 1 }
+        #expect(view.renderCounts.live == settled.live + 2)
+        #expect(view.renderCounts.preview == settled.preview + (view.path == .rayTraced ? 1 : 0))
+    }
+
+    @Test("A change of uniforms draws a live frame at once and the full render only after the plaque's swing")
+    func uniformsDrawLiveFirst() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let window = Self.window()
+        defer { window.close() }
+        let view = RoomLightView(
+            device  : device,
+            uniforms: room(.busy),
+            frame   : CGRect(
+                x     : 0,
+                y     : 0,
+                width : 127,
+                height: 104
+            )
+        )
+        window.contentView?.addSubview(view)
+        try await until { view.renderCounts.full >= 1 }
+        try await Task.sleep(for: .milliseconds(300))
+        let settled = view.renderCounts
+        let changed = ContinuousClock.now
+
+        view.uniforms = room(
+            .busy,
+            hasOccupant: false
+        )
+        #expect(view.renderCounts == RoomLightView.RenderCounts(
+            live   : settled.live + 1,
+            preview: settled.preview,
+            full   : settled.full
+        ))
+        try await until { view.renderCounts.full == settled.full + 1 }
+        #expect(ContinuousClock.now - changed >= .milliseconds(850))
+        #expect(view.renderCounts.preview == settled.preview)
+    }
+
+    @Test("The live frame's weight is the pulse's own at that moment")
+    func liveWeightFollowsThePulse() {
+        let weights = RoomLightView.pulseWeights(
+            for          : .waiting,
+            reducesMotion: false
+        )
+        let cycle = RestylingTiming.waitingBreath
+        let begin = RoomLightView.pulseBeginTime(in: nil)
+        for (index, weight) in weights.enumerated() {
+            let time = begin + 7 * cycle + Double(index) / Double(weights.count) * cycle
+            #expect(abs(RoomLightView.pulseWeight(for: .waiting, reducesMotion: false, at: time) - weight) < 1e-3)
+        }
+        #expect(RoomLightView.pulseWeight(for: .free, reducesMotion: false, at: begin + 1.3) == 1)
+        #expect(RoomLightView.pulseWeight(for: .busy, reducesMotion: true, at: begin + 1.3) == 1)
+    }
+
     @Test("A busy light flickers and a waiting light breathes, neither under Reduce Motion")
     func pulse() throws {
         let busy = RoomLightView.pulseWeights(
@@ -185,6 +290,45 @@ struct RoomLightTests {
         let renderer = try #require(RayTracedRoomRenderer(device: device))
         try expectLitRoom(renderer, device: device)
         try expectContactShadow(renderer, device: device)
+    }
+
+    /// A borderless window that is never shown, so nothing reaches the screen or takes input.
+    private static func window() -> NSWindow {
+        let window = NSWindow(
+            contentRect: CGRect(
+                x     : 0,
+                y     : 0,
+                width : 400,
+                height: 300
+            ),
+            styleMask  : [.borderless],
+            backing    : .buffered,
+            defer      : false
+        )
+        window.isReleasedWhenClosed = false
+        return window
+    }
+
+    /// Gives `view` a new width and lays it out, as a drag of the sidebar does.
+    private func resize(
+        _ view: NSView,
+        width : CGFloat
+    ) {
+        view.setFrameSize(CGSize(
+            width : width,
+            height: view.frame.height
+        ))
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+    }
+
+    /// Waits for `condition`, checking every few milliseconds, for at most two seconds.
+    private func until(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !condition() {
+            try #require(ContinuousClock.now < deadline, "timed out")
+            try await Task.sleep(for: .milliseconds(4))
+        }
     }
 
     private func room(

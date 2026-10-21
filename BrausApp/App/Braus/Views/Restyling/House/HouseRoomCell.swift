@@ -14,8 +14,9 @@ import SwiftUI
 ///
 /// The selected worker has left for the conversation, so its room is empty: no sphere, no badge, a
 /// lit door at the bottom in the status colour, the plaque "In chat with you" (`HouseAwayPlaque`)
-/// hanging where the worker sat, and a white ring on its edge. On the floor plan the room is a button
-/// that calls `select`; as a row, with no `select`, the list selects it.
+/// hanging where the worker sat, and a white ring on its edge. Every room holds its plaque, hidden
+/// while the worker is in, so that selecting it only shows the plaque. On the floor plan the room is
+/// a button that calls `select`; as a row, with no `select`, the list selects it.
 struct HouseRoomCell: View {
     let worker    : MockWorker
     let isSelected: Bool
@@ -57,9 +58,7 @@ struct HouseRoomCell: View {
                 ))
                 .allowsHitTesting(false)
 
-                if isSelected {
-                    plaque(roomHeight: proxy.size.height)
-                } else {
+                if !isSelected {
                     // The room draws the sphere at its centre, 34% of its short side across.
                     MascotFace(
                         appearance      : worker.appearance,
@@ -71,6 +70,14 @@ struct HouseRoomCell: View {
                     )
                 }
 
+                HouseAwayPlaque(
+                    brows    : BrowState(worker.status),
+                    status   : worker.status,
+                    isHanging: isSelected
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
                 label
                 door(roomWidth: proxy.size.width)
                 badge
@@ -79,27 +86,6 @@ struct HouseRoomCell: View {
         }
         .contentShape(Rectangle())
     }
-
-    /// The plaque, centred in the room above the name.
-    private func plaque(roomHeight: CGFloat) -> some View {
-        HouseAwayPlaque(brows: BrowState(worker.status))
-            .padding(
-                .top,
-                max(
-                    4,
-                    (roomHeight - Self.labelBand - HouseAwayPlaque.PlaqueView.size.height) / 2
-                )
-            )
-            .frame(
-                maxWidth : .infinity,
-                maxHeight: .infinity,
-                alignment: .top
-            )
-            .accessibilityHidden(true)
-    }
-
-    /// The height the name takes at the room's foot.
-    private static let labelBand: CGFloat = 22
 
     private var label: some View {
         Text(worker.name)

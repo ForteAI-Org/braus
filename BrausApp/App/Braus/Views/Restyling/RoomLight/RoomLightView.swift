@@ -9,13 +9,19 @@ import MetalKit
 
 /// RoomLightView shows one room lit by its worker, seen from above.
 ///
-/// While the room is resized it renders nothing: the last image stays on screen scaled uniformly by
-/// the change of the room's short side and centred (`contentsRect`), so the sphere keeps the size and
-/// centre the brows follow; the walls may look cropped and an uncovered edge repeats the wall's edge
-/// pixels. Once the size has been still for 70 milliseconds, a visible room on a ray-tracing GPU is
-/// drawn at once with the precomputed light, then refined with the ray tracer through RoomRenderQueue,
-/// the preview fading out over the refinement; only the refinement bakes the pulse. Uniform changes
-/// enter the queue immediately; during a resize they use the last rendered size.
+/// While the room is resized, every new size is drawn at once as a live frame: one precomputed frame
+/// at the pulse's current weight, presented with the transaction that lays the size out, with the
+/// pulse held. A room draws at most one live frame per display frame and has at most one in flight;
+/// until it lands, the last image stays on screen scaled uniformly by the change of the room's short
+/// side and centred (`contentsRect`), so the sphere keeps the size and centre the brows follow. Once
+/// the size has been still for 70 milliseconds, a visible room on a ray-tracing GPU is drawn at once
+/// with the precomputed light, then refined with the ray tracer through RoomRenderQueue, the preview
+/// fading out over the refinement; only the refinement bakes the pulse.
+///
+/// A change of uniforms, such as the selection emptying the room, is drawn at once as a live frame
+/// too, and the full render follows 0.9 seconds later, after the plaque's swing, so the frames that
+/// start the swing carry neither ray tracing nor a pulse bake. A room with no image yet renders fully
+/// at once.
 ///
 /// A render draws the room with its light at full strength and, for a light that pulses, a
 /// cycle of frames with the light at the pulse's weights, each tone mapped after the light is added;
@@ -28,7 +34,8 @@ import MetalKit
 /// host clock, so the brows' tint pulses in step with the room.
 final class RoomLightView: MTKView {
 
-    /// What the room shows. Selection and status updates bypass the geometry debounce.
+    /// What the room shows. A change is drawn at once as a live frame; a resize in progress keeps its
+    /// own wait for the full render.
     var uniforms: RoomLightUniforms {
         didSet {
             guard uniforms != oldValue else { return }
@@ -36,12 +43,31 @@ final class RoomLightView: MTKView {
             renderRevision += 1
             hasPendingRender   = true
             hasPendingUniforms = true
-            enqueueRenderIfReady()
+            guard lastRenderedSize != nil else {
+                enqueueRenderIfReady()
+                return
+            }
+            needsLiveFrame = true
+            if !isResizing {
+                scheduleSettle(after: Self.refineDelay)
+            }
+            RoomRenderQueue.shared.live(self)
         }
     }
 
     /// How many times a change of `uniforms` has asked for a render.
     private(set) var requestedRenders = 0
+
+    /// What the room has submitted to the GPU so far.
+    private(set) var renderCounts = RenderCounts()
+
+    /// RenderCounts counts a room's submissions by kind: live frames drawn while its size or uniforms
+    /// change, previews of a settled size, and full renders by its renderer with the pulse baked.
+    struct RenderCounts: Equatable {
+        var live    = 0
+        var preview = 0
+        var full    = 0
+    }
 
     /// How the light is computed on this GPU, after `BRAUS_ROOM_LIGHT`; nil when no renderer could
     /// load and the room stays empty.
@@ -60,6 +86,12 @@ final class RoomLightView: MTKView {
     /// The precomputed light drawn first after a resize when `renderer` is the ray tracer; nil
     /// when the renderer is already the precomputed one.
     private let previewRenderer: PrecomputedRoomRenderer?
+
+    /// The precomputed light that draws live frames: the preview renderer, or the room's own renderer
+    /// when that is already the precomputed one.
+    private var liveRenderer: PrecomputedRoomRenderer? {
+        previewRenderer ?? renderer as? PrecomputedRoomRenderer
+    }
 
     /// Shows the preview over the refinement while the ray tracer works, then fades it out.
     private let refineLayer = CALayer()
@@ -80,13 +112,37 @@ final class RoomLightView: MTKView {
     private var lastRenderedSize     : CGSize?
     private var lastRenderedPixelSize: CGSize?
 
+    /// The share of the drawable's width the room's image covers, below 1 after a live frame drawn
+    /// into a wider drawable.
+    private var drawableWidthShare: CGFloat = 1
+
+    /// The pixels a live frame's drawable width moves in while resizing: 32 points at 2x.
+    private static let liveWidthStep: CGFloat = 64
+
     private var hasPendingRender = false
-    private var isRendering      = false
     private var hasRenderPermit  = false
+
+    /// Whether a submission is in flight, until its completion reaches the main actor. Waiting for
+    /// that, not only for the GPU, keeps a room to one live frame per committed transaction, so its
+    /// layer's few drawables are never all held at once.
+    private var isRendering = false
+
+    /// Whether the size changed since the last settled render, as opposed to only the uniforms.
+    private var isResizing = false
+
+    /// Whether the room shows another size or older uniforms than it has, and wants a live frame.
+    private var needsLiveFrame = false
+
+    /// When the last live frame started, which the next one keeps a display frame away from.
+    private var lastLiveFrame: CFTimeInterval = 0
 
     private(set) var hasPendingUniforms = false
 
     private static let resizeDelay = Duration.milliseconds(70)
+
+    /// How long a change of uniforms shows its live frame before the full render: about the plaque's
+    /// swing, which the ray tracer's work and the pulse bake would otherwise interrupt.
+    private static let refineDelay = Duration.milliseconds(900)
 
     /// How long the refinement takes to replace the preview.
     private static let refineFade = 0.15
@@ -156,6 +212,8 @@ final class RoomLightView: MTKView {
             RoomRenderQueue.shared.remove(self)
             settleTask?.cancel()
             settleTask      = nil
+            isResizing      = false
+            needsLiveFrame  = false
             renderRevision += 1
             renderSize      = nil
             renderPixelSize = nil
@@ -177,31 +235,41 @@ final class RoomLightView: MTKView {
         renderSize      = size
         renderPixelSize = pixelSize
         needsRefinement = false
+        isResizing      = true
+        needsLiveFrame  = true
         hideRefinement()
-        scheduleSizeRender()
+        scheduleSettle(after: Self.resizeDelay)
+        RoomRenderQueue.shared.live(self)
     }
 
-    /// Debounces geometry only, cancelling its queue slot when another resize arrives.
-    private func scheduleSizeRender() {
+    /// Waits `delay` for the size or the uniforms to settle, then previews and refines the room, or
+    /// renders it fully when its live frame already kept an image to refine. A newer change restarts
+    /// the wait and cancels the room's queue slot.
+    private func scheduleSettle(after delay: Duration) {
         renderRevision += 1
         hasPendingRender = true
         RoomRenderQueue.shared.remove(self)
         settleTask?.cancel()
         settleTask = Task { @MainActor [weak self] in
             do {
-                try await Task.sleep(for: Self.resizeDelay)
+                try await Task.sleep(for: delay)
             } catch {
                 return
             }
             guard !Task.isCancelled, let self else { return }
             self.settleTask = nil
-            if self.canPreview {
+            self.isResizing = false
+            if self.canPreview && !self.hasRefinablePreview {
                 RoomRenderQueue.shared.preview(self)
             } else {
                 self.enqueueRenderIfReady()
             }
         }
-        enqueueRenderIfReady()
+    }
+
+    /// Whether the room shows a precomputed image of its current size that the ray tracer can refine.
+    private var hasRefinablePreview: Bool {
+        needsRefinement && previewImage != nil && lastRenderedSize == renderSize
     }
 
     /// Whether a settled size can be shown at once with the precomputed light: the room is visible,
@@ -219,9 +287,90 @@ final class RoomLightView: MTKView {
     }
 
     private func renderPreviewIfPossible() -> Bool {
+        guard canPreview else { return false }
+        let render    = renderRevision
+        let submitted = presentPrecomputed(
+            weight    : 1,
+            keepsImage: true
+        ) { [weak self] image in
+            guard let self else { return }
+            if render == self.renderRevision { self.previewImage = image }
+            self.continueAfterRender()
+        }
+        guard submitted else { return false }
+        hasPendingRender     = true
+        hasPendingUniforms   = false
+        needsRefinement      = true
+        previewImage         = nil
+        renderCounts.preview += 1
+        return true
+    }
+
+    /// The wait before the room's next live frame may start: zero when it may start now, nil when it
+    /// wants none or cannot draw one. A room with a frame in flight answers nil and asks again when
+    /// that frame completes.
+    var liveFrameDelay: CFTimeInterval? {
         guard
-            canPreview,
-            let previewRenderer,
+            needsLiveFrame,
+            !isRendering,
+            lastRenderedSize != nil,
+            liveRenderer != nil,
+            let window,
+            !visibleRect.isEmpty,
+            !isHiddenOrHasHiddenAncestor
+        else { return nil }
+        // Display frames counted on the host clock, so a jittered step is not mistaken for a second one.
+        let frame = window.screen?.minimumRefreshInterval ?? 1.0 / 60
+        let now   = CACurrentMediaTime()
+        let next  = ((lastLiveFrame / frame).rounded(.down) + 1) * frame
+        return max(0, next - now)
+    }
+
+    /// Draws one frame at the room's current size and uniforms with the precomputed light at the
+    /// pulse's current weight, and holds the pulse until the full render. While resizing it draws
+    /// into a drawable whose width only changes in steps of `liveWidthStep`, since a new drawable size
+    /// costs the layer a new set of drawables; during a change of uniforms on a ray-tracing GPU it
+    /// keeps its image, which the refinement then fades out. Called by RoomRenderQueue when
+    /// `liveFrameDelay` is zero.
+    func renderLiveFrame() {
+        needsLiveFrame = false
+        lastLiveFrame  = CACurrentMediaTime()
+        hideRefinement()
+        let keepsImage = !isResizing && previewRenderer != nil
+        let render     = renderRevision
+        let submitted  = presentPrecomputed(
+            weight    : Self.pulseWeight(
+                for          : uniforms.status,
+                reducesMotion: RestylingMotion.reducesMotion,
+                at           : lastLiveFrame
+            ),
+            keepsImage: keepsImage,
+            widthStep : isResizing ? Self.liveWidthStep : 1
+        ) { [weak self] image in
+            guard let self else { return }
+            if keepsImage, render == self.renderRevision { self.previewImage = image }
+            self.continueAfterRender()
+        }
+        guard submitted else { return }
+        needsRefinement   = keepsImage
+        previewImage      = nil
+        renderCounts.live += 1
+    }
+
+    /// Draws the room at its current size with the precomputed light at `weight` into a drawable of
+    /// its pixel height and its pixel width rounded up to `widthStep`, the room at the leading edge
+    /// and framed by `contentsRect` one pixel to one, presented with the transaction that frames it.
+    /// `keepsImage`, for drawables of exactly the room's size, also reads the frame back;
+    /// `completion` gets that image, or nil, on the main actor once the GPU is done. Returns false
+    /// when nothing was submitted.
+    private func presentPrecomputed(
+        weight    : Float,
+        keepsImage: Bool,
+        widthStep : CGFloat = 1,
+        completion: @escaping @MainActor @Sendable (CGImage?) -> Void
+    ) -> Bool {
+        guard
+            let precomputed = liveRenderer,
             let size      = renderSize,
             let pixelSize = renderPixelSize,
             size.width > 0,
@@ -230,37 +379,39 @@ final class RoomLightView: MTKView {
             pixelSize.height > 0,
             let metalLayer = layer as? CAMetalLayer
         else { return false }
+        let drawableSize = CGSize(
+            width : (pixelSize.width / widthStep).rounded(.up) * widthStep,
+            height: pixelSize.height
+        )
         // MTKView's own drawableSize reaches the layer later, so its next drawable would keep the old size.
-        metalLayer.drawableSize = pixelSize
+        metalLayer.drawableSize = drawableSize
         guard
             let drawable      = metalLayer.nextDrawable(),
-            Self.drawable(drawable, fits: pixelSize),
-            let commandBuffer = previewRenderer.commandQueue.makeCommandBuffer()
+            Self.drawable(drawable, fits: drawableSize),
+            let commandBuffer = precomputed.commandQueue.makeCommandBuffer()
         else { return false }
-        let copy = Self.frameTexture(like: drawable.texture)
-        previewRenderer.encode(
+        let copy = keepsImage && widthStep == 1 ? Self.frameTexture(like: drawable.texture) : nil
+        precomputed.encode(
             uniforms,
             size         : size,
-            into         : [(drawable.texture, 1)] + (copy.map { [(texture: $0, weight: Float(1))] } ?? []),
+            into         : [(drawable.texture, weight)] + (copy.map { [(texture: $0, weight: weight)] } ?? []),
+            extent       : MTLSize(
+                width : Int(pixelSize.width),
+                height: Int(pixelSize.height),
+                depth : 1
+            ),
             commandBuffer: commandBuffer
         )
         if let copy, copy.storageMode == .managed, let blit = commandBuffer.makeBlitCommandEncoder() {
             blit.synchronize(resource: copy)
             blit.endEncoding()
         }
-        hasPendingRender   = true
-        hasPendingUniforms = false
-        needsRefinement    = true
-        previewImage       = nil
-        isRendering        = true
-        let render = renderRevision
+        isRendering = true
         commandBuffer.addCompletedHandler { @Sendable [weak self] buffer in
             let image = buffer.status == .completed ? copy.flatMap(Self.image(from:)) : nil
             Task { @MainActor in
-                guard let self else { return }
-                self.isRendering = false
-                if render == self.renderRevision { self.previewImage = image }
-                self.enqueueRenderIfReady()
+                self?.isRendering = false
+                completion(image)
             }
         }
         // The new size reaches the screen with the contentsRect that frames it.
@@ -272,16 +423,22 @@ final class RoomLightView: MTKView {
         drawable.present()
         lastRenderedSize      = size
         lastRenderedPixelSize = pixelSize
+        drawableWidthShare    = pixelSize.width / drawableSize.width
         stopPulse()
         applyContentsRect()
         CATransaction.commit()
         return true
     }
 
-    /// Allows a uniform update at the previous size while the next geometry is still settling.
+    /// Asks for the live frame that arrived while a frame was in flight, then for a full render.
+    private func continueAfterRender() {
+        if needsLiveFrame { RoomRenderQueue.shared.live(self) }
+        enqueueRenderIfReady()
+    }
+
+    /// Whether the full render may start: nothing is in flight and no size or uniforms are settling.
     var canRenderQueuedFrame: Bool {
-        hasPendingRender && !isRendering && window != nil && renderer != nil
-            && (settleTask == nil || (hasPendingUniforms && lastRenderedSize != nil))
+        hasPendingRender && !isRendering && window != nil && renderer != nil && settleTask == nil
     }
 
     private func enqueueRenderIfReady() {
@@ -307,11 +464,10 @@ final class RoomLightView: MTKView {
             enqueueRenderIfReady()
             return
         }
-        let isSizeSettled = settleTask == nil
         guard
             canRenderQueuedFrame,
-            let size      = isSizeSettled ? renderSize : lastRenderedSize,
-            let pixelSize = isSizeSettled ? renderPixelSize : lastRenderedPixelSize,
+            let size      = renderSize,
+            let pixelSize = renderPixelSize,
             size.width > 0,
             size.height > 0,
             pixelSize.width > 0,
@@ -327,11 +483,12 @@ final class RoomLightView: MTKView {
             let commandBuffer = renderer.commandQueue.makeCommandBuffer()
         else { return }
         let refines      = needsRefinement && previewImage != nil && size == lastRenderedSize
-        let resizesImage = size != lastRenderedSize || pixelSize != lastRenderedPixelSize
-        hasPendingRender      = !isSizeSettled
+        let resizesImage = size != lastRenderedSize || pixelSize != lastRenderedPixelSize || drawableWidthShare != 1
+        hasPendingRender      = false
         hasPendingUniforms    = false
         needsRefinement       = false
         isRendering           = true
+        renderCounts.full    += 1
         let weights = Self.pulseWeights(
             for          : uniforms.status,
             reducesMotion: RestylingMotion.reducesMotion
@@ -369,7 +526,7 @@ final class RoomLightView: MTKView {
                     )
                 }
                 if refines, render == self.renderRevision { self.fadeOutRefinement() }
-                self.enqueueRenderIfReady()
+                self.continueAfterRender()
             }
         }
         // An image of a new size must reach the screen with the contentsRect that frames it; one of
@@ -390,6 +547,7 @@ final class RoomLightView: MTKView {
         if resizesImage { drawable.present() }
         lastRenderedSize      = size
         lastRenderedPixelSize = pixelSize
+        drawableWidthShare    = 1
         stopPulse()
         applyContentsRect()
         CATransaction.commit()
@@ -437,14 +595,20 @@ final class RoomLightView: MTKView {
         )
     }
 
-    /// Frames the drawable, the pulse and the preview by the size they were rendered at. Called
-    /// inside a transaction with actions disabled.
+    /// Frames the drawable, the pulse and the preview by the size they were rendered at, the
+    /// drawable within the share of its width the image covers. Called inside a transaction with
+    /// actions disabled.
     private func applyContentsRect() {
         let rect = Self.contentsRect(
             rendered: lastRenderedSize,
             bounds  : bounds.size
         )
-        layer?.contentsRect      = rect
+        layer?.contentsRect = CGRect(
+            x     : rect.minX * drawableWidthShare,
+            y     : rect.minY,
+            width : rect.width * drawableWidthShare,
+            height: rect.height
+        )
         pulseLayer.contentsRect  = rect
         refineLayer.contentsRect = rect
     }
@@ -504,6 +668,27 @@ final class RoomLightView: MTKView {
             let eased = step * step * (3 - 2 * step)
             return from.weight + (to.weight - from.weight) * eased
         }
+    }
+
+    /// The light's weight at `hostTime` in the pulse `pulseLayer` plays for `status`, between the
+    /// frames of `pulseWeights` as its keyframe animation interpolates them; 1 for a light that holds
+    /// still or under Reduce Motion.
+    static func pulseWeight(
+        for status   : WorkerStatus,
+        reducesMotion: Bool,
+        at hostTime  : CFTimeInterval
+    ) -> Float {
+        let weights = pulseWeights(
+            for          : status,
+            reducesMotion: reducesMotion
+        )
+        guard let cycle = pulseCycle(for: status), !weights.isEmpty else { return 1 }
+        let elapsed  = (hostTime - pulseBeginTime(in: nil)) / cycle
+        let position = (elapsed - elapsed.rounded(.down)) * Double(weights.count)
+        let index    = min(weights.count - 1, Int(position))
+        let next     = weights[(index + 1) % weights.count]
+        let step     = Float(position - Double(index))
+        return weights[index] + (next - weights[index]) * step
     }
 
     /// The animation that plays one pulse cycle of `frames` for `status`, looping, or nil when the

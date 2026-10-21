@@ -16,14 +16,19 @@ import SwiftUI
 ///
 /// A worker chosen with the pointer hands the keyboard to the composer, so the sidebar's selection
 /// draws unemphasized; one chosen with the arrow keys leaves it in the sidebar to keep browsing, and
-/// Return there moves it to the composer.
+/// Return there moves it to the composer. The conversation, the toolbar and the inspector follow the
+/// selection a frame later (`shownSelection`): the frame of the choice carries only the sidebar,
+/// where the room's plaque starts its swing, and building the conversation, tens of milliseconds,
+/// runs while Core Animation plays it.
 ///
 /// RestylingWindowLayout budgets for the columns' ideal widths, including without an inspector: the
 /// division is decided from the window's own width, never from a width measured inside the split,
 /// the sidebar turns compact before the inspector closes, and a new division gives room first and
-/// takes it after. The sidebar is never hidden. The root minimum always leaves out the inspector's
-/// width, which AppKit adds itself, so automatically closing it cannot raise the root minimum.
-/// Only the toolbar action or its shortcut changes the person's inspector request.
+/// takes it after. The sidebar is never hidden: it has no toggle and no command, and `SidebarBridge`
+/// stops a drag of its divider at the compact width instead of collapsing it, so nothing has to
+/// reopen it. The root minimum always leaves out the inspector's width, which AppKit adds itself,
+/// so automatically closing it cannot raise the root minimum. Only the toolbar action or its
+/// shortcut changes the person's inspector request.
 ///
 /// The window, sidebar and inspector backgrounds are the asset catalogue's `RestylingGround`,
 /// `RestylingSidebar` and `RestylingInspector`, darker than the system's greys.
@@ -38,6 +43,13 @@ struct RestylingWindowView: View {
     @State private var house = MockHouse.sample
 
     @State private var selection: MockWorker.ID?
+
+    /// The worker the conversation shows, which follows `selection` once its frame is committed.
+    @State private var shownSelection: MockWorker.ID?
+
+    /// Whether the conversation about to be shown takes the keyboard: its worker was chosen with the
+    /// pointer.
+    @State private var focusesShownComposer = false
 
     /// Whether the person asked for the inspector, which a narrow window may not show yet.
     @State private var isInspectorRequested = false
@@ -56,17 +68,18 @@ struct RestylingWindowView: View {
 
     @State private var showsScreen = true
 
-    /// Always `.all`: the guard below puts back anything else.
-    @State private var columns = NavigationSplitViewVisibility.all
+    /// What the split shows, always: the sidebar never closes.
+    static let columnVisibility = NavigationSplitViewVisibility.all
 
     @FocusState private var isComposerFocused: Bool
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columns) {
+        NavigationSplitView(columnVisibility: .constant(Self.columnVisibility)) {
             HouseSidebar(
                 house    : house,
                 selection: $selection
             )
+            .background(SidebarBridge())
             // The system's sidebar material reads grey; the house's sidebar is darker, from the asset catalogue.
             .scrollContentBackground(.hidden)
             .background { Color("RestylingSidebar").ignoresSafeArea() }
@@ -135,11 +148,18 @@ struct RestylingWindowView: View {
             minHeight: 560
         )
         .background(WindowWidthReader(onWidth: windowResized))
-        .onChange(of: columns) {
-            if columns != .all { columns = .all }
-        }
         .onChange(of: selection) {
-            guard selection != nil, NSApp.currentEvent?.type != .keyDown else { return }
+            focusesShownComposer = selection != nil && NSApp.currentEvent?.type != .keyDown
+            // An empty group completes once the current transaction commits, normally the sidebar's frame
+            // that starts the plaque's swing; the conversation then builds while Core Animation plays it.
+            CATransaction.begin()
+            CATransaction.setCompletionBlock {
+                MainActor.assumeIsolated { shownSelection = selection }
+            }
+            CATransaction.commit()
+        }
+        .onChange(of: shownSelection) {
+            guard focusesShownComposer else { return }
             Task {
                 // Asked for before the new composer is in its window, the focus would be dropped.
                 await Task.yield()
@@ -150,7 +170,7 @@ struct RestylingWindowView: View {
     }
 
     private var selectedWorker: MockWorker? {
-        house.workers.first { $0.id == selection }
+        house.workers.first { $0.id == shownSelection }
     }
 
     // MARK: Toolbar

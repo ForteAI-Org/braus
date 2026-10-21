@@ -11,6 +11,11 @@ import AppKit
 /// only after the previous one's GPU completion and pulse installation. It owns weak requests, not
 /// views, and prioritizes visible rooms and uniform changes. No timer runs when the queue is empty.
 /// Rooms that settle after a resize are previewed together first, outside the one-at-a-time order.
+///
+/// Live frames, a room's single precomputed frame while its size or uniforms change, bypass the
+/// order too: each room draws one at once, in the pass that changed it, unless it drew one less than a
+/// display frame ago, when it waits here for the rest of that frame; a room with one in flight asks
+/// again when it completes.
 @MainActor
 final class RoomRenderQueue {
     static let shared = RoomRenderQueue()
@@ -33,7 +38,38 @@ final class RoomRenderQueue {
     /// to be previewed in one transaction.
     private static let previewGathering = Duration.milliseconds(4)
 
+    /// Rooms whose next live frame waits for a display frame to pass since their last.
+    private var liveRooms: [Request] = []
+    private var liveWake : Task<Void, Never>?
+
     private init() {}
+
+    /// Draws `view`'s live frame now when it may, or once a display frame has passed since its last.
+    func live(_ view: RoomLightView) {
+        guard let delay = view.liveFrameDelay else { return }
+        guard delay > 0 else {
+            view.renderLiveFrame()
+            return
+        }
+        if !liveRooms.contains(where: { $0.view === view }) {
+            liveRooms.append(Request(view: view))
+        }
+        guard liveWake == nil else { return }
+        liveWake = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            self.liveWake = nil
+            let views = self.liveRooms.compactMap(\.view)
+            self.liveRooms.removeAll()
+            for view in views {
+                self.live(view)
+            }
+        }
+    }
 
     func enqueue(_ view: RoomLightView) {
         pending.removeAll { $0.view == nil }
@@ -45,6 +81,7 @@ final class RoomRenderQueue {
     func remove(_ view: RoomLightView) {
         pending.removeAll { $0.view == nil || $0.view === view }
         previews.removeAll { $0.view == nil || $0.view === view }
+        liveRooms.removeAll { $0.view == nil || $0.view === view }
     }
 
     /// Previews `view` with the other rooms that settle within a few milliseconds, all in one Core

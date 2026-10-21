@@ -13,8 +13,8 @@ import SwiftUI
 /// The number of room columns, and whether the rows are compact, follow the width the split gives
 /// the sidebar; nothing here changes that width. When the sidebar turns compact or wide again, the
 /// rooms and rows are laid out at the width they had until the new layout is applied, all at once,
-/// with `HouseLayout.reshaping`: each one moves and resizes from where it was, its Metal room showing
-/// its last image scaled until the animation ends. Under Reduce Motion the sidebar cross-fades
+/// with `HouseLayout.reshaping`: each one moves and resizes from where it was, its Metal room drawing
+/// a live frame at every size on the way. Under Reduce Motion the sidebar cross-fades
 /// (`CrossFade`). While searching, the archive is left out.
 /// The search field draws no focus ring (`SearchFieldWithoutRing`): it keeps the keyboard focus,
 /// and the ring would only outline it against the dark sidebar.
