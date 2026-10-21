@@ -80,7 +80,7 @@ nonisolated private struct RoomGridLayout: Layout {
             rows - 1
         )
         return CGSize(
-            width : proposal.width ?? ShellMetrics.sidebar.ideal - 20,
+            width : proposal.width ?? ShellMetrics.sidebar.ideal - 2 * HouseLayout.margin,
             height: CGFloat(rows) * height + CGFloat(gaps) * HouseLayout.gap
         )
     }

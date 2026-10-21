@@ -574,6 +574,15 @@ struct RoomLightTests {
         #expect(opening.sill.animation(forKey: RoomOpeningView.pulseKey) == nil)
     }
 
+    @Test("The spill fills the gap between rooms and its blur stays within it, so it never lights a neighbour")
+    func openingSpillFitsTheGap() {
+        // A shadow's blur reaches about twice its radius; upward the drop takes some of that back.
+        #expect(2 * RoomOpeningView.spillRadius <= HouseLayout.gap)
+        #expect(2 * RoomOpeningView.spillRadius - RoomOpeningView.spillDrop < HouseLayout.gap)
+        #expect(RoomOpeningView.spillReach >= 2 * RoomOpeningView.spillRadius + RoomOpeningView.spillDrop)
+        #expect(HouseLayout.gap >= 12 && HouseLayout.margin >= 10)
+    }
+
     @Test("A row leaning left spills nothing on its right, where its room is black, and a centred room spills all round")
     func openingSpillFollowsTheLean() throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
