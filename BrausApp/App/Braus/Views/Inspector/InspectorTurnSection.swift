@@ -15,8 +15,11 @@ struct InspectorTurnSection: View {
     let workerName: String
     let turn      : WorkerInspectorView.TurnReading
 
+    /// Vertical padding added to each row; the app's inspector keeps the system's own.
+    var rowPadding: CGFloat = 0
+
     var body: some View {
-        Section(turnTitle) { turnRows }
+        Section(turnTitle) { turnRows.padding(.vertical, rowPadding) }
     }
 
     private var turnTitle: String {

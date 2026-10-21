@@ -27,6 +27,7 @@ struct HouseScreenSection: View {
                 "App",
                 value: HouseMockScreen.appName(of: worker)
             )
+            .inspectorRow()
             HouseMockScreen(worker: worker)
                 .overlay {
                     Color.clear

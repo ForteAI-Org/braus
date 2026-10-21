@@ -42,8 +42,7 @@ struct HouseInspector: View {
                 }
             }
             .formStyle(.grouped)
-            // Room in the manner of System Settings: wider margins around the sections.
-            .contentMargins(.horizontal, 24, for: .scrollContent)
+            // Room above the first section and below the last.
             .contentMargins(.vertical, 28, for: .scrollContent)
         } else {
             ContentUnavailableView(
@@ -105,7 +104,8 @@ struct HouseInspector: View {
         case .turn:
             InspectorTurnSection(
                 workerName: worker.name,
-                turn      : team.lastTurn(of: worker)
+                turn      : team.lastTurn(of: worker),
+                rowPadding: InspectorRowSpacing.vertical
             )
         }
     }
@@ -137,6 +137,7 @@ struct HouseInspector: View {
                     text  : $name,
                     prompt: Text("Worker name")
                 )
+                .inspectorRow()
                 .focused($isNameFocused)
                 .onSubmit(takeName)
 
@@ -145,6 +146,7 @@ struct HouseInspector: View {
                     text  : $worker.role,
                     prompt: Text("Example: Researcher")
                 )
+                .inspectorRow()
 
                 Button { isChoosingShape = true } label: {
                     LabeledContent("Shape") {
@@ -174,6 +176,7 @@ struct HouseInspector: View {
                         }
                     }
                     .contentShape(Rectangle())
+                    .inspectorRow()
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
