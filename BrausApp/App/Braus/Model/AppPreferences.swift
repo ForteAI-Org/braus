@@ -74,6 +74,11 @@ enum AppPreferences {
     /// launches keep the frame the person left.
     static let restylingDidSizeWindow      = "restyling.didSizeWindow"
 
+    /// Whether the team window shows the restyled house (`HouseShellView`) instead of today's shell.
+    /// A launch argument (`-restyling.newLook YES`) sets it for one run.
+    static let newLook        = "restyling.newLook"
+    static let newLookDefault = false
+
     // MARK: Chat
 
     /// Whether the time is written under the messages.
@@ -93,12 +98,13 @@ enum AppPreferences {
     static let workersSearchWeb        = "chat.workersSearchWeb"
     static let workersSearchWebDefault = true
 
-    /// The stored value of a Bool preference in `defaults`, its default when none is stored.
+    /// The stored value of a Bool preference in `defaults`, its default when none is stored. A launch
+    /// argument (`-restyling.newLook YES`) arrives as a string, which `UserDefaults.bool(forKey:)` reads.
     static func bool(
         _ key           : String,
         default fallback: Bool,
         in defaults     : UserDefaults = .standard
     ) -> Bool {
-        defaults.object(forKey: key) as? Bool ?? fallback
+        defaults.object(forKey: key) == nil ? fallback : defaults.bool(forKey: key)
     }
 }

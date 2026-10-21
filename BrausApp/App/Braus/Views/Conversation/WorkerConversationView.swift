@@ -28,6 +28,9 @@ struct WorkerConversationView: View {
 
     let worker: WorkerSnapshot
 
+    /// A count that puts the keyboard in the composer's field each time it moves, as a reply does.
+    var focusRequest = 0
+
     /// Made once for the view and kept while it lives; opening another
     /// conversation reuses it, so the collection view is not rebuilt.
     @State private var transcript: TranscriptController?
@@ -58,7 +61,7 @@ struct WorkerConversationView: View {
                     team        : team,
                     worker      : worker,
                     height      : $composerHeight,
-                    focusRequest: composerFocus,
+                    focusRequest: composerFocus + focusRequest,
                     reveal      : { transcript?.revealQuoted($0) }
                 )
             }

@@ -12,7 +12,8 @@ import UniformTypeIdentifiers
 /// GeneralSettings is how the conversation reads, its text size and font
 /// with an example reply set in them, and whether the connections are checked
 /// as the app starts. The size is the one View > Bigger and Smaller change.
-/// Troubleshooting exports the log for a bug report.
+/// New Look (Preview) shows the team in the restyled house window. Troubleshooting exports the log
+/// for a bug report.
 struct GeneralSettings: View {
 
     @AppStorage(TextSizeCommands.storageKey)
@@ -23,6 +24,9 @@ struct GeneralSettings: View {
 
     @AppStorage(AppPreferences.checksConnectionsAtLaunch)
     private var checksConnectionsAtLaunch = AppPreferences.checksConnectionsAtLaunchDefault
+
+    @AppStorage(AppPreferences.newLook)
+    private var newLook = AppPreferences.newLookDefault
 
     /// The families installed on this Mac, read once for the menu.
     @State private var families = NSFontManager.shared.availableFontFamilies
@@ -71,6 +75,17 @@ struct GeneralSettings: View {
                 )
             } footer: {
                 Text("Braus checks each provider, including the Codex and Claude command-line tools.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle(
+                    "New Look (Preview)",
+                    isOn: $newLook
+                )
+            } footer: {
+                Text("Shows the team in the new, dark window. Your workers and conversations stay the same.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
