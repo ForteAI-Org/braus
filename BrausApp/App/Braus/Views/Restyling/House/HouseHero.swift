@@ -9,16 +9,24 @@ import SwiftUI
 
 /// HouseHero is the selected worker at the top of its conversation: its 56 point mascot, its name
 /// and what it is doing now. The role shows on hover of the name, so the window says the name once.
+///
+/// The conversation gives the moment's `status`, `brows` and `activity`, and raises `preparation`
+/// when the worker sets about a message, which the head plays once.
 struct HouseHero: View {
-    let worker: MockWorker
+    let worker     : MockWorker
+    let status     : WorkerStatus
+    let brows      : BrowState
+    let activity   : String
+    let preparation: Int
 
     var body: some View {
         VStack(spacing: 0) {
             MascotFace(
-                shape : worker.shape,
-                status: worker.status,
-                brows : BrowState(worker.status),
-                size  : 56
+                shape      : worker.shape,
+                status     : status,
+                brows      : brows,
+                size       : 56,
+                preparation: preparation
             )
             Text(worker.name)
                 .font(.system(
@@ -30,7 +38,7 @@ struct HouseHero: View {
                     8
                 )
                 .help(role)
-            Text(worker.activity)
+            Text(activity)
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .padding(

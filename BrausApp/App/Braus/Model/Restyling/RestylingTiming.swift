@@ -26,4 +26,7 @@ nonisolated enum RestylingTiming {
     static let roomFlicker   : Double = 3.4
     static let waitingBreath : Double = 2.2
     static let headBreath    : Double = 6.5
+
+    /// The delay between one word of a reply fading in and the next.
+    static let wordStagger   : Double = 0.045
 }

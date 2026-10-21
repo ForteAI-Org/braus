@@ -336,6 +336,32 @@ nonisolated final class MascotLayer: CALayer {
         add(breathe, forKey: Self.breatheKey)
     }
 
+    /// Squashes and stretches the head once, as a worker setting about a task does: wide and low,
+    /// then tall and a little up, over `RestylingTiming.preparation`. Added to the breath, which
+    /// goes on. Nothing under Reduce Motion.
+    @MainActor
+    func prepare() {
+        guard !RestylingMotion.reducesMotion else { return }
+
+        let lift   = bounds.height * Self.preparationLift
+        let curve  = CAMediaTimingFunction(name: .easeInEaseOut)
+        let group  = CAAnimationGroup()
+        group.animations = [
+            ("transform.scale.x", [0, 0.14, -0.07, 0]),
+            ("transform.scale.y", [0, -0.14, 0.08, 0]),
+            ("transform.translation.y", [0, 0, lift, 0]),
+        ].map { keyPath, values in
+            let animation = CAKeyframeAnimation(keyPath: keyPath)
+            animation.values          = values
+            animation.keyTimes        = [0, 0.35, 0.7, 1]
+            animation.timingFunctions = [curve, curve, curve]
+            animation.isAdditive      = true
+            return animation
+        }
+        group.duration = RestylingTiming.preparation
+        add(group, forKey: Self.prepareKey)
+    }
+
     /// The closed outline `points` traces, in the 240 × 170 artboard with its y axis turned up.
     static func path(_ points: [CGPoint]) -> CGPath {
         let path = CGMutablePath()
@@ -347,6 +373,11 @@ nonisolated final class MascotLayer: CALayer {
     private static let artboard    = CGSize(width: 240, height: 170)
     private static let lookSeconds = 0.2
     private static let breatheKey  = "breathe"
+    private static let prepareKey  = "prepare"
+
+    /// How far the head rises at the top of its preparation, against its size: 4 points at 56.
+    private static let preparationLift: CGFloat = 4.0 / 56
+
     private static var morphCurve: CAMediaTimingFunction {
         CAMediaTimingFunction(controlPoints: 0.65, 0, 0.35, 1)
     }

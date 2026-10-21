@@ -21,6 +21,9 @@ struct MascotFace: NSViewRepresentable {
     var drawsBody       : Bool = true
     var catchesRoomLight: Bool = false
 
+    /// Changing it makes the head prepare once (`MascotLayer.prepare()`); its first value does not.
+    var preparation     : Int = 0
+
     func makeNSView(context: Context) -> HostView {
         let view = HostView(frame: CGRect(
             origin: .zero,
@@ -75,11 +78,18 @@ struct MascotFace: NSViewRepresentable {
             animated: animated
         )
         mascot.catchRoomLight(catchesRoomLight)
+        if view.preparation != preparation {
+            view.preparation = preparation
+            if animated { mascot.prepare() }
+        }
     }
 
     /// HostView holds the mascot layer, the sphere's square centred in the view.
     final class HostView: NSView {
         let mascot = MascotLayer()
+
+        /// The last preparation the head played.
+        var preparation = 0
 
         /// The side of the sphere's square, in points.
         var sphereSize: CGFloat = 0 {
