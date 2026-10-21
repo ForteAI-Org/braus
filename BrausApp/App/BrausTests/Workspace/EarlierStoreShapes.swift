@@ -14,15 +14,15 @@ import SwiftData
 /// shape of a store written by the last commit before them, as its versioned
 /// schema v4. Its `Conversation` and `Message` are frozen here as that store
 /// holds them, with the app's entity names, so a test can write such a store
-/// and open it with the app's one schema. The other models have not changed
-/// since, and are the app's own.
+/// and open it with the app's one schema. Worker uses the frozen pre-shape
+/// model; the other models have not changed since and are the app's own.
 enum StoreShapeV4: VersionedSchema {
 
     static var versionIdentifier: Schema.Version { Schema.Version(4, 0, 0) }
 
     static var models: [any PersistentModel.Type] {
         [
-            Worker.self,
+            StoreShapeV6.Worker.self,
             WorkerConfiguration.self,
             Execution.self,
             Conversation.self,
@@ -101,15 +101,15 @@ enum StoreShapeV4: VersionedSchema {
 /// StoreShapeV5 is the workspace as the app stored it with replies and before
 /// the queue: what the reply build wrote, as its versioned schema v5. Its
 /// `Conversation` keeps the draft's quote and its `Message` the quote it
-/// replies to, frozen here as that store holds them; the other models are the
-/// app's own.
+/// replies to, frozen here as that store holds them. Worker uses the frozen
+/// pre-shape model; the remaining models are the app's own.
 enum StoreShapeV5: VersionedSchema {
 
     static var versionIdentifier: Schema.Version { Schema.Version(5, 0, 0) }
 
     static var models: [any PersistentModel.Type] {
         [
-            Worker.self,
+            StoreShapeV6.Worker.self,
             WorkerConfiguration.self,
             Execution.self,
             Conversation.self,

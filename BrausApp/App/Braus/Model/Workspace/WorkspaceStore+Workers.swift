@@ -40,7 +40,8 @@ extension WorkspaceStore {
         name        : String,
         role        : String? = nil,
         instructions: String? = nil,
-        appearance  : WorkerAppearance
+        appearance  : WorkerAppearance,
+        shape       : String? = nil
     ) throws -> WorkerSnapshot {
 
         let worker = Worker(
@@ -48,7 +49,8 @@ extension WorkspaceStore {
             name        : name,
             role        : role,
             instructions: instructions,
-            appearance  : appearance
+            appearance  : appearance,
+            shape       : shape
         )
         modelContext.insert(worker)
         try saveOrRollBack()
@@ -57,12 +59,16 @@ extension WorkspaceStore {
 
     /// Applies one edit.
     @discardableResult
-    func update(worker id: UUID, _ change: WorkerChange) throws -> WorkerSnapshot {
+    func update(
+        worker id: UUID,
+        _ change : WorkerChange
+    ) throws -> WorkerSnapshot {
         guard let worker = try workerRow(id) else { throw WorkspaceStoreError.workerNotFound(id) }
 
         switch change {
         case .name(let value):         worker.name         = value
         case .role(let value):         worker.role         = value
+        case .shape(let value):        worker.shape        = value
         case .instructions(let value): worker.instructions = value
         case .appearance(let value):   worker.appearance   = value
         case .archived(let value):     worker.isArchived   = value
