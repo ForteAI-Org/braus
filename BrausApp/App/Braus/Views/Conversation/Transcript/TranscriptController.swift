@@ -102,6 +102,9 @@ final class TranscriptController: NSObject {
     /// The running turn's latest tool step in its tool line's words; nil before one or with no turn.
     var runningStep: String? { runningTurn?.step }
 
+    /// The conversation whose rows the view shows, set once an `open` has applied them; nil before.
+    private(set) var shownConversationID: UUID?
+
     /// Called once scrolling rests, with the message the reader is anchored on
     /// and the offset in points from its top to the viewport's top.
     @ObservationIgnored
@@ -220,6 +223,7 @@ final class TranscriptController: NSObject {
                 await self.apply(window, mode: .open(position))
                 guard self.conversationID == conversationID else { return }
                 self.hasShownConversation = true
+                self.shownConversationID  = conversationID
                 if replaces { self.playOpening() }
             } catch {
                 self.problem = "Couldn’t load this conversation.\n\nDetails: \(error.localizedDescription)"

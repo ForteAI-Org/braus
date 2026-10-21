@@ -18,7 +18,8 @@ import SwiftUI
 /// brows' own Core Animation loop moves.
 ///
 /// With a `switchStage`, the worker at the top of its conversation hops out of its name's capsule on
-/// `HouseSwitch`'s beats when it is first shown, and drops back into it once that stage turns to leaving.
+/// `HouseSwitch`'s beats when it is first shown, and drops back into it once that stage turns to leaving;
+/// chosen again before it is gone, it hops out once more.
 struct HouseWorkerPortrait: View {
     let shape : WorkerShape
     let status: WorkerStatus
@@ -272,7 +273,17 @@ struct HouseWorkerPortrait: View {
             } else if animated, preparation != portrait.preparation {
                 prepare()
             }
-            if portrait.switchStage == .leaving, layer?.opacity != 0 { leave() }
+            if portrait.switchStage == .leaving, layer?.opacity != 0 {
+                leave()
+            } else if preparation != nil, portrait.switchStage.map({ $0 != .leaving }) == true, let layer, layer.opacity == 0 {
+                // Chosen again while it was leaving: it hops out of the capsule once more.
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.opacity   = 1
+                layer.transform = CATransform3DIdentity
+                CATransaction.commit()
+                arrive()
+            }
             preparation = portrait.preparation
             needsLayout = true
         }
