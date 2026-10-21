@@ -197,7 +197,7 @@ struct RoomCameraTests {
         (CGSize(width: 127, height: 104), 0),
         (CGSize(width: 260, height: 104), 0),
         (CGSize(width: 120, height: 92), 0),
-        (CGSize(width: 260, height: HouseLayout.rowHeight), 1),
+        (CGSize(width: 260, height: RoomLightTests.shallowRoomHeight), 1),
     ]
 
     /// Whether the tilted camera's ray through each of `points` meets the body, from RoomLight.metal's

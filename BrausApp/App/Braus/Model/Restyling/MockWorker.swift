@@ -22,7 +22,7 @@ nonisolated struct MockWorker: Identifiable, Sendable {
     var shape   : WorkerShape
     var badge   : MockBadge?
 
-    /// The line under the worker's name in a row: what it is doing or needs while busy or waiting,
+    /// The worker's description in the conversation and accessibility labels: what it is doing or needs while busy or waiting,
     /// otherwise its role. Never a status word, which the room's light already shows.
     var subtitle: String {
         switch status {

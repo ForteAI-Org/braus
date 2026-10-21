@@ -7,21 +7,11 @@
 
 import SwiftUI
 
-/// HouseRowsList is the house as the system's list of rooms: a wide, low room per worker, one under
-/// the other, scrolling under the sidebar's foot (`HouseFoot`). Each row leans its room left: the
-/// worker at the left, lit from there, its name and subtitle beside it. In the compact sidebar the
-/// rooms are the compact floor plan's, the worker at the centre and its name under it. The rooms are
-/// seen through the camera `BRAUS_ROOM_CAMERA` picks at launch.
-///
-/// The list keeps the system's selection, by click and by keys, but not its fill: the accent fill
-/// reads as a status light (an orange accent as busy, the blue one as waiting), so `QuietSelection`
-/// turns the table's fill off and the selected room's ring is the only mark. The rooms are laid out
-/// `roomsWidth` across, which `HouseSidebar` changes together with `isCompact`, so they reshape
-/// from where they were. A row chosen out of sight, as a worker just created is, scrolls into view;
-/// each offers Edit Worker… (`edit`) in its context menu.
+/// HouseRowsList presents compact worker rows with their room lighting and native list selection.
+/// Names stay beside the workers at every sidebar width. A newly selected worker scrolls into view,
+/// and each row offers Edit Worker… in its context menu.
 struct HouseRowsList: View {
     let workers   : [MockWorker]
-    let isCompact : Bool
     let roomsWidth: CGFloat?
 
     @Binding var selection: MockWorker.ID?
@@ -42,12 +32,9 @@ struct HouseRowsList: View {
     private var list: some View {
         List(selection: $selection) {
             ForEach(workers) { worker in
-                HouseRoomCell(
+                HouseWorkerRow(
                     worker    : worker,
-                    isSelected: selection == worker.id,
-                    camera    : RoomCamera.launch,
-                    isBeside  : !isCompact,
-                    rowWidth  : roomsWidth
+                    isSelected: selection == worker.id
                 )
                 .frame(
                     width : roomsWidth,
@@ -56,9 +43,9 @@ struct HouseRowsList: View {
                 .background(QuietSelection())
                 .tag(Optional(worker.id))
                 .listRowInsets(EdgeInsets(
-                    top     : HouseLayout.gap / 2,
+                    top     : 2,
                     leading : HouseLayout.margin,
-                    bottom  : HouseLayout.gap / 2,
+                    bottom  : 2,
                     trailing: HouseLayout.margin
                 ))
                 .listRowSeparator(.hidden)
@@ -71,8 +58,8 @@ struct HouseRowsList: View {
         .listStyle(.plain)
     }
 
-    /// QuietSelection turns off the table's own selection fill under the list, so the selected room's
-    /// ring is the only mark of the selection; the table still selects by click and by keys. It also
+    /// QuietSelection turns off the table's own selection fill under the list, so the row's neutral
+    /// background marks the selection; the table still selects by click and by keys. It also
     /// removes the table's spacing between cells, which would push every room 8 points right of the
     /// sidebar's margin.
     ///

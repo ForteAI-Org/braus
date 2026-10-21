@@ -252,7 +252,7 @@ struct RoomDenoiseTests {
         let today    = try #require(RayTracedRoomRenderer(device: device))
         let size     = CGSize(
             width : 260,
-            height: HouseLayout.rowHeight
+            height: RoomLightTests.shallowRoomHeight
         )
         defer { renderer.releaseDenoiser() }
         renderer.prepareDenoiser(

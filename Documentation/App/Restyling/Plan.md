@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Work in the worktree `../mecum-app-restyling` on branch `elio/app-restyling`. Commits carry no co-author trailer and no person's name.
+- Work in the restyling worktree on branch `elio/app-restyling`. Commits carry no co-author trailer and no person's name.
 - Follow `CodeStyle.md`: one argument per line for multi-argument calls and declarations, aligned colons in small groups, one top-level type per file named after it, `///` doc comments that start with the type's name, no force-unwrap, no `try!`, visibility starts at `private`.
 - Native first. Use the system component whenever one exists: `NavigationSplitView`, `.inspector`, `List(.sidebar)`, `.searchable`, `ContentUnavailableView`, `Button`, `Toggle`, `Picker`, `Menu`, `TextField`, `ProgressView`, `.keyboardShortcut`, `NSStatusItem`, `NSPopover`, `NSPanel`, `NSWindow` with `title` and `subtitle`, SF Symbols, `NSVisualEffectView` materials and `.glassEffect` on macOS 26. Never draw a fake control, fake traffic lights or a hand-made blur where the system has one. Custom drawing is for what the system lacks: the room light, the voice orb, the mascot, the ring's shape and the motion.
 - Motion: Core Animation (`CABasicAnimation`, `CAKeyframeAnimation`, `CASpringAnimation`, `CATransaction`) wherever it reaches; Metal for room light and the voice orb; SwiftUI animation only where Core Animation cannot reach. Every animation goes through `RestylingMotion` (Task 2) so Reduce Motion turns travel, morph and bounce into a cross-fade or a cut.

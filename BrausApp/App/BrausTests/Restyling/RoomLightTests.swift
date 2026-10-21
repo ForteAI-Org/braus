@@ -16,6 +16,9 @@ import simd
 @MainActor
 struct RoomLightTests {
 
+    /// The original shallow-room fixture, independent of the compact card row's height.
+    static let shallowRoomHeight: CGFloat = 72
+
     @Test("Without hardware ray tracing the light is precomputed")
     func pathChoice() {
         func choose(_ isAppleFamily9: Bool, _ supportsRaytracing: Bool, _ override: String?) -> LightingPath {
@@ -410,11 +413,11 @@ struct RoomLightTests {
         #expect(RoomLightView.frameStorageMode(isAppleGPU: false, hasUnifiedMemory: false) == .managed)
     }
 
-    @Test("A row's room leans left: the worker larger at the left, and the stage tells the shaders where")
+    @Test("A shallow room leans left: the worker larger at the left, and the stage tells the shaders where")
     func leaningStage() {
         let size = CGSize(
             width : 260,
-            height: HouseLayout.rowHeight
+            height: RoomLightTests.shallowRoomHeight
         )
         let centred = RoomLightUniforms.Shape(size: size)
         let leaning = RoomLightUniforms.Shape(
@@ -451,7 +454,7 @@ struct RoomLightTests {
         }
         let size   = CGSize(
             width : 260,
-            height: HouseLayout.rowHeight
+            height: RoomLightTests.shallowRoomHeight
         )
         let band   = 10
         let worker = Int(RoomLightUniforms.Shape.bodyX(
@@ -596,7 +599,7 @@ struct RoomLightTests {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let size   = CGSize(
             width : 260,
-            height: HouseLayout.rowHeight
+            height: RoomLightTests.shallowRoomHeight
         )
         for lean: Float in [0, 1] {
             var uniforms = room(.busy)

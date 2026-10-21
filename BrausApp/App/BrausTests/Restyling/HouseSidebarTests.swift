@@ -283,7 +283,7 @@ struct HouseSidebarTests {
         #expect(room.plate.width == 88)
         #expect(room.showsText)
 
-        // The compact rooms, a compact row and a wide one with the worker at the centre.
+        // Compact and shallow rooms with the worker at the centre.
         let rooms = [
             CGSize(
                 width : 120,
@@ -291,11 +291,11 @@ struct HouseSidebarTests {
             ),
             CGSize(
                 width : 120,
-                height: HouseLayout.rowHeight
+                height: RoomLightTests.shallowRoomHeight
             ),
             CGSize(
                 width : 260,
-                height: HouseLayout.rowHeight
+                height: RoomLightTests.shallowRoomHeight
             ),
         ]
         for size in rooms {
@@ -305,11 +305,11 @@ struct HouseSidebarTests {
             #expect(metrics.showsText)
             #expect(metrics.top + metrics.drop + metrics.plate.height <= size.height - HouseLayout.nameBand)
         }
-        // A row leaning left: the plate hangs where the worker stood, clear of the wall and of the name
+        // A shallow room leaning left: the plate hangs where the worker stood, clear of the wall and of the name
         // beside it, centred on the row's height.
         let row     = CGSize(
             width : 260,
-            height: HouseLayout.rowHeight
+            height: RoomLightTests.shallowRoomHeight
         )
         let leaning = Metrics(
             room: row,
@@ -586,7 +586,7 @@ struct HouseSidebarTests {
     func plaqueInPerspective() throws {
         typealias Metrics = HouseAwayPlaque.PlaqueView.Metrics
 
-        // A room on the floor plan, a compact one, a compact row and a wide row leaning left.
+        // A room on the floor plan, a compact one, a shallow room and a wide one leaning left.
         let rooms: [(size: CGSize, lean: Float)] = [
             (
                 CGSize(
@@ -605,14 +605,14 @@ struct HouseSidebarTests {
             (
                 CGSize(
                     width : 120,
-                    height: HouseLayout.rowHeight
+                    height: RoomLightTests.shallowRoomHeight
                 ),
                 0
             ),
             (
                 CGSize(
                     width : 260,
-                    height: HouseLayout.rowHeight
+                    height: RoomLightTests.shallowRoomHeight
                 ),
                 1
             ),

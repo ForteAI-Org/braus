@@ -10,9 +10,9 @@ import SwiftUI
 /// HouseSidebar is the mockup's sidebar: the house's workers as rooms or as rows, as Settings
 /// chooses, with a search field that finds a worker by name and that Edit > Find… (⌘F) focuses.
 ///
-/// The number of room columns, and whether the rows are compact, follow the width the split gives
-/// the sidebar; nothing here changes that width. When the sidebar turns compact or wide again, the
-/// rooms and rows are laid out at the width they had until the new layout is applied, all at once,
+/// The room column count follows the sidebar width; rows keep their compact cards at every width.
+/// Nothing here changes the width the split gives the sidebar. When it turns compact or wide again,
+/// rooms and rows keep their previous width until the new layout is applied, all at once,
 /// with `HouseLayout.reshaping`: each one moves and resizes from where it was, its Metal room drawing
 /// a live frame at every size on the way. Under Reduce Motion the sidebar cross-fades
 /// (`CrossFade`). The foot (`HouseFoot`) floats over the rooms with the account; the archive is in
@@ -50,7 +50,6 @@ struct HouseSidebar: View {
             case .rows:
                 HouseRowsList(
                     workers   : workers,
-                    isCompact : columns == 1,
                     roomsWidth: roomsWidth,
                     selection : $selection,
                     edit      : edit

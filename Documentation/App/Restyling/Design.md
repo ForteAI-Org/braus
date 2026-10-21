@@ -155,21 +155,19 @@ title bar, because the worker already sits at the top of the conversation.
   across floor and walls, and a contact shadow under the sphere. Busy light
   flickers gently (3.4 s cycle); waiting light breathes (2.2 s). Off rooms are
   dark. No LED edge [decided].
-- **Rows** [decided]. One row per worker, 72 pt: each row is still the worker's
-  lit room, composed from the left. The worker stands at the left, 34 pt across,
-  the lamp above it, and the light spreads from it toward the right, fading into
-  the darker right side of the room. Beside it the name (headline, semibold) and
-  a one-line subtitle in plain words: what it is doing or needs while busy or
-  waiting, otherwise its role, never a status word. The attention mark or the
-  unread count sits at the trailing edge. In the compact sidebar each row
-  becomes the compact room, the worker at the centre and the name under it; the
-  change animates.
+- **Rows** [decided]. Compact cards, 44 pt high with 4 pt between them. A small
+  tilted worker sits on the left, with its name in 13 pt medium type and its badge
+  at the trailing edge. No visible subtitle. The same layout stays at narrow widths.
+  The worker keeps the rooms' material, lighting and brow behaviour. Its projected
+  silhouette hides the floor and walls; a faint status halo sits behind its body.
+  `HouseWorkerRow` composes the card and `HouseWorkerPortrait` caches the fixed-size
+  silhouettes. The room renderers remain shared with Grid.
 
 In both modes:
 
 - The selected worker leaves its room and comes to the top of the conversation.
   Its room stays empty with its door lit and the label «è da te» [proposed]; in
-  Rows the selected row is highlighted.
+  Rows the card is highlighted and its worker remains visible.
 - Search (⌘F) sits at the top of the sidebar [proposed].
 - The archive is the last item: a closed "cellar" room in Rooms, a last row in
   Rows [proposed].
