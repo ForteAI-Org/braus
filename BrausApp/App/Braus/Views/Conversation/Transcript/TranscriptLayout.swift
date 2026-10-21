@@ -16,9 +16,11 @@ import AppKit
 @MainActor
 final class TranscriptLayout: NSCollectionViewLayout {
 
-    static let groupSpacing   : CGFloat = 4
-    static let ordinarySpacing: CGFloat = 12
-    static let verticalInset  : CGFloat = 16
+    /// The room between rows of a group and between groups, and above the first row and below the
+    /// last, the column's.
+    static let groupSpacing   : CGFloat = 6
+    static let ordinarySpacing: CGFloat = 10
+    static let verticalInset  : CGFloat = 22
 
     /// One entry per row, in row order. Set together, then invalidate.
     /// `continuesGroup` is whether a row sits close under the one above.
@@ -30,14 +32,6 @@ final class TranscriptLayout: NSCollectionViewLayout {
     var topInset   : CGFloat = 0
     var bottomInset: CGFloat = 0
 
-    /// The room between rows of a group and between groups, and above the first row and below the
-    /// last, as `style` lays them out: the new look's are its column's.
-    var spacing = TranscriptLayout.spacing(for: TranscriptStyle())
-
-    static func spacing(for style: TranscriptStyle) -> (group: CGFloat, ordinary: CGFloat, inset: CGFloat) {
-        style.isHouse ? (6, 10, 22) : (groupSpacing, ordinarySpacing, verticalInset)
-    }
-
     private(set) var frames: [CGRect] = []
     private var contentSize = NSSize.zero
 
@@ -47,18 +41,18 @@ final class TranscriptLayout: NSCollectionViewLayout {
         let width    = collectionView.enclosingScrollView?.contentView.bounds.width ?? collectionView.bounds.width
         let viewport = collectionView.enclosingScrollView?.contentView.bounds.height ?? 0
 
-        var y = spacing.inset + topInset
+        var y = Self.verticalInset + topInset
         var placed: [CGRect] = []
         placed.reserveCapacity(heights.count)
         for (index, height) in heights.enumerated() {
             if index > 0 {
                 y += continuesGroup.indices.contains(index) && continuesGroup[index]
-                    ? spacing.group : spacing.ordinary
+                    ? Self.groupSpacing : Self.ordinarySpacing
             }
             placed.append(CGRect(x: 0, y: y, width: width, height: height))
             y += height
         }
-        let total = y + spacing.inset + bottomInset
+        let total = y + Self.verticalInset + bottomInset
         let lift  = max(0, viewport - total)
         frames      = lift > 0 ? placed.map { $0.offsetBy(dx: 0, dy: lift) } : placed
         contentSize = NSSize(width: width, height: max(total, viewport))

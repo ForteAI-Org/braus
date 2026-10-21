@@ -23,22 +23,17 @@ struct SidebarSettings: View {
     @AppStorage(AppPreferences.restylingSidebarMode)
     private var restylingSidebarMode = SidebarMode(preference: AppPreferences.restylingSidebarModeDefault)
 
-    @AppStorage(AppPreferences.newLook)
-    private var newLook = AppPreferences.newLookDefault
-
     var body: some View {
         Form {
-            if RestylingMode.isRequested || newLook {
-                Section {
-                    Picker(
-                        "Workers",
-                        selection: $restylingSidebarMode
-                    ) {
-                        Text("Rooms").tag(SidebarMode.rooms)
-                        Text("Rows").tag(SidebarMode.rows)
-                    }
-                    .pickerStyle(.segmented)
+            Section {
+                Picker(
+                    "Workers",
+                    selection: $restylingSidebarMode
+                ) {
+                    Text("Rooms").tag(SidebarMode.rooms)
+                    Text("Rows").tag(SidebarMode.rows)
                 }
+                .pickerStyle(.segmented)
             }
 
             Section {

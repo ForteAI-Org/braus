@@ -15,10 +15,10 @@ import SeatBroker
 import Testing
 @testable import Braus
 
-/// The live signals the new look reads from a real turn: an approval waiting on the person, the step
+/// The live signals the house reads from a real turn: an approval waiting on the person, the step
 /// a turn's tools are on, what the hero's body does, and what hovering its name tells.
 @MainActor
-@Suite("The new look's signals from a real turn", .serialized)
+@Suite("The house's signals from a real turn", .serialized)
 struct HouseSignalsTests {
 
     @Test("A request waits in the scope it was asked in, until it is answered")
@@ -184,7 +184,7 @@ struct HouseSignalsTests {
         }
     }
 
-    @Test("The hero acts a real turn out as the mockup does: reading, thinking, working, replying")
+    @Test("The hero acts a real turn out: reading, thinking, working, replying")
     func actionByPhase() {
         func action(
             isAnswering: Bool = true,
@@ -213,21 +213,21 @@ struct HouseSignalsTests {
         #expect(action(isAnswering: false, isLanding: true, running: false) == .replying, "the reply lands")
     }
 
-    @Test("Hovering a real worker's name tells its role, never the mock's category")
-    func liveHelpTellsTheRole() {
-        func hero(kind: String?) -> HouseHero {
-            HouseHero(
-                worker     : MockHouse.sample.workers[0],
+    @Test("Hovering a worker's name tells its role")
+    func helpTellsTheRole() {
+        func hero(role: String) -> HouseHero {
+            var worker = HouseFixture.workers[0]
+            worker.role = role
+            return HouseHero(
+                worker     : worker,
                 status     : .free,
                 brows      : .idle,
                 activity   : "Mixing",
-                preparation: 0,
-                kind       : kind
+                preparation: 0
             )
         }
-        #expect(!hero(kind: nil).role.isEmpty, "the mockup keeps its category's role")
-        #expect(hero(kind: "Writes the copy").role == "Writes the copy")
-        #expect(hero(kind: "").role.isEmpty, "a worker with no role tells nothing")
+        #expect(hero(role: "Writes the copy").role == "Writes the copy")
+        #expect(hero(role: "").role.isEmpty, "a worker with no role tells nothing")
     }
 
     // MARK: Helpers

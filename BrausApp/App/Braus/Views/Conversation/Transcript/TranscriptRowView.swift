@@ -73,10 +73,13 @@ final class TranscriptRowView: NSView {
     var focusedAction: RowAction? { didSet { needsDisplay = true } }
 
     private var row        : PreparedRow?
+
+    /// Where the row's text is laid out, in the row's flipped coordinates; nil before a row is shown.
+    var textFrame: CGRect? { row?.geometry.text }
+
     private var style      = TranscriptStyle()
     private var workerName = ""
     private var avatar     : NSImage?
-    private var workerTint : NSColor?
     private(set) var selection: NSRange?
     private var pressLocation : NSPoint?
     private var didDrag       = false
@@ -94,10 +97,10 @@ final class TranscriptRowView: NSView {
     /// A tool line's disclosure chevron, which turns to point down while the line is open.
     private var chevron    : NSImageView?
 
-    /// The new look's spinner before a running tool line's words.
+    /// The spinner before a running tool line's words.
     private var spinner    : NSProgressIndicator?
 
-    /// The new look's words arriving over the row, and the first character the row leaves undrawn meanwhile.
+    /// The words arriving over the row, and the first character the row leaves undrawn meanwhile.
     private var reveals    : [WordReveal] = []
     private var veiledFrom : Int?
 
@@ -122,7 +125,6 @@ final class TranscriptRowView: NSView {
         style     : TranscriptStyle,
         workerName: String,
         avatar    : NSImage?,
-        workerTint: NSColor? = nil,
         selection : NSRange?
     ) {
         // The same row again, as a streamed reply grows, keeps the laid out stacks of its unchanged blocks.
@@ -139,7 +141,6 @@ final class TranscriptRowView: NSView {
         self.style      = style
         self.workerName = workerName
         self.avatar     = avatar
-        self.workerTint = workerTint
         self.selection  = selection
         ranges          = row.text.blockRanges
         stacks          = zip(row.text.blocks, row.geometry.blockTexts).enumerated().map { index, pair in
@@ -178,8 +179,8 @@ final class TranscriptRowView: NSView {
             thinkingBlob = blob
             addSubview(blob)
         }
-        // The new look's blob is the bubble's light grey, as its worker's colour is the room's.
-        blob.tint     = style.isHouse ? NSColor(white: 0.92, alpha: 1) : workerTint ?? .controlAccentColor
+        // The blob is the bubble's light grey, as its worker's colour is the room's.
+        blob.tint     = NSColor(white: 0.92, alpha: 1)
         blob.frame    = row.geometry.text
         blob.isHidden = false
     }
@@ -312,7 +313,7 @@ final class TranscriptRowView: NSView {
     }
 
     /// The quote's name and excerpt laid out at the width they were measured
-    /// at, in the colours of the bubble they sit on: white on the accent.
+    /// at, in the label's colours.
     private static func quoteStacks(
         of row    : PreparedRow,
         workerName: String,
@@ -320,13 +321,12 @@ final class TranscriptRowView: NSView {
     ) -> (name: TextStack?, text: TextStack?) {
         guard let quote = row.item.quote, let frame = row.geometry.quoteText else { return (nil, nil) }
 
-        let isOnAccent = isPersonMessage(row) && !style.isHouse
         let name       = row.geometry.quoteName.map { _ in
             RowPreparation.textStack(
                 RowPreparation.quoteName(
                     workerName,
                     style: style,
-                    color: isOnAccent ? .white : .labelColor
+                    color: .labelColor
                 ),
                 width       : frame.width,
                 maximumLines: 1
@@ -336,7 +336,7 @@ final class TranscriptRowView: NSView {
             RowPreparation.quoteExcerpt(
                 quote,
                 style: style,
-                color: isOnAccent ? .white.withAlphaComponent(0.85) : .secondaryLabelColor
+                color: .secondaryLabelColor
             ),
             width       : frame.width,
             maximumLines: RowGeometry.quoteLines
@@ -349,18 +349,19 @@ final class TranscriptRowView: NSView {
     }
 
     /// How far a row's parts move from where they were placed: a live resize
-    /// widens the row before its parts are placed again off the main thread,
-    /// so the person's bubble, anchored to the right edge, follows the edge,
-    /// and a divider, centred, follows the centre on a whole point.
+    /// widens the row before its parts are placed again off the main thread.
+    /// The column is centred, so a row's parts follow its start, the person's
+    /// bubble its end and a divider its centre, on whole points.
     private func drift(of row: PreparedRow) -> CGFloat {
-        guard !style.isHouse else { return houseDrift(of: row) }
-
-        let widened = bounds.width - row.geometry.rowWidth
+        let placed = RowGeometry.column(rowWidth: row.geometry.rowWidth)
+        let now    = RowGeometry.column(rowWidth: bounds.width)
         switch row.item.kind {
-        case .personMessage:                   return widened
-        case .daySeparator, .contextSeparator,
-             .activityNotShown:                return (widened / 2).rounded()
-        default:                               return 0
+        case .personMessage:
+            return (now.start + now.width - placed.start - placed.width).rounded()
+        case .daySeparator, .contextSeparator, .activityNotShown:
+            return (now.start + now.width / 2 - placed.start - placed.width / 2).rounded()
+        default:
+            return now.start - placed.start
         }
     }
 
@@ -402,12 +403,12 @@ final class TranscriptRowView: NSView {
         if let footer = geometry.footer { drawTime(row, in: footer, isPerson: isPerson) }
         for index in row.text.blocks.indices
         where geometry.blocks.indices.contains(index) && geometry.blocks[index].offsetBy(dx: drift, dy: 0).intersects(dirtyRect) {
-            drawBlock(at: index, of: row, isOnAccent: isPerson && !style.isHouse)
+            drawBlock(at: index, of: row)
         }
         if let frame = geometry.badge, let badge = DeliveryBadge(row.item.kind) { draw(badge, in: frame) }
     }
 
-    private func drawBlock(at index: Int, of row: PreparedRow, isOnAccent: Bool) {
+    private func drawBlock(at index: Int, of row: PreparedRow) {
         let block = row.text.blocks[index]
         let frame = row.geometry.blocks[index]
         let text  = row.geometry.blockTexts[index]
@@ -451,7 +452,7 @@ final class TranscriptRowView: NSView {
         }
         guard let (_, manager, container) = stacks[index] else { return }
         // A code block in the person's bubble has its own light surface, so it selects as any text does.
-        drawSelection(in: text, block: index, clip: frame, isOnAccent: isOnAccent && !block.isCompleteCode)
+        drawSelection(in: text, block: index, clip: frame)
         let glyphs = manager.glyphRange(for: container)
         manager.drawBackground(forGlyphRange: glyphs, at: text.origin)
         manager.drawGlyphs(forGlyphRange: unveiledGlyphs(of: index, in: glyphs), at: text.origin)
@@ -495,19 +496,8 @@ final class TranscriptRowView: NSView {
     private func drawSurface(_ row: PreparedRow, geometry: RowGeometry, isPerson: Bool) {
         let surface = geometry.surface
         switch RowGeometry.shape(of: row.item.kind) {
-        case .bubble where style.isHouse:
-            drawHouseBubble(row, geometry: geometry, isPerson: isPerson)
-
         case .bubble:
-            let path = BubblePath.path(surface: surface, tail: geometry.tail)
-            let fill = isPerson ? TranscriptColors.personBubble : TranscriptColors.neutralSurface
-            bubbleFill(fill, isPerson: isPerson).setFill()
-            path.fill()
-            if isOutlined, !isBubbleSelected { strokeFocus(path) }
-            drawQuote(
-                of      : row,
-                isPerson: isPerson
-            )
+            drawBubble(row, geometry: geometry, isPerson: isPerson)
 
         case .card:
             let path = NSBezierPath(roundedRect: surface, xRadius: 8, yRadius: 8)
@@ -529,53 +519,15 @@ final class TranscriptRowView: NSView {
                 NSColor.labelColor.withAlphaComponent(0.07).setFill()
                 NSBezierPath(roundedRect: line, xRadius: 6, yRadius: 6).fill()
             }
-            if row.item.isSeparator, !style.isHouse { drawRules(beside: geometry.text, drift: drift(of: row)) }
-            if style.isHouse { drawToolDot(row) }
+            drawToolDot(row)
             if isOutlined { strokeFocus(NSBezierPath(roundedRect: frame, xRadius: 4, yRadius: 4)) }
         }
-    }
-
-    /// A day's label between two hairlines that run out to the gutters. They reach the edges of
-    /// the row as it is now, so a live resize stretches them at once; the context is moved by
-    /// `drift` already, which they undo at their outer ends.
-    private func drawRules(
-        beside label: CGRect,
-        drift       : CGFloat
-    ) {
-        let gap   = CGFloat(12)
-        let hair  = 1 / (window?.backingScaleFactor ?? 2)
-        let y     = label.midY.rounded()
-        let start = RowGeometry.gutter - drift
-        let end   = bounds.width - RowGeometry.gutter - drift
-        NSColor.separatorColor.setFill()
-        NSRect(x: start, y: y, width: max(0, label.minX - gap - start), height: hair).fill()
-        NSRect(x: label.maxX + gap, y: y, width: max(0, end - label.maxX - gap), height: hair).fill()
-    }
-
-    /// A selected bubble is its own fill made lighter, with no border: toward
-    /// white on the accent, a step up on the neutral surface in either theme.
-    /// A flashed one is tinted as far as `flashAmount` says: toward white on
-    /// the accent, toward the accent on the neutral surface.
-    private func bubbleFill(_ fill: NSColor, isPerson: Bool) -> NSColor {
-        guard !isBubbleSelected else {
-            let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return fill.blended(withFraction: isPerson ? 0.28 : isDark ? 0.14 : 0.6, of: .white) ?? fill
-        }
-        guard flashAmount > 0 else { return fill }
-
-        return fill.blended(
-            withFraction: 0.35 * flashAmount,
-            of          : isPerson ? .white : .controlAccentColor
-        ) ?? fill
     }
 
     /// The quote at the bubble's top: a rounded block a shade darker than the
     /// bubble, its bar in the colour of whoever wrote the quoted message, the
     /// worker's name when it was theirs, and at most two lines of the excerpt.
-    private func drawQuote(
-        of row  : PreparedRow,
-        isPerson: Bool
-    ) {
+    private func drawQuote(of row: PreparedRow) {
         guard let quote = row.item.quote, let block = row.geometry.quote else { return }
 
         let path = NSBezierPath(
@@ -583,13 +535,13 @@ final class TranscriptRowView: NSView {
             xRadius    : RowGeometry.quoteCornerRadius,
             yRadius    : RowGeometry.quoteCornerRadius
         )
-        TranscriptColors.quoteSurface(isOnAccent: isPerson).setFill()
+        TranscriptColors.quoteSurface(isOnAccent: false).setFill()
         path.fill()
         NSGraphicsContext.saveGraphicsState()
         path.addClip()
         TranscriptColors.quoteBar(
             quotesPerson: quote.isFromPerson,
-            isOnAccent  : isPerson
+            isOnAccent  : false
         ).setFill()
         NSRect(
             x     : block.minX,
@@ -683,12 +635,8 @@ final class TranscriptRowView: NSView {
         symbol.draw(in: frame)
     }
 
-    /// The part of the row's selection inside `block`, kept within its frame.
-    ///
-    /// On the accent bubble the selection is a near opaque white with the
-    /// selected glyphs in the accent, as Messages draws it: white text on a
-    /// lighter tint of the accent would not read. Elsewhere it is the system's.
-    private func drawSelection(in frame: CGRect, block: Int, clip: CGRect, isOnAccent: Bool) {
+    /// The part of the row's selection inside `block`, kept within its frame, in the system's colour.
+    private func drawSelection(in frame: CGRect, block: Int, clip: CGRect) {
         guard let (storage, manager, container) = stacks[block] else { return }
         // The stack outlives a selection change when its block is unchanged, so an old inversion is cleared first.
         manager.removeTemporaryAttribute(.foregroundColor,
@@ -698,11 +646,7 @@ final class TranscriptRowView: NSView {
         guard local.length > 0 else { return }
         let characters = NSRange(location: local.location - ranges[block].location, length: local.length)
         let glyphs     = manager.glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
-        if isOnAccent {
-            manager.addTemporaryAttribute(.foregroundColor, value: TranscriptColors.personBubble,
-                                          forCharacterRange: characters)
-        }
-        (isOnAccent ? NSColor.white.withAlphaComponent(0.9) : NSColor.selectedTextBackgroundColor).setFill()
+        NSColor.selectedTextBackgroundColor.setFill()
         manager.enumerateEnclosingRects(
             forGlyphRange             : glyphs,
             withinSelectedGlyphRange  : NSRange(location: NSNotFound, length: 0),
@@ -874,12 +818,12 @@ final class TranscriptRowView: NSView {
         showReply(false)
     }
 
-    // MARK: The new look
+    // MARK: Bubble and tool line
 
-    /// The new look's bubble: the person's dark grey, lighter toward its top, the worker's a faint
-    /// veil with a hairline edge, each with its tight corner toward its author. A selected one is
-    /// lighter, a flashed one tinted, as today's.
-    private func drawHouseBubble(
+    /// A bubble: the person's dark grey, lighter toward its top, the worker's a faint veil with a
+    /// hairline edge, each with its tight corner toward its author. A selected one is lighter, a
+    /// flashed one tinted.
+    private func drawBubble(
         _ row   : PreparedRow,
         geometry: RowGeometry,
         isPerson: Bool
@@ -926,10 +870,7 @@ final class TranscriptRowView: NSView {
         }
         context.restoreGState()
         if isOutlined, !isBubbleSelected { strokeFocus(NSBezierPath(cgPath: path)) }
-        drawQuote(
-            of      : row,
-            isPerson: false
-        )
+        drawQuote(of: row)
     }
 
     /// A finished tool line's quiet dot, before its words; a running one has a spinner there.
@@ -940,9 +881,9 @@ final class TranscriptRowView: NSView {
         NSBezierPath(ovalIn: slot).fill()
     }
 
-    /// Where a tool line's spinner or dot sits, before its summary, in the new look.
+    /// Where a tool line's spinner or dot sits, before its summary.
     private func toolIndicator(of row: PreparedRow) -> CGRect? {
-        guard style.isHouse, Self.isToolRun(row), let summary = row.geometry.blocks.first else { return nil }
+        guard Self.isToolRun(row), let summary = row.geometry.blocks.first else { return nil }
 
         let side = RowGeometry.houseToolIndicator
         return CGRect(
@@ -953,7 +894,7 @@ final class TranscriptRowView: NSView {
         )
     }
 
-    /// The spinner of a tool line whose turn runs, in the new look; hidden for any other row, which stops it.
+    /// The spinner of a tool line whose turn runs; hidden for any other row, which stops it.
     private func showSpinner(_ row: PreparedRow) {
         guard case .toolRun(_, _, nil) = row.item.kind, let slot = toolIndicator(of: row) else {
             spinner?.stopAnimation(nil)
@@ -978,29 +919,13 @@ final class TranscriptRowView: NSView {
         return spinner
     }
 
-    /// In the new look the column is centred: a row's parts follow its start, the person's bubble
-    /// its end and a divider its centre, on whole points, while a live resize widens the row.
-    private func houseDrift(of row: PreparedRow) -> CGFloat {
-        let placed = RowGeometry.column(rowWidth: row.geometry.rowWidth, style: style)
-        let now    = RowGeometry.column(rowWidth: bounds.width, style: style)
-        switch row.item.kind {
-        case .personMessage:
-            return (now.start + now.width - placed.start - placed.width).rounded()
-        case .daySeparator, .contextSeparator, .activityNotShown:
-            return (now.start + now.width / 2 - placed.start - placed.width / 2).rounded()
-        default:
-            return now.start - placed.start
-        }
-    }
-
     // MARK: Words arriving
 
     /// Fades the row's words in from character `start` of its text on, each from transparent,
-    /// blurred and a little low, one after another (`WordReveal`), as the new look shows a reply
-    /// arriving. The words are not drawn by the row until they are all in. Nothing plays under
+    /// blurred and a little low, one after another (`WordReveal`), as a reply arrives. The words are not drawn by the row until they are all in. Nothing plays under
     /// Reduce Motion, for a row that is not on screen, or past `WordReveal.wordLimit` words.
     func revealWords(from start: Int) {
-        guard style.isHouse, !RestylingMotion.reducesMotion, window != nil, let row else { return }
+        guard !RestylingMotion.reducesMotion, window != nil, let row else { return }
 
         let words = wordFrames(of: row, from: start)
         guard !words.isEmpty, words.count <= WordReveal.wordLimit, let picture = textPicture(of: row) else { return }
@@ -1104,7 +1029,7 @@ final class TranscriptRowView: NSView {
     // MARK: Reply button
 
     /// Whether a message offers Reply in a round button beside its bubble, on its outer side, while
-    /// the pointer is over the bubble or the button, as the new look's transcript does.
+    /// the pointer is over the bubble or the button, while the conversation's flights ask for it.
     var showsReplyButton = false {
         didSet { if !showsReplyButton { showReply(false, animated: false) } }
     }

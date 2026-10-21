@@ -8,8 +8,8 @@
 import AppKit
 import SwiftUI
 
-/// HouseLiveFlights flies the new look's messages over the team's conversation, as `BubbleFlight`
-/// flies the mockup's: a sent message from the composer's field into its bubble; a message sent
+/// HouseLiveFlights flies the house's messages over the team's conversation, on `BubbleFlight`'s
+/// stage: a sent message from the composer's field into its bubble; a message sent
 /// during a turn into the queue strip; a queued message from the strip into the transcript when the
 /// turn ends or on Send Now; a replied bubble into the quote strip, and back when the quote goes.
 ///
@@ -39,7 +39,7 @@ final class HouseLiveFlights {
     /// The transcript the flights land in, set by `attach(_:to:)`.
     @ObservationIgnored private(set) weak var transcript: TranscriptController?
 
-    /// The stage the flights fly on, and the quote's flights, shared with the mockup.
+    /// The stage the flights fly on, and the quote's flights.
     @ObservationIgnored private let bubbles = BubbleFlight()
 
     /// Flights waiting for their message's row, oldest first, and those waiting for the queue strip.
@@ -152,7 +152,7 @@ final class HouseLiveFlights {
         }
     }
 
-    /// The person's bubble colour in the new look's transcript, halfway down its gradient.
+    /// The person's bubble colour in the transcript, halfway down its gradient.
     private static let personBubble = NSColor(white: 0.205, alpha: 1).cgColor
 
     // MARK: The queue

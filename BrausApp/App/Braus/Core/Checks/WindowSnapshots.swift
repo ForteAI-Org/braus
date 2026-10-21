@@ -15,10 +15,12 @@ import SwiftUI
 /// person to look at, when the app is launched with BRAUS_SNAPSHOTS=1, then
 /// quits. The files go to BRAUS_SNAPSHOT_DIR, or under the temporary directory.
 ///
-/// The real `TeamShellView` is hosted in a window that is never ordered on
-/// screen and drawn with `cacheDisplay`, so it needs no Screen Recording grant
-/// and Stage Manager has nothing to hide. The team is synthetic, in a store of
-/// its own under the temporary directory; the person's workspace is not opened.
+/// The real `HouseShellView` is hosted in a window that is never ordered on
+/// screen (`writeHouseWindow`), and the sheets, popovers and Settings pages are
+/// drawn alone with `cacheDisplay`, so nothing needs a Screen Recording grant
+/// and Stage Manager has nothing to hide. Braus is dark only, so is every
+/// picture. The team is synthetic, in a store of its own under the temporary
+/// directory; the person's workspace is not opened.
 @MainActor
 enum WindowSnapshots {
 
@@ -54,8 +56,6 @@ enum WindowSnapshots {
                 contextTokens: 142_318
             )
             let output = try directory()
-            // The old shell's pictures, whatever the suite held from an earlier run.
-            appStorage?.set(false, forKey: AppPreferences.newLook)
 
             // Codex's catalogue as the composer's popup lists it, without running the command line.
             team.connections.recordCatalogue(
@@ -74,38 +74,15 @@ enum WindowSnapshots {
                 for: .codex
             )
 
-            // The narrowest window holds the inspector only beside the compact sidebar.
-            let narrowest = Int(ShellMetrics.windowMinimum)
-            let cases: [(name: String, width: Double, dark: Bool, inspector: Bool)] = [
-                ("1200-light", 1200, false, true),
-                ("1200-dark", 1200, true, true),
-                ("\(narrowest)-light", ShellMetrics.windowMinimum, false, true),
-                ("\(narrowest)-dark", ShellMetrics.windowMinimum, true, true),
-                ("\(narrowest)-light-inspector-closed", ShellMetrics.windowMinimum, false, false),
-            ]
-            for shot in cases {
-                let root = Root(
-                    team                : team,
-                    isInspectorRequested: shot.inspector
-                )
-                try await write(
-                    root,
-                    width: shot.width,
-                    dark : shot.dark,
-                    to   : output.appending(path: "window-\(shot.name).png")
-                )
-            }
+            try await writeHouse(from: team, in: store, to: output)
 
             // The model popup open above the composer, in the narrowest window, where it has least room.
             opensModelPopup = true
-            try await write(
-                Root(
-                    team                : team,
-                    isInspectorRequested: true
-                ),
-                width: ShellMetrics.windowMinimum,
-                dark : false,
-                to   : output.appending(path: "window-\(narrowest)-light-model-popup.png")
+            try await writeHouseWindow(
+                team,
+                width    : RestylingWindowLayout.minimumWidth,
+                inspector: true,
+                to       : output.appending(path: "house-model-popup.png")
             )
             opensModelPopup = false
 
@@ -118,34 +95,19 @@ enum WindowSnapshots {
                     rateLimits: []
                 ).context else { throw SnapshotFailure("no context at \(tokens) tokens") }
 
-                for (name, dark) in [("light", false), ("dark", true)] {
-                    try await write(
-                        ConversationContextButton(
-                            context     : ring,
-                            worker      : "Atlas",
-                            isCompacting: false,
-                            waitReason  : nil,
-                            compact     : {},
-                            startFresh  : {}
-                        )
-                        .buttonStyle(.plain)
-                        .frame(height: 36)
-                        .padding(
-                            .horizontal,
-                            8
-                        )
-                        .background(
-                            .quinary,
-                            in: Capsule()
-                        )
-                        .padding(24)
-                        .background(Color(nsColor: .windowBackgroundColor)),
-                        width : 96,
-                        height: 96,
-                        dark  : dark,
-                        to    : output.appending(path: "context-ring-\(level)-\(name).png")
-                    )
-                }
+                try await write(
+                    ringButton(ConversationContextButton(
+                        context     : ring,
+                        worker      : "Atlas",
+                        isCompacting: false,
+                        waitReason  : nil,
+                        compact     : {},
+                        startFresh  : {}
+                    )),
+                    width : 96,
+                    height: 96,
+                    to    : output.appending(path: "context-ring-\(level).png")
+                )
             }
 
             // The composer with a pill grown to several lines.
@@ -154,14 +116,11 @@ enum WindowSnapshots {
                 directoryHint: .isDirectory
             ))
             grown.draft = "Rerun the capture suite first.\nThen the layout suite.\nThen send me both logs."
-            try await write(
-                Root(
-                    team                : grown,
-                    isInspectorRequested: false
-                ),
-                width: 1200,
-                dark : false,
-                to   : output.appending(path: "window-1200-light-composer-grown.png")
+            try await writeHouseWindow(
+                grown,
+                width    : 1200,
+                inspector: false,
+                to       : output.appending(path: "house-composer-grown.png")
             )
 
             // The two usage popovers drawn alone, as a popover is a window of its own.
@@ -186,46 +145,28 @@ enum WindowSnapshots {
                 )), 420),
             ]
             for popover in popovers {
-                for (name, dark) in [("light", false), ("dark", true)] {
-                    try await write(
-                        popover.popover.background(Color(nsColor: .windowBackgroundColor)),
-                        width : 280,
-                        height: popover.height,
-                        dark  : dark,
-                        to    : output.appending(path: "\(popover.name)-\(name).png")
-                    )
-                }
+                try await write(
+                    popover.popover.background(Color(nsColor: .windowBackgroundColor)),
+                    width : 280,
+                    height: popover.height,
+                    to    : output.appending(path: "\(popover.name).png")
+                )
             }
 
             // The ring while the context is compacted, its button drawn alone in the same capsule.
-            for (name, dark) in [("light", false), ("dark", true)] {
-                try await write(
-                    ConversationContextButton(
-                        context     : context,
-                        worker      : "Atlas",
-                        isCompacting: true,
-                        waitReason  : nil,
-                        compact     : {},
-                        startFresh  : {}
-                    )
-                    .buttonStyle(.plain)
-                    .frame(height: 36)
-                    .padding(
-                        .horizontal,
-                        8
-                    )
-                    .background(
-                        .quinary,
-                        in: Capsule()
-                    )
-                    .padding(24)
-                    .background(Color(nsColor: .windowBackgroundColor)),
-                    width : 96,
-                    height: 96,
-                    dark  : dark,
-                    to    : output.appending(path: "context-ring-compacting-\(name).png")
-                )
-            }
+            try await write(
+                ringButton(ConversationContextButton(
+                    context     : context,
+                    worker      : "Atlas",
+                    isCompacting: true,
+                    waitReason  : nil,
+                    compact     : {},
+                    startFresh  : {}
+                )),
+                width : 96,
+                height: 96,
+                to    : output.appending(path: "context-ring-compacting.png")
+            )
 
             // Atlas's conversation after Braus compacted its context on its own.
             let compacted = try await syntheticTeam(
@@ -236,17 +177,12 @@ enum WindowSnapshots {
                 contextTokens: 236_900,
                 compaction   : .automatic
             )
-            for (name, dark) in [("light", false), ("dark", true)] {
-                try await write(
-                    Root(
-                        team                : compacted,
-                        isInspectorRequested: false
-                    ),
-                    width: 1200,
-                    dark : dark,
-                    to   : output.appending(path: "window-1200-\(name)-compacted.png")
-                )
-            }
+            try await writeHouseWindow(
+                compacted,
+                width    : 1200,
+                inspector: false,
+                to       : output.appending(path: "house-compacted.png")
+            )
 
             // Atlas's turn read a page and searched the web: its tool line closed, then open.
             let searched = try await syntheticTeam(
@@ -264,49 +200,11 @@ enum WindowSnapshots {
                         opens,
                         forKey: AppPreferences.chatOpensToolSteps
                     )
-                    for (name, dark) in [("light", false), ("dark", true)] {
-                        try await write(
-                            Root(
-                                team                : searched,
-                                isInspectorRequested: false
-                            ),
-                            width: 1200,
-                            dark : dark,
-                            to   : output.appending(path: "window-1200-\(name)-web\(opens ? "-open" : "").png")
-                        )
-                    }
-                }
-            }
-
-            // The split's sidebar is glass and draws blank offscreen, so its rows are drawn alone too, on the
-            // sidebar material, full and compact, with two connections ready for the footer's badge.
-            let badges = try await badgedTeam(in: store.appending(
-                path         : "Badges",
-                directoryHint: .isDirectory
-            ))
-            for connections in [team.connections, badges.connections] {
-                for provider in [ModelProvider.codex, .claudeCode] {
-                    connections.recordCheck(
-                        .ready,
-                        for: provider,
-                        at : Self.checkedAt
-                    )
-                }
-            }
-
-            let sidebars: [(name: String, team: TeamModel, width: Double)] = [
-                ("sidebar", team, ShellMetrics.sidebar.ideal),
-                ("sidebar-badges", badges, ShellMetrics.sidebar.ideal),
-                ("sidebar-compact", team, ShellMetrics.compactSidebar),
-                ("sidebar-compact-badges", badges, ShellMetrics.compactSidebar),
-            ]
-            for sidebar in sidebars {
-                for (name, dark) in [("light", false), ("dark", true)] {
-                    try await write(
-                        TeamSidebarView(team: sidebar.team).background(SidebarMaterial().ignoresSafeArea()),
-                        width: sidebar.width,
-                        dark : dark,
-                        to   : output.appending(path: "\(sidebar.name)-\(name).png")
+                    try await writeHouseWindow(
+                        searched,
+                        width    : 1200,
+                        inspector: false,
+                        to       : output.appending(path: "house-web\(opens ? "-open" : "").png")
                     )
                 }
             }
@@ -320,18 +218,16 @@ enum WindowSnapshots {
                     for: .anthropic,
                     at : Self.checkedAt
                 )
-                for (name, dark) in [("light", false), ("dark", true)] {
-                    try await write(
-                        WorkerInspectorView(
-                            team  : team,
-                            worker: worker
-                        ),
-                        width : ShellMetrics.inspector.ideal,
-                        height: 900,
-                        dark  : dark,
-                        to    : output.appending(path: "inspector-providers-\(name).png")
+                try await write(
+                    HouseLiveInspector.Content(
+                        team  : team,
+                        worker: worker
                     )
-                }
+                    .background(Color("RestylingInspector")),
+                    width : RestylingWindowLayout.inspectorWidth.ideal,
+                    height: 900,
+                    to    : output.appending(path: "inspector-providers.png")
+                )
                 team.choosingProviderFor = nil
             }
 
@@ -345,8 +241,7 @@ enum WindowSnapshots {
                 ),
                 width : 720,
                 height: 540,
-                dark  : false,
-                to    : output.appending(path: "settings-window-light.png")
+                to    : output.appending(path: "settings-window.png")
             )
             let pages: [(name: String, page: AnyView)] = [
                 ("general", AnyView(GeneralSettings())),
@@ -365,18 +260,9 @@ enum WindowSnapshots {
                     page.page,
                     width : 530,
                     height: 700,
-                    dark  : false,
-                    to    : output.appending(path: "settings-\(page.name)-light.png")
+                    to    : output.appending(path: "settings-\(page.name).png")
                 )
             }
-            // The Chat page in dark too, for its switch that lets workers search the web.
-            try await write(
-                ChatSettings(),
-                width : 530,
-                height: 700,
-                dark  : true,
-                to    : output.appending(path: "settings-chat-dark.png")
-            )
 
             // The Brain, from a knowledge directory the run names, since the snapshot store learns nothing.
             if let knowledge = ProcessInfo.processInfo.environment["BRAUS_SNAPSHOT_KNOWLEDGE_DIR"],
@@ -391,66 +277,46 @@ enum WindowSnapshots {
                     ))),
                 ]
                 for brain in brains {
-                    for (name, dark) in [("light", false), ("dark", true)] {
-                        try await write(
-                            brain.page,
-                            width : 640,
-                            height: 560,
-                            dark  : dark,
-                            to    : output.appending(path: "settings-\(brain.name)-\(name).png")
-                        )
-                    }
-                }
-            }
-
-            let connections = syntheticConnections()
-            for (name, dark) in [("light", false), ("dark", true)] {
-                try await write(
-                    ConnectionsSheet(
-                        connections   : connections,
-                        checksOnAppear: false,
-                        opens         : [.claudeCode]
-                    ),
-                    width : 520,
-                    height: 600,
-                    dark  : dark,
-                    to    : output.appending(path: "connections-\(name).png")
-                )
-            }
-
-            let macAccess = SeatBroker(configuration: .init(allowUnvalidatedBuild: true))
-            for (name, dark) in [("light", false), ("dark", true)] {
-                try await write(
-                    PermissionsSheet(broker: macAccess),
-                    width : 520,
-                    height: 420,
-                    dark  : dark,
-                    to    : output.appending(path: "mac-access-\(name).png")
-                )
-            }
-
-            // The sheet with Codex ready and its recorded catalogue, then with nothing connected.
-            let unconnected = TeamModel(
-                store      : try WorkspaceStore.opening(in: store.appending(
-                    path         : "Unconnected",
-                    directoryHint: .isDirectory
-                )),
-                connections: ModelSettingsStore(),
-                broker     : SeatBroker()
-            )
-            for (state, sheetTeam) in [("", team), ("-unconnected", unconnected)] {
-                for (name, dark) in [("light", false), ("dark", true)] {
                     try await write(
-                        NewWorkerSheet(
-                            team          : sheetTeam,
-                            loadsCatalogue: false
-                        ),
-                        width : 460,
-                        height: 540,
-                        dark  : dark,
-                        to    : output.appending(path: "new-worker\(state)-\(name).png")
+                        brain.page,
+                        width : 640,
+                        height: 560,
+                        to    : output.appending(path: "settings-\(brain.name).png")
                     )
                 }
+            }
+
+            try await write(
+                ConnectionsSheet(
+                    connections   : syntheticConnections(),
+                    checksOnAppear: false,
+                    opens         : [.claudeCode]
+                ),
+                width : 520,
+                height: 600,
+                to    : output.appending(path: "connections.png")
+            )
+
+            try await write(
+                PermissionsSheet(broker: SeatBroker(configuration: .init(allowUnvalidatedBuild: true))),
+                width : 520,
+                height: 420,
+                to    : output.appending(path: "mac-access.png")
+            )
+
+            // The sheet with Codex ready and its recorded catalogue, then with nothing connected.
+            let ready: [ModelProvider: ConnectionState] = [.codex: .ready]
+            for (state, connections) in [("", ready), ("-unconnected", [:])] {
+                try await write(
+                    HouseNewWorkerSheet(
+                        shapes     : HouseRoster.workers(of: team).map(\.shape),
+                        connections: { connections },
+                        catalogue  : { provider in team.connections.catalogues[provider] ?? [] }
+                    ) { _ in },
+                    width : 460,
+                    height: 570,
+                    to    : output.appending(path: "new-worker\(state).png")
+                )
             }
 
             // The composer's model popup, at the bottom, the middle and the top of a Codex model's rail.
@@ -461,24 +327,21 @@ enum WindowSnapshots {
                 defaultEffort: .medium
             )
             for effort in [ReasoningEffort.low, .high, .ultra] {
-                for (name, dark) in [("light", false), ("dark", true)] {
-                    try await write(
-                        ConversationModelPopup(
-                            selection: .constant(ModelSelection(
-                                provider: .codex,
-                                model   : codex.id,
-                                effort  : effort
-                            )),
-                            catalogue: [codex]
-                        )
-                        .padding(24)
-                        .background(Color(nsColor: .windowBackgroundColor)),
-                        width : 368,
-                        height: 180,
-                        dark  : dark,
-                        to    : output.appending(path: "model-popup-\(effort.rawValue)-\(name).png")
+                try await write(
+                    ConversationModelPopup(
+                        selection: .constant(ModelSelection(
+                            provider: .codex,
+                            model   : codex.id,
+                            effort  : effort
+                        )),
+                        catalogue: [codex]
                     )
-                }
+                    .padding(24)
+                    .background(Color(nsColor: .windowBackgroundColor)),
+                    width : 368,
+                    height: 180,
+                    to    : output.appending(path: "model-popup-\(effort.rawValue).png")
+                )
             }
 
             let models = [codex] + ["GPT-6-Astra", "GPT-6-Luna", "GPT-5.6-Sol", "GPT-5.5"].map { title in
@@ -488,29 +351,25 @@ enum WindowSnapshots {
                     efforts: [.low, .medium, .high]
                 )
             }
-            for (name, dark) in [("light", false), ("dark", true)] {
-                try await write(
-                    ConversationModelPopup(
-                        selection  : .constant(ModelSelection(
-                            provider: .codex,
-                            model   : codex.id,
-                            effort  : .high
-                        )),
-                        catalogue  : models,
-                        showsModels: true
-                    )
-                    .padding(24)
-                    .background(Color(nsColor: .windowBackgroundColor)),
-                    width : 368,
-                    height: 300,
-                    dark  : dark,
-                    to    : output.appending(path: "model-popup-list-\(name).png")
+            try await write(
+                ConversationModelPopup(
+                    selection  : .constant(ModelSelection(
+                        provider: .codex,
+                        model   : codex.id,
+                        effort  : .high
+                    )),
+                    catalogue  : models,
+                    showsModels: true
                 )
-            }
+                .padding(24)
+                .background(Color(nsColor: .windowBackgroundColor)),
+                width : 368,
+                height: 300,
+                to    : output.appending(path: "model-popup-list.png")
+            )
 
             try await writeReply(to: output)
             try await writeSlashCommands(to: output)
-            try await writeHouse(from: team, in: store, to: output)
         } catch {
             FileHandle.standardError.write(Data("snapshots failed: \(error)\n".utf8))
             status = 1
@@ -519,6 +378,23 @@ enum WindowSnapshots {
         // A leftover temporary store is reclaimed by the system; it must not change the exit status.
         do { try FileManager.default.removeItem(at: store) } catch {}
         exit(status)
+    }
+
+    /// `button`, the context ring, alone in a capsule like the toolbar's.
+    private static func ringButton(_ button: ConversationContextButton) -> some View {
+        button
+            .buttonStyle(.plain)
+            .frame(height: 36)
+            .padding(
+                .horizontal,
+                8
+            )
+            .background(
+                .quinary,
+                in: Capsule()
+            )
+            .padding(24)
+            .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private static func directory() throws -> URL {
@@ -736,84 +612,6 @@ enum WindowSnapshots {
         return team
     }
 
-    /// Four workers for the sidebar badge (§4.3): three unread replies, 120,
-    /// a failed turn not yet seen, and one with nothing new, and a fifth in the
-    /// archive, so its folded title is drawn too. None is selected, so no
-    /// conversation is on screen to mark read.
-    static func badgedTeam(in directory: URL) async throws -> TeamModel {
-        let store       = try WorkspaceStore.opening(in: directory)
-        let selection   = ModelSelection(
-            provider: .claudeCode,
-            model   : "claude-opus-5",
-            effort  : .high
-        )
-        let workspaceID = UUID()
-        let people: [(name: String, role: String, seed: Int64, palette: String, replies: Int, fails: Bool)] = [
-            ("Atlas", "Release engineer", 7, "tide", 3, false),
-            ("Nova", "Editor", 23, "ember", 120, false),
-            ("Iris", "Research lead", 11, "dusk", 0, true),
-            ("Milo", "Designer", 31, "dawn", 0, false),
-        ]
-
-        for person in people {
-            let worker = try await store.createWorker(
-                name      : person.name,
-                role      : person.role,
-                appearance: WorkerAppearance(
-                    seed   : person.seed,
-                    palette: person.palette
-                )
-            )
-            try await store.configure(
-                worker   : worker.id,
-                selection: selection
-            )
-            let conversation = try await store.createConversation(
-                kind        : .direct,
-                participants: [worker.id]
-            )
-            for index in 0..<person.replies {
-                try await store.appendMessage(
-                    to      : conversation.id,
-                    author  : worker.id,
-                    text    : "Reply \(index)",
-                    delivery: .completed
-                )
-            }
-            if person.fails {
-                try await store.append(NewEvent(
-                    workspaceID   : workspaceID,
-                    subjectID     : UUID(),
-                    conversationID: conversation.id,
-                    workerID      : worker.id,
-                    type          : .executionFailed,
-                    payload       : Data("timed out".utf8)
-                ))
-            }
-        }
-
-        let archived = try await store.createWorker(
-            name      : "Orla",
-            role      : "Translator",
-            appearance: WorkerAppearance(
-                seed   : 43,
-                palette: "dusk"
-            )
-        )
-        try await store.update(
-            worker: archived.id,
-            .archived(true)
-        )
-
-        let team = TeamModel(
-            store      : store,
-            connections: ModelSettingsStore(),
-            broker     : SeatBroker()
-        )
-        await team.load()
-        return team
-    }
-
     /// When the synthetic checks finished, fixed so the images do not change with the clock.
     private static let checkedAt = Date(timeIntervalSinceReferenceDate: 780_000_000)
 
@@ -861,11 +659,10 @@ enum WindowSnapshots {
         _ content: some View,
         width    : Double,
         height   : Double = 720,
-        dark     : Bool,
         to file  : URL
     ) async throws {
         // Offscreen, SwiftUI resolves its colours in the app's appearance rather than the window's.
-        NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        NSApp.appearance = NSAppearance(named: .darkAqua)
 
         let hosting = NSHostingView(rootView: content
             .defaultAppStorage(appStorage ?? .standard))
@@ -883,7 +680,7 @@ enum WindowSnapshots {
             defer      : false
         )
         window.isReleasedWhenClosed = false
-        window.appearance           = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.appearance           = NSAppearance(named: .darkAqua)
         window.contentView          = hosting
         window.setContentSize(NSSize(
             width : width,

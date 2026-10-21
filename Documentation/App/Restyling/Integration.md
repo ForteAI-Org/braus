@@ -6,6 +6,10 @@ Spec: [Design.md](Design.md), [Plan.md](Plan.md), `.superpowers/sdd/Plan/round-2
 Goal (the person): merge the restyling into the real app to test it properly, make sure it works with everything that
 existed before without breaking the system, then bring it to `main`.
 
+> **Phase R done (22/10):** one shell now. The house is the only team window; the switch, the old
+> shell and the mockup are gone (see "Phase R" at the end). Sections 1 to 6 describe the integration
+> as it was planned and carried out, with two shells side by side.
+
 Principle: **two shells over one engine.** The restyled window (`HouseShellView`) and today's (`TeamShellView`) both
 read the one `TeamModel`; a setting picks which one a team window shows. No change under `Sources/` (engine, Seat,
 transports). App-layer additions only: a few `TeamModel` methods, one optional SwiftData column, two read-only
@@ -296,3 +300,29 @@ Mock data (`MockHouse`, `MockConversation`, `MockTeam`, `MockAccount`, `MessageQ
 ### Correction (the person, 22/10, evening)
 "Keep the old UI" meant **stability**, not the old look: the new look must work as reliably as the old one did. The product is the restyling only. The old shell stays in the branch **only as a regression oracle while integrating** (flag-off snapshots, the old views' tests). **Final phase R (after Phase 3 and P10, before the person's test):** remove every reference to the old UI — `TeamShellView` and the views used only by it (old sidebar, header, rows, old inspector container, old conversation container), the `restyling.newLook` switch, its Settings toggle and launch argument, the `ComposerBar.Chrome.standard` look (`.house` becomes the only look), dark-only appearance always on, and the snapshot/click/window checks pointed at the house. There is no way to switch between the two UIs in the final version. Real shared components the house uses (TranscriptController, ConversationComposer behaviour, Inspector sections, WorkerCommands, sheets) stay. The mockup (`BRAUS_RESTYLING=1`, mock data) stays as a design tool unless the person says otherwise.
 - (same day) **The mockup goes too:** at the very end, remove `BRAUS_RESTYLING`, `RestylingMode`, `RestylingWindowView`, `BehaviourPreview` and every mock-only type and view (MockHouse, MockConversation, MockTeam, MockAccount, MessageQueue, MockScreenView, HouseMockScreen, the house copies of real views such as HouseComposer/HouseComposerField/HouseUsageCapsule/HouseToolbar/HouseNowSection/HouseModelSection/HouseWebSection/HouseScreenSection/ChatTranscriptView), keeping only what the live house uses; tests move to the live types or the synthetic team.
+
+### Phase R (done, 22/10)
+- **One shell.** `TeamWindowView` always shows `HouseShellView`. `restyling.newLook`, its Settings toggle and the
+  `-restyling.newLook YES` launch argument are gone; Settings > Sidebar always offers Rooms and Rows. The delegate sets
+  `NSApp.appearance` to dark Aqua at launch, so every window, Settings included, is dark; the Debug menu's Appearance
+  picker went with it.
+- **Old shell removed:** `TeamShellView`, the old sidebar (`TeamSidebarView`, header, footer, archive, rows, search
+  field, blocks), `WorkerConversationView`, `WorkerHeaderView`, `ConversationTitleBarEdge`, `WorkerInspectorView` (its
+  turn reading is now `InspectorTurnSection.Reading`), `InspectorIdentitySection`, `ShellChrome`, `NewWorkerSheet`
+  (its starting appearance moved to `HouseNewWorkerSheet`), `MascotPalettePicker`, `MascotView`, `View.edgeBar`,
+  `TeamRow.badgeText`, and `ShellMetrics`' old division rule (the house divides with `RestylingWindowLayout`).
+- **One look:** `ComposerBar.Chrome` and `TranscriptStyle.Look` are gone, with the old pill, its glass buttons and
+  surfaces (`RoundGlass`, `ComposerSurface`), the old strips (`ComposerStrip`, `ComposerStripCancelButton`,
+  `ConversationQueueStrip`), tails on bubbles, the day label's rules and the worker-coloured thinking blob.
+- **Mockup removed:** `BRAUS_RESTYLING`, `RestylingMode`, `RestylingWindowView`, `BehaviourPreview`, the mock data and
+  every house copy of a real view; `BubbleFlight` keeps only the stage, the quote's flight and the timings the live
+  flights share. Tests that exercised mock behaviour went; the rest run on `HouseFixture` (a list of `HouseWorker`s)
+  or real teams.
+- **Checks on the house:** `BRAUS_SNAPSHOTS=1` draws only dark pictures, the house windows as `house-*.png`; a room's
+  plaque, seen in perspective, is composited in place (`render(in:)` ignores perspective). `BRAUS_CLICK_CHECK=1`,
+  `BRAUS_WINDOW_CHECK=1` and `=copy` host `HouseShellView`. The click check no longer clicks a header or a Connections
+  footer the house does not have, and leaves the rooms' arrow keys to `HouseSidebarTests`, since Tab reaches the rooms
+  only with Full Keyboard Access.
+- **Window chrome:** the house window's title bar is transparent (`TransparentTitleBar`); without it AppKit drew a grey
+  strip behind the conversation's toolbar once the transcript's scroll view was in the column.
+

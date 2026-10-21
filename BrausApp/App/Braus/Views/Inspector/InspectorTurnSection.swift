@@ -12,8 +12,16 @@ import SwiftUI
 /// how it ended.
 struct InspectorTurnSection: View {
 
+    /// Reading is the turn as last read, which the section shows.
+    enum Reading: Equatable {
+        case reading
+        case nothingYet
+        case read(TurnSummary)
+        case failed(String)
+    }
+
     let workerName: String
-    let turn      : WorkerInspectorView.TurnReading
+    let turn      : Reading
 
     /// Vertical padding added to each row; the app's inspector keeps the system's own.
     var rowPadding: CGFloat = 0

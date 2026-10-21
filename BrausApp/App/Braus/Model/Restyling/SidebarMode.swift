@@ -7,7 +7,7 @@
 
 import Foundation
 
-/// SidebarMode is how the mockup's sidebar shows the workers: a floor plan of rooms, or rows.
+/// SidebarMode is how the house's sidebar shows the workers: a floor plan of rooms, or rows.
 nonisolated enum SidebarMode: String, CaseIterable, Sendable {
     case rooms, rows
 

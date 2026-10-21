@@ -11,7 +11,7 @@ import SwiftUI
 ///
 /// A change of either writes in as a reply does: the shown words fade out over
 /// `HouseSwitch.captionFade`, then the new ones fade in from blurred, `RestylingTiming.wordStagger`
-/// apart (`AnswerBubble.WordFade`), the subtitle's after the name's, while the capsule's width
+/// apart (`WordFade`), the subtitle's after the name's, while the capsule's width
 /// springs to them. A caption that takes over another worker's capsule starts from that worker's
 /// words, so the capsule itself never changes. Under Reduce Motion the words cross-fade and the
 /// width changes while they are hidden.
@@ -24,7 +24,7 @@ struct HouseHeroCaption: View {
     /// The words the caption shows, which follow `words` once written.
     @State private var shown: Words
 
-    /// How far the shown words have faded in, in seconds of `AnswerBubble.WordFade`.
+    /// How far the shown words have faded in, in seconds of `WordFade`.
     @State private var elapsed = Double.infinity
 
     @State private var opacity = 1.0
@@ -50,21 +50,21 @@ struct HouseHeroCaption: View {
 
     var body: some View {
         VStack(spacing: 1) {
-            AnswerBubble.WordFade.text(shown.name)
+            WordFade.text(shown.name)
                 .font(.system(
                     size  : 13,
                     weight: .semibold
                 ))
                 .lineLimit(1)
                 .contentTransition(.identity)
-                .textRenderer(AnswerBubble.WordFade(elapsed: elapsed))
+                .textRenderer(WordFade(elapsed: elapsed))
                 .help(help)
-            AnswerBubble.WordFade.text(shown.activity)
+            WordFade.text(shown.activity)
                 .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .contentTransition(.identity)
-                .textRenderer(AnswerBubble.WordFade(elapsed: elapsed - nameDuration))
+                .textRenderer(WordFade(elapsed: elapsed - nameDuration))
         }
         .opacity(opacity)
         .onAppear { write(words) }
@@ -99,7 +99,7 @@ struct HouseHeroCaption: View {
             if reduces {
                 withAnimation(.easeIn(duration: HouseSwitch.captionFade * 2)) { opacity = 1 }
             } else {
-                let duration = nameDuration + AnswerBubble.WordFade.duration(of: next.activity)
+                let duration = nameDuration + WordFade.duration(of: next.activity)
                 withAnimation(.linear(duration: duration)) { elapsed = duration }
             }
         }

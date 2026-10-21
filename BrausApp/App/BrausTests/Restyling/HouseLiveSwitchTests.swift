@@ -10,10 +10,10 @@ import SwiftUI
 import Testing
 @testable import Braus
 
-/// HouseLiveSwitchTests change the worker of the new look's window over the synthetic team
+/// HouseLiveSwitchTests change the worker of the house window over the synthetic team
 /// (`HouseShellView`, `HouseLiveConversation`), in a window that is never ordered in.
 @Suite(
-    "The new look's change of worker over the team",
+    "The house's change of worker over the team",
     .serialized
 )
 @MainActor
@@ -189,7 +189,7 @@ struct HouseLiveSwitchTests {
 
     // MARK: Hosting
 
-    /// ShellHost is the new look's window over a team, with the inspector closed.
+    /// ShellHost is the house window over a team, with the inspector closed.
     private struct ShellHost: View {
         let team: TeamModel
 

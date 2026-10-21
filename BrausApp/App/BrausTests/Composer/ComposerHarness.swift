@@ -25,8 +25,8 @@ import Testing
 /// sends it (`TestInputWindow`), so a person typing or moving the pointer while
 /// the tests hold the focus changes nothing in it.
 ///
-/// The bar has the harness's `chrome`, on its ground (`composerDock(_:)`), as the
-/// conversation sets it; the new look's harness is dark, as its window is.
+/// The bar stands on its ground (`composerDock()`), as the conversation sets it,
+/// in a dark window, as Braus's are.
 @Observable
 @MainActor
 final class ComposerHarness {
@@ -71,9 +71,7 @@ final class ComposerHarness {
     @ObservationIgnored
     private(set) var window: TestInputWindow?
 
-    let recipient: String
-    let surface  : ComposerSurface.Kind?
-    let chrome   : ComposerBar.Chrome
+    let recipient : String
     let isOnScreen: Bool
 
     /// On-screen harnesses not yet closed. The input method can end a test
@@ -90,14 +88,10 @@ final class ComposerHarness {
         width     : CGFloat = 600,
         height    : CGFloat = 240,
         appearance: NSAppearance.Name? = nil,
-        surface   : ComposerSurface.Kind? = nil,
-        chrome    : ComposerBar.Chrome = .standard,
         onScreen  : Bool = false,
         transcript: Bool? = nil
     ) {
         self.recipient       = recipient
-        self.surface         = surface
-        self.chrome          = chrome
         self.isOnScreen      = onScreen
         self.showsTranscript = transcript ?? !onScreen
         let hosting = NSHostingView(rootView: Root(harness: self))
@@ -109,7 +103,7 @@ final class ComposerHarness {
             defer      : false
         )
         window.isReleasedWhenClosed = false
-        window.appearance  = NSAppearance(named: appearance ?? (chrome == .house ? .darkAqua : .aqua))
+        window.appearance  = NSAppearance(named: appearance ?? .darkAqua)
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         if onScreen {
@@ -179,8 +173,8 @@ final class ComposerHarness {
             pixels   = found.flatMap { drawnPixels(in: $0.frame.insetBy(dx: -2, dy: -2)) }
             guard let circle = found, pixels != nil, pixels == last else { return false }
 
-            return abs(circle.frame.width - chrome.circleSide) <= 1
-                && abs(circle.frame.height - chrome.circleSide) <= 1
+            return abs(circle.frame.width - ComposerBar.circleSide) <= 1
+                && abs(circle.frame.height - ComposerBar.circleSide) <= 1
                 && condition(circle)
         }
         return try #require(found)
@@ -318,36 +312,26 @@ final class ComposerHarness {
         )
     }
 
-    /// The circle as it is drawn: the box of accent-coloured pixels trailing the
-    /// field, in window coordinates, and how many light pixels its glyph has,
-    /// which tells the send arrow from the stop square. The new look's circle is
-    /// light grey with a dark glyph, so its box is of light grey pixels and its
-    /// glyph's are dark. SwiftUI builds no accessibility tree in a test process,
-    /// so the pixels are the measurement.
+    /// The circle as it is drawn: the box of light grey pixels trailing the
+    /// field, in window coordinates, and how many dark pixels its glyph has,
+    /// which tells the send arrow from the stop square. SwiftUI builds no
+    /// accessibility tree in a test process, so the pixels are the measurement.
     func drawnCircle() -> (frame: NSRect, glyphPixels: Int)? {
         guard let hosting, let scrollView,
               let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds)
         else { return nil }
         hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
-        var accent: NSColor?
-        hosting.effectiveAppearance.performAsCurrentDrawingAppearance {
-            accent = NSColor.controlAccentColor.usingColorSpace(bitmap.colorSpace)
-        }
-        guard let accent else { return nil }
         let scale     = CGFloat(bitmap.pixelsWide) / hosting.bounds.width
         let fieldEnd  = Int((hosting.convert(scrollView.bounds, from: scrollView).maxX * scale).rounded(.up))
-        let isHouse   = chrome == .house
         var columns   = [Int: (minY: Int, maxY: Int)]()
         for y in 0..<bitmap.pixelsHigh {
             for x in fieldEnd..<bitmap.pixelsWide {
-                guard let color = bitmap.colorAt(x: x, y: y),
-                      isHouse ? Self.isLightGrey(color) : Self.isClose(color, to: accent)
-                else { continue }
+                guard let color = bitmap.colorAt(x: x, y: y), Self.isLightGrey(color) else { continue }
                 let column = columns[x] ?? (y, y)
                 columns[x] = (min(column.minY, y), max(column.maxY, y))
             }
         }
-        // The circle is the trailing run of columns: the new look's Release glyph is light too, apart from it.
+        // The circle is the trailing run of columns: the Release glyph is light too, apart from it.
         guard let trailing = columns.keys.max() else { return nil }
         var leading = trailing
         while columns[leading - 1] != nil { leading -= 1 }
@@ -362,7 +346,7 @@ final class ComposerHarness {
         for y in box.minY...box.maxY {
             for x in box.minX...box.maxX {
                 let color = bitmap.colorAt(x: x, y: y)
-                if isHouse ? Self.isDark(color) : Self.isLight(color) { glyphPixels += 1 }
+                if Self.isDark(color) { glyphPixels += 1 }
             }
         }
         // Bitmap rows run from the top; the hosting view's coordinates may not.
@@ -407,12 +391,7 @@ final class ComposerHarness {
         return hosting.convert(rect, to: nil)
     }
 
-    private static func isLight(_ color: NSColor?) -> Bool {
-        guard let color else { return false }
-        return min(color.redComponent, color.greenComponent, color.blueComponent) > 0.9
-    }
-
-    /// The new look's circle: a grey lighter than any text or glyph drawn beside it on the dark ground.
+    /// The circle: a grey lighter than any text or glyph drawn beside it on the dark ground.
     private static func isLightGrey(_ color: NSColor) -> Bool {
         let components = [color.redComponent, color.greenComponent, color.blueComponent]
         guard let low = components.min(), let high = components.max() else { return false }
@@ -479,7 +458,7 @@ final class ComposerHarness {
                             TextField("After the composer", text: $other)
                         }
                         bar
-                            .composerDock(harness.chrome)
+                            .composerDock()
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { harness.barHeight = $0 }
                     }
                 }
@@ -496,7 +475,7 @@ final class ComposerHarness {
         }
 
         private var bar: ComposerBar {
-            var bar = ComposerBar(
+            ComposerBar(
                 draft      : $harness.draft,
                 recipient  : harness.recipient,
                 canAnswer  : harness.canAnswer,
@@ -509,48 +488,37 @@ final class ComposerHarness {
                 release    : harness.holdsComputer ? {
                     harness.releases     += 1
                     harness.holdsComputer = false
-                } : nil,
-                chrome     : harness.chrome
+                } : nil
             )
-            bar.surface     = harness.surface
-            // The circle is measured from what the view draws, and glass draws only in the window server.
-            bar.buttonGlass = false
-            return bar
-                .sendsOnReturn(harness.returnSends)
-                .queuesWhileAnswering(harness.queues)
-                .onEscape(harness.quote == nil ? nil : { harness.quote = nil })
-                .focusRequest(harness.focusRequest)
-                .strip {
-                    VStack(spacing: 0) {
-                        if !harness.queued.isEmpty {
-                            ConversationQueueStrip(
-                                queue      : harness.queued.map { QueuedMessage(text: $0) },
-                                shown      : 0,
-                                isAnswering: harness.isAnswering,
-                                next       : {},
-                                sendNow    : {},
-                                edit       : {},
-                                remove     : {}
-                            )
-                        }
-                        if let quote = harness.quote {
-                            ComposerStrip(
-                                symbol           : "arrowshape.turn.up.left",
-                                title            : "Atlas",
-                                text             : quote,
-                                accessibilityText: quote,
-                                roundsTop        : harness.queued.isEmpty,
-                                open             : {}
-                            ) {
-                                ComposerStripCancelButton(
-                                    help  : "Don’t reply to this message.",
-                                    label : "Cancel Reply",
-                                    action: { harness.quote = nil }
-                                )
-                            }
-                        }
+            .sendsOnReturn(harness.returnSends)
+            .queuesWhileAnswering(harness.queues)
+            .onEscape(harness.quote == nil ? nil : { harness.quote = nil })
+            .focusRequest(harness.focusRequest)
+            .strip {
+                VStack(spacing: 0) {
+                    if !harness.queued.isEmpty {
+                        QueueStrip(
+                            items      : harness.queued,
+                            page       : 0,
+                            hidesText  : false,
+                            onTextFrame: { _ in },
+                            onPage     : { _ in },
+                            onSendNow  : {},
+                            onDrop     : {}
+                        )
+                    }
+                    if let quote = harness.quote {
+                        QuoteStrip(
+                            title      : "Reply to Atlas",
+                            text       : quote,
+                            hidesText  : false,
+                            onTextFrame: { _ in },
+                            onRemove   : { harness.quote = nil },
+                            onOpen     : {}
+                        )
                     }
                 }
+            }
         }
     }
 }

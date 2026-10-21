@@ -26,6 +26,18 @@ nonisolated enum WorkerShape: String, CaseIterable, Sendable {
         return allCases[sum % allCases.count]
     }
 
+    /// The shape a new worker starts with: one that none of `taken` has when there is one, otherwise
+    /// one of the least used; `seed` picks among them, so each new worker may start differently.
+    static func suggested(
+        avoiding taken: [WorkerShape],
+        seed          : UInt64
+    ) -> WorkerShape {
+        let uses       = Dictionary(grouping: taken) { $0 }.mapValues(\.count)
+        let fewest     = allCases.map { uses[$0, default: 0] }.min() ?? 0
+        let candidates = allCases.filter { uses[$0, default: 0] == fewest }
+        return candidates[Int(seed % UInt64(candidates.count))]
+    }
+
     /// The shape's name, as the shape picker and VoiceOver say it.
     var name: String { String(describing: self).capitalized }
 

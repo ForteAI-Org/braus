@@ -1,5 +1,12 @@
 # Braus Restyling Mockup Implementation Plan
 
+> **Superseded, 22 October 2026 (phase R).** This plan records how the mockup was built. The
+> mockup is gone: `BRAUS_RESTYLING`, `RestylingMode`, `RestylingWindowView`, `BehaviourPreview`,
+> the mock data (`MockHouse`, `MockConversation`, `MockTeam`, `MockAccount`, `MessageQueue`) and
+> the house's copies of the app's views no longer exist, and the house is the only team window
+> (see [Integration.md](Integration.md)). To see it, run the app on a copy of the workspace
+> (`BRAUS_ISOLATED_RUN=1 BRAUS_APP_SUPPORT_DIR=<copy>`) or draw it with `BRAUS_SNAPSHOTS=1`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the restyling as an in-app mockup on fake data, behind `BRAUS_RESTYLING=1`, with every surface of the design: the house, the ring, the task bar and window, the menu bar, the worker's screen window, voice, the conversation's motion and the mascot.
@@ -24,7 +31,7 @@
 - Build and test (from the worktree root; `DD` is a scratch derived-data folder such as `.scratch/dd`):
   - `xcodebuild -workspace BrausApp/AgentEnvironment.xcworkspace -scheme Braus -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DD" build-for-testing`
   - `xcodebuild -workspace BrausApp/AgentEnvironment.xcworkspace -scheme Braus -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DD" test-without-building -only-testing:BrausTests/<SuiteStruct>`
-- Run the mockup: `BRAUS_RESTYLING=1 BRAUS_APP_SUPPORT_DIR="$PWD/.scratch/restyling-support" "$DD/Build/Products/Debug/Braus.app/Contents/MacOS/Braus" & echo $!`. Stop it only with `kill <that pid>`, never a broad `pkill`. Do not drive the app with AppleScript.
+- Run the app (the mockup's command until phase R removed it): `BRAUS_ISOLATED_RUN=1 BRAUS_APP_SUPPORT_DIR="$PWD/.scratch/restyling-support" "$DD/Build/Products/Debug/Braus.app/Contents/MacOS/Braus" & echo $!`. Stop it only with `kill <that pid>`, never a broad `pkill`. Do not drive the app with AppleScript.
 - Files dropped in `BrausApp/App/Braus/` or `BrausApp/App/BrausTests/` join their targets automatically; a `.metal` file under `Braus/` compiles into the default library.
 
 ## Review Focus

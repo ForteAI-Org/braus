@@ -13,11 +13,11 @@ struct MCPConnectionsViewTests {
         }
         await model.prepare()
         let empty = root.appendingPathComponent("empty.png")
-        try await WindowSnapshots.write(MCPConnectionsView(model: model), width: 610, height: 750, dark: true, to: empty)
+        try await WindowSnapshots.write(MCPConnectionsView(model: model), width: 610, height: 750, to: empty)
         model.add(MCPClientProfile(name: "Synthetic Claude Code"))
         await model.waitForIdle()
         let configured = root.appendingPathComponent("configured.png")
-        try await WindowSnapshots.write(MCPConnectionsView(model: model), width: 610, height: 950, dark: false, to: configured)
+        try await WindowSnapshots.write(MCPConnectionsView(model: model), width: 610, height: 950, to: configured)
         #expect(try Data(contentsOf: empty).count > 1000)
         #expect(try Data(contentsOf: configured).count > 1000)
         print("MCP_VIEW_SNAPSHOTS \(root.path)")

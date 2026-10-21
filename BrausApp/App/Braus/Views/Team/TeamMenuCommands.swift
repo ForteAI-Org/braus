@@ -40,6 +40,6 @@ struct TeamMenuCommands: Commands {
 
 extension FocusedValues {
 
-    /// The key team window's team, published by `TeamShellView`.
+    /// The key team window's team, published by `HouseShellView`.
     @Entry var team: TeamModel?
 }

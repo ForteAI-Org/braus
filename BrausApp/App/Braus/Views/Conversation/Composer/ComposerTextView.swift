@@ -67,7 +67,7 @@ final class ComposerTextView: NSTextView {
         }
     }
 
-    /// Keeps the placeholder away while a sent text is still leaving the field, as the new look's
+    /// Keeps the placeholder away while a sent text is still leaving the field, as its
     /// flight carries it off (`HouseLiveFlights`).
     var hidesPlaceholder = false {
         didSet { if hidesPlaceholder != oldValue { needsDisplay = true } }

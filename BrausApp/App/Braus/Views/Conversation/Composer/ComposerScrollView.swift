@@ -24,7 +24,7 @@ final class ComposerScrollView: NSScrollView {
     /// The lines a field shows before it scrolls, unless its composer asks for another limit.
     nonisolated static let maximumLines = 6
 
-    /// The field's height around one line, which the new look's composer centres in its row.
+    /// The field's height around one line, which the composer centres in its row.
     static let oneLineHeight = ComposerScrollView().fittingHeight(forWidth: 320)
 
     /// The lines this field shows before it scrolls.

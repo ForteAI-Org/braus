@@ -13,9 +13,8 @@ private struct OpenWorkerScreenKey: EnvironmentKey {
 
 extension EnvironmentValues {
 
-    /// What opens a worker's screen in its own window, set by the new look's shell over the real
-    /// team. Nil in the mockup, which opens its mock screen, and in today's shell, which has no
-    /// such window.
+    /// What opens a worker's screen in its own window, set by the house's shell over its team; nil
+    /// opens nothing.
     var openWorkerScreen: ((UUID) -> Void)? {
         get { self[OpenWorkerScreenKey.self] }
         set { self[OpenWorkerScreenKey.self] = newValue }

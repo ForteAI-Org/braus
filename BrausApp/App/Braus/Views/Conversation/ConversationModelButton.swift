@@ -27,8 +27,8 @@ struct ConversationModelButton: View {
     /// False while the worker answers: its turn has already fixed its model.
     let isEnabled: Bool
 
-    /// The highlight's height, the composer's circle unless a composer of another size asks.
-    var height = ComposerBar.circleSide
+    /// The highlight's height, a line of the composer's row.
+    var height: CGFloat = 24
 
     @State private var isHovered = false
 

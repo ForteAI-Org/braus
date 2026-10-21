@@ -151,7 +151,6 @@ final class TranscriptController: NSObject {
     @ObservationIgnored private var workerName    = ""
     @ObservationIgnored private var workerProvider: ModelProvider?
     @ObservationIgnored private var avatar        : NSImage?
-    @ObservationIgnored private var workerTint    : NSColor?
     @ObservationIgnored private(set) var textSelection: TranscriptSelection?
     @ObservationIgnored private(set) var bubbleSelection: Set<UUID> = []
     @ObservationIgnored private var bubbleAnchor  : UUID?
@@ -212,7 +211,6 @@ final class TranscriptController: NSObject {
                 self.workerName  = workerName
                 self.workerProvider = workerProvider
                 self.avatar      = MascotImages.image(for: appearance, size: RowGeometry.avatarSide)
-                self.workerTint  = MascotImages.color(for: appearance)
                 self.expanded    = []
                 self.textSelection = nil
                 self.setBubbles([], anchor: nil)
@@ -446,7 +444,7 @@ final class TranscriptController: NSObject {
                         drawnTop   : drawnTop
                     )
                 }
-                if style.isHouse { revealNewestReply(after: replied) }
+                revealNewestReply(after: replied)
             }
             if case .expansion(let id) = mode {
                 slideRows(
@@ -620,7 +618,6 @@ final class TranscriptController: NSObject {
 
     private func setHeights() {
         layout.heights        = rows.map(\.geometry.height)
-        layout.spacing        = TranscriptLayout.spacing(for: style)
         layout.continuesGroup = rows.indices.map { index in
             let row = rows[index].item
             guard index > 0, !row.continuesGroup, case .toolRun = rows[index - 1].item.kind else {
@@ -639,7 +636,6 @@ final class TranscriptController: NSObject {
             style     : style,
             workerName: workerName,
             avatar    : row.item.authorWorkerID == nil ? nil : avatar,
-            workerTint: workerTint,
             selection : selectedRange(ofRow: index)
         )
         cell.rowView.focusedAction = focusedAction?.id == id ? focusedAction?.action : nil
@@ -758,7 +754,7 @@ final class TranscriptController: NSObject {
         for index in arrivals {
             guard let cell = collectionView.item(at: IndexPath(item: index, section: 0)) as? TranscriptCell
             else { continue }
-            if style.isHouse, rows[index].item.kind == .thinking {
+            if rows[index].item.kind == .thinking {
                 cell.springIn(
                     at           : rows[index].geometry.surface,
                     reducesMotion: reduces
@@ -1348,10 +1344,10 @@ final class TranscriptController: NSObject {
         pasteboard.setString(text, forType: .string)
     }
 
-    // MARK: Flights (the new look)
+    // MARK: Flights
 
-    /// Whether a message's bubble offers Reply in a button beside it while the pointer is over it, as
-    /// the new look's transcript does (`AppPreferences.newLook`).
+    /// Whether a message's bubble offers Reply in a button beside it while the pointer is over it,
+    /// which the conversation's flights turn on (`HouseLiveFlights`).
     @ObservationIgnored var showsReplyButtons = false {
         didSet { if showsReplyButtons != oldValue { reconfigureVisible(Set(rows.map(\.item.id))) } }
     }
@@ -1448,7 +1444,7 @@ final class TranscriptController: NSObject {
             .map { ($0.item.id, ($0.text.string as NSString).length) }
     }
 
-    /// In the new look, fades in what arrived of the newest reply since `before`: a new reply whole,
+    /// Fades in what arrived of the newest reply since `before`: a new reply whole,
     /// a growing one from where it had got. History never plays.
     private func revealNewestReply(after before: (id: TranscriptItem.ID, length: Int)?) {
         guard let reply = latestReply, let index = rows.firstIndex(where: { $0.item.id == reply.id }) else { return }
@@ -1460,7 +1456,7 @@ final class TranscriptController: NSObject {
     }
 
     /// Bubble is a message's bubble as the transcript draws it, in window coordinates: its surface,
-    /// the frame its picture covers (the surface and its tail), where its text starts, and the picture.
+    /// the frame its picture covers, where its text starts, and the picture.
     struct Bubble {
         let surface   : CGRect
         let frame     : CGRect
@@ -1476,7 +1472,7 @@ final class TranscriptController: NSObject {
 
         let view     = cell.rowView
         let geometry = rows[index].geometry
-        let frame    = (geometry.tail.map(geometry.surface.union) ?? geometry.surface).insetBy(dx: -1, dy: -1)
+        let frame    = geometry.surface.insetBy(dx: -1, dy: -1)
         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: frame) else { return nil }
 
         // A held row is drawn for the picture only: no display runs before it is held again.

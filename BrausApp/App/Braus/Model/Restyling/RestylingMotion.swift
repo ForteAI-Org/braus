@@ -7,8 +7,8 @@
 
 import AppKit
 
-/// RestylingMotion tells every mockup animation whether the person asked the
-/// system to reduce motion or transparency.
+/// RestylingMotion tells every animation of the house whether the person asked
+/// the system to reduce motion or transparency.
 ///
 /// The overrides are process-wide and main-actor isolated, for tests only; a
 /// test that sets one resets it to `nil` when it ends.

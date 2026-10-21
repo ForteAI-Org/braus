@@ -120,9 +120,9 @@ nonisolated struct PreparedText: Sendable, Hashable {
         case .body:
             attributes = [.font: style.textFont(ofSize: style.bodyPointSize), .foregroundColor: NSColor.labelColor]
         case .bodyOnAccent:
-            // The new look's bubble of the person's is dark grey, not the accent: its text is the label's.
+            // The person's bubble is dark grey, not the accent: its text is the label's.
             attributes = [.font: style.textFont(ofSize: style.bodyPointSize),
-                          .foregroundColor: style.isHouse ? NSColor.labelColor : NSColor.white]
+                          .foregroundColor: NSColor.labelColor]
         case .caption:
             attributes = [.font: style.textFont(ofSize: style.captionPointSize),
                           .foregroundColor: NSColor.secondaryLabelColor]
@@ -142,7 +142,7 @@ nonisolated struct PreparedText: Sendable, Hashable {
                           .foregroundColor: NSColor.labelColor]
         case .codeOnAccent:
             attributes = [.font: NSFont.monospacedSystemFont(ofSize: style.codePointSize, weight: .regular),
-                          .foregroundColor: style.isHouse ? NSColor.labelColor : NSColor.white]
+                          .foregroundColor: NSColor.labelColor]
         case .syntax(let kind):
             attributes = [.font: NSFont.monospacedSystemFont(ofSize: style.codePointSize, weight: .regular),
                           .foregroundColor: TranscriptColors.syntax(kind)]

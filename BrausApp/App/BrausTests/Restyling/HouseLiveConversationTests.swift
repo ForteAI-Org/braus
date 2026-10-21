@@ -11,7 +11,7 @@ import Testing
 @testable import Braus
 
 @MainActor
-@Suite("The new look's conversation over the team")
+@Suite("The house's conversation over the team")
 struct HouseLiveConversationTests {
 
     @Test("The hero listens while the person writes between turns, and shows its status otherwise")
@@ -35,7 +35,7 @@ struct HouseLiveConversationTests {
         }
     }
 
-    @Test("The conversation shows the team's transcript under the hero, and its composer in the new look")
+    @Test("The conversation shows the team's transcript under the hero, and its composer")
     func hostsTheTeamsConversation() async throws {
         let folder = URL.temporaryDirectory.appending(
             path         : "HouseLiveConversation-\(UUID().uuidString)",
@@ -76,7 +76,7 @@ struct HouseLiveConversationTests {
         #expect(rows > 0, "the transcript shows the conversation's messages")
         let field = try #require(Self.find(ComposerScrollView.self, in: hosting))
         #expect(field.textView.placeholder == "Message \(worker.name)")
-        #expect(field.lineLimit == ComposerBar.Chrome.house.maximumLines)
+        #expect(field.lineLimit == ComposerBar.maximumLines)
 
         guard ProcessInfo.processInfo.environment["BRAUS_SNAPSHOTS"] == "1" else { return }
         // Long enough for the hero to hop out of its capsule before the drawing.

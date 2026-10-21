@@ -8,21 +8,21 @@
 import ModelTransports
 import SwiftUI
 
-/// HouseLiveConversation is a worker's conversation in the new look (`AppPreferences.newLook`): the
-/// worker standing at the top (`HouseHero`) over the app's own transcript (`TranscriptHost` and
-/// `TranscriptController`, as `WorkerConversationView` hosts them), and the app's composer floating
-/// over the transcript's foot in the new look's chrome (`ConversationComposer`, `ComposerBar.Chrome`).
+/// HouseLiveConversation is a worker's conversation in the house window (`HouseShellView`): the
+/// worker standing at the top (`HouseHero`) over the transcript (`TranscriptHost` and
+/// `TranscriptController`), and the composer floating over the transcript's foot
+/// (`ConversationComposer`).
 ///
 /// The hero reads the team: its light is the worker's status as the house's rooms show it
 /// (`HouseRoster`), its subtitle what the worker is doing (its running tool step, the desktop's
 /// activity, or "Working") or its role; it listens while the person writes to it between turns, sets
 /// about a message each time a turn starts and acts the turn out with its body (`action`). The
-/// transcript and the composer keep every behaviour of today's conversation: windows of history,
+/// transcript and the composer keep every behaviour of the conversation: windows of history,
 /// reading position, replies, the queue, slash commands, the model popup, Stop and Release. Messages fly across it
 /// (`HouseLiveFlights`): a sent one into its bubble, a queued one into and out of the queue strip,
 /// a quote into the reply strip and back.
 ///
-/// A change of worker plays `HouseSwitch`, as the mockup's column does (`HouseDetail`). The window
+/// A change of worker plays `HouseSwitch`. The window
 /// has one transcript, so the leaving side is only its hero, which drops into the capsule while the
 /// arriving one hops out of it, and a still of its transcript (`HouseTranscriptStill`): the
 /// transcript hides under the still until it has opened the arriving conversation, then fades in as
@@ -139,7 +139,6 @@ struct HouseLiveConversation: View {
                         height      : $composerHeight,
                         focusRequest: composerFocus + focusRequest,
                         reveal      : { transcript?.revealQuoted($0) },
-                        chrome      : .house,
                         flights     : flights
                     )
                 }
@@ -226,8 +225,7 @@ struct HouseLiveConversation: View {
                 isLanding  : isLanding,
                 turn       : transcript?.runningTurn
             ) : nil,
-            stage      : isChosen ? .present : .leaving,
-            kind       : shown.role
+            stage      : isChosen ? .present : .leaving
         )
     }
 
@@ -263,7 +261,7 @@ struct HouseLiveConversation: View {
         return .listening
     }
 
-    /// What the hero's body does through a real turn, as the mockup's (`MockConversation.action`): the
+    /// What the hero's body does through a turn: the
     /// reply landing, for one loop after the turn ends with it; otherwise, while the worker answers,
     /// replying once its answer has arrived, working once its tools have a step, reading the message
     /// just sent, then thinking until something comes. Nil outside a turn.
@@ -302,8 +300,7 @@ struct HouseLiveConversation: View {
                 TranscriptHost(
                     controller : transcript,
                     topInset   : 8,
-                    bottomInset: composerHeight,
-                    look       : .house
+                    bottomInset: composerHeight
                 )
             } else {
                 Color.clear
@@ -329,7 +326,7 @@ struct HouseLiveConversation: View {
             isArriving ? nil : .easeInOut(duration: HouseSwitch.crossFade),
             value: isArriving
         )
-        // The transcript fades out under the hero rather than ending on an edge, as the new look's column does.
+        // The transcript fades out under the hero rather than ending on an edge.
         .mask {
             LinearGradient(
                 stops     : [
@@ -354,15 +351,12 @@ struct HouseLiveConversation: View {
         )
     }
 
-    /// Opens the conversation at the position it was left at, or at the end, as
-    /// `WorkerConversationView` does.
+    /// Opens the conversation at the position it was left at, or at the end, and reports the
+    /// reading position as it changes.
     private func openTranscript() {
         guard let conversation = team.conversation else { return }
 
-        let controller = transcript ?? TranscriptController(
-            source: team.transcriptSource,
-            style : TranscriptStyle(look: .house)
-        )
+        let controller = transcript ?? TranscriptController(source: team.transcriptSource)
         transcript = controller
 
         let conversationID = conversation.id

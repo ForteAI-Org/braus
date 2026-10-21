@@ -8,23 +8,21 @@
 import AppKit
 import SwiftUI
 
-/// WindowClickCheck puts the team shell in a real key window, when the app is
-/// launched with BRAUS_CLICK_CHECK=1, and drives the window's chrome with
-/// events sent through the window: a click on the worker header, which opens
-/// nothing, the inspector's shortcut both ways, a click on the sidebar's
-/// Connections footer, Shift-Tab into the team, Down and Up there, a click on a
-/// worker, a narrower window with the inspector open, where the sidebar must
-/// turn compact, and back, and every way a sidebar is hidden (the View menu,
-/// Control-Command-S, `toggleSidebar:` and a drag of the divider to the
-/// window's edge), none of which may hide it. It prints what each step found
-/// and quits with 0 when every step held, 1 otherwise.
+/// WindowClickCheck puts the house window (`HouseShellView`) in a real key
+/// window, when the app is launched with BRAUS_CLICK_CHECK=1, and drives it
+/// with events sent through the window: the inspector's shortcut both ways,
+/// Shift-Tab into the house's sidebar, a click on a room, which hands
+/// the keyboard to the composer, a narrower window with the inspector open,
+/// where the sidebar must turn compact, and back, and every way a sidebar is
+/// hidden (the View menu, Control-Command-S, `toggleSidebar:` and a drag of the
+/// divider to the window's edge), none of which may hide it. It prints what
+/// each step found and quits with 0 when every step held, 1 otherwise.
 ///
 /// SwiftUI builds no accessibility tree without an assistive client, so the
-/// targets are found by geometry: the header at the leading edge of the
-/// conversation's title bar, the footer at the bottom of the sidebar's, a
-/// worker's block from the sidebar's safe top, the divider at the sidebar
-/// pane's trailing edge. The events go to the window, so the pointer never
-/// moves. The team is `WindowSnapshots`'s synthetic one, in a temporary store.
+/// targets are found by their views: a room by its light (`RoomLightView`), the
+/// divider at the sidebar pane's trailing edge. The events go to the window, so
+/// the pointer never moves. The team is `WindowSnapshots`'s synthetic one, in a
+/// temporary store.
 @MainActor
 enum WindowClickCheck {
 
@@ -91,10 +89,6 @@ enum WindowClickCheck {
         print("click check: window title \"\(window.title)\", title visibility \(window.titleVisibility.rawValue)")
         let items = window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? []
         print("click check: toolbar items \(items)")
-        try expect(
-            window.title == "Atlas",
-            "the window title is \(window.title)"
-        )
 
         let panes      = try splitPanes(in: hosting)
         let paneFrames = panes.map {
@@ -106,32 +100,7 @@ enum WindowClickCheck {
         print("click check: panes \(paneFrames)")
         try expect(
             !probe.isInspectorRequested && !showsInspector(hosting),
-            "the inspector is shown before the click"
-        )
-
-        // The mascot, at the leading edge of the title bar above the conversation's safe area.
-        let header = point(
-            in     : panes[1],
-            fromTop: -26,
-            leading: 22,
-            in     : window
-        )
-        // A window that is not key spends a click on becoming key, as on a Mac someone is using.
-        if !window.isKeyWindow {
-            click(
-                at: header,
-                in: window
-            )
-        }
-        click(
-            at: header,
-            in: window
-        )
-        try await Task.sleep(for: .seconds(1))
-        print("click check: after the header click, requested \(probe.isInspectorRequested)")
-        try expect(
-            !probe.isInspectorRequested && !showsInspector(hosting),
-            "clicking the header opened the inspector"
+            "the inspector is shown before the shortcut"
         )
 
         // The inspector's own shortcut opens it and closes it again, and the
@@ -163,26 +132,6 @@ enum WindowClickCheck {
             )
         }
 
-        let footer = point(
-            in        : panes[0],
-            fromBottom: 20,
-            leading   : 60,
-            in        : window
-        )
-        click(
-            at: footer,
-            in: window
-        )
-        try await Task.sleep(for: .seconds(1))
-        print("click check: after the footer click, showing \(team.isShowingConnections), "
-            + "sheet \(window.attachedSheet != nil)")
-        try expect(
-            team.isShowingConnections && window.attachedSheet != nil,
-            "clicking Connections did not open the sheet"
-        )
-        team.isShowingConnections = false
-        try await Task.sleep(for: .seconds(1))
-
         try await checkKeyboardSelection(
             team   : team,
             hosting: hosting,
@@ -198,24 +147,17 @@ enum WindowClickCheck {
             hosting: hosting,
             window : window
         )
-
-        team.selection = nil
-        try await Task.sleep(for: .seconds(1))
-        print("click check: no worker selected, window title \"\(window.title)\"")
-        try expect(
-            window.title == ShellChrome.untitled,
-            "the window title stayed \(window.title)"
-        )
         window.close()
     }
 
     // MARK: Steps
 
-    /// The team is the key view before the conversation, as the list was: Tab
-    /// from nothing focused reaches the transcript, and Shift-Tab from there
-    /// the team, where Down and Up move the selection to the next worker and
-    /// back. A click on the second worker's block selects it and focuses the
-    /// team, so Up then selects the first.
+    /// The house is the key view before the conversation: Tab from nothing
+    /// focused reaches the conversation, and Shift-Tab from there the house's
+    /// sidebar. A click on the second room selects it and hands the keyboard to
+    /// the composer. The arrow keys move between rooms only once the rooms hold
+    /// the keyboard, which Tab gives them with Full Keyboard Access alone, so
+    /// they are left to `HouseSidebarTests`.
     private static func checkKeyboardSelection(
         team   : TeamModel,
         hosting: NSView,
@@ -233,26 +175,6 @@ enum WindowClickCheck {
         }
 
         func responder() -> String { window.firstResponder.map { "\(type(of: $0))" } ?? "none" }
-
-        func arrow(
-            down              : Bool,
-            expecting expected: String
-        ) async throws {
-            press(
-                down ? "\u{F701}" : "\u{F700}",
-                keyCode   : down ? 125 : 126,
-                modifiers : [.numericPad, .function],
-                in        : window,
-                throughApp: false
-            )
-            try await Task.sleep(for: .seconds(1))
-            print("click check: after \(down ? "Down" : "Up") in the team, "
-                + "selected \(team.selectedWorker?.name ?? "none")")
-            try expect(
-                team.selectedWorker?.name == expected,
-                "the arrow key did not select \(expected)"
-            )
-        }
 
         window.makeFirstResponder(nil)
         press(
@@ -277,37 +199,36 @@ enum WindowClickCheck {
             isSidebarFocused(),
             "Shift-Tab from the conversation did not reach the team"
         )
-        try await arrow(
-            down     : true,
-            expecting: names[1]
-        )
-        try await arrow(
-            down     : false,
-            expecting: names[0]
-        )
 
+        // The rooms in reading order: the first across the sidebar's top, then two by two.
+        let rooms = allViews(
+            of: RoomLightView.self,
+            in: sidebar
+        ).map {
+            $0.convert(
+                $0.bounds,
+                to: nil
+            )
+        }.sorted { $0.maxY != $1.maxY ? $0.maxY > $1.maxY : $0.minX < $1.minX }
+        try expect(
+            rooms.count >= 2,
+            "the house shows \(rooms.count) rooms"
+        )
         window.makeFirstResponder(nil)
-        // The second block's middle: the title bar (36) and the first block's extra room (5), then one
-        // block and its spacing (3 + 48 + 6) and half the second (3 + 24).
         click(
-            at: point(
-                in     : sidebar,
-                fromTop: 125,
-                leading: 60,
-                in     : window
+            at: NSPoint(
+                x: rooms[1].midX,
+                y: rooms[1].midY
             ),
             in: window
         )
         try await Task.sleep(for: .seconds(1))
-        print("click check: after the click on the second block, selected \(team.selectedWorker?.name ?? "none"), "
-            + "team focused \(isSidebarFocused())")
+        let isComposerFocused = window.firstResponder is NSTextView && !isSidebarFocused()
+        print("click check: after the click on the second room, selected \(team.selectedWorker?.name ?? "none"), "
+            + "first responder \(responder())")
         try expect(
-            team.selectedWorker?.name == names[1] && isSidebarFocused(),
-            "clicking \(names[1]) did not select it and focus the team"
-        )
-        try await arrow(
-            down     : false,
-            expecting: names[0]
+            team.selectedWorker?.name == names[1] && isComposerFocused,
+            "clicking \(names[1]) did not select it and hand the keyboard to the composer"
         )
     }
 
@@ -464,8 +385,8 @@ enum WindowClickCheck {
             inspector: true
         )
 
-        // The narrowest window the scene allows still holds the inspector beside the compact sidebar.
-        let narrowest = ShellMetrics.windowMinimum
+        // The narrowest window that holds the inspector, beside the compact sidebar.
+        let narrowest = ShellMetrics.compactSidebar + ShellMetrics.inspector.ideal + ShellMetrics.conversationMinimum
         window.setContentSize(NSSize(
             width : narrowest,
             height: 720
@@ -554,6 +475,21 @@ enum WindowClickCheck {
         }
     }
 
+    /// Every view of `type` under `root`, breadth first.
+    private static func allViews<View: NSView>(
+        of type: View.Type,
+        in root: NSView
+    ) -> [View] {
+        var found: [View] = []
+        var queue = [root]
+        while !queue.isEmpty {
+            let view = queue.removeFirst()
+            if let match = view as? View { found.append(match) }
+            queue += view.subviews
+        }
+        return found
+    }
+
     /// The first view of `type` under `root`, breadth first.
     private static func firstView<View: NSView>(
         of type: View.Type,
@@ -607,40 +543,6 @@ enum WindowClickCheck {
         print("click check: pane widths \(widths)")
         let range = ShellMetrics.inspector.minimum...ShellMetrics.inspector.maximum
         return widths.joined().contains { range.contains($0) }
-    }
-
-    /// A point in window coordinates, `leading` points in and `fromTop` below `pane`'s safe top.
-    private static func point(
-        in pane  : NSView,
-        fromTop  : CGFloat,
-        leading  : CGFloat,
-        in window: NSWindow
-    ) -> NSPoint {
-        let safe = pane.convert(
-            pane.safeAreaRect,
-            to: nil
-        )
-        return NSPoint(
-            x: safe.minX + leading,
-            y: safe.maxY - fromTop
-        )
-    }
-
-    /// A point in window coordinates, `leading` points in and `fromBottom` up from `pane`'s safe bottom.
-    private static func point(
-        in pane   : NSView,
-        fromBottom: CGFloat,
-        leading   : CGFloat,
-        in window : NSWindow
-    ) -> NSPoint {
-        let safe = pane.convert(
-            pane.safeAreaRect,
-            to: nil
-        )
-        return NSPoint(
-            x: safe.minX + leading,
-            y: safe.minY + fromBottom
-        )
     }
 
     // MARK: Events

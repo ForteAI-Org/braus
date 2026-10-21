@@ -1,40 +1,30 @@
 //
-//  HouseFootTests.swift
+//  HouseSidebarToolbarTests.swift
 //  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 21/10/2026.
 //
 
 import AppKit
+import SeatBroker
 import SwiftUI
 import Testing
 @testable import Braus
 
-@Suite("HouseFoot")
+@Suite("The house sidebar's toolbar")
 @MainActor
-struct HouseFootTests {
-
-    @Test("The account is a menu that holds Settings and Sign Out")
-    func accountMenu() {
-        #expect(HouseFoot.AccountButton.Action.allCases.map(\.title) == ["Settings…", "Sign Out"])
-        #expect(String(reflecting: HouseFoot.AccountButton.Body.self).contains("SwiftUI.Menu<"))
-        #expect(MockAccount.sample.monogram == "ER")
-    }
-
-    @Test("The foot holds the account alone; the archive is not in it")
-    func accountAlone() {
-        let foot = String(reflecting: HouseFoot.Body.self)
-        #expect(foot.contains("AccountButton"))
-        #expect(!foot.contains("Archive"))
-    }
+struct HouseSidebarToolbarTests {
 
     @Test("The archive is a button in the sidebar's toolbar, beside New Worker, that names its count")
     func archiveInSidebarToolbar() async throws {
         #expect(HouseArchiveButton.spokenLabel(archivedCount: 3) == "Archive, 3 workers")
         #expect(String(reflecting: HouseArchiveButton.Body.self).contains("SwiftUI.Button<"))
 
-        let (window, _) = try await Self.sidebarWindow(house: .sample)
-        defer { window.close() }
+        let (window, _, directory) = try await Self.sidebarWindow(archived: 3)
+        defer {
+            window.close()
+            TemporaryStore.discard(directory)
+        }
         let items   = window.toolbar?.items ?? []
         let labels  = items.map(\.label)
         let archive = try #require(items.firstIndex { $0.label == "Archive" })
@@ -47,10 +37,11 @@ struct HouseFootTests {
 
     @Test("The sidebar's toolbar has no archive when the archive is empty")
     func noArchiveWhenEmpty() async throws {
-        var house = MockHouse.sample
-        house.archivedCount = 0
-        let (window, _) = try await Self.sidebarWindow(house: house)
-        defer { window.close() }
+        let (window, _, directory) = try await Self.sidebarWindow(archived: 0)
+        defer {
+            window.close()
+            TemporaryStore.discard(directory)
+        }
         let labels = window.toolbar?.items.map(\.label) ?? []
         #expect(labels.contains("New Worker"))
         #expect(!labels.contains("Archive"))
@@ -58,10 +49,13 @@ struct HouseFootTests {
 
     @Test("The sidebar's toolbar keeps its items when the selection changes")
     func toolbarStaysAcrossSelection() async throws {
-        let (window, choice) = try await Self.sidebarWindow(house: .sample)
-        defer { window.close() }
+        let (window, choice, directory) = try await Self.sidebarWindow(archived: 3)
+        defer {
+            window.close()
+            TemporaryStore.discard(directory)
+        }
         let before  = window.toolbar?.items.map(\.itemIdentifier) ?? []
-        let workers = MockHouse.sample.workers
+        let workers = HouseRoster.workers(of: choice.team)
         for worker in workers[0...3].map(\.id) + [nil, workers[0].id] {
             choice.worker = worker
             try await Task.sleep(for: .milliseconds(150))
@@ -70,9 +64,30 @@ struct HouseFootTests {
         }
     }
 
-    /// A window with the house's split, its sidebar showing `house`, once its toolbar has items.
-    private static func sidebarWindow(house: MockHouse) async throws -> (NSWindow, Choice) {
-        let choice = Choice()
+    /// A window with the house's split, its sidebar showing a team of four workers and `archived`
+    /// in the archive, once its toolbar has items, and the folder of the team's store.
+    private static func sidebarWindow(archived: Int) async throws -> (NSWindow, Choice, URL) {
+        let directory = TemporaryStore.directory()
+        let store     = try WorkspaceStore.opening(in: directory)
+        for index in 0..<(4 + archived) {
+            let worker = try await store.createWorker(
+                name      : "Worker \(index + 1)",
+                appearance: TemporaryStore.appearance()
+            )
+            if index >= 4 {
+                try await store.update(
+                    worker: worker.id,
+                    .archived(true)
+                )
+            }
+        }
+        let team = TeamModel(
+            store      : store,
+            connections: ModelSettingsStore(),
+            broker     : SeatBroker()
+        )
+        await team.load()
+        let choice = Choice(team: team)
         let window = NSWindow(
             contentRect: CGRect(
                 x     : 0,
@@ -85,10 +100,7 @@ struct HouseFootTests {
             defer      : false
         )
         window.isReleasedWhenClosed = false
-        let host = NSHostingView(rootView: SidebarHost(
-            house : house,
-            choice: choice
-        ))
+        let host = NSHostingView(rootView: SidebarHost(choice: choice))
         host.sceneBridgingOptions = [.toolbars]
         window.contentView = host
 
@@ -100,26 +112,29 @@ struct HouseFootTests {
         }
         // The items that follow New Worker are added in the same update.
         try await Task.sleep(for: .milliseconds(100))
-        return (window, choice)
+        return (window, choice, directory)
     }
 
-    /// Choice is the worker a test's sidebar selects.
+    /// Choice is the team a test's sidebar shows and the worker it selects.
     @Observable
     final class Choice {
+        let team: TeamModel
+
         var worker: HouseWorker.ID?
+
+        init(team: TeamModel) { self.team = team }
     }
 
     /// SidebarHost is the house window's split with the house's sidebar and New Worker beside it.
     private struct SidebarHost: View {
-        let house: MockHouse
-
         @Bindable var choice: Choice
 
         var body: some View {
             NavigationSplitView {
                 HouseSidebar(
-                    house    : house,
-                    selection: $choice.worker
+                    workers  : HouseRoster.workers(of: choice.team),
+                    selection: $choice.worker,
+                    team     : choice.team
                 )
                 .toolbar {
                     ToolbarItem {

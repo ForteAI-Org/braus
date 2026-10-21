@@ -66,18 +66,9 @@ enum AppPreferences {
     static let sidebarShowsSearch        = "sidebar.showsSearch"
     static let sidebarShowsSearchDefault = true
 
-    /// How the restyling mockup's sidebar shows the workers, a `SidebarMode` raw value.
+    /// How the house's sidebar shows the workers, rooms or rows, a `SidebarMode` raw value.
     static let restylingSidebarMode        = "restyling.sidebarMode"
     static let restylingSidebarModeDefault = "rooms"
-
-    /// Set once the restyling mockup's house window has opened at its design size, so later
-    /// launches keep the frame the person left.
-    static let restylingDidSizeWindow      = "restyling.didSizeWindow"
-
-    /// Whether the team window shows the restyled house (`HouseShellView`) instead of today's shell.
-    /// A launch argument (`-restyling.newLook YES`) sets it for one run.
-    static let newLook        = "restyling.newLook"
-    static let newLookDefault = false
 
     // MARK: Chat
 
@@ -99,7 +90,7 @@ enum AppPreferences {
     static let workersSearchWebDefault = true
 
     /// The stored value of a Bool preference in `defaults`, its default when none is stored. A launch
-    /// argument (`-restyling.newLook YES`) arrives as a string, which `UserDefaults.bool(forKey:)` reads.
+    /// argument (`-chat.showsTimes NO`) arrives as a string, which `UserDefaults.bool(forKey:)` reads.
     static func bool(
         _ key           : String,
         default fallback: Bool,

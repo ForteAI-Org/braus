@@ -7,9 +7,12 @@
 
 import SwiftUI
 
-/// HouseLiveInspector is the house's inspector on the real team (`HouseShellView`): the mockup's
-/// grouped form and spacing (`HouseInspector`) over the sections of today's inspector, so what it
-/// shows and does is the app's own.
+/// HouseLiveInspector is the house's inspector (`HouseShellView`): a grouped form, its rows a little
+/// taller than the system's and a gap after each section, over the inspector's sections.
+///
+/// The turn's model and effort are the execution's frozen settings (`TurnSummary`), never the
+/// current profile. Colour is kept for state: a dot beside what the worker is doing and how its
+/// connection is, and a symbol with every outcome, so nothing depends on colour alone.
 ///
 /// The Screen section comes first while the worker has a screen to watch, then the worker itself,
 /// which the person edits here and which is saved through `TeamModel.update`, then where the worker
@@ -44,9 +47,10 @@ struct HouseLiveInspector: View {
         static let rowPadding = InspectorRowSpacing.vertical
         static let footerGap  = HouseSectionGap.height
 
-        @State private var turn = WorkerInspectorView.TurnReading.reading
+        @State private var turn = InspectorTurnSection.Reading.reading
 
-        /// What reading the turn again depends on, as the app's inspector reads it.
+        /// What reading the turn again depends on: a new record in the open conversation, or a turn
+        /// starting or ending.
         private struct TurnKey: Equatable {
             let workerID : UUID
             let revision : Int
@@ -62,14 +66,12 @@ struct HouseLiveInspector: View {
                 )
 
                 HouseWorkerSection(
-                    name             : worker.name,
-                    role             : worker.role ?? "",
-                    shape            : worker.shape,
-                    roleFollowsTyping: false,
-                    isSpacious       : true,
-                    commitName       : { update(.name($0)) },
-                    commitRole       : { update(.role($0.isEmpty ? nil : $0)) },
-                    commitShape      : { update(.shape($0.rawValue)) }
+                    name       : worker.name,
+                    role       : worker.role ?? "",
+                    shape      : worker.shape,
+                    commitName : { update(.name($0)) },
+                    commitRole : { update(.role($0.isEmpty ? nil : $0)) },
+                    commitShape: { update(.shape($0.rawValue)) }
                 )
                 .id(worker.id)
 
@@ -119,7 +121,7 @@ struct HouseLiveInspector: View {
         private func readTurn() async {
             do {
                 let summary = try await team.latestTurn(of: worker.id)
-                turn = summary.map(WorkerInspectorView.TurnReading.read) ?? .nothingYet
+                turn = summary.map(InspectorTurnSection.Reading.read) ?? .nothingYet
             } catch {
                 turn = .failed(String(describing: error))
             }

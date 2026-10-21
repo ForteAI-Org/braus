@@ -7,20 +7,20 @@
 
 import SwiftUI
 
-/// HouseShellView is the team window in the new look (`AppPreferences.newLook`): the house's frame
-/// (`HouseSplit`) over the same `TeamModel` today's `TeamShellView` reads, dark only.
+/// HouseShellView is the team window once the workspace is open (§3.1): the house's frame
+/// (`HouseSplit`) over the team (`TeamModel`), dark only.
 ///
 /// The sidebar is the house over the team's real workers (`HouseRoster`), the conversation is
 /// `HouseLiveConversation` over the team's transcript, and the inspector is `HouseLiveInspector`.
 /// The selection is the team's: a worker chosen with the pointer hands the keyboard to the composer, one chosen with the keys
-/// leaves it in the sidebar, and Return there moves it to the composer. The sheets, the dialogs, the
-/// approvals and the Team menu are the ones `TeamShellView` presents, so either shell does the same.
+/// leaves it in the sidebar, and Return there moves it to the composer. It presents the team's
+/// sheets, dialogs and adapter approvals, and publishes the team for the Team menu.
 struct HouseShellView: View {
 
     @Bindable
     var team: TeamModel
 
-    /// The window's own memory of the person's request, shared with today's shell.
+    /// The window's own memory of the person's request.
     @Binding var isInspectorRequested: Bool
 
     /// Moves each time a worker chosen with the pointer, or Return in the sidebar, hands the keyboard to
@@ -30,7 +30,7 @@ struct HouseShellView: View {
     var body: some View {
         HouseSplit(isInspectorRequested: $isInspectorRequested) {
             HouseSidebar(
-                house    : house,
+                workers  : workers,
                 selection: $team.selection,
                 team     : team,
                 edit     : edit
@@ -91,7 +91,7 @@ struct HouseShellView: View {
         .onDisappear { team.dismissEnlargedScreen() }
         .sheet(isPresented: $team.isCreatingWorker) {
             HouseNewWorkerSheet(
-                house      : house,
+                shapes     : workers.map(\.shape),
                 connections: { team.connections.states },
                 catalogue  : { provider in
                     (try? await team.connections.loadCatalogue(for: provider)) ?? []
@@ -102,7 +102,7 @@ struct HouseShellView: View {
                         name        : request.name,
                         role        : request.role,
                         instructions: request.instructions,
-                        appearance  : NewWorkerSheet.startingAppearance(),
+                        appearance  : HouseNewWorkerSheet.startingAppearance(),
                         selection   : request.selection,
                         shape       : request.shape
                     )
@@ -168,14 +168,10 @@ struct HouseShellView: View {
     }
 
     /// The team's active workers as the house's rooms.
-    private var house: MockHouse {
-        MockHouse(
-            workers      : HouseRoster.workers(
-                of              : team,
-                showsUnreadCount: AppPreferenceValues.shared.sidebarShowsUnreadCount
-            ),
-            archivedCount: team.archived.count,
-            mostUsed     : []
+    private var workers: [HouseWorker] {
+        HouseRoster.workers(
+            of              : team,
+            showsUnreadCount: AppPreferenceValues.shared.sidebarShowsUnreadCount
         )
     }
 

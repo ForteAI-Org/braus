@@ -85,7 +85,7 @@ struct HouseSidebarLiveTests {
 
     @Test("A real worker is read as its team row, with no badge value said twice")
     func spokenAsTheTeamRow() throws {
-        var worker = try #require(MockHouse.sample.workers.first)
+        var worker = try #require(HouseFixture.workers.first)
         worker.badge = .unread(2)
         #expect(HouseRoomCell.spokenValue(
             for       : worker,
@@ -109,7 +109,7 @@ struct HouseSidebarLiveTests {
 
     @Test("Off rooms read Needs Setup only while their worker has no model")
     func needsSetupSubtitle() throws {
-        var worker = try #require(MockHouse.sample.workers.first { $0.status == .off })
+        var worker = try #require(HouseFixture.workers.first { $0.status == .off })
         #expect(worker.subtitle == worker.role)
         worker.needsSetup = true
         #expect(worker.subtitle == TeamRow.toConfigure)
@@ -160,7 +160,7 @@ struct HouseSidebarLiveTests {
     @Test("A subtitle or badge change requests no room render")
     func subtitleAndBadgeDoNotRender() throws {
         try #require(MTLCreateSystemDefaultDevice() != nil)
-        var worker = try #require(MockHouse.sample.workers.first { $0.status == .busy })
+        var worker = try #require(HouseFixture.workers.first { $0.status == .busy })
 
         let window = NSWindow(
             contentRect: CGRect(

@@ -50,7 +50,7 @@ struct HeroLightTests {
 
     @Test("The hero shows its worker standing in three quarters, as its room does, lit by its capsule")
     func heroUsesTheTiltedPortrait() throws {
-        let worker = MockHouse.sample.workers[0]
+        let worker = HouseFixture.workers[0]
         let (host, window) = Self.host(hero(
             worker,
             status: .busy
@@ -74,7 +74,7 @@ struct HeroLightTests {
     @Test("Nothing lights the worker from behind: the capsule's glow sits under it, on the capsule's top edge")
     func noLightBehindTheWorker() throws {
         let (host, window) = Self.host(hero(
-            MockHouse.sample.workers[0],
+            HouseFixture.workers[0],
             status: .waiting
         ))
         defer { window.close() }
@@ -106,7 +106,7 @@ struct HeroLightTests {
         }
         #expect(HeroLight.capsuleLight(for: .off).w < HeroLight.capsuleLight(for: .free).w)
 
-        let worker = MockHouse.sample.workers[0]
+        let worker = HouseFixture.workers[0]
         let (host, window) = Self.host(hero(
             worker,
             status: .free
@@ -131,7 +131,7 @@ struct HeroLightTests {
         defer { RestylingMotion.overrideReducesTransparency = nil }
         RestylingMotion.overrideReducesTransparency = true
         let hero = HouseHero(
-            worker     : MockHouse.sample.workers[0],
+            worker     : HouseFixture.workers[0],
             status     : .busy,
             brows      : .idle,
             activity   : "Mixing the final cut",

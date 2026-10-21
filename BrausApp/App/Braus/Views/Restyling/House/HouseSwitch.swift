@@ -104,9 +104,6 @@ enum HouseSwitch {
 
 extension EnvironmentValues {
 
-    /// Whether the conversation is leaving the column for another worker's (`HouseSwitch`).
-    @Entry var houseSwitchLeaving = false
-
     /// The worker shown before this conversation's, whose capsule this one's takes over, or nil.
     @Entry var houseSwitchPrevious: HouseWorker?
 }

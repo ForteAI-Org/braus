@@ -10,7 +10,7 @@ import SwiftUI
 /// QueueStrip is the tab joined above the composer that holds what the person sent while the worker
 /// answers: one message at a time, ‹ 2/3 › to page through several, Send Now, and a button that
 /// takes the shown message out. It shows `items` with the one at `page`, and asks `onPage` to show
-/// another; the mockup passes its `MessageQueue`, the app its conversation's queue.
+/// another: the conversation's queue.
 ///
 /// The shown message's frame in `BubbleFlight.space` goes to `onTextFrame`, where a flight lands;
 /// while `hidesText`, its text is laid out but not drawn, as a flight carries it in or out. With

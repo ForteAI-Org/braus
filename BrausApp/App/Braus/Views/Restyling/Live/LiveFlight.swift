@@ -7,14 +7,17 @@
 
 import AppKit
 
-/// LiveFlight is one message in the air over the new look's conversation (`HouseLiveFlights`): the
+/// LiveFlight is one message in the air over the house's conversation (`HouseLiveFlights`): the
 /// text as it was drawn where it left, on a box that takes the person's bubble colour and corners
 /// as it travels, and once it lands, a picture of the bubble as the transcript draws it, so the last
-/// frame is the bubble. It springs as the mockup's flights do (`BubbleFlight`); only frames animate,
+/// frame is the bubble. It springs with `BubbleFlight`'s spring; only frames animate,
 /// no text is scaled. Under Reduce Motion nothing travels: the text fades where it was while the
 /// bubble fades in at its place. Main actor only, in a stage's layer.
 @MainActor
 final class LiveFlight {
+
+    /// The room around a flight's text inside its box.
+    static let boxPadding = CGSize(width: 12, height: 8)
 
     /// Landing is where a flight comes down, in the stage's coordinates: the bubble's surface, the
     /// frame its picture covers, where its text starts, and the picture.
@@ -53,7 +56,7 @@ final class LiveFlight {
     ) {
         guard let layer = stage.layer else { return nil }
 
-        let padding    = RowGeometry.bubblePadding
+        let padding    = Self.boxPadding
         self.fromField = fromField
         self.textInset = textInset
         scale          = stage.window?.backingScaleFactor ?? 2
@@ -164,7 +167,7 @@ final class LiveFlight {
         }
 
         isLeaving = true
-        let padding = RowGeometry.bubblePadding
+        let padding = Self.boxPadding
         let from    = root.position
         BubbleFlight.quietly {
             root.position = CGPoint(
