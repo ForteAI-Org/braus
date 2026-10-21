@@ -22,7 +22,7 @@ struct WorkerScreenCard: View {
     let worker: WorkerSnapshot
     let place : ScreenPlace
 
-    /// Set by the new look's shell: opens the worker's screen in its own window.
+    /// Set by the house's shell: opens the worker's screen in its own window.
     @Environment(\.openWorkerScreen) private var openWorkerScreen
 
     @State private var isHovering = false

@@ -39,13 +39,6 @@ nonisolated struct TeamRow: Sendable, Hashable, Identifiable {
     /// The most the badge counts; beyond it the badge reads "99+".
     static let badgeLimit = 99
 
-    /// The number the badge shows, or nil when there is none. An unseen
-    /// problem takes the attention mark instead, and the mark carries no number.
-    var badgeText: String? {
-        guard !unread.hasUnseenProblem, unread.replies > 0 else { return nil }
-        return unread.replies > Self.badgeLimit ? "\(Self.badgeLimit)+" : String(unread.replies)
-    }
-
     /// True when the row shows the attention mark: a turn failed or stopped
     /// and the person has not looked since.
     var needsAttention: Bool { unread.hasUnseenProblem }
