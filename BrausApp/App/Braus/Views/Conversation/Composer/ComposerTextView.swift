@@ -67,6 +67,12 @@ final class ComposerTextView: NSTextView {
         }
     }
 
+    /// Keeps the placeholder away while a sent text is still leaving the field, as the new look's
+    /// flight carries it off (`HouseLiveFlights`).
+    var hidesPlaceholder = false {
+        didSet { if hidesPlaceholder != oldValue { needsDisplay = true } }
+    }
+
     private var isShowingPlaceholder = false
 
     /// The key down being interpreted, so a command can tell which modifiers
@@ -228,7 +234,7 @@ final class ComposerTextView: NSTextView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        isShowingPlaceholder = isEmpty && !placeholder.isEmpty
+        isShowingPlaceholder = isEmpty && !placeholder.isEmpty && !hidesPlaceholder
         guard isShowingPlaceholder else { return }
         let origin = NSPoint(x: textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0),
                              y: textContainerOrigin.y)

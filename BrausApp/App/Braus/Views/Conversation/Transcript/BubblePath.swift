@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import SwiftUI
 
 /// BubblePath is the outline of one bubble, in flipped coordinates: a rounded
 /// surface, and for a group's last bubble a tail at its bottom corner, as one
@@ -16,6 +17,27 @@ import AppKit
 nonisolated enum BubblePath {
 
     static let cornerRadius: CGFloat = 14
+
+    /// The new look's corners: round, and the tight one at the bottom on the author's side.
+    static let houseRadius     : CGFloat = 21
+    static let houseTightRadius: CGFloat = 8
+
+    /// The new look's bubble in `surface`, in flipped coordinates, with continuous corners: its
+    /// bottom trailing corner tight for the person's, its bottom leading one for the worker's.
+    static func housePath(
+        surface      : CGRect,
+        tightTrailing: Bool
+    ) -> CGPath {
+        UnevenRoundedRectangle(
+            topLeadingRadius    : houseRadius,
+            bottomLeadingRadius : tightTrailing ? houseRadius : houseTightRadius,
+            bottomTrailingRadius: tightTrailing ? houseTightRadius : houseRadius,
+            topTrailingRadius   : houseRadius,
+            style               : .continuous
+        )
+        .path(in: surface)
+        .cgPath
+    }
 
     static func path(surface: CGRect, tail: CGRect?) -> NSBezierPath {
         guard let tail else { return NSBezierPath(roundedRect: surface, xRadius: cornerRadius, yRadius: cornerRadius) }

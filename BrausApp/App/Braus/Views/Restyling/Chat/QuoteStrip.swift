@@ -11,13 +11,15 @@ import SwiftUI
 /// to: who wrote it and its first line, with a button that takes the quote back.
 ///
 /// The quoted line's frame in `BubbleFlight.space` goes to `onTextFrame`, where the quote's flight
-/// lands; while `hidesText`, that line is laid out but not drawn.
+/// lands; while `hidesText`, that line is laid out but not drawn. With `onOpen`, a click on it goes
+/// to the quoted message.
 struct QuoteStrip: View {
     let title      : String
     let text       : String
     let hidesText  : Bool
     let onTextFrame: (CGRect) -> Void
     let onRemove   : () -> Void
+    var onOpen     : (() -> Void)?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -41,6 +43,10 @@ struct QuoteStrip: View {
                     } action: { frame in
                         onTextFrame(frame)
                     }
+                    .stripAction(
+                        onOpen,
+                        help: "Show the message you’re replying to."
+                    )
             }
             .frame(
                 maxWidth : .infinity,

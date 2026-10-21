@@ -18,7 +18,9 @@ import SwiftUI
 /// activity, or "Working") or its role; it listens while the person writes to it between turns, sets
 /// about a message each time a turn starts and acts the turn out with its body (`action`). Another worker hops out of the capsule in its place. The transcript and the
 /// composer keep every behaviour of today's conversation: windows of history, reading position,
-/// replies, the queue, slash commands, the model popup, Stop and Release.
+/// replies, the queue, slash commands, the model popup, Stop and Release. Messages fly across it
+/// (`HouseLiveFlights`): a sent one into its bubble, a queued one into and out of the queue strip,
+/// a quote into the reply strip and back.
 struct HouseLiveConversation: View {
 
     @Bindable
@@ -47,6 +49,9 @@ struct HouseLiveConversation: View {
     /// The hero's beats a turn's rows cannot hold: reading the message just sent, the reply landing.
     @State private var isReading = false
     @State private var isLanding = false
+
+    /// The flights of sent, queued and quoted messages over the conversation.
+    @State private var flights = HouseLiveFlights()
 
     var body: some View {
         let house       = houseWorker
@@ -106,9 +111,19 @@ struct HouseLiveConversation: View {
                         height      : $composerHeight,
                         focusRequest: composerFocus + focusRequest,
                         reveal      : { transcript?.revealQuoted($0) },
-                        chrome      : .house
+                        chrome      : .house,
+                        flights     : flights
                     )
                 }
+        }
+        .coordinateSpace(.named(BubbleFlight.space))
+        .overlay { flights.overlay }
+        .onChange(of: team.queue) { old, new in
+            flights.queueChanged(
+                from: old,
+                to  : new,
+                in  : team.conversation?.id
+            )
         }
         .overlay(alignment: .topTrailing) {
             ConversationFloatingScreen(
@@ -171,11 +186,23 @@ struct HouseLiveConversation: View {
                 TranscriptHost(
                     controller : transcript,
                     topInset   : 8,
-                    bottomInset: composerHeight
+                    bottomInset: composerHeight,
+                    look       : .house
                 )
             } else {
                 Color.clear
             }
+        }
+        // The transcript fades out under the hero rather than ending on an edge, as the new look's column does.
+        .mask {
+            LinearGradient(
+                stops     : [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black, location: 0.08),
+                ],
+                startPoint: .top,
+                endPoint  : .bottom
+            )
         }
         .task(id: team.conversation?.id) { openTranscript() }
         .onChange(of: team.transcriptRevision) { transcript?.refresh() }
@@ -197,7 +224,10 @@ struct HouseLiveConversation: View {
     private func openTranscript() {
         guard let conversation = team.conversation else { return }
 
-        let controller = transcript ?? TranscriptController(source: team.transcriptSource)
+        let controller = transcript ?? TranscriptController(
+            source: team.transcriptSource,
+            style : TranscriptStyle(look: .house)
+        )
         transcript = controller
 
         let conversationID = conversation.id
@@ -212,9 +242,16 @@ struct HouseLiveConversation: View {
                 )
             }
         }
+        flights.attach(
+            controller,
+            to: conversationID
+        )
         let focus = $composerFocus
-        controller.onReply = { [team] quote in
-            team.draftQuote = quote
+        controller.onReply = { [team, flights] quote in
+            flights.reply(
+                quote,
+                in: team
+            )
             focus.wrappedValue += 1
         }
         controller.open(

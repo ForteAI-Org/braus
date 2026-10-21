@@ -107,28 +107,76 @@ nonisolated struct RowGeometry: Sendable, Hashable {
         style.showsAuthors ? gutter + avatarSide + avatarGap : gutter
     }
 
+    // MARK: The new look
+
+    /// The new look's column: the widest the conversation grows, the least room beside it, and the
+    /// share of it a bubble of prose may take.
+    static let houseColumn  : CGFloat = 560
+    static let houseMargin  : CGFloat = 24
+    static let houseBubble  : CGFloat = 0.78
+
+    /// The new look's room between a bubble's edge and its text.
+    static let houseBubblePadding = CGSize(width: 16, height: 11)
+
+    /// The new look's tool line: in from the column, then its spinner or dot, then the gap to its words.
+    static let houseToolInset    : CGFloat = 4
+    static let houseToolIndicator: CGFloat = 12
+    static let houseToolGap      : CGFloat = 7
+
+    /// The new look's extra room above and below a day's label.
+    static let houseDividerRoom: CGFloat = 6
+
+    /// Where the conversation's column starts in a row `rowWidth` wide, and how wide it is: today's
+    /// spans the row inside the gutters, the new look's is centred.
+    static func column(
+        rowWidth: CGFloat,
+        style   : TranscriptStyle
+    ) -> (start: CGFloat, width: CGFloat) {
+        guard style.isHouse else { return (gutter, max(0, rowWidth - 2 * gutter)) }
+
+        let width = max(0, min(houseColumn, rowWidth - 2 * houseMargin)).rounded(.down)
+        return (((rowWidth - width) / 2).rounded(), width)
+    }
+
+    /// The room between a bubble's edge and its text.
+    static func bubblePadding(_ style: TranscriptStyle) -> CGSize {
+        style.isHouse ? houseBubblePadding : bubblePadding
+    }
+
+    /// How far a tool line's words sit from where its line starts: the new look's spinner or dot
+    /// comes first.
+    private static func toolIndent(_ style: TranscriptStyle) -> CGFloat {
+        style.isHouse ? houseToolIndicator + houseToolGap : 0
+    }
+
     /// The widest a row's prose may be laid out at, before it is measured.
     static func textWidthLimit(
         for kind: TranscriptItem.Kind,
         rowWidth: CGFloat,
         style   : TranscriptStyle
     ) -> CGFloat {
-        max(40, surfaceLimit(for: kind, rowWidth: rowWidth, style: style, isWide: false) - 2 * padding(of: kind))
+        let words = shape(of: kind) == .line ? toolIndent(style) : 0
+        return max(40, surfaceLimit(for: kind, rowWidth: rowWidth, style: style, isWide: false)
+            - 2 * padding(of: kind, style) - words)
     }
 
     /// The room between a surface's edge and its text, on each side.
-    private static func padding(of kind: TranscriptItem.Kind) -> CGFloat {
+    private static func padding(
+        of kind: TranscriptItem.Kind,
+        _ style: TranscriptStyle
+    ) -> CGFloat {
         switch shape(of: kind) {
-        case .bubble:          bubblePadding.width
+        case .bubble:          bubblePadding(style).width
         case .line:            0
         case .card, .divider:  cardPadding.width
         }
     }
 
-    /// The blob of a thinking bubble takes the place of one body line: a square as tall as it.
+    /// The blob of a thinking bubble takes the place of one body line: a square as tall as it; the
+    /// new look's is wider, as its bubble of thinking is.
     static func thinkingSize(_ style: TranscriptStyle) -> CGSize {
         let side = (style.bodyPointSize * 1.2).rounded(.up)
-        return CGSize(width: side, height: side)
+        return CGSize(width: style.isHouse ? (side * 30 / 17).rounded() : side, height: side)
     }
 
     /// The width `block`'s text is laid out and measured at, in whole points.
@@ -140,7 +188,7 @@ nonisolated struct RowGeometry: Sendable, Hashable {
     ) -> CGFloat {
         let column: CGFloat
         if isWide(block) {
-            column = surfaceLimit(for: kind, rowWidth: rowWidth, style: style, isWide: true) - 2 * padding(of: kind)
+            column = surfaceLimit(for: kind, rowWidth: rowWidth, style: style, isWide: true) - 2 * padding(of: kind, style)
         } else {
             column = textWidthLimit(for: kind, rowWidth: rowWidth, style: style)
         }
@@ -211,6 +259,8 @@ nonisolated struct RowGeometry: Sendable, Hashable {
             let hasName   = hasHeader && !isPerson && style.showsAuthors
             let top       = hasName ? caption + 2 : 0
             let long      = Self.isLong(item.kind) && !isWide
+            let inside    = Self.bubblePadding(style)
+            let column    = Self.column(rowWidth: rowWidth, style: style)
             // A quote opens the bubble: its block, then the text an inset below it, and it may widen the bubble.
             let padding   = Self.quotePadding
             let measured  = quote.map { quote in
@@ -219,24 +269,24 @@ nonisolated struct RowGeometry: Sendable, Hashable {
                     height: padding.top + (quote.name == nil ? 0 : caption + 1) + quote.text.height + padding.bottom
                 )
             }
-            let room      = measured.map { $0.height + 2 * Self.quoteInset - Self.bubblePadding.height } ?? 0
+            let room      = measured.map { $0.height + 2 * Self.quoteInset - inside.height } ?? 0
             let content   = max(
-                textSize.width + 2 * Self.bubblePadding.width,
+                textSize.width + 2 * inside.width,
                 (measured?.width ?? 0) + 2 * Self.quoteInset
             )
             let width     = long ? limit : min(limit, content)
             let bubbleX   = isPerson
-                ? rowWidth - Self.gutter - width
-                : Self.leading(style)
+                ? column.start + column.width - width
+                : style.isHouse ? column.start : Self.leading(style)
             let surface   = CGRect(x: bubbleX, y: top, width: width,
-                                   height: textSize.height + 2 * Self.bubblePadding.height + room)
+                                   height: textSize.height + 2 * inside.height + room)
             let hasBadge  = DeliveryBadge(item.kind) != nil
 
             self.surface = surface
             self.text    = CGRect(
-                x     : surface.minX + Self.bubblePadding.width,
-                y     : surface.minY + Self.bubblePadding.height + room,
-                width : surface.width - 2 * Self.bubblePadding.width,
+                x     : surface.minX + inside.width,
+                y     : surface.minY + inside.height + room,
+                width : surface.width - 2 * inside.width,
                 height: textSize.height
             )
             if let quote, let measured {
@@ -278,7 +328,8 @@ nonisolated struct RowGeometry: Sendable, Hashable {
                 return CGRect(x: x, y: line.midY - side / 2, width: side, height: side)
             }
             let tail     = Self.tailSize
-            self.tail    = item.endsGroup
+            // The new look's bubble has no tail: its tight corner points at its author.
+            self.tail    = item.endsGroup && !style.isHouse
                 ? CGRect(x: isPerson ? surface.maxX : surface.minX - tail.width, y: surface.maxY - tail.height,
                          width: tail.width, height: tail.height)
                 : nil
@@ -286,7 +337,7 @@ nonisolated struct RowGeometry: Sendable, Hashable {
 
         case .card:
             // A stopped or failed turn's card spans the measure.
-            let x       = Self.leading(style)
+            let x       = style.isHouse ? Self.column(rowWidth: rowWidth, style: style).start : Self.leading(style)
             let surface = CGRect(x: x, y: 0, width: limit,
                                  height: textSize.height + 2 * Self.cardPadding.height)
             self.surface = surface
@@ -299,11 +350,20 @@ nonisolated struct RowGeometry: Sendable, Hashable {
             self.height  = surface.maxY.rounded(.up)
 
         case .line:
-            // No surface: a caption above the worker's answer, at its column.
-            let x       = Self.leading(style)
-            let surface = CGRect(x: x, y: 0, width: min(limit, textSize.width), height: textSize.height + 4)
+            // No surface: a caption above the worker's answer, at its column; the new look's starts
+            // a little in, with its spinner or dot before the words.
+            let x       = style.isHouse
+                ? Self.column(rowWidth: rowWidth, style: style).start + Self.houseToolInset
+                : Self.leading(style)
+            let indent  = Self.toolIndent(style)
+            let surface = CGRect(x: x, y: 0, width: min(limit, textSize.width + indent), height: textSize.height + 4)
             self.surface = surface
-            self.text    = surface.insetBy(dx: 0, dy: 2)
+            self.text    = CGRect(
+                x     : surface.minX + indent,
+                y     : surface.minY + 2,
+                width : surface.width - indent,
+                height: surface.height - 4
+            )
             self.header  = nil
             self.footer  = nil
             self.avatar  = nil
@@ -314,12 +374,14 @@ nonisolated struct RowGeometry: Sendable, Hashable {
             self.height  = (surface.maxY + (hasCard ? Self.toolShadowRoom : 0)).rounded(.up)
 
         case .divider:
-            let surface = CGRect(x: Self.gutter, y: 0, width: max(0, rowWidth - 2 * Self.gutter),
-                                 height: max(caption, textSize.height) + 8)
+            let column  = Self.column(rowWidth: rowWidth, style: style)
+            let room    = style.isHouse ? Self.houseDividerRoom : 0
+            let surface = CGRect(x: column.start, y: 0, width: column.width,
+                                 height: max(caption, textSize.height) + 8 + 2 * room)
             let textWidth = min(surface.width, textSize.width)
             self.surface = surface
             // On a whole point, so the label does not shimmer as the row is laid out again.
-            self.text    = CGRect(x: (surface.midX - textWidth / 2).rounded(), y: 4, width: textWidth,
+            self.text    = CGRect(x: (surface.midX - textWidth / 2).rounded(), y: 4 + room, width: textWidth,
                                   height: textSize.height)
             self.header  = nil
             self.footer  = nil
@@ -425,6 +487,12 @@ nonisolated struct RowGeometry: Sendable, Hashable {
         style   : TranscriptStyle,
         isWide  : Bool
     ) -> CGFloat {
+        if style.isHouse {
+            // The new look's bubbles of prose take at most part of the column; code, tables and the rest all of it.
+            let column = column(rowWidth: rowWidth, style: style).width
+            let share  = shape(of: kind) == .bubble && !isWide ? houseBubble : 1
+            return max(60, (column * share).rounded(.down))
+        }
         let indent  = leading(style)
         let measure = isWide ? style.wideMeasure
             : isLong(kind) || shape(of: kind) != .bubble ? style.longMeasure : style.shortMeasure

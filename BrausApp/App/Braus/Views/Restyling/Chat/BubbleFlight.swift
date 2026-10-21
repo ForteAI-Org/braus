@@ -219,7 +219,40 @@ final class BubbleFlight {
             width  : bubble.width - padding.leading - padding.trailing,
             scale  : scale,
             isWhite: false
-        ), let end = Self.image(
+        ) else { return }
+
+        quote(
+            start,
+            at        : CGPoint(
+                x: padding.leading,
+                y: padding.top
+            ),
+            fill      : ImageRenderer(content: fill.frame(
+                width : bubble.width,
+                height: bubble.height
+            )).cgImage,
+            from      : bubble,
+            to        : line,
+            lineText  : lineText,
+            completion: completion
+        )
+    }
+
+    /// Lifts `start`, a picture placed at `origin` in `bubble`'s frame over `fill`, into the quote
+    /// strip as `quote(_:fill:from:to:lineText:completion:)` does; the app's transcript gives a
+    /// picture of its bubble, fill included, and no fill.
+    func quote(
+        _ start   : (image: CGImage, size: CGSize),
+        at origin : CGPoint,
+        fill      : CGImage?,
+        from bubble: CGRect,
+        to line   : CGRect,
+        lineText  : String,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        let scale   = stage.window?.backingScaleFactor ?? 2
+        let padding = ChatTranscriptView.bubblePadding
+        guard let end = Self.image(
             of     : Self.stripLine(lineText),
             width  : line.width,
             scale  : scale,
@@ -242,18 +275,12 @@ final class BubbleFlight {
         filling.anchorPoint     = .zero
         filling.frame           = box.bounds
         filling.contentsGravity = .resize
-        filling.contents        = ImageRenderer(content: fill.frame(
-            width : bubble.width,
-            height: bubble.height
-        )).cgImage
+        filling.contents        = fill
         Self.show(
             start,
             in   : from,
             scale: scale,
-            at   : CGPoint(
-                x: padding.leading,
-                y: padding.top
-            )
+            at   : origin
         )
         Self.show(
             end,
@@ -436,7 +463,7 @@ final class BubbleFlight {
     private static let unquoteDuration = 0.42
 
     /// The strips' line as `QuoteStrip` draws it.
-    private static func stripLine(_ text: String) -> some View {
+    static func stripLine(_ text: String) -> some View {
         Text(text)
             .font(QueueStrip.font)
             .foregroundStyle(.secondary)
@@ -500,7 +527,7 @@ final class BubbleFlight {
 
     /// `text` drawn white, as the field draws it, broken into lines at most `width` wide; in its own
     /// colours, in the dark appearance, unless `isWhite`.
-    private static func image(
+    static func image(
         of text: some View,
         width  : CGFloat,
         scale  : CGFloat,

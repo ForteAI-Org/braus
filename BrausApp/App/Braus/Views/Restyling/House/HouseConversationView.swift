@@ -170,9 +170,11 @@ struct HouseConversationView: View {
         VStack(spacing: 0) {
             if !conversation.queue.items.isEmpty {
                 QueueStrip(
-                    queue      : $conversation.queue,
+                    items      : conversation.queue.items,
+                    page       : conversation.queue.page,
                     hidesText  : isQueueLanding,
                     onTextFrame: { queueLine = $0 },
+                    onPage     : { conversation.queue.page = $0 },
                     onSendNow  : sendNow,
                     onDrop     : drop
                 )

@@ -29,19 +29,34 @@ nonisolated struct TranscriptStyle: Sendable, Hashable {
     /// Whether a turn's tool steps open by default; toggling one opens or closes it against this.
     var opensToolSteps: Bool
 
+    /// Look is how the transcript is drawn: today's, or the new look's (`AppPreferences.newLook`), a
+    /// centred column of quiet dark bubbles, each with a tight corner toward its author and no tail,
+    /// day labels with no rules, a tool line with a spinner or a dot, and new words that fade in.
+    enum Look: Sendable, Hashable {
+        case standard
+        case house
+    }
+
+    var look: Look
+
     init(
         bodyPointSize : CGFloat = 14,
         showsAuthors  : Bool    = false,
         fontFamily    : String? = nil,
         showsTimes    : Bool    = true,
-        opensToolSteps: Bool    = false
+        opensToolSteps: Bool    = false,
+        look          : Look    = .standard
     ) {
         self.bodyPointSize  = max(10, bodyPointSize)
         self.showsAuthors   = showsAuthors
         self.fontFamily     = fontFamily.flatMap { $0.isEmpty ? nil : $0 }
         self.showsTimes     = showsTimes
         self.opensToolSteps = opensToolSteps
+        self.look           = look
     }
+
+    /// Whether the transcript is drawn in the new look.
+    var isHouse: Bool { look == .house }
 
     /// The conversation's text face at `size` and `weight`: the chosen family when it is
     /// installed, else the system font. Built through a descriptor, which is safe off the main
@@ -67,8 +82,9 @@ nonisolated struct TranscriptStyle: Sendable, Hashable {
     /// Names, times and delivery states.
     var captionPointSize: CGFloat { max(10, bodyPointSize - 3) }
 
-    /// Tool lines and their steps, a step below the caption: quieter than the replies they open.
-    var toolPointSize: CGFloat { captionPointSize - 1 }
+    /// Tool lines and their steps, a step below the caption: quieter than the replies they open. The
+    /// new look's line is two steps below the body.
+    var toolPointSize: CGFloat { isHouse ? max(10, bodyPointSize - 2) : captionPointSize - 1 }
 
     /// Failure reasons.
     var monospacedPointSize: CGFloat { max(10, bodyPointSize - 2) }
