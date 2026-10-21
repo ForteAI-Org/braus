@@ -13,7 +13,9 @@ import SwiftUI
 /// The rooms are laid out `roomsWidth` across, the width `HouseSidebar` changes together with
 /// `columns`, so a change of columns moves every room from where it was on screen. They are seen
 /// through the camera `BRAUS_ROOM_CAMERA` picks at launch. A room chosen out of sight, as a worker
-/// just created is, scrolls into view; each offers Edit Worker… (`edit`) in its context menu.
+/// just created is, scrolls into view; each offers Edit Worker… (`edit`) and, for a real worker of
+/// `team`, the worker's commands in its context menu (`HouseWorkerMenu`). With the keyboard in the
+/// grid, the arrow keys move the selection from room to room (`neighbour(of:count:columns:direction:)`).
 struct HouseRoomsGrid: View {
     let workers   : [HouseWorker]
     let columns   : Int
@@ -21,6 +23,7 @@ struct HouseRoomsGrid: View {
 
     @Binding var selection: HouseWorker.ID?
 
+    let team: TeamModel?
     let edit: (HouseWorker.ID) -> Void
 
     @Environment(\.openWorkerScreen) private var openWorkerScreen
@@ -46,6 +49,9 @@ struct HouseRoomsGrid: View {
                     HouseLayout.margin
                 )
             }
+            .focusable(interactions: .edit)
+            .focusEffectDisabled()
+            .onMoveCommand(perform: move)
             .onChange(of: selection) {
                 guard let selection else { return }
                 // A room just added is laid out after this change, so it is found on the next turn.
@@ -55,6 +61,56 @@ struct HouseRoomsGrid: View {
     }
 
     private var isCompact: Bool { columns == 1 }
+
+    /// Selects the room `direction` leads to from the selected one.
+    private func move(_ direction: MoveCommandDirection) {
+        let index = selection.flatMap { id in workers.firstIndex { $0.id == id } }
+        guard let next = Self.neighbour(
+            of       : index,
+            count    : workers.count,
+            columns  : columns,
+            direction: direction
+        ) else { return }
+        selection = workers[next].id
+    }
+
+    /// The room an arrow key leads to from the room at `index` on a floor plan of `count` rooms in
+    /// `columns` columns, the first room across them all; nil where it leads nowhere. Left and Right
+    /// step through the rooms in order, Up and Down a row; with no room chosen, Down and Right start at
+    /// the first room and Up and Left at the last.
+    static func neighbour(
+        of index : Int?,
+        count    : Int,
+        columns  : Int,
+        direction: MoveCommandDirection
+    ) -> Int? {
+        guard count > 0 else { return nil }
+        guard let index else {
+            switch direction {
+            case .down, .right: return 0
+            case .up, .left   : return count - 1
+            default           : return nil
+            }
+        }
+        let columns = max(
+            1,
+            columns
+        )
+        let next: Int
+        switch direction {
+        case .left : next = index - 1
+        case .right: next = index + 1
+        case .up   : next = index <= columns ? 0 : index - columns
+        case .down :
+            next = index == 0 ? 1 : min(
+                index + columns,
+                count - 1
+            )
+        default:
+            return nil
+        }
+        return (0..<count).contains(next) && next != index ? next : nil
+    }
 
     private func room(_ worker: HouseWorker) -> some View {
         HouseRoomCell(
@@ -66,7 +122,11 @@ struct HouseRoomsGrid: View {
         }
         .frame(height: isCompact ? HouseLayout.compactRoomHeight : HouseLayout.roomHeight)
         .contextMenu {
-            Button("Edit Worker…") { edit(worker.id) }
+            HouseWorkerMenu(
+                workerID: worker.id,
+                team    : team,
+                edit    : edit
+            )
             if worker.usesScreen {
                 Button("Open Screen") {
                     WorkerScreenWindowController.open(

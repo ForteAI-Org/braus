@@ -9,7 +9,7 @@ import SwiftUI
 
 /// HouseRowsList presents compact worker rows with their room lighting and native list selection.
 /// Names sit beside the workers, or under them when the sidebar is compact. A newly selected worker scrolls into view,
-/// and each row offers Edit Worker… in its context menu.
+/// and each row offers Edit Worker… and, for a real worker of `team`, its commands in its context menu.
 struct HouseRowsList: View {
     let workers   : [HouseWorker]
     let roomsWidth: CGFloat?
@@ -17,6 +17,7 @@ struct HouseRowsList: View {
 
     @Binding var selection: HouseWorker.ID?
 
+    let team: TeamModel?
     let edit: (HouseWorker.ID) -> Void
 
     @Environment(\.openWorkerScreen) private var openWorkerScreen
@@ -55,7 +56,11 @@ struct HouseRowsList: View {
                 .listRowSeparator(.hidden)
                 .transition(HouseLayout.arrival)
                 .contextMenu {
-                    Button("Edit Worker…") { edit(worker.id) }
+                    HouseWorkerMenu(
+                        workerID: worker.id,
+                        team    : team,
+                        edit    : edit
+                    )
                     if worker.usesScreen {
                         Button("Open Screen") {
                             WorkerScreenWindowController.open(

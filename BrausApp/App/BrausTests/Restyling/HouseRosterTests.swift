@@ -52,14 +52,6 @@ struct HouseRosterTests {
         }
     }
 
-    @Test("A worker's derived shape is the same every time and the shapes vary across workers")
-    func shapeIsStable() throws {
-        let id = try #require(UUID(uuidString: "6F9619FF-8B86-D011-B42D-00C04FC964FF"))
-        #expect(HouseRoster.shape(for: id) == HouseRoster.shape(for: id))
-        let shapes = Set((0..<64).map { _ in HouseRoster.shape(for: UUID()) })
-        #expect(shapes.count > 1)
-    }
-
     @Test("The team's active workers become rooms in order, with their light, activity, badge and screen")
     func workersFromTheTeam() async throws {
         let directory = TemporaryStore.directory()
@@ -103,9 +95,12 @@ struct HouseRosterTests {
         #expect(first.status == .free)
         #expect(first.role == "Writes the copy")
         #expect(first.subtitle == "Writes the copy")
-        #expect(first.shape == HouseRoster.shape(for: ada.id))
+        #expect(first.shape == ada.shape)
         #expect(first.badge == nil && !first.usesScreen)
-        #expect(workers.last?.status == .off)
+        #expect(first.spokenLabel == team.rows.first?.accessibilityLabel)
+        let unset = try #require(workers.last)
+        #expect(unset.status == .off && unset.subtitle == TeamRow.toConfigure)
+        #expect(unset.spokenLabel == "Bo, Needs Setup")
 
         // The states the team derives at run time, given to the row's reading directly.
         let row = try #require(team.rows.first)
