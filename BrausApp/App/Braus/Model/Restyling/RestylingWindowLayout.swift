@@ -5,13 +5,16 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 20/10/2026.
 //
 
-import Foundation
+import SwiftUI
 
 /// RestylingWindowLayout reserves the conversation's minimum beside the columns' ideal widths.
 /// Column ranges depend only on the division, so resizing within one division does not update
 /// split item constraints. The split can shrink wider dragged columns toward their ideals.
 /// Decisions use window width, never a measurement inside the split.
 nonisolated enum RestylingWindowLayout {
+
+    /// What the house's split shows, always: the sidebar never closes.
+    static let columnVisibility = NavigationSplitViewVisibility.all
 
     static let minimumWidth = ShellMetrics.compactSidebar + ShellMetrics.conversationMinimum
 

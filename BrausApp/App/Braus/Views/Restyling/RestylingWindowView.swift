@@ -7,8 +7,9 @@
 
 import SwiftUI
 
-/// RestylingWindowView is the restyling mockup's house window, dark only: the house in the sidebar,
-/// the conversation with the chosen worker, and an inspector that opens from the toolbar.
+/// RestylingWindowView is the restyling mockup's house window, in the house's frame (`HouseSplit`): the
+/// house in the sidebar, the conversation with the chosen worker, and an inspector that opens from the
+/// toolbar.
 ///
 /// The toolbar holds New Worker by the traffic lights; at the trailing edge, the worker's usage, the Screen and
 /// Inspector controls; the window has no title, as the worker sits at the top of its conversation.
@@ -22,25 +23,7 @@ import SwiftUI
 /// selection a frame later (`shownSelection`): the frame of the choice carries only the sidebar,
 /// where the room's plaque starts its swing, and building the conversation, tens of milliseconds,
 /// runs while Core Animation plays it.
-///
-/// RestylingWindowLayout budgets for the columns' ideal widths, including without an inspector: the
-/// division is decided from the window's own width, never from a width measured inside the split,
-/// the sidebar turns compact before the inspector closes, and a new division gives room first and
-/// takes it after. The sidebar is never hidden: it has no toggle and no command, and `SidebarBridge`
-/// stops a drag of its divider at the compact width instead of collapsing it, so nothing has to
-/// reopen it. The root minimum always leaves out the inspector's width, which AppKit adds itself,
-/// so automatically closing it cannot raise the root minimum. Only the toolbar action or its
-/// shortcut changes the person's inspector request.
-///
-/// The window, sidebar and inspector backgrounds are the asset catalogue's `RestylingGround`,
-/// `RestylingSidebar` and `RestylingInspector`, darker than the system's greys.
 struct RestylingWindowView: View {
-
-    /// Longer than AppKit takes to close the inspector column, as in `TeamShellView`.
-    private static let inspectorClosing = Duration.milliseconds(300)
-
-    /// Long enough for the split to lay out the compact sidebar before the inspector opens beside it.
-    private static let sidebarCompacting = Duration.milliseconds(50)
 
     @State private var house = MockHouse.sample
 
@@ -59,44 +42,24 @@ struct RestylingWindowView: View {
     /// Whether the person asked for the inspector, which a narrow window may not show yet.
     @State private var isInspectorRequested = false
 
-    /// The last reported width, used only by resize and toggle actions, never by column modifiers.
-    @State private var windowWidth: Double?
-
-    /// What the window shows now, which lags `target` while a division is applied in two steps.
-    @State private var division = ShellMetrics.Division.withoutInspector
-
-    /// What the rule last decided, which a resize compares against.
-    @State private var target = ShellMetrics.Division.withoutInspector
-
-    /// The second step of the division being applied, cancelled by a newer one.
-    @State private var secondStep: Task<Void, Never>?
-
     @State private var showsScreen = true
 
     @State private var isCreatingWorker = false
 
-    /// What the split shows, always: the sidebar never closes.
-    static let columnVisibility = NavigationSplitViewVisibility.all
-
     @FocusState private var isComposerFocused: Bool
 
     var body: some View {
-        NavigationSplitView(columnVisibility: .constant(Self.columnVisibility)) {
+        HouseSplit(isInspectorRequested: $isInspectorRequested) {
             HouseSidebar(
                 house    : house,
                 selection: $selection,
                 edit     : edit
             )
-            .background(SidebarBridge())
-            // The system's sidebar material reads grey; the house's sidebar is darker, from the asset catalogue.
-            .scrollContentBackground(.hidden)
-            .background { Color("RestylingSidebar").ignoresSafeArea() }
             .onKeyPress(.return) {
                 guard selection != nil else { return .ignored }
                 isComposerFocused = true
                 return .handled
             }
-            .toolbar(removing: .sidebarToggle)
             .toolbar {
                 ToolbarItem {
                     Button(
@@ -108,59 +71,19 @@ struct RestylingWindowView: View {
                     .help("New worker")
                 }
             }
-            .navigationSplitViewColumnWidth(
-                min  : sidebarWidth.minimum,
-                ideal: sidebarWidth.ideal,
-                max  : sidebarWidth.maximum
-            )
         } detail: {
             HouseDetail(
                 worker           : selectedWorker,
                 isComposerFocused: $isComposerFocused
             )
-            .frame(
-                minWidth : 0,
-                maxWidth : .infinity,
-                minHeight: 0,
-                maxHeight: .infinity
-            )
-            .background { Color("RestylingGround").ignoresSafeArea() }
             .toolbar { toolbar }
-            .inspector(isPresented: inspectorPresentation) {
-                HouseInspector(
-                    worker     : selectedWorkerBinding,
-                    showsScreen: showsScreen
-                )
-                .scrollContentBackground(.hidden)
-                .frame(
-                    maxWidth : .infinity,
-                    maxHeight: .infinity
-                )
-                .background { Color("RestylingInspector").ignoresSafeArea() }
-                // The system's separator between the conversation and the inspector.
-                .overlay(alignment: .leading) {
-                    HStack(spacing: 0) { Divider() }
-                        .ignoresSafeArea()
-                }
-                .inspectorColumnWidth(
-                    min  : RestylingWindowLayout.inspectorWidth.minimum,
-                    ideal: RestylingWindowLayout.inspectorWidth.ideal,
-                    max  : RestylingWindowLayout.inspectorWidth.maximum
-                )
-            }
+        } inspector: {
+            HouseInspector(
+                worker     : selectedWorkerBinding,
+                showsScreen: showsScreen
+            )
         }
-        .toolbar(removing: .title)
-        // The toolbar's own grey would band the dark ground; the ground runs up under it instead.
-        .toolbarBackgroundVisibility(
-            .hidden,
-            for: .windowToolbar
-        )
         .background(FirstWindowSize())
-        .frame(
-            minWidth : RestylingWindowLayout.minimumWidth,
-            minHeight: 560
-        )
-        .background(WindowWidthReader(onWidth: windowResized))
         .sheet(isPresented: $isCreatingWorker) {
             HouseNewWorkerSheet(house: $house) { selection = $0 }
         }
@@ -183,7 +106,6 @@ struct RestylingWindowView: View {
             }
         }
         .environment(team)
-        .preferredColorScheme(.dark)
     }
 
     private var selectedWorker: HouseWorker? {
@@ -197,8 +119,8 @@ struct RestylingWindowView: View {
 
     /// Chooses `worker` and shows the inspector, where it is edited, as the app's Choose Provider… does.
     private func edit(_ worker: HouseWorker.ID) {
-        selection = worker
-        if !isInspectorRequested { toggleInspector() }
+        selection            = worker
+        isInspectorRequested = true
     }
 
     // MARK: Toolbar
@@ -209,81 +131,9 @@ struct RestylingWindowView: View {
             worker              : selectedWorker,
             team                : team,
             isInspectorRequested: isInspectorRequested,
-            toggleInspector     : toggleInspector,
+            toggleInspector     : { isInspectorRequested.toggle() },
             showsScreen         : $showsScreen
         )
-    }
-
-    // MARK: Division
-
-    private var sidebarWidth: ColumnWidth {
-        RestylingWindowLayout.sidebarWidth(for: division)
-    }
-
-    /// Presents the width rule's result. SwiftUI also writes back an automatic dismissal after its
-    /// animation, possibly after a newer division, so writebacks cannot change the person's request.
-    private var inspectorPresentation: Binding<Bool> {
-        Binding(
-            get: { division.isInspectorShown },
-            set: { _ in }
-        )
-    }
-
-    /// Toggles the person's request, including cancelling one temporarily hidden by a narrow window.
-    private func toggleInspector() {
-        isInspectorRequested.toggle()
-        guard let windowWidth else { return }
-
-        divide(into: RestylingWindowLayout.division(
-            window              : windowWidth,
-            isInspectorRequested: isInspectorRequested,
-            previous            : nil
-        ))
-    }
-
-    /// The first report decides once; later ones apply the resize rule with its hysteresis.
-    private func windowResized(to width: Double) {
-        let isFirst = windowWidth == nil
-        guard width != windowWidth else { return }
-
-        windowWidth = width
-        divide(into: RestylingWindowLayout.division(
-            window              : width,
-            isInspectorRequested: isInspectorRequested,
-            previous            : isFirst ? nil : target
-        ))
-    }
-
-    /// Applies `next` in two steps: at once what gives room, then, after the split has made it,
-    /// what takes room. Only a different target cancels the second step, so live resize cannot
-    /// postpone it indefinitely. Sidebar-only changes need no inspector animation wait.
-    private func divide(into next: ShellMetrics.Division) {
-        guard next != target else { return }
-        secondStep?.cancel()
-        secondStep = nil
-        target = next
-
-        if !division.isInspectorShown, !next.isInspectorShown {
-            division = next
-            return
-        }
-
-        let first = ShellMetrics.Division(
-            isInspectorShown: division.isInspectorShown && next.isInspectorShown,
-            isSidebarCompact: division.isSidebarCompact || next.isSidebarCompact
-        )
-        let wait  = division.isInspectorShown && !first.isInspectorShown ? Self.inspectorClosing
-                                                                         : Self.sidebarCompacting
-        division = first
-        guard first != next else { return }
-
-        secondStep = Task {
-            // A cancelled wait belongs to a division that a newer one replaced.
-            do { try await Task.sleep(for: wait) } catch { return }
-            guard !Task.isCancelled, target == next else { return }
-            division = next
-            secondStep = nil
-        }
     }
 
     /// FirstWindowSize opens the house at the design's 1180 × 720 the first time, then never again,

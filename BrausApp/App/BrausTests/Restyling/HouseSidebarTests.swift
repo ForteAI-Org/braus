@@ -825,7 +825,7 @@ struct HouseSidebarTests {
 
     @Test("The house window never asks for less than all its columns, and its sidebar does not collapse")
     func sidebarStays() async throws {
-        #expect(RestylingWindowView.columnVisibility == .all)
+        #expect(RestylingWindowLayout.columnVisibility == .all)
 
         let window = NSWindow(
             contentRect: CGRect(
@@ -841,7 +841,7 @@ struct HouseSidebarTests {
         window.isReleasedWhenClosed = false
         defer { window.close() }
         window.contentView = NSHostingView(rootView: NavigationSplitView(
-            columnVisibility: .constant(RestylingWindowView.columnVisibility)
+            columnVisibility: .constant(RestylingWindowLayout.columnVisibility)
         ) {
             Color.clear.background(SidebarBridge())
         } detail: {
