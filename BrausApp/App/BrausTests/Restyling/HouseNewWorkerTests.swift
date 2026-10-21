@@ -7,6 +7,7 @@
 
 import AppKit
 import Metal
+import ModelTransports
 import SwiftUI
 import Testing
 @testable import Braus
@@ -128,6 +129,43 @@ struct HouseNewWorkerTests {
         #expect(opening.uniforms.shape == .lens)
         #expect(opening.room.uniforms.shape == .lens)
         #expect(opening.room.requestedRenders == renders + 1)
+    }
+
+    @Test("The sheet lists the models of the first ready provider, through the closure it is given")
+    func theSheetAsksForTheReadyProvidersModels() async throws {
+        let asked  = Asked()
+        let window = NSWindow(
+            contentRect: CGRect(
+                x     : 0,
+                y     : 0,
+                width : 460,
+                height: 570
+            ),
+            styleMask  : [.borderless],
+            backing    : .buffered,
+            defer      : false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = NSHostingView(rootView: HouseNewWorkerSheet(
+            house      : MockHouse.sample,
+            connections: { [.codex: .notInstalled, .claudeCode: .ready, .ollama: .ready] },
+            catalogue  : { provider in
+                asked.providers.append(provider)
+                return []
+            }
+        ) { _ in })
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        for _ in 0..<100 where asked.providers.isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(asked.providers == [.claudeCode])
+    }
+
+    /// The providers the sheet asked the catalogue for, in order.
+    private final class Asked {
+        var providers: [ModelProvider] = []
     }
 
     private static func room(_ worker: HouseWorker) -> HouseRoomCell {

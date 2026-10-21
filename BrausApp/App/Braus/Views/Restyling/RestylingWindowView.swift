@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 20/10/2026.
 //
 
+import ModelTransports
 import SwiftUI
 
 /// RestylingWindowView is the restyling mockup's house window, in the house's frame (`HouseSplit`): the
@@ -48,6 +49,15 @@ struct RestylingWindowView: View {
 
     @FocusState private var isComposerFocused: Bool
 
+    /// The mockup's connections, as its inspector tells them: three ready, one to set up, one missing.
+    private static let connections: [ModelProvider: ConnectionState] = [
+        .codex     : .ready,
+        .claudeCode: .ready,
+        .anthropic : .ready,
+        .gemini    : .credentialMissing,
+        .ollama    : .notInstalled,
+    ]
+
     var body: some View {
         HouseSplit(isInspectorRequested: $isInspectorRequested) {
             HouseSidebar(
@@ -85,7 +95,21 @@ struct RestylingWindowView: View {
         }
         .background(FirstWindowSize())
         .sheet(isPresented: $isCreatingWorker) {
-            HouseNewWorkerSheet(house: $house) { selection = $0 }
+            HouseNewWorkerSheet(
+                house      : house,
+                connections: { Self.connections },
+                catalogue  : { provider in
+                    Self.connections[provider]?.isReady == true
+                        ? provider.defaultModels.map { ModelInfo(id: $0, efforts: []) }
+                        : []
+                }
+            ) { request in
+                selection = house.add(
+                    name : request.name,
+                    role : request.role ?? "",
+                    shape: request.shape
+                )
+            }
         }
         .onChange(of: selection) {
             focusesShownComposer = selection != nil && NSApp.currentEvent?.type != .keyDown

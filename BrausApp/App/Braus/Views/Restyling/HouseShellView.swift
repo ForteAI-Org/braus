@@ -74,7 +74,24 @@ struct HouseShellView: View {
         // A window closed with the screen enlarged opens small again.
         .onDisappear { team.dismissEnlargedScreen() }
         .sheet(isPresented: $team.isCreatingWorker) {
-            NewWorkerSheet(team: team)
+            HouseNewWorkerSheet(
+                house      : house,
+                connections: { team.connections.states },
+                catalogue  : { provider in
+                    (try? await team.connections.loadCatalogue(for: provider)) ?? []
+                }
+            ) { request in
+                Task {
+                    await team.createWorker(
+                        name        : request.name,
+                        role        : request.role,
+                        instructions: request.instructions,
+                        appearance  : NewWorkerSheet.startingAppearance(),
+                        selection   : request.selection,
+                        shape       : request.shape
+                    )
+                }
+            }
         }
         .sheet(isPresented: $team.isShowingConnections) {
             ConnectionsSheet(connections: team.connections)

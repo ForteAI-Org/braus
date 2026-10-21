@@ -19,14 +19,26 @@ import SwiftUI
 /// connection's state, and the model: the first ready provider and the model it comes with are
 /// chosen already, so a name and Return make a worker.
 ///
-/// The connections and the models are the mockup's, fixed; nothing is checked or listed. Create
-/// adds the worker to `house` with its name, role and shape, whose room fades in
-/// (`HouseLayout.arrival`), and hands its id to `created`. The house keeps no instructions or
-/// provider yet, so those go no further.
+/// The sheet owns no data: `connections` tells each provider's state, `catalogue` lists a
+/// provider's models, and `create` makes the worker from what was chosen, whose room then fades in
+/// (`HouseLayout.arrival`). The mockup passes fixed ones, the live house the team's own. `house`
+/// only suggests the first shape.
 struct HouseNewWorkerSheet: View {
-    @Binding var house: MockHouse
 
-    let created: (HouseWorker.ID) -> Void
+    /// What Create hands over: the details as typed (trimmed, empty ones nil) and the chosen shape and
+    /// model, nil when no model could be chosen.
+    struct Request {
+        let name        : String
+        let role        : String?
+        let instructions: String?
+        let shape       : WorkerShape
+        let selection   : ModelSelection?
+    }
+
+    let house      : MockHouse
+    let connections: () -> [ModelProvider: ConnectionState]
+    let catalogue  : (ModelProvider) async -> [ModelInfo]
+    let create     : (Request) -> Void
 
     @Environment(\.dismiss)
     private var dismiss
@@ -34,29 +46,27 @@ struct HouseNewWorkerSheet: View {
     @State private var name         = ""
     @State private var role         = ""
     @State private var instructions = ""
-    @State private var provider     = ModelProvider.preselected(in: Self.connections)
-    @State private var shape: WorkerShape
-    @State private var model: String?
+    @State private var provider     : ModelProvider?
+    @State private var shape        : WorkerShape
+
+    /// The chosen provider's models, nil while they are being listed.
+    @State private var models: [ModelInfo]?
+    @State private var model : String?
 
     @FocusState private var namesFirst: Bool
 
-    /// The mockup's connections, as its inspector tells them: three ready, one to set up, one missing.
-    private static let connections: [ModelProvider: ConnectionState] = [
-        .codex     : .ready,
-        .claudeCode: .ready,
-        .anthropic : .ready,
-        .gemini    : .credentialMissing,
-        .ollama    : .notInstalled,
-    ]
-
     init(
-        house  : Binding<MockHouse>,
-        created: @escaping (HouseWorker.ID) -> Void
+        house      : MockHouse,
+        connections: @escaping () -> [ModelProvider: ConnectionState],
+        catalogue  : @escaping (ModelProvider) async -> [ModelInfo],
+        create     : @escaping (Request) -> Void
     ) {
-        _house       = house
-        self.created = created
-        _shape       = State(initialValue: house.wrappedValue.suggestedShape(seed: .random(in: 0...UInt64.max)))
-        _model       = State(initialValue: Self.models(of: .preselected(in: Self.connections)).first)
+        self.house       = house
+        self.connections = connections
+        self.catalogue   = catalogue
+        self.create      = create
+        _provider        = State(initialValue: .preselected(in: connections()))
+        _shape           = State(initialValue: house.suggestedShape(seed: .random(in: 0...UInt64.max)))
     }
 
     var body: some View {
@@ -120,7 +130,7 @@ struct HouseNewWorkerSheet: View {
                         Divider()
 
                         ForEach(ModelProvider.allCases) { provider in
-                            Text(Self.label(of: provider)).tag(Optional(provider))
+                            Text(label(of: provider)).tag(Optional(provider))
                         }
                     }
 
@@ -148,7 +158,7 @@ struct HouseNewWorkerSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Create") { create() }
+                Button("Create") { createWorker() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(trimmedName.isEmpty)
             }
@@ -166,7 +176,7 @@ struct HouseNewWorkerSheet: View {
             height: 570
         )
         .onAppear { namesFirst = true }
-        .onChange(of: provider) { model = Self.models(of: provider).first }
+        .task(id: provider) { await listModels() }
     }
 
     // MARK: Parts
@@ -174,59 +184,87 @@ struct HouseNewWorkerSheet: View {
     /// The chosen provider's models, or a few quiet words when there are none to choose.
     @ViewBuilder
     private var modelRow: some View {
-        let models = Self.models(of: provider)
-        if !models.isEmpty {
+        if provider != nil, let models, !models.isEmpty {
             Picker(
                 "Model",
                 selection: $model
             ) {
-                ForEach(
-                    models,
-                    id: \.self
-                ) { id in
-                    Text(ModelInfo.displayName(for: id)).tag(Optional(id))
+                ForEach(models) { entry in
+                    Text(entry.title).tag(Optional(entry.id))
                 }
             }
         } else {
             LabeledContent("Model") {
-                Text(provider.map(Self.unavailable) ?? "None")
-                    .foregroundStyle(.secondary)
+                if let provider, models == nil {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Loading \(provider.title) models")
+                } else if let provider {
+                    Text(unavailable(provider))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("None")
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
 
-    /// A ready provider's models, the one it comes with first; none for a provider that is not ready.
-    private static func models(of provider: ModelProvider?) -> [String] {
-        guard let provider, connections[provider]?.isReady == true else { return [] }
-        return provider.defaultModels
-    }
-
     /// The provider's name and its connection's state, in the inspector's words.
-    private static func label(of provider: ModelProvider) -> String {
-        "\(provider.title) · \(connections[provider]?.title ?? "Not checked yet")"
+    private func label(of provider: ModelProvider) -> String {
+        "\(provider.title) · \(connections()[provider]?.title ?? "Not checked yet")"
     }
 
     /// Why a provider lists no model, as the app says it: what to do about a missing command line,
     /// else its connection's state.
-    private static func unavailable(_ provider: ModelProvider) -> String {
-        guard let state = connections[provider], !state.isReady else { return "No models available" }
+    private func unavailable(_ provider: ModelProvider) -> String {
+        guard let state = connections()[provider], !state.isReady else { return "No models available" }
 
         return state == .notInstalled ? "Install \(provider.title), then sign in." : state.title
+    }
+
+    /// Lists the chosen provider's models and picks the one it comes with.
+    private func listModels() async {
+        models = nil
+        model  = nil
+        guard let provider else { return }
+
+        let listed = await catalogue(provider)
+        // Another provider was chosen meanwhile, and its own listing replaces this one.
+        guard !Task.isCancelled else { return }
+
+        models = listed
+        model  = provider.startingModel(in: listed)?.id
+    }
+
+    /// The provider and model chosen, at the model's starting effort; nil leaves the worker to configure.
+    private var chosenSelection: ModelSelection? {
+        guard let provider, let entry = models?.first(where: { $0.id == model }) else { return nil }
+
+        return ModelSelection(
+            provider: provider,
+            model   : entry.id,
+            effort  : entry.startingEffort
+        )
     }
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func create() {
-        let name = trimmedName
+    private func createWorker() {
+        let name         = trimmedName
+        let role         = role.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instructions = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
 
         dismiss()
-        created(house.add(
-            name : name,
-            role : role.trimmingCharacters(in: .whitespacesAndNewlines),
-            shape: shape
+        create(Request(
+            name        : name,
+            role        : role.isEmpty ? nil : role,
+            instructions: instructions.isEmpty ? nil : instructions,
+            shape       : shape,
+            selection   : chosenSelection
         ))
     }
 }
