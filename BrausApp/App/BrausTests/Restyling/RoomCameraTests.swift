@@ -62,13 +62,13 @@ struct RoomCameraTests {
         "rt-waiting-triangle-in-260x84": "0f76e5a70bc79f00",
     ]
 
-    @Test("BRAUS_ROOM_CAMERA names the tilted camera, and anything else or nothing keeps the top one")
+    @Test("BRAUS_ROOM_CAMERA names the top camera, and anything else or nothing keeps the tilted one")
     func cameraSwitch() {
-        #expect(RoomCamera(environment: nil) == .top)
+        #expect(RoomCamera(environment: nil) == .tilted)
         #expect(RoomCamera(environment: "top") == .top)
         #expect(RoomCamera(environment: "tilted") == .tilted)
-        #expect(RoomCamera(environment: "Tilted") == .top)
-        #expect(RoomCamera(environment: "") == .top)
+        #expect(RoomCamera(environment: "Top") == .tilted)
+        #expect(RoomCamera(environment: "") == .tilted)
 
         let uniforms = RoomLightUniforms(
             status     : .busy,

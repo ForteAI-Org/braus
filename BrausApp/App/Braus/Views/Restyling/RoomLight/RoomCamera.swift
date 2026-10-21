@@ -20,14 +20,14 @@ import simd
 /// from front to back. Where the composition leans left, as in the rows, the camera stands across
 /// from the worker instead of the middle, still looking through the whole cell, so the worker is seen
 /// head on and the room recedes to the right. The house reads `BRAUS_ROOM_CAMERA` once at launch:
-/// `tilted`, or `top` by default.
+/// `top` for the view from above, or `tilted` by default.
 nonisolated enum RoomCamera: String, Sendable {
     case top
     case tilted
 
-    /// The camera a value of `BRAUS_ROOM_CAMERA` names, the top one for any other value or none.
+    /// The camera a value of `BRAUS_ROOM_CAMERA` names, the tilted one for any other value or none.
     init(environment value: String?) {
-        self = value.flatMap(RoomCamera.init(rawValue:)) ?? .top
+        self = value.flatMap(RoomCamera.init(rawValue:)) ?? .tilted
     }
 
     /// The camera of the house's rooms, read once at launch.
