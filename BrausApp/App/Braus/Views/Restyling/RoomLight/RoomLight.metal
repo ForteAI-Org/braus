@@ -1435,6 +1435,250 @@ kernel void traceTiltedLeaningRoom(texture2d<float, access::write>  base     [[t
     traceTiltedRoomAt<true>(base, light, uniforms, scene, pixel);
 }
 
+// MARK: - Denoised frames
+
+// With MetalFX's denoised upscaler (`RoomDenoiser` in Swift), the tilted room is traced in frames of a
+// few samples per pixel at a reduced size, and the denoiser turns them into the full-size images. Each
+// sample traces the lamp's light with shadow rays to points of its disc, so the body's shadow follows
+// its mesh exactly, its penumbra widening with distance; the walls' and floor's occlusion counts the
+// body too, which gives the contact shadow. The bounce and the reflections on the body are traced as
+// in `traceTiltedRoom`. Every sequence is progressive per pixel, so each sample lands where the earlier
+// ones left gaps, and shifted per pixel, so neighbours share no pattern. A room leaning left has its
+// twin, `traceTiltedLeaningRoomFrame`, darkened toward its right end as `traceTiltedLeaningRoom` is.
+
+// Shadow rays per sample from a floor or wall point to the lamp.
+constant uint burstShadowRays = 2;
+
+/// BurstFrame matches `RoomDenoiser.Frame` in Swift: the transform from scene points to the clip space
+/// of the depth the frame writes, the room's points per traced pixel across and down, the frame's
+/// sub-pixel jitter in traced pixels, its index in the burst, and the samples it averages per pixel.
+struct BurstFrame {
+    float4x4 clip;
+    float2   pointsPerPixel;
+    float2   jitter;
+    uint     index;
+    uint     samples;
+};
+
+/// Guide is what the denoiser reads of a pixel besides its noisy light, noise-free from the scene.
+struct Guide {
+    float3 position;
+    float3 normal;
+    float3 diffuse;    // the diffuse albedo
+    float3 specular;   // the specular albedo
+    float  roughness;
+};
+
+/// Shifts is a pixel's own offsets of the sequences it samples, so neighbours share no pattern.
+struct Shifts {
+    float2 lamp;     // the lamp's points a floor or wall point sees
+    float4 bounce;   // a bounce's direction, and the lamp's point it then sees
+    float4 gloss;    // a reflection's facet, and the lamp's point it then sees
+};
+
+/// The `index`th point of the R2 sequence shifted by `shift`: every run of it from the start covers
+/// the unit square evenly.
+static float2 progressive(float2 shift, uint index) {
+    return fract(shift + float(index) * float2(0.7548776662, 0.5698402910));
+}
+
+/// The `index`th point of the R4 sequence shifted by `shift`, for a sample nested in another: a
+/// bounce or reflection's direction in `xy` and the lamp's point it then sees in `zw`. Two R2 points
+/// of one index would tie the two together, so each pixel would settle on its own error.
+static float4 progressive4(float4 shift, uint index) {
+    return fract(shift + float(index) * float4(0.8566748839, 0.7338918566, 0.6287067210, 0.5385972572));
+}
+
+/// The lamp's light on a floor or wall point from the point of its disc at `sample`, or none when
+/// something stands between them.
+static float lampPointLight(Surface surface, float2 sample, primitive_acceleration_structure scene, Room room) {
+    float3 lampPoint = lampSample(room, sample);
+    if (!sees(surface.position, surface.normal, lampPoint, scene, room)) { return 0; }
+    return lampTerm(surface.position, surface.normal, lampPoint, room);
+}
+
+/// Sample `index` of a floor or wall point of the tilted room: the lamp's light through traced shadow
+/// rays, the ambient light occluded by whatever a traced ray meets nearby, the body included, and one
+/// traced bounce.
+static Images denoisedTiltedRoom(Surface surface, primitive_acceleration_structure scene, Room room, uint index, Shifts shifts) {
+    float direct = 0;
+    for (uint sample = 0; sample < burstShadowRays; sample++) {
+        float2 lampPoint = progressive(shifts.lamp, index * burstShadowRays + sample);
+        direct += lampPointLight(surface, lampPoint, scene, room) / burstShadowRays;
+    }
+    Images images;
+    images.light = surface.albedo * direct * room.light;
+
+    float4 nested = progressive4(shifts.bounce, index);
+    ray    bounce(surface.position + surface.normal * room.side * 1e-3, cosineSample(surface.normal, nested.xy));
+    intersection_result<> hit = makeIntersector().intersect(bounce, scene);
+    bool isOccluded = hit.type != intersection_type::none && hit.distance < occlusionReach * room.side;
+    images.base   = isOccluded ? float3(0) : ambient;
+    images.light *= isOccluded ? 1 - occlusionLightShare : 1;
+
+    Surface other;
+    if (hitRoom(hit, bounce, room, other)) {
+        images.light += surface.albedo * other.albedo * lampPointLight(other, nested.zw, scene, room) * room.light;
+    }
+    float fade = frontFade(surface.position, room);
+    images.base  *= fade;
+    images.light *= fade;
+    return images;
+}
+
+/// Sample `index` of the body at `position`, seen along `direction`, as `tracedTiltedBody` shades it,
+/// with its reflection rays drawn from progressive sequences.
+static Images denoisedTiltedBody(float3 position, float3 direction, primitive_acceleration_structure scene, Room room,
+                                 Camera camera, uint index, Shifts shifts) {
+    BodyPoint point  = { position, bodyNormalAt(position, room) };
+    float3    normal = point.normal;
+    float3    origin = position + normal * room.radius * 1e-3;
+    float2    uv     = tiltedBodyUV(position, room, camera);
+    Images    images = { bodyPaint(uv, room), bodyBounce(uv, room) + lampHighlight(point, -direction, room) };
+
+    for (uint sample = 0; sample < glossRays; sample++) {
+        float4 nested   = progressive4(shifts.gloss, index * glossRays + sample);
+        float3 facet    = facetSample(normal, metalRoughness, nested.xy);
+        float3 mirrored = reflect(direction, facet);
+        if (dot(mirrored, normal) <= 0) { continue; }
+        ray reflection(origin, mirrored);
+        intersection_result<> hit = makeIntersector().intersect(reflection, scene);
+        Surface surface;
+        if (!hitRoom(hit, reflection, room, surface) || isBeforeWindow(surface.position, camera)) { continue; }
+        float3 seen = surface.albedo * lampPointLight(surface, nested.zw, scene, room) * room.light
+                    * frontFade(surface.position, room);
+        images.light += metalFresnel(dot(facet, -direction), room) * seen / glossRays;
+    }
+    return images;
+}
+
+/// The guide of a floor or wall point: its albedo darkened toward the front edge, and toward the right
+/// end when the room `leans`, and no gloss.
+template <bool leans>
+static Guide roomGuide(Surface surface, Room room) {
+    float  keep   = leans ? rightDarkness(surface.position.x, room) : 1;
+    float3 albedo = float3(surface.albedo * frontFade(surface.position, room) * keep);
+    Guide  guide  = { surface.position, surface.normal, albedo, float3(0), 1 };
+    return guide;
+}
+
+/// The guide of a point of the body seen along `direction`: metal, its little diffuse light its paint,
+/// its reflectance the specular albedo, as the denoiser expects of metals.
+static Guide bodyGuide(float3 position, float3 direction, Room room, Camera camera) {
+    float3 normal = bodyNormalAt(position, room);
+    float3 paint  = bodyPaint(tiltedBodyUV(position, room, camera), room);
+    Guide  guide  = { position, normal, paint, metalFresnel(dot(normal, -direction), room), metalRoughness };
+    return guide;
+}
+
+/// Sample `index` of the tilted room at `xy` of the cell, and in `guide` the scene there; a room that
+/// `leans` goes dark toward its right end.
+template <bool leans>
+static Images denoisedSample(float2 xy, constant RoomLightUniforms& uniforms, Room room, Camera camera,
+                             primitive_acceleration_structure scene, uint index, Shifts shifts, thread Guide& guide) {
+    float3 window    = windowPoint(xy, uniforms, camera);
+    float3 direction = normalize(window - camera.eye);
+    // The body first, from the eye, since its top may reach through the window.
+    float   distance = bodyHit(camera.eye, direction, room);
+    float3  position = camera.eye + direction * distance;
+    Surface surface;
+    if (distance <= 0) {
+        ray primary(window, direction);
+        intersection_result<> hit = makeIntersector().intersect(primary, scene);
+        if (hit.type == intersection_type::none) {
+            // Behind the back corners' rounding, which the view's corners clip: the wall there.
+            surface = tiltedSurfaceAt(window, room);
+        } else if (!hitRoom(hit, primary, room, surface)) {
+            distance = hit.distance;
+            position = window + direction * hit.distance;
+        }
+    }
+    if (distance > 0) {
+        guide = bodyGuide(position, direction, room, camera);
+        return denoisedTiltedBody(position, direction, scene, room, camera, index, shifts);
+    }
+    guide = roomGuide<leans>(surface, room);
+    return darkenedRight<leans>(denoisedTiltedRoom(surface, scene, room, index, shifts), surface.position.x, room);
+}
+
+/// One pixel of `traceTiltedRoomFrame`, or of `traceTiltedLeaningRoomFrame` when the room `leans`.
+template <bool leans>
+static void traceTiltedRoomFrameAt(texture2d<float, access::write>  base,
+                                   texture2d<float, access::write>  light,
+                                   texture2d<float, access::write>  depth,
+                                   texture2d<float, access::write>  normals,
+                                   texture2d<float, access::write>  diffuse,
+                                   texture2d<float, access::write>  specular,
+                                   texture2d<float, access::write>  roughness,
+                                   constant RoomLightUniforms&      uniforms,
+                                   primitive_acceleration_structure scene,
+                                   constant BurstFrame&             frame,
+                                   uint2                            pixel)
+{
+    if (pixel.x >= base.get_width() || pixel.y >= base.get_height()) { return; }
+    Room   room   = makeTiltedRoom<leans>(uniforms);
+    Camera camera = makeCamera<leans>(uniforms);
+    uint   seed   = pcg(pixel.x + pcg(pixel.y));
+    Shifts shifts;
+    shifts.lamp   = float2(random(seed), random(seed));
+    shifts.bounce = float4(random(seed), random(seed), random(seed), random(seed));
+    shifts.gloss  = float4(random(seed), random(seed), random(seed), random(seed));
+
+    Guide  guide;
+    Images images = { float3(0), float3(0) };
+    for (uint sample = 0; sample < frame.samples; sample++) {
+        // The first sample at the frame's jittered centre, the others over the pixel, so edges come out smooth.
+        float2 offset = sample == 0 ? float2(0) : progressive(float2(0.5), sample) - 0.5;
+        float2 xy     = (float2(pixel) + 0.5 + frame.jitter + offset) * frame.pointsPerPixel;
+        Guide  seen;
+        Images one    = denoisedSample<leans>(xy, uniforms, room, camera, scene, frame.index * frame.samples + sample, shifts, seen);
+        if (sample == 0) { guide = seen; }
+        images.base  += one.base / frame.samples;
+        images.light += one.light / frame.samples;
+    }
+    float4 clip = frame.clip * float4(guide.position, 1);
+    base.write(float4(images.base, 1), pixel);
+    light.write(float4(images.light, 1), pixel);
+    depth.write(float4(clip.z / clip.w), pixel);
+    normals.write(float4(guide.normal, 0), pixel);
+    diffuse.write(float4(guide.diffuse, 1), pixel);
+    specular.write(float4(guide.specular, 1), pixel);
+    roughness.write(float4(guide.roughness), pixel);
+}
+
+/// One frame of the tilted room at the denoiser's input size: the noisy base and light images, each
+/// pixel's `samples` spread over it, and the guides of the scene at the frame's jittered centre.
+kernel void traceTiltedRoomFrame(texture2d<float, access::write>  base      [[texture(0)]],
+                                 texture2d<float, access::write>  light     [[texture(1)]],
+                                 texture2d<float, access::write>  depth     [[texture(2)]],
+                                 texture2d<float, access::write>  normals   [[texture(3)]],
+                                 texture2d<float, access::write>  diffuse   [[texture(4)]],
+                                 texture2d<float, access::write>  specular  [[texture(5)]],
+                                 texture2d<float, access::write>  roughness [[texture(6)]],
+                                 constant RoomLightUniforms&      uniforms  [[buffer(0)]],
+                                 primitive_acceleration_structure scene     [[buffer(1)]],
+                                 constant BurstFrame&             frame     [[buffer(2)]],
+                                 uint2                            pixel     [[thread_position_in_grid]])
+{
+    traceTiltedRoomFrameAt<false>(base, light, depth, normals, diffuse, specular, roughness, uniforms, scene, frame, pixel);
+}
+
+/// `traceTiltedRoomFrame` for a room leaning left.
+kernel void traceTiltedLeaningRoomFrame(texture2d<float, access::write>  base      [[texture(0)]],
+                                        texture2d<float, access::write>  light     [[texture(1)]],
+                                        texture2d<float, access::write>  depth     [[texture(2)]],
+                                        texture2d<float, access::write>  normals   [[texture(3)]],
+                                        texture2d<float, access::write>  diffuse   [[texture(4)]],
+                                        texture2d<float, access::write>  specular  [[texture(5)]],
+                                        texture2d<float, access::write>  roughness [[texture(6)]],
+                                        constant RoomLightUniforms&      uniforms  [[buffer(0)]],
+                                        primitive_acceleration_structure scene     [[buffer(1)]],
+                                        constant BurstFrame&             frame     [[buffer(2)]],
+                                        uint2                            pixel     [[thread_position_in_grid]])
+{
+    traceTiltedRoomFrameAt<true>(base, light, depth, normals, diffuse, specular, roughness, uniforms, scene, frame, pixel);
+}
+
 // MARK: - Checks
 
 /// The body's normal at each of `points`, room coordinates in points, for the tests: the check that

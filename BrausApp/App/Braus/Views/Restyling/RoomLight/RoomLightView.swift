@@ -42,6 +42,7 @@ final class RoomLightView: MTKView {
     var uniforms: RoomLightUniforms {
         didSet {
             guard uniforms != oldValue else { return }
+            prepareDenoiser()
             requestedRenders += 1
             renderRevision += 1
             hasPendingRender   = true
@@ -64,6 +65,9 @@ final class RoomLightView: MTKView {
 
     /// What the room has submitted to the GPU so far.
     private(set) var renderCounts = RenderCounts()
+
+    /// Counts denoised submissions, so readiness tests can distinguish them from fallback renders.
+    var denoisedFrames: Int { (renderer as? RayTracedRoomRenderer)?.denoisedFrames ?? 0 }
 
     /// RenderCounts counts a room's submissions by kind: live frames drawn while its size or uniforms
     /// change, previews of a settled size, and full renders by its renderer with the pulse baked.
@@ -159,12 +163,19 @@ final class RoomLightView: MTKView {
         uniforms: RoomLightUniforms,
         frame   : CGRect = .zero
     ) {
-        let wanted = LightingPath.choose(
+        let environment = ProcessInfo.processInfo.environment
+        let wanted      = LightingPath.choose(
             for     : device,
-            override: ProcessInfo.processInfo.environment["BRAUS_ROOM_LIGHT"]
+            override: environment["BRAUS_ROOM_LIGHT"]
         )
         // A ray tracer that cannot load falls back to the precomputed light.
-        let tracer: RayTracedRoomRenderer? = wanted == .rayTraced ? RayTracedRoomRenderer(device: device) : nil
+        let tracer: RayTracedRoomRenderer? = wanted == .rayTraced ? RayTracedRoomRenderer(
+            device  : device,
+            denoises: RayTracedRoomRenderer.denoises(
+                for     : device,
+                override: environment["BRAUS_ROOM_DENOISE"]
+            )
+        ) : nil
         let precomputed = tracer == nil ? PrecomputedRoomRenderer(device: device) : nil
         renderer        = tracer ?? precomputed
         previewRenderer = tracer != nil ? PrecomputedRoomRenderer(device: device) : nil
@@ -189,6 +200,11 @@ final class RoomLightView: MTKView {
         refineLayer.isHidden        = true
         refineLayer.contentsGravity = .resize
         layer?.addSublayer(refineLayer)
+        tracer?.denoiserDidBecomeReady = { [weak self] in
+            guard let self, self.window != nil else { return }
+            self.hasPendingRender = true
+            self.enqueueRenderIfReady()
+        }
     }
 
     required init(coder: NSCoder) { fatalError("RoomLightView is code-only") }
@@ -216,6 +232,7 @@ final class RoomLightView: MTKView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
+            (renderer as? RayTracedRoomRenderer)?.releaseDenoiser()
             RoomRenderQueue.shared.remove(self)
             settleTask?.cancel()
             settleTask      = nil
@@ -241,12 +258,22 @@ final class RoomLightView: MTKView {
         guard size != renderSize || pixelSize != renderPixelSize else { return }
         renderSize      = size
         renderPixelSize = pixelSize
+        prepareDenoiser()
         needsRefinement = false
         isResizing      = true
         needsLiveFrame  = true
         hideRefinement()
         scheduleSettle(after: Self.resizeDelay)
         RoomRenderQueue.shared.live(self)
+    }
+
+    /// Starts background preparation from layout, without waiting for the first full render.
+    private func prepareDenoiser() {
+        guard let renderPixelSize else { return }
+        (renderer as? RayTracedRoomRenderer)?.prepareDenoiser(
+            pixelSize: renderPixelSize,
+            camera   : uniforms.camera
+        )
     }
 
     /// Waits `delay` for the size or the uniforms to settle, then previews and refines the room, or
@@ -485,15 +512,17 @@ final class RoomLightView: MTKView {
             let renderer,
             let metalLayer = layer as? CAMetalLayer
         else { return }
+        // Both axes cover the same room geometry; contentsRect scales the bucket to the view.
+        let outputSize = (renderer as? RayTracedRoomRenderer)?.denoisedPixelSize ?? pixelSize
         // MTKView's own drawableSize reaches the layer later, so its next drawable would keep the old size.
-        metalLayer.drawableSize = pixelSize
+        metalLayer.drawableSize = outputSize
         guard
             let drawable      = metalLayer.nextDrawable(),
-            Self.drawable(drawable, fits: pixelSize),
+            Self.drawable(drawable, fits: outputSize),
             let commandBuffer = renderer.commandQueue.makeCommandBuffer()
         else { return }
         let refines      = needsRefinement && previewImage != nil && size == lastRenderedSize
-        let resizesImage = size != lastRenderedSize || pixelSize != lastRenderedPixelSize || drawableWidthShare != 1
+        let resizesImage = size != lastRenderedSize || outputSize != lastRenderedPixelSize || drawableWidthShare != 1
         hasPendingRender      = false
         hasPendingUniforms    = false
         needsRefinement       = false
@@ -505,25 +534,36 @@ final class RoomLightView: MTKView {
         )
         let frames = weights.compactMap { _ in Self.frameTexture(like: drawable.texture) }
         let pulse  = frames.count == weights.count ? Array(zip(frames, weights)) : []
+        let keepsFallback = (renderer as? RayTracedRoomRenderer).map {
+            $0.denoises && uniforms.camera == .tilted && $0.denoisedPixelSize == nil
+        } ?? false
+        let fallback = keepsFallback ? Self.frameTexture(like: drawable.texture) : nil
         renderer.encode(
             uniforms,
             size         : size,
-            into         : [(drawable.texture, 1)] + pulse.map { (texture: $0.0, weight: $0.1) },
+            into         : [(drawable.texture, 1)] + pulse.map { (texture: $0.0, weight: $0.1) }
+                + (fallback.map { [(texture: $0, weight: Float(1))] } ?? []),
             commandBuffer: commandBuffer
         )
         // A managed frame reaches the CPU only once the GPU's copy is synchronised.
-        if frames.contains(where: { $0.storageMode == .managed }),
+        let readbacks = frames + (fallback.map { [$0] } ?? [])
+        if readbacks.contains(where: { $0.storageMode == .managed }),
            let blit = commandBuffer.makeBlitCommandEncoder() {
-            for frame in frames {
+            for frame in readbacks {
                 blit.synchronize(resource: frame)
             }
             blit.endEncoding()
         }
-        let render      = renderRevision
-        let status      = uniforms.status
-        let pulseFrames = pulse.map(\.0)
+        let render        = renderRevision
+        let status        = uniforms.status
+        let pulseFrames   = pulse.map(\.0) + (fallback.map { [$0] } ?? [])
+        let pulseCount    = pulse.count
+        let hasFallback   = fallback != nil
+        let readbackCount = pulseFrames.count
         commandBuffer.addCompletedHandler { @Sendable [weak self] buffer in
-            let images = buffer.status == .completed ? pulseFrames.compactMap(Self.image(from:)) : []
+            let readImages = buffer.status == .completed ? pulseFrames.compactMap(Self.image(from:)) : []
+            let images = Array(readImages.prefix(pulseCount))
+            let fallbackImage = hasFallback && readImages.count == readbackCount ? readImages.last : nil
             Task { @MainActor in
                 defer { RoomRenderQueue.shared.didFinishRender() }
                 guard let self else { return }
@@ -536,6 +576,10 @@ final class RoomLightView: MTKView {
                     )
                 }
                 if refines, render == self.renderRevision { self.fadeOutRefinement() }
+                if render == self.renderRevision, let fallbackImage {
+                    self.previewImage = fallbackImage
+                    self.needsRefinement = true
+                }
                 self.continueAfterRender()
             }
         }
@@ -556,7 +600,7 @@ final class RoomLightView: MTKView {
         }
         if resizesImage { drawable.present() }
         lastRenderedSize      = size
-        lastRenderedPixelSize = pixelSize
+        lastRenderedPixelSize = outputSize
         lastRenderedLean      = uniforms.lean
         drawableWidthShare    = 1
         stopPulse()

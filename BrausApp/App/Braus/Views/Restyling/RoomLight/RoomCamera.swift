@@ -170,6 +170,38 @@ nonisolated enum RoomCamera: String, Sendable {
             focal / max(focal - simd_dot(point - centre, normal), 1e-9)
         }
 
+        /// The scene as the eye sees it, in points: x to the right, y up the window and z from the eye
+        /// toward the window, which stands `focal` away. The eye stands across from the worker.
+        var worldToView: simd_float4x4 {
+            var eye = centre + focal * normal
+            eye.x   = bodyX
+            func row(_ axis: SIMD3<Double>) -> SIMD4<Float> {
+                SIMD4(
+                    SIMD3<Float>(axis),
+                    Float(-simd_dot(axis, eye))
+                )
+            }
+            return simd_float4x4(rows: [
+                row(SIMD3(1, 0, 0)),
+                row(up),
+                row(-normal),
+                SIMD4(0, 0, 0, 1),
+            ])
+        }
+
+        /// The view projected onto the window, x and y from -1 to 1 across it with y up, and the depth
+        /// reversed and unbounded: 1 at `near` points from the eye, nearing 0 far away. Off the window's
+        /// middle, as in a room leaning left, the eye sees the window shifted across.
+        func viewToClip(near: Float) -> simd_float4x4 {
+            let shift = 2 * bodyX / Double(size.width) - 1
+            return simd_float4x4(rows: [
+                SIMD4(Float(2 * focal / Double(size.width)), 0, Float(shift), 0),
+                SIMD4(0, Float(2 * focal / Double(size.height)), 0, 0),
+                SIMD4(0, 0, 0, near),
+                SIMD4(0, 0, 1, 0),
+            ])
+        }
+
         /// The brows of `shape` as this camera sees them: on the standing body's front face,
         /// `RoomCamera.browLift` of the face's width above its middle, projected, and stretched as the
         /// projection stretches the face there, across and upward.
