@@ -206,7 +206,7 @@ struct HouseShellView: View {
     @ViewBuilder
     private var detail: some View {
         if let worker = team.selectedWorker {
-            WorkerConversationView(
+            HouseLiveConversation(
                 team        : team,
                 worker      : worker,
                 focusRequest: composerFocus
