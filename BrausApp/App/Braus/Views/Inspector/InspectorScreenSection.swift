@@ -14,14 +14,21 @@ struct InspectorScreenSection: View {
     let team  : TeamModel
     let worker: WorkerSnapshot
 
+    /// The gap held after the section; the app's inspector has none, the house passes its own.
+    var footerGap: CGFloat = 0
+
     var body: some View {
         if team.hasScreen(worker.id), !team.showsScreenInConversation {
-            Section("Screen") {
+            Section {
                 WorkerScreenCard(
                     team  : team,
                     worker: worker,
                     place : .inspector
                 )
+            } header: {
+                Text("Screen")
+            } footer: {
+                if footerGap > 0 { HouseSectionGap(height: footerGap) }
             }
         }
     }

@@ -13,8 +13,13 @@ struct InspectorNowSection: View {
     let team  : TeamModel
     let worker: WorkerSnapshot
 
+    /// Vertical padding added to each row, and the gap held after the section; the app's inspector
+    /// keeps the system's own, the house passes its own.
+    var rowPadding: CGFloat = 0
+    var footerGap : CGFloat = 0
+
     var body: some View {
-        Section("Now") {
+        Section {
             LabeledContent("Status") {
                 if team.isAnswering(worker.id) {
                     StatusText(
@@ -28,8 +33,14 @@ struct InspectorNowSection: View {
                     )
                 }
             }
+            .padding(.vertical, rowPadding)
 
             LabeledContent("Computer") { computer }
+                .padding(.vertical, rowPadding)
+        } header: {
+            Text("Now")
+        } footer: {
+            if footerGap > 0 { HouseSectionGap(height: footerGap) }
         }
     }
 

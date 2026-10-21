@@ -36,6 +36,14 @@ struct HouseLiveInspectorTests {
         #expect(form.contains("Form<"))
     }
 
+    @Test("The live inspector gives its sections the house's row padding and section gap")
+    func spacing() {
+        #expect(HouseLiveInspector.Content.rowPadding == InspectorRowSpacing.vertical)
+        #expect(HouseLiveInspector.Content.footerGap == HouseSectionGap.height)
+        #expect(HouseLiveInspector.Content.rowPadding > 0)
+        #expect(HouseLiveInspector.Content.footerGap > 0)
+    }
+
     @Test("A name is trimmed, a blank one brings the stored name back and an unchanged one commits nothing")
     func name() {
         let edited = HouseWorkerSection.takingName(

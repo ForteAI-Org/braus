@@ -20,6 +20,11 @@ struct InspectorBrowserSection: View {
     let team  : TeamModel
     let worker: WorkerSnapshot
 
+    /// Vertical padding added to each row, and the gap held after the section; the app's inspector
+    /// keeps the system's own, the house passes its own.
+    var rowPadding: CGFloat = 0
+    var footerGap : CGFloat = 0
+
     var body: some View {
         if team.composesWeb, let conversation = team.conversation, conversation.participantIDs.contains(worker.id) {
             let profile  = team.chromeProfile(in: conversation.id)
@@ -48,6 +53,7 @@ struct InspectorBrowserSection: View {
                     }
                 }
                 .disabled(paired.isEmpty && profile == nil)
+                .padding(.vertical, rowPadding)
                 Toggle(
                     "Use My Chrome",
                     isOn: Binding(
@@ -56,6 +62,7 @@ struct InspectorBrowserSection: View {
                     )
                 )
                 .disabled(profile != nil)
+                .padding(.vertical, rowPadding)
                 Toggle(
                     "Show Chrome Window",
                     isOn: Binding(
@@ -64,15 +71,19 @@ struct InspectorBrowserSection: View {
                     )
                 )
                 .disabled(personal || profile != nil)
+                .padding(.vertical, rowPadding)
             } header: {
                 Text("Web")
             } footer: {
                 if let profile {
                     Text("Braus opens its pages in a tab of your Chrome profile “\(profile.label)”, paired through the Braus extension, signed in as that profile, and closes only the tabs it opened. If that Chrome is closed, the extension is off or you revoke the pairing, Braus stops and asks rather than using another profile or browser. Workers are told to ask you before they post, send, buy or delete anything as you. A change applies the next time Braus opens a page.")
+                        .padding(.bottom, footerGap)
                 } else if personal {
                     Text("Braus opens its pages in a new window of your own Chrome, signed in as you, and closes only the tabs it opened. Keep Chrome open with remote debugging on (chrome://inspect/#remote-debugging); Chrome asks you to allow each connection. Workers are told to ask you before they post, send, buy or delete anything as you. A change applies the next time Braus opens a page.")
+                        .padding(.bottom, footerGap)
                 } else {
                     Text("Braus drives pages in its own Chrome, never yours, with a profile of its own that Braus keeps between sessions and never shares with your Chrome. Show its window to sign in to a site yourself, turn on Use My Chrome, or choose a Chrome profile you paired through the Braus extension to use your own sign-ins. Shown or hidden, it does not take your focus. A change applies the next time Braus opens a page.")
+                        .padding(.bottom, footerGap)
                 }
             }
         }
