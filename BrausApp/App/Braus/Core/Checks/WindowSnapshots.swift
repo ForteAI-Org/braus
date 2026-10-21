@@ -54,6 +54,8 @@ enum WindowSnapshots {
                 contextTokens: 142_318
             )
             let output = try directory()
+            // The old shell's pictures, whatever the suite held from an earlier run.
+            appStorage?.set(false, forKey: AppPreferences.newLook)
 
             // Codex's catalogue as the composer's popup lists it, without running the command line.
             team.connections.recordCatalogue(
@@ -508,6 +510,7 @@ enum WindowSnapshots {
 
             try await writeReply(to: output)
             try await writeSlashCommands(to: output)
+            try await writeHouse(from: team, in: store, to: output)
         } catch {
             FileHandle.standardError.write(Data("snapshots failed: \(error)\n".utf8))
             status = 1
