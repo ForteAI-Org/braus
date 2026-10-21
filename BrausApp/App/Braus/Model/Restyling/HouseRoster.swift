@@ -18,14 +18,14 @@ import ModelTransports
 enum HouseRoster {
 
     /// The team's active workers as the house shows them. `showsUnreadCount` is the sidebar's setting
-    /// (`AppPreferences.sidebarShowsUnreadCount`); `awaitingApproval` names the workers an adapter call
-    /// waits on the person for.
+    /// (`AppPreferences.sidebarShowsUnreadCount`). A worker an adapter call waits on the person for
+    /// (`TeamModel.awaitingApproval`) is waiting.
     static func workers(
         of team         : TeamModel,
-        showsUnreadCount: Bool      = true,
-        awaitingApproval: Set<UUID> = []
+        showsUnreadCount: Bool = true
     ) -> [HouseWorker] {
-        team.rows.map { row in
+        let awaitingApproval = team.awaitingApproval
+        return team.rows.map { row in
             worker(
                 row,
                 provider          : row.worker.configuration.flatMap { team.connections.states[$0.provider] },

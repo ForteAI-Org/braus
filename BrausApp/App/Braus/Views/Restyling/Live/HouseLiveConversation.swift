@@ -14,9 +14,9 @@ import SwiftUI
 /// over the transcript's foot in the new look's chrome (`ConversationComposer`, `ComposerBar.Chrome`).
 ///
 /// The hero reads the team: its light is the worker's status as the house's rooms show it
-/// (`HouseRoster`), its subtitle what the worker is doing (the desktop's activity, or "Working") or
-/// its role; it listens while the person writes to it between turns, and sets about a message each
-/// time a turn starts. Another worker hops out of the capsule in its place. The transcript and the
+/// (`HouseRoster`), its subtitle what the worker is doing (its running tool step, the desktop's
+/// activity, or "Working") or its role; it listens while the person writes to it between turns, sets
+/// about a message each time a turn starts and acts the turn out with its body (`action`). Another worker hops out of the capsule in its place. The transcript and the
 /// composer keep every behaviour of today's conversation: windows of history, reading position,
 /// replies, the queue, slash commands, the model popup, Stop and Release.
 struct HouseLiveConversation: View {
@@ -44,6 +44,10 @@ struct HouseLiveConversation: View {
     /// Moves each time a turn starts, which the hero plays as the worker setting about the message.
     @State private var preparation = 0
 
+    /// The hero's beats a turn's rows cannot hold: reading the message just sent, the reply landing.
+    @State private var isReading = false
+    @State private var isLanding = false
+
     var body: some View {
         let house       = houseWorker
         let isAnswering = team.isAnswering(worker.id)
@@ -56,11 +60,37 @@ struct HouseLiveConversation: View {
                     isAnswering: isAnswering,
                     draft      : team.draft
                 ),
-                activity   : house.subtitle,
-                preparation: preparation
+                activity   : (isAnswering ? transcript?.runningStep : nil) ?? house.subtitle,
+                preparation: preparation,
+                action     : Self.action(
+                    isAnswering: isAnswering,
+                    isReading  : isReading,
+                    isLanding  : isLanding,
+                    turn       : transcript?.runningTurn
+                ),
+                kind       : house.role
             )
             .onChange(of: isAnswering) { was, now in
-                if now, !was { preparation += 1 }
+                if now, !was {
+                    preparation += 1
+                    isReading    = true
+                }
+            }
+            .onChange(of: transcript?.runningTurn) { was, now in
+                // The turn ended in this conversation with its answer last: the reply lands.
+                if was != nil, now == nil, case .workerReply(_, false)? = transcript?.rows.last?.item.kind {
+                    isLanding = true
+                }
+            }
+            .task(id: isReading) {
+                guard isReading else { return }
+                try? await Task.sleep(for: .seconds(WorkerAction.reading.duration))
+                isReading = false
+            }
+            .task(id: isLanding) {
+                guard isLanding else { return }
+                try? await Task.sleep(for: .seconds(WorkerAction.replying.duration))
+                isLanding = false
             }
             // Each worker hops out of the capsule as it arrives, its edge of `isAnswering` its own.
             .id(worker.id)
@@ -100,6 +130,23 @@ struct HouseLiveConversation: View {
         guard !isAnswering, !draft.allSatisfy(\.isWhitespace) else { return BrowState(status) }
 
         return .listening
+    }
+
+    /// What the hero's body does through a real turn, as the mockup's (`MockConversation.action`): the
+    /// reply landing, for one loop after the turn ends with it; otherwise, while the worker answers,
+    /// replying once its answer has arrived, working once its tools have a step, reading the message
+    /// just sent, then thinking until something comes. Nil outside a turn.
+    static func action(
+        isAnswering: Bool,
+        isReading  : Bool,
+        isLanding  : Bool,
+        turn       : RunningTurn?
+    ) -> WorkerAction? {
+        if isLanding { return .replying }
+        guard isAnswering else { return nil }
+        if turn?.hasReplied == true { return .replying }
+        if turn?.step != nil { return .working }
+        return isReading ? .reading : .thinking
     }
 
     /// The worker as the house's rooms show it; an archived one, which has no room, as its own row.

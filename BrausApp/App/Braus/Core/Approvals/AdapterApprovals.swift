@@ -39,6 +39,10 @@ final class AdapterApprovals {
     /// When the first request became the one shown; nil while none waits.
     private(set) var shownAt: ContinuousClock.Instant?
 
+    /// The scopes (`ApprovalScope.current`) a request waits in: the conversations whose worker waits on the
+    /// person. Observed through `pending`, which every change of the scopes goes with.
+    var waitingScopes: Set<UUID> { Set(pending.compactMap { scopes[$0.id] }) }
+
     @ObservationIgnored
     private var answers: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
