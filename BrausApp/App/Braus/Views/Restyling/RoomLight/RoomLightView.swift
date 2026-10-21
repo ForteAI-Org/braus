@@ -736,6 +736,33 @@ final class RoomLightView: MTKView {
         return animation
     }
 
+    /// An animation of `keyPath` through `value` at each of the pulse's weights for `status`, looping
+    /// on its cycle and phased to the host clock in `layer`'s time, so whatever plays it pulses in step
+    /// with the room's light; nil when the light holds still or under Reduce Motion.
+    static func pulseFollowing(
+        _ keyPath: String,
+        for status: WorkerStatus,
+        in layer  : CALayer,
+        value     : (Float) -> Any
+    ) -> CAKeyframeAnimation? {
+        let weights = pulseWeights(
+            for          : status,
+            reducesMotion: RestylingMotion.reducesMotion
+        )
+        guard
+            let first = weights.first,
+            let cycle = pulseCycle(for: status)
+        else { return nil }
+        let pulse = CAKeyframeAnimation(keyPath: keyPath)
+        pulse.values          = (weights + [first]).map(value)
+        pulse.keyTimes        = (0...weights.count).map { NSNumber(value: Double($0) / Double(weights.count)) }
+        pulse.calculationMode = .linear
+        pulse.duration        = cycle
+        pulse.repeatCount     = .infinity
+        pulse.beginTime       = pulseBeginTime(in: layer)
+        return pulse
+    }
+
     /// The length of one pulse cycle for `status`, or nil when its light holds still.
     static func pulseCycle(for status: WorkerStatus) -> Double? {
         switch status {

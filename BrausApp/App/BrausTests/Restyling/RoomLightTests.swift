@@ -511,6 +511,107 @@ struct RoomLightTests {
         }
     }
 
+    @Test("A room set into the column spills its light's colour, and nothing when the worker is off")
+    func openingSpillColor() throws {
+        let device  = try #require(MTLCreateSystemDefaultDevice())
+        let opening = RoomOpeningView(
+            device  : device,
+            uniforms: room(.busy)
+        )
+        let sRGB = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        for status in [WorkerStatus.busy, .free, .waiting] {
+            opening.uniforms = room(status)
+            let light = try #require(status.light)
+            let color = try #require(opening.glow.shadowColor?.converted(
+                to     : sRGB,
+                intent : .defaultIntent,
+                options: nil
+            )?.components)
+            #expect(abs(color[0] - light.red) < 1e-6 && abs(color[1] - light.green) < 1e-6, "\(status)")
+            #expect(abs(color[2] - light.blue) < 1e-6, "\(status)")
+            #expect(!opening.glow.isHidden && opening.glow.shadowOpacity > 0 && !opening.sill.isHidden, "\(status)")
+        }
+        opening.uniforms = room(.off)
+        #expect(opening.glow.isHidden && opening.glow.shadowOpacity == 0 && opening.sill.isHidden)
+        #expect(RoomOpeningView.spillColor(for: .off) == nil)
+    }
+
+    @Test("The spill and the sill pulse on the room's own cycle and phase, and hold still under Reduce Motion")
+    func openingSpillPulse() throws {
+        defer { RestylingMotion.overrideReducesMotion = nil }
+        RestylingMotion.overrideReducesMotion = false
+        let device  = try #require(MTLCreateSystemDefaultDevice())
+        let window  = Self.window()
+        defer { window.close() }
+        let opening = RoomOpeningView(
+            device  : device,
+            uniforms: room(.waiting)
+        )
+        window.contentView?.addSubview(opening)
+        let spill   = try #require(opening.glow.animation(forKey: RoomOpeningView.pulseKey) as? CAKeyframeAnimation)
+        let sill    = try #require(opening.sill.animation(forKey: RoomOpeningView.pulseKey) as? CAKeyframeAnimation)
+        let weights = RoomLightView.pulseWeights(
+            for          : .waiting,
+            reducesMotion: false
+        )
+        let base    = RoomOpeningView.spillOpacity * Float(WorkerStatus.waiting.lightStrength)
+        for pulse in [spill, sill] {
+            #expect(pulse.duration == RoomLightView.pulseCycle(for: .waiting))
+            #expect(pulse.repeatCount == .infinity)
+            #expect(pulse.keyTimes?.count == weights.count + 1)
+        }
+        #expect(spill.beginTime == RoomLightView.pulseBeginTime(in: opening.glow))
+        #expect(sill.beginTime == RoomLightView.pulseBeginTime(in: opening.sill))
+        let values = (spill.values as? [NSNumber])?.map(\.floatValue)
+        #expect(values == (weights + [weights[0]]).map { base * $0 })
+
+        // A light that holds still, and any light under Reduce Motion, does not pulse.
+        opening.uniforms = room(.free)
+        #expect(opening.glow.animation(forKey: RoomOpeningView.pulseKey) == nil)
+        RestylingMotion.overrideReducesMotion = true
+        opening.uniforms = room(.busy)
+        #expect(opening.glow.animation(forKey: RoomOpeningView.pulseKey) == nil)
+        #expect(opening.sill.animation(forKey: RoomOpeningView.pulseKey) == nil)
+    }
+
+    @Test("A row leaning left spills nothing on its right, where its room is black, and a centred room spills all round")
+    func openingSpillFollowsTheLean() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size   = CGSize(
+            width : 260,
+            height: HouseLayout.rowHeight
+        )
+        for lean: Float in [0, 1] {
+            var uniforms = room(.busy)
+            uniforms.lean = lean
+            let opening = RoomOpeningView(
+                device  : device,
+                uniforms: uniforms
+            )
+            opening.frame = CGRect(
+                origin: .zero,
+                size  : size
+            )
+            opening.layout()
+            let reach  = RoomOpeningView.spillReach
+            let alphas = (opening.spillMask.colors as? [CGColor])?.map(\.alpha) ?? []
+            let sill   = (opening.sill.colors as? [CGColor])?.map(\.alpha) ?? []
+            let ends   = (opening.spillMask.locations ?? []).map { CGFloat($0.doubleValue) * (size.width + 2 * reach) - reach }
+            if lean == 0 {
+                #expect(alphas.allSatisfy { $0 == 1 })
+                #expect(Set(sill).count == 1)
+            } else {
+                // Gone past the right's dark range, which ends inside the room, short of its right edge.
+                #expect(alphas.last == 0 && sill.last == 0)
+                let body = RoomLightUniforms.Shape.bodyX(
+                    in  : size,
+                    lean: 1
+                )
+                #expect(ends.count == 3 && ends[1] > body && ends[2] < size.width - 40, "\(ends)")
+            }
+        }
+    }
+
     @Test("The precomputed path renders without hardware ray tracing")
     func precomputed() throws {
         let device   = try #require(MTLCreateSystemDefaultDevice())

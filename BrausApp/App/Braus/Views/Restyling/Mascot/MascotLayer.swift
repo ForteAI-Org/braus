@@ -507,22 +507,13 @@ nonisolated final class MascotLayer: CALayer {
                 copy.isHidden = false
             }
         }
-        let weights = RoomLightView.pulseWeights(
-            for          : status,
-            reducesMotion: RestylingMotion.reducesMotion
-        )
-        guard
-            let first = weights.first,
-            let cycle = RoomLightView.pulseCycle(for: status)
-        else { return }
         for (layer, share) in layers {
-            let pulse = CAKeyframeAnimation(keyPath: "fillColor")
-            pulse.values          = (weights + [first]).map { fill($0, share: share) }
-            pulse.keyTimes        = (0...weights.count).map { NSNumber(value: Double($0) / Double(weights.count)) }
-            pulse.calculationMode = .linear
-            pulse.duration        = cycle
-            pulse.repeatCount     = .infinity
-            pulse.beginTime       = RoomLightView.pulseBeginTime(in: layer)
+            guard let pulse = RoomLightView.pulseFollowing(
+                "fillColor",
+                for  : status,
+                in   : layer,
+                value: { fill($0, share: share) }
+            ) else { return }
             layer.add(
                 pulse,
                 forKey: Self.roomLightKey

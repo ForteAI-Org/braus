@@ -108,6 +108,12 @@ nonisolated struct RoomLightUniforms: Equatable {
         /// share of the room's short side.
         static let leftInset: Float = 0.5
 
+        /// Where a room leaning left goes dark, in short sides right of the worker: its light and
+        /// ambient fade over this range and are gone past it, and so does the light it spills.
+        /// RoomLight.metal's `darkFrom` and `darkTo` hold the same range; the floor plan's kernels
+        /// compile exactly as before only while the shader keeps it as constants.
+        static let rightDark: ClosedRange<Float> = 1.0...2.3
+
         /// How high the walls rise from the floor.
         let wallHeight: Float
 

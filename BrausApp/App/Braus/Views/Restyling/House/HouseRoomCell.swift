@@ -9,7 +9,8 @@ import MetalKit
 import SwiftUI
 
 /// HouseRoomCell is one worker's room, on the floor plan and as a row: the room lit by its worker,
-/// the worker's brows over the body the room draws, its name and the badge.
+/// set into the column as an opening (`RoomOpeningView`), the worker's brows over the body the room
+/// draws, its name and the badge.
 ///
 /// On the floor plan and in the compact rows the worker stands at the room's centre, the name under
 /// it and the badge in the top trailing corner. A wide row (`isBeside`) leans the room's composition
@@ -352,8 +353,8 @@ struct HouseRoomCell: View {
         }
     }
 
-    /// RoomLight hosts the room's `RoomLightView`, on the system's default GPU. Without one the room
-    /// stays empty.
+    /// RoomLight hosts the room set into the column (`RoomOpeningView`), lit on the system's default
+    /// GPU. Without one the room stays empty.
     private struct RoomLight: NSViewRepresentable {
         let uniforms: RoomLightUniforms
 
@@ -361,7 +362,7 @@ struct HouseRoomCell: View {
 
         func makeNSView(context: Context) -> NSView {
             guard let device = Self.device else { return NSView() }
-            return RoomLightView(
+            return RoomOpeningView(
                 device  : device,
                 uniforms: uniforms
             )
@@ -371,7 +372,7 @@ struct HouseRoomCell: View {
             _ view : NSView,
             context: Context
         ) {
-            (view as? RoomLightView)?.uniforms = uniforms
+            (view as? RoomOpeningView)?.uniforms = uniforms
         }
     }
 }

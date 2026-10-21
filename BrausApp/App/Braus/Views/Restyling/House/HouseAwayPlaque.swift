@@ -559,24 +559,17 @@ struct HouseAwayPlaque: NSViewRepresentable {
                 sheen.colors            = [color(0), color(0.22), color(0)]
                 plateBody.shadowOpacity = Float(0.4 * strength)
             }
-            let weights = RoomLightView.pulseWeights(
-                for          : status,
-                reducesMotion: RestylingMotion.reducesMotion
-            )
             // Only a hanging plaque pulses; the hidden ones in occupied rooms cost nothing.
             guard
                 isHanging,
                 window != nil,
-                let first = weights.first,
-                let cycle = RoomLightView.pulseCycle(for: status)
+                let pulse = RoomLightView.pulseFollowing(
+                    "opacity",
+                    for  : status,
+                    in   : lightLayer,
+                    value: { NSNumber(value: $0) }
+                )
             else { return }
-            let pulse = CAKeyframeAnimation(keyPath: "opacity")
-            pulse.values          = (weights + [first]).map { NSNumber(value: $0) }
-            pulse.keyTimes        = (0...weights.count).map { NSNumber(value: Double($0) / Double(weights.count)) }
-            pulse.calculationMode = .linear
-            pulse.duration        = cycle
-            pulse.repeatCount     = .infinity
-            pulse.beginTime       = RoomLightView.pulseBeginTime(in: lightLayer)
             lightLayer.add(
                 pulse,
                 forKey: Self.pulseKey
