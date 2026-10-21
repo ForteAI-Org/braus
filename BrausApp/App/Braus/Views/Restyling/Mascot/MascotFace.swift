@@ -26,6 +26,10 @@ struct MascotFace: NSViewRepresentable {
     /// Changing it makes the head prepare once (`MascotLayer.prepare()`); its first value does not.
     var preparation     : Int = 0
 
+    /// The worker's seed (`WorkerBehaviour.seed(for:)`): with one, the brows play the status's
+    /// behaviour (`MascotLayer.behave(seed:)`) and `brows` should be the status's own expression.
+    var behaviourSeed   : UInt64?
+
     func makeNSView(context: Context) -> HostView {
         let view = HostView(frame: CGRect(
             origin: .zero,
@@ -81,6 +85,7 @@ struct MascotFace: NSViewRepresentable {
             animated: animated
         )
         mascot.catchRoomLight(catchesRoomLight)
+        mascot.behave(seed: behaviourSeed)
         if view.preparation != preparation {
             view.preparation = preparation
             if animated { mascot.prepare() }
