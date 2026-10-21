@@ -127,6 +127,9 @@ struct HouseRoomCell: View {
         /// Joins the room's renderer to the brows over the body.
         @State private var bodyLink = RoomBodyLink()
 
+        /// Makes the brows follow the pointer while it is in the room.
+        @State private var gaze = WorkerGaze()
+
         var animatableData: AnimatablePair<Double, Double> {
             get {
                 AnimatablePair(
@@ -175,6 +178,12 @@ struct HouseRoomCell: View {
                     )
                     .allowsHitTesting(false)
 
+                    GazeTracker(
+                        gaze     : gaze,
+                        isEnabled: !isSelected
+                    )
+                    .allowsHitTesting(false)
+
                     // A tilted room keeps the brows while its worker is away, so they can step out with the body.
                     if !isSelected || camera == .tilted {
                         // The room draws the body where its composition stands it, a share of its short side across.
@@ -195,7 +204,8 @@ struct HouseRoomCell: View {
                                 isSelected: isSelected
                             ),
                             bodyLink        : bodyLink,
-                            isAway          : isSelected
+                            isAway          : isSelected,
+                            gaze            : gaze
                         )
                         .offset(x: camera == .top ? bodyX - size.width / 2 : 0)
                     }

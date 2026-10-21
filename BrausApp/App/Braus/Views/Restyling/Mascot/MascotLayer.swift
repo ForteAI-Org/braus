@@ -85,8 +85,8 @@ nonisolated final class MascotLayer: CALayer {
     /// The outline the brows hold: `state`, or `look` while an idle mascot looks to the right.
     private var heldBrows = BrowState.idle
 
-    private var yaw  : Double = 0
-    private var pitch: Double = 0
+    private(set) var yaw  : Double = 0
+    private(set) var pitch: Double = 0
 
     /// Which brow leads the next calm change; it alternates, as the prototype's random order varies.
     private var leftLeads = true
@@ -425,27 +425,152 @@ nonisolated final class MascotLayer: CALayer {
                     forKey: key
                 )
             }
-            guard let behaviour else { continue }
-            let loop = behaviour.animations(
-                for    : side,
-                face   : faceSide,
-                stretch: projectedStretch
+            guard let behaviour, !isGazing else { continue }
+            addLoop(
+                behaviour,
+                to   : brow,
+                side : side,
+                start: loopStart
             )
-            for (key, animation) in loop {
-                animation.beginTime = loopStart
-                let layers = key == WorkerBehaviourLoop.pathKey ? outlineLayers(of: brow) : [brow]
-                for layer in layers {
-                    layer.add(
-                        animation,
-                        forKey: key
-                    )
-                }
+        }
+    }
+
+    /// Whether the brows follow the pointer (`gaze(yaw:pitch:)`) and the behaviour loop is paused.
+    private(set) var isGazing = false
+
+    /// Where the brows' centre sits in this layer, y up: the face as the room shows it.
+    var faceCenter: CGPoint {
+        CGPoint(
+            x: bounds.midX + faceAnchor.x,
+            y: bounds.midY + faceAnchor.y
+        )
+    }
+
+    /// The face's anchor from the layer's centre, y up.
+    private var faceAnchor: CGPoint {
+        projectedFace.map { CGPoint(x: $0.anchor.dx, y: -$0.anchor.dy) }
+            ?? CGPoint(x: 0, y: Self.browLift * faceSide)
+    }
+
+    /// Looks at the pointer: `look(yaw:pitch:)`, with the behaviour loop paused while it lasts, each
+    /// brow blending from where the loop had it. Nothing under Reduce Motion or while the worker is away.
+    @MainActor
+    func gaze(
+        yaw  : Double,
+        pitch: Double
+    ) {
+        guard !RestylingMotion.reducesMotion, !isAway else { return }
+        if !isGazing {
+            isGazing = true
+            suspendBehaviour()
+        }
+        look(
+            yaw  : yaw,
+            pitch: pitch
+        )
+    }
+
+    /// Stops looking at the pointer: the brows return to rest and the behaviour loop starts again.
+    @MainActor
+    func endGaze() {
+        guard isGazing else { return }
+        isGazing = false
+        look(
+            yaw  : 0,
+            pitch: 0
+        )
+        if heldBrows != state {
+            heldBrows = state
+            let now = convertTime(CACurrentMediaTime(), from: nil)
+            for (brow, outlines) in [(leftBrow, BrowOutlines.bundled.left), (rightBrow, BrowOutlines.bundled.right)] {
+                morph(
+                    brow,
+                    to      : outlines[state],
+                    duration: Self.lookSeconds,
+                    begin   : now,
+                    animated: !RestylingMotion.reducesMotion
+                )
+            }
+        }
+        guard let behaviour, !RestylingMotion.reducesMotion else { return }
+        let host = CACurrentMediaTime()
+        let start = convertTime(host, from: nil) + Self.lookSeconds
+        behaviourStart      = host + Self.lookSeconds
+        behaviourBuiltScale = behaviourScale
+        for (brow, side) in [(leftBrow, WorkerBehaviourLoop.Side.left), (rightBrow, .right)] {
+            addLoop(
+                behaviour,
+                to   : brow,
+                side : side,
+                start: start
+            )
+        }
+    }
+
+    /// Takes the loop off both brows, each blending from its present offset to nothing.
+    @MainActor
+    private func suspendBehaviour() {
+        let now = convertTime(CACurrentMediaTime(), from: nil)
+        for brow in [leftBrow, rightBrow] {
+            let shown = brow.presentation()
+            let shift = CGPoint(
+                x: (shown?.position.x ?? brow.position.x) - brow.position.x,
+                y: (shown?.position.y ?? brow.position.y) - brow.position.y
+            )
+            let turn = Self.rotation(of: shown ?? brow) - Self.rotation(of: brow)
+            for key in Self.behaviourKeys {
+                brow.removeAnimation(forKey: key)
+            }
+            for layer in outlineLayers(of: brow) {
+                layer.removeAnimation(forKey: WorkerBehaviourLoop.pathKey)
+            }
+            let blends: [(key: String, keyPath: String, from: Any)] = [
+                (Self.blendPositionKey, "position", NSValue(point: shift)),
+                (Self.blendRotationKey, "transform.rotation.z", turn),
+            ]
+            for (key, keyPath, from) in blends {
+                let blend = CABasicAnimation(keyPath: keyPath)
+                blend.fromValue      = from
+                blend.toValue        = keyPath == "position" ? NSValue(point: .zero) : 0.0
+                blend.isAdditive     = true
+                blend.duration       = Self.lookSeconds
+                blend.beginTime      = now
+                blend.timingFunction = Self.morphCurve
+                brow.add(
+                    blend,
+                    forKey: key
+                )
+            }
+        }
+    }
+
+    /// Adds `loop`'s animations for one brow, starting at `start` on this layer's clock.
+    @MainActor
+    private func addLoop(
+        _ loop: WorkerBehaviourLoop,
+        to brow: CAShapeLayer,
+        side   : WorkerBehaviourLoop.Side,
+        start  : CFTimeInterval
+    ) {
+        let animations = loop.animations(
+            for    : side,
+            face   : faceSide,
+            stretch: projectedStretch
+        )
+        for (key, animation) in animations {
+            animation.beginTime = start
+            let layers = key == WorkerBehaviourLoop.pathKey ? outlineLayers(of: brow) : [brow]
+            for layer in layers {
+                layer.add(
+                    animation,
+                    forKey: key
+                )
             }
         }
     }
 
     /// The side of the face the brows sit on, in points: the sphere's, or the shape's inscribed circle.
-    private var faceSide: CGFloat {
+    var faceSide: CGFloat {
         min(bounds.width, bounds.height) * shape.outline.inradius
     }
 
@@ -598,6 +723,11 @@ nonisolated final class MascotLayer: CALayer {
     var isAway = false {
         didSet {
             guard isAway != oldValue else { return }
+            if isAway {
+                // The layer belongs to the main thread, where its didSet runs.
+                nonisolated(unsafe) let layer = self
+                MainActor.assumeIsolated { layer.endGaze() }
+            }
             withoutActions { opacity = isAway ? 0 : 1 }
         }
     }
@@ -797,8 +927,7 @@ nonisolated final class MascotLayer: CALayer {
         let sideWidth = span * 0.455
         let scale     = sideWidth / Self.artboard.width
         let stretch   = (x: projectedFace?.xScale ?? 1, y: projectedFace?.yScale ?? 1)
-        let anchor    = projectedFace.map { CGPoint(x: $0.anchor.dx, y: -$0.anchor.dy) }
-            ?? CGPoint(x: 0, y: Self.browLift * face)
+        let anchor    = faceAnchor
         let centerX   = bounds.midX + anchor.x + stretch.x * sin(yaw * 0.62) * 0.025 * face
         let centerY   = bounds.midY + anchor.y + stretch.y * sin(pitch * 0.30) * 0.17 * face
         for (brow, rest, side) in [(leftBrow, -0.42, -1.0), (rightBrow, 0.42, 1.0)] {

@@ -38,6 +38,9 @@ struct MascotFace: NSViewRepresentable {
     /// with the body, or back in.
     var isAway          = false
 
+    /// The gaze that makes the brows follow the pointer; it looks through this face's host.
+    var gaze            : WorkerGaze?
+
     func makeNSView(context: Context) -> HostView {
         let view = HostView(frame: CGRect(
             origin: .zero,
@@ -86,6 +89,7 @@ struct MascotFace: NSViewRepresentable {
     ) {
         view.sphereSize = size
         let mascot = view.mascot
+        gaze?.host = view
         mascot.shape         = shape
         mascot.status        = status
         mascot.drawsBody     = drawsBody

@@ -13,6 +13,9 @@ struct HouseWorkerRow: View {
     /// The room a trailing badge takes beside a wide card's name.
     private static let badgeRoom: CGFloat = 30
 
+    /// Makes the worker's brows follow the pointer while it is over the card.
+    @State private var gaze = WorkerGaze()
+
     private var badge: MockBadge? { isSelected ? nil : worker.badge }
 
     var body: some View {
@@ -24,7 +27,8 @@ struct HouseWorkerRow: View {
                 shape    : worker.shape,
                 status   : worker.status,
                 seed     : WorkerBehaviour.seed(for: worker.id),
-                showsHalo: true
+                showsHalo: true,
+                gaze     : gaze
             )
             .frame(
                 width : 56,
@@ -91,6 +95,7 @@ struct HouseWorkerRow: View {
                 }
         }
         .contentShape(Rectangle())
+        .background { GazeTracker(gaze: gaze) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(HouseRoomCell.spokenRowLabel(
             for       : worker,
