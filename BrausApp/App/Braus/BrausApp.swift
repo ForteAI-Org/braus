@@ -54,7 +54,9 @@ struct BrausApp: App {
 
         // The team is the front door. It asks for no grant until a worker first opens an app.
         WindowGroup("Braus") {
-            if RestylingMode.isRequested {
+            if BehaviourPreview.isRequested {
+                BehaviourPreview()
+            } else if RestylingMode.isRequested {
                 RestylingWindowView()
             } else {
                 TeamWindowView(

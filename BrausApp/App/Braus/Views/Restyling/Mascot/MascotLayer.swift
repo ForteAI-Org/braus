@@ -329,6 +329,104 @@ nonisolated final class MascotLayer: CALayer {
         CATransaction.commit()
     }
 
+    /// The loop the brows play in the current status, or nil while they hold still.
+    private(set) var behaviour: WorkerBehaviourLoop?
+
+    /// Plays the loop `seed` gives in the current status (`WorkerBehaviour.seed(for:)` gives a
+    /// worker's), or stops the brows' behaviour when `seed` is nil. Call it after `show(_:animated:)`
+    /// and after every change of `status`; an unchanged seed and status keep the loop running.
+    ///
+    /// A new loop blends: each brow goes from where it shows now back to rest in the time and stagger
+    /// of the state change, then the loop starts once the outline's morph is done. Under Reduce Motion
+    /// the brows cut to rest and nothing plays. Outside rooms only: shifts ignore `projectedFace`.
+    @MainActor
+    func behave(seed: UInt64?) {
+        let isUnchanged = seed == nil
+            ? behaviour == nil
+            : behaviour?.seed == seed && behaviour?.status == status
+        guard !isUnchanged else { return }
+        let previous = behaviour
+        behaviour = seed.map { WorkerBehaviour(status).loop(seed: $0) }
+
+        let animates   = !RestylingMotion.reducesMotion
+        let now        = convertTime(CACurrentMediaTime(), from: nil)
+        let face       = min(bounds.width, bounds.height) * shape.outline.inradius
+        let transition = BrowTransition.between(
+            previous?.base ?? state,
+            BrowState(status),
+            leftFirst: leftLeads
+        )
+        let loopStart = now + transition.duration + max(transition.leftDelay, transition.rightDelay)
+        let sides: [(brow: CAShapeLayer, side: WorkerBehaviourLoop.Side, delay: Double)] = [
+            (leftBrow, .left, transition.leftDelay),
+            (rightBrow, .right, transition.rightDelay),
+        ]
+        for (brow, side, delay) in sides {
+            let shown = brow.presentation()
+            let shift = CGPoint(
+                x: (shown?.position.x ?? brow.position.x) - brow.position.x,
+                y: (shown?.position.y ?? brow.position.y) - brow.position.y
+            )
+            let turn = Self.rotation(of: shown ?? brow) - Self.rotation(of: brow)
+            for key in Self.behaviourKeys {
+                brow.removeAnimation(forKey: key)
+            }
+            for layer in outlineLayers(of: brow) {
+                layer.removeAnimation(forKey: WorkerBehaviourLoop.pathKey)
+            }
+            guard animates else { continue }
+
+            let blends: [(key: String, keyPath: String, from: Any)] = [
+                (Self.blendPositionKey, "position", NSValue(point: shift)),
+                (Self.blendRotationKey, "transform.rotation.z", turn),
+            ]
+            for (key, keyPath, from) in blends {
+                let blend = CABasicAnimation(keyPath: keyPath)
+                blend.fromValue      = from
+                blend.toValue        = keyPath == "position" ? NSValue(point: .zero) : 0.0
+                blend.isAdditive     = true
+                blend.duration       = transition.duration
+                blend.beginTime      = now + delay
+                blend.fillMode       = .backwards
+                blend.timingFunction = Self.morphCurve
+                brow.add(
+                    blend,
+                    forKey: key
+                )
+            }
+            guard let behaviour else { continue }
+            let loop = behaviour.animations(
+                for : side,
+                face: face
+            )
+            for (key, animation) in loop {
+                animation.beginTime = loopStart
+                let layers = key == WorkerBehaviourLoop.pathKey ? outlineLayers(of: brow) : [brow]
+                for layer in layers {
+                    layer.add(
+                        animation,
+                        forKey: key
+                    )
+                }
+            }
+        }
+    }
+
+    static let blendPositionKey = "behaviour.blend.position"
+    static let blendRotationKey = "behaviour.blend.rotation"
+
+    private static let behaviourKeys = [
+        WorkerBehaviourLoop.positionKey,
+        WorkerBehaviourLoop.rotationKey,
+        blendPositionKey,
+        blendRotationKey,
+    ]
+
+    /// The turn `layer` shows about its z axis, in radians.
+    private static func rotation(of layer: CALayer) -> Double {
+        (layer.value(forKeyPath: "transform.rotation.z") as? NSNumber)?.doubleValue ?? 0
+    }
+
     /// Starts the head's slow rise and fall, one breath every `RestylingTiming.headBreath`.
     /// Under Reduce Motion the head stays still. Call it once the layer has its size.
     @MainActor
