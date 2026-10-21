@@ -22,7 +22,7 @@ struct HouseScreenSection: View {
     @FocusState private var isButtonFocused: Bool
 
     var body: some View {
-        Section("Screen") {
+        Section {
             LabeledContent(
                 "App",
                 value: HouseMockScreen.appName(of: worker)
@@ -35,10 +35,15 @@ struct HouseScreenSection: View {
                         .accessibilityHidden(true)
                 }
                 .overlay(alignment: .topTrailing) { openButton }
+                .padding(.vertical, 8)
                 .onHover { isHovering = $0 }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("\(worker.name)'s screen")
                 .accessibilityAction(named: "Open Screen") { Self.openScreen(of: worker) }
+        } header: {
+            Text("Screen")
+        } footer: {
+            HouseSectionGap()
         }
     }
 

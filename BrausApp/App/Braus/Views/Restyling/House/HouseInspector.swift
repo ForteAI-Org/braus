@@ -42,6 +42,9 @@ struct HouseInspector: View {
                 }
             }
             .formStyle(.grouped)
+            // Room in the manner of System Settings: wider margins around the sections.
+            .contentMargins(.horizontal, 24, for: .scrollContent)
+            .contentMargins(.vertical, 28, for: .scrollContent)
         } else {
             ContentUnavailableView(
                 "No Worker",
@@ -128,7 +131,7 @@ struct HouseInspector: View {
         }
 
         var body: some View {
-            Section("Worker") {
+            Section {
                 TextField(
                     "Name",
                     text  : $name,
@@ -145,23 +148,26 @@ struct HouseInspector: View {
 
                 Button { isChoosingShape = true } label: {
                     LabeledContent("Shape") {
-                        HStack(spacing: 6) {
-                            // In an overlay the mascot gives the row no baseline of its own, so the
-                            // shape's name lines up with the label.
-                            Color.clear
-                                .frame(
-                                    width : 28,
-                                    height: 18
-                                )
-                                .overlay {
+                        HStack(
+                            alignment: .firstTextBaseline,
+                            spacing  : 6
+                        ) {
+                            // The mascot is an overlay, so only the text sets the row's baseline and
+                            // the shape's name lines up with the label.
+                            Text(worker.shape.name)
+                                .padding(.leading, 34)
+                                .overlay(alignment: .leading) {
                                     HouseWorkerPortrait(
                                         shape : worker.shape,
                                         status: .free,
                                         size  : 18,
                                         brows : .idle
                                     )
+                                    .frame(
+                                        width : 28,
+                                        height: 18
+                                    )
                                 }
-                            Text(worker.shape.name)
                             Image(systemName: "chevron.right")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.tertiary)
@@ -182,6 +188,10 @@ struct HouseInspector: View {
                     HouseShapeGrid(selection: $worker.shape)
                         .padding(12)
                 }
+            } header: {
+                Text("Worker")
+            } footer: {
+                HouseSectionGap()
             }
             .onChange(of: isNameFocused) {
                 if !isNameFocused { takeName() }
