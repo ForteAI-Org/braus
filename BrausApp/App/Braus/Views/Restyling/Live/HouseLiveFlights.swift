@@ -145,20 +145,15 @@ final class HouseLiveFlights {
                 textOrigin: stage.convert(bubble.textOrigin, from: nil),
                 image     : bubble.image
             ),
-            color: personBubble
+            color : Self.personBubble,
+            radius: BubblePath.houseRadius
         ) { [weak transcript] in
             transcript?.release(message: messageID)
         }
     }
 
-    /// The person's bubble colour as the transcript draws it in the stage's appearance.
-    private var personBubble: CGColor {
-        var color = NSColor.controlAccentColor.cgColor
-        stage.effectiveAppearance.performAsCurrentDrawingAppearance {
-            color = TranscriptColors.personBubble.cgColor
-        }
-        return color
-    }
+    /// The person's bubble colour in the new look's transcript, halfway down its gradient.
+    private static let personBubble = NSColor(white: 0.205, alpha: 1).cgColor
 
     // MARK: The queue
 

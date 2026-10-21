@@ -94,6 +94,13 @@ final class TranscriptRowView: NSView {
     /// A tool line's disclosure chevron, which turns to point down while the line is open.
     private var chevron    : NSImageView?
 
+    /// The new look's spinner before a running tool line's words.
+    private var spinner    : NSProgressIndicator?
+
+    /// The new look's words arriving over the row, and the first character the row leaves undrawn meanwhile.
+    private var reveals    : [WordReveal] = []
+    private var veiledFrom : Int?
+
     /// True while the pointer is over a tool line's summary, which then lifts like a button.
     private var isHoveringLine = false { didSet { if isHoveringLine != oldValue { needsDisplay = true } } }
     private var hoverArea: NSTrackingArea?
@@ -124,7 +131,8 @@ final class TranscriptRowView: NSView {
         let oldStacks   = stacks
         if previousRow == nil { isHoveringLine = false }
         if previousRow == nil { showReply(false, animated: false) }
-        let oldLine    = self.row.flatMap(Self.lineFrame(of:))
+        if previousRow == nil { endReveals() }
+        let oldLine     = self.row.flatMap(Self.lineFrame(of:))
         let oldQuote    = self.row?.geometry.quote
         if previousRow == nil { flashAmount = 0 }
         self.row        = row
@@ -148,6 +156,7 @@ final class TranscriptRowView: NSView {
             style     : style
         )
         showThinking(row)
+        showSpinner(row)
         showCopyIcons(row, keepsCopied: previous != nil)
         showChevron(row, wasExpanded: Self.isExpanded(previousRow))
         configureAccessibility(row)
@@ -169,7 +178,8 @@ final class TranscriptRowView: NSView {
             thinkingBlob = blob
             addSubview(blob)
         }
-        blob.tint     = workerTint ?? .controlAccentColor
+        // The new look's blob is the bubble's light grey, as its worker's colour is the room's.
+        blob.tint     = style.isHouse ? NSColor(white: 0.92, alpha: 1) : workerTint ?? .controlAccentColor
         blob.frame    = row.geometry.text
         blob.isHidden = false
     }
@@ -310,7 +320,7 @@ final class TranscriptRowView: NSView {
     ) -> (name: TextStack?, text: TextStack?) {
         guard let quote = row.item.quote, let frame = row.geometry.quoteText else { return (nil, nil) }
 
-        let isOnAccent = isPersonMessage(row)
+        let isOnAccent = isPersonMessage(row) && !style.isHouse
         let name       = row.geometry.quoteName.map { _ in
             RowPreparation.textStack(
                 RowPreparation.quoteName(
@@ -343,6 +353,8 @@ final class TranscriptRowView: NSView {
     /// so the person's bubble, anchored to the right edge, follows the edge,
     /// and a divider, centred, follows the centre on a whole point.
     private func drift(of row: PreparedRow) -> CGFloat {
+        guard !style.isHouse else { return houseDrift(of: row) }
+
         let widened = bounds.width - row.geometry.rowWidth
         switch row.item.kind {
         case .personMessage:                   return widened
@@ -390,7 +402,7 @@ final class TranscriptRowView: NSView {
         if let footer = geometry.footer { drawTime(row, in: footer, isPerson: isPerson) }
         for index in row.text.blocks.indices
         where geometry.blocks.indices.contains(index) && geometry.blocks[index].offsetBy(dx: drift, dy: 0).intersects(dirtyRect) {
-            drawBlock(at: index, of: row, isOnAccent: isPerson)
+            drawBlock(at: index, of: row, isOnAccent: isPerson && !style.isHouse)
         }
         if let frame = geometry.badge, let badge = DeliveryBadge(row.item.kind) { draw(badge, in: frame) }
     }
@@ -442,7 +454,7 @@ final class TranscriptRowView: NSView {
         drawSelection(in: text, block: index, clip: frame, isOnAccent: isOnAccent && !block.isCompleteCode)
         let glyphs = manager.glyphRange(for: container)
         manager.drawBackground(forGlyphRange: glyphs, at: text.origin)
-        manager.drawGlyphs(forGlyphRange: glyphs, at: text.origin)
+        manager.drawGlyphs(forGlyphRange: unveiledGlyphs(of: index, in: glyphs), at: text.origin)
         if case .openLink(_, index, let range)? = focusedAction {
             strokeFocus(around: range, in: index, origin: text.origin)
         }
@@ -483,6 +495,9 @@ final class TranscriptRowView: NSView {
     private func drawSurface(_ row: PreparedRow, geometry: RowGeometry, isPerson: Bool) {
         let surface = geometry.surface
         switch RowGeometry.shape(of: row.item.kind) {
+        case .bubble where style.isHouse:
+            drawHouseBubble(row, geometry: geometry, isPerson: isPerson)
+
         case .bubble:
             let path = BubblePath.path(surface: surface, tail: geometry.tail)
             let fill = isPerson ? TranscriptColors.personBubble : TranscriptColors.neutralSurface
@@ -514,7 +529,8 @@ final class TranscriptRowView: NSView {
                 NSColor.labelColor.withAlphaComponent(0.07).setFill()
                 NSBezierPath(roundedRect: line, xRadius: 6, yRadius: 6).fill()
             }
-            if row.item.isSeparator { drawRules(beside: geometry.text, drift: drift(of: row)) }
+            if row.item.isSeparator, !style.isHouse { drawRules(beside: geometry.text, drift: drift(of: row)) }
+            if style.isHouse { drawToolDot(row) }
             if isOutlined { strokeFocus(NSBezierPath(roundedRect: frame, xRadius: 4, yRadius: 4)) }
         }
     }
@@ -856,6 +872,233 @@ final class TranscriptRowView: NSView {
     override func mouseExited(with event: NSEvent) {
         isHoveringLine = false
         showReply(false)
+    }
+
+    // MARK: The new look
+
+    /// The new look's bubble: the person's dark grey, lighter toward its top, the worker's a faint
+    /// veil with a hairline edge, each with its tight corner toward its author. A selected one is
+    /// lighter, a flashed one tinted, as today's.
+    private func drawHouseBubble(
+        _ row   : PreparedRow,
+        geometry: RowGeometry,
+        isPerson: Bool
+    ) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+
+        let surface = geometry.surface
+        let path    = BubblePath.housePath(
+            surface      : surface,
+            tightTrailing: isPerson
+        )
+        context.saveGState()
+        context.addPath(path)
+        context.clip()
+        if isPerson, let gradient = CGGradient(
+            colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
+            colors     : [NSColor(white: 0.24, alpha: 1).cgColor, NSColor(white: 0.17, alpha: 1).cgColor] as CFArray,
+            locations  : [0, 1]
+        ) {
+            context.drawLinearGradient(
+                gradient,
+                start  : CGPoint(x: surface.minX + surface.width * 0.33, y: surface.minY),
+                end    : CGPoint(x: surface.minX + surface.width * 0.67, y: surface.maxY),
+                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+            )
+        } else {
+            context.setFillColor(NSColor.white.withAlphaComponent(0.04).cgColor)
+            context.fill(surface)
+        }
+        if isBubbleSelected {
+            context.setFillColor(NSColor.white.withAlphaComponent(0.1).cgColor)
+            context.fill(surface)
+        } else if flashAmount > 0 {
+            context.setFillColor((isPerson ? NSColor.white : .controlAccentColor)
+                .withAlphaComponent(0.3 * flashAmount).cgColor)
+            context.fill(surface)
+        }
+        if !isPerson {
+            // Clipped to the bubble, a two point stroke leaves a one point edge inside it.
+            context.addPath(path)
+            context.setStrokeColor(NSColor.white.withAlphaComponent(0.07).cgColor)
+            context.setLineWidth(2)
+            context.strokePath()
+        }
+        context.restoreGState()
+        if isOutlined, !isBubbleSelected { strokeFocus(NSBezierPath(cgPath: path)) }
+        drawQuote(
+            of      : row,
+            isPerson: false
+        )
+    }
+
+    /// A finished tool line's quiet dot, before its words; a running one has a spinner there.
+    private func drawToolDot(_ row: PreparedRow) {
+        guard case .toolRun(_, _, .some) = row.item.kind, let slot = toolIndicator(of: row) else { return }
+
+        NSColor.white.withAlphaComponent(0.18).setFill()
+        NSBezierPath(ovalIn: slot).fill()
+    }
+
+    /// Where a tool line's spinner or dot sits, before its summary, in the new look.
+    private func toolIndicator(of row: PreparedRow) -> CGRect? {
+        guard style.isHouse, Self.isToolRun(row), let summary = row.geometry.blocks.first else { return nil }
+
+        let side = RowGeometry.houseToolIndicator
+        return CGRect(
+            x     : row.geometry.surface.minX,
+            y     : (summary.midY - side / 2).rounded(),
+            width : side,
+            height: side
+        )
+    }
+
+    /// The spinner of a tool line whose turn runs, in the new look; hidden for any other row, which stops it.
+    private func showSpinner(_ row: PreparedRow) {
+        guard case .toolRun(_, _, nil) = row.item.kind, let slot = toolIndicator(of: row) else {
+            spinner?.stopAnimation(nil)
+            spinner?.isHidden = true
+            return
+        }
+        let spinner = self.spinner ?? makeSpinner()
+        spinner.frame    = slot.offsetBy(dx: drift(of: row), dy: 0)
+        spinner.isHidden = false
+        spinner.startAnimation(nil)
+    }
+
+    private func makeSpinner() -> NSProgressIndicator {
+        let spinner = NSProgressIndicator()
+        spinner.style                  = .spinning
+        spinner.controlSize            = .mini
+        spinner.isDisplayedWhenStopped = false
+        // The row speaks for its tool line.
+        spinner.setAccessibilityElement(false)
+        addSubview(spinner)
+        self.spinner = spinner
+        return spinner
+    }
+
+    /// In the new look the column is centred: a row's parts follow its start, the person's bubble
+    /// its end and a divider its centre, on whole points, while a live resize widens the row.
+    private func houseDrift(of row: PreparedRow) -> CGFloat {
+        let placed = RowGeometry.column(rowWidth: row.geometry.rowWidth, style: style)
+        let now    = RowGeometry.column(rowWidth: bounds.width, style: style)
+        switch row.item.kind {
+        case .personMessage:
+            return (now.start + now.width - placed.start - placed.width).rounded()
+        case .daySeparator, .contextSeparator, .activityNotShown:
+            return (now.start + now.width / 2 - placed.start - placed.width / 2).rounded()
+        default:
+            return now.start - placed.start
+        }
+    }
+
+    // MARK: Words arriving
+
+    /// Fades the row's words in from character `start` of its text on, each from transparent,
+    /// blurred and a little low, one after another (`WordReveal`), as the new look shows a reply
+    /// arriving. The words are not drawn by the row until they are all in. Nothing plays under
+    /// Reduce Motion, for a row that is not on screen, or past `WordReveal.wordLimit` words.
+    func revealWords(from start: Int) {
+        guard style.isHouse, !RestylingMotion.reducesMotion, window != nil, let row else { return }
+
+        let words = wordFrames(of: row, from: start)
+        guard !words.isEmpty, words.count <= WordReveal.wordLimit, let picture = textPicture(of: row) else { return }
+
+        let reveal = WordReveal(frame: bounds)
+        addSubview(reveal)
+        reveals.append(reveal)
+        veiledFrom   = min(veiledFrom ?? start, start)
+        needsDisplay = true
+        reveal.play(
+            words,
+            in: picture
+        ) { [weak self, weak reveal] in
+            guard let self, let reveal else { return }
+
+            reveal.removeFromSuperview()
+            reveals.removeAll { $0 === reveal }
+            if reveals.isEmpty {
+                veiledFrom   = nil
+                needsDisplay = true
+            }
+        }
+    }
+
+    /// Ends every reveal at once, as the view takes another row.
+    private func endReveals() {
+        reveals.forEach { $0.removeFromSuperview() }
+        reveals    = []
+        veiledFrom = nil
+    }
+
+    /// The glyphs of block `index` the row draws: all of `glyphs` but the words still arriving.
+    private func unveiledGlyphs(
+        of index : Int,
+        in glyphs: NSRange
+    ) -> NSRange {
+        guard let veiledFrom, ranges.indices.contains(index), let (_, manager, _) = stacks[index] else { return glyphs }
+
+        let shown = max(0, min(ranges[index].length, veiledFrom - ranges[index].location))
+        return manager.glyphRange(
+            forCharacterRange   : NSRange(location: 0, length: shown),
+            actualCharacterRange: nil
+        )
+    }
+
+    /// The frame of each word of `row`'s text from character `start` on: each run of characters
+    /// between spaces, as its block lays it out.
+    private func wordFrames(
+        of row    : PreparedRow,
+        from start: Int
+    ) -> [CGRect] {
+        var frames: [CGRect] = []
+        let blank = CharacterSet.whitespacesAndNewlines
+        for (index, range) in ranges.enumerated() where NSMaxRange(range) > start && row.geometry.blockTexts.indices.contains(index) {
+            guard let (storage, manager, container) = stacks[index] else { continue }
+
+            let origin = row.geometry.blockTexts[index].origin
+            let text   = storage.string as NSString
+            var word: Int?
+            for offset in max(0, start - range.location)...text.length {
+                let isBlank = offset == text.length || UnicodeScalar(text.character(at: offset)).map(blank.contains) ?? false
+                if !isBlank, word == nil { word = offset }
+                guard isBlank, let first = word else { continue }
+
+                word = nil
+                let glyphs = manager.glyphRange(
+                    forCharacterRange   : NSRange(location: first, length: offset - first),
+                    actualCharacterRange: nil
+                )
+                frames.append(manager.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: origin.x, dy: origin.y))
+            }
+        }
+        return frames
+    }
+
+    /// The row's text alone, every word drawn, on a clear picture of the row's size.
+    private func textPicture(of row: PreparedRow) -> CGImage? {
+        guard let bitmap = bitmapImageRepForCachingDisplay(in: bounds),
+              let drawing = NSGraphicsContext(bitmapImageRep: bitmap)
+        else { return nil }
+
+        let context = drawing.cgContext
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            for (index, stack) in stacks.enumerated() where row.geometry.blockTexts.indices.contains(index) {
+                guard let (_, manager, container) = stack else { continue }
+
+                manager.drawGlyphs(
+                    forGlyphRange: manager.glyphRange(for: container),
+                    at           : row.geometry.blockTexts[index].origin
+                )
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        return bitmap.cgImage
     }
 
     // MARK: Reply button

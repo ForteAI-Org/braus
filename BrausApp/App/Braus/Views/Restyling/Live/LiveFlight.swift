@@ -85,12 +85,13 @@ final class LiveFlight {
         BubbleFlight.quietly { layer.addSublayer(root) }
     }
 
-    /// Springs onto `landing`: the fill takes the bubble's frame, corners and `color` while the text
+    /// Springs onto `landing`: the fill takes the bubble's frame, `radius` and `color` while the text
     /// moves onto the bubble's and fades out, and the bubble's picture fades in over them. Calls
     /// `completion` once there, for the bubble itself to show; the flight leaves a turn later.
     func land(
         on landing: Landing,
         color     : CGColor,
+        radius    : CGFloat,
         completion: @escaping @MainActor () -> Void
     ) {
         isLeaving = true
@@ -113,7 +114,7 @@ final class LiveFlight {
                 origin: .zero,
                 size  : landing.surface.size
             )
-            fill.cornerRadius    = BubblePath.cornerRadius
+            fill.cornerRadius    = radius
             fill.backgroundColor = color
             fill.opacity         = 0
             typed.position       = CGPoint(

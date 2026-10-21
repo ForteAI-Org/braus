@@ -143,6 +143,40 @@ final class TranscriptCell: NSCollectionViewItem {
         CATransaction.commit()
     }
 
+    /// The new look's thinking bubble arriving, `surface` its bubble in the row: it springs up from
+    /// the bubble's bottom leading corner, from six tenths of its size and a little low, with the
+    /// send flight's spring, as it fades in. Reduce Motion keeps the fade.
+    func springIn(
+        at surface   : CGRect,
+        reducesMotion: Bool
+    ) {
+        view.wantsLayer = true
+        guard !reducesMotion, let layer = view.layer else { return playEntrance(reducesMotion: true) }
+
+        // The corner and the drop in the layer's own geometry, which may not be the row's flipped one.
+        let isFlipped = layer.contentsAreFlipped()
+        let pivot     = CGPoint(
+            x: surface.minX - layer.anchorPoint.x * layer.bounds.width,
+            y: (isFlipped ? surface.maxY : layer.bounds.height - surface.maxY) - layer.anchorPoint.y * layer.bounds.height
+        )
+        var start = CATransform3DMakeTranslation(pivot.x, pivot.y + (isFlipped ? 10 : -10), 0)
+        start = CATransform3DScale(start, 0.6, 0.6, 1)
+        start = CATransform3DTranslate(start, -pivot.x, -pivot.y, 0)
+        let spring = CASpringAnimation(keyPath: "transform")
+        spring.fromValue = NSValue(caTransform3D: start)
+        spring.toValue   = NSValue(caTransform3D: CATransform3DIdentity)
+        spring.mass      = 1
+        spring.stiffness = BubbleFlight.stiffness
+        spring.damping   = BubbleFlight.damping
+        spring.duration  = spring.settlingDuration
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue   = 1
+        fade.duration  = 0.2
+        layer.add(spring, forKey: "entrance")
+        layer.add(fade, forKey: "entrance.fade")
+    }
+
     /// A short entrance for a row that just arrived (§11.4), or a slower one for
     /// each row of a conversation just opened in place of another. Reduce Motion
     /// keeps the fade and drops the movement.

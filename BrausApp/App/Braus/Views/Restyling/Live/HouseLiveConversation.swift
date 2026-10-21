@@ -186,11 +186,23 @@ struct HouseLiveConversation: View {
                 TranscriptHost(
                     controller : transcript,
                     topInset   : 8,
-                    bottomInset: composerHeight
+                    bottomInset: composerHeight,
+                    look       : .house
                 )
             } else {
                 Color.clear
             }
+        }
+        // The transcript fades out under the hero rather than ending on an edge, as the new look's column does.
+        .mask {
+            LinearGradient(
+                stops     : [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black, location: 0.08),
+                ],
+                startPoint: .top,
+                endPoint  : .bottom
+            )
         }
         .task(id: team.conversation?.id) { openTranscript() }
         .onChange(of: team.transcriptRevision) { transcript?.refresh() }
@@ -212,7 +224,10 @@ struct HouseLiveConversation: View {
     private func openTranscript() {
         guard let conversation = team.conversation else { return }
 
-        let controller = transcript ?? TranscriptController(source: team.transcriptSource)
+        let controller = transcript ?? TranscriptController(
+            source: team.transcriptSource,
+            style : TranscriptStyle(look: .house)
+        )
         transcript = controller
 
         let conversationID = conversation.id

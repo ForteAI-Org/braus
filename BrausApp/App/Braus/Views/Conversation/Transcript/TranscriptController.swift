@@ -412,6 +412,7 @@ final class TranscriptController: NSObject {
                     to: result.rows
                 )
             }
+            let replied = latestReply
             rows = result.rows
             let held = mode == .live ? holdArrivals(update) : []
             viewUpdateCount += 1
@@ -441,6 +442,7 @@ final class TranscriptController: NSObject {
                         drawnTop   : drawnTop
                     )
                 }
+                if style.isHouse { revealNewestReply(after: replied) }
             }
             if case .expansion(let id) = mode {
                 slideRows(
@@ -614,6 +616,7 @@ final class TranscriptController: NSObject {
 
     private func setHeights() {
         layout.heights        = rows.map(\.geometry.height)
+        layout.spacing        = TranscriptLayout.spacing(for: style)
         layout.continuesGroup = rows.indices.map { index in
             let row = rows[index].item
             guard index > 0, !row.continuesGroup, case .toolRun = rows[index - 1].item.kind else {
@@ -751,7 +754,14 @@ final class TranscriptController: NSObject {
         for index in arrivals {
             guard let cell = collectionView.item(at: IndexPath(item: index, section: 0)) as? TranscriptCell
             else { continue }
-            cell.playEntrance(reducesMotion: reduces)
+            if style.isHouse, rows[index].item.kind == .thinking {
+                cell.springIn(
+                    at           : rows[index].geometry.surface,
+                    reducesMotion: reduces
+                )
+            } else {
+                cell.playEntrance(reducesMotion: reduces)
+            }
         }
     }
 
@@ -1426,6 +1436,23 @@ final class TranscriptController: NSObject {
                 held.forEach { self.onHeldArrival?($0) }
             }
         }
+    }
+
+    /// The newest reply among the rows, and the length of its text.
+    private var latestReply: (id: TranscriptItem.ID, length: Int)? {
+        rows.last { if case .workerReply = $0.item.kind { true } else { false } }
+            .map { ($0.item.id, ($0.text.string as NSString).length) }
+    }
+
+    /// In the new look, fades in what arrived of the newest reply since `before`: a new reply whole,
+    /// a growing one from where it had got. History never plays.
+    private func revealNewestReply(after before: (id: TranscriptItem.ID, length: Int)?) {
+        guard let reply = latestReply, let index = rows.firstIndex(where: { $0.item.id == reply.id }) else { return }
+
+        let start = before?.id == reply.id ? before?.length ?? 0 : 0
+        guard start < reply.length else { return }
+
+        (collectionView.item(at: IndexPath(item: index, section: 0)) as? TranscriptCell)?.rowView.revealWords(from: start)
     }
 
     /// Bubble is a message's bubble as the transcript draws it, in window coordinates: its surface,
