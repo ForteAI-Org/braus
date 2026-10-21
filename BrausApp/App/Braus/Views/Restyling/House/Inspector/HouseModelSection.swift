@@ -22,8 +22,6 @@ struct HouseModelSection: View {
     let worker: MockWorker
     let team  : MockTeam
 
-    @Binding var isExpanded: Bool
-
     /// Whether this worker's list of providers is open.
     @Binding var isChoosing: Bool
 
@@ -38,10 +36,7 @@ struct HouseModelSection: View {
     var body: some View {
         let selection = team.selection(of: worker)
 
-        HouseFoldableSection(
-            title     : "Model",
-            isExpanded: $isExpanded
-        ) {
+        Section("Model") {
             providerRow(selection.provider)
 
             if isChoosing {

@@ -17,17 +17,12 @@ import SwiftUI
 struct HouseScreenSection: View {
     let worker: MockWorker
 
-    @Binding var isExpanded: Bool
-
     @State private var isHovering = false
 
     @FocusState private var isButtonFocused: Bool
 
     var body: some View {
-        HouseFoldableSection(
-            title     : "Screen",
-            isExpanded: $isExpanded
-        ) {
+        Section("Screen") {
             LabeledContent(
                 "App",
                 value: HouseMockScreen.appName(of: worker)
