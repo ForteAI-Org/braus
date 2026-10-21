@@ -15,7 +15,8 @@ import SwiftUI
 /// rooms and rows are laid out at the width they had until the new layout is applied, all at once,
 /// with `HouseLayout.reshaping`: each one moves and resizes from where it was, its Metal room drawing
 /// a live frame at every size on the way. Under Reduce Motion the sidebar cross-fades
-/// (`CrossFade`). While searching, the archive is left out.
+/// (`CrossFade`). The foot (`HouseFoot`) floats over the rooms with the account and the archive;
+/// while searching, the archive is left out.
 /// The search field draws no focus ring (`SearchFieldWithoutRing`): it keeps the keyboard focus,
 /// and the ring would only outline it against the dark sidebar.
 struct HouseSidebar: View {
@@ -37,21 +38,30 @@ struct HouseSidebar: View {
             switch AppPreferenceValues.shared.restylingSidebarMode {
             case .rooms:
                 HouseRoomsGrid(
-                    workers      : workers,
-                    archivedCount: archivedCount,
-                    columns      : columns,
-                    roomsWidth   : roomsWidth,
-                    selection    : $selection
+                    workers   : workers,
+                    columns   : columns,
+                    roomsWidth: roomsWidth,
+                    selection : $selection
                 )
             case .rows:
                 HouseRowsList(
-                    workers      : workers,
-                    archivedCount: archivedCount,
-                    isCompact    : columns == 1,
-                    roomsWidth   : roomsWidth,
-                    selection    : $selection
+                    workers   : workers,
+                    isCompact : columns == 1,
+                    roomsWidth: roomsWidth,
+                    selection : $selection
                 )
             }
+        }
+        // The foot floats over the rooms, which scroll under it and clear it at the end.
+        .safeAreaInset(
+            edge   : .bottom,
+            spacing: 0
+        ) {
+            HouseFoot(
+                account      : .sample,
+                archivedCount: archivedCount,
+                isCompact    : columns == 1
+            )
         }
         .background(CrossFade(columns: columns))
         .searchable(

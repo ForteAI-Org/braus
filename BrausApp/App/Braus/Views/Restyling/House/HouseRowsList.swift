@@ -8,8 +8,8 @@
 import SwiftUI
 
 /// HouseRowsList is the house as the system's list of rooms: a wide, low room per worker,
-/// one under the other, and the archive's cellar pinned under the list, outside it, so it cannot be
-/// selected. In the compact sidebar the rooms are the compact floor plan's.
+/// one under the other, scrolling under the sidebar's foot (`HouseFoot`). In the compact sidebar the
+/// rooms are the compact floor plan's.
 ///
 /// The list keeps the system's selection, by click and by keys, but not its fill: the accent fill
 /// reads as a status light (an orange accent as busy, the blue one as waiting), so `QuietSelection`
@@ -17,10 +17,9 @@ import SwiftUI
 /// `roomsWidth` across, which `HouseSidebar` changes together with `isCompact`, so they reshape
 /// from where they were.
 struct HouseRowsList: View {
-    let workers      : [MockWorker]
-    let archivedCount: Int
-    let isCompact    : Bool
-    let roomsWidth   : CGFloat?
+    let workers   : [MockWorker]
+    let isCompact : Bool
+    let roomsWidth: CGFloat?
 
     @Binding var selection: MockWorker.ID?
 
@@ -47,17 +46,6 @@ struct HouseRowsList: View {
             }
         }
         .listStyle(.plain)
-        // The archive stays at the foot of the sidebar while the rooms scroll above it.
-        .safeAreaInset(edge: .bottom) {
-            if archivedCount > 0 {
-                HouseRoomsGrid.Cellar(
-                    archivedCount: archivedCount,
-                    isCompact    : isCompact
-                )
-                .padding(HouseLayout.margin)
-                .background { Color("RestylingSidebar") }
-            }
-        }
     }
 
     /// QuietSelection turns off the table's own selection fill under the list, so the selected room's
