@@ -15,8 +15,8 @@ import SwiftUI
 /// rooms and rows are laid out at the width they had until the new layout is applied, all at once,
 /// with `HouseLayout.reshaping`: each one moves and resizes from where it was, its Metal room drawing
 /// a live frame at every size on the way. Under Reduce Motion the sidebar cross-fades
-/// (`CrossFade`). The foot (`HouseFoot`) floats over the rooms with the account and the archive;
-/// while searching, the archive is left out.
+/// (`CrossFade`). The foot (`HouseFoot`) floats over the rooms with the account; the archive is in
+/// the sidebar's toolbar (`HouseArchiveButton`), left out while searching or empty.
 /// The search field draws no focus ring (`SearchFieldWithoutRing`): it keeps the keyboard focus,
 /// and the ring would only outline it against the dark sidebar.
 struct HouseSidebar: View {
@@ -57,11 +57,15 @@ struct HouseSidebar: View {
             edge   : .bottom,
             spacing: 0
         ) {
-            HouseFoot(
-                account      : .sample,
-                archivedCount: archivedCount,
-                isCompact    : columns == 1
-            )
+            HouseFoot(account: .sample)
+        }
+        // The archive sits above the rooms in the sidebar's toolbar, beside New Worker.
+        .toolbar {
+            if archivedCount > 0 {
+                ToolbarItem {
+                    HouseArchiveButton(archivedCount: archivedCount)
+                }
+            }
         }
         .background(CrossFade(columns: columns))
         .searchable(

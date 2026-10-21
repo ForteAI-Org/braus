@@ -7,29 +7,27 @@
 
 import SwiftUI
 
-/// HouseFoot is the sidebar's foot: the account's monogram, a menu that holds Settings and Sign Out,
-/// and the archive's door to its right, left out when there is no archive.
+/// HouseFoot is the sidebar's foot: the account's monogram at the leading edge, a menu that holds
+/// Settings and Sign Out. The archive is in the sidebar's toolbar (`HouseArchiveButton`).
 ///
 /// It floats over the rooms, which scroll under it to the window's edge. It has no box of its own:
-/// its ground is the sidebar's colour, solid behind the controls and fading to clear over
-/// `fadeHeight` above them, so a room passing under dissolves with no edge. The fade lets clicks
+/// its ground is the sidebar's colour, solid behind the monogram and fading to clear over
+/// `fadeHeight` above it, so a room passing under dissolves with no edge. The fade lets clicks
 /// through to the rooms. Its height, fade included, is the inset the rooms scroll clear of.
 struct HouseFoot: View {
-    let account      : MockAccount
-    let archivedCount: Int
-    let isCompact    : Bool
+    let account: MockAccount
 
-    /// The height over which the foot's ground fades to clear, above its controls.
+    /// The height over which the foot's ground fades to clear, above the monogram.
     static let fadeHeight: CGFloat = 32
 
     /// The side of the account's round button.
     static let accountSide: CGFloat = 28
 
     var body: some View {
-        controls
+        AccountButton(account: account)
             .frame(
                 maxWidth : .infinity,
-                alignment: isCompact && archivedCount > 0 ? .center : .leading
+                alignment: .leading
             )
             .padding(
                 .horizontal,
@@ -44,46 +42,6 @@ struct HouseFoot: View {
                 Self.fadeHeight
             )
             .background { ground }
-    }
-
-    /// Item is one of the foot's controls.
-    enum Item: Hashable {
-        case account
-        case archive
-    }
-
-    /// The foot's controls, leading first: the account always, the archive only when it holds a worker.
-    static func items(archivedCount: Int) -> [Item] {
-        archivedCount > 0 ? [.account, .archive] : [.account]
-    }
-
-    @ViewBuilder private var controls: some View {
-        if isCompact && archivedCount > 0 {
-            // The monogram and the door side by side, or one over the other where they cannot fit.
-            ViewThatFits {
-                HStack(spacing: 8) { row }
-                VStack(spacing: 6) { row }
-            }
-        } else {
-            HStack(spacing: 8) { row }
-        }
-    }
-
-    private var row: some View {
-        ForEach(
-            Self.items(archivedCount: archivedCount),
-            id: \.self
-        ) { item in
-            switch item {
-            case .account:
-                AccountButton(account: account)
-            case .archive:
-                ArchiveButton(
-                    archivedCount: archivedCount,
-                    isCompact    : isCompact
-                )
-            }
-        }
     }
 
     private var ground: some View {
@@ -168,49 +126,6 @@ struct HouseFoot: View {
                 // The mockup signs no one out.
                 break
             }
-        }
-    }
-
-    /// ArchiveButton is the archive's door and, in the full sidebar, its count, filling the width the
-    /// account leaves. The pointer over it lights a quiet highlight. The mockup opens no archive.
-    struct ArchiveButton: View {
-        let archivedCount: Int
-        let isCompact    : Bool
-
-        @State private var isHovering = false
-
-        var body: some View {
-            Button {} label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "door.left.hand.closed")
-                    if !isCompact {
-                        Text("Archive · \(archivedCount)")
-                    }
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-                .frame(
-                    minWidth : HouseFoot.accountSide,
-                    maxWidth : isCompact ? nil : .infinity,
-                    minHeight: HouseFoot.accountSide
-                )
-                .background(
-                    .white.opacity(isHovering ? 0.06 : 0),
-                    in: RoundedRectangle(
-                        cornerRadius: 8,
-                        style       : .continuous
-                    )
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onHover { isHovering = $0 }
-            .accessibilityLabel(Self.spokenLabel(archivedCount: archivedCount))
-        }
-
-        /// What VoiceOver says for the archive holding `archivedCount` workers.
-        static func spokenLabel(archivedCount: Int) -> String {
-            "Archive, \(archivedCount) workers"
         }
     }
 }
