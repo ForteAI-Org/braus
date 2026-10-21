@@ -31,7 +31,7 @@ final class TranscriptCell: NSCollectionViewItem {
         didSet { rowView.isFocusedRow = isSelected }
     }
 
-    /// Whether the row is laid out but not drawn, as the new look holds a sent message until its
+    /// Whether the row is laid out but not drawn, as a sent message is held until its
     /// flight lands on it (`TranscriptController.holdNextSent()`).
     var isHeld = false {
         didSet { if isHeld != oldValue { view.alphaValue = isHeld ? 0 : 1 } }
@@ -143,7 +143,7 @@ final class TranscriptCell: NSCollectionViewItem {
         CATransaction.commit()
     }
 
-    /// The new look's thinking bubble arriving, `surface` its bubble in the row: it springs up from
+    /// The thinking bubble arriving, `surface` its bubble in the row: it springs up from
     /// the bubble's bottom leading corner, from six tenths of its size and a little low, with the
     /// send flight's spring, as it fades in. Reduce Motion keeps the fade.
     func springIn(

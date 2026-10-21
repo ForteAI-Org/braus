@@ -17,8 +17,8 @@ import Testing
 /// check waits for what it looks at, since the input method may hand a key's
 /// text to the field later.
 ///
-/// Every check runs inside one test, each in a window of its own, in today's
-/// chrome and then in the new look's: once the process has been active, the
+/// Every check runs inside one test, each in a window of its own: once the
+/// process has been active, the
 /// input method can end it with status zero. For the same reason the suite's
 /// name sorts after every offscreen suite of this target, so they all run first.
 @Suite("Composer in a key window", .serialized)
@@ -27,23 +27,17 @@ struct ComposerWindowTests {
 
     @Test("Line breaks, indentation and Control-Tab, the pinned circle, Stop, queueing, and Release, in key windows")
     func keyWindows() async throws {
-        for chrome in ComposerBar.Chrome.allCases {
-            try await lineBreaksAndSend(chrome)
-            try await indentation(chrome)
-            try await circleStaysPinned(chrome)
-            try await circleBecomesStop(chrome)
-            try await commandReturnQueues(chrome)
-            try await releaseButton(chrome)
-        }
+        try await lineBreaksAndSend()
+        try await indentation()
+        try await circleStaysPinned()
+        try await circleBecomesStop()
+        try await commandReturnQueues()
+        try await releaseButton()
     }
 
-    /// A key window whose bar is on the material surface, where the circle is measured from what the view draws.
-    private func keyWindowHarness(_ chrome: ComposerBar.Chrome) async throws -> ComposerHarness {
-        let harness = ComposerHarness(
-            surface : .material,
-            chrome  : chrome,
-            onScreen: true
-        )
+    /// A key window, where the circle is measured from what the view draws.
+    private func keyWindowHarness() async throws -> ComposerHarness {
+        let harness = ComposerHarness(onScreen: true)
         harness.becomeKey()
         harness.focus()
         try await harness.settle()
@@ -57,8 +51,8 @@ struct ComposerWindowTests {
     }
 
     /// Shift-Return and Option-Return break the line, and Return sends.
-    private func lineBreaksAndSend(_ chrome: ComposerBar.Chrome) async throws {
-        let harness = try await keyWindowHarness(chrome)
+    private func lineBreaksAndSend() async throws {
+        let harness = try await keyWindowHarness()
         defer { harness.close() }
         harness.type("a")
         harness.pressReturn(shift: true)
@@ -75,8 +69,8 @@ struct ComposerWindowTests {
     }
 
     /// Tab and Shift-Tab indent and outdent, a line break keeps the indentation, Control-Tab leaves.
-    private func indentation(_ chrome: ComposerBar.Chrome) async throws {
-        let harness  = try await keyWindowHarness(chrome)
+    private func indentation() async throws {
+        let harness  = try await keyWindowHarness()
         defer { harness.close() }
         let textView = try #require(harness.textView)
         let window   = try #require(harness.window)
@@ -119,8 +113,8 @@ struct ComposerWindowTests {
     }
 
     /// The circle stays at the bottom-trailing corner at one, three and six lines.
-    private func circleStaysPinned(_ chrome: ComposerBar.Chrome) async throws {
-        let harness    = try await keyWindowHarness(chrome)
+    private func circleStaysPinned() async throws {
+        let harness    = try await keyWindowHarness()
         defer { harness.close() }
         let scrollView = try #require(harness.scrollView)
         let hosting    = try #require(harness.hosting)
@@ -144,39 +138,25 @@ struct ComposerWindowTests {
         #expect(fields[0].maxY < fields[1].maxY && fields[1].maxY < fields[2].maxY)
         let circle = circles[0]
         // The antialiased rim is not the solid fill, so the drawn box is up to a point smaller.
-        #expect(abs(circle.width - chrome.circleSide) <= 1 && abs(circle.height - chrome.circleSide) <= 1)
-        let insets = Self.circleInsets(
-            of: chrome,
-            in: hosting.bounds.width
-        )
+        #expect(abs(circle.width - ComposerBar.circleSide) <= 1 && abs(circle.height - ComposerBar.circleSide) <= 1)
+        let insets = Self.circleInsets(in: hosting.bounds.width)
         #expect(abs(hosting.bounds.maxX - circle.maxX - insets.trailing) <= 1)
         #expect(abs(circle.minY - insets.bottom) <= 1)
         #expect(fields.allSatisfy { $0.maxX < circle.minX && $0.minY < circle.maxY })
     }
 
-    /// How far the circle stands from the window's trailing and bottom edges: the bar's margins and
-    /// the pill's padding, and in the new look the centred column and the circle's room in its row.
-    private static func circleInsets(
-        of chrome: ComposerBar.Chrome,
-        in window: CGFloat
-    ) -> (trailing: CGFloat, bottom: CGFloat) {
-        switch chrome {
-        case .standard:
-            (
-                trailing: 16 + ComposerBar.padding,
-                bottom  : 12 + ComposerBar.padding
-            )
-        case .house:
-            (
-                trailing: (window - min(window - 48, ChatTranscriptView.columnWidth)) / 2 + 8,
-                bottom  : 20 + (ComposerBar.houseRowHeight - chrome.circleSide) / 2
-            )
-        }
+    /// How far the circle stands from the window's trailing and bottom edges: the centred column and
+    /// the circle's room in its row.
+    private static func circleInsets(in window: CGFloat) -> (trailing: CGFloat, bottom: CGFloat) {
+        (
+            trailing: (window - min(window - 48, RowGeometry.houseColumn)) / 2 + 8,
+            bottom  : 20 + (ComposerBar.houseRowHeight - ComposerBar.circleSide) / 2
+        )
     }
 
     /// During a turn the circle becomes Stop in the same place, and Command-Period stops.
-    private func circleBecomesStop(_ chrome: ComposerBar.Chrome) async throws {
-        let harness = try await keyWindowHarness(chrome)
+    private func circleBecomesStop() async throws {
+        let harness = try await keyWindowHarness()
         defer { harness.close() }
         harness.type("next")
         try await harness.wait { harness.draft == "next" }
@@ -206,8 +186,8 @@ struct ComposerWindowTests {
 
     /// During a turn a composer that queues takes Command-Return as Send, where
     /// Return starts a new line, though the circle is Stop and answers Command-Period.
-    private func commandReturnQueues(_ chrome: ComposerBar.Chrome) async throws {
-        let harness = try await keyWindowHarness(chrome)
+    private func commandReturnQueues() async throws {
+        let harness = try await keyWindowHarness()
         defer { harness.close() }
         harness.queues      = true
         harness.returnSends = false
@@ -232,8 +212,8 @@ struct ComposerWindowTests {
     }
 
     /// Release shows only while the worker holds the computer, left of the circle, and releases.
-    private func releaseButton(_ chrome: ComposerBar.Chrome) async throws {
-        let harness    = try await keyWindowHarness(chrome)
+    private func releaseButton() async throws {
+        let harness    = try await keyWindowHarness()
         defer { harness.close() }
         let scrollView = try #require(harness.scrollView)
         let window     = try #require(harness.window)
@@ -242,7 +222,7 @@ struct ComposerWindowTests {
         let circle = try await harness.waitForCircle().frame
         let alone  = scrollView.convert(scrollView.bounds, to: nil)
         // Only the bar's spacing lies between the field and the circle: nothing else is drawn there.
-        #expect(abs(circle.minX - alone.maxX - chrome.spacing) <= 1)
+        #expect(abs(circle.minX - alone.maxX - ComposerBar.spacing) <= 1)
         #expect(harness.drawnMark(between: alone.maxX, and: circle.minX, alongside: circle) == nil)
 
         harness.holdsComputer = true
@@ -258,7 +238,7 @@ struct ComposerWindowTests {
             )
             let isStill = mark != nil && mark == lastMark
             lastMark    = mark
-            return isStill && abs(alone.maxX - field.maxX - (chrome.releaseSide + 6)) <= 1
+            return isStill && abs(alone.maxX - field.maxX - (ComposerBar.releaseSide + 6)) <= 1
         }
         let field   = scrollView.convert(scrollView.bounds, to: nil)
         let release = try #require(harness.drawnMark(
@@ -268,7 +248,7 @@ struct ComposerWindowTests {
         ))
         print("circle \(circle), release glyph \(release), field \(alone.maxX) -> \(field.maxX)")
         #expect(try #require(harness.drawnCircle()).frame == circle)
-        #expect(abs(alone.maxX - field.maxX - (chrome.releaseSide + 6)) <= 1)
+        #expect(abs(alone.maxX - field.maxX - (ComposerBar.releaseSide + 6)) <= 1)
         #expect(release.maxX < circle.minX && release.minX > field.maxX)
         #expect(abs(release.midY - circle.midY) <= 1.5)
 

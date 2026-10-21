@@ -113,7 +113,7 @@ struct ConversationProjectionTests {
                                                  style: TranscriptStyle(showsAuthors: true),
                                                  cache: LayoutMeasurementCache(), pipeline: MarkdownContent()).rows
         #expect(Self.kinds(items) == ["person", "tools", "reply"])
-        #expect(items[0].endsGroup && rows[0].geometry.tail != nil)
+        #expect(items[0].endsGroup)
         #expect(!items[1].continuesGroup, "a tool line starts a group")
         #expect(!items[2].continuesGroup && items[2].endsGroup)
         #expect(rows[2].geometry.header != nil && rows[2].geometry.avatar != nil && rows[2].geometry.footer != nil)

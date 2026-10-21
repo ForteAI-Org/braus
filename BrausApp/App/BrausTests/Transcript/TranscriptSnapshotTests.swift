@@ -274,9 +274,9 @@ struct TranscriptSnapshotTests {
         try await tool(fourth, "→ close_session {\"session\":\"s\"}")
     }
 
-    @Test("The new look: the same days, groups, code, tool lines and thinking bubble, and a rich reply, dark")
+    @Test("The same days, groups, code, tool lines and thinking bubble, and a rich reply, dark, on the ground")
     func houseSnapshots() async throws {
-        let house = TranscriptStyle(look: .house)
+        let house = TranscriptStyle()
         let days  = try await TranscriptFixture()
         defer { days.discard() }
         try await twoDays(days)
@@ -402,8 +402,8 @@ struct TranscriptSnapshotTests {
         let controller = TranscriptController(source: fixture.store, style: style)
         let backdrop   = Backdrop(frame: NSRect(x: 0, y: 0, width: width, height: height))
         backdrop.appearance = NSAppearance(named: appearance)
-        // The new look's conversation stands on its own ground.
-        if style.isHouse, let ground = NSColor(named: "RestylingGround") { backdrop.fill = ground }
+        // The conversation stands on its own ground.
+        if let ground = NSColor(named: "RestylingGround") { backdrop.fill = ground }
         controller.view.frame = backdrop.bounds
         backdrop.addSubview(controller.view)
         backdrop.layoutSubtreeIfNeeded()

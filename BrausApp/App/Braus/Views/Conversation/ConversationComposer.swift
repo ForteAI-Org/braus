@@ -12,24 +12,23 @@ import SwiftUI
 /// hands the draft committed text only, never a composition in progress, so
 /// the pause below writes finished text.
 ///
-/// A reply in progress shows as a strip joined to the pill's top, with the
+/// A reply in progress shows as a strip over the pill (`QuoteStrip`), with the
 /// quoted message: a click on its text goes to that message, and its × or
 /// Escape in the field drops the quote. The next send carries it.
 ///
 /// A message sent while the worker answers joins the conversation's queue,
-/// which shows as a strip above the reply's (`ConversationQueueStrip`): the
-/// reply strip stays next to the pill, since it belongs to what is typed.
+/// which shows as a strip above the reply's (`QueueStrip`): the reply strip
+/// stays next to the pill, since it belongs to what is typed.
 ///
 /// A draft that starts with `/` opens the command popup above the pill, at its
 /// leading edge (`SlashCommandPopup`). The keyboard stays in the field, which
 /// hands the popup ↑ ↓, Tab, Return and Escape while it is open; a first
 /// Escape closes it, and the next one drops a quote as it always does.
 ///
-/// In the new look (`chrome` `.house`) the bar stands on the conversation's ground
-/// (`composerDock(_:)`), and its `+` menu shows or hides Braus's Chrome window
-/// for a conversation that browses, as the inspector's Web section does. Its
-/// strips are the new look's tabs (`QueueStrip`, `QuoteStrip`), and with
-/// `flights` a sent message, a queued one and a quote fly across the conversation.
+/// The bar stands on the conversation's ground (`composerDock()`), and its `+`
+/// menu shows or hides Braus's Chrome window for a conversation that browses,
+/// as the inspector's Web section does. With `flights` a sent message, a
+/// queued one and a quote fly across the conversation.
 struct ConversationComposer: View {
 
     @Bindable
@@ -49,10 +48,7 @@ struct ConversationComposer: View {
     /// Shows a message in the transcript, as a click on the reply strip asks.
     var reveal: (UUID) -> Void = { _ in }
 
-    /// The bar's look, today's unless the new look asks for its own.
-    var chrome = ComposerBar.Chrome.standard
-
-    /// The new look's flights (`HouseLiveFlights`); nil in today's look.
+    /// The conversation's flights (`HouseLiveFlights`); nil flies nothing.
     var flights: HouseLiveFlights?
 
     /// The model and effort chosen in the popup and not kept yet, nil while they are the worker's.
@@ -68,9 +64,6 @@ struct ConversationComposer: View {
     /// The command popup's selection, and the draft it was closed on.
     @State private var commands = SlashCommandMenu()
 
-    @Environment(\.accessibilityReduceMotion)
-    private var reducesMotion
-
     var body: some View {
         bar
         .sendsOnReturn(!sendsWithCommandReturn)
@@ -83,22 +76,7 @@ struct ConversationComposer: View {
             )
         }
         .focusRequest(focusRequest + editFocus)
-        .strip {
-            if chrome == .house {
-                houseStrips
-            } else {
-                VStack(spacing: 0) {
-                    if !team.queue.isEmpty {
-                        queueStrip
-                            .transition(ComposerBar.stripTransition(reducesMotion: reducesMotion))
-                    }
-                    if let quote = team.draftQuote {
-                        replyStrip(quote)
-                            .transition(ComposerBar.stripTransition(reducesMotion: reducesMotion))
-                    }
-                }
-            }
-        }
+        .strip { strips }
         .accessory {
             HStack(spacing: 2) {
 
@@ -108,8 +86,7 @@ struct ConversationComposer: View {
                         catalogue: team.connections.catalogues[configuration.provider],
                         isOpen   : $isChoosingModel,
                         frame    : $modelButton,
-                        isEnabled: !team.isAnswering(worker.id),
-                        height   : chrome == .house ? 24 : ComposerBar.circleSide
+                        isEnabled: !team.isAnswering(worker.id)
                     )
                 }
             }
@@ -175,7 +152,7 @@ struct ConversationComposer: View {
             ComposerBar.stripAnimation,
             value: team.queue
         )
-        .composerDock(chrome)
+        .composerDock()
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         .onChange(of: worker.id) {
             isChoosingModel = false
@@ -198,7 +175,7 @@ struct ConversationComposer: View {
         .task(id: team.draftQuote) { await team.flushDraft() }
     }
 
-    /// The bar, with the new look's `+` menu while the conversation browses.
+    /// The bar, with its `+` menu while the conversation browses.
     private var bar: ComposerBar {
         let bar = ComposerBar(
             draft      : $team.draft,
@@ -210,12 +187,10 @@ struct ConversationComposer: View {
                 Task { await keepChoice(); await team.send() }
             },
             stop       : { team.stopAnswering(worker.id) },
-            release    : team.holdsComputer(worker.id) ? { Task { await team.releaseComputer(worker.id) } } : nil,
-            chrome     : chrome
+            release    : team.holdsComputer(worker.id) ? { Task { await team.releaseComputer(worker.id) } } : nil
         )
         .fieldLink(flights?.field)
-        guard chrome == .house,
-              team.composesWeb,
+        guard team.composesWeb,
               let conversation = team.conversation,
               conversation.participantIDs.contains(worker.id)
         else { return bar }
@@ -236,50 +211,10 @@ struct ConversationComposer: View {
         }
     }
 
-    /// The strip of a reply in progress: the reply symbol, the worker's name when
-    /// the quote is theirs, the quoted words on one line, and × to drop the quote.
-    /// A quote of the person's own message has no name; the symbol takes the
-    /// accent instead, as the bar of such a quote does in a bubble.
-    private func replyStrip(_ quote: MessageQuote) -> some View {
-        let author = quote.isFromPerson ? nil : worker.name
-        return ComposerStrip(
-            symbol           : "arrowshape.turn.up.left",
-            tint             : quote.isFromPerson ? .accentColor : .secondary,
-            title            : author,
-            text             : quote.excerpt,
-            accessibilityText: "Replying to \(author ?? "your message"): \(quote.excerpt)",
-            roundsTop        : team.queue.isEmpty,
-            open             : { reveal(quote.messageID) }
-        ) {
-            ComposerStripCancelButton(
-                help  : "Don’t reply to this message.",
-                label : "Cancel Reply",
-                action: { team.draftQuote = nil }
-            )
-        }
-        .help("Show the message you’re replying to.")
-    }
-
-    /// The conversation's queue, showing the message that goes next.
-    private var queueStrip: some View {
-        ConversationQueueStrip(
-            queue      : team.queue,
-            shown      : team.shownQueuedIndex,
-            isAnswering: team.isAnswering(worker.id),
-            next       : { team.showNextQueued() },
-            sendNow    : { Task { await team.sendQueuedNow() } },
-            edit       : {
-                editFocus += 1
-                Task { await team.editShownQueued() }
-            },
-            remove     : { Task { await team.removeShownQueued() } }
-        )
-    }
-
-    /// The new look's strips, tabs over the pill: the queue's, which pages, sends now, removes and
-    /// takes a message back to edit, and the reply's, whose line goes to the quoted message. Their
-    /// lines are where the flights land and leave.
-    private var houseStrips: some View {
+    /// The strips, tabs over the pill: the queue's, which pages, sends now, removes and takes a
+    /// message back to edit, and the reply's, whose line goes to the quoted message. Their lines are
+    /// where the flights land and leave.
+    private var strips: some View {
         VStack(spacing: 0) {
             if !team.queue.isEmpty {
                 QueueStrip(
@@ -318,7 +253,7 @@ struct ConversationComposer: View {
         }
     }
 
-    /// In the new look, the draft about to be sent sets off its flight from the field: into the
+    /// The draft about to be sent sets off its flight from the field: into the
     /// transcript, or into the queue strip during a turn. A command flies nowhere.
     private func depart() {
         let text = team.draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -330,7 +265,7 @@ struct ConversationComposer: View {
         )
     }
 
-    /// Takes the quote off the draft; in the new look its line flies back into its bubble.
+    /// Takes the quote off the draft; with flights its line flies back into its bubble.
     private func dropQuote() {
         if let flights {
             flights.unquote(in: team)

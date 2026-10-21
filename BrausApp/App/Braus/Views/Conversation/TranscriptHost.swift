@@ -25,9 +25,6 @@ struct TranscriptHost: NSViewRepresentable {
     /// which the last message scrolls clear of.
     var bottomInset: CGFloat = 0
 
-    /// How the transcript is drawn: today's, or the new look's.
-    var look = TranscriptStyle.Look.standard
-
     // Read as the host is made, in its parent's body, which updates when one of them changes.
     let bodyPointSize  = AppPreferenceValues.shared.bodyPointSize
     let fontFamily     = AppPreferenceValues.shared.chatFontFamily
@@ -71,8 +68,7 @@ struct TranscriptHost: NSViewRepresentable {
             bodyPointSize : CGFloat(bodyPointSize),
             fontFamily    : fontFamily,
             showsTimes    : showsTimes,
-            opensToolSteps: opensToolSteps,
-            look          : look
+            opensToolSteps: opensToolSteps
         )
         if controller.style != style { controller.style = style }
         if controller.topInset != topInset { controller.topInset = topInset }

@@ -196,7 +196,7 @@ struct RichContentTests {
         let prose = RowGeometry.textWidthLimit(for: rows[0].item.kind, rowWidth: 1400, style: TranscriptStyle())
         #expect(geometry.blockTexts[0].width == prose.rounded(.down))
         #expect(geometry.blocks[1].width > prose)
-        #expect(geometry.surface.width <= TranscriptStyle().wideMeasure)
+        #expect(geometry.surface.width <= RowGeometry.houseColumn)
     }
 
     @Test("Headings are headings, code is named as code, and Copy block is a VoiceOver action")

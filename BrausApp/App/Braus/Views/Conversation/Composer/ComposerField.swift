@@ -44,7 +44,7 @@ struct ComposerField: NSViewRepresentable {
     /// The lines the field shows before it scrolls, fixed when the field is made.
     var maximumLines = ComposerScrollView.maximumLines
 
-    /// Given the field's view, for whoever reads what it draws, such as the new look's flights.
+    /// Given the field's view, for whoever reads what it draws, such as the conversation's flights.
     var link: Link?
 
     /// Link hands out the field's view once it is made.

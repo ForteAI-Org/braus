@@ -12,8 +12,7 @@ import Testing
 
 /// Draws the composer floating over a stand-in transcript into PNGs, for a
 /// person to look at, the way the transcript snapshots do: `cacheDisplay` into
-/// a bitmap, no window on screen and no Screen Recording grant. Each state is
-/// drawn on the material and on the solid surface Reduce Transparency uses.
+/// a bitmap, no window on screen and no Screen Recording grant.
 ///
 /// Gated by BRAUS_SNAPSHOTS=1; the files go to BRAUS_SNAPSHOT_DIR, or to a
 /// folder under the temporary directory.
@@ -51,29 +50,8 @@ struct ComposerSnapshotTests {
         }),
     ]
 
-    @Test("Empty, code, grown, during a turn, with no model and with Release, at two widths, in both themes")
+    @Test("Empty, code, grown, during a turn, with no model and with Release, at two widths, its glass drawn opaque")
     func snapshots() async throws {
-        let surfaces: [(name: String, kind: ComposerSurface.Kind?)] = [("material", .material), ("solid", .solid)]
-        for state in Self.states {
-            for width in [600, 900] as [CGFloat] {
-                for (theme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-                    for surface in surfaces {
-                        let harness = ComposerHarness(width: width, height: 320, appearance: appearance,
-                                                      surface: surface.kind)
-                        defer { harness.close() }
-                        try await Self.draw(
-                            harness,
-                            in   : state.set,
-                            named: "composer-\(state.name)-\(Int(width))-\(theme)-\(surface.name).png"
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    @Test("The new look's composer in the same states, at two widths, dark, its glass drawn opaque")
-    func houseSnapshots() async throws {
         // Glass composites only in the window server, so the pill is drawn as Reduce Transparency draws it.
         RestylingMotion.overrideReducesTransparency = true
         defer { RestylingMotion.overrideReducesTransparency = nil }
@@ -81,14 +59,13 @@ struct ComposerSnapshotTests {
             for width in [600, 900] as [CGFloat] {
                 let harness = ComposerHarness(
                     width : width,
-                    height: 320,
-                    chrome: .house
+                    height: 320
                 )
                 defer { harness.close() }
                 try await Self.draw(
                     harness,
                     in   : state.set,
-                    named: "composer-house-\(state.name)-\(Int(width))-dark.png"
+                    named: "composer-\(state.name)-\(Int(width)).png"
                 )
             }
         }
