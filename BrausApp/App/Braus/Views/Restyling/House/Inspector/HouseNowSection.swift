@@ -14,13 +14,8 @@ struct HouseNowSection: View {
     let worker: MockWorker
     let team  : MockTeam
 
-    @Binding var isExpanded: Bool
-
     var body: some View {
-        HouseFoldableSection(
-            title     : "Now",
-            isExpanded: $isExpanded
-        ) {
+        Section("Now") {
             LabeledContent("Status") {
                 if team.isAnswering(worker) || team.isCompacting(worker) {
                     StatusText(

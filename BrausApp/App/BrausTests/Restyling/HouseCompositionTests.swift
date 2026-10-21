@@ -193,60 +193,8 @@ struct HouseCompositionTests {
 
     // MARK: Inspector
 
-    @Test("The inspector's sections fold, and keep how they were left, for each worker")
+    @Test("The inspector stands on the sections of the app's own inspector")
     func inspectorSections() {
-        var disclosure = InspectorDisclosure()
-        let first      = UUID()
-        let second     = UUID()
-        #expect(InspectorDisclosure.Section.allCases.allSatisfy {
-            disclosure.isExpanded(
-                $0,
-                for: first
-            )
-        })
-
-        disclosure.setExpanded(
-            false,
-            .model,
-            for: first
-        )
-        disclosure.setExpanded(
-            false,
-            .turn,
-            for: second
-        )
-        #expect(!disclosure.isExpanded(
-            .model,
-            for: first
-        ))
-        #expect(disclosure.isExpanded(
-            .turn,
-            for: first
-        ))
-        #expect(disclosure.isExpanded(
-            .model,
-            for: second
-        ))
-        #expect(!disclosure.isExpanded(
-            .turn,
-            for: second
-        ))
-
-        disclosure.setExpanded(
-            true,
-            .model,
-            for: first
-        )
-        #expect(disclosure.isExpanded(
-            .model,
-            for: first
-        ))
-
-        // The list of providers is open for one worker at a time, and is still open on coming back.
-        disclosure.choosingProviderFor = first
-        #expect(disclosure.choosingProviderFor != second)
-        #expect(disclosure.choosingProviderFor == first)
-
         let inspector = String(reflecting: HouseInspector.Body.self)
         let sections = [
             "HouseNowSection",
