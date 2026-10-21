@@ -638,6 +638,14 @@ final class TeamModel {
 
     func isAnswering(_ workerID: UUID) -> Bool { answering[workerID] != nil }
 
+    /// The workers an adapter approval waits on the person for: each answering in a conversation that one waits
+    /// in (`AdapterApprovals.waitingScopes`).
+    var awaitingApproval: Set<UUID> {
+        guard let scopes = approvals?.waitingScopes, !scopes.isEmpty else { return [] }
+
+        return Set(answering.filter { scopes.contains($0.value) }.keys)
+    }
+
     /// Starts the worker's turn when it has a provider. The turn runs apart
     /// from `send`, so writing to another worker meanwhile is not held up, and
     /// a failed turn is reported and never retried. A turn through Braus's own
@@ -801,7 +809,8 @@ final class TeamModel {
             barrier         : ActionBarrier(persistingIn: AppModel.refusalFolder,
                                             context: "conversation-" + conversationID.uuidString),
             adapterApprover: approvals.map { AdapterApprover(approvals: $0) },
-            approvals: approvals
+            approvals: approvals,
+            approvalScope: conversationID
         )
         host.callProducer = CallProducer(source: .app, streamID: "worker-" + workerID.uuidString)
         hosts[conversationID] = (host, desktop)
