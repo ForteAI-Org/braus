@@ -37,7 +37,8 @@ final class SeatReleasingDelegate: NSObject, NSApplicationDelegate {
     let teams = NSHashTable<TeamModel>.weakObjects()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if RestylingMode.isRequested { NSApp.appearance = NSAppearance(named: .darkAqua) }
+        // Braus is dark only, every window of it.
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         if WindowSnapshots.isRequested {
             Task { await WindowSnapshots.writeAndQuit() }
         } else if WindowResizeCheck.isRequested {

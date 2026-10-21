@@ -19,11 +19,6 @@ struct BrausApp: App {
     /// click.
     @State private var workspace = WorkspaceLaunch()
 
-    #if DEBUG
-    /// What the Debug menu's Appearance has the app follow.
-    @State private var debugAppearance = DebugAppearance.system
-    #endif
-
     @NSApplicationDelegateAdaptor(SeatReleasingDelegate.self)
     private var delegate
 
@@ -57,30 +52,24 @@ struct BrausApp: App {
 
         // The team is the front door. It asks for no grant until a worker first opens an app.
         WindowGroup("Braus") {
-            if BehaviourPreview.isRequested {
-                BehaviourPreview()
-            } else if RestylingMode.isRequested {
-                RestylingWindowView()
-            } else {
-                TeamWindowView(
-                    launch     : workspace,
-                    connections: model.settings,
-                    broker     : model.broker,
-                    didOpenTeam: { delegate.teams.add($0) },
-                    channels      : model.channels,
-                    chromeProfiles: model.chromeProfiles,
-                    approvals  : model.approvals
-                )
-                // The delegate is made by AppKit and the model by SwiftUI, so
-                // this window, the one that always exists, is where they meet.
-                .task {
-                    delegate.model = model
-                    // Settings' Restart Braus waits for every team's answering worker and every busy client.
-                    model.chromeProfilesSettings.isBusy = { [delegate, model] in
-                        delegate.teams.allObjects.contains { !$0.answering.isEmpty } || model.mcp.isBusy
-                    }
-                    if !Self.isCheckRun { await model.mcp.prepare() }
+            TeamWindowView(
+                launch     : workspace,
+                connections: model.settings,
+                broker     : model.broker,
+                didOpenTeam: { delegate.teams.add($0) },
+                channels      : model.channels,
+                chromeProfiles: model.chromeProfiles,
+                approvals  : model.approvals
+            )
+            // The delegate is made by AppKit and the model by SwiftUI, so
+            // this window, the one that always exists, is where they meet.
+            .task {
+                delegate.model = model
+                // Settings' Restart Braus waits for every team's answering worker and every busy client.
+                model.chromeProfilesSettings.isBusy = { [delegate, model] in
+                    delegate.teams.allObjects.contains { !$0.answering.isEmpty } || model.mcp.isBusy
                 }
+                if !Self.isCheckRun { await model.mcp.prepare() }
             }
         }
         // A snapshot run draws offscreen and quits; it opens no window and no workspace.
@@ -89,9 +78,6 @@ struct BrausApp: App {
             // The team's sidebar turns compact and is never hidden, so the View menu has no place for it.
             CommandGroup(replacing: .sidebar) {}
             TextSizeCommands()
-            #if DEBUG
-            DebugAppearanceCommands(choice: $debugAppearance)
-            #endif
             TeamMenuCommands()
             HouseFindCommands()
             SettingsCommands()

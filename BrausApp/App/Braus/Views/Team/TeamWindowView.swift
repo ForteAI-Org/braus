@@ -11,10 +11,7 @@ import SeatBroker
 import SwiftUI
 
 /// TeamWindowView is the app's front door: it opens the workspace and hands
-/// the team to `TeamShellView`, the three areas of the window, or to
-/// `HouseShellView` while the new look is on (`AppPreferences.newLook`). A
-/// change of the setting swaps the shell over the same team; the new look is
-/// dark only, so the app turns dark with it and follows the system again after.
+/// the team to `HouseShellView`, the three areas of the window.
 ///
 /// It is also the window's memory (§3.1). Whether the inspector was asked
 /// for and the selected worker are scene storage, so each window restores its
@@ -60,7 +57,7 @@ struct TeamWindowView: View {
         content
             // The shell sets the window's minimum width itself, as it depends on the inspector.
             .frame(
-                minWidth : team == nil ? ShellMetrics.windowMinimum : nil,
+                minWidth : team == nil ? RestylingWindowLayout.minimumWidth : nil,
                 minHeight: 560
             )
             .task {
@@ -81,35 +78,16 @@ struct TeamWindowView: View {
                 team = model
                 await model.openSelectedConversation()
             }
-            .onChange(
-                of     : AppPreferenceValues.shared.newLook,
-                initial: true
-            ) { wasOn, isOn in
-                if isOn {
-                    NSApp.appearance = NSAppearance(named: .darkAqua)
-                } else if wasOn {
-                    NSApp.appearance = nil
-                }
-            }
     }
 
     @ViewBuilder
     private var content: some View {
         if let team {
             
-            Group {
-                if AppPreferenceValues.shared.newLook {
-                    HouseShellView(
-                        team                : team,
-                        isInspectorRequested: $isInspectorRequested
-                    )
-                } else {
-                    TeamShellView(
-                        team                : team,
-                        isInspectorRequested: $isInspectorRequested
-                    )
-                }
-            }
+            HouseShellView(
+                team                : team,
+                isInspectorRequested: $isInspectorRequested
+            )
             .onChange(of: team.selection) {
                 storedSelection = team.selection?.uuidString ?? ""
             }

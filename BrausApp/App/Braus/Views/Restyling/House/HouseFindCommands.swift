@@ -7,9 +7,8 @@
 
 import SwiftUI
 
-/// HouseFindCommands is the Edit menu's Find… (⌘F) for the house window, the mockup's or the new
-/// look's: it moves the keyboard focus to the sidebar's search field. Otherwise the group stays
-/// empty, so the team window's menus are unchanged.
+/// HouseFindCommands is the Edit menu's Find… (⌘F) for the house window: it moves the keyboard focus
+/// to the sidebar's search field.
 struct HouseFindCommands: Commands {
 
     @FocusedValue(\.findInHouse)
@@ -17,11 +16,9 @@ struct HouseFindCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .textEditing) {
-            if RestylingMode.isRequested || AppPreferenceValues.shared.newLook {
-                Button("Find…") { findInHouse?() }
-                    .keyboardShortcut("f")
-                    .disabled(findInHouse == nil)
-            }
+            Button("Find…") { findInHouse?() }
+                .keyboardShortcut("f")
+                .disabled(findInHouse == nil)
         }
     }
 }
