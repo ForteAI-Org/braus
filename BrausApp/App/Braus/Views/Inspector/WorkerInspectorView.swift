@@ -67,8 +67,8 @@ struct WorkerInspectorView: View {
                 worker: worker
             )
             InspectorTurnSection(
-                worker: worker,
-                turn  : turn
+                workerName: worker.name,
+                turn      : turn
             )
         }
         .formStyle(.grouped)
