@@ -12,7 +12,9 @@ import SwiftUI
 ///
 /// The toolbar holds New Worker by the traffic lights; at the trailing edge, the worker's usage, the Screen and
 /// Inspector controls; the window has no title, as the worker sits at the top of its conversation.
-/// New Worker is a placeholder. Edit > Find… focuses the sidebar's search (`HouseFindCommands`).
+/// New Worker opens its sheet (`HouseNewWorkerSheet`), and the worker it creates is chosen. A room's
+/// Edit Worker… chooses its worker and shows the inspector, where the worker is edited. Edit > Find…
+/// focuses the sidebar's search (`HouseFindCommands`).
 ///
 /// A worker chosen with the pointer hands the keyboard to the composer, so the sidebar's selection
 /// draws unemphasized; one chosen with the arrow keys leaves it in the sidebar to keep browsing, and
@@ -71,6 +73,8 @@ struct RestylingWindowView: View {
 
     @State private var showsScreen = true
 
+    @State private var isCreatingWorker = false
+
     /// What the split shows, always: the sidebar never closes.
     static let columnVisibility = NavigationSplitViewVisibility.all
 
@@ -80,7 +84,8 @@ struct RestylingWindowView: View {
         NavigationSplitView(columnVisibility: .constant(Self.columnVisibility)) {
             HouseSidebar(
                 house    : house,
-                selection: $selection
+                selection: $selection,
+                edit     : edit
             )
             .background(SidebarBridge())
             // The system's sidebar material reads grey; the house's sidebar is darker, from the asset catalogue.
@@ -97,7 +102,9 @@ struct RestylingWindowView: View {
                     Button(
                         "New Worker",
                         systemImage: "plus"
-                    ) {}
+                    ) {
+                        isCreatingWorker = true
+                    }
                     .help("New worker")
                 }
             }
@@ -121,7 +128,7 @@ struct RestylingWindowView: View {
             .toolbar { toolbar }
             .inspector(isPresented: inspectorPresentation) {
                 HouseInspector(
-                    worker     : selectedWorker,
+                    worker     : selectedWorkerBinding,
                     showsScreen: showsScreen
                 )
                 .scrollContentBackground(.hidden)
@@ -154,6 +161,9 @@ struct RestylingWindowView: View {
             minHeight: 560
         )
         .background(WindowWidthReader(onWidth: windowResized))
+        .sheet(isPresented: $isCreatingWorker) {
+            HouseNewWorkerSheet(house: $house) { selection = $0 }
+        }
         .onChange(of: selection) {
             focusesShownComposer = selection != nil && NSApp.currentEvent?.type != .keyDown
             // An empty group completes once the current transaction commits, normally the sidebar's frame
@@ -178,6 +188,17 @@ struct RestylingWindowView: View {
 
     private var selectedWorker: MockWorker? {
         house.workers.first { $0.id == shownSelection }
+    }
+
+    /// The shown worker, for the inspector to edit in the house.
+    private var selectedWorkerBinding: Binding<MockWorker>? {
+        house.workers.firstIndex { $0.id == shownSelection }.map { $house.workers[$0] }
+    }
+
+    /// Chooses `worker` and shows the inspector, where it is edited, as the app's Choose Provider… does.
+    private func edit(_ worker: MockWorker.ID) {
+        selection = worker
+        if !isInspectorRequested { toggleInspector() }
     }
 
     // MARK: Toolbar

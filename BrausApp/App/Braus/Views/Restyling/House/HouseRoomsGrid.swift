@@ -12,7 +12,8 @@ import SwiftUI
 ///
 /// The rooms are laid out `roomsWidth` across, the width `HouseSidebar` changes together with
 /// `columns`, so a change of columns moves every room from where it was on screen. They are seen
-/// through the camera `BRAUS_ROOM_CAMERA` picks at launch.
+/// through the camera `BRAUS_ROOM_CAMERA` picks at launch. A room chosen out of sight, as a worker
+/// just created is, scrolls into view; each offers Edit Worker… (`edit`) in its context menu.
 struct HouseRoomsGrid: View {
     let workers   : [MockWorker]
     let columns   : Int
@@ -20,23 +21,34 @@ struct HouseRoomsGrid: View {
 
     @Binding var selection: MockWorker.ID?
 
+    let edit: (MockWorker.ID) -> Void
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: HouseLayout.gap) {
-                RoomGridLayout(
-                    columns: columns,
-                    height : isCompact ? HouseLayout.compactRoomHeight : HouseLayout.roomHeight,
-                    width  : roomsWidth
-                ) {
-                    ForEach(workers) { worker in
-                        room(worker)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: HouseLayout.gap) {
+                    RoomGridLayout(
+                        columns: columns,
+                        height : isCompact ? HouseLayout.compactRoomHeight : HouseLayout.roomHeight,
+                        width  : roomsWidth
+                    ) {
+                        ForEach(workers) { worker in
+                            room(worker)
+                                .id(worker.id)
+                                .transition(HouseLayout.arrival)
+                        }
                     }
                 }
+                .padding(
+                    .horizontal,
+                    HouseLayout.margin
+                )
             }
-            .padding(
-                .horizontal,
-                HouseLayout.margin
-            )
+            .onChange(of: selection) {
+                guard let selection else { return }
+                // A room just added is laid out after this change, so it is found on the next turn.
+                DispatchQueue.main.async { proxy.scrollTo(selection) }
+            }
         }
     }
 
@@ -51,6 +63,9 @@ struct HouseRoomsGrid: View {
             selection = worker.id
         }
         .frame(height: isCompact ? HouseLayout.compactRoomHeight : HouseLayout.roomHeight)
+        .contextMenu {
+            Button("Edit Worker…") { edit(worker.id) }
+        }
     }
 }
 

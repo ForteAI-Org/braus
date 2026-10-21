@@ -141,9 +141,11 @@ Prototype: `prototypes/casa.html`.
 
 **Structure** [decided]. A normal macOS app as today: sidebar, content, and an
 inspector that opens from the toolbar. The `+` for a new worker stays beside the
-traffic lights. The toolbar holds only the Screen and Inspector group, top
-right. The worker's name is not repeated in the title bar, because the worker
-already sits at the top of the conversation.
+traffic lights; it opens the app's New Worker sheet with the worker's shape
+chosen among the eight, and the inspector's Worker section (also a room's Edit
+Worker…) changes its name, role and shape [decided]. The toolbar holds only the
+Screen and Inspector group, top right. The worker's name is not repeated in the
+title bar, because the worker already sits at the top of the conversation.
 
 **Sidebar, two modes** [decided], chosen in Settings [decided]:
 
