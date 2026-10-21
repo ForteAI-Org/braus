@@ -30,6 +30,12 @@ struct HouseHero: View {
     /// Where the hero is in a change of worker.
     var stage = HouseSwitch.Stage.present
 
+    /// How far from its face the hero follows the pointer, in points.
+    static let gazeRadius: CGFloat = 200
+
+    /// Makes the hero's brows follow the pointer when it comes near.
+    @State private var gaze = WorkerGaze(radius: HouseHero.gazeRadius)
+
     /// The side of the worker's sphere, in points.
     static let workerSize: CGFloat = 60
 
@@ -67,11 +73,19 @@ struct HouseHero: View {
                     status: status,
                     brows : brows
                 ),
+                gaze        : gaze,
                 capsuleLight: HeroLight.capsuleLight(for: status),
                 changeFade  : HeroLight.fade,
                 preparation : preparation,
                 switchStage : stage
             )
+            .background {
+                GazeTracker(
+                    gaze     : gaze,
+                    isEnabled: stage == .present,
+                    outset   : Self.gazeRadius
+                )
+            }
             .frame(
                 height   : Self.portraitHeight,
                 alignment: .bottom

@@ -34,6 +34,9 @@ struct HouseWorkerPortrait: View {
 
     var showsHalo = false
 
+    /// The gaze that makes the brows follow the pointer, or nil for none.
+    var gaze: WorkerGaze?
+
     /// The light of the name's capsule below the worker (`RoomLightUniforms.capsuleLight`), or zero.
     var capsuleLight = SIMD4<Float>.zero
 
@@ -288,7 +291,8 @@ struct HouseWorkerPortrait: View {
                     lean: HouseWorkerPortrait.lean
                 ),
                 behaviourSeed   : portrait.seed,
-                bodyLink        : bodyLink
+                bodyLink        : bodyLink,
+                gaze            : portrait.gaze
             ).configure(
                 face,
                 animated: animated
