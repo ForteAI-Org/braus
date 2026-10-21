@@ -10,9 +10,9 @@ import SwiftUI
 /// HouseShellView is the team window in the new look (`AppPreferences.newLook`): the house's frame
 /// (`HouseSplit`) over the same `TeamModel` today's `TeamShellView` reads, dark only.
 ///
-/// The sidebar is the house over the team's real workers (`HouseRoster`); the conversation and the
-/// inspector are today's views until the house's own take their place. The selection is the team's:
-/// a worker chosen with the pointer hands the keyboard to the composer, one chosen with the keys
+/// The sidebar is the house over the team's real workers (`HouseRoster`); the conversation is
+/// today's view until the house's own takes its place, and the inspector is `HouseLiveInspector`.
+/// The selection is the team's: a worker chosen with the pointer hands the keyboard to the composer, one chosen with the keys
 /// leaves it in the sidebar, and Return there moves it to the composer. The sheets, the dialogs, the
 /// approvals and the Team menu are the ones `TeamShellView` presents, so either shell does the same.
 struct HouseShellView: View {
@@ -222,19 +222,7 @@ struct HouseShellView: View {
         }
     }
 
-    @ViewBuilder
     private var inspector: some View {
-        if let worker = team.selectedWorker {
-            WorkerInspectorView(
-                team  : team,
-                worker: worker
-            )
-        } else {
-            ContentUnavailableView(
-                "No Worker Selected",
-                systemImage: "info.circle",
-                description: Text("Select a worker to view current activity and turn details.")
-            )
-        }
+        HouseLiveInspector(team: team)
     }
 }

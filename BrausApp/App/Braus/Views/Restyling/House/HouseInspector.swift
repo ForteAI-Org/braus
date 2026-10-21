@@ -9,7 +9,7 @@ import SwiftUI
 
 /// HouseInspector is the mockup's inspector, a grouped form with the system's own section headers
 /// as the app's inspector is (`WorkerInspectorView`), with its sections on `MockTeam`'s values: the
-/// worker itself, which the person edits here (`WorkerSection`), where the worker is now, its screen
+/// worker itself, which the person edits here (`HouseWorkerSection`), where the worker is now, its screen
 /// while it is busy and the toolbar's Screen toggle is on, its model and provider, its Chrome
 /// window, and its current or last turn (`InspectorTurnSection`). With no worker chosen it says
 /// where the details come from.
@@ -80,8 +80,17 @@ struct HouseInspector: View {
         case .screen:
             HouseScreenSection(worker: worker)
         case .worker:
-            WorkerSection(worker: binding)
-                .id(worker.id)
+            HouseWorkerSection(
+                name             : worker.name,
+                role             : worker.role,
+                shape            : worker.shape,
+                roleFollowsTyping: true,
+                isSpacious       : true,
+                commitName       : { binding.wrappedValue.name = $0 },
+                commitRole       : { binding.wrappedValue.role = $0 },
+                commitShape      : { binding.wrappedValue.shape = $0 }
+            )
+            .id(worker.id)
         case .now:
             HouseNowSection(
                 worker: worker,
@@ -107,104 +116,6 @@ struct HouseInspector: View {
                 turn      : team.lastTurn(of: worker),
                 rowPadding: InspectorRowSpacing.vertical
             )
-        }
-    }
-
-    /// WorkerSection is the worker as the person made it: its name, its role and its shape, which
-    /// opens the New Worker sheet's shape grid in a popover. A new shape re-renders the worker's room
-    /// and its mascot at the top of the conversation.
-    ///
-    /// The role follows every keystroke, as the room shows it. The name is taken on Return or when
-    /// the field loses the keyboard, and a name emptied there comes back: a worker always has one.
-    private struct WorkerSection: View {
-        @Binding var worker: HouseWorker
-
-        @State private var name: String
-
-        @State private var isChoosingShape = false
-
-        @FocusState private var isNameFocused: Bool
-
-        init(worker: Binding<HouseWorker>) {
-            _worker = worker
-            _name   = State(initialValue: worker.wrappedValue.name)
-        }
-
-        var body: some View {
-            Section {
-                TextField(
-                    "Name",
-                    text  : $name,
-                    prompt: Text("Worker name")
-                )
-                .inspectorRow()
-                .focused($isNameFocused)
-                .onSubmit(takeName)
-
-                TextField(
-                    "Role",
-                    text  : $worker.role,
-                    prompt: Text("Example: Researcher")
-                )
-                .inspectorRow()
-
-                Button { isChoosingShape = true } label: {
-                    LabeledContent("Shape") {
-                        HStack(
-                            alignment: .firstTextBaseline,
-                            spacing  : 6
-                        ) {
-                            // The mascot is an overlay, so only the text sets the row's baseline and
-                            // the shape's name lines up with the label.
-                            Text(worker.shape.name)
-                                .padding(.leading, 34)
-                                .overlay(alignment: .leading) {
-                                    HouseWorkerPortrait(
-                                        shape : worker.shape,
-                                        status: .free,
-                                        size  : 18,
-                                        brows : .idle
-                                    )
-                                    .frame(
-                                        width : 28,
-                                        height: 18
-                                    )
-                                }
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    .inspectorRow()
-                }
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Shape")
-                .accessibilityValue(worker.shape.name)
-                .accessibilityHint("Shows the shapes to choose from")
-                .accessibilityAddTraits(.isButton)
-                .popover(
-                    isPresented: $isChoosingShape,
-                    arrowEdge  : .leading
-                ) {
-                    HouseShapeGrid(selection: $worker.shape)
-                        .padding(12)
-                }
-            } header: {
-                Text("Worker")
-            } footer: {
-                HouseSectionGap()
-            }
-            .onChange(of: isNameFocused) {
-                if !isNameFocused { takeName() }
-            }
-        }
-
-        private func takeName() {
-            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { worker.name = trimmed }
-            name = worker.name
         }
     }
 }
