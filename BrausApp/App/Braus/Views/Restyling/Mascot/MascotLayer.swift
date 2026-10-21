@@ -8,8 +8,13 @@
 import AppKit
 import QuartzCore
 
-/// MascotLayer draws a worker's mascot: a dark sphere tinted with the worker's colour and lit by
+/// MascotLayer draws a worker's mascot: a body of dark graphite metal in the worker's shape, lit by
 /// its status light, with two brows that morph from one expression to the next.
+///
+/// Every body is the same metal and only its outline tells workers apart: the outline
+/// RoomLight.metal shades in a room, under the same gradients, so a worker looks the same in and out
+/// of rooms. The bounds are the sphere's square; other shapes reach past them by up to their
+/// `ShapeOutline.extent`, and the brows sit on the shape's inscribed circle, its face.
 ///
 /// The head never changes colour for an outcome, since the room light tells it; only a worker that
 /// is off dims the body and greys the brows. Every motion asks `RestylingMotion` first: under
@@ -18,9 +23,12 @@ import QuartzCore
 /// are main-actor isolated, and the layer belongs to the main thread like every tree the app owns.
 nonisolated final class MascotLayer: CALayer {
 
-    /// The worker's colour, blended into the sphere.
-    var tint = NSColor.gray {
-        didSet { applyColors() }
+    /// The worker's shape. The brows follow it even when another renderer draws the body.
+    var shape = WorkerShape.circle {
+        didSet {
+            guard shape != oldValue else { return }
+            setNeedsLayout()
+        }
     }
 
     /// What the worker is doing: its light colours the bounce at the bottom.
@@ -43,19 +51,19 @@ nonisolated final class MascotLayer: CALayer {
     private var leftLight : [CAShapeLayer] = []
     private var rightLight: [CAShapeLayer] = []
 
-    private let body      = CALayer()
-    private let base      = CAGradientLayer()
-    private let tintLight = CAGradientLayer()
-    private let shading   = CAGradientLayer()
-    private let bounce    = CAGradientLayer()
-    private let sheen     = CAGradientLayer()
-    private let dimming   = CALayer()
+    private let body       = CALayer()
+    private let silhouette = CAShapeLayer()
+    private let base       = CAGradientLayer()
+    private let shading    = CAGradientLayer()
+    private let bounce     = CAGradientLayer()
+    private let sheen      = CAGradientLayer()
+    private let dimming    = CALayer()
 
     /// The expression last shown.
     private var state = BrowState.idle
 
     /// The outline the brows hold: `state`, or `look` while an idle mascot looks to the right.
-    private var shape = BrowState.idle
+    private var heldBrows = BrowState.idle
 
     private var yaw  : Double = 0
     private var pitch: Double = 0
@@ -65,65 +73,35 @@ nonisolated final class MascotLayer: CALayer {
 
     override init() {
         super.init()
-        for gradient in [base, tintLight, shading, bounce, sheen] {
+        for gradient in [base, shading, bounce, sheen] {
             gradient.type = .radial
             body.addSublayer(gradient)
         }
         body.addSublayer(dimming)
-        body.masksToBounds = true
+        body.mask = silhouette
         addSublayer(body)
 
+        // Graphite, as the room's Metal body paints it before dimming it for its reflections.
         base.colors = [
-            Self.color(hex: 0x343230),
-            Self.color(hex: 0x262423),
-            Self.color(hex: 0x232120),
+            Self.color(hex: 0x2D2D32),
+            Self.color(hex: 0x222226),
+            Self.color(hex: 0x1F1F23),
         ]
         base.locations = [0, 0.44, 1]
-        Self.center(
-            base,
-            x      : 0.37,
-            top    : 0.30,
-            radiusX: 0.942,
-            radiusY: 0.942
-        )
-
-        tintLight.compositingFilter = "colorBlendMode"
-        tintLight.locations         = [0, 0.5, 1]
-        Self.center(
-            tintLight,
-            x      : 0.37,
-            top    : 0.30,
-            radiusX: 0.942,
-            radiusY: 0.942
-        )
 
         // Darkens the lower half and the sides for volume, lightly, so the edge reads diffuse as the
-        // room's Metal sphere does.
+        // room's Metal body does.
         shading.colors = [
             CGColor(gray: 0, alpha: 0),
             CGColor(gray: 0, alpha: 0.2),
         ]
         shading.locations = [0.55, 1]
-        Self.center(
-            shading,
-            x      : 0.5,
-            top    : 0.25,
-            radiusX: 0.85,
-            radiusY: 0.85
-        )
 
         // A crescent of status light on the lowest tenth, inside the outline.
         bounce.locations = [0, 0.2, 0.34]
-        Self.center(
-            bounce,
-            x      : 0.5,
-            top    : 1.1,
-            radiusX: 1.0,
-            radiusY: 0.6
-        )
 
         // A broad, faint, warm sheen upper left with no hard core, as the lamp's reflection on the
-        // room's Metal sphere, so the mascot keeps its volume and looks like the same object.
+        // room's Metal body, so the mascot keeps its volume and looks like the same object.
         let warm = CGColor(
             srgbRed: 1,
             green  : 0.92,
@@ -136,13 +114,6 @@ nonisolated final class MascotLayer: CALayer {
             warm.copy(alpha: 0) as Any,
         ]
         sheen.locations = [0, 0.45, 1]
-        Self.center(
-            sheen,
-            x      : 0.34,
-            top    : 0.26,
-            radiusX: 0.42,
-            radiusY: 0.36
-        )
 
         dimming.backgroundColor = CGColor(gray: 0, alpha: 1)
 
@@ -193,7 +164,7 @@ nonisolated final class MascotLayer: CALayer {
     override var contentsScale: CGFloat {
         didSet {
             let lit = (leftLight + rightLight).flatMap { [$0, $0.mask].compactMap { $0 } }
-            for layer in [body, leftBrow, rightBrow] + (body.sublayers ?? []) + lit {
+            for layer in [body, silhouette, leftBrow, rightBrow] + (body.sublayers ?? []) + lit {
                 layer.contentsScale = contentsScale
             }
         }
@@ -207,15 +178,64 @@ nonisolated final class MascotLayer: CALayer {
         nil
     }
 
+    /// The body's outline in the body layer's coordinates, as it clips the body.
+    var bodyOutline: CGPath? {
+        silhouette.path
+    }
+
     override func layoutSublayers() {
         super.layoutSublayers()
         withoutActions {
-            body.frame        = bounds
-            body.cornerRadius = min(bounds.width, bounds.height) / 2
-            for layer in body.sublayers ?? [] {
+            // A square around the sphere's centre, large enough for the shape.
+            let outline = shape.outline
+            let radius  = min(bounds.width, bounds.height) / 2
+            let reach   = max(1, outline.extent)
+            body.frame = CGRect(
+                x     : bounds.midX - reach * radius,
+                y     : bounds.midY - reach * radius,
+                width : 2 * reach * radius,
+                height: 2 * reach * radius
+            )
+            for layer in (body.sublayers ?? []) + [silhouette] {
                 layer.frame = body.bounds
             }
+            // The outline's y points down, the layer's up.
+            silhouette.path = outline.path(transform: CGAffineTransform(
+                translationX: reach * radius,
+                y           : reach * radius
+            ).scaledBy(
+                x: radius,
+                y: -radius
+            ))
+            placeGradients(
+                reach : reach,
+                bottom: outline.bottom
+            )
             placeBrows()
+        }
+    }
+
+    /// Places the gradients where they fall on the sphere's square, in a body `reach` times as
+    /// large; the bounce follows the outline's lowest point, `bottom` sphere radii below the centre.
+    private func placeGradients(
+        reach : Double,
+        bottom: Double
+    ) {
+        typealias Place = (gradient: CAGradientLayer, x: Double, top: Double, radiusX: Double, radiusY: Double)
+        let places: [Place] = [
+            (base,    0.37, 0.30,                   0.942, 0.942),
+            (shading, 0.5,  0.25,                   0.85,  0.85),
+            (bounce,  0.5,  1.1 + (bottom - 1) / 2, 1.0,   0.6),
+            (sheen,   0.34, 0.26,                   0.42,  0.36),
+        ]
+        for place in places {
+            Self.center(
+                place.gradient,
+                x      : 0.5 + (place.x - 0.5) / reach,
+                top    : 0.5 + (place.top - 0.5) / reach,
+                radiusX: place.radiusX / reach,
+                radiusY: place.radiusY / reach
+            )
         }
     }
 
@@ -228,14 +248,14 @@ nonisolated final class MascotLayer: CALayer {
     ) {
         guard state != self.state else { return }
         let transition = BrowTransition.between(
-            shape,
+            heldBrows,
             state,
             leftFirst: leftLeads
         )
         let animates = animated && !RestylingMotion.reducesMotion
         let now      = convertTime(CACurrentMediaTime(), from: nil)
         self.state = state
-        shape      = state
+        heldBrows  = state
         if transition.movesLeft {
             morph(
                 leftBrow,
@@ -271,9 +291,9 @@ nonisolated final class MascotLayer: CALayer {
         self.pitch = pitch
         let animates = !RestylingMotion.reducesMotion
         if state == .idle {
-            let wanted = yaw > 0.06 ? BrowState.look : (yaw < -0.06 ? BrowState.idle : shape)
-            if wanted != shape {
-                shape = wanted
+            let wanted = yaw > 0.06 ? BrowState.look : (yaw < -0.06 ? BrowState.idle : heldBrows)
+            if wanted != heldBrows {
+                heldBrows = wanted
                 let now = convertTime(CACurrentMediaTime(), from: nil)
                 morph(
                     leftBrow,
@@ -365,15 +385,16 @@ nonisolated final class MascotLayer: CALayer {
         }
     }
 
-    /// Places the brows by the ibrows layout: together they span 54% of the width, 9% of that is
-    /// the gap, and their line sits 36% from the top; then turns them by `yaw` and `pitch`.
+    /// Places the brows by the ibrows layout on the face, the shape's inscribed circle (the whole
+    /// sphere for the circle): together they span 54% of its width, 9% of that is the gap, and their
+    /// line sits 36% from its top; then turns them by `yaw` and `pitch`.
     private func placeBrows() {
-        let width     = bounds.width
-        let span      = width * 0.54
+        let face      = min(bounds.width, bounds.height) * shape.outline.inradius
+        let span      = face * 0.54
         let sideWidth = span * 0.455
         let scale     = sideWidth / Self.artboard.width
-        let centerX   = bounds.midX + sin(yaw * 0.62) * 0.025 * width
-        let centerY   = bounds.height * (1 - 0.36) + sin(pitch * 0.30) * 0.17 * width
+        let centerX   = bounds.midX + sin(yaw * 0.62) * 0.025 * face
+        let centerY   = bounds.midY + (0.5 - 0.36) * face + sin(pitch * 0.30) * 0.17 * face
         for (brow, rest, side) in [(leftBrow, -0.42, -1.0), (rightBrow, 0.42, 1.0)] {
             let angle = rest + yaw * 0.62
             let depth = abs(cos(angle))
@@ -479,7 +500,6 @@ nonisolated final class MascotLayer: CALayer {
     private func applyColors() {
         let isOff    = status == .off
         let strength = status.lightStrength
-        let tint     = self.tint.cgColor
         // A worker that is off has no light, so the bounce is clear.
         let light = status.light.map {
             CGColor(
@@ -490,9 +510,6 @@ nonisolated final class MascotLayer: CALayer {
             )
         } ?? CGColor(gray: 0, alpha: 0)
         withoutActions {
-            tintLight.colors = [0.55, 0.28, 0.10].map { tint.copy(alpha: $0) as Any }
-            // Offline greys the head: the worker's colour goes with its light.
-            tintLight.isHidden = isOff
             bounce.colors = [
                 light.copy(alpha: strength * 0.6) as Any,
                 light.copy(alpha: strength * 0.35) as Any,

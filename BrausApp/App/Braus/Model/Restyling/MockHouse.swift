@@ -15,7 +15,7 @@ nonisolated struct MockHouse: Sendable {
 
     /// The house of the design's prototypes.
     static let sample = MockHouse(
-        workers      : rows.enumerated().map(worker),
+        workers      : rows.map(worker),
         archivedCount: 3,
         mostUsed     : ["Delivery", "Ingest", "Research", "Render"]
     )
@@ -25,42 +25,33 @@ nonisolated struct MockHouse: Sendable {
         status  : WorkerStatus,
         activity: String,
         category: AppCategory,
+        shape   : WorkerShape,
         badge   : MockBadge?
     )
 
+    // A room's neighbours, in rows and in one or two columns, are the next two workers: no shape
+    // repeats or meets a look-alike there (circle, pentagon, hexagon; square, diamond; capsule, lens).
     private static let rows: [Row] = [
-        ("Delivery",  .busy,    "Exporting the AAF", .audio,  nil),
-        ("Render",    .busy,    "Rendering 42%",     .video,  .attention),
-        ("Mastering", .free,    "Free",              .audio,  nil),
-        ("Ingest",    .waiting, "Waiting for you",   .files,  .unread(2)),
-        ("Mixing",    .free,    "Free",              .audio,  nil),
-        ("Design",    .free,    "Free",              .design, nil),
-        ("Export",    .waiting, "Waiting for you",   .design, nil),
-        ("Research",  .free,    "Free",              .web,    nil),
-        ("PT Agent",  .off,     "Off",               .audio,  nil),
+        ("Delivery",  .busy,    "Exporting the AAF", .audio,  .circle,   nil),
+        ("Render",    .busy,    "Rendering 42%",     .video,  .square,   .attention),
+        ("Mastering", .free,    "Free",              .audio,  .capsule,  nil),
+        ("Ingest",    .waiting, "Waiting for you",   .files,  .hexagon,  .unread(2)),
+        ("Mixing",    .free,    "Free",              .audio,  .diamond,  nil),
+        ("Design",    .free,    "Free",              .design, .lens,     nil),
+        ("Export",    .waiting, "Waiting for you",   .design, .pentagon, nil),
+        ("Research",  .free,    "Free",              .web,    .triangle, nil),
+        ("PT Agent",  .off,     "Off",               .audio,  .square,   nil),
     ]
 
-    /// A worker whose appearance follows its place in the house: the palette
-    /// cycles through `MascotPalette.all` and the seed picks a hue inside it,
-    /// so every worker gets its own tint.
-    private static func worker(
-        _ index: Int,
-        _ row  : Row
-    ) -> MockWorker {
-        let palettes = MascotPalette.all
-        let appearance = WorkerAppearance(
-            seed            : Int64(index + 1) * 7_919,
-            generatorVersion: MascotDrawing.generatorVersion,
-            palette         : palettes[index % palettes.count].name
-        )
-        return MockWorker(
-            id        : UUID(),
-            name      : row.name,
-            status    : row.status,
-            activity  : row.activity,
-            category  : row.category,
-            appearance: appearance,
-            badge     : row.badge
+    private static func worker(_ row: Row) -> MockWorker {
+        MockWorker(
+            id      : UUID(),
+            name    : row.name,
+            status  : row.status,
+            activity: row.activity,
+            category: row.category,
+            shape   : row.shape,
+            badge   : row.badge
         )
     }
 }

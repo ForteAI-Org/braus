@@ -9,6 +9,7 @@ import AppKit
 import MetalKit
 import QuartzCore
 import Testing
+import simd
 @testable import Braus
 
 @Suite("RoomLight", .serialized)
@@ -50,8 +51,69 @@ struct RoomLightTests {
         #expect(busy.strength == 1)
         #expect(busy.lightColor == SIMD3<Float>(1, 176.0 / 255, 72.0 / 255))
         #expect(room(.off).strength == 0)
-        // Four float4 in RoomLight.metal.
-        #expect(MemoryLayout<RoomLightUniforms.Packed>.stride == 64)
+        // Five float4 in RoomLight.metal.
+        #expect(MemoryLayout<RoomLightUniforms.Packed>.stride == 80)
+    }
+
+    @Test("The uniforms carry the worker's shape and no tint")
+    func shapeNotTint() {
+        let uniforms = RoomLightUniforms(
+            status     : .busy,
+            shape      : .triangle,
+            hasOccupant: true
+        )
+        let packed = uniforms.packed(
+            size      : CGSize(width: 128, height: 104),
+            pixelWidth: 256
+        )
+        let labels = Mirror(reflecting: uniforms).children.compactMap(\.label)
+            + Mirror(reflecting: packed).children.compactMap(\.label)
+        #expect(labels.contains("shape") && labels.contains("outline"))
+        #expect(!labels.contains { $0.lowercased().contains("tint") })
+        #expect(packed.outline == WorkerShape.triangle.outline.packed)
+        #expect(packed.body == SIMD4(
+            Float(WorkerShape.triangle.outline.dome),
+            Float(WorkerShape.triangle.outline.bottom),
+            0,
+            1
+        ))
+    }
+
+    @Test("The circle's body is the sphere it was, and every body faces up at its centre")
+    func circleIsTheSphere() throws {
+        let device   = try #require(MTLCreateSystemDefaultDevice())
+        let size     = CGSize(width: 128, height: 104)
+        let radius   = 0.17 * Float(size.height)
+        let centre   = SIMD2(Float(size.width) / 2, Float(size.height) / 2)
+        // A grid across the sphere and a little past its silhouette.
+        let offsets  = stride(from: -1.1, through: 1.1, by: 0.1).flatMap { x in
+            stride(from: -1.1, through: 1.1, by: 0.1).map { y in SIMD2(Float(x), Float(y)) }
+        }
+        let normals = try bodyNormals(
+            room(.busy),
+            at    : offsets.map { centre + radius * $0 },
+            size  : size,
+            device: device
+        )
+        for (offset, normal) in zip(offsets, normals) {
+            // Today's sphere normal, as RoomLight.metal computed it before the shapes.
+            let disc   = offset / max(1, simd_length(offset))
+            let sphere = SIMD3(disc, (max(0, 1 - simd_dot(disc, disc))).squareRoot())
+            #expect(simd_distance(normal, sphere) < 1e-3, "at \(offset): \(normal) against \(sphere)")
+        }
+        for shape in WorkerShape.allCases {
+            let up = try bodyNormals(
+                RoomLightUniforms(
+                    status     : .busy,
+                    shape      : shape,
+                    hasOccupant: true
+                ),
+                at    : [centre],
+                size  : size,
+                device: device
+            )
+            #expect(up.first.map { $0.z > 0.999 } == true, "\(shape)")
+        }
     }
 
     @Test("The view renders on demand")
@@ -193,9 +255,75 @@ struct RoomLightTests {
     ) -> RoomLightUniforms {
         RoomLightUniforms(
             status     : status,
-            tint       : .gray,
+            shape      : .circle,
             hasOccupant: hasOccupant
         )
+    }
+
+    /// The body's normals at `points` of a room of `size`, from RoomLight.metal's `bodyNormals`.
+    private func bodyNormals(
+        _ uniforms: RoomLightUniforms,
+        at points : [SIMD2<Float>],
+        size      : CGSize,
+        device    : MTLDevice
+    ) throws -> [SIMD3<Float>] {
+        let pipeline = try #require(PrecomputedRoomRenderer.pipeline(
+            named : "bodyNormals",
+            device: device
+        ))
+        var packed = uniforms.packed(
+            size      : size,
+            pixelWidth: Int(size.width)
+        )
+        let input = try #require(device.makeBuffer(
+            bytes  : points,
+            length : points.count * MemoryLayout<SIMD2<Float>>.stride,
+            options: .storageModeShared
+        ))
+        let output = try #require(device.makeBuffer(
+            length : points.count * MemoryLayout<SIMD4<Float>>.stride,
+            options: .storageModeShared
+        ))
+        let queue         = try #require(device.makeCommandQueue())
+        let commandBuffer = try #require(queue.makeCommandBuffer())
+        let encoder       = try #require(commandBuffer.makeComputeCommandEncoder())
+        encoder.setComputePipelineState(pipeline)
+        encoder.setBytes(
+            &packed,
+            length: MemoryLayout<RoomLightUniforms.Packed>.stride,
+            index : 0
+        )
+        encoder.setBuffer(
+            input,
+            offset: 0,
+            index : 1
+        )
+        encoder.setBuffer(
+            output,
+            offset: 0,
+            index : 2
+        )
+        encoder.dispatchThreads(
+            MTLSize(
+                width : points.count,
+                height: 1,
+                depth : 1
+            ),
+            threadsPerThreadgroup: MTLSize(
+                width : min(points.count, pipeline.maxTotalThreadsPerThreadgroup),
+                height: 1,
+                depth : 1
+            )
+        )
+        encoder.endEncoding()
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+        #expect(commandBuffer.status == .completed)
+        let normals = output.contents().bindMemory(
+            to      : SIMD4<Float>.self,
+            capacity: points.count
+        )
+        return (0..<points.count).map { SIMD3(normals[$0].x, normals[$0].y, normals[$0].z) }
     }
 
     /// A busy room's light pools warm at the centre. The room is empty, so the centre pixel shows

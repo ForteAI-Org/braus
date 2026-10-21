@@ -9,11 +9,13 @@ import Metal
 
 /// RayTracedRoomRenderer lights a room with hardware ray tracing.
 ///
-/// The room (a floor with a rounded outline and its cove walls) and a tessellated sphere form one
-/// primitive acceleration structure, rebuilt only when the room's size or occupancy changes. Per
-/// change, one compute pass accumulates 64 frames per pixel in linear light: a jittered primary ray,
-/// shadow rays to the disc lamp, one diffuse bounce that also gives the ambient occlusion, and on the
-/// sphere one GGX reflection ray off its metal. Then it stops.
+/// The room (a floor with a rounded outline and its cove walls) and the worker's tessellated body
+/// form one primitive acceleration structure, rebuilt only when the room's size, occupancy or shape
+/// changes. The body is a triangle mesh of its outline's bevel, built from the same `ShapeOutline`
+/// the shader shades, so the hardware intersects it like the room and its shadow follows the outline.
+/// Per change, one compute pass accumulates 64 frames per pixel in linear light: a jittered primary
+/// ray, shadow rays to the disc lamp, one diffuse bounce that also gives the ambient occlusion, and on
+/// the body GGX reflection rays off its metal. Then it stops.
 final class RayTracedRoomRenderer: RoomRenderer {
     let commandQueue   : MTLCommandQueue
     let resolvePipeline: MTLComputePipelineState
@@ -52,7 +54,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
         guard
             let structure = structure(
                 size         : size,
-                isOccupied   : uniforms.hasOccupant,
+                occupant     : uniforms.hasOccupant ? uniforms.shape : nil,
                 commandBuffer: commandBuffer
             ),
             let encoder = commandBuffer.makeComputeCommandEncoder()
@@ -76,31 +78,36 @@ final class RayTracedRoomRenderer: RoomRenderer {
     /// the GPU never reads a released buffer.
     private struct Scene {
         let size      : CGSize
-        let isOccupied: Bool
+        let occupant  : WorkerShape?
         let structure : MTLAccelerationStructure
         let descriptor: MTLPrimitiveAccelerationStructureDescriptor
         let scratch   : MTLBuffer
     }
 
-    private static let sphereSlices  = 64
-    private static let sphereStacks  = 32
-    private static let coveRings     = 10
+    private static let coveRings      = 10
     private static let cornerSegments = 12
 
-    /// The acceleration structure for the room, encoding its build into `commandBuffer` when the room
-    /// changed, before the pass that traces it.
+    /// The body's rings from its equator to the top of its bevel, and its outline's points per turn.
+    private static let bevelRings    = 16
+    private static let pointsPerTurn = 96
+
+    /// The acceleration structure for the room and the shape of the worker in it, encoding its build
+    /// into `commandBuffer` when either changed, before the pass that traces it.
     private func structure(
         size         : CGSize,
-        isOccupied   : Bool,
+        occupant     : WorkerShape?,
         commandBuffer: MTLCommandBuffer
     ) -> MTLAccelerationStructure? {
-        if let scene, scene.size == size, scene.isOccupied == isOccupied {
+        if let scene, scene.size == size, scene.occupant == occupant {
             return scene.structure
         }
-        // Geometry 0 is the room and 1 the sphere, as RoomLight.metal expects.
+        // Geometry 0 is the room and 1 the body, as RoomLight.metal expects.
         var geometries = [Self.room(size)]
-        if isOccupied {
-            geometries.append(Self.sphere(size))
+        if let occupant {
+            geometries.append(Self.body(
+                size,
+                outline: occupant.outline
+            ))
         }
         let descriptor = MTLPrimitiveAccelerationStructureDescriptor()
         descriptor.geometryDescriptors = geometries.compactMap(triangleGeometry)
@@ -124,7 +131,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
         encoder.endEncoding()
         scene = Scene(
             size      : size,
-            isOccupied: isOccupied,
+            occupant  : occupant,
             structure : structure,
             descriptor: descriptor,
             scratch   : scratch
@@ -224,27 +231,49 @@ final class RayTracedRoomRenderer: RoomRenderer {
         }
     }
 
-    private static func sphere(_ size: CGSize) -> [SIMD3<Float>] {
-        let radius = RoomLightUniforms.Shape(size: size).sphereRadius
-        let centre = SIMD3(Float(size.width) / 2, Float(size.height) / 2, radius)
-        func point(_ slice: Int, _ stack: Int) -> SIMD3<Float> {
-            let polar   = Float.pi * Float(stack) / Float(sphereStacks)
-            let azimuth = 2 * Float.pi * Float(slice) / Float(sphereSlices)
-            return centre + radius * SIMD3(
-                sin(polar) * cos(azimuth),
-                sin(polar) * sin(azimuth),
-                cos(polar)
-            )
+    /// The worker's body around the room's centre, in points: rings of its outline grown from the
+    /// core along the bevel's quarter circle, from the equator to the core, mirrored below, and the
+    /// core as a flat cap on top and bottom. The dome is left out, so the mesh lies inside the top the
+    /// shader shades and no reflected ray starts inside it. For the circle it is a sphere.
+    private static func body(
+        _ size : CGSize,
+        outline: ShapeOutline
+    ) -> [SIMD3<Float>] {
+        let radius = Double(RoomLightUniforms.Shape(size: size).sphereRadius)
+        let centre = SIMD2(Double(size.width) / 2, Double(size.height) / 2)
+        let corner = outline.corner * radius
+        func ring(
+            _ index: Int,
+            lower  : Bool
+        ) -> [SIMD3<Float>] {
+            let angle  = Double.pi / 2 * Double(index) / Double(bevelRings)
+            let height = corner * (lower ? 1 - sin(angle) : 1 + sin(angle))
+            return outline.points(
+                growth       : outline.corner * cos(angle),
+                pointsPerTurn: pointsPerTurn
+            ).map { point in
+                let place = centre + radius * point
+                return SIMD3(Float(place.x), Float(place.y), Float(height))
+            }
         }
         var vertices: [SIMD3<Float>] = []
-        for stack in 0..<sphereStacks {
-            for slice in 0..<sphereSlices {
-                vertices += quad(
-                    point(slice, stack),
-                    point(slice + 1, stack),
-                    point(slice + 1, stack + 1),
-                    point(slice, stack + 1)
-                )
+        for lower in [false, true] {
+            let rings = (0...bevelRings).map { ring($0, lower: lower) }
+            for (outer, inner) in zip(rings, rings.dropFirst()) {
+                for index in outer.indices {
+                    let next = (index + 1) % outer.count
+                    vertices += quad(
+                        outer[index],
+                        outer[next],
+                        inner[next],
+                        inner[index]
+                    )
+                }
+            }
+            let core = rings[bevelRings]
+            let cap  = SIMD3(Float(centre.x), Float(centre.y), Float(lower ? 0 : 2 * corner))
+            for index in core.indices {
+                vertices += [cap, core[index], core[(index + 1) % core.count]]
             }
         }
         return vertices

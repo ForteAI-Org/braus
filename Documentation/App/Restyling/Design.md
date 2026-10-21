@@ -125,10 +125,12 @@ The status colours are [proposed]; their meaning is [decided].
   outer shadow (as macOS Spotlight).
 - **Satin metal slab**, for inspector blocks: a dark diagonal gradient with an
   edge light and a highlight on the top edge, 22–24 pt radius.
-- **Mascot sphere**: the ibrows sphere (dark radial gradient), tinted with the
-  worker's own colour from its persisted appearance [decided], so workers stay
-  recognisable by colour; the brows stay white and the status stays in the
-  light. It receives the light of its room: a sharp specular highlight at the top and a thin bounce
+- **Mascot body**: workers are dark graphite metal, identity is the shape
+  (eight geometric outlines) [decided]: circle, square, triangle, diamond,
+  pentagon, hexagon, capsule and lens, each with generously rounded corners,
+  the sphere's area and a rounded solid seen from above; the circle is the
+  ibrows sphere (dark radial gradient). The brows stay white and the status
+  stays in the light. It receives the light of its room: a sharp specular highlight at the top and a thin bounce
   light at the bottom in the room's colour, never a diffuse glow.
 - **Shapes**: round forms with sharp cuts, after the wordmark. Pills and
   capsules for controls.

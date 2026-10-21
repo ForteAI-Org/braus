@@ -130,6 +130,30 @@ struct MascotLayerTests {
         #expect(copies.allSatisfy { $0.isHidden })
     }
 
+    @Test("Each shape draws its own outline and keeps the brows on its face")
+    func shapes() throws {
+        var outlines: [CGPath] = []
+        var brows   : [WorkerShape: (y: CGFloat, scale: CGFloat)] = [:]
+        for shape in WorkerShape.allCases {
+            let mascot = makeMascot()
+            mascot.shape = shape
+            mascot.layoutIfNeeded()
+            let outline = try #require(mascot.bodyOutline)
+            #expect(!outlines.contains(outline), "\(shape)")
+            outlines.append(outline)
+            brows[shape] = (mascot.leftBrow.position.y, mascot.leftBrow.transform.m22)
+        }
+        // The circle is the sphere, filling the 56 point square, with the brows where they were.
+        let circle = try #require(outlines.first)
+        #expect(abs(circle.boundingBoxOfPath.width - 56) < 0.01 && abs(circle.boundingBoxOfPath.height - 56) < 0.01)
+        let round = try #require(brows[.circle])
+        #expect(abs(round.y - 56 * (1 - 0.36)) < 1e-9)
+        // The triangle's face, its inscribed circle around its low centroid, is smaller and lower.
+        let triangle = try #require(brows[.triangle])
+        #expect(abs(triangle.scale / round.scale - WorkerShape.triangle.outline.inradius) < 1e-9)
+        #expect(triangle.y < round.y)
+    }
+
     private func makeMascot() -> MascotLayer {
         let mascot = MascotLayer()
         mascot.frame = CGRect(

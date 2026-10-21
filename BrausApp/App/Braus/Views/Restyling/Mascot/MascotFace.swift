@@ -7,11 +7,11 @@
 
 import SwiftUI
 
-/// MascotFace shows a worker's mascot at `size` points: a `MascotLayer` in the worker's colour,
-/// breathing, whose brows morph whenever `brows` changes. In a room, `catchesRoomLight` lets the
-/// brows take a faint tint of the room's light, pulsing with it.
+/// MascotFace shows a worker's mascot in the sphere's square of `size` points: a `MascotLayer` in
+/// the worker's shape, breathing, whose brows morph whenever `brows` changes. In a room,
+/// `catchesRoomLight` lets the brows take a faint tint of the room's light, pulsing with it.
 struct MascotFace: NSViewRepresentable {
-    let appearance      : WorkerAppearance
+    let shape           : WorkerShape
     let status          : WorkerStatus
     let brows           : BrowState
     let size            : CGFloat
@@ -58,7 +58,7 @@ struct MascotFace: NSViewRepresentable {
         _ mascot: MascotLayer,
         animated: Bool
     ) {
-        mascot.tint      = MascotImages.color(for: appearance)
+        mascot.shape     = shape
         mascot.status    = status
         mascot.drawsBody = drawsBody
         mascot.show(

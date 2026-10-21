@@ -51,10 +51,18 @@ struct MockHouseTests {
         #expect(house.mostUsed == ["Delivery", "Ingest", "Research", "Render"])
     }
 
-    @Test("Every sample worker has its own tint")
-    func distinctTints() {
+    @Test("Every shape has a worker, and no room's neighbour shares its shape")
+    func shapes() {
         let workers = MockHouse.sample.workers
-        #expect(Set(workers.map { MascotDrawing($0.appearance) }).count == workers.count)
+        let shapes  = workers.map(\.shape)
+        #expect(Set(shapes) == Set(WorkerShape.allCases))
+        // In rows and in one or two columns, a room's neighbours are the next two workers.
+        for index in shapes.indices.dropFirst() {
+            #expect(shapes[index] != shapes[index - 1])
+        }
+        for index in shapes.indices.dropFirst(2) {
+            #expect(shapes[index] != shapes[index - 2])
+        }
         #expect(Set(workers.map(\.id)).count == workers.count)
     }
 }
