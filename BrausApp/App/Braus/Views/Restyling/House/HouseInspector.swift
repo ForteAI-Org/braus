@@ -7,9 +7,10 @@
 
 import SwiftUI
 
-/// HouseInspector is the mockup's inspector, a grouped form as the app's own inspector is
-/// (`WorkerInspectorView`), with its sections on `MockTeam`'s values: the worker itself, which the
-/// person edits here (`WorkerSection`), where the worker is now, its screen while it is busy and the
+/// HouseInspector is the mockup's inspector, laid out as the app's own grouped form is
+/// (`WorkerInspectorView`) with more room, in boxes of its own that fold smoothly
+/// (`HouseInspectorRows`, `HouseFoldableSection`), with its sections on `MockTeam`'s values: the
+/// worker itself, which the person edits here (`WorkerSection`), where the worker is now, its screen while it is busy and the
 /// toolbar's Screen toggle is on, its model and provider, its Chrome window, and its current or last
 /// turn (`InspectorTurnSection`). With no worker chosen it says where the details come from.
 ///
@@ -28,19 +29,31 @@ struct HouseInspector: View {
     var body: some View {
         if let binding = worker, let team {
             let worker = binding.wrappedValue
-            Form {
-                ForEach(Self.parts(
-                    showsScreen: showsScreen,
-                    isBusy     : worker.status == .busy
-                )) { part in
-                    section(
-                        part,
-                        binding: binding,
-                        team   : team
-                    )
+            ScrollView {
+                VStack(
+                    alignment: .leading,
+                    spacing  : HouseInspectorMetrics.sectionSpacing
+                ) {
+                    ForEach(Self.parts(
+                        showsScreen: showsScreen,
+                        isBusy     : worker.status == .busy
+                    )) { part in
+                        section(
+                            part,
+                            binding: binding,
+                            team   : team
+                        )
+                    }
                 }
+                .padding(
+                    .horizontal,
+                    HouseInspectorMetrics.edgeInset
+                )
+                .padding(
+                    .vertical,
+                    HouseInspectorMetrics.verticalInset
+                )
             }
-            .formStyle(.grouped)
         } else {
             ContentUnavailableView(
                 "No Worker",
@@ -171,7 +184,30 @@ struct HouseInspector: View {
         }
 
         var body: some View {
-            Section("Worker") {
+            VStack(
+                alignment: .leading,
+                spacing  : HouseInspectorMetrics.headerGap
+            ) {
+                Text("Worker")
+                    .font(.body.weight(.semibold))
+                    .padding(
+                        .horizontal,
+                        HouseInspectorMetrics.rowInset
+                    )
+                    .frame(height: HouseInspectorMetrics.headerHeight)
+                    .accessibilityAddTraits(.isHeader)
+                HouseInspectorRows { rows }
+                    .background(HouseInspectorMetrics.box.fill(HouseInspectorMetrics.boxFill))
+                    .clipShape(HouseInspectorMetrics.box)
+            }
+            .onChange(of: isNameFocused) {
+                if !isNameFocused { takeName() }
+            }
+        }
+
+        @ViewBuilder
+        private var rows: some View {
+            LabeledContent("Name") {
                 TextField(
                     "Name",
                     text  : $name,
@@ -179,55 +215,68 @@ struct HouseInspector: View {
                 )
                 .focused($isNameFocused)
                 .onSubmit(takeName)
+                .modifier(FieldStyle())
+            }
 
+            LabeledContent("Role") {
                 TextField(
                     "Role",
                     text  : $worker.role,
                     prompt: Text("Example: Researcher")
                 )
-
-                Button { isChoosingShape = true } label: {
-                    LabeledContent("Shape") {
-                        HStack(spacing: 6) {
-                            // In an overlay the mascot gives the row no baseline of its own, so the
-                            // shape's name lines up with the label.
-                            Color.clear
-                                .frame(
-                                    width : 28,
-                                    height: 18
-                                )
-                                .overlay {
-                                    HouseWorkerPortrait(
-                                        shape : worker.shape,
-                                        status: .free,
-                                        size  : 18,
-                                        brows : .idle
-                                    )
-                                }
-                            Text(worker.shape.name)
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Shape")
-                .accessibilityValue(worker.shape.name)
-                .accessibilityHint("Shows the shapes to choose from")
-                .accessibilityAddTraits(.isButton)
-                .popover(
-                    isPresented: $isChoosingShape,
-                    arrowEdge  : .leading
-                ) {
-                    HouseShapeGrid(selection: $worker.shape)
-                        .padding(12)
-                }
+                .modifier(FieldStyle())
             }
-            .onChange(of: isNameFocused) {
-                if !isNameFocused { takeName() }
+
+            Button { isChoosingShape = true } label: {
+                LabeledContent("Shape") {
+                    HStack(spacing: 6) {
+                        // In an overlay the mascot gives the row no baseline of its own, so the
+                        // shape's name lines up with the label.
+                        Color.clear
+                            .frame(
+                                width : 28,
+                                height: 18
+                            )
+                            .overlay {
+                                HouseWorkerPortrait(
+                                    shape : worker.shape,
+                                    status: .free,
+                                    size  : 18,
+                                    brows : .idle
+                                )
+                            }
+                        Text(worker.shape.name)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Shape")
+            .accessibilityValue(worker.shape.name)
+            .accessibilityHint("Shows the shapes to choose from")
+            .accessibilityAddTraits(.isButton)
+            .popover(
+                isPresented: $isChoosingShape,
+                arrowEdge  : .leading
+            ) {
+                HouseShapeGrid(selection: $worker.shape)
+                    .padding(12)
+            }
+        }
+
+        /// FieldStyle is a text field as the grouped form shows one in a row: borderless, its text
+        /// at the trailing edge in the primary tone.
+        private struct FieldStyle: ViewModifier {
+            func body(content: Content) -> some View {
+                content
+                    .textFieldStyle(.plain)
+                    .labelsHidden()
+                    .multilineTextAlignment(.trailing)
+                    .foregroundStyle(.primary)
             }
         }
 

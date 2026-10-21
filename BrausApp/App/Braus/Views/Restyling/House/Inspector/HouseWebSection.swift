@@ -31,9 +31,25 @@ struct HouseWebSection: View {
                     )
                 }
             )) {
-                Text("Show Chrome Window")
-                Text("Braus uses its own Chrome, never yours.")
+                VStack(
+                    alignment: .leading,
+                    spacing  : 2
+                ) {
+                    // The switch's mini size would shrink the title too.
+                    Text("Show Chrome Window")
+                        .font(.body)
+                    Text("Braus uses its own Chrome, never yours.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                // The label stretches, so the switch stands at the trailing edge as in a form.
+                .frame(
+                    maxWidth : .infinity,
+                    alignment: .leading
+                )
             }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
         }
     }
 }
