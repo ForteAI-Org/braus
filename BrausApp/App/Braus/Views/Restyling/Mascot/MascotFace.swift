@@ -34,6 +34,10 @@ struct MascotFace: NSViewRepresentable {
     /// they follow it.
     var bodyLink        : RoomBodyLink?
 
+    /// Whether the worker is away in the chat, its brows hidden but while they pass out of its room
+    /// with the body, or back in.
+    var isAway          = false
+
     func makeNSView(context: Context) -> HostView {
         let view = HostView(frame: CGRect(
             origin: .zero,
@@ -84,6 +88,7 @@ struct MascotFace: NSViewRepresentable {
         mascot.status        = status
         mascot.drawsBody     = drawsBody
         mascot.projectedFace = projectedFace
+        mascot.isAway        = isAway
         mascot.show(
             brows,
             animated: animated

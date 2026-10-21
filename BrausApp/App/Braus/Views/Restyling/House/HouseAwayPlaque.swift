@@ -22,6 +22,9 @@ struct HouseAwayPlaque: NSViewRepresentable {
     var camera   = RoomCamera.top
     var lean     = Float(0)
 
+    /// How long the plaque waits to drop in once its worker is chosen: while the worker steps out.
+    var dropDelay: TimeInterval = 0
+
     /// What the plate says, and what the room's accessibility label adds.
     static let text = "In chat with you"
 
@@ -31,7 +34,8 @@ struct HouseAwayPlaque: NSViewRepresentable {
             status   : status,
             isHanging: isHanging,
             camera   : camera,
-            lean     : lean
+            lean     : lean,
+            dropDelay: dropDelay
         )
     }
 
@@ -43,13 +47,15 @@ struct HouseAwayPlaque: NSViewRepresentable {
         view.status    = status
         view.camera    = camera
         view.lean      = lean
+        view.dropDelay = dropDelay
         view.isHanging = isHanging
     }
 
     /// PlaqueView draws the plaque over its room and moves it with Core Animation only.
     ///
-    /// - The drop-in: when `isHanging` turns true, a spring on the plate's rotation about its pivot
-    ///   that settles in about a second; under Reduce Motion a fade.
+    /// - The drop-in: when `isHanging` turns true, after `dropDelay`, a spring on the plate's rotation
+    ///   about its pivot that settles in about a second; under Reduce Motion a fade. Taken down, it
+    ///   fades over `RestylingTiming.plaqueLeave`.
     /// - The pendulum: while the room moves sideways the plate hangs on the same spring from its
     ///   pivot. A change of the pivot's speed throws it the other way and the speed leans it back, so
     ///   a room setting off to the left leaves the plate's foot to the right, and a room stopping
@@ -107,17 +113,23 @@ struct HouseAwayPlaque: NSViewRepresentable {
             }
         }
 
-        /// Whether the plaque hangs in the room; turning true drops it in.
+        /// Whether the plaque hangs in the room; turning true drops it in after `dropDelay`.
         var isHanging: Bool {
             didSet {
                 guard isHanging != oldValue else { return }
                 if isHanging {
-                    hang()
+                    drop()
                 } else {
                     takeDown()
                 }
             }
         }
+
+        /// How long the plaque waits to drop in once it hangs: while its worker steps out of the room.
+        var dropDelay: TimeInterval
+
+        /// The drop-in waiting for `dropDelay`, while it waits.
+        private(set) var dropTask: Task<Void, Never>?
 
         /// The rotation about the pivot, and with it the cords and the slab.
         let swingLayer = CALayer()
@@ -258,13 +270,15 @@ struct HouseAwayPlaque: NSViewRepresentable {
             status   : WorkerStatus,
             isHanging: Bool,
             camera   : RoomCamera = .top,
-            lean     : Float = 0
+            lean     : Float = 0,
+            dropDelay: TimeInterval = 0
         ) {
             self.brows     = brows
             self.status    = status
             self.camera    = camera
             self.lean      = lean
             self.isHanging = isHanging
+            self.dropDelay = dropDelay
             super.init(frame: .zero)
             wantsLayer = true
             build()
@@ -351,6 +365,27 @@ struct HouseAwayPlaque: NSViewRepresentable {
         }
 
         // MARK: Swing
+
+        /// Brings the plaque down once `dropDelay` has passed, at once without one.
+        private func drop() {
+            dropTask?.cancel()
+            dropTask = nil
+            guard dropDelay > 0 else {
+                hang()
+                return
+            }
+            let delay = dropDelay
+            dropTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(for: .seconds(delay))
+                } catch {
+                    return
+                }
+                guard let self, self.isHanging else { return }
+                self.dropTask = nil
+                self.hang()
+            }
+        }
 
         /// Brings the plaque down: a swing that settles at rest, or a fade under Reduce Motion.
         func hang() {
@@ -557,11 +592,16 @@ struct HouseAwayPlaque: NSViewRepresentable {
             Double(plateWidth) * (0.5 - 0.2 * angle / Self.maximumTilt)
         }
 
+        /// Takes the plaque away: it fades over `RestylingTiming.plaqueLeave` and hides, so its worker
+        /// steps back in after it; a plaque still waiting to drop in never shows.
         private func takeDown() {
+            dropTask?.cancel()
+            dropTask       = nil
             stopTask?.cancel()
             stopTask       = nil
             anchor         = nil
             anchorVelocity = 0
+            let isShown = !swingLayer.isHidden
             withoutActions {
                 for layer in fadingLayers {
                     layer.removeAllAnimations()
@@ -569,9 +609,36 @@ struct HouseAwayPlaque: NSViewRepresentable {
                 for layer in [lightLayer, castLayer, rimLayer] {
                     layer.removeAnimation(forKey: Self.pulseKey)
                 }
-                setShown(false)
+                if !isShown { setShown(false) }
             }
             rest()
+            guard isShown else { return }
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue             = 1
+            fade.toValue               = 0
+            fade.duration              = RestylingTiming.plaqueLeave
+            fade.fillMode              = .forwards
+            fade.isRemovedOnCompletion = false
+            CATransaction.begin()
+            CATransaction.setCompletionBlock { [weak self] in
+                MainActor.assumeIsolated {
+                    // A plaque hung again meanwhile keeps showing.
+                    guard let self, !self.isHanging else { return }
+                    self.withoutActions {
+                        for layer in self.fadingLayers {
+                            layer.removeAnimation(forKey: Self.fadeKey)
+                        }
+                        self.setShown(false)
+                    }
+                }
+            }
+            for layer in fadingLayers {
+                layer.add(
+                    fade,
+                    forKey: Self.fadeKey
+                )
+            }
+            CATransaction.commit()
         }
 
         /// The layers that appear and fade together: the slab, its shadow and the frost.

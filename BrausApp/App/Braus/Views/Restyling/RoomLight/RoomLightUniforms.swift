@@ -115,18 +115,21 @@ nonisolated struct RoomLightUniforms: Equatable {
             lights : SIMD4(
                 screenStrength,
                 moonStrength,
-                0,
-                0
+                pose.slide,
+                pose.scale
             )
         )
     }
 
     /// Pose is how far the standing body has moved from rest, seen through the tilted camera: a turn
-    /// about the floor's point under it, in radians, positive with its top toward the right, and a hop
-    /// up from the floor, in points. The view from above shows the body at rest.
+    /// about the floor's point under it, in radians, positive with its top toward the right, a hop up
+    /// from the floor and a slide toward the camera, in points, and its size against rest, about the
+    /// same point. The view from above shows the body at rest.
     struct Pose: Hashable {
-        var tilt: Float = 0
-        var hop : Float = 0
+        var tilt : Float = 0
+        var hop  : Float = 0
+        var slide: Float = 0
+        var scale: Float = 1
 
         static let rest = Pose()
 
@@ -137,12 +140,12 @@ nonisolated struct RoomLightUniforms: Equatable {
             foot   : SIMD3<Double>
         ) -> SIMD3<Double> {
             guard self != .rest else { return point }
-            let offset = point - foot
+            let offset = (point - foot) * Double(scale)
             let cosine = Double(cos(tilt))
             let sine   = Double(sin(tilt))
             return foot + SIMD3(
                 offset.x * cosine + offset.z * sine,
-                offset.y,
+                offset.y + Double(slide),
                 offset.z * cosine - offset.x * sine + Double(hop)
             )
         }
@@ -235,7 +238,7 @@ nonisolated struct RoomLightUniforms: Equatable {
         /// and `w` the pose's tilt and hop, which only the tilted view reads.
         var stage: SIMD4<Float>
 
-        /// `screenStrength` and `moonStrength`.
+        /// `screenStrength` and `moonStrength`, and in `z` and `w` the pose's slide and scale.
         var lights: SIMD4<Float>
     }
 }

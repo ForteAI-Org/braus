@@ -22,7 +22,9 @@ import SwiftUI
 ///
 /// The selected worker has left for the conversation, so its room is empty: no body, no badge, a
 /// lit door at the bottom in the status colour, the plaque "In chat with you" (`HouseAwayPlaque`)
-/// hanging where the worker stood, and a white ring on its edge. Every room holds its plaque, hidden
+/// hanging where the worker stood, and a white ring on its edge. In a tilted room the worker steps
+/// out first and the plaque drops in after it (`RoomPassage`); coming back, it steps in once the plaque
+/// has faded. Every room holds its plaque, hidden
 /// while the worker is in, so that selecting it only shows the plaque. On the floor plan the room is
 /// a button that calls `select`; as a row, with no `select`, the list selects it.
 ///
@@ -78,6 +80,12 @@ struct HouseRoomCell: View {
     ) -> String {
         let row = "\(worker.name), \(worker.subtitle)"
         return isSelected ? "\(row), \(HouseAwayPlaque.text.lowercased())" : row
+    }
+
+    /// How long the plaque waits before it drops in: in a tilted room, until the worker has stepped
+    /// out (`RoomPassage`); from above, not at all.
+    static func plaqueDelay(for camera: RoomCamera) -> TimeInterval {
+        camera == .tilted ? RestylingTiming.roomExit : 0
     }
 
     /// The seed that makes `worker`'s brows live by its status in its room, or nil while it is away
@@ -167,7 +175,8 @@ struct HouseRoomCell: View {
                     )
                     .allowsHitTesting(false)
 
-                    if !isSelected {
+                    // A tilted room keeps the brows while its worker is away, so they can step out with the body.
+                    if !isSelected || camera == .tilted {
                         // The room draws the body where its composition stands it, a share of its short side across.
                         MascotFace(
                             shape           : worker.shape,
@@ -185,7 +194,8 @@ struct HouseRoomCell: View {
                                 of        : worker,
                                 isSelected: isSelected
                             ),
-                            bodyLink        : bodyLink
+                            bodyLink        : bodyLink,
+                            isAway          : isSelected
                         )
                         .offset(x: camera == .top ? bodyX - size.width / 2 : 0)
                     }
@@ -195,7 +205,8 @@ struct HouseRoomCell: View {
                         status   : worker.status,
                         isHanging: isSelected,
                         camera   : camera,
-                        lean     : Float(lean)
+                        lean     : Float(lean),
+                        dropDelay: HouseRoomCell.plaqueDelay(for: camera)
                     )
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)

@@ -593,6 +593,86 @@ nonisolated final class MascotLayer: CALayer {
 
     static let bodyKey = "body"
 
+    /// Whether the worker is away in the chat: the brows are hidden, but while they pass out of the
+    /// room with the body or back in (`followPassage(_:from:)`).
+    var isAway = false {
+        didSet {
+            guard isAway != oldValue else { return }
+            withoutActions { opacity = isAway ? 0 : 1 }
+        }
+    }
+
+    /// Moves the brows with the body stepping out of its room or back in, from `start` on the host
+    /// clock: leaving, they look toward the camera first; both ways they follow the face the camera
+    /// shows and fade with the body. Under Reduce Motion they only fade. Nil removes the passage.
+    @MainActor
+    func followPassage(
+        _ passage : RoomPassage?,
+        from start: CFTimeInterval
+    ) {
+        for key in Self.passageKeys {
+            removeAnimation(forKey: key)
+            leftBrow.removeAnimation(forKey: key)
+            rightBrow.removeAnimation(forKey: key)
+        }
+        guard let passage else { return }
+        var parts: [(layer: CALayer, key: String, animation: CAAnimation)] = [
+            (self, Self.passageKeys[0], passage.envelope()),
+        ]
+        if !RestylingMotion.reducesMotion, passage.poses.count > 1 {
+            parts += [
+                (self, Self.passageKeys[1], passage.browShift()),
+                (self, Self.passageKeys[2], passage.browScale()),
+            ]
+            if passage.isLeaving {
+                for (brow, side) in [(leftBrow, 1.0), (rightBrow, -1.0)] {
+                    parts += look(
+                        brow,
+                        turn    : side * RoomPassage.look.rotation,
+                        duration: passage.duration
+                    )
+                }
+            }
+        }
+        for part in parts {
+            part.animation.beginTime = part.layer.convertTime(start, from: nil)
+            part.layer.add(
+                part.animation,
+                forKey: part.key
+            )
+        }
+    }
+
+    /// `brow` raised and turned by `turn` toward the camera over the passage's first share, then held.
+    private func look(
+        _ brow  : CAShapeLayer,
+        turn    : Double,
+        duration: Double
+    ) -> [(layer: CALayer, key: String, animation: CAAnimation)] {
+        let rise = RoomPassage.look.dy * faceSide * projectedStretch.height
+        let keys: [(String, String, [Any])] = [
+            (Self.passageKeys[3], "position", [NSValue(point: .zero), NSValue(point: CGPoint(x: 0, y: rise))]),
+            (Self.passageKeys[4], "transform.rotation.z", [0.0, turn]),
+        ]
+        return keys.map { key, keyPath, values in
+            let look = CAKeyframeAnimation(keyPath: keyPath)
+            look.values          = values + [values[1]]
+            look.keyTimes        = [0, NSNumber(value: RoomPassage.lookShare), 1]
+            look.timingFunctions = [Self.morphCurve, CAMediaTimingFunction(name: .linear)]
+            look.duration        = duration
+            look.isAdditive      = true
+            return (brow, key, look)
+        }
+    }
+
+    private static let passageKeys = [
+        "passage.fade",
+        "passage.shift",
+        "passage.scale",
+        "passage.look.position",
+        "passage.look.rotation",
+    ]
+
     /// The turn `layer` shows about its z axis, in radians.
     private static func rotation(of layer: CALayer) -> Double {
         (layer.value(forKeyPath: "transform.rotation.z") as? NSNumber)?.doubleValue ?? 0

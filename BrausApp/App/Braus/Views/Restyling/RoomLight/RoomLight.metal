@@ -39,7 +39,8 @@ struct RoomLightUniforms {
     float4 camera;    // the tilted view's floor depth, back wall top, focal length, worker's depth
     float4 stage;     // the worker's distance from the left wall in points, the composition's lean,
                       // and the standing body's pose: its turn in radians and its hop in points
-    float4 lights;    // the tilted view's screen and moon, 1 when lit
+    float4 lights;    // the tilted view's screen and moon, 1 when lit, and the standing body's pose:
+                      // its slide toward the camera in points and its scale, 1 at rest
 };
 
 // The lamp, a disc facing down, as fractions of the room's short side. Its size keeps every shadow
@@ -1127,7 +1128,19 @@ static Room makeTiltedRoom(constant RoomLightUniforms& uniforms) {
     room.screenUp       = normalize(cross(across, room.screenNormal)) * 0.5 * screenSize.y * room.radius;
     room.screenLight    = screenColor * uniforms.lights.x * exposure;
     room.moonStrength   = uniforms.lights.y;
-    // The pose of a baked frame of the body's motion, after the lights, which stay where they stand.
+    // The pose of a baked frame of the body's motion, after the lights, which stay where they stand:
+    // scaled about its foot, slid toward the camera, hopped, then turned.
+    float scale = uniforms.lights.w;
+    if (scale != 1) {
+        room.radius     *= scale;
+        room.coreSize   *= scale;
+        room.coreOffset *= scale;
+        room.bodyCorner *= scale;
+        room.bodyDome   *= scale;
+        room.bodySlab   *= scale;
+        room.body.z     *= scale;
+    }
+    room.body.y        += uniforms.lights.z;
     room.body.z        += uniforms.stage.w;
     room.bodyPivot      = float3(room.body.xy, uniforms.stage.w);
     // Fast math's cosine and sine of zero need not be exactly one and zero.
