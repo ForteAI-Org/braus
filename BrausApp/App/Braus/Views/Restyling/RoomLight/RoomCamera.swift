@@ -82,11 +82,13 @@ nonisolated enum RoomCamera: String, Sendable {
     }
 
     /// Face is where a tilted room shows the worker's brows: the point they centre on, from the
-    /// room's centre in points with y down, and how much wider and taller they show than from above.
+    /// room's centre in points with y down, how much wider and taller they show than from above, and
+    /// how far their line turns on screen, in radians, counterclockwise with y up.
     struct Face: Equatable {
         let anchor: CGVector
         let xScale: Double
         let yScale: Double
+        var turn  : Double = 0
     }
 
     /// Perspective is the tilted camera for a room of a given size.
@@ -237,13 +239,15 @@ nonisolated enum RoomCamera: String, Sendable {
             let up     = point(brows - SIMD2(0, step))
             let here   = project(centre)
             // Per length along the face, which curves away from the camera toward its edges.
+            let across = project(right)
             return Face(
                 anchor: CGVector(
                     dx: here.x - size.width / 2,
                     dy: here.y - size.height / 2
                 ),
-                xScale: (project(right).x - here.x) / simd_distance(right, centre),
-                yScale: (here.y - project(up).y) / simd_distance(up, centre)
+                xScale: (across.x - here.x) / simd_distance(right, centre),
+                yScale: (here.y - project(up).y) / simd_distance(up, centre),
+                turn  : atan2(here.y - across.y, across.x - here.x)
             )
         }
 

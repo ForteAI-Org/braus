@@ -12,7 +12,7 @@ import QuartzCore
 /// keyframes per brow, both starting and ending at rest, and the body's intents along the way.
 ///
 /// Core Animation plays it as keyframe animations that repeat forever, so a worker stays alive with
-/// no timer and no work at rest. The body's intents are data only, for the room's renderer later.
+/// no timer and no work at rest. The body's intents are poses a room bakes (`RoomBodyMotion`).
 nonisolated struct WorkerBehaviourLoop: Equatable, Sendable {
 
     /// Keyframe is a brow's pose at `time` seconds into the loop, reached along `curve`.
@@ -22,19 +22,19 @@ nonisolated struct WorkerBehaviourLoop: Equatable, Sendable {
         let curve: BrowAction.Curve
     }
 
-    /// BodyIntent is something the body might do with an action: a tiny tilt or a hop.
+    /// BodyIntent is what the body does with an action, `time` seconds into the loop: its poses over
+    /// the action's `duration`, from rest back to rest, in step with the brows.
     struct BodyIntent: Equatable, Sendable {
 
-        /// Kind is the gesture: a tilt in radians, positive toward the right, or a hop whose
-        /// height is a share of the face's width.
-        enum Kind: Equatable, Sendable {
-            case tilt(Double)
-            case hop(Double)
+        /// Key is the body's pose `time` seconds into the action.
+        struct Key: Equatable, Sendable {
+            let time: Double
+            let pose: BodyPose
         }
 
         let time    : Double
         let duration: Double
-        let kind    : Kind
+        let keys    : [Key]
     }
 
     /// Side names one of the two brows, as the person sees them.

@@ -24,43 +24,87 @@ struct BodyMotionTests {
         height: 104
     )
 
-    @Test("A loop's intents become poses to bake, two per gesture, within the motion's limits")
+    @Test("A loop's gestures become at most ten poses to bake, within the body's limits, larger than a nudge")
     func intentsBecomePoses() throws {
+        let side = Float(Self.size.height)
         for status in [WorkerStatus.busy, .waiting, .free] {
+            var widest = (turn: Float(0), hop: Float(0))
             for seed in UInt64(1)...12 {
                 let loop   = WorkerBehaviour(status).loop(seed: seed)
-                let motion = RoomBodyMotion(
+                let found  = try #require(RoomBodyMotion(
                     loop : loop,
                     shape: .circle,
                     size : Self.size,
                     lean : 0
-                )
-                guard !loop.intents.isEmpty else {
-                    #expect(motion == nil)
-                    continue
-                }
-                let found = try #require(motion, "\(status) \(seed)")
-                let kinds = Set(loop.intents.map { intent -> String in
-                    switch intent.kind {
-                    case .tilt(let angle): angle > 0 ? "right" : "left"
-                    case .hop            : "hop"
-                    }
-                })
-                #expect(found.poses.count == 2 * kinds.count, "\(status) \(seed)")
+                ), "\(status) \(seed)")
+                #expect(found.poses.count <= RoomBodyMotion.maxPoses, "\(status) \(seed)")
                 for pose in found.poses {
-                    #expect(abs(Double(pose.tilt)) <= RoomBodyMotion.maxTilt + 1e-6)
-                    #expect(Double(pose.hop) <= RoomBodyMotion.maxHop * Double(Self.size.height) + 1e-6)
+                    #expect(abs(Double(pose.tilt)) <= BodyPose.maxTurn + 1e-6 && abs(Double(pose.lean)) <= BodyPose.maxTurn + 1e-6)
+                    #expect(pose.hop >= 0 && Double(pose.hop) <= BodyPose.maxHop * Double(side) + 1e-4)
+                    #expect(Double(abs(pose.shift)) <= BodyPose.maxMove * Double(side) + 1e-4)
+                    #expect(Double(abs(pose.slide)) <= BodyPose.maxMove * Double(side) + 1e-4)
+                    #expect(abs(Double(pose.stretch) - 1) <= BodyPose.maxStretch + 1e-6)
                     #expect(pose != .rest)
+                    widest = (max(widest.turn, abs(pose.tilt), abs(pose.lean)), max(widest.hop, pose.hop / side))
                 }
                 // Every gesture leaves rest and comes back to it, in time, inside the loop.
                 let times = found.keyframes.map(\.time)
                 #expect(zip(times, times.dropFirst()).allSatisfy { $0 < $1 })
                 #expect(found.keyframes.first == RoomBodyMotion.Keyframe(time: 0, pose: nil))
                 #expect(found.keyframes.last == RoomBodyMotion.Keyframe(time: loop.duration, pose: nil))
-                #expect(found.keyframes.filter { $0.pose == nil }.count == 2 + 2 * loop.intents.count)
                 #expect(found.duration == loop.duration)
+                #expect(found.keyframes.contains { $0.pose != nil })
+            }
+            // Far from the first round's nudges of one or two degrees.
+            #expect(widest.turn >= Float(5 * Double.pi / 180), "\(status): \(widest)")
+            if status != .busy { #expect(widest.hop >= 0.03, "\(status): \(widest)") }
+        }
+    }
+
+    @Test("Each state moves its own way, the body turning where the brows look")
+    func bodyByState() {
+        func poses(_ status: WorkerStatus) -> [BodyPose] {
+            (UInt64(1)...30).flatMap { seed in
+                WorkerBehaviour(status).loop(seed: seed).intents.flatMap { $0.keys.map(\.pose) }
             }
         }
+        let free    = poses(.free)
+        let waiting = poses(.waiting)
+        let busy    = poses(.busy)
+        #expect((free + waiting + busy).allSatisfy { $0.isAllowed })
+        // Free looks around, shuffles aside, stretches, squats and bounces.
+        #expect(free.contains { abs($0.tilt) >= 0.09 } && free.contains { $0.shift != 0 })
+        #expect(free.contains { $0.stretch > 0.05 } && free.contains { $0.stretch < 0 } && free.contains { $0.hop > 0 })
+        // Waiting leans toward the person, shifts its weight and hops when impatient.
+        #expect(waiting.contains { $0.lean >= 0.07 && $0.slide > 0 } && waiting.contains { $0.shift != 0 })
+        #expect(waiting.contains { $0.hop >= 0.04 })
+        // Busy leans over its screen and bobs toward it.
+        #expect(busy.contains { $0.lean > 0 && $0.tilt != 0 } && busy.contains { $0.lean >= 0.07 && $0.stretch < 0 })
+        // Off only breathes.
+        #expect((UInt64(1)...30).allSatisfy { WorkerBehaviour(.off).loop(seed: $0).intents.isEmpty })
+
+        // A look turns the body the way the brows go; an impatient worker hops twice.
+        var random = SystemRandomNumberGenerator()
+        for action in [BrowAction.lookLeft, .lookRight, .shuffle, .shiftWeight] {
+            let performance = action.performance(
+                base  : .idle,
+                random: &random
+            )
+            let look = performance.moves[0].left.dx
+            let turn = performance.body.map(\.pose).first { $0.tilt != 0 || $0.shift != 0 }
+            let way  = action == .shuffle ? turn?.shift ?? 0 : turn?.tilt ?? 0
+            #expect(look * way > 0, "\(action): brows \(look), body \(way)")
+        }
+        let impatient = BrowAction.impatient.performance(
+            base  : .asking,
+            random: &random
+        )
+        #expect(impatient.body.filter { $0.pose.hop > 0 }.count == 2)
+        let work = BrowAction.work.performance(
+            base  : .working,
+            random: &random
+        )
+        #expect(work.body.filter { $0.pose.stretch < 0 }.count >= 3)
     }
 
     @Test("Off, Reduce Motion, the view from above, an empty room and another status's loop move no body")
@@ -122,21 +166,34 @@ struct BodyMotionTests {
             size : Self.size,
             lean : 0
         ))
-        for (pose, shift) in zip(motion.poses, motion.faceShifts) {
+        // The layer turns and scales about the room's centre; the shift lands the brows on the face.
+        for (pose, move) in zip(motion.poses, motion.faceMoves) {
             let moved = camera.face(
                 of  : .circle,
                 pose: pose
             ).anchor
-            #expect(abs(shift.x - (moved.dx - rest.dx)) < 1e-9)
-            #expect(abs(shift.y - (rest.dy - moved.dy)) < 1e-9)
+            let from  = (x: rest.dx, y: -rest.dy)
+            let landed = CGPoint(
+                x: move.scale * (from.x * cos(move.turn) - from.y * sin(move.turn)) + move.shift.x,
+                y: move.scale * (from.x * sin(move.turn) + from.y * cos(move.turn)) + move.shift.y
+            )
+            #expect(abs(landed.x - moved.dx) < 1e-9 && abs(landed.y + moved.dy) < 1e-9, "\(pose)")
         }
-        let follow = motion.browShift()
-        #expect(follow.isAdditive)
-        #expect(follow.repeatCount == .infinity)
-        let values = try #require(follow.values as? [NSValue]).map(\.pointValue)
+        let follow = motion.browMotion()
+        #expect(Set(follow.keys) == Set(RoomBodyMotion.browKeys))
+        let shift  = try #require(follow[MascotLayer.bodyKey])
+        #expect(shift.isAdditive)
+        #expect(shift.repeatCount == .infinity)
+        let values = try #require(shift.values as? [NSValue]).map(\.pointValue)
         for (keyframe, value) in zip(motion.keyframes, values) {
-            #expect(value == (keyframe.pose.map { motion.faceShifts[$0] } ?? .zero))
+            #expect(value == (keyframe.pose.map { motion.faceMoves[$0].shift } ?? .zero))
         }
+        // A turned body turns its brows the same way on screen.
+        let turned = camera.face(
+            of  : .circle,
+            pose: RoomLightUniforms.Pose(tilt: 0.1)
+        )
+        #expect(turned.turn < camera.face(of: .circle).turn)
         // At the top of a hop the outline rises without turning, its foot straight up.
         let index = try #require(motion.poses.indices.max { motion.poses[$0].hop < motion.poses[$1].hop })
         let lift  = motion.outlineTransforms[index]
@@ -146,7 +203,7 @@ struct BodyMotionTests {
             y: Self.size.height - foot.y
         ).applying(lift)
         #expect(abs(lift.b) < 1e-6 && abs(lift.c) < 1e-6)
-        #expect(abs(lift.a - 1) < 0.05 && abs(lift.d - 1) < 0.05)
+        #expect(abs(lift.a - 1) < 0.1 && abs(lift.d - 1) < 0.1)
         #expect(abs(up.x - foot.x) < 1e-6)
         #expect(up.y - (Self.size.height - foot.y) > 0.3 * Double(motion.poses[index].hop))
     }
@@ -294,7 +351,7 @@ struct BodyMotionTests {
         #expect(abs(follow.beginTime - mascot.convertTime(link.start, from: nil)) < 1e-6)
         #expect(follow.isAdditive)
         let shifts = try #require(follow.values as? [NSValue]).map(\.pointValue)
-        #expect(shifts == motion.keyframes.map { $0.pose.map { motion.faceShifts[$0] } ?? .zero })
+        #expect(shifts == motion.keyframes.map { $0.pose.map { motion.faceMoves[$0].shift } ?? .zero })
 
         // A resize shows the body at rest, with the brows on it.
         view.setFrameSize(CGSize(
@@ -463,7 +520,7 @@ struct BodyMotionTests {
     private static func loop(_ status: WorkerStatus) -> WorkerBehaviourLoop {
         let loops = (UInt64(1)...200).lazy.map { WorkerBehaviour(status).loop(seed: $0) }
         let hops  = loops.first { loop in
-            loop.intents.contains { if case .hop = $0.kind { true } else { false } }
+            loop.intents.contains { $0.keys.contains { $0.pose.hop > 0 } }
         }
         return (status == .waiting ? hops : nil) ?? loops.first { !$0.intents.isEmpty } ?? loops[loops.startIndex]
     }

@@ -574,24 +574,29 @@ nonisolated final class MascotLayer: CALayer {
         refreshBlendKey,
     ]
 
-    /// Moves the brows with the body a room draws beneath them (`RoomBodyMotion.browShift()`): an
-    /// additive shift of the layer's position that starts with the brows' loop at `start` on the host
-    /// clock, or nil to leave them on the body at rest. Nothing under Reduce Motion.
+    /// Moves the brows with the body a room draws beneath them (`RoomBodyMotion.browMotion()`): the
+    /// layer's additive shift, turn and change of scale, by key, starting with the body's motion at
+    /// `start` on the host clock, or nil to leave them on the body at rest. Nothing under Reduce Motion.
     @MainActor
     func followBody(
-        _ shift   : CAAnimation?,
+        _ motion  : [String: CAAnimation]?,
         from start: CFTimeInterval = 0
     ) {
-        removeAnimation(forKey: Self.bodyKey)
-        guard let shift, !RestylingMotion.reducesMotion else { return }
-        shift.beginTime = convertTime(start, from: nil)
-        add(
-            shift,
-            forKey: Self.bodyKey
-        )
+        for key in RoomBodyMotion.browKeys {
+            removeAnimation(forKey: key)
+        }
+        guard let motion, !RestylingMotion.reducesMotion else { return }
+        for (key, animation) in motion {
+            animation.beginTime = convertTime(start, from: nil)
+            add(
+                animation,
+                forKey: key
+            )
+        }
     }
 
-    static let bodyKey = "body"
+    /// The key of the brows' shift with the body.
+    static let bodyKey = RoomBodyMotion.browKeys[0]
 
     /// Whether the worker is away in the chat: the brows are hidden, but while they pass out of the
     /// room with the body or back in (`followPassage(_:from:)`).

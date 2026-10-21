@@ -142,19 +142,29 @@ nonisolated struct RoomLightUniforms: Equatable {
                 capsuleLight.y,
                 capsuleLight.z,
                 capsuleStrength
+            ),
+            posture: SIMD4(
+                pose.shift,
+                pose.stretch,
+                pose.lean,
+                0
             )
         )
     }
 
-    /// Pose is how far the standing body has moved from rest, seen through the tilted camera: a turn
-    /// about the floor's point under it, in radians, positive with its top toward the right, a hop up
-    /// from the floor and a slide toward the camera, in points, and its size against rest, about the
-    /// same point. The view from above shows the body at rest.
+    /// Pose is how far the standing body has moved from rest, seen through the tilted camera, all about
+    /// the floor's point under it: its size against rest (`scale`), taller and narrower by `stretch`,
+    /// keeping its volume, leaning toward the camera by `lean` and turned with its top toward the right
+    /// by `tilt`, in radians, then moved across (`shift`), toward the camera (`slide`) and up (`hop`),
+    /// in points. The view from above shows the body at rest.
     struct Pose: Hashable {
-        var tilt : Float = 0
-        var hop  : Float = 0
-        var slide: Float = 0
-        var scale: Float = 1
+        var tilt   : Float = 0
+        var hop    : Float = 0
+        var slide  : Float = 0
+        var scale  : Float = 1
+        var shift  : Float = 0
+        var stretch: Float = 1
+        var lean   : Float = 0
 
         static let rest = Pose()
 
@@ -165,13 +175,24 @@ nonisolated struct RoomLightUniforms: Equatable {
             foot   : SIMD3<Double>
         ) -> SIMD3<Double> {
             guard self != .rest else { return point }
-            let offset = (point - foot) * Double(scale)
-            let cosine = Double(cos(tilt))
-            let sine   = Double(sin(tilt))
+            var offset = (point - foot) * Double(scale)
+            let across = 1 / Double(stretch).squareRoot()
+            offset = SIMD3(
+                offset.x * across,
+                offset.y * across,
+                offset.z * Double(stretch)
+            )
+            let leaning = (cosine: Double(cos(lean)), sine: Double(sin(lean)))
+            offset = SIMD3(
+                offset.x,
+                offset.y * leaning.cosine + offset.z * leaning.sine,
+                offset.z * leaning.cosine - offset.y * leaning.sine
+            )
+            let turning = (cosine: Double(cos(tilt)), sine: Double(sin(tilt)))
             return foot + SIMD3(
-                offset.x * cosine + offset.z * sine,
+                offset.x * turning.cosine + offset.z * turning.sine + Double(shift),
                 offset.y + Double(slide),
-                offset.z * cosine - offset.x * sine + Double(hop)
+                offset.z * turning.cosine - offset.x * turning.sine + Double(hop)
             )
         }
     }
@@ -235,7 +256,7 @@ nonisolated struct RoomLightUniforms: Equatable {
         }
     }
 
-    /// Packed matches `RoomLightUniforms` in RoomLight.metal field for field: nine `float4`s, 144
+    /// Packed matches `RoomLightUniforms` in RoomLight.metal field for field: ten `float4`s, 160
     /// bytes, so no member needs padding on either side.
     struct Packed {
         /// sRGB colour, and the strength in `w`.
@@ -268,5 +289,8 @@ nonisolated struct RoomLightUniforms: Equatable {
 
         /// The capsule's sRGB colour, and `capsuleStrength` in `w`.
         var capsule: SIMD4<Float>
+
+        /// The pose's shift across, its stretch, 1 at rest, and its lean toward the camera.
+        var posture: SIMD4<Float>
     }
 }

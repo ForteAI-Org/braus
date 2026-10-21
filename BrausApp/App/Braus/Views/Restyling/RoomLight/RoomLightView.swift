@@ -1291,7 +1291,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         }
         CATransaction.commit()
         link.mascot?.followBody(
-            motion.browShift(),
+            motion.browMotion(),
             from: link.start
         )
     }
