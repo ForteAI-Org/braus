@@ -19,13 +19,18 @@ import SwiftUI
 /// A change of worker plays `HouseSwitch`. The conversation it leaves stays, under the new one, for
 /// `HouseSwitch.crossFade`, told that it leaves; it is not removed with a transition, since SwiftUI
 /// stops updating a view's body once it is being removed and the conversation's parts leave on
-/// beats of their own. A worker chosen again while that conversation leaves takes the place at once.
+/// beats of their own. The arriving conversation learns which worker it follows
+/// (`houseSwitchPrevious`), so its capsule takes over from that worker's. Changed again meanwhile,
+/// the column lets the worker it was showing leave and drops the one leaving before it.
 struct HouseDetail: View {
     let worker           : MockWorker?
     let isComposerFocused: FocusState<Bool>.Binding
 
-    /// The worker shown before the change of worker in progress, or the shown one once it settles.
-    @State private var settled: MockWorker?
+    /// The worker the column showed last, which `worker` replaces once its change has been seen.
+    @State private var lastShown: MockWorker?
+
+    /// The worker whose conversation is leaving, until `HouseSwitch.crossFade` has passed.
+    @State private var departing: MockWorker?
 
     var body: some View {
         ZStack {
@@ -41,6 +46,10 @@ struct HouseDetail: View {
                     \.houseSwitchLeaving,
                     shown.id != worker?.id
                 )
+                .environment(
+                    \.houseSwitchPrevious,
+                    shown.id == worker?.id ? leaving : nil
+                )
             }
             if worker == nil {
                 ContentUnavailableView(
@@ -50,17 +59,28 @@ struct HouseDetail: View {
                 )
             }
         }
+        .onAppear { lastShown = worker }
+        .onChange(of: worker?.id) {
+            departing = leaving
+            lastShown = worker
+        }
         .task(id: worker?.id) {
             try? await Task.sleep(for: .seconds(HouseSwitch.crossFade))
             guard !Task.isCancelled else { return }
 
-            settled = worker
+            departing = nil
         }
+    }
+
+    /// The worker whose conversation leaves: the one shown last, from the frame that changes worker,
+    /// before `onChange` has seen it.
+    private var leaving: MockWorker? {
+        let leaving = lastShown?.id != worker?.id ? lastShown : departing
+        return leaving?.id == worker?.id ? nil : leaving
     }
 
     /// The conversations in the column: the leaving one under the chosen one.
     private var shown: [MockWorker] {
-        let leaving = settled.flatMap { $0.id == worker?.id ? nil : $0 }
-        return [leaving, worker].compactMap { $0 }
+        [leaving, worker].compactMap { $0 }
     }
 }

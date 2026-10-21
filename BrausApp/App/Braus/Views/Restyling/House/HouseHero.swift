@@ -18,8 +18,11 @@ import SwiftUI
 /// The conversation gives the moment's `status`, `brows` and `activity`, and raises `preparation`
 /// when the worker sets about a message, which the worker plays once.
 ///
-/// A change of worker brings the hero in and out on `HouseSwitch`'s beats. The hero's frame is the
-/// same for every shape and every subtitle, so the transcript under it never moves.
+/// A change of worker plays `HouseSwitch`: the worker drops into its capsule and the next one hops out
+/// of it. The capsule stays: an arriving hero's capsule starts from the previous worker's words and
+/// light (`houseSwitchPrevious`) and writes its own in, and a leaving hero's hides at once beneath it.
+/// The hero's frame is the same for every shape and every subtitle, so the transcript under it never
+/// moves.
 struct HouseHero: View {
     let worker     : MockWorker
     let status     : WorkerStatus
@@ -29,6 +32,12 @@ struct HouseHero: View {
 
     /// Where the hero is in a change of worker.
     var stage = HouseSwitch.Stage.present
+
+    /// The worker whose capsule this hero takes over, read once, when the hero appears.
+    @Environment(\.houseSwitchPrevious) private var previous
+
+    /// Whether the capsule's light has moved on from the previous worker's status to this one's.
+    @State private var hasTakenOver = false
 
     /// The side of the worker's sphere, in points.
     static let workerSize: CGFloat = 60
@@ -52,10 +61,6 @@ struct HouseHero: View {
     }
 
     var body: some View {
-        let pose = HouseSwitch.pose(
-            stage,
-            reducesMotion: RestylingMotion.reducesMotion
-        )
         VStack(spacing: 4) {
             HouseWorkerPortrait(
                 shape       : worker.shape,
@@ -77,19 +82,19 @@ struct HouseHero: View {
                 alignment: .bottom
             )
             .accessibilityHidden(true)
-            VStack(spacing: 1) {
-                Text(worker.name)
-                    .font(.system(
-                        size  : 13,
-                        weight: .semibold
-                    ))
-                    .lineLimit(1)
-                    .help(role)
-                Text(activity)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            HouseHeroCaption(
+                HouseHeroCaption.Words(
+                    name    : worker.name,
+                    activity: activity
+                ),
+                help: role,
+                from: previous.map { previous in
+                    HouseHeroCaption.Words(
+                        name    : previous.name,
+                        activity: previous.subtitle
+                    )
+                }
+            )
             .padding(
                 .horizontal,
                 12
@@ -101,7 +106,7 @@ struct HouseHero: View {
             .modifier(GlassCapsule(cornerRadius: 40))
             .overlay(alignment: .top) {
                 // The light the capsule gives the worker, where it leaves the glass.
-                HeroLight(status: status)
+                HeroLight(status: hasTakenOver ? status : previous?.status ?? status)
                     .frame(height: 10)
                     .padding(
                         .horizontal,
@@ -110,20 +115,14 @@ struct HouseHero: View {
                     .offset(y: -4)
                     .allowsHitTesting(false)
             }
-            .scaleEffect(
-                pose.scale,
-                anchor: .bottom
-            )
-            .offset(y: pose.drop)
-            .opacity(pose.opacity)
+            // The arriving hero's capsule stands in the same place, so the leaving one goes at once.
+            .opacity(stage == .leaving ? 0 : 1)
             .animation(
-                HouseSwitch.capsuleAnimation(
-                    to           : stage,
-                    reducesMotion: RestylingMotion.reducesMotion
-                ),
+                nil,
                 value: stage
             )
         }
+        .onAppear { hasTakenOver = true }
         .accessibilityElement(children: .combine)
         .accessibilityHint(role)
     }
