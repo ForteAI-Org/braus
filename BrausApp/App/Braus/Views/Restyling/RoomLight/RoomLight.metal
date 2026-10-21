@@ -16,7 +16,11 @@
 // the light alone with its bleed on the walls and its reflections on the body. `resolveRoom` adds
 // them with a weight, tone maps once and writes sRGB, which lets the light pulse without rendering.
 // `traceRoom` traces the scene against an acceleration structure; `precomputeRoom` evaluates the
-// same scene analytically.
+// same scene analytically. `traceTiltedRoom` and `precomputeTiltedRoom` see a room with tall walls
+// through the tilted camera instead, as the section on the tilted view below describes. Each kernel
+// has a leaning twin (`traceLeaningRoom` and so on) for a room whose composition leans left, the
+// rows': the worker stands larger at the left, the lamp hangs above it and a little further left, and
+// the pool spreads from it toward the right; the tilted eye stands across from it.
 
 #include <metal_stdlib>
 #include <metal_raytracing>
@@ -24,13 +28,15 @@
 using namespace metal;
 using namespace raytracing;
 
-/// RoomLightUniforms matches `RoomLightUniforms.Packed` in Swift: five float4, 80 bytes.
+/// RoomLightUniforms matches `RoomLightUniforms.Packed` in Swift: seven float4, 112 bytes.
 struct RoomLightUniforms {
     float4 light;     // sRGB colour, strength in w
     float4 outline;   // the body's core: sides, size, turn or offset, and corner radius, in sphere radii
-    float4 body;      // dome height and lowest point in sphere radii, unused, w is 1 when occupied
-    float4 room;      // width and height in points, points per pixel, unused
+    float4 body;      // dome height, lowest point and standing slab in sphere radii, w is 1 when occupied
+    float4 room;      // width and height in points, points per pixel, the tilted room's cove radius
     float4 shape;     // wall height, wall reach, sphere radius, corner radius, in points
+    float4 camera;    // the tilted view's floor depth, back wall top, focal length, worker's depth
+    float4 stage;     // the worker's distance from the left wall in points, the composition's lean
 };
 
 // The lamp, a disc facing down, as fractions of the room's short side. Its size keeps every shadow
@@ -49,6 +55,25 @@ constant float  tileGain   = 1.3;    // the tile's narrower core, as bright wher
 constant float  poolTail   = 0.005;
 constant float  tailWidth  = 1.1;
 constant float  wallCatch  = 13;
+
+// The pool of a room leaning left, as fractions of the room's short side around the worker: a
+// core as tall as the floor plan's, short toward the left wall and long toward the right, and a wash
+// that carries on right, widening as it goes and fading slowly, so the light dies into the room's
+// dark right side with no edge. The lamp hangs `lampLead` left of the worker.
+constant float lampLead       = 0.15;
+constant float leanCoreLeft   = 0.42;
+constant float leanCoreRight  = 0.75;
+constant float leanCoreHeight = 0.3;
+constant float leanWash       = 0.25;   // the wash's share of the pool at its centre
+constant float leanWashReach  = 1.3;    // how far right the wash falls to 1/e
+constant float leanWashSpread = 0.35;   // how much taller it grows for each short side it travels
+constant float2 leanTailReach = float2(1.8, 0.8);   // the walls' faint lit rim, rightward and across
+
+// Where a room leaning left goes dark, in short sides right of the worker: from `darkFrom` its light
+// fades, and from `darkTo` on its floor and walls are black, light and ambient alike, so the right
+// end shows no lit wall, corner or edge.
+constant float darkFrom = 1.0;
+constant float darkTo   = 2.3;
 
 constant float  floorAlbedo = 0.5;
 constant float  wallAlbedo  = 0.7;
@@ -111,6 +136,9 @@ struct Room {
     float  bodyCorner;   // the bevel's radius, every corner's
     float  bodyDome;
     float  bodyBottom;   // how far the outline reaches below its centre, in sphere radii
+    float  bodySlab;     // standing, how far the core is thickened before and behind its middle
+    float  lean;         // 0 with the worker at the centre, 1 at the left
+    float2 poolCentre;   // where the pool centres once the composition leans, across on the worker
     float3 lamp;
     float  lampRadius;
     float3 light;        // linear colour times strength and exposure
@@ -119,6 +147,10 @@ struct Room {
     float3 metal;        // linear reflectance of the body head on
     bool   isOccupied;
     float  pointsPerPixel;
+    bool   isTilted;     // seen through the tilted camera, whose room has the fields below
+    float  depth;        // how far the floor's front edge, the window's foot, is from the back wall
+    float  fillet;       // the radius of the coves where the walls meet the floor
+    float2 footprint;    // the walls' rounded outline, from the back wall far past the window
 };
 
 struct Surface {
@@ -158,6 +190,15 @@ static float4 encodedPixel(float3 linear, uint2 pixel) {
     return float4(sRGBFromLinear(linear) + (noise - 0.5) / 255, 1);
 }
 
+/// Moves `room`'s worker to where the stage puts it across the room, and its lamp `lampLead` further
+/// left, as far as the composition leans; the pool centres across on the worker, as far from the
+/// back as the floor plan's.
+static void leanLeft(thread Room& room, constant RoomLightUniforms& uniforms) {
+    room.body.x     = uniforms.stage.x;
+    room.lamp.x     = room.body.x - lampLead * room.side * room.lean;
+    room.poolCentre = float2(room.body.x, poolCentre.y * room.size.y);
+}
+
 static Room makeRoom(constant RoomLightUniforms& uniforms) {
     Room room;
     room.size           = uniforms.room.xy;
@@ -182,6 +223,25 @@ static Room makeRoom(constant RoomLightUniforms& uniforms) {
     room.metal          = float3(metalReflectance);
     room.isOccupied     = uniforms.body.w > 0.5;
     room.pointsPerPixel = uniforms.room.z;
+    room.isTilted       = false;
+    room.depth          = 0;
+    room.fillet         = 0;
+    room.footprint      = room.size;
+    room.bodySlab       = 0;
+    room.lean           = 0;
+    return room;
+}
+
+/// The room as its composition stands it: the floor plan's, or, when it `leans`, moved left as far as
+/// the stage says. A template, so the floor plan's kernels compile with no lean at all and render
+/// exactly as they did before the rows leaned.
+template <bool leans>
+static Room stagedRoom(constant RoomLightUniforms& uniforms) {
+    Room room = makeRoom(uniforms);
+    if (leans) {
+        room.lean = uniforms.stage.y;
+        leanLeft(room, uniforms);
+    }
     return room;
 }
 
@@ -218,10 +278,61 @@ static Surface surfaceAt(float2 xy, Room room) {
     return surface;
 }
 
+/// The floor plan's pool around `centre`, 1 there, as `pool` lays it around the room's centre.
+static float centredPool(float2 xy, float2 centre, float wallShare, Room room) {
+    float distance = length((xy - centre) / (poolRadii * room.size));
+    float tail     = poolTail * (1 + wallCatch * wallShare);
+    float wide     = saturate((room.size.x / room.size.y - 1.3) / 0.7);
+    float core     = mix(tileCore, poolCore, wide);
+    float gain     = mix(tileGain, 1.0, wide);
+    return (1 - poolTail) * gain * exp(-square(distance / core)) + tail * exp(-square(distance / tailWidth));
+}
+
+/// How much of its light a point `right` short sides right of the worker keeps in a room leaning
+/// fully left: all of it up to `darkFrom`, none from `darkTo`.
+static float rightFade(float right) {
+    return 1 - smoothstep(darkFrom, darkTo, right);
+}
+
+/// How much of its light and ambient a floor or wall point at `x` keeps in a room leaning left, as
+/// far as it leans: less toward the right end, which is black.
+static float rightDarkness(float x, Room room) {
+    return mix(1.0, rightFade((x - room.body.x) / room.side), saturate(room.lean));
+}
+
+/// `images` of a floor or wall point at `x`, darkened toward the right end when the room `leans`;
+/// the bounced light and the ambient there go dark with the lamp's.
+template <bool leans>
+static Images darkenedRight(Images images, float x, Room room) {
+    if (!leans) { return images; }
+    float keep = rightDarkness(x, room);
+    return { images.base * keep, images.light * keep };
+}
+
+/// The pool of a room leaning fully left, 1 at its centre: the core and the rightward wash, and
+/// the walls' lit rim, fading toward the right as the floor does and gone by `darkTo`.
+static float leaningPool(float2 xy, float wallShare, Room room) {
+    float2 offset = (xy - room.poolCentre) / room.side;
+    float  right  = max(offset.x, 0.0);
+    float  across = offset.x / (offset.x > 0 ? leanCoreRight : leanCoreLeft);
+    float  core   = exp(-square(across) - square(offset.y / leanCoreHeight));
+    float  height = leanCoreHeight + leanWashSpread * right;
+    float  wash   = exp(-right / leanWashReach - square(min(offset.x, 0.0) / leanCoreLeft) - square(offset.y / height))
+                  * leanCoreHeight / height;
+    float2 reach  = float2(offset.x > 0 ? leanTailReach.x : leanCoreLeft, leanTailReach.y);
+    float  tail   = poolTail * (1 + wallCatch * wallShare) * exp(-square(length(offset / reach) / tailWidth));
+    return ((1 - poolTail) * ((1 - leanWash) * core + leanWash * wash) + tail) * rightFade(offset.x);
+}
+
 /// The lamp's pool at a point of the room, 1 at its centre. The core falls off like the prototype's
 /// gradient; the tail is the lamp's side light, which the walls catch `wallCatch` times more than
-/// the floor, so they read as a lit rim.
+/// the floor, so they read as a lit rim. A room leaning left has the leaning pool, or a blend of the
+/// two while it leans part of the way.
 static float pool(float2 xy, float wallShare, Room room) {
+    if (room.lean > 0) {
+        float leaning = leaningPool(xy, wallShare, room);
+        return room.lean >= 1 ? leaning : mix(centredPool(xy, room.poolCentre, wallShare, room), leaning, room.lean);
+    }
     float distance = length((xy - poolCentre * room.size) / (poolRadii * room.size));
     float tail     = poolTail * (1 + wallCatch * wallShare);
     float wide     = saturate((room.size.x / room.size.y - 1.3) / 0.7);
@@ -371,6 +482,18 @@ static BodyPoint bodyAt(float2 xy, Room room) {
     return point;
 }
 
+/// The point of the body's core nearest `position`, the body being that core grown by the corner's
+/// ball: from above the flat core at the equator; standing in the tilted view, the core upright in the
+/// plane facing the camera and thickened by the slab before and behind it.
+static float3 nearestCore(float3 position, Room room) {
+    if (room.isTilted) {
+        float2 core = corePoint(float2(position.x, room.body.y + room.body.z - position.z), room);
+        float  away = clamp(position.y - room.body.y, -room.bodySlab, room.bodySlab);
+        return float3(core.x, room.body.y + away, room.body.y + room.body.z - core.y);
+    }
+    return float3(corePoint(position.xy, room), room.body.z);
+}
+
 /// How far the segment from `start` along `line` passes outside the body, negative through it,
 /// measured without the dome: the closest points of the segment and the core, found by projecting
 /// each onto the other in turn. Exact at once for the circle's point core.
@@ -380,7 +503,7 @@ static float bodyMiss(float3 start, float3 line, Room room) {
     float3 near = start;
     for (uint step = 0; step < 3; step++) {
         near = start + line * saturate(dot(core - start, line) / dot(line, line));
-        core = float3(corePoint(near.xy, room), room.body.z);
+        core = nearestCore(near, room);
     }
     return length(near - core) - room.bodyCorner;
 }
@@ -405,7 +528,7 @@ static float bodyOcclusion(float3 position, uint samples, Room room) {
 /// hides whose surface is as far, toward the body's nearest core point.
 static float bodyAmbientOcclusion(Surface surface, Room room) {
     if (!room.isOccupied) { return 0; }
-    float3 toCore   = float3(corePoint(surface.position.xy, room), room.body.z) - surface.position;
+    float3 toCore   = nearestCore(surface.position, room) - surface.position;
     float  distance = length(toCore);
     float  apart    = distance - room.bodyCorner + room.radius;
     return saturate(dot(surface.normal, toCore / distance)) * square(room.radius / max(apart, room.radius));
@@ -486,23 +609,28 @@ static float3 facetSample(float3 normal, float roughness, float2 sample) {
     return normalize(tangent * sine * cos(angle) + other * sine * sin(angle) + normal * cosine);
 }
 
-/// The lamp mirrored by the body's metal at `point`: the lamp's soft core seen through the metal's
-/// gloss, a lobe around the mirror direction as wide as the two together, so the highlight is
-/// smooth at any size. Nothing stands between the body and the lamp above it, so both paths
+/// The lamp mirrored by the body's metal at `point` toward `view`: the lamp's soft core seen through
+/// the metal's gloss, a lobe around the mirror direction as wide as the two together, so the
+/// highlight is smooth at any size. Nothing stands between the body and the lamp above it, so both paths
 /// evaluate it the same way, without tracing.
-static float3 lampHighlight(BodyPoint point, Room room) {
+static float3 lampHighlight(BodyPoint point, float3 view, Room room) {
     float3 normal   = point.normal;
     float3 toLamp   = room.lamp + glowOffset * room.side - point.position;
     float  distance = length(toLamp);
-    float3 mirrored = reflect(-bodyView, normal);
+    float3 mirrored = reflect(-view, normal);
     float  apart    = acos(clamp(dot(mirrored, toLamp / distance), -1.0, 1.0));
     float  core     = atan(lampCoreShare * room.lampRadius / distance);
     float  gloss    = 1.2 * metalRoughness;
     float  spread   = core * core + gloss * gloss;
     float  facing   = saturate(4 * dot(normal, toLamp / distance));
-    float3 halfway  = normalize(bodyView + toLamp / distance);
+    float3 halfway  = normalize(view + toLamp / distance);
     return lampGlow * room.light * (core * core / spread) * exp(-apart * apart / spread)
-         * metalFresnel(dot(halfway, bodyView), room) * facing;
+         * metalFresnel(dot(halfway, view), room) * facing;
+}
+
+/// The lamp mirrored by the body at `point` for the room's camera straight down.
+static float3 lampHighlight(BodyPoint point, Room room) {
+    return lampHighlight(point, bodyView, room);
 }
 
 // MARK: - Precomputed light
@@ -549,16 +677,19 @@ static float3 roomSheen(float2 xy, float3 normal, Room room) {
     return metalFresnel(normal.z, room) * (ring * floor * sheenShare + rim * wall * rimShare);
 }
 
-kernel void precomputeRoom(texture2d<float, access::write> base     [[texture(0)]],
-                           texture2d<float, access::write> light    [[texture(1)]],
-                           constant RoomLightUniforms&     uniforms [[buffer(0)]],
-                           uint2                           pixel    [[thread_position_in_grid]])
+/// One pixel of `precomputeRoom`, or of `precomputeLeaningRoom` when the room `leans`.
+template <bool leans>
+static void precomputeRoomAt(texture2d<float, access::write> base,
+                             texture2d<float, access::write> light,
+                             constant RoomLightUniforms&     uniforms,
+                             uint2                           pixel)
 {
     if (pixel.x >= base.get_width() || pixel.y >= base.get_height()) { return; }
-    Room    room    = makeRoom(uniforms);
+    Room    room    = stagedRoom<leans>(uniforms);
     float2  xy      = (float2(pixel) + 0.5) * room.pointsPerPixel;
     Surface surface = surfaceAt(xy, room);
     Images  images  = { ambient * (1 - bodyAmbientOcclusion(surface, room)), analyticLight(xy, occlusionSamples, room) };
+    images = darkenedRight<leans>(images, xy.x, room);
 
     if (room.isOccupied) {
         float coverage = saturate(-outlineDistance(xy, room) / room.pointsPerPixel + 0.5);
@@ -572,6 +703,23 @@ kernel void precomputeRoom(texture2d<float, access::write> base     [[texture(0)
     }
     base.write(float4(images.base, 1), pixel);
     light.write(float4(images.light, 1), pixel);
+}
+
+kernel void precomputeRoom(texture2d<float, access::write> base     [[texture(0)]],
+                           texture2d<float, access::write> light    [[texture(1)]],
+                           constant RoomLightUniforms&     uniforms [[buffer(0)]],
+                           uint2                           pixel    [[thread_position_in_grid]])
+{
+    precomputeRoomAt<false>(base, light, uniforms, pixel);
+}
+
+/// `precomputeRoom` for a room leaning left.
+kernel void precomputeLeaningRoom(texture2d<float, access::write> base     [[texture(0)]],
+                                  texture2d<float, access::write> light    [[texture(1)]],
+                                  constant RoomLightUniforms&     uniforms [[buffer(0)]],
+                                  uint2                           pixel    [[thread_position_in_grid]])
+{
+    precomputeRoomAt<true>(base, light, uniforms, pixel);
 }
 
 // MARK: - Resolve
@@ -635,11 +783,13 @@ static bool sees(float3 position, float3 normal, float3 lampPoint, primitive_acc
     return shadows.intersect(ray(start, toLamp / span, 0, span), scene).type == intersection_type::none;
 }
 
+static Surface tiltedSurfaceAt(float3 position, Room room);
+
 /// The floor or wall a ray hit, or false for the body or nothing.
 static bool hitRoom(intersection_result<> hit, ray traced, Room room, thread Surface& surface) {
     if (hit.type == intersection_type::none || hit.geometry_id == bodyGeometry) { return false; }
     float3 position = traced.origin + traced.direction * hit.distance;
-    surface = surfaceAt(position.xy, room);
+    surface = room.isTilted ? tiltedSurfaceAt(position, room) : surfaceAt(position.xy, room);
     surface.position = position;
     return true;
 }
@@ -750,14 +900,16 @@ static Images tracedBody(float2 xy, primitive_acceleration_structure scene, Room
     return images;
 }
 
-kernel void traceRoom(texture2d<float, access::write>  base     [[texture(0)]],
-                      texture2d<float, access::write>  light    [[texture(1)]],
-                      constant RoomLightUniforms&      uniforms [[buffer(0)]],
-                      primitive_acceleration_structure scene    [[buffer(1)]],
-                      uint2                            pixel    [[thread_position_in_grid]])
+/// One pixel of `traceRoom`, or of `traceLeaningRoom` when the room `leans`.
+template <bool leans>
+static void traceRoomAt(texture2d<float, access::write>  base,
+                        texture2d<float, access::write>  light,
+                        constant RoomLightUniforms&      uniforms,
+                        primitive_acceleration_structure scene,
+                        uint2                            pixel)
 {
     if (pixel.x >= base.get_width() || pixel.y >= base.get_height()) { return; }
-    Room   room     = makeRoom(uniforms);
+    Room   room     = stagedRoom<leans>(uniforms);
     uint   seed     = pcg(pixel.x + pcg(pixel.y));
     float2 rotation = float2(random(seed), random(seed));
     float  top      = room.lamp.z;
@@ -773,7 +925,7 @@ kernel void traceRoom(texture2d<float, access::write>  base     [[texture(0)]],
         Images  images;
         Surface surface;
         if (hitRoom(hit, primary, room, surface)) {
-            images = tracedRoom(surface, scene, room, frame, seed);
+            images = darkenedRight<leans>(tracedRoom(surface, scene, room, frame, seed), xy.x, room);
         } else if (hit.type != intersection_type::none) {
             images = tracedBody(xy, scene, room, frame, seed);
         } else {
@@ -781,12 +933,505 @@ kernel void traceRoom(texture2d<float, access::write>  base     [[texture(0)]],
             Surface rim = surfaceAt(xy, room);
             images.base  = ambient;
             images.light = rim.albedo * lampTerm(rim.position, rim.normal, room.lamp, room) * room.light;
+            images = darkenedRight<leans>(images, xy.x, room);
         }
         sum.base  += images.base;
         sum.light += images.light;
     }
     base.write(float4(sum.base / accumulatedFrames, 1), pixel);
     light.write(float4(sum.light / accumulatedFrames, 1), pixel);
+}
+
+kernel void traceRoom(texture2d<float, access::write>  base     [[texture(0)]],
+                      texture2d<float, access::write>  light    [[texture(1)]],
+                      constant RoomLightUniforms&      uniforms [[buffer(0)]],
+                      primitive_acceleration_structure scene    [[buffer(1)]],
+                      uint2                            pixel    [[thread_position_in_grid]])
+{
+    traceRoomAt<false>(base, light, uniforms, scene, pixel);
+}
+
+/// `traceRoom` for a room leaning left.
+kernel void traceLeaningRoom(texture2d<float, access::write>  base     [[texture(0)]],
+                             texture2d<float, access::write>  light    [[texture(1)]],
+                             constant RoomLightUniforms&      uniforms [[buffer(0)]],
+                             primitive_acceleration_structure scene    [[buffer(1)]],
+                             uint2                            pixel    [[thread_position_in_grid]])
+{
+    traceRoomAt<true>(base, light, uniforms, scene, pixel);
+}
+
+// MARK: - The tilted view
+
+// The tilted view (`RoomCamera.tilted` in Swift) looks into the room through its cell as through a
+// window from the floor's front edge, the cell's bottom, to the back wall's top, the cell's top, so
+// the floor recedes, the back wall rises behind it and the side walls narrow toward it. Its room has
+// tall walls that meet the floor in coves and each other in the room's rounded corners, on a
+// footprint that reaches far past the window toward the camera, so the room shows open at the front.
+// Nothing is added to the room: the depth comes from the lamp's pool fading toward the front and into
+// the back corners, the coves' soft occlusion and a darker front edge. The worker stands on its lowest
+// point a little behind the floor's middle, its outline upright and facing the camera, thickened from
+// front to back by a slab; its top may reach through the window. The lamp hangs over it and a little
+// behind. On both paths the body's shadows are analytic, so they show no grain: a tight contact
+// shadow where it meets the floor, and the lamp's soft shadow, whose penumbra widens away from it.
+
+/// How far the walls' footprint reaches from the back wall, in floor depths, as
+/// `RoomCamera.Perspective.footprintDepth`.
+constant float footprintReach = 2;
+
+/// How much darker the floor and walls are at the front edge, and over what share of the floor's
+/// depth they darken toward it.
+constant float frontShade = 0.35;
+constant float frontReach = 0.3;
+
+/// Where the precomputed occlusion of the coves and corners looks along a surface's normal, as a
+/// share of the short side, and how much of the room's ambient light it takes there at most.
+constant float coveReach  = 0.04;
+constant float coveHiding = 0.45;
+
+/// How much of the room the precomputed metal mirrors, for the ray tracer's glossy reflections.
+constant float mirrorShare = 0.6;
+
+/// The most steps a ray takes through the body's bounding sphere, and the shortest, in sphere radii.
+constant uint  bodySteps   = 96;
+constant float bodyMinStep = 1.0 / 32;
+
+/// How far behind the standing body the lamp hangs, as a share of the short side.
+constant float lampBehind = 0.2;
+
+/// How far from the body its contact shadow reaches, in sphere radii, and how much of the lamp's
+/// light it takes where the body touches.
+constant float contactReach = 0.25;
+constant float contactLight = 0.8;
+
+/// Camera is the tilted view's eye, the window's centre, and the window's up and its normal toward
+/// the eye, in scene points.
+struct Camera {
+    float3 eye;
+    float3 centre;
+    float3 up;
+    float3 normal;
+};
+
+/// The tilted view's room: the body standing on its lowest point a little behind the floor's middle,
+/// the pool's frame centred on it as the room is from above, and the lamp over it and a little behind,
+/// so the body's shadow falls toward the camera; when the room `leans`, moved left as the stage says.
+template <bool leans>
+static Room makeTiltedRoom(constant RoomLightUniforms& uniforms) {
+    Room room      = makeRoom(uniforms);
+    room.isTilted  = true;
+    room.depth     = uniforms.camera.x;
+    room.fillet    = uniforms.room.w;
+    room.footprint = float2(room.size.x, footprintReach * room.depth);
+    room.size      = float2(room.size.x, 2 * uniforms.camera.w);
+    room.bodySlab  = uniforms.body.z * room.radius;
+    room.body      = float3(room.size * 0.5, room.bodyBottom * room.radius);
+    room.lamp      = float3(poolCentre.x * room.size.x, room.body.y - lampBehind * room.side, lampHeightShare * room.side);
+    if (leans) {
+        room.lean = uniforms.stage.y;
+        leanLeft(room, uniforms);
+    }
+    return room;
+}
+
+/// The camera `RoomCamera.Perspective` describes: the window's slant length is the cell's height, and
+/// in a room leaning left the eye stands across from the worker.
+template <bool leans>
+static Camera makeCamera(constant RoomLightUniforms& uniforms) {
+    float  height = uniforms.room.y;
+    float  depth  = uniforms.camera.x;
+    float  top    = uniforms.camera.y;
+    Camera camera;
+    camera.centre = float3(0.5 * uniforms.room.x, 0.5 * depth, 0.5 * top);
+    camera.normal = float3(0, top, depth) / height;
+    camera.up     = float3(0, -depth, top) / height;
+    camera.eye    = camera.centre + uniforms.camera.z * camera.normal;
+    if (leans) { camera.eye.x = uniforms.stage.x; }
+    return camera;
+}
+
+/// The point of the window that shows at `xy` of the cell, in points with y down.
+static float3 windowPoint(float2 xy, constant RoomLightUniforms& uniforms, Camera camera) {
+    return camera.centre + float3(xy.x - 0.5 * uniforms.room.x, 0, 0) + (0.5 * uniforms.room.y - xy.y) * camera.up;
+}
+
+/// How far `position` lies inside the tilted room, negative outside, and in `normal` the facing of
+/// its nearest surface, into the room: the floor, a wall, or the cove between them, a quarter circle
+/// of the fillet's radius. The walls follow the footprint's rounded outline.
+static float tiltedInside(float3 position, Room room, thread float3& normal) {
+    Room   walls = room;
+    walls.size   = room.footprint;
+    float2 inward;
+    float  wall = insideDistance(position.xy, walls, inward);
+    float2 cove = room.fillet - float2(wall, position.z);
+    if (cove.x > 0 && cove.y > 0) {
+        normal = normalize(float3(inward * cove.x, cove.y));
+        return room.fillet - length(cove);
+    }
+    normal = wall < position.z ? float3(inward, 0) : float3(0, 0, 1);
+    return min(wall, position.z);
+}
+
+/// The floor, wall or cove nearest `position`, its albedo turning from the floor's to the walls'.
+static Surface tiltedSurfaceAt(float3 position, Room room) {
+    Surface surface;
+    float   inside   = tiltedInside(position, room, surface.normal);
+    surface.position = position - inside * surface.normal;
+    surface.albedo   = mix(floorAlbedo, wallAlbedo, 1 - surface.normal.z);
+    return surface;
+}
+
+/// Where the camera's ray from the window point `start` along `direction` meets the floor or a wall.
+static float3 tiltedRoomHit(float3 start, float3 direction, Room room) {
+    float3 position = start;
+    float3 normal;
+    for (uint step = 0; step < 48; step++) {
+        float inside = tiltedInside(position, room, normal);
+        if (inside < 1e-3 * room.side) { break; }
+        position += direction * inside;
+    }
+    return position;
+}
+
+/// How much of their light the floor and walls keep, less toward the front edge.
+static float frontFade(float3 position, Room room) {
+    return 1 - frontShade * smoothstep(1 - frontReach, 1.0, position.y / room.depth);
+}
+
+/// How open a floor or wall point is to the room, for its ambient light: less where the walls, the
+/// floor and the coves come close along its normal.
+static float tiltedOpenness(Surface surface, Room room) {
+    float3 normal;
+    float  hidden = 0;
+    for (uint step = 1; step <= 4; step++) {
+        float reach = coveReach * room.side * step;
+        hidden += saturate(1 - tiltedInside(surface.position + surface.normal * reach, room, normal) / reach);
+    }
+    return 1 - coveHiding * hidden / 4;
+}
+
+/// The light alone at a floor or wall point of the tilted room: the lamp with the body's soft
+/// shadow, tested against `samples` points of the lamp, and the light floor and walls bounce to each
+/// other, estimated from the nearest wall: the floor's pool up the wall, strongest at its foot, and
+/// the wall's glow onto the floor before it.
+static float3 tiltedAnalyticLight(Surface surface, uint samples, Room room) {
+    float direct = surface.albedo * lampTerm(surface.position, surface.normal, room.lamp, room)
+                 * (1 - bodyOcclusion(surface.position, samples, room));
+    Room   walls = room;
+    walls.size   = room.footprint;
+    float2 inward;
+    float  wall     = insideDistance(surface.position.xy, walls, inward);
+    float3 below    = float3(surface.position.xy + inward * max(room.fillet - wall, 0.0), 0);
+    float  floor    = floorAlbedo * lampTerm(below, float3(0, 0, 1), room.lamp, room)
+                    * (1 - bodyOcclusion(below, reflectionSamples, room));
+    float3 above    = float3(surface.position.xy - inward * wall, 0.3 * room.side);
+    float  fromWall = wallAlbedo * lampTerm(above, float3(inward, 0), room.lamp, room);
+    float  rise     = (1 - surface.normal.z) * exp(-surface.position.z / (0.3 * room.side));
+    float  spread   = surface.normal.z * exp(-wall / (0.1 * room.side));
+    return (direct + surface.albedo * (0.45 * rise * floor + 0.15 * spread * fromWall)) * room.light;
+}
+
+/// A point in the standing body's own frame: x across and y down its outline around `room.body.xy`,
+/// as `corePoint` reads points from above, and z how far in front of the body's middle it lies.
+static float3 standingLocal(float3 position, Room room) {
+    return float3(position.x, room.body.y + room.body.z - position.z, position.y - room.body.y);
+}
+
+/// How deep `position` lies inside the standing body, negative outside: within the slab, and before
+/// and behind it the bevel's quarter circle with the dome, as `bodyAt` shapes the top from above.
+static float bodyInside(float3 position, Room room) {
+    float3 local  = standingLocal(position, room);
+    float  across = length(local.xy - corePoint(local.xy, room));
+    if (across >= room.bodyCorner) { return room.bodyCorner - across; }
+    float rise = sqrt(square(room.bodyCorner) - square(across));
+    float dome = room.bodyDome > 0 ? room.bodyDome * (1 - square(outlineGauge(local.xy, room).x)) : 0;
+    return room.bodySlab + rise + dome - abs(local.z);
+}
+
+/// How far along the unit `direction` from `origin` the ray first meets the body, or -1 when it
+/// passes by. Through the body's bounding sphere it steps as far as the body without its dome is,
+/// less the dome's height, which the body cannot be nearer than, at least `bodyMinStep`, and halves
+/// the step that enters it.
+static float bodyHit(float3 origin, float3 direction, Room room) {
+    if (!room.isOccupied) { return -1; }
+    float3 centre = room.body;
+    float  bound  = length(float2(room.coreSize + room.bodyCorner, room.bodySlab + room.bodyCorner + room.bodyDome));
+    float3 offset = origin - centre;
+    float  along  = -dot(offset, direction);
+    float  miss   = dot(offset, offset) - along * along;
+    if (miss > bound * bound) { return -1; }
+    float reach = sqrt(bound * bound - miss);
+    float end   = along + reach;
+    float near  = max(along - reach, 0.0);
+    float far   = near;
+    for (uint step = 0; step < bodySteps && far <= end; step++) {
+        float3 position = origin + direction * far;
+        if (bodyInside(position, room) > 0) {
+            for (uint halving = 0; halving < 10; halving++) {
+                float middle = 0.5 * (near + far);
+                if (bodyInside(origin + direction * middle, room) > 0) { far = middle; } else { near = middle; }
+            }
+            return far;
+        }
+        float  free = length(position - nearestCore(position, room)) - room.bodyCorner - room.bodyDome;
+        near = far;
+        far += max(free, bodyMinStep * room.radius);
+    }
+    return -1;
+}
+
+/// The standing body's facing at a point of its surface: on the slab's band away from the core, and
+/// before and behind it as `bodyAt` faces the top from above, turned upright.
+static float3 bodyNormalAt(float3 position, Room room) {
+    float3 local   = standingLocal(position, room);
+    float2 outward = local.xy - corePoint(local.xy, room);
+    float3 facing  = float3(outward / max(length(outward), 1e-6), 0);
+    if (abs(local.z) > room.bodySlab) {
+        outward     *= min(1.0, room.bodyCorner / max(length(outward), 1e-6));
+        float  rise  = sqrt(max(square(room.bodyCorner) - dot(outward, outward), 0.0));
+        float3 gauge = room.bodyDome > 0 ? outlineGauge(local.xy, room) : float3(0);
+        facing       = normalize(float3(outward + 2 * room.bodyDome * gauge.x * gauge.yz * rise, rise));
+        facing.z    *= sign(local.z);
+    }
+    return float3(facing.x, facing.z, -facing.y);
+}
+
+/// How much the standing body hides of a floor or wall point right beside it: all of it where they
+/// touch, falling off within `contactReach` of the sphere's radius, so the body sits on the floor.
+static float bodyContact(Surface surface, Room room) {
+    if (!room.isOccupied) { return 0; }
+    float3 toCore = nearestCore(surface.position, room) - surface.position;
+    float  apart  = length(toCore);
+    float  gap    = max(apart - room.bodyCorner, 0.0);
+    return saturate(dot(surface.normal, toCore / max(apart, 1e-4))) * exp(-gap / (contactReach * room.radius));
+}
+
+/// The body's paint coordinates at `position` as the camera sees it: the sphere's unit square
+/// around the body's centre, laid across the view, y down.
+static float2 tiltedBodyUV(float3 position, Room room, Camera camera) {
+    float3 offset = position - room.body;
+    return 0.5 + float2(offset.x, -dot(offset, camera.up)) / (2 * room.radius);
+}
+
+/// Whether `position` lies in front of the window, where the camera is: the room is open there.
+static bool isBeforeWindow(float3 position, Camera camera) {
+    return dot(position - camera.centre, camera.normal) > 0;
+}
+
+/// The room the precomputed metal mirrors at a point of the body seen along `direction`: the floor
+/// or wall the mirrored ray meets, lit as `tiltedAnalyticLight` lights it, fading out where the ray
+/// leaves through the window or over the walls, as the ray tracer's glossy rays blur that edge.
+static float3 tiltedMirror(float3 position, float3 normal, float3 direction, Room room, Camera camera) {
+    float3 mirrored = reflect(direction, normal);
+    float3 start    = position + normal * 1e-3 * room.radius;
+    float  exit     = 1e6;
+    if (mirrored.z < 0) { exit = min(exit, -start.z / mirrored.z); }
+    if (mirrored.y < 0) { exit = min(exit, -start.y / mirrored.y); }
+    if (mirrored.x < 0) { exit = min(exit, -start.x / mirrored.x); }
+    if (mirrored.x > 0) { exit = min(exit, (room.footprint.x - start.x) / mirrored.x); }
+    if (exit > 1e5) { return float3(0); }
+    float3  hit     = start + mirrored * exit;
+    float   before  = dot(hit - camera.centre, camera.normal);
+    Surface surface = tiltedSurfaceAt(hit, room);
+    return tiltedAnalyticLight(surface, reflectionSamples, room) * frontFade(surface.position, room)
+         * (1 - smoothstep(-0.15 * room.side, 0.15 * room.side, before));
+}
+
+/// One pixel of `precomputeTiltedRoom`, or of `precomputeTiltedLeaningRoom` when the room `leans`.
+template <bool leans>
+static void precomputeTiltedRoomAt(texture2d<float, access::write> base,
+                                   texture2d<float, access::write> light,
+                                   constant RoomLightUniforms&     uniforms,
+                                   uint2                           pixel)
+{
+    if (pixel.x >= base.get_width() || pixel.y >= base.get_height()) { return; }
+    Room    room      = makeTiltedRoom<leans>(uniforms);
+    Camera  camera    = makeCamera<leans>(uniforms);
+    float2  xy        = (float2(pixel) + 0.5) * room.pointsPerPixel;
+    float3  window    = windowPoint(xy, uniforms, camera);
+    Surface surface   = tiltedSurfaceAt(tiltedRoomHit(window, normalize(window - camera.eye), room), room);
+    float   fade      = frontFade(surface.position, room);
+    float   openness  = tiltedOpenness(surface, room);
+    float   contact   = bodyContact(surface, room);
+    Images  images    = {
+        ambient * openness * (1 - bodyAmbientOcclusion(surface, room)) * (1 - contact) * fade,
+        tiltedAnalyticLight(surface, occlusionSamples, room) * (1 - occlusionLightShare * (1 - openness))
+            * (1 - contactLight * contact) * fade
+    };
+    images = darkenedRight<leans>(images, surface.position.x, room);
+
+    // The body, found at four points of the pixel so its silhouette is smooth, shaded at the first.
+    float  coverage = 0;
+    float3 hit      = 0;
+    float3 seen     = 0;
+    for (uint corner = 0; corner < 4 && room.isOccupied; corner++) {
+        float2 offset    = (float2(corner & 1, corner >> 1) - 0.5) * 0.5;
+        float3 direction = normalize(windowPoint((float2(pixel) + 0.5 + offset) * room.pointsPerPixel, uniforms, camera) - camera.eye);
+        float  distance  = bodyHit(camera.eye, direction, room);
+        if (distance <= 0) { continue; }
+        if (coverage == 0) {
+            hit  = camera.eye + direction * distance;
+            seen = direction;
+        }
+        coverage += 0.25;
+    }
+    if (coverage > 0) {
+        BodyPoint point     = { hit, bodyNormalAt(hit, room) };
+        float2    uv        = tiltedBodyUV(hit, room, camera);
+        float3    reflected = metalFresnel(dot(point.normal, -seen), room) * mirrorShare
+                            * tiltedMirror(hit, point.normal, seen, room, camera)
+                            + lampHighlight(point, -seen, room);
+        images.base  = mix(images.base, bodyPaint(uv, room), coverage);
+        images.light = mix(images.light, reflected + bodyBounce(uv, room), coverage);
+    }
+    base.write(float4(images.base, 1), pixel);
+    light.write(float4(images.light, 1), pixel);
+}
+
+kernel void precomputeTiltedRoom(texture2d<float, access::write> base     [[texture(0)]],
+                                 texture2d<float, access::write> light    [[texture(1)]],
+                                 constant RoomLightUniforms&     uniforms [[buffer(0)]],
+                                 uint2                           pixel    [[thread_position_in_grid]])
+{
+    precomputeTiltedRoomAt<false>(base, light, uniforms, pixel);
+}
+
+/// `precomputeTiltedRoom` for a room leaning left.
+kernel void precomputeTiltedLeaningRoom(texture2d<float, access::write> base     [[texture(0)]],
+                                        texture2d<float, access::write> light    [[texture(1)]],
+                                        constant RoomLightUniforms&     uniforms [[buffer(0)]],
+                                        uint2                           pixel    [[thread_position_in_grid]])
+{
+    precomputeTiltedRoomAt<true>(base, light, uniforms, pixel);
+}
+
+/// One frame of a floor or wall point of the tilted room: the lamp's light under the body's soft
+/// shadow, `shadow`, which the pixel estimates once analytically so it shows no grain; the ambient
+/// light, occluded by the walls and floor a traced ray meets nearby; one traced bounce; and the body's
+/// contact and ambient occlusion, analytic too.
+static Images tracedTiltedRoom(Surface surface, float shadow, primitive_acceleration_structure scene, Room room, Frame frame, thread uint& seed) {
+    Images images;
+    images.light = surface.albedo * lampTerm(surface.position, surface.normal, room.lamp, room) * (1 - shadow) * room.light;
+
+    float2 stratum = float2(frame.index % 8, frame.index / 8);
+    float2 sample  = fract((stratum + float2(random(seed), random(seed))) / 8 + frame.rotation);
+    ray    bounce(surface.position + surface.normal * room.side * 1e-3, cosineSample(surface.normal, sample));
+    intersection_result<> hit = makeIntersector().intersect(bounce, scene);
+    // The body's own occlusion is the analytic contact below, so only the walls and floor count here.
+    bool isOccluded = hit.type != intersection_type::none && hit.geometry_id != bodyGeometry
+                   && hit.distance < occlusionReach * room.side;
+    images.base   = isOccluded ? float3(0) : ambient;
+    images.light *= isOccluded ? 1 - occlusionLightShare : 1;
+
+    Surface other;
+    if (hitRoom(hit, bounce, room, other)) {
+        Frame single = { frame.index, frame.rotation.yx };
+        images.light += surface.albedo * other.albedo * tracedLamp(other, 1, scene, room, single) * room.light;
+    }
+    float contact = bodyContact(surface, room);
+    float fade    = frontFade(surface.position, room);
+    images.base  *= (1 - contact) * (1 - bodyAmbientOcclusion(surface, room)) * fade;
+    images.light *= (1 - contactLight * contact) * fade;
+    return images;
+}
+
+/// One frame of the body at `position`, seen along `direction`: its paint, the lamp mirrored by its
+/// metal, the room reflected through `glossRays` traced GGX facets with their shadows, and the
+/// crescent of room light at the bottom. Rays that leave through the window see nothing.
+static Images tracedTiltedBody(float3 position, float3 direction, primitive_acceleration_structure scene, Room room, Camera camera, Frame frame, thread uint& seed) {
+    BodyPoint point  = { position, bodyNormalAt(position, room) };
+    float3    normal = point.normal;
+    float3    origin = position + normal * room.radius * 1e-3;
+    float2    uv     = tiltedBodyUV(position, room, camera);
+    Images    images = { bodyPaint(uv, room), bodyBounce(uv, room) + lampHighlight(point, -direction, room) };
+
+    const float total = accumulatedFrames * glossRays;
+    for (uint index = 0; index < glossRays; index++) {
+        float  number   = frame.index * glossRays + index;
+        float2 sample   = float2((number + random(seed)) / total, fract(number * 0.618034 + frame.rotation.y));
+        float3 facet    = facetSample(normal, metalRoughness, sample);
+        float3 mirrored = reflect(direction, facet);
+        if (dot(mirrored, normal) <= 0) { continue; }
+        ray reflection(origin, mirrored);
+        intersection_result<> hit = makeIntersector().intersect(reflection, scene);
+        Surface surface;
+        if (!hitRoom(hit, reflection, room, surface) || isBeforeWindow(surface.position, camera)) { continue; }
+        Frame  single = { uint(number) % accumulatedFrames, frame.rotation.yx };
+        float3 seen   = surface.albedo * tracedLamp(surface, 1, scene, room, single) * room.light
+                      * frontFade(surface.position, room);
+        images.light += metalFresnel(dot(facet, -direction), room) * seen / glossRays;
+    }
+    return images;
+}
+
+/// One pixel of `traceTiltedRoom`, or of `traceTiltedLeaningRoom` when the room `leans`.
+template <bool leans>
+static void traceTiltedRoomAt(texture2d<float, access::write>  base,
+                              texture2d<float, access::write>  light,
+                              constant RoomLightUniforms&      uniforms,
+                              primitive_acceleration_structure scene,
+                              uint2                            pixel)
+{
+    if (pixel.x >= base.get_width() || pixel.y >= base.get_height()) { return; }
+    Room   room     = makeTiltedRoom<leans>(uniforms);
+    Camera camera   = makeCamera<leans>(uniforms);
+    uint   seed     = pcg(pixel.x + pcg(pixel.y));
+    float2 rotation = float2(random(seed), random(seed));
+    intersector<> nearest = makeIntersector();
+    // The body's shadow where the pixel's middle meets the room, smooth over the lamp's whole disc.
+    float3 middle = windowPoint((float2(pixel) + 0.5) * room.pointsPerPixel, uniforms, camera);
+    float  shadow = bodyOcclusion(tiltedRoomHit(middle, normalize(middle - camera.eye), room), occlusionSamples, room);
+
+    Images sum = { float3(0), float3(0) };
+    for (uint index = 0; index < accumulatedFrames; index++) {
+        Frame  frame     = { index, rotation };
+        float2 xy        = (float2(pixel) + float2(random(seed), random(seed))) * room.pointsPerPixel;
+        float3 window    = windowPoint(xy, uniforms, camera);
+        float3 direction = normalize(window - camera.eye);
+        // The body first, from the eye, since its top may reach through the window.
+        float  distance  = bodyHit(camera.eye, direction, room);
+
+        Images images;
+        if (distance > 0) {
+            images = tracedTiltedBody(camera.eye + direction * distance, direction, scene, room, camera, frame, seed);
+        } else {
+            ray primary(window, direction);
+            intersection_result<> hit = nearest.intersect(primary, scene);
+            Surface surface;
+            if (hitRoom(hit, primary, room, surface)) {
+                images = darkenedRight<leans>(tracedTiltedRoom(surface, shadow, scene, room, frame, seed), surface.position.x, room);
+            } else if (hit.type != intersection_type::none) {
+                images = tracedTiltedBody(window + direction * hit.distance, direction, scene, room, camera, frame, seed);
+            } else {
+                // Behind the back corners' rounding, which the view's corners clip: the wall there.
+                Surface wall = tiltedSurfaceAt(window, room);
+                images = darkenedRight<leans>(tracedTiltedRoom(wall, shadow, scene, room, frame, seed), wall.position.x, room);
+            }
+        }
+        sum.base  += images.base;
+        sum.light += images.light;
+    }
+    base.write(float4(sum.base / accumulatedFrames, 1), pixel);
+    light.write(float4(sum.light / accumulatedFrames, 1), pixel);
+}
+
+kernel void traceTiltedRoom(texture2d<float, access::write>  base     [[texture(0)]],
+                            texture2d<float, access::write>  light    [[texture(1)]],
+                            constant RoomLightUniforms&      uniforms [[buffer(0)]],
+                            primitive_acceleration_structure scene    [[buffer(1)]],
+                            uint2                            pixel    [[thread_position_in_grid]])
+{
+    traceTiltedRoomAt<false>(base, light, uniforms, scene, pixel);
+}
+
+/// `traceTiltedRoom` for a room leaning left.
+kernel void traceTiltedLeaningRoom(texture2d<float, access::write>  base     [[texture(0)]],
+                                   texture2d<float, access::write>  light    [[texture(1)]],
+                                   constant RoomLightUniforms&      uniforms [[buffer(0)]],
+                                   primitive_acceleration_structure scene    [[buffer(1)]],
+                                   uint2                            pixel    [[thread_position_in_grid]])
+{
+    traceTiltedRoomAt<true>(base, light, uniforms, scene, pixel);
 }
 
 // MARK: - Checks
@@ -799,4 +1444,18 @@ kernel void bodyNormals(constant RoomLightUniforms& uniforms [[buffer(0)]],
                         uint                        index    [[thread_position_in_grid]])
 {
     normals[index] = float4(bodyAt(points[index], makeRoom(uniforms)).normal, 0);
+}
+
+/// Whether the tilted camera's ray through each of `points`, cell coordinates in points, meets the
+/// body, in a room centred or leaning left, for the tests: the check that the brows sit on it.
+kernel void tiltedBodyHits(constant RoomLightUniforms& uniforms [[buffer(0)]],
+                           device const float2*        points   [[buffer(1)]],
+                           device float*               hits     [[buffer(2)]],
+                           uint                        index    [[thread_position_in_grid]])
+{
+    bool   leans     = uniforms.stage.y > 0;
+    Room   room      = leans ? makeTiltedRoom<true>(uniforms) : makeTiltedRoom<false>(uniforms);
+    Camera camera    = leans ? makeCamera<true>(uniforms) : makeCamera<false>(uniforms);
+    float3 direction = normalize(windowPoint(points[index], uniforms, camera) - camera.eye);
+    hits[index] = bodyHit(camera.eye, direction, room) > 0 ? 1 : 0;
 }

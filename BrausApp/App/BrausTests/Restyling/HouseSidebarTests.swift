@@ -56,6 +56,26 @@ struct HouseSidebarTests {
         ).contains("in chat with you"))
     }
 
+    @Test("A row's label carries the worker's name and subtitle, and that it is in chat with you once chosen")
+    func rowLabel() throws {
+        let workers = MockHouse.sample.workers
+        let first   = try #require(workers.first)
+        #expect(HouseRoomCell.spokenRowLabel(
+            for       : first,
+            isSelected: false
+        ) == "Delivery, Exports the stems")
+        #expect(HouseRoomCell.spokenRowLabel(
+            for       : first,
+            isSelected: true
+        ) == "Delivery, Exports the stems, in chat with you")
+        for worker in workers {
+            #expect(HouseRoomCell.spokenRowLabel(
+                for       : worker,
+                isSelected: false
+            ) == "\(worker.name), \(worker.subtitle)")
+        }
+    }
+
     @Test("The plaque swings down when its worker is chosen, only fades in under Reduce Motion, and hangs still when rebuilt")
     func plaqueSwing() throws {
         defer { RestylingMotion.overrideReducesMotion = nil }
@@ -262,7 +282,7 @@ struct HouseSidebarTests {
         #expect(room.plate.width == 88)
         #expect(room.showsText)
 
-        // The compact rooms, a wide row, and a narrow room of the two-column floor plan.
+        // The compact rooms, a compact row and a wide one with the worker at the centre.
         let rooms = [
             CGSize(
                 width : 120,
@@ -270,11 +290,11 @@ struct HouseSidebarTests {
             ),
             CGSize(
                 width : 120,
-                height: 84
+                height: HouseLayout.rowHeight
             ),
             CGSize(
                 width : 260,
-                height: 84
+                height: HouseLayout.rowHeight
             ),
         ]
         for size in rooms {
@@ -284,6 +304,27 @@ struct HouseSidebarTests {
             #expect(metrics.showsText)
             #expect(metrics.top + metrics.drop + metrics.plate.height <= size.height - HouseLayout.nameBand)
         }
+        // A row leaning left: the plate hangs where the worker stood, clear of the wall and of the name
+        // beside it, centred on the row's height.
+        let row     = CGSize(
+            width : 260,
+            height: HouseLayout.rowHeight
+        )
+        let leaning = Metrics(
+            room: row,
+            lean: 1
+        )
+        let worker  = RoomLightUniforms.Shape(
+            size: row,
+            lean: 1
+        )
+        #expect(leaning.nailX == CGFloat(worker.bodyX))
+        #expect(leaning.nailX - leaning.plate.width / 2 >= Metrics.wallMargin)
+        let place   = CGFloat(worker.bodyX) + CGFloat(worker.sphereRadius) + HouseLayout.nameGap / 2
+        #expect(leaning.nailX + leaning.plate.width / 2 <= place + 1e-9)
+        #expect(abs(2 * leaning.top + leaning.drop + leaning.plate.height - row.height) < 1e-9)
+        #expect(Metrics(room: row).nailX == row.width / 2)
+
         let narrow = Metrics(room: CGSize(
             width : 87,
             height: 104

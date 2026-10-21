@@ -169,7 +169,7 @@ struct HouseConversationView: View {
         switch conversation.phase {
         case .reading: "Reading"
         case .working: "Working"
-        case .idle   : worker.activity
+        case .idle   : worker.subtitle
         }
     }
 

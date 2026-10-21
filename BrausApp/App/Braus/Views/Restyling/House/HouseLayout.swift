@@ -16,11 +16,15 @@ nonisolated enum HouseLayout {
     static let compactRoomHeight: CGFloat = 92
 
     /// A row's height, wide or compact: the list does not animate a change of row height, so the
-    /// rows keep one and only their width changes.
-    static let rowHeight: CGFloat = 84
+    /// rows keep one and only their width changes. It holds the worker with its name and subtitle
+    /// beside it.
+    static let rowHeight: CGFloat = 72
 
     /// The height the worker's name takes at a room's foot.
     static let nameBand: CGFloat = 22
+
+    /// The gap between a wide row's worker and its name beside it.
+    static let nameGap: CGFloat = 12
 
     /// The space between the rooms and the sidebar's edges.
     static let margin: CGFloat = 10

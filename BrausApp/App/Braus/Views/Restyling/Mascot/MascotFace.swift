@@ -12,7 +12,8 @@ import SwiftUI
 /// `catchesRoomLight` lets the brows take a faint tint of the room's light, pulsing with it.
 ///
 /// A body the face draws itself can reach past that square (`ShapeOutline.halfSize`), so the view
-/// takes room for it in layout, centred on the square; brows alone take only the square.
+/// takes room for it in layout, centred on the square; brows alone take only the square. In a tilted
+/// room `projectedFace` places the brows where the room's camera shows the body's face.
 struct MascotFace: NSViewRepresentable {
     let shape           : WorkerShape
     let status          : WorkerStatus
@@ -20,6 +21,7 @@ struct MascotFace: NSViewRepresentable {
     let size            : CGFloat
     var drawsBody       : Bool = true
     var catchesRoomLight: Bool = false
+    var projectedFace   : RoomCamera.Face?
 
     /// Changing it makes the head prepare once (`MascotLayer.prepare()`); its first value does not.
     var preparation     : Int = 0
@@ -70,9 +72,10 @@ struct MascotFace: NSViewRepresentable {
     ) {
         view.sphereSize = size
         let mascot = view.mascot
-        mascot.shape     = shape
-        mascot.status    = status
-        mascot.drawsBody = drawsBody
+        mascot.shape         = shape
+        mascot.status        = status
+        mascot.drawsBody     = drawsBody
+        mascot.projectedFace = projectedFace
         mascot.show(
             brows,
             animated: animated

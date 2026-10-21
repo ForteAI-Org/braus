@@ -31,6 +31,17 @@ nonisolated final class MascotLayer: CALayer {
         }
     }
 
+    /// Where a tilted room's camera shows the brows, or nil where they keep their place on the face.
+    var projectedFace: RoomCamera.Face? {
+        didSet {
+            guard projectedFace != oldValue else { return }
+            withoutActions { placeBrows() }
+        }
+    }
+
+    /// How far above the face's centre the brows' line sits, as a share of the face's width.
+    static let browLift = 0.5 - 0.36
+
     /// What the worker is doing: its light colours the bounce at the bottom.
     var status = WorkerStatus.free {
         didSet { applyColors() }
@@ -418,25 +429,29 @@ nonisolated final class MascotLayer: CALayer {
 
     /// Places the brows by the ibrows layout on the face, the shape's inscribed circle (the whole
     /// sphere for the circle): together they span 54% of its width, 9% of that is the gap, and their
-    /// line sits 36% from its top; then turns them by `yaw` and `pitch`.
+    /// line sits 36% from its top; then turns them by `yaw` and `pitch`. In a tilted room they centre
+    /// on `projectedFace` instead, stretched as the camera shows the face there.
     private func placeBrows() {
         let face      = min(bounds.width, bounds.height) * shape.outline.inradius
         let span      = face * 0.54
         let sideWidth = span * 0.455
         let scale     = sideWidth / Self.artboard.width
-        let centerX   = bounds.midX + sin(yaw * 0.62) * 0.025 * face
-        let centerY   = bounds.midY + (0.5 - 0.36) * face + sin(pitch * 0.30) * 0.17 * face
+        let stretch   = (x: projectedFace?.xScale ?? 1, y: projectedFace?.yScale ?? 1)
+        let anchor    = projectedFace.map { CGPoint(x: $0.anchor.dx, y: -$0.anchor.dy) }
+            ?? CGPoint(x: 0, y: Self.browLift * face)
+        let centerX   = bounds.midX + anchor.x + stretch.x * sin(yaw * 0.62) * 0.025 * face
+        let centerY   = bounds.midY + anchor.y + stretch.y * sin(pitch * 0.30) * 0.17 * face
         for (brow, rest, side) in [(leftBrow, -0.42, -1.0), (rightBrow, 0.42, 1.0)] {
             let angle = rest + yaw * 0.62
             let depth = abs(cos(angle))
             let shift = (sin(angle) - sin(rest)) * 0.46 * sideWidth
             brow.position = CGPoint(
-                x: centerX + side * (span - sideWidth) / 2 + shift,
+                x: centerX + stretch.x * side * (span - sideWidth) / 2 + stretch.x * shift,
                 y: centerY
             )
             brow.transform = CATransform3DMakeScale(
-                scale * max(0.12, depth),
-                scale,
+                stretch.x * scale * max(0.12, depth),
+                stretch.y * scale,
                 1
             )
             brow.opacity = Float(0.35 + 0.65 * min(1, depth * 1.6))

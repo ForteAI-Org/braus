@@ -7,16 +7,17 @@
 
 import MetalKit
 
-/// RoomLightView shows one room lit by its worker, seen from above.
+/// RoomLightView shows one room lit by its worker, seen from above or through the tilted camera its
+/// uniforms name (`RoomCamera`).
 ///
 /// While the room is resized, every new size is drawn at once as a live frame: one precomputed frame
 /// at the pulse's current weight, presented with the transaction that lays the size out, with the
 /// pulse held. A room draws at most one live frame per display frame and has at most one in flight;
 /// until it lands, the last image stays on screen scaled uniformly by the change of the room's short
-/// side and centred (`contentsRect`), so the sphere keeps the size and centre the brows follow. Once
-/// the size has been still for 70 milliseconds, a visible room on a ray-tracing GPU is drawn at once
-/// with the precomputed light, then refined with the ray tracer through RoomRenderQueue, the preview
-/// fading out over the refinement; only the refinement bakes the pulse.
+/// side and placed on the worker (`contentsRect`), so the sphere keeps the size and centre the brows
+/// follow. Once the size has been still for 70 milliseconds, a visible room on a ray-tracing GPU is
+/// drawn at once with the precomputed light, then refined with the ray tracer through
+/// RoomRenderQueue, the preview fading out over the refinement; only the refinement bakes the pulse.
 ///
 /// The selection emptying the room, or its worker coming back, is drawn at once as a live frame too,
 /// and the full render follows 0.9 seconds later, after the plaque's swing, so the frames that start
@@ -30,8 +31,9 @@ import MetalKit
 /// body stays, at the cost of compositing only. Under Reduce Motion nothing pulses.
 ///
 /// The brows belong to a `MascotFace` with `drawsBody` false and `catchesRoomLight` true placed over
-/// the sphere, a circle of 34% of the room's short side at its centre; every pulse is phased to the
-/// host clock, so the brows' tint pulses in step with the room.
+/// the sphere, a circle of 34% of the room's short side at its centre, larger at the left when the
+/// composition leans (`RoomLightUniforms.Shape`), or where the tilted camera shows the body's face;
+/// every pulse is phased to the host clock, so the brows' tint pulses in step with the room.
 final class RoomLightView: MTKView {
 
     /// What the room shows. The worker leaving or coming back is drawn at once as a live frame and
@@ -113,6 +115,9 @@ final class RoomLightView: MTKView {
 
     private var lastRenderedSize     : CGSize?
     private var lastRenderedPixelSize: CGSize?
+
+    /// The lean the room's image was drawn with, which places its worker.
+    private var lastRenderedLean: Float = 0
 
     /// The share of the drawable's width the room's image covers, below 1 after a live frame drawn
     /// into a wider drawable.
@@ -427,6 +432,7 @@ final class RoomLightView: MTKView {
         drawable.present()
         lastRenderedSize      = size
         lastRenderedPixelSize = pixelSize
+        lastRenderedLean      = uniforms.lean
         drawableWidthShare    = CGFloat(roomWidth) / drawableSize.width
         stopPulse()
         applyContentsRect()
@@ -551,6 +557,7 @@ final class RoomLightView: MTKView {
         if resizesImage { drawable.present() }
         lastRenderedSize      = size
         lastRenderedPixelSize = pixelSize
+        lastRenderedLean      = uniforms.lean
         drawableWidthShare    = 1
         stopPulse()
         applyContentsRect()
@@ -566,13 +573,16 @@ final class RoomLightView: MTKView {
         drawable.texture.width == Int(size.width) && drawable.texture.height == Int(size.height)
     }
 
-    /// The part of an image rendered at `rendered` points that a room of `bounds` points shows: the
-    /// image scaled by the change of the short side and centred, so its sphere, 34% of the short side
-    /// across, keeps the size and centre the brows follow. Outside the unit square Core Animation
-    /// repeats the image's edge pixels.
+    /// The part of an image rendered at `rendered` points, its composition leaning `renderedLean`,
+    /// that a room of `bounds` points leaning `lean` shows: the image scaled by the change of the
+    /// short side, with its worker where the room now puts it (`RoomLightUniforms.Shape.bodyX`) and
+    /// the rest centred, so its sphere, a share of the short side across, keeps the size and centre
+    /// the brows follow. Outside the unit square Core Animation repeats the image's edge pixels.
     static func contentsRect(
-        rendered: CGSize?,
-        bounds  : CGSize
+        rendered    : CGSize?,
+        bounds      : CGSize,
+        renderedLean: Float = 0,
+        lean        : Float = 0
     ) -> CGRect {
         let unit = CGRect(
             x     : 0,
@@ -591,8 +601,17 @@ final class RoomLightView: MTKView {
         let scale  = min(bounds.width, bounds.height) / min(rendered.width, rendered.height)
         let width  = bounds.width / scale / rendered.width
         let height = bounds.height / scale / rendered.height
+        // The worker's place in the image shows at its place in the room.
+        let worker = RoomLightUniforms.Shape.bodyX(
+            in  : rendered,
+            lean: renderedLean
+        ) / rendered.width
+        let placed = RoomLightUniforms.Shape.bodyX(
+            in  : bounds,
+            lean: lean
+        ) / scale / rendered.width
         return CGRect(
-            x     : (1 - width) / 2,
+            x     : worker - placed,
             y     : (1 - height) / 2,
             width : width,
             height: height
@@ -604,8 +623,10 @@ final class RoomLightView: MTKView {
     /// actions disabled.
     private func applyContentsRect() {
         let rect = Self.contentsRect(
-            rendered: lastRenderedSize,
-            bounds  : bounds.size
+            rendered    : lastRenderedSize,
+            bounds      : bounds.size,
+            renderedLean: lastRenderedLean,
+            lean        : uniforms.lean
         )
         layer?.contentsRect = CGRect(
             x     : rect.minX * drawableWidthShare,
