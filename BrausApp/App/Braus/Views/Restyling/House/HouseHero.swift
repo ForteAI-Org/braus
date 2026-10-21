@@ -21,14 +21,29 @@ struct HouseHero: View {
     let activity   : String
     let preparation: Int
 
+    /// The seed that makes the hero's brows live by `status`, or nil while `brows` is the conversation's
+    /// own expression (listening, at work) rather than the status's, which the loop would override.
+    static func behaviourSeed(
+        of worker: MockWorker,
+        status   : WorkerStatus,
+        brows    : BrowState
+    ) -> UInt64? {
+        brows == BrowState(status) ? WorkerBehaviour.seed(for: worker.id) : nil
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             MascotFace(
-                shape      : worker.shape,
-                status     : status,
-                brows      : brows,
-                size       : 56,
-                preparation: preparation
+                shape        : worker.shape,
+                status       : status,
+                brows        : brows,
+                size         : 56,
+                preparation  : preparation,
+                behaviourSeed: Self.behaviourSeed(
+                    of    : worker,
+                    status: status,
+                    brows : brows
+                )
             )
             .offset(y: -4)
             VStack(spacing: 2) {

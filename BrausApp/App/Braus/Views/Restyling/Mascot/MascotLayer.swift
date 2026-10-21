@@ -39,6 +39,7 @@ nonisolated final class MascotLayer: CALayer {
         didSet {
             guard projectedFace != oldValue else { return }
             withoutActions { placeBrows() }
+            scheduleBehaviourRefresh()
         }
     }
 
@@ -246,6 +247,7 @@ nonisolated final class MascotLayer: CALayer {
             )
             placeBrows()
         }
+        scheduleBehaviourRefresh()
     }
 
     /// Places the gradients where they fall on the sphere's square, in a body `reach` times as
@@ -360,7 +362,8 @@ nonisolated final class MascotLayer: CALayer {
     ///
     /// A new loop blends: each brow goes from where it shows now back to rest in the time and stagger
     /// of the state change, then the loop starts once the outline's morph is done. Under Reduce Motion
-    /// the brows cut to rest and nothing plays. Outside rooms only: shifts ignore `projectedFace`.
+    /// the brows cut to rest and nothing plays. The shifts follow the face as the room shows it
+    /// (`projectedFace`) and are rebuilt when it changes size (`refreshBehaviourScale()`).
     @MainActor
     func behave(seed: UInt64?) {
         let isUnchanged = seed == nil
@@ -372,7 +375,8 @@ nonisolated final class MascotLayer: CALayer {
 
         let animates   = !RestylingMotion.reducesMotion
         let now        = convertTime(CACurrentMediaTime(), from: nil)
-        let face       = min(bounds.width, bounds.height) * shape.outline.inradius
+        let scale      = behaviourScale
+        behaviourBuiltScale = scale
         let transition = BrowTransition.between(
             previous?.base ?? state,
             BrowState(status),
@@ -418,8 +422,9 @@ nonisolated final class MascotLayer: CALayer {
             }
             guard let behaviour else { continue }
             let loop = behaviour.animations(
-                for : side,
-                face: face
+                for    : side,
+                face   : faceSide,
+                stretch: projectedStretch
             )
             for (key, animation) in loop {
                 animation.beginTime = loopStart
@@ -434,6 +439,125 @@ nonisolated final class MascotLayer: CALayer {
         }
     }
 
+    /// The side of the face the brows sit on, in points: the sphere's, or the shape's inscribed circle.
+    private var faceSide: CGFloat {
+        min(bounds.width, bounds.height) * shape.outline.inradius
+    }
+
+    /// How much wider and taller than from above the room's camera shows the face; 1 from above.
+    private var projectedStretch: CGSize {
+        CGSize(
+            width : projectedFace?.xScale ?? 1,
+            height: projectedFace?.yScale ?? 1
+        )
+    }
+
+    /// Points a loop shift of one face width moves the brows by, across and up, as the room shows them.
+    private var behaviourScale: CGSize {
+        CGSize(
+            width : faceSide * projectedStretch.width,
+            height: faceSide * projectedStretch.height
+        )
+    }
+
+    /// The scale the running loop was built for.
+    private var behaviourBuiltScale = CGSize.zero
+
+    /// The pending end-of-resize rebuild.
+    private var behaviourRefresh: DispatchWorkItem?
+
+    /// How long the face holds one size before the loop's shifts are rebuilt for it.
+    private static let refreshDelay = 0.15
+
+    /// Asks for the running loop's shifts to be rebuilt once the face stops changing size: a resize,
+    /// a compaction, a rows and grid change, or a new camera angle. One timer exists only while the
+    /// size is moving; a settled face and a stopped loop start none.
+    private func scheduleBehaviourRefresh() {
+        behaviourRefresh?.cancel()
+        behaviourRefresh = nil
+        guard behaviour != nil, Self.differs(behaviourScale, behaviourBuiltScale) else { return }
+        // The layer belongs to the main thread, where the item runs.
+        nonisolated(unsafe) weak var layer = self
+        let work = DispatchWorkItem {
+            MainActor.assumeIsolated { layer?.refreshBehaviourScale() }
+        }
+        behaviourRefresh = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.refreshDelay,
+            execute : work
+        )
+    }
+
+    private static func differs(
+        _ first : CGSize,
+        _ second: CGSize
+    ) -> Bool {
+        abs(first.width - second.width) > 0.005 * max(1, second.width)
+            || abs(first.height - second.height) > 0.005 * max(1, second.height)
+    }
+
+    /// Rebuilds the running loop's position shifts for the face's present size, in step with the
+    /// loop: the new animation keeps the old one's start, so each brow stays at the same point of the
+    /// loop, and a short blend from where it shows now hides the change of scale. Waits while a
+    /// status change's blend still runs. Nothing under Reduce Motion or without a loop.
+    @MainActor
+    func refreshBehaviourScale() {
+        behaviourRefresh = nil
+        guard let behaviour, !RestylingMotion.reducesMotion else { return }
+        let scale = behaviourScale
+        guard Self.differs(scale, behaviourBuiltScale) else { return }
+        let built = behaviourBuiltScale
+        guard leftBrow.animation(forKey: Self.blendPositionKey) == nil,
+              rightBrow.animation(forKey: Self.blendPositionKey) == nil
+        else {
+            scheduleBehaviourRefresh()
+            return
+        }
+        behaviourBuiltScale = scale
+        let ratio = CGSize(
+            width : built.width > 0 ? scale.width / built.width : 1,
+            height: built.height > 0 ? scale.height / built.height : 1
+        )
+        for (brow, side) in [(leftBrow, WorkerBehaviourLoop.Side.left), (rightBrow, .right)] {
+            guard let old = brow.animation(forKey: WorkerBehaviourLoop.positionKey),
+                  let fresh = behaviour.animations(
+                      for    : side,
+                      face   : faceSide,
+                      stretch: projectedStretch
+                  )[WorkerBehaviourLoop.positionKey]
+            else { continue }
+            // The loop's shift now, which the new scale stretches in place.
+            let shown = brow.presentation()?.position ?? brow.position
+            let shift = CGPoint(
+                x: shown.x - brow.position.x,
+                y: shown.y - brow.position.y
+            )
+            fresh.beginTime = old.beginTime
+            brow.add(
+                fresh,
+                forKey: WorkerBehaviourLoop.positionKey
+            )
+            let jump = CGPoint(
+                x: shift.x * (1 - ratio.width),
+                y: shift.y * (1 - ratio.height)
+            )
+            guard abs(jump.x) + abs(jump.y) > 0.01 else { continue }
+            let blend = CABasicAnimation(keyPath: "position")
+            blend.fromValue      = NSValue(point: jump)
+            blend.toValue        = NSValue(point: .zero)
+            blend.isAdditive     = true
+            blend.duration       = Self.refreshBlend
+            blend.timingFunction = Self.morphCurve
+            brow.add(
+                blend,
+                forKey: Self.refreshBlendKey
+            )
+        }
+    }
+
+    private static let refreshBlend    = 0.25
+    private static let refreshBlendKey = "behaviour.refresh"
+
     static let blendPositionKey = "behaviour.blend.position"
     static let blendRotationKey = "behaviour.blend.rotation"
 
@@ -442,6 +566,7 @@ nonisolated final class MascotLayer: CALayer {
         WorkerBehaviourLoop.rotationKey,
         blendPositionKey,
         blendRotationKey,
+        refreshBlendKey,
     ]
 
     /// The turn `layer` shows about its z axis, in radians.

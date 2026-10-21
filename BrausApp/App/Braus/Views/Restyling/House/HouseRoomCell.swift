@@ -79,6 +79,15 @@ struct HouseRoomCell: View {
         return isSelected ? "\(row), \(HouseAwayPlaque.text.lowercased())" : row
     }
 
+    /// The seed that makes `worker`'s brows live by its status in its room, or nil while it is away
+    /// in the conversation and the room is empty.
+    static func behaviourSeed(
+        of worker : MockWorker,
+        isSelected: Bool
+    ) -> UInt64? {
+        isSelected ? nil : WorkerBehaviour.seed(for: worker.id)
+    }
+
     private var room: some View {
         Stage(
             worker    : worker,
@@ -164,6 +173,10 @@ struct HouseRoomCell: View {
                                 of  : worker.shape,
                                 in  : size,
                                 lean: Float(lean)
+                            ),
+                            behaviourSeed   : HouseRoomCell.behaviourSeed(
+                                of        : worker,
+                                isSelected: isSelected
                             )
                         )
                         .offset(x: camera == .top ? bodyX - size.width / 2 : 0)
