@@ -324,6 +324,8 @@ struct RoomDenoiseTests {
             width : 191,
             height: 109
         )
+        let pool = RoomDenoiserPool()
+        renderer.denoiserPool = pool
         defer { renderer.releaseDenoiser() }
         var notifications = 0
         renderer.denoiserDidBecomeReady = { notifications += 1 }
@@ -429,12 +431,15 @@ struct RoomDenoiseTests {
         guard #available(macOS 26, *) else { return }
         let device = try #require(MTLCreateSystemDefaultDevice())
         var rooms: [(renderer: RayTracedRoomRenderer, size: CGSize)] = []
+        // Its own pool: the shared one may hold the buckets of rooms other suites still show.
+        let pool = RoomDenoiserPool()
         defer { rooms.forEach { $0.renderer.releaseDenoiser() } }
         for index in 0..<12 {
             let renderer = try #require(RayTracedRoomRenderer(
                 device  : device,
                 denoises: true
             ))
+            renderer.denoiserPool = pool
             let size = CGSize(
                 width : 97 + index * 64,
                 height: 107
@@ -451,7 +456,7 @@ struct RoomDenoiseTests {
                 size  : size
             )
             #expect(renderer.denoisedFrames == 0)
-            #expect(RoomDenoiserPool.shared.count <= 6)
+            #expect(pool.count <= pool.capacity)
         }
         var remaining = Set(rooms.indices)
         let deadline = ContinuousClock.now + .seconds(60)
@@ -469,7 +474,7 @@ struct RoomDenoiseTests {
                 #expect(room.renderer.denoisedFrames == RoomDenoiser.burst)
                 remaining.remove(index)
             }
-            #expect(RoomDenoiserPool.shared.count <= 6)
+            #expect(pool.count <= pool.capacity)
             try await Task.sleep(for: .milliseconds(4))
         }
         // A final ordinary submission also has to complete after all MetalFX work.
