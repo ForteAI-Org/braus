@@ -10,16 +10,15 @@ import Foundation
 import Testing
 @testable import Braus
 
-/// The app's own transcript in the new look (`TranscriptStyle.Look.house`): its column and bubbles,
-/// a new reply's words arriving, and the thinking bubble springing in. Today's look is checked
-/// beside it, unchanged. Offscreen windows only, never ordered in.
+/// The app's own transcript: its column and bubbles, a new reply's words arriving, and the thinking
+/// bubble springing in. Offscreen windows only, never ordered in.
 @MainActor
-@Suite("The new look's transcript", .serialized)
+@Suite("The transcript's column", .serialized)
 struct HouseTranscriptTests {
 
-    private static let house = TranscriptStyle(look: .house)
+    private static let house = TranscriptStyle()
 
-    @Test("Bubbles stand in a centred column with the tight corner toward their author and no tail; today's keep theirs")
+    @Test("Bubbles stand in a centred column with the tight corner toward their author")
     func bubblesInTheColumn() {
         let person = TranscriptItem(
             id            : .message(UUID()),
@@ -42,17 +41,11 @@ struct HouseTranscriptTests {
         let its  = RowGeometry(item: worker, rowWidth: 900, style: Self.house, blocks: [.text], sizes: size)
         #expect(mine.surface.maxX == 730, "the column is 560 points, centred in 900")
         #expect(its.surface.minX == 170)
-        #expect(mine.tail == nil && its.tail == nil, "the tight corner points at the author instead")
         #expect(mine.surface.size == CGSize(width: 152, height: 39), "16 points across and 11 down around the text")
         #expect(its.text.origin == CGPoint(x: 186, y: 11))
 
         let narrow = RowGeometry(item: worker, rowWidth: 400, style: Self.house, blocks: [.text], sizes: size)
         #expect(narrow.surface.minX == 24, "a narrow window keeps 24 points beside the column")
-
-        let today = RowGeometry(item: person, rowWidth: 900, style: TranscriptStyle(), blocks: [.text], sizes: size)
-        #expect(today.tail != nil)
-        #expect(today.surface.maxX == 900 - RowGeometry.gutter)
-        #expect(today.surface.size == CGSize(width: 144, height: 33))
     }
 
     @Test("A new reply's words fade in one after another; history and Reduce Motion show at once")
@@ -112,27 +105,21 @@ struct HouseTranscriptTests {
         #expect(reveal.layer?.sublayers?.count == 3, "and, then, more")
     }
 
-    @Test("The thinking bubble springs in from its bottom leading corner in the new look; today's rises")
+    @Test("The thinking bubble springs in from its bottom leading corner")
     func thinkingSpringsIn() async throws {
-        for style in [Self.house, TranscriptStyle()] {
-            let fixture = try await TranscriptFixture()
-            defer { fixture.discard() }
-            try await fixture.say("Export the stems.", at: 0)
-            let (controller, window) = try await Self.opened(style, over: fixture.store, fixture: fixture)
-            defer { window.close() }
-            try await fixture.record(.executionStarted, subject: UUID(), at: 1)
-            controller.refresh()
-            await controller.settle()
+        let fixture = try await TranscriptFixture()
+        defer { fixture.discard() }
+        try await fixture.say("Export the stems.", at: 0)
+        let (controller, window) = try await Self.opened(Self.house, over: fixture.store, fixture: fixture)
+        defer { window.close() }
+        try await fixture.record(.executionStarted, subject: UUID(), at: 1)
+        controller.refresh()
+        await controller.settle()
 
-            let index = try #require(controller.rows.lastIndex { $0.item.kind == .thinking })
-            let cell  = try #require(controller.collectionView.item(at: IndexPath(item: index, section: 0)))
-            let entry = cell.view.layer?.animation(forKey: "entrance")
-            if style.isHouse {
-                #expect((entry as? CASpringAnimation)?.keyPath == "transform")
-            } else {
-                #expect(entry is CAAnimationGroup)
-            }
-        }
+        let index = try #require(controller.rows.lastIndex { $0.item.kind == .thinking })
+        let cell  = try #require(controller.collectionView.item(at: IndexPath(item: index, section: 0)))
+        let entry = cell.view.layer?.animation(forKey: "entrance")
+        #expect((entry as? CASpringAnimation)?.keyPath == "transform")
     }
 
     // MARK: Helpers

@@ -36,24 +36,6 @@ struct HeroActionTests {
         #expect(WorkerAction.replying.keys.contains { $0.pose.hop > 0 })
     }
 
-    @Test("A turn reads, thinks, works and replies, then the worker idles again")
-    func turnActions() async throws {
-        let conversation = MockConversation(workerName: "Test")
-        #expect(conversation.action == nil)
-        conversation.send("Export the stems")
-        var seen: [WorkerAction?] = [conversation.action]
-        var isDone = false
-        conversation.answer { isDone = true }
-        let deadline = ContinuousClock.now + .seconds(10)
-        while !isDone {
-            try #require(ContinuousClock.now < deadline, "timed out")
-            if conversation.action != seen.last { seen.append(conversation.action) }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        if conversation.action != seen.last { seen.append(conversation.action) }
-        #expect(seen == [nil, .reading, .thinking, .working, .replying, nil])
-    }
-
     @Test("A hero room bakes every action ahead, plays one on its own clock, and cross-fades to the next")
     func roomActs() async throws {
         defer { RestylingMotion.overrideReducesMotion = nil }

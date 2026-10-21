@@ -8,9 +8,8 @@
 import ModelTransports
 import SwiftUI
 
-/// HouseNewWorkerSheet is the app's New Worker sheet (`NewWorkerSheet`) in the house's language: the
-/// same title, grouped list and bar with Cancel and Create, the default button, with the worker's
-/// shape chosen where the app shows its colour and a new random shape.
+/// HouseNewWorkerSheet creates one worker, by hand: a title, a grouped list, and a bar with Cancel
+/// and Create, the default button.
 ///
 /// The first group is the eight shapes as live mascots (`HouseShapeGrid`), one already chosen: a
 /// shape no worker has yet when there is one. The second is the name, the only field required and
@@ -21,8 +20,7 @@ import SwiftUI
 ///
 /// The sheet owns no data: `connections` tells each provider's state, `catalogue` lists a
 /// provider's models, and `create` makes the worker from what was chosen, whose room then fades in
-/// (`HouseLayout.arrival`). The mockup passes fixed ones, the live house the team's own. `house`
-/// only suggests the first shape.
+/// (`HouseLayout.arrival`). `shapes`, the team's workers' shapes, only suggests the first one.
 struct HouseNewWorkerSheet: View {
 
     /// What Create hands over: the details as typed (trimmed, empty ones nil) and the chosen shape and
@@ -35,7 +33,7 @@ struct HouseNewWorkerSheet: View {
         let selection   : ModelSelection?
     }
 
-    let house      : MockHouse
+    let shapes     : [WorkerShape]
     let connections: () -> [ModelProvider: ConnectionState]
     let catalogue  : (ModelProvider) async -> [ModelInfo]
     let create     : (Request) -> Void
@@ -56,17 +54,20 @@ struct HouseNewWorkerSheet: View {
     @FocusState private var namesFirst: Bool
 
     init(
-        house      : MockHouse,
+        shapes     : [WorkerShape],
         connections: @escaping () -> [ModelProvider: ConnectionState],
         catalogue  : @escaping (ModelProvider) async -> [ModelInfo],
         create     : @escaping (Request) -> Void
     ) {
-        self.house       = house
+        self.shapes      = shapes
         self.connections = connections
         self.catalogue   = catalogue
         self.create      = create
         _provider        = State(initialValue: .preselected(in: connections()))
-        _shape           = State(initialValue: house.suggestedShape(seed: .random(in: 0...UInt64.max)))
+        _shape           = State(initialValue: .suggested(
+            avoiding: shapes,
+            seed    : .random(in: 0...UInt64.max)
+        ))
     }
 
     var body: some View {
@@ -266,5 +267,14 @@ struct HouseNewWorkerSheet: View {
             shape       : shape,
             selection   : chosenSelection
         ))
+    }
+
+    /// A new worker's mascot: a seed of its own, the current generator and the default palette.
+    static func startingAppearance() -> WorkerAppearance {
+        WorkerAppearance(
+            seed            : Int64.random(in: Int64.min...Int64.max),
+            generatorVersion: MascotDrawing.generatorVersion,
+            palette         : MascotPalette.fallback.name
+        )
     }
 }

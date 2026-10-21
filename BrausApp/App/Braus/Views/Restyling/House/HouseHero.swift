@@ -38,10 +38,6 @@ struct HouseHero: View {
     /// Where the hero is in a change of worker.
     var stage = HouseSwitch.Stage.present
 
-    /// The kind of work the name's hover and VoiceOver's hint tell, as a real worker's role; nil tells
-    /// the mock worker's, after its category, and an empty one tells nothing.
-    var kind: String?
-
     /// How far from its face the hero follows the pointer, in points.
     static let gazeRadius: CGFloat = 200
 
@@ -162,17 +158,7 @@ struct HouseHero: View {
         .accessibilityHint(role)
     }
 
-    /// The worker's kind of work, which hovering its name and VoiceOver's hint tell: `kind` when given,
-    /// else the mock worker's role after the kind of app it drives.
-    var role: String {
-        if let kind { return kind }
-        return switch worker.category {
-        case .audio  : "Audio engineer"
-        case .video  : "Video editor"
-        case .design : "Designer"
-        case .web    : "Web researcher"
-        case .files  : "File organizer"
-        case .general: "Assistant"
-        }
-    }
+    /// The worker's kind of work, its role, which hovering its name and VoiceOver's hint tell; an
+    /// empty one tells nothing.
+    var role: String { worker.role }
 }

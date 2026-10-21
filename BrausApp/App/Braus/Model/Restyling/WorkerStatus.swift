@@ -7,7 +7,7 @@
 
 import Foundation
 
-/// WorkerStatus is what a worker is doing, as the mockup's status light shows it.
+/// WorkerStatus is what a worker is doing, as its room's status light shows it.
 nonisolated enum WorkerStatus: CaseIterable, Sendable {
     case busy, free, waiting, off
 

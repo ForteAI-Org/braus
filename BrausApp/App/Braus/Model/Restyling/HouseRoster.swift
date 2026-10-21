@@ -62,7 +62,6 @@ enum HouseRoster {
             ),
             activity   : row.activity ?? (isAnswering ? "Working" : role),
             role       : role,
-            category   : .general,
             shape      : row.worker.shape,
             badge      : badge(
                 of              : row,

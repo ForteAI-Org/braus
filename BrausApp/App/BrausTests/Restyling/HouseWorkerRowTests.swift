@@ -92,7 +92,7 @@ struct HouseWorkerRowTests {
 
     @Test("Selecting a card keeps its tilted worker and status light present")
     func selectionKeepsWorker() async throws {
-        let worker = try #require(MockHouse.sample.workers.first)
+        let worker = try #require(HouseFixture.workers.first)
         let host = NSHostingView(rootView: HouseWorkerRow(
             worker    : worker,
             isSelected: false
@@ -134,7 +134,7 @@ struct HouseWorkerRowTests {
     func subtitleInWideCard() throws {
         #expect((52...56).contains(HouseLayout.rowHeight))
         #expect(HouseWorkerPortrait.frameHeight <= HouseLayout.rowHeight)
-        let worker = try #require(MockHouse.sample.workers.first)
+        let worker = try #require(HouseFixture.workers.first)
         #expect(!worker.subtitle.isEmpty)
         let label = HouseRoomCell.spokenRowLabel(
             for       : worker,
@@ -145,7 +145,7 @@ struct HouseWorkerRowTests {
 
     @Test("Compacting keeps the same views")
     func compactingKeepsIdentity() async throws {
-        let worker = try #require(MockHouse.sample.workers.first { $0.badge != nil })
+        let worker = try #require(HouseFixture.workers.first { $0.badge != nil })
         let host = NSHostingView(rootView: HouseWorkerRow(
             worker    : worker,
             isSelected: false

@@ -7,28 +7,26 @@
 
 import SwiftUI
 
-/// HouseSidebar is the house's sidebar: the house's workers as rooms or as rows, as Settings
-/// chooses, with a search field that finds a worker by name and that Edit > Find… (⌘F) focuses.
-/// Over a real `team` the search also finds a worker by its role (`TeamRow.matches`), each room's
-/// context menu holds the worker's commands, the archive opens and the foot holds no account.
+/// HouseSidebar is the house's sidebar: the team's `workers` as rooms or as rows, as Settings
+/// chooses, with a search field that finds a worker by name or role (`TeamRow.matches`) and that
+/// Edit > Find… (⌘F) focuses. Each room's context menu holds the worker's commands.
 ///
 /// The room column count follows the sidebar width; rows are cards that put the name under the worker when compact.
 /// Nothing here changes the width the split gives the sidebar. When it turns compact or wide again,
 /// rooms and rows keep their previous width until the new layout is applied, all at once,
 /// with `HouseLayout.reshaping`: each one moves and resizes from where it was, its Metal room drawing
 /// a live frame at every size on the way. Under Reduce Motion the sidebar cross-fades
-/// (`CrossFade`). The foot (`HouseFoot`) floats over the rooms with the mockup's account; the archive is in
-/// the sidebar's toolbar (`HouseArchiveButton`), left out while searching or empty.
+/// (`CrossFade`). The foot (`HouseFoot`) floats over the rooms; the archive is in the sidebar's
+/// toolbar (`HouseArchiveButton`), left out while searching or empty.
 /// The search field draws no focus ring (`SearchFieldWithoutRing`): it keeps the keyboard focus,
 /// and the ring would only outline it against the dark sidebar. A room's context menu offers Edit
 /// Worker…, which calls `edit`.
 struct HouseSidebar: View {
-    let house: MockHouse
+    let workers: [HouseWorker]
 
     @Binding var selection: HouseWorker.ID?
 
-    /// The real team the house shows, nil in the mockup.
-    var team: TeamModel?
+    let team: TeamModel
 
     var edit: (HouseWorker.ID) -> Void = { _ in }
 
@@ -46,7 +44,7 @@ struct HouseSidebar: View {
             switch AppPreferenceValues.shared.restylingSidebarMode {
             case .rooms:
                 HouseRoomsGrid(
-                    workers   : workers,
+                    workers   : shown,
                     columns   : columns,
                     roomsWidth: roomsWidth,
                     selection : $selection,
@@ -55,7 +53,7 @@ struct HouseSidebar: View {
                 )
             case .rows:
                 HouseRowsList(
-                    workers   : workers,
+                    workers   : shown,
                     roomsWidth: roomsWidth,
                     isCompact : columns == 1,
                     selection : $selection,
@@ -69,7 +67,7 @@ struct HouseSidebar: View {
             edge   : .bottom,
             spacing: 0
         ) {
-            HouseFoot(account: team == nil ? .sample : nil)
+            HouseFoot()
         }
         // The archive sits above the rooms in the sidebar's toolbar, beside New Worker.
         .toolbar {
@@ -121,17 +119,17 @@ struct HouseSidebar: View {
         }
     }
 
-    private var workers: [HouseWorker] {
-        guard !query.isEmpty else { return house.workers }
-        guard let team else { return house.workers.filter { $0.name.localizedCaseInsensitiveContains(query) } }
+    /// The workers the search finds, all of them while nobody is searching.
+    private var shown: [HouseWorker] {
+        guard !query.isEmpty else { return workers }
 
         let words   = query.trimmingCharacters(in: .whitespaces)
         let matches = Set(team.rows.filter { words.isEmpty || $0.matches(words) }.map(\.id))
-        return house.workers.filter { matches.contains($0.id) }
+        return workers.filter { matches.contains($0.id) }
     }
 
     private var archivedCount: Int {
-        query.isEmpty ? house.archivedCount : 0
+        query.isEmpty ? team.archived.count : 0
     }
 
     /// CrossFade cross-fades the sidebar column when the number of room columns changes under Reduce

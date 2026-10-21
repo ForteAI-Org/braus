@@ -7,14 +7,14 @@
 
 import SwiftUI
 
-/// HouseLiveToolbar is the house window's toolbar over the real team: `HouseToolbar`'s layout, fed by
-/// `TeamModel`. At the trailing edge, the worker's usage in a capsule of its own (`ToolbarUsageCapsule`,
-/// the context ring and the token counter) once it has recorded a turn, then the Screen toggle, which
+/// HouseLiveToolbar is the house window's toolbar, fed by `TeamModel`. At the trailing edge, the
+/// worker's usage in a capsule of its own (`ToolbarUsageCapsule`, the context ring and the token
+/// counter) once it has recorded a turn, then the Screen toggle, which
 /// moves the screen between the conversation and the inspector and works only while the worker has
 /// one, and the Inspector toggle.
 ///
 /// The items keep their identities whichever worker is shown: only choosing no worker, or a worker
-/// with no turn yet, leaves the usage out, as in the mockup's `HouseDetail`.
+/// with no turn yet, leaves the usage out.
 struct HouseLiveToolbar: ToolbarContent {
     let team                : TeamModel
     let isInspectorRequested: Bool

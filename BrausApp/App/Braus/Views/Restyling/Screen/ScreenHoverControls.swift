@@ -23,7 +23,7 @@ struct ScreenHoverControls: View {
             }
         }
 
-        /// Only Stop works in the mockup.
+        /// Only Stop works yet.
         var isEnabled: Bool { self == .stop }
 
         var help: String {

@@ -469,7 +469,6 @@ struct BodyMotionTests {
             status    : .busy,
             activity  : "Working",
             role      : "Tester",
-            category  : .general,
             shape     : .circle,
             badge     : nil,
             usesScreen: true

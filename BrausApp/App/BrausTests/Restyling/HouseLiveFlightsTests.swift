@@ -13,12 +13,12 @@ import SwiftUI
 import Testing
 @testable import Braus
 
-/// The new look's flights over the app's own transcript and composer: the transcript's hold and
+/// The house's flights over the app's own transcript and composer: the transcript's hold and
 /// frame hooks, a send landing on the real bubble, Reduce Motion, the reply button, and the queue
 /// and the quote driven through `TeamModel` as the composer drives them. Everything runs in
 /// offscreen windows that are never ordered in; no event reaches the system.
 @MainActor
-@Suite("The new look's flights over the real transcript", .serialized)
+@Suite("The house's flights over the real transcript", .serialized)
 struct HouseLiveFlightsTests {
 
     // MARK: The transcript's hooks
@@ -93,7 +93,7 @@ struct HouseLiveFlightsTests {
         #expect(controller.newActivity == nil)
     }
 
-    @Test("A message offers Reply beside its bubble on its outer side while hovered, only in the new look")
+    @Test("A message offers Reply beside its bubble on its outer side while hovered, once the flights ask for it")
     func replyButtonBesideTheBubble() async throws {
         let fixture = try await TranscriptFixture()
         defer { fixture.discard() }
@@ -104,9 +104,9 @@ struct HouseLiveFlightsTests {
         let worker = try #require(controller.rows.last { $0.item.authorWorkerID != nil }?.item.messageID)
         let person = try #require(controller.rows.last { $0.item.authorWorkerID == nil && $0.item.messageID != nil }?.item.messageID)
 
-        let today = try #require(Self.cell(of: worker, in: controller)).rowView
-        Self.hover(today, onBubbleOf: worker, in: controller)
-        #expect(Self.replyButton(in: today) == nil, "today's transcript has no reply button")
+        let still = try #require(Self.cell(of: worker, in: controller)).rowView
+        Self.hover(still, onBubbleOf: worker, in: controller)
+        #expect(Self.replyButton(in: still) == nil, "no reply button until the flights ask for it")
 
         controller.showsReplyButtons = true
         for (id, isPerson) in [(worker, false), (person, true)] {
@@ -142,8 +142,8 @@ struct HouseLiveFlightsTests {
         let root = try #require(flights.stage.layer?.sublayers?.last)
         #expect(controller.pendingHolds == 1)
         #expect(root.position == CGPoint(
-            x: start.minX - RowGeometry.bubblePadding.width,
-            y: start.minY + field.textView.textContainerInset.height - RowGeometry.bubblePadding.height
+            x: start.minX - LiveFlight.boxPadding.width,
+            y: start.minY + field.textView.textContainerInset.height - LiveFlight.boxPadding.height
         ), "the text leaves where the field drew it")
         #expect(field.textView.hidesPlaceholder, "no placeholder under the text as it leaves")
 
@@ -226,7 +226,7 @@ struct HouseLiveFlightsTests {
 
     // MARK: Through the team
 
-    @Test("Send, queue, the end of a turn and a quote, through the team as the new look's composer drives them")
+    @Test("Send, queue, the end of a turn and a quote, through the team as the composer drives them")
     func flowsThroughTheTeam() async throws {
         let harness = try await TeamHarness()
         do {

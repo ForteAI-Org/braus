@@ -16,45 +16,22 @@ import Testing
 @MainActor
 struct HouseNewWorkerTests {
 
-    @Test("Creating adds a free worker with the chosen name, role and shape after the others")
-    func creatingAddsTheWorker() throws {
-        var house = MockHouse.sample
-        let id    = house.add(
-            name : "Captions",
-            role : "Writes subtitles",
-            shape: .lens
-        )
-        #expect(house.workers.count == MockHouse.sample.workers.count + 1)
-        let worker = try #require(house.workers.last)
-        #expect(worker.id == id)
-        #expect(worker.name == "Captions")
-        #expect(worker.role == "Writes subtitles")
-        #expect(worker.shape == .lens)
-        #expect(worker.status == .free)
-        #expect(worker.subtitle == "Writes subtitles")
-        #expect(worker.badge == nil)
-        #expect(Set(house.workers.map(\.id)).count == house.workers.count)
-    }
-
     @Test("The starting shape is one no worker has, else one of the least used, chosen by the seed")
     func startingShapeAvoidsUsedOnes() {
-        var house = MockHouse.sample
-        house.workers.removeAll { $0.shape == .hexagon }
+        let shapes = HouseFixture.workers.map(\.shape)
         for seed in UInt64(0)..<16 {
-            #expect(house.suggestedShape(seed: seed) == .hexagon)
+            #expect(WorkerShape.suggested(
+                avoiding: shapes.filter { $0 != .hexagon },
+                seed    : seed
+            ) == .hexagon)
         }
 
-        // Every shape is used in the sample house, the triangle twice.
-        let sample = (UInt64(0)..<64).map { MockHouse.sample.suggestedShape(seed: $0) }
+        // Every shape is used in the fixture's house, the triangle twice.
+        let sample = (UInt64(0)..<64).map { WorkerShape.suggested(avoiding: shapes, seed: $0) }
         #expect(!sample.contains(.triangle))
         #expect(Set(sample) == Set(WorkerShape.allCases).subtracting([.triangle]))
 
-        let empty = MockHouse(
-            workers      : [],
-            archivedCount: 0,
-            mostUsed     : []
-        )
-        #expect(empty.suggestedShape(seed: 3) == WorkerShape.allCases[3])
+        #expect(WorkerShape.suggested(avoiding: [], seed: 3) == WorkerShape.allCases[3])
     }
 
     @Test("The shape grid offers eight named shapes, and the arrows move across and down it")
@@ -97,9 +74,9 @@ struct HouseNewWorkerTests {
     @Test("Editing a worker's shape gives its room new uniforms, which ask the room for a render")
     func editingTheShapeRerendersTheRoom() async throws {
         try #require(MTLCreateSystemDefaultDevice() != nil)
-        var house  = MockHouse.sample
-        let index  = 2
-        let before = house.workers[index]
+        var workers = HouseFixture.workers
+        let index   = 2
+        let before  = workers[index]
         #expect(before.shape != .lens)
 
         let window = NSWindow(
@@ -122,8 +99,8 @@ struct HouseNewWorkerTests {
         #expect(opening.uniforms.shape == before.shape)
         let renders = opening.room.requestedRenders
 
-        house.workers[index].shape = .lens
-        host.rootView = Self.room(house.workers[index])
+        workers[index].shape = .lens
+        host.rootView = Self.room(workers[index])
         host.layoutSubtreeIfNeeded()
         #expect(Self.opening(in: host) === opening)
         #expect(opening.uniforms.shape == .lens)
@@ -148,7 +125,7 @@ struct HouseNewWorkerTests {
         window.isReleasedWhenClosed = false
         defer { window.close() }
         window.contentView = NSHostingView(rootView: HouseNewWorkerSheet(
-            house      : MockHouse.sample,
+            shapes     : HouseFixture.workers.map(\.shape),
             connections: { [.codex: .notInstalled, .claudeCode: .ready, .ollama: .ready] },
             catalogue  : { provider in
                 asked.providers.append(provider)

@@ -46,7 +46,7 @@ struct HouseSidebarTests {
 
     @Test("The selected room says its worker is in chat with you")
     func selectedRoomLabel() throws {
-        let worker = try #require(MockHouse.sample.workers.first)
+        let worker = try #require(HouseFixture.workers.first)
         #expect(HouseRoomCell.spokenLabel(
             for       : worker,
             isSelected: true
@@ -59,7 +59,7 @@ struct HouseSidebarTests {
 
     @Test("A row's label carries the worker's name and subtitle, and that it is in chat with you once chosen")
     func rowLabel() throws {
-        let workers = MockHouse.sample.workers
+        let workers = HouseFixture.workers
         let first   = try #require(workers.first)
         #expect(HouseRoomCell.spokenRowLabel(
             for       : first,
@@ -859,78 +859,6 @@ struct HouseSidebarTests {
         controller.toggleSidebar(nil)
         try await Task.sleep(for: .milliseconds(400))
         #expect(sidebar?.isCollapsed == false)
-    }
-
-    @Test("Choosing another worker keeps the window's toolbar items, which the detail column would otherwise rebuild")
-    func toolbarStaysAcrossWorkers() async throws {
-        let workers = MockHouse.sample.workers
-        let choice  = Choice()
-        choice.worker = workers.first
-
-        let window = NSWindow(
-            contentRect: CGRect(
-                x     : 0,
-                y     : 0,
-                width : 900,
-                height: 600
-            ),
-            styleMask  : [.titled, .resizable, .fullSizeContentView],
-            backing    : .buffered,
-            defer      : false
-        )
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        let host = NSHostingView(rootView: DetailHost(choice: choice))
-        host.sceneBridgingOptions = [.toolbars]
-        window.contentView = host
-
-        let deadline = ContinuousClock.now + .seconds(2)
-        while (window.toolbar?.items.count ?? 0) == 0 {
-            try #require(ContinuousClock.now < deadline, "no toolbar appeared")
-            try await Task.sleep(for: .milliseconds(20))
-            window.contentView?.layoutSubtreeIfNeeded()
-        }
-        let before = window.toolbar?.items.map(\.itemIdentifier) ?? []
-
-        let sequence: [HouseWorker?] = workers[1...3].map { $0 } + [nil, workers.first]
-        for worker in sequence {
-            choice.worker = worker
-            try await Task.sleep(for: .milliseconds(150))
-            window.contentView?.layoutSubtreeIfNeeded()
-            #expect(window.toolbar?.items.map(\.itemIdentifier) == before, "after showing \(worker?.name ?? "no worker")")
-        }
-    }
-
-    /// Choice is the worker a test's detail column shows.
-    @Observable
-    final class Choice {
-        var worker: HouseWorker?
-    }
-
-    /// DetailHost is the house window's split with its detail column and a toolbar item there.
-    private struct DetailHost: View {
-        let choice: Choice
-
-        @FocusState private var isFocused: Bool
-
-        var body: some View {
-            NavigationSplitView {
-                Color.clear
-            } detail: {
-                HouseDetail(
-                    worker           : choice.worker,
-                    isComposerFocused: $isFocused
-                )
-                .toolbar {
-                    ToolbarItem {
-                        Button(
-                            "Inspector",
-                            systemImage: "info.circle"
-                        ) {}
-                    }
-                }
-            }
-        }
     }
 
     private static func splitControllers(in view: NSView?) -> [NSSplitViewController] {

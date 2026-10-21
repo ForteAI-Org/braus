@@ -11,23 +11,17 @@ import SwiftUI
 /// opens the New Worker sheet's shape grid in a popover. A new shape re-renders the worker's room
 /// and its mascot at the top of the conversation.
 ///
-/// The section holds what is being typed and hands finished values to its closures, so the mockup
-/// (`HouseInspector`) and the live inspector (`HouseLiveInspector`) share it. The name is taken on
-/// Return, when the field loses the keyboard or when the section goes away, and a name emptied there
-/// comes back: a worker always has one. The role follows every keystroke while `roleFollowsTyping`
-/// is set, as the mockup's rooms show it, and is taken like the name otherwise.
+/// The section holds what is being typed and hands finished values to its closures, which the
+/// inspector (`HouseLiveInspector`) saves. The name and the role are taken on Return, when the field
+/// loses the keyboard or when the section goes away, and a name emptied there comes back: a worker
+/// always has one. Its rows are a little taller than the system's (`InspectorRowSpacing`), with the
+/// house's gap after the section.
 struct HouseWorkerSection: View {
 
     /// The values as stored; a change from outside replaces what is shown.
     let name : String
     let role : String
     let shape: WorkerShape
-
-    let roleFollowsTyping: Bool
-
-    /// True for the mockup's taller rows and the gap after the section; false keeps the system's own
-    /// spacing, as the live inspector's other sections have it.
-    let isSpacious: Bool
 
     /// Receives a trimmed, non-empty name.
     let commitName : (String) -> Void
@@ -45,23 +39,19 @@ struct HouseWorkerSection: View {
     @FocusState private var isRoleFocused: Bool
 
     init(
-        name             : String,
-        role             : String,
-        shape            : WorkerShape,
-        roleFollowsTyping: Bool,
-        isSpacious       : Bool,
-        commitName       : @escaping (String) -> Void,
-        commitRole       : @escaping (String) -> Void,
-        commitShape      : @escaping (WorkerShape) -> Void
+        name       : String,
+        role       : String,
+        shape      : WorkerShape,
+        commitName : @escaping (String) -> Void,
+        commitRole : @escaping (String) -> Void,
+        commitShape: @escaping (WorkerShape) -> Void
     ) {
-        self.name              = name
-        self.role              = role
-        self.shape             = shape
-        self.roleFollowsTyping = roleFollowsTyping
-        self.isSpacious        = isSpacious
-        self.commitName        = commitName
-        self.commitRole        = commitRole
-        self.commitShape       = commitShape
+        self.name        = name
+        self.role        = role
+        self.shape       = shape
+        self.commitName  = commitName
+        self.commitRole  = commitRole
+        self.commitShape = commitShape
         _shownName  = State(initialValue: name)
         _shownRole  = State(initialValue: role)
         _shownShape = State(initialValue: shape)
@@ -86,9 +76,6 @@ struct HouseWorkerSection: View {
             .padding(.vertical, rowPadding)
             .focused($isRoleFocused)
             .onSubmit(takeRole)
-            .onChange(of: shownRole) {
-                if roleFollowsTyping { commitRole(shownRole) }
-            }
 
             Button { isChoosingShape = true } label: {
                 LabeledContent("Shape") {
@@ -136,7 +123,7 @@ struct HouseWorkerSection: View {
         } header: {
             Text("Worker")
         } footer: {
-            if isSpacious { HouseSectionGap() }
+            HouseSectionGap()
         }
         .onChange(of: isNameFocused) {
             if !isNameFocused { takeName() }
@@ -157,7 +144,7 @@ struct HouseWorkerSection: View {
         }
     }
 
-    private var rowPadding: CGFloat { isSpacious ? InspectorRowSpacing.vertical : 0 }
+    private var rowPadding: CGFloat { InspectorRowSpacing.vertical }
 
     private func takeName() {
         let taken = Self.takingName(
@@ -169,8 +156,6 @@ struct HouseWorkerSection: View {
     }
 
     private func takeRole() {
-        guard !roleFollowsTyping else { return }
-
         let taken = Self.takingRole(
             shownRole,
             stored: role

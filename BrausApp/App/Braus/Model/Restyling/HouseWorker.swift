@@ -7,21 +7,18 @@
 
 import Foundation
 
-/// HouseWorker is one worker as the house shows it: one of the mockup's simulated workers, or one of the
-/// team's real ones as `HouseRoster` reads it.
+/// HouseWorker is one of the team's workers as the house shows it, as `HouseRoster` reads it.
 ///
 /// `activity` is what the worker is doing, or needs from you, while it works or waits, in plain
-/// words; `role` is what it does, in a few words. Every mock worker has both, so a worker shown in any
-/// state never reads as a status word. `usesScreen` is whether the worker has a screen in front of it,
-/// an app it drives, which lights its room from the front. A real worker also carries `needsSetup`
-/// and the label its team row is read with (`spokenLabel`); a mock one leaves both unset.
+/// words; `role` is what it does, in a few words. `usesScreen` is whether the worker has a screen in
+/// front of it, an app it drives, which lights its room from the front. `needsSetup` is whether it
+/// still has no model, and `spokenLabel` the label its team row is read with.
 nonisolated struct HouseWorker: Identifiable, Sendable {
     let id         : UUID
     var name       : String
     var status     : WorkerStatus
     var activity   : String
     var role       : String
-    var category   : AppCategory
     var shape      : WorkerShape
     var badge      : HouseBadge?
     var usesScreen : Bool

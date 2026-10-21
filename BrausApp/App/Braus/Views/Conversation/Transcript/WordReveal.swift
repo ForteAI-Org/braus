@@ -8,9 +8,9 @@
 import AppKit
 import CoreImage
 
-/// WordReveal plays a reply's words arriving over its row, in the new look: each word fades in
+/// WordReveal plays a reply's words arriving over its row: each word fades in
 /// from transparent, blurred and a little low to itself, over `wordDuration`, each one
-/// `RestylingTiming.wordStagger` after the one before, as the mockup's `AnswerBubble.WordFade`
+/// `RestylingTiming.wordStagger` after the one before, as the hero's `WordFade`
 /// does. Core Animation plays it, one layer per word cut from a picture of the row's text, so the
 /// main thread draws nothing per frame. It takes no clicks and is no accessibility element: the
 /// row under it speaks for its text. Main actor only.
