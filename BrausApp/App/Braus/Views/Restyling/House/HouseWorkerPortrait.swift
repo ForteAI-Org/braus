@@ -16,6 +16,9 @@ import SwiftUI
 /// `preparation` squashes and stretches the whole worker once, as `MascotLayer.prepare()` does the flat
 /// head. Under Reduce Motion a change cuts and nothing squashes; at rest nothing renders, and only the
 /// brows' own Core Animation loop moves.
+///
+/// With a `switchStage`, the worker at the top of its conversation comes in on `HouseSwitch`'s beats
+/// when it is first shown, and steps down once that stage turns to leaving.
 struct HouseWorkerPortrait: View {
     let shape : WorkerShape
     let status: WorkerStatus
@@ -39,6 +42,9 @@ struct HouseWorkerPortrait: View {
 
     /// Changing it squashes and stretches the worker once; its first value does not.
     var preparation = 0
+
+    /// Where the worker is in a change of worker at the top of its conversation, or nil elsewhere.
+    var switchStage: HouseSwitch.Stage?
 
     /// The rows' worker: the sphere of a scene 72.9 points across.
     static let rowSize = 2 * CGFloat(RoomLightUniforms.Shape.leftSphereShare) * 72.9
@@ -199,9 +205,19 @@ struct HouseWorkerPortrait: View {
         /// The preparation last shown; nil before the first show.
         private var preparation: Int?
 
+        /// Whether the change of worker's arrival waits for the first layout, which gives its foot.
+        private var isArrivalPending = false
+
         private static let device = MTLCreateSystemDefaultDevice()
 
         static let prepareKey = "prepare"
+
+        /// The keys of the change of worker's animations on the view's own layer, above `figure`, which
+        /// the body link and a preparation move, so neither fights the other.
+        static let switchKeys = (
+            opacity  : "switchOpacity",
+            transform: "switchTransform"
+        )
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -279,9 +295,11 @@ struct HouseWorkerPortrait: View {
             )
             if preparation == nil {
                 face.mascot.startBreathing()
+                isArrivalPending = portrait.switchStage.map { $0 != .leaving } ?? false
             } else if animated, preparation != portrait.preparation {
                 prepare()
             }
+            if portrait.switchStage == .leaving, layer?.opacity != 0 { leave() }
             preparation = portrait.preparation
             needsLayout = true
         }
@@ -299,6 +317,115 @@ struct HouseWorkerPortrait: View {
             face.frame  = figure.bounds
             room?.frame = figure.bounds
             room?.needsLayout = true
+            if isArrivalPending, !bounds.isEmpty {
+                isArrivalPending = false
+                arrive()
+            }
+        }
+
+        /// Brings the worker in after `HouseSwitch.entryDelay`: up from a little below on the arriving
+        /// spring, fading in; under Reduce Motion, only the fade.
+        private func arrive() {
+            guard let layer else { return }
+            let start = layer.convertTime(
+                CACurrentMediaTime(),
+                from: nil
+            ) + HouseSwitch.entryDelay
+            let reduces = RestylingMotion.reducesMotion
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue      = 0
+            fade.toValue        = 1
+            fade.duration       = HouseSwitch.arrival * (reduces ? 1 : 0.6)
+            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            fade.beginTime      = start
+            fade.fillMode       = .backwards
+            layer.add(
+                fade,
+                forKey: Self.switchKeys.opacity
+            )
+            guard !reduces else { return }
+
+            let rise = CASpringAnimation(
+                perceptualDuration: HouseSwitch.arrival,
+                bounce            : HouseSwitch.bounce
+            )
+            rise.keyPath   = "transform"
+            rise.fromValue = NSValue(caTransform3D: switchTransform(for: .arriving))
+            rise.toValue   = NSValue(caTransform3D: CATransform3DIdentity)
+            rise.duration  = rise.settlingDuration
+            rise.beginTime = start
+            rise.fillMode  = .backwards
+            layer.add(
+                rise,
+                forKey: Self.switchKeys.transform
+            )
+        }
+
+        /// Steps the worker down and fades it over `HouseSwitch.exit`, and keeps it hidden; under
+        /// Reduce Motion, only the fade.
+        private func leave() {
+            guard let layer else { return }
+            isArrivalPending = false
+            let reduces = RestylingMotion.reducesMotion
+            let from    = layer.presentation()?.opacity ?? layer.opacity
+            layer.removeAnimation(forKey: Self.switchKeys.opacity)
+            layer.removeAnimation(forKey: Self.switchKeys.transform)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.opacity = 0
+            if !reduces { layer.transform = switchTransform(for: .leaving) }
+            CATransaction.commit()
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue      = from
+            fade.toValue        = 0
+            fade.duration       = HouseSwitch.exit
+            fade.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            layer.add(
+                fade,
+                forKey: Self.switchKeys.opacity
+            )
+            guard !reduces else { return }
+
+            let step = CABasicAnimation(keyPath: "transform")
+            step.fromValue      = NSValue(caTransform3D: CATransform3DIdentity)
+            step.toValue        = NSValue(caTransform3D: layer.transform)
+            step.duration       = HouseSwitch.exit
+            step.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            layer.add(
+                step,
+                forKey: Self.switchKeys.transform
+            )
+        }
+
+        /// The view's transform at `stage`'s pose: lowered by its drop and scaled about its foot.
+        private func switchTransform(for stage: HouseSwitch.Stage) -> CATransform3D {
+            guard let layer else { return CATransform3DIdentity }
+            let pose  = HouseSwitch.pose(
+                stage,
+                reducesMotion: false
+            )
+            // The layer scales about its anchor; the foot's centre is from there, y up.
+            let pivot = CGPoint(
+                x: (0.5 - layer.anchorPoint.x) * layer.bounds.width,
+                y: -layer.anchorPoint.y * layer.bounds.height
+            )
+            var transform = CATransform3DMakeTranslation(
+                pivot.x,
+                pivot.y - pose.drop,
+                0
+            )
+            transform = CATransform3DScale(
+                transform,
+                pose.scale,
+                pose.scale,
+                1
+            )
+            return CATransform3DTranslate(
+                transform,
+                -pivot.x,
+                -pivot.y,
+                0
+            )
         }
 
         /// Squashes and stretches the whole worker once with `MascotLayer.prepare()`'s keyframes, about

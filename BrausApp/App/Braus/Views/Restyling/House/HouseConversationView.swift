@@ -16,9 +16,22 @@ import SwiftUI
 /// scrolls to its end, and only then takes the message, so the flight knows where it lands. What
 /// the person sends while the worker answers flies into the queue strip above the composer instead;
 /// at the end of the turn, or on Send Now, a queued message flies from the strip into the transcript.
+///
+/// A change of worker plays `HouseSwitch`: the worker comes in on its own beats, the transcript fades
+/// in over the leaving one, and the composer stands still. A leaving conversation hides its composer
+/// at once and gives up the window's focus, so the arriving composer alone can take the keyboard.
 struct HouseConversationView: View {
     let worker           : MockWorker
     let isComposerFocused: FocusState<Bool>.Binding
+
+    /// Whether another worker's conversation is taking this one's place.
+    @Environment(\.houseSwitchLeaving) private var isLeaving
+
+    /// Whether the conversation has appeared, which brings its worker and its transcript in.
+    @State private var hasAppeared = false
+
+    /// The focus a leaving composer holds instead of the window's.
+    @FocusState private var leavingFocus: Bool
 
     @State private var conversation: MockConversation
 
@@ -82,7 +95,8 @@ struct HouseConversationView: View {
                 status     : conversation.phase == .idle ? worker.status : .busy,
                 brows      : heroBrows,
                 activity   : heroActivity,
-                preparation: conversation.turns
+                preparation: conversation.turns,
+                stage      : stage
             )
             .padding(
                 .top,
@@ -97,6 +111,11 @@ struct HouseConversationView: View {
                 onColumnWidth : { columnWidth = $0 },
                 onAtEnd       : reached,
                 onReply       : reply
+            )
+            .opacity(stage == .present ? 1 : 0)
+            .animation(
+                .easeInOut(duration: HouseSwitch.crossFade),
+                value: stage
             )
             // The composer and its strips float over the transcript, which scrolls under them to the
             // window's edge and keeps its last message clear of them.
@@ -130,6 +149,15 @@ struct HouseConversationView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
+        .allowsHitTesting(!isLeaving)
+        .accessibilityHidden(isLeaving)
+        .onAppear { hasAppeared = true }
+    }
+
+    /// Where the conversation is in a change of worker.
+    private var stage: HouseSwitch.Stage {
+        if isLeaving { return .leaving }
+        return hasAppeared ? .present : .arriving
     }
 
     /// The composer with the strips joined above it, floating on the conversation's ground: solid
@@ -162,7 +190,7 @@ struct HouseConversationView: View {
             HouseComposer(
                 worker      : worker,
                 text        : $draft,
-                isFocused   : isComposerFocused,
+                isFocused   : isLeaving ? $leavingFocus : isComposerFocused,
                 isDeparting : isDeparting,
                 onFieldWidth: { fieldWidth = $0 },
                 onSend      : send
@@ -183,6 +211,12 @@ struct HouseConversationView: View {
         )
         .frame(maxWidth: .infinity)
         .background { ground }
+        // The arriving composer stands in the same place, so the leaving one goes at once.
+        .opacity(isLeaving ? 0 : 1)
+        .animation(
+            nil,
+            value: isLeaving
+        )
         .overlay(alignment: .top) {
             Color.clear
                 .frame(height: 0)
