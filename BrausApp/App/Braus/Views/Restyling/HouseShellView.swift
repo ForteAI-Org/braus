@@ -10,8 +10,8 @@ import SwiftUI
 /// HouseShellView is the team window in the new look (`AppPreferences.newLook`): the house's frame
 /// (`HouseSplit`) over the same `TeamModel` today's `TeamShellView` reads, dark only.
 ///
-/// The sidebar is the house over the team's real workers (`HouseRoster`); the conversation is
-/// today's view until the house's own takes its place, and the inspector is `HouseLiveInspector`.
+/// The sidebar is the house over the team's real workers (`HouseRoster`), the conversation is
+/// `HouseLiveConversation` over the team's transcript, and the inspector is `HouseLiveInspector`.
 /// The selection is the team's: a worker chosen with the pointer hands the keyboard to the composer, one chosen with the keys
 /// leaves it in the sidebar, and Return there moves it to the composer. The sheets, the dialogs, the
 /// approvals and the Team menu are the ones `TeamShellView` presents, so either shell does the same.
@@ -220,7 +220,7 @@ struct HouseShellView: View {
     private var detail: some View {
         ZStack {
             if let worker = team.selectedWorker {
-                WorkerConversationView(
+                HouseLiveConversation(
                     team        : team,
                     worker      : worker,
                     focusRequest: composerFocus

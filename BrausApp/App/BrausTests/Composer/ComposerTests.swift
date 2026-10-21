@@ -12,16 +12,20 @@ import Testing
 @testable import Braus
 
 /// The composer's contract (§13.1, §13.2, §19.3), driven through SwiftUI with
-/// real key events and `setMarkedText`, the way an input method drives it.
+/// real key events and `setMarkedText`, the way an input method drives it, in
+/// today's chrome and in the new look's.
 @Suite("Composer")
 @MainActor
 struct ComposerTests {
 
     private static let notFound = NSRange(location: NSNotFound, length: 0)
 
-    @Test("Return sends, and the text it sent is the draft")
-    func returnSends() async throws {
-        let harness = ComposerHarness()
+    @Test(
+        "Return sends, and the text it sent is the draft",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func returnSends(chrome: ComposerBar.Chrome) async throws {
+        let harness = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         harness.focus()
         harness.type("hi")
@@ -33,9 +37,12 @@ struct ComposerTests {
         #expect(harness.textView?.string == "hi")
     }
 
-    @Test("Option-Return inserts a line break and sends nothing")
-    func optionReturnBreaks() async throws {
-        let harness = ComposerHarness()
+    @Test(
+        "Option-Return inserts a line break and sends nothing",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func optionReturnBreaks(chrome: ComposerBar.Chrome) async throws {
+        let harness = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         harness.focus()
         harness.type("a")
@@ -46,9 +53,12 @@ struct ComposerTests {
         #expect(harness.draft == "a\nb")
     }
 
-    @Test("Return during marked text commits the composition and does not send")
-    func returnCommitsComposition() async throws {
-        let harness   = ComposerHarness()
+    @Test(
+        "Return during marked text commits the composition and does not send",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func returnCommitsComposition(chrome: ComposerBar.Chrome) async throws {
+        let harness   = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         let textView  = try #require(harness.textView)
         harness.focus()
@@ -67,9 +77,12 @@ struct ComposerTests {
         #expect(harness.sends == 1)
     }
 
-    @Test("Text inserted by an input method or dictation never sends, even with a line break in it")
-    func insertedTextNeverSends() async throws {
-        let harness  = ComposerHarness()
+    @Test(
+        "Text inserted by an input method or dictation never sends, even with a line break in it",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func insertedTextNeverSends(chrome: ComposerBar.Chrome) async throws {
+        let harness  = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         let textView = try #require(harness.textView)
         harness.focus()
@@ -79,9 +92,12 @@ struct ComposerTests {
         #expect(harness.draft == "dictated line\nand the next")
     }
 
-    @Test("The draft path receives committed text and never a half-composed character")
-    func draftNeverHalfComposed() async throws {
-        let harness  = ComposerHarness()
+    @Test(
+        "The draft path receives committed text and never a half-composed character",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func draftNeverHalfComposed(chrome: ComposerBar.Chrome) async throws {
+        let harness  = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         let textView = try #require(harness.textView)
         harness.focus()
@@ -104,13 +120,17 @@ struct ComposerTests {
         #expect(harness.drafts == ["a", "ab", "abか"])
     }
 
-    @Test("The field grows with its text up to its maximum, then scrolls inside")
-    func growsThenScrolls() async throws {
-        let harness    = ComposerHarness()
+    @Test(
+        "The field grows with its text up to its maximum, then scrolls inside",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func growsThenScrolls(chrome: ComposerBar.Chrome) async throws {
+        let harness    = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         let scrollView = try #require(harness.scrollView)
         let textView   = scrollView.textView
         let empty      = scrollView.frame.height
+        #expect(scrollView.lineLimit == chrome.maximumLines)
 
         harness.draft = "one\ntwo\nthree"
         try await harness.settle()
@@ -138,9 +158,15 @@ struct ComposerTests {
         #expect(abs(scrollView.contentView.bounds.maxY - textView.frame.maxY) < 2)
     }
 
-    @Test("With a legacy scroller the height converges, for a line that wraps only beside the scroller and at the maximum")
-    func heightConvergesBesideALegacyScroller() async throws {
-        let harness    = ComposerHarness(width: 420)
+    @Test(
+        "With a legacy scroller the height converges, for a line that wraps only beside the scroller and at the maximum",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func heightConvergesBesideALegacyScroller(chrome: ComposerBar.Chrome) async throws {
+        let harness    = ComposerHarness(
+            width : 420,
+            chrome: chrome
+        )
         defer { harness.close() }
         let scrollView = try #require(harness.scrollView)
         let hosting    = try #require(harness.hosting)
@@ -161,7 +187,7 @@ struct ComposerTests {
             ),
             "no text wraps beside the scroller and not without it"
         )
-        let full     = (1...ComposerScrollView.maximumLines).map { "line \($0)" }.joined(separator: "\n")
+        let full     = (1...scrollView.lineLimit).map { "line \($0)" }.joined(separator: "\n")
 
         for draft in [straddle, full + "\n" + straddle] {
             harness.draft = draft
@@ -208,9 +234,12 @@ struct ComposerTests {
         return nil
     }
 
-    @Test("A refused send puts the text back into the field and the draft")
-    func refusedSendRestores() async throws {
-        let harness = ComposerHarness()
+    @Test(
+        "A refused send puts the text back into the field and the draft",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func refusedSendRestores(chrome: ComposerBar.Chrome) async throws {
+        let harness = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         harness.onSend = { harness in
             // The model's order: the text leaves the draft, the store refuses, the text comes back.
@@ -230,9 +259,12 @@ struct ComposerTests {
         #expect(harness.drafts.suffix(2) == ["", "keep this"])
     }
 
-    @Test("While a turn runs Send is disabled and Return does nothing, and editing still works")
-    func sendWaitsForTheTurn() async throws {
-        let harness = ComposerHarness()
+    @Test(
+        "While a turn runs Send is disabled and Return does nothing, and editing still works",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func sendWaitsForTheTurn(chrome: ComposerBar.Chrome) async throws {
+        let harness = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         harness.isAnswering = true
         try await harness.settle()
@@ -254,9 +286,15 @@ struct ComposerTests {
         #expect(harness.sends == 1)
     }
 
-    @Test("The field is labelled with its recipient for VoiceOver, and its help names the keys")
-    func accessibility() async throws {
-        let harness  = ComposerHarness(recipient: "Atlas")
+    @Test(
+        "The field is labelled with its recipient for VoiceOver, and its help names the keys",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func accessibility(chrome: ComposerBar.Chrome) async throws {
+        let harness  = ComposerHarness(
+            recipient: "Atlas",
+            chrome   : chrome
+        )
         defer { harness.close() }
         let textView = try #require(harness.textView)
         #expect(textView.accessibilityLabel() == "Message Atlas")
@@ -265,9 +303,15 @@ struct ComposerTests {
         #expect(textView.accessibilityHelp()?.contains("Shift-Return") == true)
     }
 
-    @Test("A recipient that cannot answer shows the model placeholder, and neither Send nor Return sends")
-    func cannotAnswer() async throws {
-        let harness = ComposerHarness(recipient: "Milo")
+    @Test(
+        "A recipient that cannot answer shows the model placeholder, and neither Send nor Return sends",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func cannotAnswer(chrome: ComposerBar.Chrome) async throws {
+        let harness = ComposerHarness(
+            recipient: "Milo",
+            chrome   : chrome
+        )
         defer { harness.close() }
         harness.canAnswer = false
         try await harness.settle()
@@ -285,9 +329,12 @@ struct ComposerTests {
         #expect(bar(draft: "saved anyway", canAnswer: true).canSend)
     }
 
-    @Test("A strip joins the pill on its surface: the bar grows by the strip, and Escape in the field removes it")
-    func stripJoinsThePill() async throws {
-        let harness = ComposerHarness()
+    @Test(
+        "A strip joins the pill on its surface: the bar grows by the strip, and Escape in the field removes it",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func stripJoinsThePill(chrome: ComposerBar.Chrome) async throws {
+        let harness = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         try await harness.settle()
         let resting = harness.barHeight
@@ -310,9 +357,12 @@ struct ComposerTests {
         #expect(harness.barHeight == resting)
     }
 
-    @Test("Each strip adds its height to the bar, the queue's with its pager on one line")
-    func stripsAddTheirHeight() async throws {
-        let harness = ComposerHarness()
+    @Test(
+        "Each strip adds its height to the bar, the queue's with its pager on one line",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func stripsAddTheirHeight(chrome: ComposerBar.Chrome) async throws {
+        let harness = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         try await harness.settle()
         let resting = harness.barHeight
@@ -339,9 +389,12 @@ struct ComposerTests {
         #expect(harness.barHeight == resting)
     }
 
-    @Test("A composer that queues hands Return to Send during a turn, and its circle stays Stop")
-    func returnQueuesDuringATurn() async throws {
-        let harness = ComposerHarness()
+    @Test(
+        "A composer that queues hands Return to Send during a turn, and its circle stays Stop",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func returnQueuesDuringATurn(chrome: ComposerBar.Chrome) async throws {
+        let harness = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         harness.queues      = true
         harness.isAnswering = true
@@ -361,9 +414,12 @@ struct ComposerTests {
         #expect(!bar(draft: "next", isAnswering: true, canAnswer: false).queuesWhileAnswering(true).canQueue)
     }
 
-    @Test("A focus request puts the keyboard in the field, as a reply started in the transcript does")
-    func focusRequestTakesTheKeyboard() async throws {
-        let harness = ComposerHarness()
+    @Test(
+        "A focus request puts the keyboard in the field, as a reply started in the transcript does",
+        arguments: ComposerBar.Chrome.allCases
+    )
+    func focusRequestTakesTheKeyboard(chrome: ComposerBar.Chrome) async throws {
+        let harness = ComposerHarness(chrome: chrome)
         defer { harness.close() }
         try await harness.settle()
         let textView = try #require(harness.textView)
@@ -373,6 +429,17 @@ struct ComposerTests {
         harness.focusRequest += 1
         try await harness.settle()
         #expect(harness.window?.firstResponder === textView)
+    }
+
+    @Test("The new look's pill is one row high around one line, on its ground")
+    func housePillIsOneRow() async throws {
+        let harness = ComposerHarness(chrome: .house)
+        defer { harness.close() }
+        try await harness.settle()
+        let field = try #require(harness.scrollView?.frame.height)
+        #expect(field + 2 * ComposerBar.houseFieldInset == ComposerBar.houseRowHeight)
+        // The pill, its 20 point margin below, and the ground's fade above.
+        #expect(harness.barHeight == ComposerBar.houseRowHeight + 20 + HouseFoot.fadeHeight)
     }
 
     private func bar(draft: String, isAnswering: Bool = false, canAnswer: Bool = true) -> ComposerBar {

@@ -25,6 +25,9 @@ import SwiftUI
 /// hands the popup ↑ ↓, Tab, Return and Escape while it is open; a first
 /// Escape closes it, and the next one drops a quote as it always does.
 ///
+/// In the new look (`chrome` `.house`) the bar stands on the conversation's ground
+/// (`composerDock(_:)`), and its `+` menu shows or hides Braus's Chrome window
+/// for a conversation that browses, as the inspector's Web section does.
 struct ConversationComposer: View {
 
     @Bindable
@@ -44,6 +47,9 @@ struct ConversationComposer: View {
     /// Shows a message in the transcript, as a click on the reply strip asks.
     var reveal: (UUID) -> Void = { _ in }
 
+    /// The bar's look, today's unless the new look asks for its own.
+    var chrome = ComposerBar.Chrome.standard
+
     /// The model and effort chosen in the popup and not kept yet, nil while they are the worker's.
     @State private var pending: ModelSelection?
 
@@ -61,15 +67,7 @@ struct ConversationComposer: View {
     private var reducesMotion
 
     var body: some View {
-        ComposerBar(
-            draft      : $team.draft,
-            recipient  : worker.name,
-            canAnswer  : canAnswer,
-            isAnswering: team.isAnswering(worker.id),
-            send       : { Task { await keepChoice(); await team.send() } },
-            stop       : { team.stopAnswering(worker.id) },
-            release    : team.holdsComputer(worker.id) ? { Task { await team.releaseComputer(worker.id) } } : nil
-        )
+        bar
         .sendsOnReturn(!sendsWithCommandReturn)
         .queuesWhileAnswering(true)
         .onEscape(team.draftQuote == nil ? nil : { team.draftQuote = nil })
@@ -101,7 +99,8 @@ struct ConversationComposer: View {
                         catalogue: team.connections.catalogues[configuration.provider],
                         isOpen   : $isChoosingModel,
                         frame    : $modelButton,
-                        isEnabled: !team.isAnswering(worker.id)
+                        isEnabled: !team.isAnswering(worker.id),
+                        height   : chrome == .house ? 24 : ComposerBar.circleSide
                     )
                 }
             }
@@ -167,6 +166,7 @@ struct ConversationComposer: View {
             ComposerBar.stripAnimation,
             value: team.queue
         )
+        .composerDock(chrome)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         .onChange(of: worker.id) {
             isChoosingModel = false
@@ -187,6 +187,40 @@ struct ConversationComposer: View {
         }
         // A quote comes and goes in one act, not in keystrokes, so it is written at once.
         .task(id: team.draftQuote) { await team.flushDraft() }
+    }
+
+    /// The bar, with the new look's `+` menu while the conversation browses.
+    private var bar: ComposerBar {
+        let bar = ComposerBar(
+            draft      : $team.draft,
+            recipient  : worker.name,
+            canAnswer  : canAnswer,
+            isAnswering: team.isAnswering(worker.id),
+            send       : { Task { await keepChoice(); await team.send() } },
+            stop       : { team.stopAnswering(worker.id) },
+            release    : team.holdsComputer(worker.id) ? { Task { await team.releaseComputer(worker.id) } } : nil,
+            chrome     : chrome
+        )
+        guard chrome == .house,
+              team.composesWeb,
+              let conversation = team.conversation,
+              conversation.participantIDs.contains(worker.id)
+        else { return bar }
+
+        let id       = conversation.id
+        let personal = team.usesPersonalChrome(in: id)
+        let profile  = team.chromeProfile(in: id)
+        return bar.menu {
+            Toggle(
+                "Show Chrome Window",
+                isOn: Binding(
+                    get: { team.showsBrowserWindow(in: id) },
+                    set: { shows in Task { await team.setShowsBrowserWindow(shows, in: id) } }
+                )
+            )
+            // Braus's Chrome has no window to show while the person's own or a paired one is used.
+            .disabled(personal || profile != nil)
+        }
     }
 
     /// The strip of a reply in progress: the reply symbol, the worker's name when

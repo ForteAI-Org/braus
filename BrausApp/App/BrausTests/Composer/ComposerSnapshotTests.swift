@@ -61,23 +61,57 @@ struct ComposerSnapshotTests {
                         let harness = ComposerHarness(width: width, height: 320, appearance: appearance,
                                                       surface: surface.kind)
                         defer { harness.close() }
-                        state.set(harness)
-                        try await harness.settle()
-                        if let textView = harness.textView {
-                            let end = (textView.string as NSString).length
-                            textView.setSelectedRange(NSRange(location: end, length: 0))
-                            textView.scrollToEndOfDocument(nil)
-                        }
-                        // Long enough for the release button's entrance to finish before the drawing.
-                        for _ in 0..<8 { try await harness.settle() }
-                        let name = "composer-\(state.name)-\(Int(width))-\(theme)-\(surface.name).png"
-                        let file = try Self.directory.appending(path: name)
-                        try Self.png(of: try #require(harness.hosting)).write(to: file)
-                        print("snapshot: \(file.path)")
+                        try await Self.draw(
+                            harness,
+                            in   : state.set,
+                            named: "composer-\(state.name)-\(Int(width))-\(theme)-\(surface.name).png"
+                        )
                     }
                 }
             }
         }
+    }
+
+    @Test("The new look's composer in the same states, at two widths, dark, its glass drawn opaque")
+    func houseSnapshots() async throws {
+        // Glass composites only in the window server, so the pill is drawn as Reduce Transparency draws it.
+        RestylingMotion.overrideReducesTransparency = true
+        defer { RestylingMotion.overrideReducesTransparency = nil }
+        for state in Self.states {
+            for width in [600, 900] as [CGFloat] {
+                let harness = ComposerHarness(
+                    width : width,
+                    height: 320,
+                    chrome: .house
+                )
+                defer { harness.close() }
+                try await Self.draw(
+                    harness,
+                    in   : state.set,
+                    named: "composer-house-\(state.name)-\(Int(width))-dark.png"
+                )
+            }
+        }
+    }
+
+    /// Puts `harness` in a state with `set`, scrolled to its end, and writes what it draws to `name`.
+    private static func draw(
+        _ harness: ComposerHarness,
+        in set   : @MainActor (ComposerHarness) -> Void,
+        named name: String
+    ) async throws {
+        set(harness)
+        try await harness.settle()
+        if let textView = harness.textView {
+            let end = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: end, length: 0))
+            textView.scrollToEndOfDocument(nil)
+        }
+        // Long enough for the release button's entrance to finish before the drawing.
+        for _ in 0..<8 { try await harness.settle() }
+        let file = try directory.appending(path: name)
+        try png(of: try #require(harness.hosting)).write(to: file)
+        print("snapshot: \(file.path)")
     }
 
     private static func png(of view: NSView) throws -> Data {
