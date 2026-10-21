@@ -22,6 +22,9 @@ import Foundation
 /// the floor plan. At 1, as in the rows, it stands larger at the left, the lamp above it and a little
 /// further left, and the pool spreads from it toward the right, fading into the room's darker right
 /// side; values between are the way from one to the other while a row reshapes.
+///
+/// `pose` moves the standing body a little away from rest, for the frames that bake its motion
+/// (`RoomBodyMotion`); a room itself always shows it at rest.
 nonisolated struct RoomLightUniforms: Equatable {
     var lightColor : SIMD3<Float>
     var strength   : Float
@@ -29,6 +32,7 @@ nonisolated struct RoomLightUniforms: Equatable {
     var hasOccupant: Bool
     var camera     : RoomCamera
     var lean       : Float
+    var pose       = Pose.rest
 
     /// The status the light shows; it picks the light's pulse.
     var status: WorkerStatus
@@ -105,8 +109,8 @@ nonisolated struct RoomLightUniforms: Equatable {
             stage  : SIMD4(
                 room.bodyX,
                 lean,
-                0,
-                0
+                pose.tilt,
+                pose.hop
             ),
             lights : SIMD4(
                 screenStrength,
@@ -115,6 +119,33 @@ nonisolated struct RoomLightUniforms: Equatable {
                 0
             )
         )
+    }
+
+    /// Pose is how far the standing body has moved from rest, seen through the tilted camera: a turn
+    /// about the floor's point under it, in radians, positive with its top toward the right, and a hop
+    /// up from the floor, in points. The view from above shows the body at rest.
+    struct Pose: Hashable {
+        var tilt: Float = 0
+        var hop : Float = 0
+
+        static let rest = Pose()
+
+        /// Where `point` of the body at rest shows in this pose, `foot` the floor's point under it;
+        /// at rest the point itself, to the last bit.
+        func moved(
+            _ point: SIMD3<Double>,
+            foot   : SIMD3<Double>
+        ) -> SIMD3<Double> {
+            guard self != .rest else { return point }
+            let offset = point - foot
+            let cosine = Double(cos(tilt))
+            let sine   = Double(sin(tilt))
+            return foot + SIMD3(
+                offset.x * cosine + offset.z * sine,
+                offset.y,
+                offset.z * cosine - offset.x * sine + Double(hop)
+            )
+        }
     }
 
     /// Shape is a room's proportions in points, the one source for the shaders and the ray tracer's
@@ -200,7 +231,8 @@ nonisolated struct RoomLightUniforms: Equatable {
         var camera: SIMD4<Float>
 
         /// Where the worker stands across the room in the scene, in points from its left wall, and in
-        /// `y` the composition's lean; the shaders read them only when the lean is above zero.
+        /// `y` the composition's lean; the shaders read them only when the lean is above zero. In `z`
+        /// and `w` the pose's tilt and hop, which only the tilted view reads.
         var stage: SIMD4<Float>
 
         /// `screenStrength` and `moonStrength`.

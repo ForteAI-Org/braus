@@ -27,7 +27,8 @@ import SwiftUI
 /// a button that calls `select`; as a row, with no `select`, the list selects it.
 ///
 /// `camera` is how the room is seen: from above, or tilted into it, where the brows follow the
-/// body's face through the room's camera and the plaque hangs in the room where the worker stood.
+/// body's face through the room's camera and the plaque hangs in the room where the worker stood, and
+/// the body moves a little in step with the brows (`RoomBodyLink`).
 struct HouseRoomCell: View {
     let worker    : MockWorker
     let isSelected: Bool
@@ -115,6 +116,9 @@ struct HouseRoomCell: View {
         var lean      : Double
         var width     : Double?
 
+        /// Joins the room's renderer to the brows over the body.
+        @State private var bodyLink = RoomBodyLink()
+
         var animatableData: AnimatablePair<Double, Double> {
             get {
                 AnimatablePair(
@@ -151,13 +155,16 @@ struct HouseRoomCell: View {
                     lean: Float(lean)
                 )
                 ZStack {
-                    RoomLight(uniforms: RoomLightUniforms(
-                        status     : worker.status,
-                        shape      : worker.shape,
-                        hasOccupant: !isSelected,
-                        camera     : camera,
-                        lean       : Float(lean)
-                    ))
+                    RoomLight(
+                        uniforms: RoomLightUniforms(
+                            status     : worker.status,
+                            shape      : worker.shape,
+                            hasOccupant: !isSelected,
+                            camera     : camera,
+                            lean       : Float(lean)
+                        ),
+                        bodyLink: bodyLink
+                    )
                     .allowsHitTesting(false)
 
                     if !isSelected {
@@ -177,7 +184,8 @@ struct HouseRoomCell: View {
                             behaviourSeed   : HouseRoomCell.behaviourSeed(
                                 of        : worker,
                                 isSelected: isSelected
-                            )
+                            ),
+                            bodyLink        : bodyLink
                         )
                         .offset(x: camera == .top ? bodyX - size.width / 2 : 0)
                     }
@@ -367,25 +375,30 @@ struct HouseRoomCell: View {
     }
 
     /// RoomLight hosts the room set into the column (`RoomOpeningView`), lit on the system's default
-    /// GPU. Without one the room stays empty.
+    /// GPU, and joins it to the brows through `bodyLink`. Without a GPU the room stays empty.
     private struct RoomLight: NSViewRepresentable {
         let uniforms: RoomLightUniforms
+        let bodyLink: RoomBodyLink
 
         private static let device = MTLCreateSystemDefaultDevice()
 
         func makeNSView(context: Context) -> NSView {
             guard let device = Self.device else { return NSView() }
-            return RoomOpeningView(
+            let opening = RoomOpeningView(
                 device  : device,
                 uniforms: uniforms
             )
+            bodyLink.room = opening.room
+            return opening
         }
 
         func updateNSView(
             _ view : NSView,
             context: Context
         ) {
-            (view as? RoomOpeningView)?.uniforms = uniforms
+            guard let opening = view as? RoomOpeningView else { return }
+            opening.uniforms = uniforms
+            bodyLink.room    = opening.room
         }
     }
 }

@@ -208,8 +208,11 @@ nonisolated enum RoomCamera: String, Sendable {
 
         /// The brows of `shape` as this camera sees them: on the standing body's front face,
         /// `RoomCamera.browLift` of the face's width above its middle, projected, and stretched as the
-        /// projection stretches the face there, across and upward.
-        func face(of shape: WorkerShape) -> Face {
+        /// projection stretches the face there, across and upward; with the body moved by `pose`.
+        func face(
+            of shape: WorkerShape,
+            pose    : RoomLightUniforms.Pose = .rest
+        ) -> Face {
             let radius  = Double(RoomLightUniforms.Shape(
                 size: size,
                 lean: lean
@@ -218,10 +221,13 @@ nonisolated enum RoomCamera: String, Sendable {
             let slab    = RoomCamera.slab(of: outline)
             // The face's point in front of `local`, a point of the outline in sphere radii with y down.
             func point(_ local: SIMD2<Double>) -> SIMD3<Double> {
-                SIMD3(
-                    bodyX + radius * local.x,
-                    bodyDepth + radius * (slab + outline.faceHeight(at: local)),
-                    radius * (outline.bottom - local.y)
+                pose.moved(
+                    SIMD3(
+                        bodyX + radius * local.x,
+                        bodyDepth + radius * (slab + outline.faceHeight(at: local)),
+                        radius * (outline.bottom - local.y)
+                    ),
+                    foot: SIMD3(bodyX, bodyDepth, 0)
                 )
             }
             let brows  = SIMD2(0, -2 * RoomCamera.browLift * outline.inradius)

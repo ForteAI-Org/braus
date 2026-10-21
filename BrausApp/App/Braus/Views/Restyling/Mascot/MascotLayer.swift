@@ -356,6 +356,9 @@ nonisolated final class MascotLayer: CALayer {
     /// The loop the brows play in the current status, or nil while they hold still.
     private(set) var behaviour: WorkerBehaviourLoop?
 
+    /// When `behaviour` started, or starts after the state change's blend, on the host clock.
+    private(set) var behaviourStart: CFTimeInterval = 0
+
     /// Plays the loop `seed` gives in the current status (`WorkerBehaviour.seed(for:)` gives a
     /// worker's), or stops the brows' behaviour when `seed` is nil. Call it after `show(_:animated:)`
     /// and after every change of `status`; an unchanged seed and status keep the loop running.
@@ -374,7 +377,8 @@ nonisolated final class MascotLayer: CALayer {
         behaviour = seed.map { WorkerBehaviour(status).loop(seed: $0) }
 
         let animates   = !RestylingMotion.reducesMotion
-        let now        = convertTime(CACurrentMediaTime(), from: nil)
+        let host       = CACurrentMediaTime()
+        let now        = convertTime(host, from: nil)
         let scale      = behaviourScale
         behaviourBuiltScale = scale
         let transition = BrowTransition.between(
@@ -383,6 +387,7 @@ nonisolated final class MascotLayer: CALayer {
             leftFirst: leftLeads
         )
         let loopStart = now + transition.duration + max(transition.leftDelay, transition.rightDelay)
+        behaviourStart = host + loopStart - now
         let sides: [(brow: CAShapeLayer, side: WorkerBehaviourLoop.Side, delay: Double)] = [
             (leftBrow, .left, transition.leftDelay),
             (rightBrow, .right, transition.rightDelay),
@@ -568,6 +573,25 @@ nonisolated final class MascotLayer: CALayer {
         blendRotationKey,
         refreshBlendKey,
     ]
+
+    /// Moves the brows with the body a room draws beneath them (`RoomBodyMotion.browShift()`): an
+    /// additive shift of the layer's position that starts with the brows' loop at `start` on the host
+    /// clock, or nil to leave them on the body at rest. Nothing under Reduce Motion.
+    @MainActor
+    func followBody(
+        _ shift   : CAAnimation?,
+        from start: CFTimeInterval = 0
+    ) {
+        removeAnimation(forKey: Self.bodyKey)
+        guard let shift, !RestylingMotion.reducesMotion else { return }
+        shift.beginTime = convertTime(start, from: nil)
+        add(
+            shift,
+            forKey: Self.bodyKey
+        )
+    }
+
+    static let bodyKey = "body"
 
     /// The turn `layer` shows about its z axis, in radians.
     private static func rotation(of layer: CALayer) -> Double {

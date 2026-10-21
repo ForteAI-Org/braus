@@ -30,6 +30,10 @@ struct MascotFace: NSViewRepresentable {
     /// behaviour (`MascotLayer.behave(seed:)`) and `brows` should be the status's own expression.
     var behaviourSeed   : UInt64?
 
+    /// In a room, joins the brows to the room's renderer, so the body moves in step with them and
+    /// they follow it.
+    var bodyLink        : RoomBodyLink?
+
     func makeNSView(context: Context) -> HostView {
         let view = HostView(frame: CGRect(
             origin: .zero,
@@ -86,6 +90,7 @@ struct MascotFace: NSViewRepresentable {
         )
         mascot.catchRoomLight(catchesRoomLight)
         mascot.behave(seed: behaviourSeed)
+        bodyLink?.browsDidBehave(mascot)
         if view.preparation != preparation {
             view.preparation = preparation
             if animated { mascot.prepare() }

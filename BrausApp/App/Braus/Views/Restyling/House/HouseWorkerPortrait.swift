@@ -2,11 +2,15 @@ import MetalKit
 import SwiftUI
 
 /// HouseWorkerPortrait shows the room renderer's tilted worker without its floor or walls.
-/// Its projected silhouette clips the scene; a faint status halo sits behind the body.
+/// Its projected silhouette clips the scene and moves with the body; a faint status halo sits behind
+/// the body.
 struct HouseWorkerPortrait: View {
     let shape : WorkerShape
     let status: WorkerStatus
     let seed  : UInt64
+
+    /// Joins the portrait's renderer to the brows over the body.
+    @State private var bodyLink = RoomBodyLink()
 
     static let sceneSize = CGSize(
         width : 72.9,
@@ -37,14 +41,17 @@ struct HouseWorkerPortrait: View {
                     .fill(HouseLayout.light(of: status).opacity(0.16))
                     .blur(radius: 5)
             }
-            Light(uniforms: RoomLightUniforms(
-                status     : status,
-                shape      : shape,
-                hasOccupant: true,
-                camera     : .tilted,
-                lean       : lean
-            ))
-            .mask { silhouette.fill(.white) }
+            Light(
+                uniforms  : RoomLightUniforms(
+                    status     : status,
+                    shape      : shape,
+                    hasOccupant: true,
+                    camera     : .tilted,
+                    lean       : lean
+                ),
+                silhouette: silhouette.cgPath,
+                bodyLink  : bodyLink
+            )
 
             MascotFace(
                 shape           : shape,
@@ -58,7 +65,8 @@ struct HouseWorkerPortrait: View {
                     in  : size,
                     lean: lean
                 ),
-                behaviourSeed   : seed
+                behaviourSeed   : seed,
+                bodyLink        : bodyLink
             )
         }
         .frame(
@@ -128,22 +136,30 @@ struct HouseWorkerPortrait: View {
     }
 
     private struct Light: NSViewRepresentable {
-        let uniforms: RoomLightUniforms
+        let uniforms  : RoomLightUniforms
+        let silhouette: CGPath
+        let bodyLink  : RoomBodyLink
         private static let device = MTLCreateSystemDefaultDevice()
 
         func makeNSView(context: Context) -> NSView {
             guard let device = Self.device else { return NSView() }
-            return RoomLightView(
+            let view = RoomLightView(
                 device  : device,
                 uniforms: uniforms
             )
+            view.silhouette = silhouette
+            bodyLink.room   = view
+            return view
         }
 
         func updateNSView(
             _ view : NSView,
             context: Context
         ) {
-            (view as? RoomLightView)?.uniforms = uniforms
+            guard let view = view as? RoomLightView else { return }
+            view.uniforms   = uniforms
+            view.silhouette = silhouette
+            bodyLink.room   = view
         }
     }
 }
