@@ -7,10 +7,10 @@
 
 import SwiftUI
 
-/// HouseHero is the selected worker at the top of its conversation: its 56 point mascot, its name
-/// and what it is doing now: its subtitle (what it is doing or needs, or what it does while free or
-/// off) unless a turn is under way. The kind of work shows on hover of the name, so the window says
-/// the name once.
+/// HouseHero is the selected worker at the top of its conversation: its 56 point mascot, raised a
+/// little over a glass capsule that holds its name and its subtitle (what it is doing or needs, or
+/// what it does while free or off), lit from below by a soft `HeroLight` that follows the status.
+/// The kind of work shows on hover of the name, so the window says the name once.
 ///
 /// The conversation gives the moment's `status`, `brows` and `activity`, and raises `preparation`
 /// when the worker sets about a message, which the head plays once.
@@ -30,23 +30,41 @@ struct HouseHero: View {
                 size       : 56,
                 preparation: preparation
             )
-            Text(worker.name)
-                .font(.system(
-                    size  : 15,
-                    weight: .semibold
-                ))
-                .padding(
-                    .top,
-                    8
+            .offset(y: -4)
+            VStack(spacing: 2) {
+                Text(worker.name)
+                    .font(.system(
+                        size  : 15,
+                        weight: .semibold
+                    ))
+                    .help(role)
+                Text(activity)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(
+                .horizontal,
+                18
+            )
+            .padding(
+                .vertical,
+                7
+            )
+            .modifier(GlassCapsule(cornerRadius: 40))
+            .padding(
+                .top,
+                6
+            )
+        }
+        .background(alignment: .top) {
+            // Centred a little below the mascot's middle; it fades to nothing before its frame's edge.
+            HeroLight(status: status)
+                .frame(
+                    width : 300,
+                    height: 140
                 )
-                .help(role)
-            Text(activity)
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .padding(
-                    .top,
-                    2
-                )
+                .offset(y: -22)
+                .allowsHitTesting(false)
         }
         .accessibilityElement(children: .combine)
         .accessibilityHint(role)
