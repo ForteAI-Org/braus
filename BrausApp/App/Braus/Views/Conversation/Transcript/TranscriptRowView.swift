@@ -123,7 +123,8 @@ final class TranscriptRowView: NSView {
         let previousRow = self.row?.item.id == row.item.id ? self.row : nil
         let oldStacks   = stacks
         if previousRow == nil { isHoveringLine = false }
-        let oldLine     = self.row.flatMap(Self.lineFrame(of:))
+        if previousRow == nil { showReply(false, animated: false) }
+        let oldLine    = self.row.flatMap(Self.lineFrame(of:))
         let oldQuote    = self.row?.geometry.quote
         if previousRow == nil { flashAmount = 0 }
         self.row        = row
@@ -849,10 +850,89 @@ final class TranscriptRowView: NSView {
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         isHoveringLine = row.flatMap(Self.lineFrame(of:))?.contains(point) ?? false
+        if showsReplyButton { showReply(replyArea?.contains(point) ?? false) }
     }
 
     override func mouseExited(with event: NSEvent) {
         isHoveringLine = false
+        showReply(false)
+    }
+
+    // MARK: Reply button
+
+    /// Whether a message offers Reply in a round button beside its bubble, on its outer side, while
+    /// the pointer is over the bubble or the button, as the new look's transcript does.
+    var showsReplyButton = false {
+        didSet { if !showsReplyButton { showReply(false, animated: false) } }
+    }
+
+    private var replyButton: NSButton?
+
+    /// The reply button's side, and the room between it and the bubble.
+    private static let replySide: CGFloat = 28
+    private static let replyGap : CGFloat = 10
+
+    /// Where the reply button sits, beside a message's bubble on its outer side; nil for any other row.
+    private var replySlot: CGRect? {
+        guard let row, row.item.messageID != nil, RowGeometry.shape(of: row.item.kind) == .bubble else { return nil }
+
+        let surface = row.geometry.surface.offsetBy(dx: drift(of: row), dy: 0)
+        let x       = Self.isPersonMessage(row) ? surface.minX - Self.replyGap - Self.replySide : surface.maxX + Self.replyGap
+        return CGRect(x: x, y: surface.midY - Self.replySide / 2, width: Self.replySide, height: Self.replySide)
+    }
+
+    /// The bubble, the gap and the button: the area that keeps the button shown.
+    private var replyArea: CGRect? {
+        guard let row, let slot = replySlot else { return nil }
+
+        return row.geometry.surface.offsetBy(dx: drift(of: row), dy: 0).union(slot)
+    }
+
+    /// Shows or hides the reply button, fading it unless `animated` is false.
+    private func showReply(_ shown: Bool, animated: Bool = true) {
+        guard shown || replyButton != nil, let button = replyButton ?? makeReplyButton() else { return }
+
+        if shown, let slot = replySlot { button.frame = slot }
+        if shown { button.isHidden = false }
+        guard animated else {
+            button.alphaValue = shown ? 1 : 0
+            button.isHidden   = !shown
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            button.animator().alphaValue = shown ? 1 : 0
+        } completionHandler: { [weak button] in
+            MainActor.assumeIsolated {
+                if let button, button.alphaValue == 0 { button.isHidden = true }
+            }
+        }
+    }
+
+    private func makeReplyButton() -> NSButton? {
+        guard let symbol = NSImage(systemSymbolName: "arrowshape.turn.up.left", accessibilityDescription: "Reply")
+        else { return nil }
+
+        let button = NSButton(image: symbol, target: self, action: #selector(replyPressed))
+        button.isBordered             = false
+        button.symbolConfiguration    = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+        button.contentTintColor       = .labelColor
+        button.wantsLayer             = true
+        button.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        button.layer?.cornerRadius    = Self.replySide / 2
+        button.toolTip                = "Reply"
+        button.isHidden               = true
+        button.alphaValue             = 0
+        // The row's own Reply action speaks for it to VoiceOver.
+        button.setAccessibilityElement(false)
+        addSubview(button)
+        replyButton = button
+        return button
+    }
+
+    @objc
+    private func replyPressed() {
+        onReply?()
     }
 
     override func resetCursorRects() {

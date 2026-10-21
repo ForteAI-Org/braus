@@ -18,7 +18,9 @@ import SwiftUI
 /// its role; it listens while the person writes to it between turns, and sets about a message each
 /// time a turn starts. Another worker hops out of the capsule in its place. The transcript and the
 /// composer keep every behaviour of today's conversation: windows of history, reading position,
-/// replies, the queue, slash commands, the model popup, Stop and Release.
+/// replies, the queue, slash commands, the model popup, Stop and Release. Messages fly across it
+/// (`HouseLiveFlights`): a sent one into its bubble, a queued one into and out of the queue strip,
+/// a quote into the reply strip and back.
 struct HouseLiveConversation: View {
 
     @Bindable
@@ -43,6 +45,9 @@ struct HouseLiveConversation: View {
 
     /// Moves each time a turn starts, which the hero plays as the worker setting about the message.
     @State private var preparation = 0
+
+    /// The flights of sent, queued and quoted messages over the conversation.
+    @State private var flights = HouseLiveFlights()
 
     var body: some View {
         let house       = houseWorker
@@ -76,9 +81,19 @@ struct HouseLiveConversation: View {
                         height      : $composerHeight,
                         focusRequest: composerFocus + focusRequest,
                         reveal      : { transcript?.revealQuoted($0) },
-                        chrome      : .house
+                        chrome      : .house,
+                        flights     : flights
                     )
                 }
+        }
+        .coordinateSpace(.named(BubbleFlight.space))
+        .overlay { flights.overlay }
+        .onChange(of: team.queue) { old, new in
+            flights.queueChanged(
+                from: old,
+                to  : new,
+                in  : team.conversation?.id
+            )
         }
         .overlay(alignment: .topTrailing) {
             ConversationFloatingScreen(
@@ -165,9 +180,16 @@ struct HouseLiveConversation: View {
                 )
             }
         }
+        flights.attach(
+            controller,
+            to: conversationID
+        )
         let focus = $composerFocus
-        controller.onReply = { [team] quote in
-            team.draftQuote = quote
+        controller.onReply = { [team, flights] quote in
+            flights.reply(
+                quote,
+                in: team
+            )
             focus.wrappedValue += 1
         }
         controller.open(

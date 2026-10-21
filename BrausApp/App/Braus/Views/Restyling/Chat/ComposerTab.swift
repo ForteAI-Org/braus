@@ -50,3 +50,28 @@ struct ComposerTab: ViewModifier {
             )
     }
 }
+
+extension View {
+
+    /// A strip's line as a plain button that runs `action`, filling the strip's width so a click
+    /// anywhere on it lands; the line as it is when there is no action.
+    @ViewBuilder
+    func stripAction(
+        _ action: (() -> Void)?,
+        help    : String
+    ) -> some View {
+        if let action {
+            Button(action: action) {
+                self.frame(
+                    maxWidth : .infinity,
+                    alignment: .leading
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(help)
+        } else {
+            self
+        }
+    }
+}

@@ -27,7 +27,9 @@ import SwiftUI
 ///
 /// In the new look (`chrome` `.house`) the bar stands on the conversation's ground
 /// (`composerDock(_:)`), and its `+` menu shows or hides Braus's Chrome window
-/// for a conversation that browses, as the inspector's Web section does.
+/// for a conversation that browses, as the inspector's Web section does. Its
+/// strips are the new look's tabs (`QueueStrip`, `QuoteStrip`), and with
+/// `flights` a sent message, a queued one and a quote fly across the conversation.
 struct ConversationComposer: View {
 
     @Bindable
@@ -50,6 +52,9 @@ struct ConversationComposer: View {
     /// The bar's look, today's unless the new look asks for its own.
     var chrome = ComposerBar.Chrome.standard
 
+    /// The new look's flights (`HouseLiveFlights`); nil in today's look.
+    var flights: HouseLiveFlights?
+
     /// The model and effort chosen in the popup and not kept yet, nil while they are the worker's.
     @State private var pending: ModelSelection?
 
@@ -70,7 +75,7 @@ struct ConversationComposer: View {
         bar
         .sendsOnReturn(!sendsWithCommandReturn)
         .queuesWhileAnswering(true)
-        .onEscape(team.draftQuote == nil ? nil : { team.draftQuote = nil })
+        .onEscape(team.draftQuote == nil ? nil : { dropQuote() })
         .popupKeys { key in
             commands.handle(
                 key,
@@ -79,14 +84,18 @@ struct ConversationComposer: View {
         }
         .focusRequest(focusRequest + editFocus)
         .strip {
-            VStack(spacing: 0) {
-                if !team.queue.isEmpty {
-                    queueStrip
-                        .transition(ComposerBar.stripTransition(reducesMotion: reducesMotion))
-                }
-                if let quote = team.draftQuote {
-                    replyStrip(quote)
-                        .transition(ComposerBar.stripTransition(reducesMotion: reducesMotion))
+            if chrome == .house {
+                houseStrips
+            } else {
+                VStack(spacing: 0) {
+                    if !team.queue.isEmpty {
+                        queueStrip
+                            .transition(ComposerBar.stripTransition(reducesMotion: reducesMotion))
+                    }
+                    if let quote = team.draftQuote {
+                        replyStrip(quote)
+                            .transition(ComposerBar.stripTransition(reducesMotion: reducesMotion))
+                    }
                 }
             }
         }
@@ -196,11 +205,15 @@ struct ConversationComposer: View {
             recipient  : worker.name,
             canAnswer  : canAnswer,
             isAnswering: team.isAnswering(worker.id),
-            send       : { Task { await keepChoice(); await team.send() } },
+            send       : {
+                depart()
+                Task { await keepChoice(); await team.send() }
+            },
             stop       : { team.stopAnswering(worker.id) },
             release    : team.holdsComputer(worker.id) ? { Task { await team.releaseComputer(worker.id) } } : nil,
             chrome     : chrome
         )
+        .fieldLink(flights?.field)
         guard chrome == .house,
               team.composesWeb,
               let conversation = team.conversation,
@@ -261,6 +274,69 @@ struct ConversationComposer: View {
             },
             remove     : { Task { await team.removeShownQueued() } }
         )
+    }
+
+    /// The new look's strips, tabs over the pill: the queue's, which pages, sends now, removes and
+    /// takes a message back to edit, and the reply's, whose line goes to the quoted message. Their
+    /// lines are where the flights land and leave.
+    private var houseStrips: some View {
+        VStack(spacing: 0) {
+            if !team.queue.isEmpty {
+                QueueStrip(
+                    items      : team.queue.map(\.excerpt),
+                    page       : team.shownQueuedIndex,
+                    hidesText  : flights?.hidesQueueLine ?? false,
+                    onTextFrame: { flights?.queueLine = $0 },
+                    onPage     : { page in
+                        // The team pages forward only, round the ends.
+                        for _ in team.queue.indices where team.shownQueuedIndex != page { team.showNextQueued() }
+                    },
+                    onSendNow  : { Task { await team.sendQueuedNow() } },
+                    onDrop     : {
+                        flights?.expectRemoval()
+                        Task { await team.removeShownQueued() }
+                    },
+                    onEdit     : {
+                        flights?.expectRemoval()
+                        editFocus += 1
+                        Task { await team.editShownQueued() }
+                    }
+                )
+                .transition(.opacity)
+            }
+            if let quote = team.draftQuote {
+                QuoteStrip(
+                    title      : quote.isFromPerson ? "Reply" : "Reply to \(worker.name)",
+                    text       : quote.excerpt,
+                    hidesText  : flights?.hidesQuoteLine ?? false,
+                    onTextFrame: { flights?.quoteLine = $0 },
+                    onRemove   : dropQuote,
+                    onOpen     : { reveal(quote.messageID) }
+                )
+                .transition(.opacity)
+            }
+        }
+    }
+
+    /// In the new look, the draft about to be sent sets off its flight from the field: into the
+    /// transcript, or into the queue strip during a turn. A command flies nowhere.
+    private func depart() {
+        let text = team.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let flights, !text.isEmpty, SlashCommandInvocation(draft: text) == nil else { return }
+
+        flights.depart(
+            queued    : team.isAnswering(worker.id),
+            leadsQueue: team.queue.isEmpty
+        )
+    }
+
+    /// Takes the quote off the draft; in the new look its line flies back into its bubble.
+    private func dropQuote() {
+        if let flights {
+            flights.unquote(in: team)
+        } else {
+            team.draftQuote = nil
+        }
     }
 
     /// Makes the popup's choice the worker's, a new version of its profile, when it changed anything.

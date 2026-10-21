@@ -128,6 +128,9 @@ struct ComposerBar: View {
     /// A count that puts the keyboard in the field each time it moves, set with `focusRequest(_:)`.
     private var focusRequest = 0
 
+    /// Given the field's view, set with `fieldLink(_:)`.
+    private var fieldLink: ComposerField.Link?
+
     /// Whether Return sends, or starts a new line with Command-Return sending; see `sendsOnReturn(_:)`.
     private var returnSends = true
 
@@ -230,11 +233,8 @@ struct ComposerBar: View {
     /// controls stay in a row of that height at its foot while the field grows above them.
     private var house: some View {
         VStack(spacing: 0) {
+            // The new look's strips are tabs that inset themselves from the pill's ends (`ComposerTab`).
             stripView
-                .padding(
-                    .horizontal,
-                    14
-                )
 
             HStack(
                 alignment: .bottom,
@@ -290,7 +290,8 @@ struct ComposerBar: View {
             onEscape    : escape,
             onPopupKey  : popupKeyHandler,
             focusRequest: focusRequest,
-            maximumLines: chrome.maximumLines
+            maximumLines: chrome.maximumLines,
+            link        : fieldLink
         )
     }
 
@@ -392,6 +393,13 @@ struct ComposerBar: View {
     func focusRequest(_ request: Int) -> ComposerBar {
         var bar = self
         bar.focusRequest = request
+        return bar
+    }
+
+    /// The bar that hands its field's view to `link`, for the new look's flights to read.
+    func fieldLink(_ link: ComposerField.Link?) -> ComposerBar {
+        var bar = self
+        bar.fieldLink = link
         return bar
     }
 

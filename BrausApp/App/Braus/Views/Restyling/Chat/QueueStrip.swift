@@ -9,16 +9,21 @@ import SwiftUI
 
 /// QueueStrip is the tab joined above the composer that holds what the person sent while the worker
 /// answers: one message at a time, ‹ 2/3 › to page through several, Send Now, and a button that
-/// takes the shown message out.
+/// takes the shown message out. It shows `items` with the one at `page`, and asks `onPage` to show
+/// another; the mockup passes its `MessageQueue`, the app its conversation's queue.
 ///
 /// The shown message's frame in `BubbleFlight.space` goes to `onTextFrame`, where a flight lands;
-/// while `hidesText`, its text is laid out but not drawn, as a flight carries it in or out.
+/// while `hidesText`, its text is laid out but not drawn, as a flight carries it in or out. With
+/// `onEdit`, a click on it takes it back into the draft to be edited.
 struct QueueStrip: View {
-    @Binding var queue: MessageQueue
-    let hidesText     : Bool
-    let onTextFrame   : (CGRect) -> Void
-    let onSendNow     : () -> Void
-    let onDrop        : () -> Void
+    let items      : [String]
+    let page       : Int
+    let hidesText  : Bool
+    let onTextFrame: (CGRect) -> Void
+    let onPage     : (Int) -> Void
+    let onSendNow  : () -> Void
+    let onDrop     : () -> Void
+    var onEdit     : (() -> Void)?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -42,12 +47,16 @@ struct QueueStrip: View {
                     } action: { frame in
                         onTextFrame(frame)
                     }
+                    .stripAction(
+                        onEdit,
+                        help: "Edit this queued message."
+                    )
             }
             .frame(
                 maxWidth : .infinity,
                 alignment: .leading
             )
-            if queue.items.count > 1 {
+            if items.count > 1 {
                 pager
             }
             Button(
@@ -76,7 +85,7 @@ struct QueueStrip: View {
     static let font = Font.system(size: 12.5)
 
     private var shown: String {
-        queue.items.indices.contains(queue.page) ? queue.items[queue.page] : ""
+        items.indices.contains(page) ? items[page] : ""
     }
 
     /// ‹ 2/3 ›: the shown message's place among the queued, and the buttons that turn to the
@@ -87,9 +96,9 @@ struct QueueStrip: View {
                 "Previous Message",
                 systemImage: "chevron.left"
             ) {
-                queue.page = (queue.page + queue.items.count - 1) % queue.items.count
+                onPage((page + items.count - 1) % items.count)
             }
-            Text("\(queue.page + 1)/\(queue.items.count)")
+            Text("\(page + 1)/\(items.count)")
                 .font(.system(size: 11.5))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
@@ -97,7 +106,7 @@ struct QueueStrip: View {
                 "Next Message",
                 systemImage: "chevron.right"
             ) {
-                queue.page = (queue.page + 1) % queue.items.count
+                onPage((page + 1) % items.count)
             }
         }
         .labelStyle(.iconOnly)

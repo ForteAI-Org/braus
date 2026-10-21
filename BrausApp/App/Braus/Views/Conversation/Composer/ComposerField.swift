@@ -44,6 +44,15 @@ struct ComposerField: NSViewRepresentable {
     /// The lines the field shows before it scrolls, fixed when the field is made.
     var maximumLines = ComposerScrollView.maximumLines
 
+    /// Given the field's view, for whoever reads what it draws, such as the new look's flights.
+    var link: Link?
+
+    /// Link hands out the field's view once it is made.
+    @MainActor
+    final class Link {
+        weak var view: ComposerScrollView?
+    }
+
     func makeNSView(context: Context) -> ComposerScrollView {
         let view = ComposerScrollView()
         view.lineLimit         = maximumLines
@@ -51,6 +60,7 @@ struct ComposerField: NSViewRepresentable {
         view.textView.string   = text
         context.coordinator.agreed       = text
         context.coordinator.focusRequest = focusRequest
+        link?.view = view
         return view
     }
 

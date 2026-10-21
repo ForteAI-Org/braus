@@ -31,8 +31,21 @@ final class TranscriptCell: NSCollectionViewItem {
         didSet { rowView.isFocusedRow = isSelected }
     }
 
+    /// Whether the row is laid out but not drawn, as the new look holds a sent message until its
+    /// flight lands on it (`TranscriptController.holdNextSent()`).
+    var isHeld = false {
+        didSet { if isHeld != oldValue { view.alphaValue = isHeld ? 0 : 1 } }
+    }
+
+    // The collection view gives every item its layout's alpha; a held row stays undrawn.
+    override func apply(_ layoutAttributes: NSCollectionViewLayoutAttributes) {
+        super.apply(layoutAttributes)
+        if isHeld { view.alphaValue = 0 }
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
+        isHeld = false
         view.layer?.removeAllAnimations()
         view.layer?.mask = nil
         view.alphaValue = 1
