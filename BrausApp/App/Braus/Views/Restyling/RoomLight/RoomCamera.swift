@@ -41,8 +41,12 @@ nonisolated enum RoomCamera: String, Sendable {
     /// the middle.
     static let bodyDepth = 0.45
 
-    /// How high on the back wall the plaque's nail is, as a share of the wall's height in the cell.
-    static let nailHeight = 0.9
+    /// Where the tilted room's lamp hangs, as RoomLight.metal places it: its height and how far behind
+    /// the worker, as shares of the room's short side, and how far left of a worker in a room leaning
+    /// left (`lampHeightShare`, `lampBehind` and `lampLead` there).
+    static let lampHeight = 0.7
+    static let lampBehind = 0.2
+    static let lampLead   = 0.15
 
     /// The radius of the coves where the tilted room's walls meet its floor, as a share of the
     /// room's short side.
@@ -237,15 +241,14 @@ nonisolated enum RoomCamera: String, Sendable {
             )
         }
 
-        /// Where the plaque hangs on the back wall, behind the worker: its nail's place in the cell from
-        /// its top-left corner, and the perspective's scale there.
-        var plaqueNail: (x: Double, top: Double, scale: Double) {
-            let nail  = SIMD3(bodyX, 0, RoomCamera.nailHeight * wallTop)
-            let shown = project(nail)
-            return (
-                x    : Double(shown.x),
-                top  : Double(shown.y),
-                scale: scale(at: nail)
+        /// The centre of the lamp's disc: over the worker, a little behind it, and in a room leaning
+        /// left a little left of it.
+        var lamp: SIMD3<Double> {
+            let side = Double(min(size.width, size.height))
+            return SIMD3(
+                bodyX - RoomCamera.lampLead * side * Double(lean),
+                bodyDepth - RoomCamera.lampBehind * side,
+                RoomCamera.lampHeight * side
             )
         }
     }

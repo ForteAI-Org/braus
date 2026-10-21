@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import MetalKit
 import SwiftUI
 import Testing
 @testable import Braus
@@ -367,13 +368,134 @@ struct HouseSidebarTests {
         #expect(!off.lightLayer.isHidden)
     }
 
-    @Test("The plaque's text keeps a contrast of at least 4.5:1 in every room's light, at its brightest")
+    @Test("The etched text keeps a contrast of at least 4.5:1 over the brightest room behind the glass, in every light")
     func plaqueTextContrast() throws {
-        for status in WorkerStatus.allCases {
+        defer { RestylingMotion.overrideReducesTransparency = nil }
+        typealias Plaque = HouseAwayPlaque.PlaqueView
+
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        var renderers: [any RoomRenderer] = [try #require(PrecomputedRoomRenderer(device: device))]
+        if let tracer = RayTracedRoomRenderer(device: device) {
+            renderers.append(tracer)
+        }
+        let room = CGSize(
+            width : 127,
+            height: 104
+        )
+        let face = Plaque.Metrics(
+            room  : room,
+            camera: .tilted
+        ).face
+        let xs   = face.map { Int($0.x) }
+        let ys   = face.map { Int($0.y) }
+        for reducesTransparency in [false, true] {
+            RestylingMotion.overrideReducesTransparency = reducesTransparency
+            for status in WorkerStatus.allCases {
+                // The brightest point of the empty room behind the plate on either path; the frost's blur
+                // and the material's dark tint only lower it.
+                var ground = (red: 0.0, green: 0.0, blue: 0.0)
+                for renderer in renderers {
+                    let image = try RoomLightTests.render(
+                        RoomLightUniforms(
+                            status     : status,
+                            shape      : .circle,
+                            hasOccupant: false,
+                            camera     : .tilted
+                        ),
+                        with  : renderer,
+                        size  : room,
+                        device: device
+                    )
+                    for y in (ys.min() ?? 0) ... (ys.max() ?? 0) {
+                        for x in (xs.min() ?? 0) ... (xs.max() ?? 0) {
+                            let pixel = image.pixel(x, y)
+                            let shade = (
+                                red  : Double(pixel.red) / 255,
+                                green: Double(pixel.green) / 255,
+                                blue : Double(pixel.blue) / 255
+                            )
+                            if Self.luminance(shade.red, shade.green, shade.blue)
+                                > Self.luminance(ground.red, ground.green, ground.blue) {
+                                ground = shade
+                            }
+                        }
+                    }
+                }
+                let plaque = Plaque(
+                    brows    : .idle,
+                    status   : status,
+                    isHanging: true,
+                    camera   : .tilted
+                )
+                plaque.frame = CGRect(
+                    origin: .zero,
+                    size  : room
+                )
+                plaque.layout()
+                let backdrop = CGColor(
+                    srgbRed: ground.red,
+                    green  : ground.green,
+                    blue   : ground.blue,
+                    alpha  : 1
+                )
+                let text  = plaque.textLayer
+                let color = try #require(text.fillColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
+                let lit = try Self.pixels(
+                    of  : plaque.glassLayer,
+                    over: backdrop
+                )
+                text.isHidden = true
+                let bare = try Self.pixels(
+                    of  : plaque.glassLayer,
+                    over: backdrop
+                )
+
+                // The text's colour laid over each pixel it covers, against that pixel bare.
+                let alpha  = Double(color.alphaComponent)
+                let ink    = [color.redComponent, color.greenComponent, color.blueComponent].map(Double.init)
+                var lowest = Double.infinity
+                let covered = stride(
+                    from: 0,
+                    to  : lit.count,
+                    by  : 4
+                ).filter { lit[$0 ..< $0 + 3] != bare[$0 ..< $0 + 3] }
+                for index in covered {
+                    let under = (0..<3).map { Double(bare[index + $0]) / 255 }
+                    let over  = (0..<3).map { alpha * ink[$0] + (1 - alpha) * under[$0] }
+                    let front = Self.luminance(over[0], over[1], over[2])
+                    let back  = Self.luminance(under[0], under[1], under[2])
+                    lowest = min(lowest, (max(front, back) + 0.05) / (min(front, back) + 0.05))
+                }
+                #expect(
+                    lowest.isFinite && lowest >= 4.5,
+                    "the text's contrast is \(lowest) in a \(status) room, reducing transparency \(reducesTransparency)"
+                )
+            }
+        }
+    }
+
+    @Test("Under Reduce Transparency the plate is opaque and nothing of the room shows through it")
+    func plaqueReducesTransparency() throws {
+        defer { RestylingMotion.overrideReducesTransparency = nil }
+        let red  = CGColor(
+            srgbRed: 1,
+            green  : 0,
+            blue   : 0,
+            alpha  : 1
+        )
+        let blue = CGColor(
+            srgbRed: 0,
+            green  : 0,
+            blue   : 1,
+            alpha  : 1
+        )
+        for reducesTransparency in [true, false] {
+            RestylingMotion.overrideReducesTransparency = reducesTransparency
             let plaque = HouseAwayPlaque.PlaqueView(
                 brows    : .idle,
-                status   : status,
-                isHanging: true
+                status   : .busy,
+                isHanging: true,
+                camera   : .tilted
             )
             plaque.frame = CGRect(
                 x     : 0,
@@ -382,43 +504,282 @@ struct HouseSidebarTests {
                 height: 104
             )
             plaque.layout()
-            let text  = try #require(Self.textLayer(in: plaque.swingLayer))
-            let color = try #require(((text.string as? NSAttributedString)?.attribute(
-                .foregroundColor,
-                at            : 0,
-                effectiveRange: nil
-            ) as? NSColor)?.usingColorSpace(.sRGB))
-            let lit = try Self.pixels(of: plaque.swingLayer)
-            text.isHidden = true
-            let bare = try Self.pixels(of: plaque.swingLayer)
+            #expect(plaque.frostView.isHidden == reducesTransparency)
 
-            // The text's colour laid over each pixel it covers, against that pixel bare.
-            let alpha  = Double(color.alphaComponent)
-            let ink    = [color.redComponent, color.greenComponent, color.blueComponent].map(Double.init)
-            var lowest = Double.infinity
-            let covered = stride(
-                from: 0,
-                to  : lit.count,
-                by  : 4
-            ).filter { lit[$0 ..< $0 + 3] != bare[$0 ..< $0 + 3] }
-            for index in covered {
-                let ground = (0..<3).map { Double(bare[index + $0]) / 255 }
-                let over   = (0..<3).map { alpha * ink[$0] + (1 - alpha) * ground[$0] }
-                let front  = Self.luminance(over[0], over[1], over[2])
-                let back   = Self.luminance(ground[0], ground[1], ground[2])
-                lowest = min(lowest, (max(front, back) + 0.05) / (min(front, back) + 0.05))
+            // The plate over two different rooms, compared inside its rounded corners, at 2x.
+            let overRed  = try Self.pixels(
+                of  : plaque.glassLayer,
+                over: red
+            )
+            let overBlue = try Self.pixels(
+                of  : plaque.glassLayer,
+                over: blue
+            )
+            let plate  = plaque.glassLayer.bounds.size
+            let inset  = Int(2 * HouseAwayPlaque.PlaqueView.Metrics.cornerRadius)
+            let width  = Int(2 * plate.width)
+            var shows  = false
+            for y in inset ..< Int(2 * plate.height) - inset {
+                for x in inset ..< width - inset {
+                    let index = (y * width + x) * 4
+                    if overRed[index ..< index + 3] != overBlue[index ..< index + 3] { shows = true }
+                }
             }
-            #expect(lowest.isFinite && lowest >= 4.5, "the text's contrast is \(lowest) in a \(status) room")
+            #expect(shows == !reducesTransparency)
         }
     }
 
-    private static func textLayer(in layer: CALayer) -> CATextLayer? {
-        if let text = layer as? CATextLayer { return text }
-        return layer.sublayers?.lazy.compactMap { textLayer(in: $0) }.first
+    @Test("The glass's light, the light through it and its lit top pulse with the room, on the room's cycle and phase")
+    func plaquePulsesWithTheRoom() {
+        defer { RestylingMotion.overrideReducesMotion = nil }
+        typealias Plaque = HouseAwayPlaque.PlaqueView
+
+        RestylingMotion.overrideReducesMotion = false
+        let window = NSWindow(
+            contentRect: CGRect(
+                x     : 0,
+                y     : 0,
+                width : 200,
+                height: 200
+            ),
+            styleMask  : [.borderless],
+            backing    : .buffered,
+            defer      : false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        for status in WorkerStatus.allCases {
+            let plaque = Plaque(
+                brows    : .idle,
+                status   : status,
+                isHanging: false,
+                camera   : .tilted
+            )
+            window.contentView?.addSubview(plaque)
+            plaque.isHanging = true
+            let weights = RoomLightView.pulseWeights(
+                for          : status,
+                reducesMotion: false
+            )
+            for layer in [plaque.lightLayer, plaque.castLayer, plaque.rimLayer] {
+                let pulse = layer.animation(forKey: Plaque.pulseKey) as? CAKeyframeAnimation
+                guard let first = weights.first, let cycle = RoomLightView.pulseCycle(for: status) else {
+                    // A light that holds still, or none: the plate holds still too.
+                    #expect(pulse == nil)
+                    continue
+                }
+                #expect(pulse?.keyPath == "opacity")
+                #expect((pulse?.values as? [NSNumber])?.map(\.floatValue) == weights + [first])
+                #expect(pulse?.duration == cycle)
+                // Phased to the host clock, as the room's own pulse frames are.
+                let begin = layer.convertTime(
+                    pulse?.beginTime ?? 0,
+                    to: nil
+                )
+                #expect(abs(begin - RoomLightView.pulseBeginTime(in: nil)) < 1e-6)
+            }
+            plaque.removeFromSuperview()
+        }
     }
 
-    /// `layer` drawn at 2x into sRGB bytes, red, green, blue and alpha.
-    private static func pixels(of layer: CALayer) throws -> [UInt8] {
+    @Test("Through the tilted camera the plate hangs where the worker stood, its text legible, its top showing and its shadow on the floor")
+    func plaqueInPerspective() throws {
+        typealias Metrics = HouseAwayPlaque.PlaqueView.Metrics
+
+        // A room on the floor plan, a compact one, a compact row and a wide row leaning left.
+        let rooms: [(size: CGSize, lean: Float)] = [
+            (
+                CGSize(
+                    width : 127,
+                    height: 104
+                ),
+                0
+            ),
+            (
+                CGSize(
+                    width : 120,
+                    height: 92
+                ),
+                0
+            ),
+            (
+                CGSize(
+                    width : 120,
+                    height: HouseLayout.rowHeight
+                ),
+                0
+            ),
+            (
+                CGSize(
+                    width : 260,
+                    height: HouseLayout.rowHeight
+                ),
+                1
+            ),
+        ]
+        func middle(_ points: [CGPoint]) -> CGPoint {
+            CGPoint(
+                x: points.map(\.x).reduce(0, +) / CGFloat(points.count),
+                y: points.map(\.y).reduce(0, +) / CGFloat(points.count)
+            )
+        }
+        for (size, lean) in rooms {
+            let metrics = Metrics(
+                room  : size,
+                camera: .tilted,
+                lean  : lean
+            )
+            let bodyX = RoomLightUniforms.Shape.bodyX(
+                in  : size,
+                lean: lean
+            )
+            let xs    = metrics.face.map(\.x)
+            let ys    = metrics.face.map(\.y)
+            let name  = "\(size) leaning \(lean)"
+            // In the room, centred where the worker stood, and above the name under it.
+            #expect((xs.min() ?? -1) >= 0 && (xs.max() ?? .infinity) <= size.width, "\(name)")
+            #expect((ys.min() ?? -1) > 0, "\(name)")
+            #expect(abs(((xs.min() ?? 0) + (xs.max() ?? 0)) / 2 - bodyX) < 1, "\(name)")
+            if lean == 0 {
+                #expect((ys.max() ?? .infinity) <= size.height - HouseLayout.nameBand, "\(name)")
+            }
+            // Leaning toward the camera enough that the 9-point text keeps at least 90% of its height.
+            let height = (metrics.face[0].y - metrics.face[3].y + metrics.face[1].y - metrics.face[2].y) / 2
+            #expect(height >= 0.9 * metrics.plate.height && height < metrics.plate.height, "\(name)")
+            // The slab's top shows above its face.
+            let rim = try #require(metrics.rim)
+            #expect((rim.map(\.y).min() ?? 0) < (ys.min() ?? 0) - 0.5, "\(name)")
+            // Its shadow falls on the floor toward the camera, below it.
+            #expect(middle(metrics.shadow).y > middle(metrics.face).y, "\(name)")
+            // It turns about where its cords leave through the opening's top edge, above it.
+            #expect(metrics.top == 0, "\(name)")
+            #expect(abs(metrics.nailX - bodyX) < 1, "\(name)")
+            #expect(metrics.cords.allSatisfy { ($0.last?.y ?? 0) < 0 }, "\(name)")
+        }
+
+        // A room before its first layout places the plate nowhere strange.
+        let empty = Metrics(
+            room  : .zero,
+            camera: .tilted
+        )
+        let pivot = CGPoint(
+            x: empty.nailX,
+            y: empty.top
+        )
+        #expect((empty.face + [pivot]).allSatisfy { $0.x.isFinite && $0.y.isFinite })
+
+        // From above it hangs flat from its nail, with no top showing.
+        let flat = Metrics(room: CGSize(
+            width : 127,
+            height: 104
+        ))
+        #expect(flat.rim == nil)
+        #expect(flat.face[0].y - flat.face[3].y == flat.plate.height)
+    }
+
+    @Test("A plaque in a room too small for its plate lays out without one, from either camera")
+    func plaqueInATinyRoom() {
+        for camera in [RoomCamera.top, .tilted] {
+            for lean in [Float(0), 1] {
+                let plaque = HouseAwayPlaque.PlaqueView(
+                    brows    : .idle,
+                    status   : .busy,
+                    isHanging: true,
+                    camera   : camera,
+                    lean     : lean
+                )
+                plaque.frame = CGRect(
+                    x     : 0,
+                    y     : 0,
+                    width : 12,
+                    height: 12
+                )
+                plaque.layout()
+                #expect(plaque.glassLayer.bounds.width <= 12)
+            }
+        }
+    }
+
+    @Test("The plate's face is mapped exactly onto its corners as the room's camera shows them")
+    func plaqueFaceTransform() {
+        let plate = CGSize(
+            width : 88,
+            height: 30
+        )
+        let quads = [
+            // Seen in perspective, wider at the top.
+            [
+                CGPoint(
+                    x: 20,
+                    y: 10
+                ),
+                CGPoint(
+                    x: 104,
+                    y: 10
+                ),
+                CGPoint(
+                    x: 108,
+                    y: 38
+                ),
+                CGPoint(
+                    x: 16,
+                    y: 38
+                ),
+            ],
+            // Flat, only moved.
+            [
+                CGPoint(
+                    x: 20,
+                    y: 10
+                ),
+                CGPoint(
+                    x: 108,
+                    y: 10
+                ),
+                CGPoint(
+                    x: 108,
+                    y: 40
+                ),
+                CGPoint(
+                    x: 20,
+                    y: 40
+                ),
+            ],
+        ]
+        let corners = [
+            CGPoint.zero,
+            CGPoint(
+                x: plate.width,
+                y: 0
+            ),
+            CGPoint(
+                x: plate.width,
+                y: plate.height
+            ),
+            CGPoint(
+                x: 0,
+                y: plate.height
+            ),
+        ]
+        for quad in quads {
+            let matrix = HouseAwayPlaque.PlaqueView.Metrics.transform(
+                mapping: plate,
+                to     : quad
+            )
+            for (corner, expected) in zip(corners, quad) {
+                let weight = corner.x * matrix.m14 + corner.y * matrix.m24 + matrix.m44
+                let x      = (corner.x * matrix.m11 + corner.y * matrix.m21 + matrix.m41) / weight
+                let y      = (corner.x * matrix.m12 + corner.y * matrix.m22 + matrix.m42) / weight
+                #expect(abs(x - expected.x) < 1e-6 && abs(y - expected.y) < 1e-6)
+            }
+        }
+    }
+
+    /// `layer` drawn at 2x over `backdrop` into sRGB bytes, red, green, blue and alpha.
+    private static func pixels(
+        of layer: CALayer,
+        over backdrop: CGColor
+    ) throws -> [UInt8] {
         let width  = Int(layer.bounds.width * 2)
         let height = Int(layer.bounds.height * 2)
         var bytes  = [UInt8](
@@ -434,6 +795,13 @@ struct HouseSidebarTests {
             bytesPerRow     : width * 4,
             space           : space,
             bitmapInfo      : CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(backdrop)
+        context.fill(CGRect(
+            x     : 0,
+            y     : 0,
+            width : width,
+            height: height
         ))
         context.scaleBy(
             x: 2,

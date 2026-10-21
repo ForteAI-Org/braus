@@ -9,7 +9,7 @@ import AppKit
 import SwiftUI
 
 /// HouseAwayPlaque is the sign hanging in an empty room while its worker is in the chat: a small
-/// satin-metal plate on a cord from a nail, carrying the worker's brows and "In chat with you".
+/// slab of thick frosted glass, with the worker's brows and "In chat with you" etched into it.
 ///
 /// Every room has one, laid over the whole room and hidden while the worker is there, so selecting
 /// the worker only shows it and starts its swing, on layers that already exist; a plaque made for a
@@ -46,26 +46,36 @@ struct HouseAwayPlaque: NSViewRepresentable {
         view.isHanging = isHanging
     }
 
-    /// PlaqueView draws the plaque in layers over its room and moves it with Core Animation only.
+    /// PlaqueView draws the plaque over its room and moves it with Core Animation only.
     ///
-    /// - The drop-in: when `isHanging` turns true, a spring on the plate's rotation about the nail
+    /// - The drop-in: when `isHanging` turns true, a spring on the plate's rotation about its pivot
     ///   that settles in about a second; under Reduce Motion a fade.
     /// - The pendulum: while the room moves sideways the plate hangs on the same spring from its
-    ///   nail. A change of the nail's speed throws it the other way and the speed leans it back, so
+    ///   pivot. A change of the pivot's speed throws it the other way and the speed leans it back, so
     ///   a room setting off to the left leaves the plate's foot to the right, and a room stopping
-    ///   swings it on past rest; it never turns past `maximumTilt`. The nail's position is read when
+    ///   swings it on past rest; it never turns past `maximumTilt`. The pivot's position is read when
     ///   the room's layout moves it, so nothing runs at rest. Under Reduce Motion it never tilts.
-    /// - The size: the plate follows the room's short side, as the sphere does, and never takes more
-    ///   than 70% of the room's width; the text stays 9 points and is left out where it cannot fit.
-    ///   Seen through the tilted camera, it hangs high on the back wall at the wall's perspective
-    ///   scale, facing the viewer so its text stays legible. In a room leaning left it hangs where the
-    ///   worker stood, at the left, within the worker's place beside the name.
-    /// - The light: a lit top edge and a sheen in the room's light, pulsing with the room on the
-    ///   host clock, the sheen sliding as the plate turns under the lamp, and a soft shadow below
-    ///   it; none of it in the room of a worker that is off.
+    /// - The place and the size (`Metrics`): from above, the plate hangs from a nail over the worker's
+    ///   place. Through the tilted camera it hangs in the room where the worker stood, from two cords
+    ///   rising out of the opening, seen in the room's perspective with its top face showing and its
+    ///   shadow on the floor; its pivot is where the cords leave the opening. The plate follows the
+    ///   room's short side, as the sphere does, and never takes more than 70% of the room's width;
+    ///   the text stays 9 points and is left out where it cannot fit. In a room leaning left it hangs
+    ///   where the worker stood, at the left, within the worker's place beside the name.
+    /// - The glass: the room behind shows through it blurred and tinted, by the system's material
+    ///   (`NSVisualEffectView` blending within the window, which takes the room's Metal layer behind
+    ///   it as it is, pulse and all) seen only through a mask that turns with the plate, under the
+    ///   glass's smoky tone; the marks are etched lighter into it. Under Reduce Transparency nothing
+    ///   shows through: the plate is an opaque frosted tone.
+    /// - The light: the lamp's light enters the glass through its top face, which glows; the light
+    ///   refracted down from there fades through the slab, its edge glows brightest at the top, and
+    ///   the lamp's reflection slides as the plate turns. All of it pulses with the room on the host
+    ///   clock. The plate's soft shadow is tinted where the light passes through the glass. None of
+    ///   the light in the room of a worker that is off. The ray-traced path will cast the coloured
+    ///   shadow itself with the lights; until then it is Core Animation's on both paths.
     final class PlaqueView: NSView {
 
-        /// The worker's expression, drawn small on the plate.
+        /// The worker's expression, etched small into the plate.
         var brows: BrowState {
             didSet {
                 guard brows != oldValue else { return }
@@ -109,11 +119,33 @@ struct HouseAwayPlaque: NSViewRepresentable {
             }
         }
 
-        /// The rotation about the nail, and with it the cord and the plate.
+        /// The rotation about the pivot, and with it the cords and the slab.
         let swingLayer = CALayer()
 
-        /// The room's light on the plate, pulsing with the room.
-        let lightLayer = CAGradientLayer()
+        /// The plate's shadow, turning with it.
+        let shadowLayer = CALayer()
+
+        /// The slab's face, clipped to the plate's rounded shape and seen in the room's perspective.
+        let glassLayer = CALayer()
+
+        /// The room behind the slab, blurred by the system's material and seen through a mask that
+        /// turns with the plate; hidden under Reduce Transparency and while the plaque is down.
+        let frostView = NSView()
+
+        /// The room's light in the glass, pulsing with the room.
+        let lightLayer = CALayer()
+
+        /// The light passing through the glass that tints its shadow, pulsing with the room.
+        let castLayer = CALayer()
+
+        /// The slab's top face, which shows through the tilted camera and glows where the lamp's light
+        /// enters, pulsing with the room.
+        let rimLayer = CAShapeLayer()
+
+        /// "In chat with you" etched into the face, as the glyphs' outlines: a shape is drawn at the
+        /// screen's resolution through the room's perspective, where a text layer's bitmap would be
+        /// resampled and soften by how its pixels happen to fall.
+        let textLayer = CAShapeLayer()
 
         static let swingKey = "swing"
         static let fadeKey  = "fade"
@@ -122,18 +154,57 @@ struct HouseAwayPlaque: NSViewRepresentable {
         /// The plate's turn at its widest, in radians, either way.
         static let maximumTilt = 7 * Double.pi / 180
 
-        /// The share of `maximumTilt` the plate leans at most behind a nail moving steadily.
+        /// The share of `maximumTilt` the plate leans at most behind a pivot moving steadily.
         static let maximumLean = 0.3
 
-        /// The nail's speed, in points per second, that leans the plate fully.
+        /// The pivot's speed, in points per second, that leans the plate fully.
         static let fullLeanSpeed = 240.0
 
         /// How much the plate's turning speed, in radians per second, changes against each point per
-        /// second the nail's speed changes: a nail that sets off pushes the plate back, one that
+        /// second the pivot's speed changes: a pivot that sets off pushes the plate back, one that
         /// stops throws it forward.
         static let inertia = 0.005
 
-        /// The pause in the nail's movement that counts as a stop.
+        /// The etched marks' colour: the design's off-white, frosted.
+        private static let ink = CGColor(
+            srgbRed: 245.0 / 255,
+            green  : 245.0 / 255,
+            blue   : 247.0 / 255,
+            alpha  : 0.9
+        )
+
+        /// The glass's own smoky tone over the blurred room, top and bottom, and the opaque frosted
+        /// tone it becomes under Reduce Transparency, about what the glass shows over a lit room.
+        private static let tone = (
+            top   : CGColor(
+                gray : 0.3,
+                alpha: 0.42
+            ),
+            bottom: CGColor(
+                gray : 0.2,
+                alpha: 0.5
+            )
+        )
+        private static let opaqueTone = (
+            top   : CGColor(
+                gray : 0.21,
+                alpha: 1
+            ),
+            bottom: CGColor(
+                gray : 0.15,
+                alpha: 1
+            )
+        )
+
+        /// The material the room is blurred through.
+        private static let material = NSVisualEffectView.Material.hudWindow
+
+        static let font = NSFont.systemFont(
+            ofSize: 9,
+            weight: .medium
+        )
+
+        /// The pause in the pivot's movement that counts as a stop.
         private static let stopPause = Duration.milliseconds(60)
 
         /// How far the plate starts turned when it drops in, in radians.
@@ -141,26 +212,28 @@ struct HouseAwayPlaque: NSViewRepresentable {
 
         private static let fadeSeconds = 0.2
 
-        private static let font = NSFont.systemFont(
-            ofSize: 9,
-            weight: .medium
-        )
+        /// How deep the etched marks are cut, as the height of the shade above them, in points.
+        private static let etchDepth: CGFloat = 0.5
 
-        /// The brows' and the text's colour, the design's off-white.
-        private static let ink = CGColor(
-            srgbRed: 245.0 / 255,
-            green  : 245.0 / 255,
-            blue   : 247.0 / 255,
-            alpha  : 1
-        )
+        private let effectView = NSVisualEffectView()
+        private let frostMask  = CALayer()
+        private let faceMask   = CAShapeLayer()
+        private let rimMask    = CAShapeLayer()
+        private let cords      = CAShapeLayer()
+        private let nail       = CALayer()
+        private let wallShadow = CALayer()
+        private let body       = CAGradientLayer()
+        private let refraction = CAGradientLayer()
+        private let edge       = CAShapeLayer()
+        private let edgeFade   = CAGradientLayer()
+        private let sheen      = CAGradientLayer()
+        private let leftBrow   = CAShapeLayer()
+        private let rightBrow  = CAShapeLayer()
 
-        private let cord      = CAShapeLayer()
-        private let nail      = CALayer()
-        private let plateBody = CAGradientLayer()
-        private let sheen     = CAGradientLayer()
-        private let leftBrow  = CAShapeLayer()
-        private let rightBrow = CAShapeLayer()
-        private let label     = CATextLayer()
+        /// The layers that turn together about the pivot: the slab, its shadow and the frost's mask.
+        private var turningLayers: [CALayer] {
+            [swingLayer, shadowLayer, frostMask]
+        }
 
         /// The plate's turn in the model, where every animation ends.
         private var angle = 0.0
@@ -175,7 +248,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
         /// at rest.
         private(set) var swing: Swing?
 
-        /// The nail's last position in the window and when it was read, and its speed.
+        /// The pivot's last position in the window and when it was read, and its speed.
         private var anchor        : (x: CGFloat, time: CFTimeInterval)?
         private var anchorVelocity = 0.0
         private var stopTask      : Task<Void, Never>?
@@ -196,7 +269,8 @@ struct HouseAwayPlaque: NSViewRepresentable {
             wantsLayer = true
             build()
             drawBrows()
-            swingLayer.isHidden = !isHanging
+            withoutActions { setShown(isHanging) }
+            applyMaterial()
             applyLight()
         }
 
@@ -285,19 +359,24 @@ struct HouseAwayPlaque: NSViewRepresentable {
             anchorVelocity = 0
             showsText      = nil
             arrange()
+            applyMaterial()
             applyLight()
-            withoutActions { swingLayer.isHidden = false }
-            swingLayer.removeAnimation(forKey: Self.fadeKey)
+            withoutActions { setShown(true) }
+            for layer in fadingLayers {
+                layer.removeAnimation(forKey: Self.fadeKey)
+            }
             guard !RestylingMotion.reducesMotion else {
                 rest()
                 let fade = CABasicAnimation(keyPath: "opacity")
                 fade.fromValue = 0
                 fade.toValue   = 1
                 fade.duration  = Self.fadeSeconds
-                swingLayer.add(
-                    fade,
-                    forKey: Self.fadeKey
-                )
+                for layer in fadingLayers {
+                    layer.add(
+                        fade,
+                        forKey: Self.fadeKey
+                    )
+                }
                 return
             }
             play(Swing(
@@ -308,10 +387,10 @@ struct HouseAwayPlaque: NSViewRepresentable {
             ))
         }
 
-        /// The plate's lean, in radians, behind a nail moving sideways at `velocity` points per
-        /// second: a nail moving left turns it counterclockwise, which keeps its foot to the right (the
-        /// view's layer has its y axis up). At most `maximumLean` of `maximumTilt`; zero under Reduce
-        /// Motion.
+        /// The plate's lean, in radians, behind a pivot moving sideways at `velocity` points per
+        /// second: a pivot moving left turns it counterclockwise, which keeps its foot to the right
+        /// (the view's layer has its y axis up). At most `maximumLean` of `maximumTilt`; zero under
+        /// Reduce Motion.
         static func tilt(
             forAnchorVelocity velocity: Double,
             reducesMotion             : Bool
@@ -327,7 +406,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
             )
         }
 
-        /// Reads the nail's position in the window, once the layout has moved the room.
+        /// Reads the pivot's position in the window, once the layout has moved the room.
         func followAnchor() {
             guard window != nil else { return }
             nailMoved(
@@ -342,10 +421,10 @@ struct HouseAwayPlaque: NSViewRepresentable {
             )
         }
 
-        /// Moves the plate after its nail, now at `x` points in the window at `time`: a change of the
-        /// nail's speed throws the plate the other way (`inertia`) and its speed leans the plate back,
-        /// within `maximumTilt`. Once the nail pauses for `stopPause`, it has stopped: the plate swings
-        /// on the way the nail went, past rest, and settles. Nothing under Reduce Motion.
+        /// Moves the plate after its pivot, now at `x` points in the window at `time`: a change of
+        /// the pivot's speed throws the plate the other way (`inertia`) and its speed leans the plate
+        /// back, within `maximumTilt`. Once the pivot pauses for `stopPause`, it has stopped: the plate
+        /// swings on the way the pivot went, past rest, and settles. Nothing under Reduce Motion.
         func nailMoved(
             to x   : CGFloat,
             at time: CFTimeInterval
@@ -380,8 +459,8 @@ struct HouseAwayPlaque: NSViewRepresentable {
             }
         }
 
-        /// The nail has stopped at `time`: its speed drops to zero at once, which throws the plate
-        /// on the way the nail went, and the plate swings back to rest.
+        /// The pivot has stopped at `time`: its speed drops to zero at once, which throws the plate
+        /// on the way the pivot went, and the plate swings back to rest.
         func nailStopped(at time: CFTimeInterval) {
             guard isHanging, !RestylingMotion.reducesMotion else { return }
             stopTask?.cancel()
@@ -396,7 +475,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
         }
 
         /// Puts the plate on a new spring toward `target` from where it is at `time`, its turning
-        /// speed changed against `kicked`, the nail's change of speed. The speed is cut so that no
+        /// speed changed against `kicked`, the pivot's change of speed. The speed is cut so that no
         /// swing about `target` reaches past `maximumTilt`.
         private func turn(
             toward target: Double,
@@ -426,12 +505,13 @@ struct HouseAwayPlaque: NSViewRepresentable {
             ))
         }
 
-        /// Animates the plate's rotation, and the sheen with it, along `next`.
+        /// Animates the turn of the slab, its shadow and the frost's mask, and the sheen with them,
+        /// along `next`.
         private func play(_ next: Swing) {
             swing = next
             set(angle: next.target)
-            for (layer, keyPath, from, to) in [
-                (swingLayer as CALayer, "transform.rotation.z", next.from, next.target),
+            let turns = turningLayers.map { ($0, "transform.rotation.z", next.from, next.target) }
+            for (layer, keyPath, from, to) in turns + [
                 (sheen as CALayer, "position.x", sheenX(for: next.from), sheenX(for: next.target)),
             ] {
                 let spring = CASpringAnimation(keyPath: keyPath)
@@ -452,18 +532,21 @@ struct HouseAwayPlaque: NSViewRepresentable {
         /// Stops the plate at rest, with no animation.
         private func rest() {
             swing = nil
-            swingLayer.removeAnimation(forKey: Self.swingKey)
-            sheen.removeAnimation(forKey: Self.swingKey)
+            for layer in turningLayers + [sheen] {
+                layer.removeAnimation(forKey: Self.swingKey)
+            }
             set(angle: 0)
         }
 
         private func set(angle: Double) {
             self.angle = angle
             withoutActions {
-                swingLayer.setValue(
-                    angle,
-                    forKeyPath: "transform.rotation.z"
-                )
+                for layer in turningLayers {
+                    layer.setValue(
+                        angle,
+                        forKeyPath: "transform.rotation.z"
+                    )
+                }
                 sheen.position.x = sheenX(for: angle)
             }
         }
@@ -480,11 +563,27 @@ struct HouseAwayPlaque: NSViewRepresentable {
             anchor         = nil
             anchorVelocity = 0
             withoutActions {
-                swingLayer.removeAllAnimations()
-                lightLayer.removeAnimation(forKey: Self.pulseKey)
-                swingLayer.isHidden = true
+                for layer in fadingLayers {
+                    layer.removeAllAnimations()
+                }
+                for layer in [lightLayer, castLayer, rimLayer] {
+                    layer.removeAnimation(forKey: Self.pulseKey)
+                }
+                setShown(false)
             }
             rest()
+        }
+
+        /// The layers that appear and fade together: the slab, its shadow and the frost.
+        private var fadingLayers: [CALayer] {
+            [swingLayer, shadowLayer] + (frostView.layer.map { [$0] } ?? [])
+        }
+
+        /// Shows or hides the plaque; the frost shows only where the room may show through the glass.
+        private func setShown(_ isShown: Bool) {
+            swingLayer.isHidden  = !isShown
+            shadowLayer.isHidden = !isShown
+            frostView.isHidden   = !isShown || RestylingMotion.reducesTransparency
         }
 
         /// Swing is one spring of the plate's rotation: from an angle and a turning speed toward a
@@ -533,190 +632,219 @@ struct HouseAwayPlaque: NSViewRepresentable {
 
         // MARK: Light
 
-        /// Lights the plate with the room's light, pulsing with it while the plaque hangs in a window,
-        /// or leaves it unlit, with no shadow, when the worker is off.
+        /// Lights the glass with the room's light and tints its shadow, pulsing with the room while the
+        /// plaque hangs in a window, or leaves it unlit, with no shadow, when the worker is off.
         private func applyLight() {
-            lightLayer.removeAnimation(forKey: Self.pulseKey)
+            for layer in [lightLayer, castLayer, rimLayer] {
+                layer.removeAnimation(forKey: Self.pulseKey)
+            }
             guard let light = status.light else {
                 withoutActions {
-                    lightLayer.isHidden     = true
-                    plateBody.shadowOpacity = 0
+                    lightLayer.isHidden      = true
+                    castLayer.isHidden       = true
+                    wallShadow.shadowOpacity = 0
+                    // Unlit, the top face still shows the glass's thickness.
+                    rimLayer.fillColor = CGColor(
+                        gray : 1,
+                        alpha: 0.14
+                    )
                 }
                 return
             }
             let strength = status.lightStrength
-            func color(_ share: Double) -> CGColor {
+            // The light's colour toward white by `white`, at `share` of its strength.
+            func color(
+                _ share: Double,
+                white  : Double = 0
+            ) -> CGColor {
                 CGColor(
-                    srgbRed: light.red,
-                    green  : light.green,
-                    blue   : light.blue,
+                    srgbRed: light.red + (1 - light.red) * white,
+                    green  : light.green + (1 - light.green) * white,
+                    blue   : light.blue + (1 - light.blue) * white,
                     alpha  : share * strength
                 )
             }
             withoutActions {
-                lightLayer.isHidden     = false
-                lightLayer.colors       = [color(0.36), color(0.12), color(0)]
-                sheen.colors            = [color(0), color(0.22), color(0)]
-                plateBody.shadowOpacity = Float(0.4 * strength)
+                lightLayer.isHidden = false
+                castLayer.isHidden  = false
+                refraction.colors   = [color(0.34), color(0.1), color(0), color(0.06)]
+                edge.strokeColor    = color(
+                    0.95,
+                    white: 0.5
+                )
+                rimLayer.fillColor  = color(
+                    0.8,
+                    white: 0.55
+                )
+                sheen.colors = [
+                    color(
+                        0.2,
+                        white: 0.6
+                    ),
+                    color(
+                        0,
+                        white: 0.6
+                    ),
+                ]
+                // The shadow darkens toward the light's colour, and the light through the glass tints it.
+                wallShadow.shadowColor   = CGColor(
+                    srgbRed: 0.2 * light.red,
+                    green  : 0.2 * light.green,
+                    blue   : 0.2 * light.blue,
+                    alpha  : 1
+                )
+                wallShadow.shadowOpacity = Float(0.55 * strength)
+                castLayer.shadowColor    = CGColor(
+                    srgbRed: light.red,
+                    green  : light.green,
+                    blue   : light.blue,
+                    alpha  : 1
+                )
+                castLayer.shadowOpacity  = Float(0.5 * strength)
             }
             // Only a hanging plaque pulses; the hidden ones in occupied rooms cost nothing.
-            guard
-                isHanging,
-                window != nil,
-                let pulse = RoomLightView.pulseFollowing(
+            guard isHanging, window != nil else { return }
+            for layer in [lightLayer, castLayer, rimLayer] {
+                guard let pulse = RoomLightView.pulseFollowing(
                     "opacity",
                     for  : status,
-                    in   : lightLayer,
+                    in   : layer,
                     value: { NSNumber(value: $0) }
+                ) else { return }
+                layer.add(
+                    pulse,
+                    forKey: Self.pulseKey
                 )
-            else { return }
-            lightLayer.add(
-                pulse,
-                forKey: Self.pulseKey
-            )
+            }
+        }
+
+        /// Shows the room through the glass, or under Reduce Transparency makes the glass an opaque
+        /// frosted tone with nothing behind it showing through.
+        private func applyMaterial() {
+            let isOpaque = RestylingMotion.reducesTransparency
+            let tone     = isOpaque ? Self.opaqueTone : Self.tone
+            withoutActions {
+                frostView.isHidden = isOpaque || !isHanging
+                body.colors        = [tone.top, tone.bottom]
+            }
         }
 
         // MARK: Drawing
 
-        /// Metrics is the plaque's geometry in a room of a given size, in points.
-        struct Metrics {
-
-            /// The plaque's size against the one in a room whose short side is 104 points.
-            let scale: CGFloat
-
-            let plate    : CGSize
-            let drop     : CGFloat
-            let showsText: Bool
-
-            /// The nail's distance below the room's top edge, and from its left edge.
-            let top  : CGFloat
-            let nailX: CGFloat
-
-            /// The least margin beside the text.
-            static let textMargin: CGFloat = 5
-
-            /// The least margin between the plate and the room's left wall in a room leaning left.
-            static let wallMargin: CGFloat = 8
-
-            /// The least scale that keeps the text on the plate, which below it has no height for it.
-            static let textScale: CGFloat = 0.65
-
-            /// The text's width at its 9 points.
-            static let textWidth = NSAttributedString(
-                string    : HouseAwayPlaque.text,
-                attributes: [.font: PlaqueView.font]
-            ).size().width.rounded(.up)
-
-            /// The plaque in a room of `room` points seen through `camera`, its composition leaning
-            /// `lean`: over the worker's place, in a tilted room high on the back wall at the wall's
-            /// perspective scale there. Leaning left, the plate keeps within the worker's place, clear
-            /// of the left wall and of the name beside it, and centres on the room's height, where no
-            /// name is under it.
-            init(
-                room  : CGSize,
-                camera: RoomCamera = .top,
-                lean  : Float = 0
-            ) {
-                let nail = camera == .tilted ? RoomCamera.Perspective(
-                    size: room,
-                    lean: lean
-                ).plaqueNail : nil
-                nailX = nail.map { CGFloat($0.x) } ?? RoomLightUniforms.Shape.bodyX(
-                    in  : room,
-                    lean: lean
-                )
-                // Leaning, the worker's place reaches halfway from its body to the name beside it.
-                let place  = CGFloat(RoomLightUniforms.Shape(
-                    size: room,
-                    lean: lean
-                ).sphereRadius) + HouseLayout.nameGap / 2
-                let widest = lean > 0 ? min(
-                    0.7 * room.width,
-                    2 * (nailX - Self.wallMargin),
-                    2 * place
-                ) : 0.7 * room.width
-                let lined  = Self.textWidth + 2 * Self.textMargin
-                scale     = max(0, min(1, min(room.width, room.height) / 104)) * (nail?.scale ?? 1)
-                showsText = lined <= widest && scale >= Self.textScale
-                plate = CGSize(
-                    width : max(0, min(widest, showsText ? max(88 * scale, lined) : 88 * scale)),
-                    height: 30 * scale
-                )
-                drop = 9 * scale
-                top  = nail?.top ?? max(
-                    4,
-                    (room.height - CGFloat(1 - lean) * HouseLayout.nameBand - plate.height - drop) / 2
+        private func place(_ metrics: Metrics) {
+            let scale  = metrics.scale
+            let plate  = metrics.plate
+            let height = bounds.height
+            // The metrics count y down; the view's layers count it up.
+            func up(_ point: CGPoint) -> CGPoint {
+                CGPoint(
+                    x: point.x,
+                    y: height - point.y
                 )
             }
-        }
-
-        private func place(_ metrics: Metrics) {
-            let scale = metrics.scale
-            let plate = metrics.plate
-            let total = CGSize(
-                width : plate.width,
-                height: plate.height + metrics.drop
-            )
+            func path(_ points: [CGPoint]) -> CGPath {
+                let path = CGMutablePath()
+                path.addLines(between: points.map(up))
+                path.closeSubpath()
+                return path
+            }
             plateWidth = plate.width
-            // Turning about the nail at the top centre; the view's layer has its y axis up.
-            swingLayer.bounds = CGRect(
-                origin: .zero,
-                size  : total
-            )
-            swingLayer.anchorPoint = CGPoint(
-                x: 0.5,
-                y: 1
-            )
-            swingLayer.position = CGPoint(
-                x: bounds.minX + metrics.nailX,
-                y: bounds.maxY - metrics.top
-            )
 
-            nail.frame = CGRect(
-                x     : total.width / 2 - 1.5 * scale,
-                y     : total.height - 3 * scale,
+            // Everything that turns covers the room and turns about the pivot.
+            let pivot = up(CGPoint(
+                x: metrics.nailX,
+                y: metrics.top
+            ))
+            for layer in turningLayers {
+                layer.bounds      = bounds
+                layer.anchorPoint = CGPoint(
+                    x: bounds.width > 0 ? pivot.x / bounds.width : 0.5,
+                    y: height > 0 ? pivot.y / height : 1
+                )
+                layer.position    = pivot
+            }
+            frostView.frame = bounds
+            if frostView.layer?.mask !== frostMask { frostView.layer?.mask = frostMask }
+
+            nail.isHidden = camera == .tilted
+            nail.frame    = CGRect(
+                x     : pivot.x - 1.5 * scale,
+                y     : pivot.y - 3 * scale,
                 width : 3 * scale,
                 height: 3 * scale
             )
             nail.cornerRadius = 1.5 * scale
+            let strands = CGMutablePath()
+            for cord in metrics.cords {
+                strands.addLines(between: cord.map(up))
+            }
+            cords.path = strands
 
-            let inset = 16 * scale
-            let path  = CGMutablePath()
-            path.move(to: CGPoint(
-                x: inset,
-                y: plate.height
-            ))
-            path.addLine(to: CGPoint(
-                x: total.width / 2,
-                y: total.height - 1.5 * scale
-            ))
-            path.addLine(to: CGPoint(
-                x: total.width - inset,
-                y: plate.height
-            ))
-            cord.path = path
+            // A given path spares Core Animation from tracing each shadow every frame.
+            for (layer, outline, blur) in [
+                (wallShadow, metrics.shadow, metrics.shadowBlur),
+                (castLayer, metrics.cast, metrics.castBlur),
+            ] {
+                layer.frame        = bounds
+                layer.shadowPath   = path(outline)
+                layer.shadowRadius = blur
+                layer.shadowOffset = .zero
+            }
 
-            let corner = 7 * scale
-            plateBody.frame = CGRect(
+            // A rounded rectangle's corners may take at most half its sides.
+            let corner     = min(
+                Metrics.cornerRadius * scale,
+                plate.width / 2,
+                plate.height / 2
+            )
+            let plateFrame = CGRect(
                 origin: .zero,
                 size  : plate
             )
-            plateBody.cornerRadius = corner
-            plateBody.shadowRadius = 4 * scale
-            plateBody.shadowOffset = CGSize(
-                width : 0,
-                height: -3 * scale
+            let transform  = Metrics.transform(
+                mapping: plate,
+                to     : metrics.face.map(up)
             )
-            // A given path spares Core Animation from tracing the plate's shadow every frame.
-            plateBody.shadowPath = CGPath(
-                roundedRect : plateBody.bounds,
+            for layer in [glassLayer, faceMask] as [CALayer] {
+                layer.anchorPoint = .zero
+                layer.bounds      = plateFrame
+                layer.position    = .zero
+                layer.transform   = transform
+            }
+            glassLayer.cornerRadius = corner
+            faceMask.path           = CGPath(
+                roundedRect : plateFrame,
                 cornerWidth : corner,
                 cornerHeight: corner,
                 transform   : nil
             )
-            lightLayer.frame        = plateBody.bounds
-            lightLayer.cornerRadius = corner
-            // The sheen keeps to the plate's upper part, above the text, which stays legible.
+            let rim = metrics.rim.map(path)
+            rimLayer.path = rim
+            rimMask.path  = rim
+            for layer in [body, lightLayer, refraction, edgeFade] as [CALayer] {
+                layer.frame = plateFrame
+            }
+            edge.frame     = plateFrame
+            edge.lineWidth = max(0.75, scale)
+            let inner      = plateFrame.insetBy(
+                dx: edge.lineWidth / 2,
+                dy: edge.lineWidth / 2
+            )
+            let innerCorner = max(
+                0,
+                min(
+                    corner - edge.lineWidth / 2,
+                    inner.width / 2,
+                    inner.height / 2
+                )
+            )
+            edge.path = inner.isEmpty ? nil : CGPath(
+                roundedRect : inner,
+                cornerWidth : innerCorner,
+                cornerHeight: innerCorner,
+                transform   : nil
+            )
+            // The lamp's reflection keeps to the plate's upper part, above the text, which stays legible.
             sheen.bounds = CGRect(
                 x     : 0,
                 y     : 0,
@@ -728,20 +856,22 @@ struct HouseAwayPlaque: NSViewRepresentable {
                 y: plate.height * 0.775
             )
 
+            // The text's baseline sits where a 12-point line from `textBottom` puts it, centred across.
             let textBottom = max(2, 0.17 * plate.height)
-            label.frame = CGRect(
-                x     : 0,
-                y     : textBottom,
-                width : plate.width,
-                height: 12
+            let lineTop    = textBottom + 12
+            textLayer.frame = CGRect(
+                x     : (plate.width - Metrics.textWidth) / 2,
+                y     : lineTop - Self.font.ascender,
+                width : Metrics.textWidth,
+                height: Self.font.ascender
             )
-            label.opacity = metrics.showsText ? 1 : 0
+            textLayer.opacity = metrics.showsText ? 1 : 0
 
             let span      = 22 * scale
             let sideWidth = span * 0.455
             let browScale = sideWidth / 240
             // The brows are centred in the space above the text's capitals, or on the plate without text.
-            let capTop = textBottom + label.frame.height - Self.font.ascender + Self.font.capHeight
+            let capTop = lineTop - Self.font.ascender + Self.font.capHeight
             let browY  = metrics.showsText ? (capTop + plate.height) / 2 : plate.height / 2
             for (brow, side) in [
                 (leftBrow, -1.0),
@@ -756,45 +886,82 @@ struct HouseAwayPlaque: NSViewRepresentable {
                     browScale,
                     1
                 )
+                // A brow's shade is offset in its own, scaled, coordinates.
+                brow.shadowOffset = CGSize(
+                    width : 0,
+                    height: Self.etchDepth / browScale
+                )
             }
         }
 
         private func build() {
+            // The cords leave through the opening's top edge, which cuts them off.
+            layer?.masksToBounds = true
             nail.backgroundColor = CGColor(
                 gray : 0.62,
                 alpha: 1
             )
-
-            cord.fillColor   = nil
-            cord.strokeColor = CGColor(
+            cords.fillColor   = nil
+            cords.strokeColor = CGColor(
                 gray : 0.5,
                 alpha: 0.9
             )
-            cord.lineWidth = 0.75
+            cords.lineWidth = 0.75
 
-            // Satin metal: a soft vertical sheen, a light top edge and a hair of rim.
-            plateBody.colors = [
-                CGColor(gray: 0.36, alpha: 1),
-                CGColor(gray: 0.27, alpha: 1),
-                CGColor(gray: 0.21, alpha: 1),
+            glassLayer.cornerCurve   = .continuous
+            glassLayer.masksToBounds = true
+            // The slab's own rim, which shows in every light and in none.
+            glassLayer.borderWidth = 0.5
+            glassLayer.borderColor = CGColor(
+                gray : 1,
+                alpha: 0.14
+            )
+            body.startPoint = CGPoint(
+                x: 0.5,
+                y: 1
+            )
+            body.endPoint   = CGPoint(
+                x: 0.5,
+                y: 0
+            )
+
+            // The lamp is above the plate, so the light enters through the top and fades down through
+            // the slab, a little of it reflected back up from the bottom edge.
+            refraction.locations  = [0, 0.22, 0.6, 1]
+            refraction.startPoint = body.startPoint
+            refraction.endPoint   = body.endPoint
+            edge.fillColor  = nil
+            edgeFade.colors = [
+                CGColor(
+                    gray : 1,
+                    alpha: 1
+                ),
+                CGColor(
+                    gray : 1,
+                    alpha: 0.35
+                ),
+                CGColor(
+                    gray : 1,
+                    alpha: 0.12
+                ),
             ]
-            plateBody.locations   = [0, 0.45, 1]
-            plateBody.startPoint  = CGPoint(x: 0.5, y: 1)
-            plateBody.endPoint    = CGPoint(x: 0.5, y: 0)
-            plateBody.cornerCurve = .continuous
-            plateBody.borderWidth = 0.5
-            plateBody.borderColor = CGColor(gray: 1, alpha: 0.16)
-            plateBody.shadowColor = CGColor(gray: 0, alpha: 1)
-
-            // The lamp is above the plate, so its light is strongest on the top edge.
-            lightLayer.locations     = [0, 0.32, 0.68]
-            lightLayer.startPoint    = CGPoint(x: 0.5, y: 1)
-            lightLayer.endPoint      = CGPoint(x: 0.5, y: 0)
-            lightLayer.cornerCurve   = .continuous
-            lightLayer.masksToBounds = true
-            sheen.startPoint = CGPoint(x: 0, y: 0.5)
-            sheen.endPoint   = CGPoint(x: 1, y: 0.5)
-            lightLayer.addSublayer(sheen)
+            edgeFade.locations  = [0, 0.3, 1]
+            edgeFade.startPoint = body.startPoint
+            edgeFade.endPoint   = body.endPoint
+            edge.mask           = edgeFade
+            // The lamp's reflection is a soft oval, with no edge for the glass to show.
+            sheen.type       = .radial
+            sheen.startPoint = CGPoint(
+                x: 0.5,
+                y: 0.5
+            )
+            sheen.endPoint   = CGPoint(
+                x: 1,
+                y: 1
+            )
+            for layer in [refraction, sheen, edge] as [CALayer] {
+                lightLayer.addSublayer(layer)
+            }
 
             for brow in [leftBrow, rightBrow] {
                 brow.fillColor = Self.ink
@@ -805,25 +972,104 @@ struct HouseAwayPlaque: NSViewRepresentable {
                     height: 170
                 )
             }
-
-            label.string = NSAttributedString(
-                string    : HouseAwayPlaque.text,
-                attributes: [
-                    .font           : Self.font,
-                    .foregroundColor: NSColor(cgColor: Self.ink)?.withAlphaComponent(0.86) ?? .secondaryLabelColor,
-                ]
+            textLayer.path         = Self.textOutline
+            textLayer.fillColor    = Self.ink
+            textLayer.shadowOffset = CGSize(
+                width : 0,
+                height: Self.etchDepth
             )
-            label.alignmentMode = .center
+            // Etched: each mark's upper lip shades the cut with a hair of shadow above it.
+            for mark in [leftBrow, rightBrow, textLayer] as [CALayer] {
+                mark.shadowColor   = CGColor(
+                    gray : 0,
+                    alpha: 1
+                )
+                mark.shadowOpacity = 0.45
+                mark.shadowRadius  = 0
+            }
+            for layer in [body, lightLayer, leftBrow, rightBrow, textLayer] as [CALayer] {
+                glassLayer.addSublayer(layer)
+            }
 
-            plateBody.addSublayer(lightLayer)
-            plateBody.addSublayer(leftBrow)
-            plateBody.addSublayer(rightBrow)
-            plateBody.addSublayer(label)
-            swingLayer.addSublayer(cord)
-            swingLayer.addSublayer(plateBody)
-            swingLayer.addSublayer(nail)
+            // Below the material, so the glass shows its own shadow blurred where it lies behind it.
+            shadowLayer.addSublayer(wallShadow)
+            shadowLayer.addSublayer(castLayer)
+            shadowLayer.zPosition = -2
+
+            effectView.material     = Self.material
+            effectView.blendingMode = .withinWindow
+            effectView.state        = .active
+            effectView.autoresizingMask = [
+                .width,
+                .height,
+            ]
+            frostView.wantsLayer = true
+            frostView.addSubview(effectView)
+            frostView.layer?.zPosition = -1
+            frostView.layer?.mask      = frostMask
+            faceMask.cornerCurve = .continuous
+            frostMask.addSublayer(faceMask)
+            frostMask.addSublayer(rimMask)
+            addSubview(frostView)
+
+            for layer in [cords, rimLayer, glassLayer, nail] as [CALayer] {
+                swingLayer.addSublayer(layer)
+            }
+            layer?.addSublayer(shadowLayer)
             layer?.addSublayer(swingLayer)
+            updateContentsScale()
         }
+
+        /// The outline of `HouseAwayPlaque.text` in `font`, its origin at the start of its baseline.
+        private static let textOutline: CGPath = {
+            let line = CTLineCreateWithAttributedString(NSAttributedString(
+                string    : HouseAwayPlaque.text,
+                attributes: [.font: font]
+            ))
+            let path = CGMutablePath()
+            for run in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
+                let count     = CTRunGetGlyphCount(run)
+                var glyphs    = [CGGlyph](
+                    repeating: 0,
+                    count    : count
+                )
+                var positions = [CGPoint](
+                    repeating: .zero,
+                    count    : count
+                )
+                let all = CFRange(
+                    location: 0,
+                    length  : 0
+                )
+                CTRunGetGlyphs(
+                    run,
+                    all,
+                    &glyphs
+                )
+                CTRunGetPositions(
+                    run,
+                    all,
+                    &positions
+                )
+                let attributes = CTRunGetAttributes(run) as NSDictionary
+                let runFont    = attributes[NSAttributedString.Key.font] as? NSFont ?? font
+                for (glyph, position) in zip(glyphs, positions) {
+                    guard let outline = CTFontCreatePathForGlyph(
+                        runFont,
+                        glyph,
+                        nil
+                    ) else { continue }
+                    path.addPath(
+                        outline,
+                        transform: CGAffineTransform(
+                            translationX: position.x,
+                            y           : position.y
+                        )
+                    )
+                }
+            }
+            return path
+        }()
 
         /// Draws the brows' outlines for `brows`; `place` sizes and positions them.
         private func drawBrows() {
@@ -835,7 +1081,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
 
         private func updateContentsScale() {
             let scale = window?.backingScaleFactor ?? 2
-            for layer in [label, cord, leftBrow, rightBrow] as [CALayer] {
+            for layer in [cords, edge, rimLayer, faceMask, rimMask, leftBrow, rightBrow, textLayer] as [CALayer] {
                 layer.contentsScale = scale
             }
         }

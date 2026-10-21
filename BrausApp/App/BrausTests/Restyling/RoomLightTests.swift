@@ -462,7 +462,7 @@ struct RoomLightTests {
             for camera in [RoomCamera.top, .tilted] {
                 // The mean brightness of each band of columns 10 points wide, of an empty room.
                 func bands(_ lean: Float) throws -> [Double] {
-                    let image = try render(
+                    let image = try Self.render(
                         RoomLightUniforms(
                             status     : .busy,
                             shape      : .circle,
@@ -768,7 +768,7 @@ struct RoomLightTests {
         _ renderer: any RoomRenderer,
         device    : MTLDevice
     ) throws {
-        let image  = try render(
+        let image  = try Self.render(
             room(.busy, hasOccupant: false),
             with  : renderer,
             device: device
@@ -785,12 +785,12 @@ struct RoomLightTests {
         _ renderer: any RoomRenderer,
         device    : MTLDevice
     ) throws {
-        let occupied = try render(
+        let occupied = try Self.render(
             room(.busy),
             with  : renderer,
             device: device
         )
-        let empty = try render(
+        let empty = try Self.render(
             room(.busy, hasOccupant: false),
             with  : renderer,
             device: device
@@ -802,7 +802,7 @@ struct RoomLightTests {
     }
 
     /// Pixels is a rendered room read back, in BGRA order.
-    private struct Pixels {
+    struct Pixels {
         let width : Int
         let height: Int
         let bytes : [UInt8]
@@ -815,7 +815,7 @@ struct RoomLightTests {
 
     /// Renders `uniforms` at one pixel per point into a room of `size`, 128 × 104 by default, and
     /// reads it back.
-    private func render(
+    static func render(
         _ uniforms   : RoomLightUniforms,
         with renderer: any RoomRenderer,
         size         : CGSize = CGSize(width: 128, height: 104),
