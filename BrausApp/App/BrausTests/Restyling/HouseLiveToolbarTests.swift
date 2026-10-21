@@ -43,7 +43,12 @@ struct HouseLiveToolbarTests {
             display: false
         )
         window.orderBack(nil)
-        defer { window.orderOut(nil) }
+        // Closing frees the hosted rooms' denoiser buckets, which the shared pool would keep.
+        window.isReleasedWhenClosed = false
+        defer {
+            window.contentViewController = nil
+            window.close()
+        }
 
         func identifiers() async throws -> [String] {
             try await Task.sleep(for: .seconds(1.5))
