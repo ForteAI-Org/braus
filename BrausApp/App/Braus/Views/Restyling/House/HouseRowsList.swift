@@ -19,6 +19,8 @@ struct HouseRowsList: View {
 
     let edit: (HouseWorker.ID) -> Void
 
+    @Environment(\.openWorkerScreen) private var openWorkerScreen
+
     var body: some View {
         ScrollViewReader { proxy in
             list
@@ -54,6 +56,14 @@ struct HouseRowsList: View {
                 .transition(HouseLayout.arrival)
                 .contextMenu {
                     Button("Edit Worker…") { edit(worker.id) }
+                    if worker.usesScreen {
+                        Button("Open Screen") {
+                            WorkerScreenWindowController.open(
+                                worker: worker,
+                                via   : openWorkerScreen
+                            )
+                        }
+                    }
                 }
             }
         }

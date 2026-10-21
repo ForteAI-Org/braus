@@ -7,12 +7,14 @@
 
 import Foundation
 
-/// ScreenPlace is where a worker's live screen sits small: at the top right of
-/// the conversation, or in the inspector. The toolbar's screen toggle chooses.
+/// ScreenPlace is where a worker's live screen sits: small at the top right of the
+/// conversation or in the inspector, as the toolbar's screen toggle chooses, or in its
+/// own window.
 enum ScreenPlace: Hashable {
 
     case conversation
     case inspector
+    case window
 
     /// Where the screen rests while the toggle is `showsInConversation`.
     static func resting(showsInConversation: Bool) -> ScreenPlace {

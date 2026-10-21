@@ -22,6 +22,9 @@ struct WorkerScreenCard: View {
     let worker: WorkerSnapshot
     let place : ScreenPlace
 
+    /// Set by the new look's shell: opens the worker's screen in its own window.
+    @Environment(\.openWorkerScreen) private var openWorkerScreen
+
     @State private var isHovering = false
 
     /// The shape of the picture drawn inside the card, nil until the first frame.
@@ -39,7 +42,7 @@ struct WorkerScreenCard: View {
                 team           : team,
                 workerID       : worker.id,
                 place          : place,
-                isPaused       : isEnlarged,
+                isPaused       : isEnlarged || team.windowedScreens.contains(worker.id),
                 onPictureAspect: { aspect in Task { @MainActor in pictureAspect = aspect } }
             )
             .opacity(isEnlarged ? 0 : 1)
@@ -62,6 +65,7 @@ struct WorkerScreenCard: View {
                         contentMode: .fit
                     )
                     .overlay(alignment: .topTrailing) { enlargeButton }
+                    .overlay(alignment: .topLeading) { windowButton }
             }
             .onHover { isHovering = $0 }
             .onChange(of: worker.id) { pictureAspect = nil }
@@ -75,6 +79,37 @@ struct WorkerScreenCard: View {
                 named: "Enlarge Screen",
                 enlarge
             )
+            .accessibilityAction(named: "Open Screen in Window") { openWorkerScreen?(worker.id) }
+        }
+    }
+
+    @ViewBuilder
+    private var windowButton: some View {
+        if let open = openWorkerScreen {
+            Button(
+                "Open Screen in Window",
+                systemImage: "macwindow"
+            ) {
+                open(worker.id)
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
+            .font(.system(
+                size  : 11,
+                weight: .semibold
+            ))
+            .foregroundStyle(.white)
+            .frame(
+                width : 22,
+                height: 22
+            )
+            .background(
+                .black.opacity(0.55),
+                in: Circle()
+            )
+            .padding(6)
+            .opacity(isHovering ? 1 : 0)
+            .help("Open the worker’s screen in its own window.")
         }
     }
 
