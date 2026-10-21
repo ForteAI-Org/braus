@@ -9,7 +9,7 @@ import AppKit
 import os
 
 /// ComposerScrollView holds the composer's text view and is as tall as its
-/// text, from one line up to `maximumLines`; past that the text scrolls inside
+/// text, from one line up to `lineLimit`; past that the text scrolls inside
 /// and the conversation above keeps its room (§13.1).
 ///
 /// The height is measured for a width, which `ComposerField` answers SwiftUI's
@@ -21,7 +21,16 @@ import os
 /// clamped, so a legacy scroller cannot feed the height back into itself.
 final class ComposerScrollView: NSScrollView {
 
-    static let maximumLines = 6
+    /// The lines a field shows before it scrolls, unless its composer asks for another limit.
+    nonisolated static let maximumLines = 6
+
+    /// The field's height around one line, which the new look's composer centres in its row.
+    static let oneLineHeight = ComposerScrollView().fittingHeight(forWidth: 320)
+
+    /// The lines this field shows before it scrolls.
+    var lineLimit = ComposerScrollView.maximumLines {
+        didSet { cachedHeight = nil }
+    }
 
     /// The conversation body's size, and the spec's floor (§3.3).
     static let pointSize: CGFloat = 14
@@ -83,13 +92,13 @@ final class ComposerScrollView: NSScrollView {
     /// The height the text asks for at the current width.
     var fittingHeight: CGFloat { fittingHeight(forWidth: bounds.width) }
 
-    /// The height the text asks for at `width`, clamped to one line and `maximumLines`.
+    /// The height the text asks for at `width`, clamped to one line and `lineLimit`.
     func fittingHeight(forWidth width: CGFloat) -> CGFloat {
         if let cachedHeight, cachedHeight.width == width { return cachedHeight.height }
 
         let line   = lineHeight
         let inset  = textView.textContainerInset.height * 2
-        let height = (min(max(textHeight(forWidth: width), line), line * CGFloat(Self.maximumLines)) + inset)
+        let height = (min(max(textHeight(forWidth: width), line), line * CGFloat(lineLimit)) + inset)
             .rounded(.up)
         cachedHeight = (width, height)
         return height
