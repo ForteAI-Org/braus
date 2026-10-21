@@ -156,12 +156,19 @@ final class RoomLightView: MTKView {
         uniforms: RoomLightUniforms,
         frame   : CGRect = .zero
     ) {
-        let wanted = LightingPath.choose(
+        let environment = ProcessInfo.processInfo.environment
+        let wanted      = LightingPath.choose(
             for     : device,
-            override: ProcessInfo.processInfo.environment["BRAUS_ROOM_LIGHT"]
+            override: environment["BRAUS_ROOM_LIGHT"]
         )
         // A ray tracer that cannot load falls back to the precomputed light.
-        let tracer: RayTracedRoomRenderer? = wanted == .rayTraced ? RayTracedRoomRenderer(device: device) : nil
+        let tracer: RayTracedRoomRenderer? = wanted == .rayTraced ? RayTracedRoomRenderer(
+            device  : device,
+            denoises: RayTracedRoomRenderer.denoises(
+                for     : device,
+                override: environment["BRAUS_ROOM_DENOISE"]
+            )
+        ) : nil
         let precomputed = tracer == nil ? PrecomputedRoomRenderer(device: device) : nil
         renderer        = tracer ?? precomputed
         previewRenderer = tracer != nil ? PrecomputedRoomRenderer(device: device) : nil

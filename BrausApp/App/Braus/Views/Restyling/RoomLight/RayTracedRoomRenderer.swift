@@ -6,6 +6,7 @@
 //
 
 import Metal
+import MetalFX
 
 /// RayTracedRoomRenderer lights a room with hardware ray tracing.
 ///
@@ -18,17 +19,33 @@ import Metal
 /// the body GGX reflection rays off its metal. Then it stops. A room seen through the tilted camera
 /// has tall walls with rounded coves, open at the front, a worker standing upright, and its own
 /// kernel, which casts the camera's rays.
+///
+/// When it `denoises`, a tilted room is traced instead at a reduced size in `RoomDenoiser.burst` frames
+/// of `RoomDenoiser.samples` samples per pixel, with shadow rays to the lamp in place of the body's
+/// analytic shadow, and MetalFX's denoised upscaler turns them into the full-size images
+/// (`RoomDenoiser`).
 final class RayTracedRoomRenderer: RoomRenderer {
     let commandQueue   : MTLCommandQueue
     let resolvePipeline: MTLComputePipelineState
 
+    /// Whether tilted rooms are traced in denoised bursts.
+    let denoises: Bool
+
+    /// The denoised frames encoded so far, `RoomDenoiser.burst` per denoised render.
+    private(set) var denoisedFrames = 0
+
     private let device        : MTLDevice
     private let pipeline      : MTLComputePipelineState
     private let tiltedPipeline: MTLComputePipelineState
+    private let framePipeline : MTLComputePipelineState?
     private var scene         : Scene?
 
-    /// Fails when the device has no ray tracing, gives no queue or a kernel cannot be loaded.
-    init?(device: MTLDevice) {
+    /// Fails when the device has no ray tracing, gives no queue or a kernel cannot be loaded. It
+    /// `denoises` when asked to and the burst's kernel loads.
+    init?(
+        device  : MTLDevice,
+        denoises: Bool = false
+    ) {
         guard
             device.supportsRaytracing,
             let queue    = device.makeCommandQueue(),
@@ -50,6 +67,32 @@ final class RayTracedRoomRenderer: RoomRenderer {
         self.pipeline   = pipeline
         tiltedPipeline  = tilted
         resolvePipeline = resolve
+        framePipeline   = denoises ? Self.pipeline(
+            named : "traceTiltedRoomFrame",
+            device: device
+        ) : nil
+        self.denoises   = framePipeline != nil
+    }
+
+    /// Whether rooms should be denoised on a device that `isSupported` by MetalFX's denoised
+    /// upscaler: always, unless `override`, the value of `BRAUS_ROOM_DENOISE`, is `off`.
+    nonisolated static func denoises(
+        isSupported: Bool,
+        override   : String?
+    ) -> Bool {
+        isSupported && override != "off"
+    }
+
+    /// Whether rooms should be denoised on `device`: never before macOS 26.
+    static func denoises(
+        for device: MTLDevice,
+        override  : String?
+    ) -> Bool {
+        guard #available(macOS 26, *) else { return false }
+        return denoises(
+            isSupported: MTLFXTemporalDenoisedScalerDescriptor.supportsDevice(device),
+            override   : override
+        )
     }
 
     func encodeImages(
@@ -59,6 +102,24 @@ final class RayTracedRoomRenderer: RoomRenderer {
         light        : MTLTexture,
         commandBuffer: MTLCommandBuffer
     ) {
+        if #available(macOS 26, *), denoises, uniforms.camera == .tilted, let denoiser = RoomDenoiser.borrow(
+            device: device,
+            width : base.width,
+            height: base.height
+        ) {
+            encodeDenoised(
+                uniforms,
+                size         : size,
+                denoiser     : denoiser,
+                base         : base,
+                light        : light,
+                commandBuffer: commandBuffer
+            )
+            commandBuffer.addCompletedHandler { _ in
+                Task { @MainActor in denoiser.giveBack() }
+            }
+            return
+        }
         guard
             let structure = structure(
                 size         : size,
@@ -80,6 +141,84 @@ final class RayTracedRoomRenderer: RoomRenderer {
             light   : light,
             encoder : encoder
         )
+    }
+
+    /// Encodes `frames` frames of the tilted room, each traced at `denoiser`'s input size with
+    /// `samples` samples per pixel and then denoised, which leaves the images in `base` and `light`, of
+    /// `denoiser`'s full size.
+    @available(macOS 26, *)
+    func encodeDenoised(
+        _ uniforms   : RoomLightUniforms,
+        size         : CGSize,
+        denoiser     : RoomDenoiser,
+        frames       : Int = RoomDenoiser.burst,
+        samples      : Int = RoomDenoiser.samples,
+        base         : MTLTexture,
+        light        : MTLTexture,
+        commandBuffer: MTLCommandBuffer
+    ) {
+        guard
+            let framePipeline,
+            let structure = structure(
+                size         : size,
+                occupant     : uniforms.hasOccupant ? uniforms.shape : nil,
+                camera       : .tilted,
+                commandBuffer: commandBuffer
+            )
+        else { return }
+        let camera = RoomCamera.Perspective(size: size)
+        var packed = uniforms.packed(
+            size      : size,
+            pixelWidth: denoiser.inputWidth
+        )
+        for index in 0..<frames {
+            guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
+            var frame = denoiser.frame(
+                index,
+                samples: samples,
+                camera : camera
+            )
+            encoder.setComputePipelineState(framePipeline)
+            encoder.setTextures(
+                denoiser.inputs,
+                range: 0..<denoiser.inputs.count
+            )
+            encoder.setBytes(
+                &packed,
+                length: MemoryLayout<RoomLightUniforms.Packed>.stride,
+                index : 0
+            )
+            encoder.setAccelerationStructure(
+                structure,
+                bufferIndex: 1
+            )
+            encoder.setBytes(
+                &frame,
+                length: MemoryLayout<RoomDenoiser.Frame>.stride,
+                index : 2
+            )
+            encoder.dispatchThreads(
+                MTLSize(
+                    width : denoiser.inputWidth,
+                    height: denoiser.inputHeight,
+                    depth : 1
+                ),
+                threadsPerThreadgroup: MTLSize(
+                    width : 8,
+                    height: 8,
+                    depth : 1
+                )
+            )
+            encoder.endEncoding()
+            denoiser.encode(
+                frame        : index,
+                camera       : camera,
+                base         : base,
+                light        : light,
+                commandBuffer: commandBuffer
+            )
+            denoisedFrames += 1
+        }
     }
 
     /// Scene is a built acceleration structure and the room it was built for, as seen by its camera.

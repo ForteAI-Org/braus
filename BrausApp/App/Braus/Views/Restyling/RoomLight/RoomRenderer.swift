@@ -239,7 +239,8 @@ extension RoomRenderer {
             height     : height,
             mipmapped  : false
         )
-        descriptor.usage       = [.shaderRead, .shaderWrite]
+        // MetalFX's denoiser writes its output as a render target.
+        descriptor.usage       = [.shaderRead, .shaderWrite, .renderTarget]
         descriptor.storageMode = .private
         return device.makeTexture(descriptor: descriptor)
     }
