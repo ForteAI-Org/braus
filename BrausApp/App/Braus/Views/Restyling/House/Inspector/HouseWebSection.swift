@@ -12,7 +12,7 @@ import SwiftUI
 /// can watch. It is the same choice as Show Chrome Window in the composer's `+` menu. Its footer is one
 /// short line where the app's section says more.
 struct HouseWebSection: View {
-    let worker: MockWorker
+    let worker: HouseWorker
     let team  : MockTeam
 
     var body: some View {

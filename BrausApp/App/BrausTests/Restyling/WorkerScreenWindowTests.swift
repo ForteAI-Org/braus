@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct WorkerScreenWindowTests {
 
-    private var busyWorker: MockWorker {
+    private var busyWorker: HouseWorker {
         get throws {
             try #require(MockHouse.sample.workers.first { $0.status == .busy })
         }

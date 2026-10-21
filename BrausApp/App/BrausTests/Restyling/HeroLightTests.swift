@@ -185,7 +185,7 @@ struct HeroLightTests {
     }
 
     private func hero(
-        _ worker: MockWorker,
+        _ worker: HouseWorker,
         status  : WorkerStatus
     ) -> HouseHero {
         HouseHero(

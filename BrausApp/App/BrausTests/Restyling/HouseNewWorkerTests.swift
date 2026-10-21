@@ -130,7 +130,7 @@ struct HouseNewWorkerTests {
         #expect(opening.room.requestedRenders == renders + 1)
     }
 
-    private static func room(_ worker: MockWorker) -> HouseRoomCell {
+    private static func room(_ worker: HouseWorker) -> HouseRoomCell {
         HouseRoomCell(
             worker    : worker,
             isSelected: false

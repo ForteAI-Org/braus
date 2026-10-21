@@ -11,7 +11,7 @@ import SwiftUI
 /// on `MockTeam`'s values: whether it answers or compacts its context, and what it does with the
 /// computer: the app it drives while busy, what it needs from the person while it waits.
 struct HouseNowSection: View {
-    let worker: MockWorker
+    let worker: HouseWorker
     let team  : MockTeam
 
     var body: some View {

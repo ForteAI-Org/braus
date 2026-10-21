@@ -24,7 +24,7 @@ import SwiftUI
 /// The model button opens the app's model popup above the pill, on `MockTeam`'s values; the `+`
 /// menu's Attach File and Search the Web are placeholders.
 struct HouseComposer: View {
-    let worker: MockWorker
+    let worker: HouseWorker
 
     @Binding var text: String
 

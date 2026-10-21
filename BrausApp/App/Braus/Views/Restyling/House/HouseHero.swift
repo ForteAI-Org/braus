@@ -26,7 +26,7 @@ import SwiftUI
 /// The hero's frame is the same for every shape and every subtitle, so the transcript under it never
 /// moves.
 struct HouseHero: View {
-    let worker     : MockWorker
+    let worker     : HouseWorker
     let status     : WorkerStatus
     let brows      : BrowState
     let activity   : String
@@ -68,7 +68,7 @@ struct HouseHero: View {
     /// The seed that makes the hero's brows live by `status`, or nil while `brows` is the conversation's
     /// own expression (listening, at work) rather than the status's, which the loop would override.
     static func behaviourSeed(
-        of worker: MockWorker,
+        of worker: HouseWorker,
         status   : WorkerStatus,
         brows    : BrowState
     ) -> UInt64? {

@@ -463,15 +463,16 @@ struct BodyMotionTests {
         let id = try #require((1...99).lazy.compactMap {
             UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", $0))
         }.first { !WorkerBehaviour(.busy).loop(seed: WorkerBehaviour.seed(for: $0)).intents.isEmpty })
-        let worker = MockWorker(
-            id      : id,
-            name    : "Test",
-            status  : .busy,
-            activity: "Working",
-            role    : "Tester",
-            category: .general,
-            shape   : .circle,
-            badge   : nil
+        let worker = HouseWorker(
+            id        : id,
+            name      : "Test",
+            status    : .busy,
+            activity  : "Working",
+            role      : "Tester",
+            category  : .general,
+            shape     : .circle,
+            badge     : nil,
+            usesScreen: true
         )
         let window = Self.window()
         defer { window.close() }

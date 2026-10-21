@@ -11,13 +11,13 @@ import SwiftUI
 /// Names sit beside the workers, or under them when the sidebar is compact. A newly selected worker scrolls into view,
 /// and each row offers Edit Worker… in its context menu.
 struct HouseRowsList: View {
-    let workers   : [MockWorker]
+    let workers   : [HouseWorker]
     let roomsWidth: CGFloat?
     let isCompact : Bool
 
-    @Binding var selection: MockWorker.ID?
+    @Binding var selection: HouseWorker.ID?
 
-    let edit: (MockWorker.ID) -> Void
+    let edit: (HouseWorker.ID) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in

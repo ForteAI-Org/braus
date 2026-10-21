@@ -108,5 +108,5 @@ extension EnvironmentValues {
     @Entry var houseSwitchLeaving = false
 
     /// The worker shown before this conversation's, whose capsule this one's takes over, or nil.
-    @Entry var houseSwitchPrevious: MockWorker?
+    @Entry var houseSwitchPrevious: HouseWorker?
 }

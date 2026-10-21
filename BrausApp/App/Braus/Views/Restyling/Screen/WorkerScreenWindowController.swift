@@ -15,10 +15,10 @@ import SwiftUI
 /// One window per worker: opening a worker whose window is open brings that window forward. The
 /// window leaves `openWindows` when it closes.
 final class WorkerScreenWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
-    let worker: MockWorker
+    let worker: HouseWorker
 
     /// The open screen windows, by worker.
-    private(set) static var openWindows: [MockWorker.ID: WorkerScreenWindowController] = [:]
+    private(set) static var openWindows: [HouseWorker.ID: WorkerScreenWindowController] = [:]
 
     /// Puts a controller's window on screen. Tests replace it, so no window comes in front of the
     /// person's work, and reset it when they end.
@@ -32,14 +32,14 @@ final class WorkerScreenWindowController: NSWindowController, NSWindowDelegate, 
 
     /// Opens `worker`'s screen window, or brings its open one forward, and returns its controller.
     @discardableResult
-    static func open(worker: MockWorker) -> WorkerScreenWindowController {
+    static func open(worker: HouseWorker) -> WorkerScreenWindowController {
         let controller = openWindows[worker.id] ?? WorkerScreenWindowController(worker: worker)
         openWindows[worker.id] = controller
         present(controller)
         return controller
     }
 
-    init(worker: MockWorker) {
+    init(worker: HouseWorker) {
         self.worker = worker
         let size = CGSize(
             width : Self.contentWidth,
@@ -132,7 +132,7 @@ final class WorkerScreenWindowController: NSWindowController, NSWindowDelegate, 
     /// Portrait is the toolbar's worker: the rows' three-quarter portrait at toolbar size, with a
     /// dot of its status light at the trailing foot.
     private struct Portrait: View {
-        let worker: MockWorker
+        let worker: HouseWorker
 
         var body: some View {
             HouseWorkerPortrait(

@@ -23,9 +23,9 @@ import SwiftUI
 struct HouseSidebar: View {
     let house: MockHouse
 
-    @Binding var selection: MockWorker.ID?
+    @Binding var selection: HouseWorker.ID?
 
-    var edit: (MockWorker.ID) -> Void = { _ in }
+    var edit: (HouseWorker.ID) -> Void = { _ in }
 
     @State private var query = ""
 
@@ -109,7 +109,7 @@ struct HouseSidebar: View {
         }
     }
 
-    private var workers: [MockWorker] {
+    private var workers: [HouseWorker] {
         guard !query.isEmpty else { return house.workers }
         return house.workers.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }

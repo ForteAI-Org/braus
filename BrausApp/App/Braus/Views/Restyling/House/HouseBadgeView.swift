@@ -10,7 +10,7 @@ import SwiftUI
 /// HouseBadgeView is the mark on a room's or a row's corner: an exclamation mark in the busy light
 /// when a worker needs attention, otherwise a white capsule with its unread count.
 struct HouseBadgeView: View {
-    let badge : MockBadge
+    let badge : HouseBadge
     let height: CGFloat
 
     var body: some View {
@@ -55,7 +55,7 @@ struct HouseBadgeView: View {
     }
 
     /// What VoiceOver says for `badge`, also given as the value of the room or row that carries it.
-    static func spokenText(for badge: MockBadge) -> String {
+    static func spokenText(for badge: HouseBadge) -> String {
         switch badge {
         case .attention        : "Needs attention"
         case .unread(let count): "\(count) unread"

@@ -15,7 +15,7 @@ import SwiftUI
 /// On the floor plan and in the compact rows the worker stands at the room's centre, the name under
 /// it and the badge in the top trailing corner. A wide row (`isBeside`) leans the room's composition
 /// left: the worker stands larger at the left, the light spreads from it toward the right, and the name
-/// and a subtitle (`MockWorker.subtitle`) sit beside it, the badge at the trailing edge. A row turning
+/// and a subtitle (`HouseWorker.subtitle`) sit beside it, the badge at the trailing edge. A row turning
 /// compact or wide animates the lean, so the worker, its light, its brows and the plaque travel
 /// together while the name under the worker and the text beside it cross-fade. A row is given its
 /// width (`rowWidth`), which the room follows frame by frame with the lean.
@@ -32,7 +32,7 @@ import SwiftUI
 /// body's face through the room's camera and the plaque hangs in the room where the worker stood, and
 /// the body moves a little in step with the brows (`RoomBodyLink`).
 struct HouseRoomCell: View {
-    let worker    : MockWorker
+    let worker    : HouseWorker
     let isSelected: Bool
     var camera    = RoomCamera.top
     var isBeside  = false
@@ -67,7 +67,7 @@ struct HouseRoomCell: View {
 
     /// What VoiceOver says for `worker`'s room: its name and its subtitle, or that it is in chat.
     static func spokenLabel(
-        for worker: MockWorker,
+        for worker: HouseWorker,
         isSelected: Bool
     ) -> String {
         isSelected ? "\(worker.name), \(HouseAwayPlaque.text.lowercased())" : "\(worker.name), \(worker.subtitle)"
@@ -75,7 +75,7 @@ struct HouseRoomCell: View {
 
     /// What VoiceOver says for `worker`'s row: its name and subtitle, and that it is in chat.
     static func spokenRowLabel(
-        for worker: MockWorker,
+        for worker: HouseWorker,
         isSelected: Bool
     ) -> String {
         let row = "\(worker.name), \(worker.subtitle)"
@@ -91,7 +91,7 @@ struct HouseRoomCell: View {
     /// The seed that makes `worker`'s brows live by its status in its room, or nil while it is away
     /// in the conversation and the room is empty.
     static func behaviourSeed(
-        of worker : MockWorker,
+        of worker : HouseWorker,
         isSelected: Bool
     ) -> UInt64? {
         isSelected ? nil : WorkerBehaviour.seed(for: worker.id)
@@ -118,7 +118,7 @@ struct HouseRoomCell: View {
     /// frame, with no animation of their own, from the leading edge. On the floor plan, with no width,
     /// the room fills the stage and its centred parts move with their frames, as before.
     private struct Stage: View, Animatable {
-        let worker    : MockWorker
+        let worker    : HouseWorker
         let isSelected: Bool
         let camera    : RoomCamera
         var lean      : Double
@@ -384,7 +384,7 @@ struct HouseRoomCell: View {
     /// Spoken gives a room its VoiceOver label, its badge as the value, and the selected trait.
     private struct Spoken: ViewModifier {
         let label     : String
-        let worker    : MockWorker
+        let worker    : HouseWorker
         let isSelected: Bool
 
         func body(content: Content) -> some View {

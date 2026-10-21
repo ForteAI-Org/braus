@@ -21,7 +21,7 @@ import SwiftUI
 /// in over the leaving one, and the composer stands still. A leaving conversation hides its composer
 /// at once and gives up the window's focus, so the arriving composer alone can take the keyboard.
 struct HouseConversationView: View {
-    let worker           : MockWorker
+    let worker           : HouseWorker
     let isComposerFocused: FocusState<Bool>.Binding
 
     /// Whether another worker's conversation is taking this one's place.
@@ -80,7 +80,7 @@ struct HouseConversationView: View {
     @State private var columnWidth = ChatTranscriptView.columnWidth
 
     init(
-        worker           : MockWorker,
+        worker           : HouseWorker,
         isComposerFocused: FocusState<Bool>.Binding
     ) {
         self.worker            = worker

@@ -15,7 +15,7 @@ import SwiftUI
 /// (`WorkerScreenWindowController`). The button shows while the pointer is over the card or it has
 /// the keyboard, and is always there for VoiceOver.
 struct HouseScreenSection: View {
-    let worker: MockWorker
+    let worker: HouseWorker
 
     @State private var isHovering = false
 
@@ -49,7 +49,7 @@ struct HouseScreenSection: View {
     }
 
     /// Opens `worker`'s screen window, as the card's click and its button do.
-    static func openScreen(of worker: MockWorker) {
+    static func openScreen(of worker: HouseWorker) {
         WorkerScreenWindowController.open(worker: worker)
     }
 

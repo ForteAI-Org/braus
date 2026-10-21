@@ -47,10 +47,10 @@ struct RestylingWindowView: View {
     /// What the app's own components read, on mock values: the model, the usage, the connections.
     @State private var team = MockTeam()
 
-    @State private var selection: MockWorker.ID?
+    @State private var selection: HouseWorker.ID?
 
     /// The worker the conversation shows, which follows `selection` once its frame is committed.
-    @State private var shownSelection: MockWorker.ID?
+    @State private var shownSelection: HouseWorker.ID?
 
     /// Whether the conversation about to be shown takes the keyboard: its worker was chosen with the
     /// pointer.
@@ -186,17 +186,17 @@ struct RestylingWindowView: View {
         .preferredColorScheme(.dark)
     }
 
-    private var selectedWorker: MockWorker? {
+    private var selectedWorker: HouseWorker? {
         house.workers.first { $0.id == shownSelection }
     }
 
     /// The shown worker, for the inspector to edit in the house.
-    private var selectedWorkerBinding: Binding<MockWorker>? {
+    private var selectedWorkerBinding: Binding<HouseWorker>? {
         house.workers.firstIndex { $0.id == shownSelection }.map { $house.workers[$0] }
     }
 
     /// Chooses `worker` and shows the inspector, where it is edited, as the app's Choose Provider… does.
-    private func edit(_ worker: MockWorker.ID) {
+    private func edit(_ worker: HouseWorker.ID) {
         selection = worker
         if !isInspectorRequested { toggleInspector() }
     }

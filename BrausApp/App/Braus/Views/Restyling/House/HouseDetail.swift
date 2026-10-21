@@ -23,14 +23,14 @@ import SwiftUI
 /// (`houseSwitchPrevious`), so its capsule takes over from that worker's. Changed again meanwhile,
 /// the column lets the worker it was showing leave and drops the one leaving before it.
 struct HouseDetail: View {
-    let worker           : MockWorker?
+    let worker           : HouseWorker?
     let isComposerFocused: FocusState<Bool>.Binding
 
     /// The worker the column showed last, which `worker` replaces once its change has been seen.
-    @State private var lastShown: MockWorker?
+    @State private var lastShown: HouseWorker?
 
     /// The worker whose conversation is leaving, until `HouseSwitch.crossFade` has passed.
-    @State private var departing: MockWorker?
+    @State private var departing: HouseWorker?
 
     var body: some View {
         ZStack {
@@ -74,13 +74,13 @@ struct HouseDetail: View {
 
     /// The worker whose conversation leaves: the one shown last, from the frame that changes worker,
     /// before `onChange` has seen it.
-    private var leaving: MockWorker? {
+    private var leaving: HouseWorker? {
         let leaving = lastShown?.id != worker?.id ? lastShown : departing
         return leaving?.id == worker?.id ? nil : leaving
     }
 
     /// The conversations in the column: the leaving one under the chosen one.
-    private var shown: [MockWorker] {
+    private var shown: [HouseWorker] {
         [leaving, worker].compactMap { $0 }
     }
 }

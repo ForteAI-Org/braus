@@ -14,15 +14,16 @@ import Testing
 @MainActor
 struct BehaviourWiringTests {
 
-    private let worker = MockWorker(
-        id      : UUID(),
-        name    : "Test",
-        status  : .busy,
-        activity: "Working",
-        role    : "Tester",
-        category: .general,
-        shape   : .circle,
-        badge   : nil
+    private let worker = HouseWorker(
+        id        : UUID(),
+        name      : "Test",
+        status    : .busy,
+        activity  : "Working",
+        role      : "Tester",
+        category  : .general,
+        shape     : .circle,
+        badge     : nil,
+        usesScreen: true
     )
 
     @Test("A room gives its worker's seed, and none while the worker is away in chat")

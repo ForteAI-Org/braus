@@ -149,15 +149,16 @@ struct HouseCompositionTests {
         let ptAgent = team.usage(of: try Self.worker("PT Agent"))
         #expect(UsageWording.ringContext(of: ptAgent) == nil)
         #expect(UsageWording.counter(of: ptAgent) != nil)
-        let newcomer = MockWorker(
-            id      : UUID(),
-            name    : "Newcomer",
-            status  : .free,
-            activity: "Settles in",
-            role    : "Helps out",
-            category: .general,
-            shape   : .circle,
-            badge   : nil
+        let newcomer = HouseWorker(
+            id        : UUID(),
+            name      : "Newcomer",
+            status    : .free,
+            activity  : "Settles in",
+            role      : "Helps out",
+            category  : .general,
+            shape     : .circle,
+            badge     : nil,
+            usesScreen: false
         )
         #expect(UsageWording.counter(of: team.usage(of: newcomer)) == nil)
     }
@@ -232,7 +233,7 @@ struct HouseCompositionTests {
     /// Choice is the worker a test's detail column shows.
     @Observable
     final class Choice {
-        var worker: MockWorker?
+        var worker: HouseWorker?
     }
 
     /// DetailHost is the house window's split with its detail column and the house's toolbar.
@@ -264,7 +265,7 @@ struct HouseCompositionTests {
         }
     }
 
-    private static func worker(_ name: String) throws -> MockWorker {
+    private static func worker(_ name: String) throws -> HouseWorker {
         try #require(MockHouse.sample.workers.first { $0.name == name })
     }
 

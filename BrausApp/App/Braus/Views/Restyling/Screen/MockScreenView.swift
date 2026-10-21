@@ -15,7 +15,7 @@ import SwiftUI
 /// While the pointer is over the screen, or one of its buttons has the keyboard, the caption gives
 /// way to `ScreenHoverControls`. Stop ends the script where it is. The screen keeps 16:10.
 struct MockScreenView: View {
-    let worker: MockWorker
+    let worker: HouseWorker
 
     @State private var scene   = Scene.session
     @State private var pointer = CGPoint(
@@ -392,7 +392,7 @@ struct MockScreenView: View {
     /// Cursor hosts the worker's pointer layer over the whole screen and passes it the script's
     /// moves and clicks.
     private struct Cursor: NSViewRepresentable {
-        let worker : MockWorker
+        let worker : HouseWorker
         let pointer: CGPoint
         let clicks : Int
 

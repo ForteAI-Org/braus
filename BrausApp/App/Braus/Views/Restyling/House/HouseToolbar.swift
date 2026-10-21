@@ -15,7 +15,7 @@ import SwiftUI
 /// macOS 26 it is an item holding only a spacer. The items keep their identities whichever worker
 /// is shown: only showing no worker, or a worker with no turn yet, leaves the usage out.
 struct HouseToolbar: ToolbarContent {
-    let worker              : MockWorker?
+    let worker              : HouseWorker?
     let team                : MockTeam
     let isInspectorRequested: Bool
     let toggleInspector     : () -> Void

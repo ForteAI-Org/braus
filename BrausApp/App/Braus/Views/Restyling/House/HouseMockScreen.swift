@@ -14,7 +14,7 @@ import SwiftUI
 /// The inspector shows it only while the worker is busy; the inspector opens the worker's screen
 /// window (`WorkerScreenWindowController`) from it.
 struct HouseMockScreen: View {
-    let worker: MockWorker
+    let worker: HouseWorker
 
     var body: some View {
         screen
@@ -23,7 +23,7 @@ struct HouseMockScreen: View {
     }
 
     /// The app the mock worker drives, after its kind.
-    static func appName(of worker: MockWorker) -> String {
+    static func appName(of worker: HouseWorker) -> String {
         switch worker.category {
         case .audio  : "Pro Tools"
         case .video  : "DaVinci Resolve"

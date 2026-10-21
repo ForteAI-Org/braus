@@ -15,7 +15,7 @@ import SwiftUI
 /// A context the worker's last turn left at 90% or more is compacted on its own a moment after
 /// the worker is shown, standing in for the end of the turn that would trigger it in the app.
 struct HouseUsageCapsule: View {
-    let worker: MockWorker
+    let worker: HouseWorker
 
     @Bindable var team: MockTeam
 

@@ -48,14 +48,14 @@ final class MockTeam {
     private(set) var checking: Set<ModelProvider> = []
 
     /// The selections the person changed; the others are the history's.
-    private var selections: [MockWorker.ID: ModelSelection] = [:]
+    private var selections: [HouseWorker.ID: ModelSelection] = [:]
 
     /// The usage records that changed since the mockup opened; the others are the history's.
-    private var records: [MockWorker.ID: [WorkerUsage.Record]] = [:]
+    private var records: [HouseWorker.ID: [WorkerUsage.Record]] = [:]
 
-    private var compacting: Set<MockWorker.ID> = []
+    private var compacting: Set<HouseWorker.ID> = []
 
-    private var browserWindows: Set<MockWorker.ID> = []
+    private var browserWindows: Set<HouseWorker.ID> = []
 
     /// Where the histories end, so the times they tell stay put while the mockup runs.
     private let now: Date
@@ -66,13 +66,13 @@ final class MockTeam {
 
     // MARK: Model
 
-    func selection(of worker: MockWorker) -> ModelSelection {
+    func selection(of worker: HouseWorker) -> ModelSelection {
         selections[worker.id] ?? Self.histories[worker.name].map(Self.selection) ?? newWorkerSelection
     }
 
     func select(
         _ selection: ModelSelection,
-        for worker : MockWorker
+        for worker : HouseWorker
     ) {
         selections[worker.id] = selection
     }
@@ -94,7 +94,7 @@ final class MockTeam {
 
     /// Moves the worker to `provider`, on the model the app would start it on.
     func changeProvider(
-        of worker  : MockWorker,
+        of worker  : HouseWorker,
         to provider: ModelProvider
     ) {
         guard provider != selection(of: worker).provider,
@@ -111,16 +111,16 @@ final class MockTeam {
     // MARK: Turns
 
     /// Whether the worker is in a turn: busy, or waiting for the person.
-    func isAnswering(_ worker: MockWorker) -> Bool {
+    func isAnswering(_ worker: HouseWorker) -> Bool {
         worker.status == .busy || worker.status == .waiting
     }
 
-    func isCompacting(_ worker: MockWorker) -> Bool {
+    func isCompacting(_ worker: HouseWorker) -> Bool {
         compacting.contains(worker.id)
     }
 
     /// The worker's current or last turn, with the model it ran with, not the one chosen since.
-    func lastTurn(of worker: MockWorker) -> WorkerInspectorView.TurnReading {
+    func lastTurn(of worker: HouseWorker) -> WorkerInspectorView.TurnReading {
         guard let history = Self.histories[worker.name] else { return .nothingYet }
 
         let state: TurnSummary.State = isAnswering(worker) ? .running : worker.status == .off ? .stopped : .completed
@@ -134,7 +134,7 @@ final class MockTeam {
     // MARK: Usage
 
     /// The worker's usage on the provider it answers with now.
-    func usage(of worker: MockWorker) -> WorkerUsage {
+    func usage(of worker: HouseWorker) -> WorkerUsage {
         let provider = selection(of: worker).provider
         return WorkerUsage(
             records   : currentRecords(of: worker),
@@ -146,7 +146,7 @@ final class MockTeam {
     /// Compacts the worker's context, as the context popover asks. Nothing starts while the worker
     /// answers, while it compacts already, or while its context is unknown.
     func compact(
-        _ worker: MockWorker,
+        _ worker: HouseWorker,
         trigger : ContextCompaction.Trigger = .manual
     ) {
         let selection = selection(of: worker)
@@ -190,7 +190,7 @@ final class MockTeam {
 
     /// Compacts the worker's context on its own when it is 90% full or more, as the app does once
     /// a turn leaves it there.
-    func compactIfFull(_ worker: MockWorker) {
+    func compactIfFull(_ worker: HouseWorker) {
         guard let fraction = usage(of: worker).context?.fraction,
               UsageWording.contextLevel(fraction) == .full
         else { return }
@@ -202,7 +202,7 @@ final class MockTeam {
     }
 
     /// Starts the worker's context over, which leaves its size unknown until its next turn.
-    func startFresh(_ worker: MockWorker) {
+    func startFresh(_ worker: HouseWorker) {
         guard !isAnswering(worker) else { return }
 
         records[worker.id] = currentRecords(of: worker) + [.reset]
@@ -229,13 +229,13 @@ final class MockTeam {
 
     // MARK: Web
 
-    func showsBrowserWindow(of worker: MockWorker) -> Bool {
+    func showsBrowserWindow(of worker: HouseWorker) -> Bool {
         browserWindows.contains(worker.id)
     }
 
     func setShowsBrowserWindow(
         _ shows  : Bool,
-        of worker: MockWorker
+        of worker: HouseWorker
     ) {
         if shows {
             browserWindows.insert(worker.id)
@@ -295,7 +295,7 @@ final class MockTeam {
         )
     }
 
-    private func currentRecords(of worker: MockWorker) -> [WorkerUsage.Record] {
+    private func currentRecords(of worker: HouseWorker) -> [WorkerUsage.Record] {
         records[worker.id] ?? Self.histories[worker.name].map(Self.records) ?? []
     }
 
