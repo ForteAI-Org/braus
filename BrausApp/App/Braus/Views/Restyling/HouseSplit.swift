@@ -8,11 +8,13 @@
 import SwiftUI
 
 /// HouseSplit is the house window's frame, dark only: a sidebar, the conversation beside it and an
-/// inspector the person asks for, on the house's own grounds, for the mockup and the team alike.
+/// inspector the person asks for, on the house's own grounds.
 ///
 /// The callers bring the columns' content, their toolbar items and what a selection does; the split
-/// owns how the window is divided. The window has no title and the toolbar no background of its own,
-/// so the dark ground runs up under it.
+/// owns how the window is divided. The window has no title and a transparent title bar, and the
+/// toolbar no background of its own, so the dark ground runs up under it: without the transparent
+/// title bar, AppKit draws its grey behind the conversation's toolbar once the transcript's scroll
+/// view is in the column.
 ///
 /// RestylingWindowLayout budgets for the columns' ideal widths, including without an inspector: the
 /// division is decided from the window's own width, never from a width measured inside the split,
@@ -48,7 +50,7 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
     /// The second step of the division being applied, cancelled by a newer one.
     @State private var secondStep: Task<Void, Never>?
 
-    /// Longer than AppKit takes to close the inspector column, as in `TeamShellView`.
+    /// Longer than AppKit takes to close the inspector column: 250 ms, measured on macOS 26.
     private static var inspectorClosing: Duration { .milliseconds(300) }
 
     /// Long enough for the split to lay out the compact sidebar before the inspector opens beside it.
@@ -107,6 +109,7 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
             minHeight: 560
         )
         .background(WindowWidthReader(onWidth: windowResized))
+        .background(TransparentTitleBar())
         .onChange(of: isInspectorRequested) { inspectorRequestChanged() }
         .preferredColorScheme(.dark)
     }
