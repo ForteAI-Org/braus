@@ -8,19 +8,16 @@
 import AppKit
 import QuartzCore
 
-/// RoomBodyMotion is how a worker's body moves in its tilted room with its brows' loop: the loop's body
-/// intents, a tiny tilt to one side or a small hop, as poses the room bakes into frames, and keyframes
-/// that play them over the loop in step with the brows.
+/// RoomBodyMotion is how a worker's body moves in its tilted room with its brows' loop, or with an
+/// action of its own: the body's poses (`BodyPose`) as the room's poses, which the room bakes into
+/// frames, and keyframes that play them over the loop in step with the brows.
 ///
-/// A gesture goes from rest through half its pose to all of it and back, and Core Animation
-/// cross-fades between their frames; at rest the room's own frames show. Each direction, a tilt left,
-/// one right and a hop, bakes its widest gesture and half of it, and a gesture under three quarters of
-/// that stops at the half, so a room bakes at most six poses.
-///
-/// A tilt leans over the brows' glance and holds; a hop rises and falls as thrown, quick off the floor
-/// and slow at the top. A tilt stays within `maxTilt`, a hop within `maxHop` of the room's short side.
-/// The brows over the body follow the face's projected shift (`browShift()`), and a room clipped to its
-/// worker's outline moves the outline with it (`outline()`).
+/// The behaviour gives every gesture's poses, half way and whole, and the keyframes cross-fade between
+/// their frames; at rest the room's own frames show. A room bakes at most `maxPoses`, the poses its
+/// gestures take most; a gesture that needs another is left out, its brows moving alone. Every pose
+/// stays within `BodyPose`'s limits. The brows over the body follow the face the camera shows, moving,
+/// turning and scaling with it (`browMotion()`), and a room clipped to its worker's outline moves the
+/// outline with it (`outline()`).
 nonisolated struct RoomBodyMotion: Equatable {
 
     /// Keyframe is the body's pose `time` seconds into the loop: one of `poses`, or nil at rest.
@@ -29,28 +26,28 @@ nonisolated struct RoomBodyMotion: Equatable {
         let pose: Int?
     }
 
+    /// FaceMove is how the brows move with a pose, for the layer that holds them, scaled and turned
+    /// about the room's centre: shifted by `shift` points, y up, turned by `turn` radians and scaled by
+    /// `scale`.
+    struct FaceMove: Equatable {
+        let shift: CGPoint
+        let turn : Double
+        let scale: Double
+    }
+
     let duration : Double
     let poses    : [RoomLightUniforms.Pose]
     let keyframes: [Keyframe]
+    let faceMoves: [FaceMove]
 
-    /// How far the brows move with each pose, in points in the room's layer, y up.
-    let faceShifts: [CGPoint]
+    /// The worker and the room the motion is for, which give the body's outlines when a room clipped
+    /// to them asks (`outline()`).
+    let shape: WorkerShape
+    let size : CGSize
+    let lean : Float
 
-    /// What carries the body's outline at rest to where each pose shows it, in a layer of the room's
-    /// size, y up, about its origin.
-    let outlineTransforms: [CGAffineTransform]
-
-    /// The most a body tilts, in radians, and hops, as a share of the room's short side.
-    static let maxTilt = 4 * Double.pi / 180
-    static let maxHop  = 0.03
-
-    /// How long a tilt takes to lean over and to come back, as the brows' glance moves.
-    static let tiltRise = 0.45
-    static let tiltFall = 0.5
-
-    /// When a thrown hop reaches half its height and its top, as shares of its time.
-    static let hopHalf = 0.146
-    static let hopTop  = 0.5
+    /// The most poses a room bakes for its body's motion: two frames each for a light that pulses.
+    static let maxPoses = 10
 
     /// The motion of `loop`'s intents for a worker of `shape` in a tilted room of `size` leaning
     /// `lean`, or nil when it has none or its worker is off.
@@ -60,125 +57,97 @@ nonisolated struct RoomBodyMotion: Equatable {
         size : CGSize,
         lean : Float
     ) {
-        guard loop.status != .off, loop.duration > 0 else { return nil }
-        // A hop is a share of the face's width, the shape's inscribed circle.
-        let radius = Double(RoomLightUniforms.Shape(
-            size: size,
-            lean: lean
-        ).sphereRadius)
-        let face = 2 * radius * shape.outline.inradius
-        let side = Double(min(size.width, size.height))
-        // A gesture's whole pose: a turn in radians or a hop in points, within the limits.
-        func reach(_ kind: WorkerBehaviourLoop.BodyIntent.Kind) -> RoomLightUniforms.Pose {
-            switch kind {
-            case .tilt(let angle): RoomLightUniforms.Pose(tilt: Float(max(-Self.maxTilt, min(Self.maxTilt, angle))))
-            case .hop(let share) : RoomLightUniforms.Pose(hop: Float(min(share * face, Self.maxHop * side)))
+        guard loop.status != .off else { return nil }
+        self.init(
+            intents : loop.intents,
+            duration: loop.duration,
+            shape   : shape,
+            size    : size,
+            lean    : lean
+        )
+    }
+
+    /// The motion of `intents` over a loop of `duration` seconds, or nil when none of them moves. A
+    /// loop that `opensAtRest` starts and ends at rest; otherwise its intents' keys run from its start
+    /// to its end, as an action's do (`WorkerAction`).
+    init?(
+        intents    : [WorkerBehaviourLoop.BodyIntent],
+        duration   : Double,
+        shape      : WorkerShape,
+        size       : CGSize,
+        lean       : Float,
+        opensAtRest: Bool = true
+    ) {
+        guard duration > 0 else { return nil }
+        let side = Float(min(size.width, size.height))
+        // A body pose as the room's, within the limits; nil at rest.
+        func room(_ body: BodyPose) -> RoomLightUniforms.Pose? {
+            guard body != .rest else { return nil }
+            func clamp(_ value: Double, _ limit: Double) -> Float {
+                Float(max(-limit, min(limit, value)))
+            }
+            return RoomLightUniforms.Pose(
+                tilt   : clamp(body.tilt, BodyPose.maxTurn),
+                hop    : clamp(max(0, body.hop), BodyPose.maxHop) * side,
+                slide  : clamp(body.slide, BodyPose.maxMove) * side,
+                shift  : clamp(body.shift, BodyPose.maxMove) * side,
+                stretch: 1 + clamp(body.stretch, BodyPose.maxStretch),
+                lean   : clamp(body.lean, BodyPose.maxTurn)
+            )
+        }
+        // The poses the gestures take most, up to the limit, in the order they first come.
+        var counts: [RoomLightUniforms.Pose: Int] = [:]
+        var order : [RoomLightUniforms.Pose] = []
+        for intent in intents {
+            for key in intent.keys {
+                guard let pose = room(key.pose) else { continue }
+                if counts[pose] == nil { order.append(pose) }
+                counts[pose, default: 0] += 1
             }
         }
-        // Left, right or up, and how far along it.
-        func direction(_ pose: RoomLightUniforms.Pose) -> Int {
-            pose.hop > 0 ? 2 : (pose.tilt > 0 ? 1 : 0)
+        let ranked = order.enumerated().sorted {
+            (counts[$0.element] ?? 0, -$0.offset) > (counts[$1.element] ?? 0, -$1.offset)
         }
-        func extent(_ pose: RoomLightUniforms.Pose) -> Float {
-            abs(pose.tilt) + pose.hop
-        }
-        // Each direction bakes its widest gesture and half of it; a narrower gesture stops at the half.
-        var widest: [Int: RoomLightUniforms.Pose] = [:]
-        for intent in loop.intents {
-            let pose = reach(intent.kind)
-            guard pose != .rest else { continue }
-            if extent(pose) > widest[direction(pose)].map(extent) ?? 0 { widest[direction(pose)] = pose }
-        }
-        var poses    : [RoomLightUniforms.Pose] = []
-        var keyframes = [Keyframe(
+        let kept  = Set(ranked.prefix(Self.maxPoses).map(\.element))
+        let poses = order.filter { kept.contains($0) }
+        guard !poses.isEmpty else { return nil }
+        var keyframes = opensAtRest ? [Keyframe(
             time: 0,
             pose: nil
-        )]
-        for intent in loop.intents {
-            let target = reach(intent.kind)
-            guard target != .rest, let full = widest[direction(target)] else { continue }
-            let isWhole  = extent(target) > 0.75 * extent(full)
-            let duration = intent.duration
-            let steps: [(time: Double, share: Double)]
-            switch (intent.kind, isWhole) {
-            case (.tilt, true):
-                let rise = min(Self.tiltRise, duration / 3)
-                let fall = min(Self.tiltFall, duration / 3)
-                steps = [
-                    (0, 0),
-                    (rise / 2, 0.5),
-                    (rise, 1),
-                    (duration - fall, 1),
-                    (duration - fall / 2, 0.5),
-                    (duration, 0),
-                ]
-            case (.tilt, false):
-                let rise = min(Self.tiltRise, duration / 3)
-                let fall = min(Self.tiltFall, duration / 3)
-                steps = [
-                    (0, 0),
-                    (rise, 0.5),
-                    (duration - fall, 0.5),
-                    (duration, 0),
-                ]
-            case (.hop, true):
-                steps = [
-                    (0, 0),
-                    (Self.hopHalf * duration, 0.5),
-                    (Self.hopTop * duration, 1),
-                    ((1 - Self.hopHalf) * duration, 0.5),
-                    (duration, 0),
-                ]
-            case (.hop, false):
-                steps = [
-                    (0, 0),
-                    (Self.hopTop * duration, 0.5),
-                    (duration, 0),
-                ]
-            }
-            let half = RoomLightUniforms.Pose(
-                tilt: full.tilt / 2,
-                hop : full.hop / 2
-            )
-            for step in steps {
-                var index: Int?
-                if step.share > 0 {
-                    let pose = step.share < 1 ? half : full
-                    index = poses.firstIndex(of: pose) ?? poses.count
-                    if index == poses.count { poses.append(pose) }
-                }
-                keyframes.append(Keyframe(
-                    time: intent.time + step.time,
-                    pose: index
-                ))
+        )] : []
+        for intent in intents {
+            let steps = intent.keys.map { key in (time: intent.time + key.time, pose: room(key.pose)) }
+            guard steps.allSatisfy({ $0.pose.map(kept.contains) ?? true }) else { continue }
+            keyframes += steps.map { step in
+                Keyframe(
+                    time: step.time,
+                    pose: step.pose.flatMap { poses.firstIndex(of: $0) }
+                )
             }
         }
-        guard !poses.isEmpty else { return nil }
-        keyframes.append(Keyframe(
-            time: loop.duration,
-            pose: nil
-        ))
-        duration       = loop.duration
+        if opensAtRest {
+            keyframes.append(Keyframe(
+                time: duration,
+                pose: nil
+            ))
+        }
+        self.duration  = duration
         self.poses     = poses
         self.keyframes = keyframes
         let camera = RoomCamera.Perspective(
             size: size,
             lean: lean
         )
-        faceShifts = poses.map {
-            Self.faceShift(
+        faceMoves = poses.map {
+            Self.faceMove(
                 of    : shape,
                 camera: camera,
                 pose  : $0
             )
         }
-        outlineTransforms = poses.map {
-            Self.outlineTransform(
-                camera: camera,
-                radius: radius,
-                pose  : $0
-            )
-        }
+        self.shape = shape
+        self.size  = size
+        self.lean  = lean
     }
 
     /// How much of the baked frames shows over the room's own: all of it in a gesture, none at rest.
@@ -198,27 +167,87 @@ nonisolated struct RoomBodyMotion: Equatable {
         )
     }
 
-    /// The brows' additive shift with the body, for the layer that holds them.
-    func browShift() -> CAKeyframeAnimation {
-        let shift = animation(
-            "position",
-            values: keyframes.map { NSValue(point: $0.pose.map { faceShifts[$0] } ?? .zero) }
-        )
-        shift.isAdditive = true
-        return shift
+    /// The brows' additive shift, turn and change of scale with the body, for the layer that holds
+    /// them, by the key each takes on it.
+    func browMotion() -> [String: CAKeyframeAnimation] {
+        let moves  = keyframes.map { $0.pose.map { faceMoves[$0] } }
+        let parts: [(key: String, keyPath: String, values: [Any])] = [
+            (Self.browKeys[0], "position", moves.map { NSValue(point: $0?.shift ?? .zero) }),
+            (Self.browKeys[1], "transform.rotation.z", moves.map { $0?.turn ?? 0 }),
+            (Self.browKeys[2], "transform.scale", moves.map { ($0?.scale ?? 1) - 1 }),
+        ]
+        var result: [String: CAKeyframeAnimation] = [:]
+        for part in parts {
+            let motion = animation(
+                part.keyPath,
+                values: part.values
+            )
+            motion.isAdditive = true
+            result[part.key]  = motion
+        }
+        return result
     }
 
-    /// The transform of an outline that clips the room to its worker, moving with the body.
+    /// The keys of `browMotion()`'s animations.
+    static let browKeys = ["body.shift", "body.turn", "body.scale"]
+
+    /// The path of an outline that clips the room to its worker, moving with the body: the body's
+    /// outline at rest and in each pose, in a layer of the room's size, y up, each the same points in
+    /// the same order (`RoomCamera.Perspective.silhouette(of:pose:samples:)`).
+    @MainActor
     func outline() -> CAKeyframeAnimation {
-        animation(
-            "transform",
+        let outlines = ([RoomLightUniforms.Pose.rest] + poses).map(outline)
+        return animation(
+            "path",
             values: keyframes.map { keyframe in
-                NSValue(caTransform3D: CATransform3DMakeAffineTransform(
-                    keyframe.pose.map { outlineTransforms[$0] } ?? .identity
-                ))
+                outlines[keyframe.pose.map { $0 + 1 } ?? 0]
             }
         )
     }
+
+    /// The body's outline in `pose`, in a layer of the room's size, y up, built once.
+    @MainActor
+    func outline(_ pose: RoomLightUniforms.Pose) -> CGPath {
+        let key = OutlineKey(
+            shape : shape,
+            width : size.width,
+            height: size.height,
+            lean  : lean,
+            pose  : pose
+        )
+        if let known = Self.outlines[key] { return known }
+        var flip = CGAffineTransform(
+            a : 1,
+            b : 0,
+            c : 0,
+            d : -1,
+            tx: 0,
+            ty: size.height
+        )
+        let path = RoomCamera.Perspective(
+            size: size,
+            lean: lean
+        ).silhouette(
+            of  : shape,
+            pose: pose
+        )
+        let outline = path.copy(using: &flip) ?? path
+        // ponytail: an unbounded cache, a few hundred paths for a house; bound it if rooms grow many sizes.
+        Self.outlines[key] = outline
+        return outline
+    }
+
+    /// OutlineKey names an outline already built: the worker, the room and the pose.
+    private struct OutlineKey: Hashable {
+        let shape : WorkerShape
+        let width : CGFloat
+        let height: CGFloat
+        let lean  : Float
+        let pose  : RoomLightUniforms.Pose
+    }
+
+    @MainActor
+    private static var outlines: [OutlineKey: CGPath] = [:]
 
     /// The pose a frame shows at keyframe `index`: its own, or at rest its gesture's next or last.
     private func shownPose(at index: Int) -> Int {
@@ -242,26 +271,37 @@ nonisolated struct RoomBodyMotion: Equatable {
         return animation
     }
 
-    /// How far the brows of `shape` move when the body takes `pose`, as `camera` shows them, y up.
-    private static func faceShift(
+    /// How the brows of `shape` move when the body takes `pose`, as `camera` shows them: the layer that
+    /// holds them turns and scales about the room's centre, so the shift is what brings the brows from
+    /// there onto the face.
+    private static func faceMove(
         of shape: WorkerShape,
         camera  : RoomCamera.Perspective,
         pose    : RoomLightUniforms.Pose
-    ) -> CGPoint {
-        let rest  = camera.face(of: shape).anchor
+    ) -> FaceMove {
+        let rest  = camera.face(of: shape)
         let moved = camera.face(
             of  : shape,
             pose: pose
-        ).anchor
-        return CGPoint(
-            x: moved.dx - rest.dx,
-            y: rest.dy - moved.dy
+        )
+        let turn  = moved.turn - rest.turn
+        let scale = moved.xScale / rest.xScale * Double(pose.scale) / Double(pose.stretch).squareRoot()
+        // The anchors with y up.
+        let from  = (x: rest.anchor.dx, y: -rest.anchor.dy)
+        let to    = (x: moved.anchor.dx, y: -moved.anchor.dy)
+        return FaceMove(
+            shift: CGPoint(
+                x: to.x - scale * (from.x * cos(turn) - from.y * sin(turn)),
+                y: to.y - scale * (from.x * sin(turn) + from.y * cos(turn))
+            ),
+            turn : turn,
+            scale: scale
         )
     }
 
     /// The flat transform that carries three points of the body at rest, its foot, a point above it and
     /// one beside it, to where `pose` shows them through `camera`, in the room's layer, y up.
-    private static func outlineTransform(
+    static func outlineTransform(
         camera: RoomCamera.Perspective,
         radius: Double,
         pose  : RoomLightUniforms.Pose

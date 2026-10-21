@@ -123,6 +123,9 @@ final class RoomLightView: MTKView, RoomRenderTarget {
 
     static let bodyKey = "body"
 
+    /// The body's pose as it showed when an action changed, fading out over the new motion.
+    let bodyFade = CALayer()
+
     /// The motion the room plays, or bakes frames for.
     private(set) var bodyMotion: RoomBodyMotion?
 
@@ -166,6 +169,28 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     /// Tells a passage's frames landing late from the passage still wanted.
     private var passageID = 0
 
+    /// Over `passageEmpty` and `passageWorker`, the same frames at full light where those hold the
+    /// pulse's dimmest, showing as much as the pulse stood at when the passage started.
+    let passageEmptyLit  = CALayer()
+    let passageWorkerLit = CALayer()
+
+    /// The body's image cut out along its outline, which steps out on Core Animation alone while the
+    /// passage's frames are not ready yet.
+    let passageSnapshot = CALayer()
+
+    /// PassageFrames is the passage baked ahead, for the room with its worker in (`occupied`) at `size`:
+    /// each pose of the way out, and the empty room, at full light and, for a light that pulses, at
+    /// its dimmest.
+    struct PassageFrames {
+        let occupied: RoomLightUniforms
+        let size    : CGSize
+        let poses   : [RoomLightUniforms.Pose: [CGImage]]
+        let empty   : [CGImage]
+    }
+
+    /// The passage baked once the room is at rest, so a choice of its worker plays at once.
+    private(set) var passageFrames: PassageFrames?
+
     private let renderer: (any RoomRenderer)?
 
     /// The precomputed light drawn first after a resize when `renderer` is the ray tracer; nil
@@ -186,8 +211,9 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     /// `changeFade`, it holds `shownImage` while a change renders.
     private var previewImage: CGImage?
 
-    /// The last full render at full strength, read back only while `changeFade` is set.
-    private var shownImage: CGImage?
+    /// The last full render at full strength, read back while `changeFade` is set, and in a tilted room
+    /// with its worker in, whose body steps out from it when no passage is baked yet.
+    private(set) var shownImage: CGImage?
 
     /// Whether the drawable shows a preview the ray tracer has not replaced yet.
     private var needsRefinement = false
@@ -289,15 +315,26 @@ final class RoomLightView: MTKView, RoomRenderTarget {
             bodyLayer.addSublayer(frame)
         }
         layer?.addSublayer(bodyLayer)
-        passageLayer.isHidden = true
-        for frame in [passageEmpty, passageWorker] {
-            frame.contentsGravity = .resize
-            passageLayer.addSublayer(frame)
-        }
-        layer?.addSublayer(passageLayer)
+        bodyFade.isHidden        = true
+        bodyFade.contentsGravity = .resize
+        layer?.addSublayer(bodyFade)
         refineLayer.isHidden        = true
         refineLayer.contentsGravity = .resize
         layer?.addSublayer(refineLayer)
+        // Over the refinement too: a passage covers the whole room while it plays.
+        passageLayer.isHidden = true
+        for frame in [passageEmpty, passageWorker, passageSnapshot] {
+            frame.contentsGravity = .resize
+            passageLayer.addSublayer(frame)
+        }
+        passageEmptyLit.contentsGravity  = .resize
+        passageWorkerLit.contentsGravity = .resize
+        passageEmpty.addSublayer(passageEmptyLit)
+        passageWorker.addSublayer(passageWorkerLit)
+        // The worker's envelope fades its two frames as one.
+        passageWorker.allowsGroupOpacity = true
+        passageSnapshot.anchorPoint      = .zero
+        layer?.addSublayer(passageLayer)
         tracer?.denoiserDidBecomeReady = { [weak self] in
             guard let self, self.window != nil else { return }
             self.hasPendingRender = true
@@ -318,9 +355,12 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         bodyLayer.frame     = bounds
         bodyDim.frame       = bounds
         bodyLit.frame       = bounds
+        bodyFade.frame      = bounds
         passageLayer.frame  = bounds
         passageEmpty.frame  = bounds
         passageWorker.frame = bounds
+        passageEmptyLit.frame  = bounds
+        passageWorkerLit.frame = bounds
         applyMask()
         applyContentsRect()
         layer.cornerRadius  = CGFloat(RoomLightUniforms.Shape(size: bounds.size).cornerRadius)
@@ -594,7 +634,8 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     /// Whether the full render, or a frame of the body's motion, may start: nothing is in flight and
     /// no size or uniforms are settling.
     var canRenderQueuedFrame: Bool {
-        (hasPendingRender || needsBodyFrame) && !isRendering && window != nil && renderer != nil && settleTask == nil
+        (hasPendingRender || needsBodyFrame || needsPassageFrames) && !isRendering && window != nil && renderer != nil
+            && settleTask == nil
     }
 
     var renderPriority: (visible: Bool, uniforms: Bool, top: CGFloat) {
@@ -621,7 +662,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     func renderQueuedFrame() -> Bool {
         guard canRenderQueuedFrame else { return false }
         guard hasPendingRender else {
-            renderBodyFrame()
+            if needsBodyFrame { renderBodyFrame() } else { renderPassageFrames() }
             return isRendering
         }
         hasRenderPermit = true
@@ -683,7 +724,8 @@ final class RoomLightView: MTKView, RoomRenderTarget {
             $0.denoises && uniforms.camera == .tilted && $0.denoisedPixelSize == nil
         } ?? false
         let fallback = keepsFallback ? Self.frameTexture(like: drawable.texture) : nil
-        let shown    = changeFade != nil ? Self.frameTexture(like: drawable.texture) : nil
+        let isStanding = uniforms.camera == .tilted && uniforms.hasOccupant
+        let shown    = changeFade != nil || isStanding ? Self.frameTexture(like: drawable.texture) : nil
         let whole    = [fallback, shown].compactMap { $0 }
         renderer.encode(
             uniforms,
@@ -840,6 +882,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         refineLayer.contentsRect = rect
         bodyDim.contentsRect     = rect
         bodyLit.contentsRect     = rect
+        bodyFade.contentsRect    = rect
     }
 
     /// Keeps the image shown over the room until the change's full render lands beneath it, and the
@@ -1131,6 +1174,30 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         )
     }
 
+    /// The body's motion for `action` in a room showing `uniforms` at `size`, a loop of its own: none
+    /// from above, in an empty room, for a worker that is off, or under Reduce Motion.
+    static func bodyMotion(
+        for action   : WorkerAction,
+        uniforms     : RoomLightUniforms,
+        size         : CGSize,
+        reducesMotion: Bool
+    ) -> RoomBodyMotion? {
+        guard
+            !reducesMotion,
+            uniforms.camera == .tilted,
+            uniforms.hasOccupant,
+            uniforms.status != .off
+        else { return nil }
+        return RoomBodyMotion(
+            intents    : [action.intent],
+            duration   : action.duration,
+            shape      : uniforms.shape,
+            size       : size,
+            lean       : uniforms.lean,
+            opensAtRest: false
+        )
+    }
+
     /// For a light that pulses in a room showing `uniforms`, the lamp's and the screen's weights of a
     /// pose's dim frame, each at its lowest, and for each of the pulse's frames how much of the pose's
     /// frame at full light shows over it, along the line between the two; nil for a light that holds
@@ -1158,32 +1225,95 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         return (low, pairs.map { max(0, min(1, (($0 - low) * span).sum() / length)) })
     }
 
-    /// Follows a new loop of the brows that `bodyLink` holds: the motion restarts on its clock.
+    /// Follows a new loop of the brows that `bodyLink` holds: the motion restarts on its clock. While
+    /// the body takes an action the loop waits.
     func bodyLoopDidChange() {
+        guard bodyLink?.action == nil else { return }
         stopBody()
         prepareBody()
     }
 
+    /// Follows the body's new action, or its return to the loop: the present pose fades out over
+    /// `actionFade` as the new motion starts beneath it, and the brows blend from where they show.
+    func bodyActionDidChange() {
+        let fades = bodyLayer.animation(forKey: Self.bodyKey) != nil && !RestylingMotion.reducesMotion
+        let shown = bodyLit.presentation()?.contents
+        let level = bodyLayer.presentation()?.opacity ?? 0
+        let brows = bodyLink?.mascot?.bodyOffset
+        stopBody()
+        prepareBody()
+        guard fades, let shown, level > 0 else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        bodyFade.removeAllAnimations()
+        bodyFade.isHidden     = false
+        bodyFade.contents     = shown
+        bodyFade.opacity      = 0
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = level
+        fade.toValue   = 0
+        fade.duration  = Self.actionFade
+        bodyFade.add(
+            fade,
+            forKey: Self.bodyKey
+        )
+        CATransaction.commit()
+        if let brows { bodyLink?.mascot?.blendBody(from: brows, over: Self.actionFade) }
+    }
+
+    /// How long the body cross-fades from one action to the next.
+    static let actionFade = 0.3
+
     /// Whether the body's motion still wants a pose baked for the room's current image.
     private var needsBodyFrame: Bool {
-        guard let bodyMotion, bodyRevision == renderRevision else { return false }
-        return bodyMotion.poses.contains { bodyFrames[$0] == nil }
+        guard bodyRevision == renderRevision else { return false }
+        return bodyPoses.contains { bodyFrames[$0] == nil }
     }
+
+    /// The poses the room bakes for its body: its motion's, and every action's where the body takes
+    /// actions (`actionPoses`), so a change of action plays at once.
+    private var bodyPoses: [RoomLightUniforms.Pose] {
+        let poses = bodyMotion?.poses ?? []
+        return poses + actionPoses.filter { !poses.contains($0) }
+    }
+
+    /// Every action's poses, for a body that takes actions, as the room's image was last prepared.
+    private var actionPoses: [RoomLightUniforms.Pose] = []
 
     /// Plays the body's motion for the room's current image once every pose has its frames, or asks
     /// the queue to bake the next one; stops it when there is none.
     private func prepareBody() {
-        let motion = bodyRevision == renderRevision ? lastRenderedSize.flatMap {
-            Self.bodyMotion(
+        let motion = bodyRevision == renderRevision ? lastRenderedSize.flatMap { size in
+            bodyLink?.action.map {
+                Self.bodyMotion(
+                    for          : $0,
+                    uniforms     : uniforms,
+                    size         : size,
+                    reducesMotion: RestylingMotion.reducesMotion
+                )
+            } ?? Self.bodyMotion(
                 for          : bodyLink?.loop,
                 uniforms     : uniforms,
-                size         : $0,
+                size         : size,
                 reducesMotion: RestylingMotion.reducesMotion
             )
         } : nil
         if motion != bodyMotion {
             stopBody()
             bodyMotion = motion
+        }
+        actionPoses = []
+        if bodyLink?.takesActions == true, bodyRevision == renderRevision, let size = lastRenderedSize {
+            for action in WorkerAction.allCases {
+                for pose in Self.bodyMotion(
+                    for          : action,
+                    uniforms     : uniforms,
+                    size         : size,
+                    reducesMotion: RestylingMotion.reducesMotion
+                )?.poses ?? [] where !actionPoses.contains(pose) {
+                    actionPoses.append(pose)
+                }
+            }
         }
         guard let motion else { return }
         guard motion.poses.allSatisfy({ bodyFrames[$0] != nil }) else {
@@ -1198,8 +1328,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     /// RoomRenderQueue once the full render has landed; plays the motion when it was the last.
     private func renderBodyFrame() {
         guard
-            let motion = bodyMotion,
-            let pose   = motion.poses.first(where: { bodyFrames[$0] == nil }),
+            let pose   = bodyPoses.first(where: { bodyFrames[$0] == nil }),
             let renderer,
             let size      = lastRenderedSize,
             let pixelSize = lastRenderedPixelSize,
@@ -1258,7 +1387,9 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     private func playBody(_ motion: RoomBodyMotion) {
         let lit = motion.poses.compactMap { bodyFrames[$0]?.first }
         let dim = motion.poses.compactMap { bodyFrames[$0]?.dropFirst().first }
-        guard lit.count == motion.poses.count, let link = bodyLink, link.loop != nil else { return }
+        guard lit.count == motion.poses.count, let link = bodyLink, link.action != nil || link.loop != nil else { return }
+        // An action runs on its own clock from its start; the loop on the brows'.
+        let start = link.action != nil ? link.actionStart : link.start
         let dims  = dim.count == lit.count
         let parts = [
             (bodyLayer, motion.envelope()),
@@ -1269,7 +1400,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         bodyLayer.isHidden = false
         bodyDim.isHidden   = !dims
         for (layer, animation) in parts {
-            animation.beginTime = layer.convertTime(link.start, from: nil)
+            animation.beginTime = layer.convertTime(start, from: nil)
             layer.add(
                 animation,
                 forKey: Self.bodyKey
@@ -1291,8 +1422,8 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         }
         CATransaction.commit()
         link.mascot?.followBody(
-            motion.browShift(),
-            from: link.start
+            motion.browMotion(),
+            from: start
         )
     }
 
@@ -1305,6 +1436,9 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         }
         bodyLit.removeAnimation(forKey: Self.pulseKey)
         bodyLayer.isHidden = true
+        bodyFade.removeAllAnimations()
+        bodyFade.contents  = nil
+        bodyFade.isHidden  = true
         CATransaction.commit()
         bodyLink?.mascot?.followBody(nil)
     }
@@ -1312,19 +1446,21 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     // MARK: - The worker's passage
 
     /// Starts the worker's passage out of the room or back in, now that `uniforms` has emptied it or
-    /// filled it again from `old`: bakes the passage's poses and the empty room with the precomputed
-    /// light at the pulse's present weights while the room keeps its image, then plays them and draws
-    /// the live frame beneath. The brows start at once, from the same moment. Returns false where no
-    /// passage can play: from above, out of a window, or before the room has an image of its size.
+    /// filled it again from `old`, and draws the live frame of the new room beneath it. With the passage
+    /// baked ahead for this room (`passageFrames`) it plays at once, its frames blended at the pulse's
+    /// present weight. Otherwise the room bakes them now with the precomputed light at that weight,
+    /// and meanwhile a worker leaving steps out on Core Animation alone, its image cut out along its
+    /// outline (`passageSnapshot`), until they land. The brows start at once, from the same moment.
+    /// Returns false where no passage can play: from above, out of a window, or before the room has an
+    /// image of its size.
     private func startPassage(from old: RoomLightUniforms) -> Bool {
         guard
             uniforms.camera == .tilted,
             window != nil,
-            let precomputed   = liveRenderer,
-            let size          = renderSize,
-            let pixelSize     = renderPixelSize,
-            lastRenderedSize == size,
-            let commandBuffer = precomputed.commandQueue.makeCommandBuffer()
+            let precomputed = liveRenderer,
+            let size        = renderSize,
+            let pixelSize   = renderPixelSize,
+            lastRenderedSize == size
         else { return false }
         let isLeaving = !uniforms.hasOccupant
         let occupied  = isLeaving ? old : uniforms
@@ -1336,7 +1472,46 @@ final class RoomLightView: MTKView, RoomRenderTarget {
             lean         : occupied.lean,
             reducesMotion: reduces
         )
-        let now    = CACurrentMediaTime()
+        let now   = CACurrentMediaTime()
+        let start = now + (isLeaving ? 0 : RestylingTiming.plaqueLeave)
+        passageID += 1
+        let id = passageID
+        self.passage = passage
+        stopBody()
+        bodyLink?.mascot?.followPassage(
+            passage,
+            from: start
+        )
+        // The full render waits for the passage, then for the plaque's swing.
+        scheduleSettle(after: .seconds(start - now + passage.duration) + Self.refineDelay)
+        needsLiveFrame = true
+        defer { RoomRenderQueue.shared.live(self) }
+
+        if let baked = passageFrames, baked.occupied == Self.standing(occupied), baked.size == size {
+            let frames = passage.poses.compactMap { baked.poses[$0] }
+            if frames.count == passage.poses.count {
+                playPassage(
+                    passage,
+                    frames: frames,
+                    empty : baked.empty,
+                    share : Self.bodyShare(
+                        for: occupied,
+                        at : now
+                    ),
+                    from  : start
+                )
+                return true
+            }
+        }
+        if isLeaving {
+            playSnapshot(
+                passage,
+                of  : occupied,
+                size: size,
+                from: start
+            )
+        }
+        guard let commandBuffer = precomputed.commandQueue.makeCommandBuffer() else { return true }
         let weight = SIMD2(
             Self.pulseWeight(
                 for          : uniforms.status,
@@ -1362,7 +1537,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
                 device: commandBuffer.device
             )
         }
-        guard frames.count == rooms.count else { return false }
+        guard frames.count == rooms.count else { return true }
         for (room, frame) in zip(rooms, frames) {
             precomputed.encode(
                 room,
@@ -1371,71 +1546,145 @@ final class RoomLightView: MTKView, RoomRenderTarget {
                 commandBuffer: commandBuffer
             )
         }
-        if frames.contains(where: { $0.storageMode == .managed }), let blit = commandBuffer.makeBlitCommandEncoder() {
-            for frame in frames {
-                blit.synchronize(resource: frame)
-            }
-            blit.endEncoding()
-        }
-        let start = now + (isLeaving ? 0 : RestylingTiming.plaqueLeave)
-        let count = frames.count
-        passageID += 1
-        let id = passageID
-        self.passage = passage
-        stopBody()
-        bodyLink?.mascot?.followPassage(
-            passage,
-            from: start
+        Self.synchronize(
+            frames,
+            in: commandBuffer
         )
-        // The full render waits for the passage, then for the plaque's swing.
-        scheduleSettle(after: .seconds(start - now + passage.duration) + Self.refineDelay)
+        let count = frames.count
         commandBuffer.addCompletedHandler { @Sendable [weak self] buffer in
             let images = buffer.status == .completed ? frames.compactMap(Self.image(from:)) : []
             Task { @MainActor in
-                guard let self, id == self.passageID else { return }
-                if images.count == count, let empty = images.last {
-                    self.playPassage(
-                        passage,
-                        frames: Array(images.dropLast()),
-                        empty : empty,
-                        from  : start
-                    )
-                }
-                self.needsLiveFrame = true
-                RoomRenderQueue.shared.live(self)
+                guard let self, id == self.passageID, images.count == count, let empty = images.last else { return }
+                self.playPassage(
+                    passage,
+                    frames: images.dropLast().map { [$0] },
+                    empty : [empty],
+                    share : nil,
+                    from  : start
+                )
             }
         }
         commandBuffer.commit()
         return true
     }
 
-    /// Plays `passage`'s `frames` over `empty`, the empty room, from `start` on the host clock; once
-    /// it is over the layer shows the room as the live frame beneath it does.
+    /// Plays `passage` over the room from `start` on the host clock: per pose `frames`, the empty room
+    /// `empty`, each at full light and, when given a second, at the pulse's dimmest, shown with `share`
+    /// of the light at full over it. Once it is over the layer shows the room as the live frame beneath
+    /// it does. It takes over from the snapshot stepping out meanwhile.
     private func playPassage(
-        _ passage: RoomPassage,
-        frames   : [CGImage],
-        empty    : CGImage,
+        _ passage : RoomPassage,
+        frames    : [[CGImage]],
+        empty     : [CGImage],
+        share     : Float?,
         from start: CFTimeInterval
     ) {
+        let lit   = frames.compactMap(\.first)
+        let dim   = frames.compactMap { $0.dropFirst().first }
+        let dims  = dim.count == lit.count && empty.count > 1
+        let begin = passageWorker.convertTime(start, from: nil)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        passageLayer.isHidden  = false
-        passageEmpty.contents  = empty
-        passageWorker.contents = passage.isLeaving ? nil : frames.first
-        passageWorker.opacity  = passage.isLeaving ? 0 : 1
-        let parts = [
-            (Self.passageKey, passage.frames(frames)),
-            (Self.passageFadeKey, passage.envelope()),
+        passageSnapshot.removeAllAnimations()
+        passageSnapshot.isHidden    = true
+        passageLayer.isHidden       = false
+        // With two frames the dim one lies beneath; with one it is the only one.
+        passageEmpty.contents       = dims ? empty.last : empty.first
+        passageEmptyLit.contents    = dims ? empty.first : nil
+        passageEmptyLit.isHidden    = !dims
+        passageWorkerLit.isHidden   = !dims
+        passageEmptyLit.opacity     = share ?? 1
+        passageWorkerLit.opacity    = share ?? 1
+        passageWorker.contents      = passage.isLeaving ? nil : (dims ? dim : lit).first
+        passageWorkerLit.contents   = passage.isLeaving ? nil : lit.first
+        passageWorker.opacity       = passage.isLeaving ? 0 : 1
+        var parts = [
+            (passageWorker as CALayer, Self.passageKey, passage.frames(dims ? dim : lit)),
+            (passageWorker, Self.passageFadeKey, passage.envelope()),
         ]
-        for (key, animation) in parts {
-            animation.beginTime = passageWorker.convertTime(start, from: nil)
-            passageWorker.add(
+        if dims { parts.append((passageWorkerLit, Self.passageKey, passage.frames(lit))) }
+        for (layer, key, animation) in parts {
+            animation.beginTime = begin
+            layer.add(
                 animation,
                 forKey: key
             )
         }
         CATransaction.commit()
         passageRenders += 1
+    }
+
+    /// Steps the body of `occupied` out of the room on Core Animation alone, from `start`: its last
+    /// full image cut out along its outline, carried and faded as the passage's poses carry it, over
+    /// the empty room the live frame draws beneath. Nothing without that image.
+    private func playSnapshot(
+        _ passage: RoomPassage,
+        of occupied: RoomLightUniforms,
+        size     : CGSize,
+        from start: CFTimeInterval
+    ) {
+        guard let shownImage else { return }
+        let camera = RoomCamera.Perspective(
+            size: size,
+            lean: occupied.lean
+        )
+        let radius = Double(RoomLightUniforms.Shape(
+            size: size,
+            lean: occupied.lean
+        ).sphereRadius)
+        var flip = CGAffineTransform(
+            a : 1,
+            b : 0,
+            c : 0,
+            d : -1,
+            tx: 0,
+            ty: size.height
+        )
+        let mask  = CAShapeLayer()
+        mask.frame = CGRect(
+            origin: .zero,
+            size  : size
+        )
+        mask.path  = camera.silhouette(of: occupied.shape).copy(using: &flip)
+        let carry  = CAKeyframeAnimation(keyPath: "transform")
+        carry.values = passage.keyframes.map { keyframe in
+            NSValue(caTransform3D: CATransform3DMakeAffineTransform(RoomBodyMotion.outlineTransform(
+                camera: camera,
+                radius: radius,
+                pose  : passage.poses[keyframe.pose]
+            )))
+        }
+        let fade = passage.envelope()
+        carry.keyTimes        = fade.keyTimes
+        carry.calculationMode = .linear
+        carry.duration        = passage.duration
+        carry.fillMode        = .backwards
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        passageLayer.isHidden     = false
+        passageEmpty.contents     = nil
+        passageEmptyLit.isHidden  = true
+        passageWorker.contents    = nil
+        passageWorkerLit.isHidden = true
+        passageSnapshot.isHidden  = false
+        passageSnapshot.frame     = bounds
+        passageSnapshot.contents  = shownImage
+        passageSnapshot.contentsRect = Self.contentsRect(
+            rendered    : lastRenderedSize,
+            bounds      : bounds.size,
+            renderedLean: lastRenderedLean,
+            lean        : uniforms.lean
+        )
+        passageSnapshot.mask    = mask
+        passageSnapshot.opacity = 0
+        for (key, animation) in [(Self.passageKey, carry as CAKeyframeAnimation), (Self.passageFadeKey, fade)] {
+            animation.beginTime = passageSnapshot.convertTime(start, from: nil)
+            passageSnapshot.add(
+                animation,
+                forKey: key
+            )
+        }
+        CATransaction.commit()
     }
 
     /// Ends the passage, if any: the room shows its own frames again and the brows leave theirs.
@@ -1445,15 +1694,160 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         passage = nil
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        passageWorker.removeAllAnimations()
-        passageWorker.contents = nil
-        passageEmpty.contents  = nil
-        passageLayer.isHidden  = true
+        for layer in [passageWorker, passageWorkerLit, passageSnapshot] {
+            layer.removeAllAnimations()
+            layer.contents = nil
+        }
+        passageEmpty.contents    = nil
+        passageEmptyLit.contents = nil
+        passageSnapshot.mask     = nil
+        passageLayer.isHidden    = true
         CATransaction.commit()
         bodyLink?.mascot?.followPassage(
             nil,
             from: 0
         )
+    }
+
+    /// `room` with its worker in and at rest, as the passage baked ahead is keyed.
+    private static func standing(_ room: RoomLightUniforms) -> RoomLightUniforms {
+        var standing         = room
+        standing.hasOccupant = true
+        standing.pose        = .rest
+        return standing
+    }
+
+    /// Whether the passage still wants baking ahead for the room's present image: a tilted room whose
+    /// full render has landed, its body's frames done, and no passage playing.
+    private var needsPassageFrames: Bool {
+        guard
+            uniforms.camera == .tilted,
+            passage == nil,
+            bodyRevision == renderRevision,
+            !needsBodyFrame,
+            let size = lastRenderedSize
+        else { return false }
+        return passageFrames?.occupied != Self.standing(uniforms) || passageFrames?.size != size
+    }
+
+    /// Bakes the passage ahead with the precomputed light, for the room with its worker in: each pose
+    /// of the way out, then the empty room, at full light and, for a light that pulses, at its dimmest.
+    /// Called by RoomRenderQueue once the room is at rest.
+    private func renderPassageFrames() {
+        guard
+            let precomputed   = liveRenderer,
+            let size          = lastRenderedSize,
+            let pixelSize     = renderPixelSize,
+            let commandBuffer = precomputed.commandQueue.makeCommandBuffer()
+        else { return }
+        let occupied = Self.standing(uniforms)
+        var empty    = occupied
+        empty.hasOccupant = false
+        let poses   = RoomPassage(
+            isLeaving    : true,
+            shape        : occupied.shape,
+            size         : size,
+            lean         : occupied.lean,
+            reducesMotion: false
+        ).poses
+        let weights = [SIMD2<Float>(1, 1)] + (Self.bodyBlend(
+            for          : occupied,
+            reducesMotion: false
+        ).map { [$0.low] } ?? [])
+        let rooms   = poses.map { pose -> RoomLightUniforms in
+            var posed  = occupied
+            posed.pose = pose
+            return posed
+        } + [empty]
+        let frames  = rooms.map { _ in
+            weights.compactMap { _ in
+                Self.frameTexture(
+                    width : Int(pixelSize.width),
+                    height: Int(pixelSize.height),
+                    device: commandBuffer.device
+                )
+            }
+        }
+        guard frames.allSatisfy({ $0.count == weights.count }) else { return }
+        for (room, targets) in zip(rooms, frames) {
+            precomputed.encode(
+                room,
+                size         : size,
+                into         : zip(targets, weights).map { (texture: $0, weight: $1) },
+                commandBuffer: commandBuffer
+            )
+        }
+        let all = frames.flatMap { $0 }
+        Self.synchronize(
+            all,
+            in: commandBuffer
+        )
+        isRendering = true
+        let render = renderRevision
+        let path   = path
+        let count  = all.count
+        let each   = weights.count
+        commandBuffer.addCompletedHandler { @Sendable [weak self] buffer in
+            let images = buffer.status == .completed ? all.compactMap(Self.image(from:)) : []
+            Task { @MainActor in
+                defer { RoomRenderQueue.shared.didFinishRender(for: path) }
+                guard let self else { return }
+                self.isRendering = false
+                if render == self.renderRevision, images.count == count {
+                    let groups = stride(from: 0, to: count, by: each).map { Array(images[$0..<$0 + each]) }
+                    self.passageFrames = PassageFrames(
+                        occupied: occupied,
+                        size    : size,
+                        poses   : Dictionary(
+                            zip(poses, groups.dropLast()),
+                            uniquingKeysWith: { first, _ in first }
+                        ),
+                        empty   : groups.last ?? []
+                    )
+                }
+                self.continueAfterRender()
+            }
+        }
+        commandBuffer.commit()
+    }
+
+    /// For a light that pulses in a room showing `uniforms`, the share of a frame at full light over
+    /// one at the pulse's dimmest that shows the pulse's weight at `hostTime`; nil when it holds still.
+    static func bodyShare(
+        for uniforms: RoomLightUniforms,
+        at hostTime : CFTimeInterval
+    ) -> Float? {
+        let reduces = RestylingMotion.reducesMotion
+        guard let blend = bodyBlend(
+            for          : uniforms,
+            reducesMotion: reduces
+        ) else { return nil }
+        let weight = SIMD2(
+            pulseWeight(
+                for          : uniforms.status,
+                reducesMotion: reduces,
+                at           : hostTime
+            ),
+            uniforms.screenStrength > 0 ? screenWeight(
+                for          : uniforms.status,
+                reducesMotion: reduces,
+                at           : hostTime
+            ) : 1
+        )
+        let span = SIMD2<Float>(1, 1) - blend.low
+        return max(0, min(1, ((weight - blend.low) * span).sum() / (span * span).sum()))
+    }
+
+    /// Makes `frames` readable by the CPU once `commandBuffer` is done, where they are managed.
+    private static func synchronize(
+        _ frames: [MTLTexture],
+        in commandBuffer: MTLCommandBuffer
+    ) {
+        guard frames.contains(where: { $0.storageMode == .managed }), let blit = commandBuffer.makeBlitCommandEncoder() else { return }
+        for frame in frames {
+            blit.synchronize(resource: frame)
+        }
+        blit.endEncoding()
     }
 
     /// Clips the room to `silhouette`, turned into the layer's coordinates, y up; or shows it whole.

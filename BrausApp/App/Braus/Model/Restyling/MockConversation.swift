@@ -72,6 +72,19 @@ final class MockConversation {
 
     private(set) var phase = Phase.idle
 
+    /// What the worker does with its body through the turn (`WorkerAction`): reading the message,
+    /// thinking until a tool starts, working while it runs, and the reply arriving; nil outside a turn.
+    var action: WorkerAction? {
+        switch phase {
+        case .idle   : return nil
+        case .reading: return .reading
+        case .working:
+            guard let last = messages.last, last.author == .worker else { return .thinking }
+            guard last.isThinking else { return .replying }
+            return last.tool == nil ? .thinking : .working
+        }
+    }
+
     /// How many turns the worker has started answering, for the hero to prepare at each.
     private(set) var turns = 0
 

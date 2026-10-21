@@ -7,10 +7,12 @@
 
 import Foundation
 
-/// WorkerBehaviour is how a worker's brows behave in one status, so the worker never looks still:
-/// busy is focused, with small looks toward its screen and an occasional slight frown; waiting
-/// raises its brows and looks toward the person, with an occasional impatient gesture; free is
-/// relaxed and slowly looks around, with an occasional flick; off sleeps, brows low, breathing slowly.
+/// WorkerBehaviour is how a worker's brows and body behave in one status, so the worker never looks
+/// still: busy is focused, leaning toward its screen and bobbing in a steady rhythm with short pauses,
+/// with looks and an occasional slight frown; waiting raises its brows and leans toward the person,
+/// shifts its weight and hops twice when impatient; free is relaxed, turns to look around, shuffles a
+/// little aside, stretches and bounces now and then; off sleeps, brows low, breathing slowly. The body
+/// turns where the brows look (`BrowAction.Performance.body`).
 ///
 /// Each status has a vocabulary of actions with weights and a range of rests between them. A seed
 /// turns it into a loop of 45 to 90 seconds that does not look repetitive: actions and their reach,
@@ -40,14 +42,14 @@ nonisolated struct WorkerBehaviour: Sendable {
         let weighted: [(BrowAction, Double)]
         switch status {
         case .busy:
-            weighted = [(.lookAtScreen, 5), (.lookLeft, 1.5), (.lookRight, 1.5), (.frown, 2), (.doubleGlance, 1.5), (.settle, 1)]
-            rests    = 1.9...5.3
+            weighted = [(.lookAtScreen, 4), (.work, 4), (.lookLeft, 1.2), (.lookRight, 1.2), (.frown, 1.5), (.doubleGlance, 1.5), (.settle, 1)]
+            rests    = 1.2...3.5
         case .waiting:
-            weighted = [(.lookAtCamera, 4), (.raise, 3), (.impatient, 2), (.lookLeft, 1), (.lookRight, 1), (.leanIn, 1.5)]
-            rests    = 1.5...4.5
+            weighted = [(.lookAtCamera, 3), (.raise, 2), (.impatient, 2.5), (.lookLeft, 1), (.lookRight, 1), (.leanIn, 2), (.shiftWeight, 2)]
+            rests    = 1.0...3.2
         case .free:
-            weighted = [(.lookLeft, 3), (.lookRight, 3), (.lookUp, 2), (.flick, 2), (.lookAround, 1.2), (.settle, 1)]
-            rests    = 2.2...6.8
+            weighted = [(.lookLeft, 2.5), (.lookRight, 2.5), (.lookUp, 1.5), (.flick, 1.5), (.lookAround, 1.2), (.settle, 1), (.shuffle, 2)]
+            rests    = 1.5...4.5
         case .off:
             weighted = [(.sleepBreath, 6), (.deepBreath, 3), (.settle, 1)]
             rests    = 0.3...1.2
@@ -112,11 +114,12 @@ nonisolated struct WorkerBehaviour: Sendable {
                 }
                 if side == 0 { left += track } else { right += track }
             }
-            if let kind = performance.intent {
+            // A worker that is off only breathes; its body holds still.
+            if !performance.body.isEmpty, status != .off {
                 intents.append(WorkerBehaviourLoop.BodyIntent(
                     time    : time,
                     duration: performance.duration,
-                    kind    : kind
+                    keys    : performance.body
                 ))
             }
             actions.append(action)

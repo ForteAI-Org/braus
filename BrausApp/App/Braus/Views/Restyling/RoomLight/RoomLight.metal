@@ -30,7 +30,7 @@
 using namespace metal;
 using namespace raytracing;
 
-/// RoomLightUniforms matches `RoomLightUniforms.Packed` in Swift: nine float4, 144 bytes.
+/// RoomLightUniforms matches `RoomLightUniforms.Packed` in Swift: ten float4, 160 bytes.
 struct RoomLightUniforms {
     float4 light;     // sRGB colour, strength in w
     float4 outline;   // the body's core: sides, size, turn or offset, and corner radius, in sphere radii
@@ -43,6 +43,8 @@ struct RoomLightUniforms {
     float4 lights;    // the tilted view's screen and moon, 1 when lit, and the standing body's pose:
                       // its slide toward the camera in points and its scale, 1 at rest
     float4 capsule;   // the hero's name capsule as a light: sRGB colour, strength in w, zero when off
+    float4 posture;   // the standing body's pose: its shift across in points, its stretch, 1 at rest,
+                      // and its lean toward the camera in radians
 };
 
 // The lamp, a disc facing down, as fractions of the room's short side. Its size keeps every shadow
@@ -146,6 +148,9 @@ struct Room {
     float  bodySlab;     // standing, how far the core is thickened before and behind its middle
     float3 bodyPivot;    // standing, the floor's point under the body, raised by its pose's hop
     float2 bodyTurn;     // standing, the cosine and sine of its pose's turn about the pivot
+    float2 bodyLean;     // standing, the cosine and sine of its pose's lean toward the camera
+    float  bodyStretch;  // standing, how much taller its pose makes it, and narrower by the root
+    bool   isPosed;      // standing, whether it is turned, leaning or stretched
     float  lean;         // 0 with the worker at the centre, 1 at the left
     float2 poolCentre;   // where the pool centres once the composition leans, across on the worker
     float3 lamp;
@@ -248,6 +253,9 @@ static Room makeRoom(constant RoomLightUniforms& uniforms) {
     room.bodySlab       = 0;
     room.bodyPivot      = room.body;
     room.bodyTurn       = float2(1, 0);
+    room.bodyLean       = float2(1, 0);
+    room.bodyStretch    = 1;
+    room.isPosed        = false;
     room.lean           = 0;
     room.screen         = float3(0);
     room.screenRight    = float3(0);
@@ -515,18 +523,35 @@ static float3 turnedOffset(float3 offset, float2 turn) {
     return float3(offset.x * turn.x + offset.z * turn.y, offset.y, offset.z * turn.x - offset.x * turn.y);
 }
 
-/// A point of the scene in the frame where the standing body stands as it does at rest: turned back
-/// about its pivot by its pose's turn. Its hop is already in `room.body`. Without a turn the point is
-/// returned as it is, so a body at rest renders bit for bit as it did before poses.
+/// `offset` leaned by `lean`, a cosine and a sine, about the axis across: a positive sine leans a
+/// point above the axis toward the camera.
+static float3 leanedOffset(float3 offset, float2 lean) {
+    return float3(offset.x, offset.y * lean.x + offset.z * lean.y, offset.z * lean.x - offset.y * lean.y);
+}
+
+/// `offset` from the standing body's pivot as its pose moves it: stretched, keeping its volume, leaned,
+/// then turned, as `RoomLightUniforms.Pose.moved` moves the ray tracer's mesh.
+static float3 posedOffset(float3 offset, Room room) {
+    float across = rsqrt(room.bodyStretch);
+    offset = float3(offset.xy * across, offset.z * room.bodyStretch);
+    return turnedOffset(leanedOffset(offset, room.bodyLean), room.bodyTurn);
+}
+
+/// A point of the scene in the frame where the standing body stands as it does at rest: its pose's
+/// turn, lean and stretch taken back about its pivot. Its hop, slide, shift and size are already in
+/// `room`. A body not turned, leaning or stretched keeps the point as it is, so at rest it renders
+/// bit for bit as it did before poses.
 static float3 uprightPoint(float3 position, Room room) {
-    if (room.bodyTurn.y == 0) { return position; }
-    return room.bodyPivot + turnedOffset(position - room.bodyPivot, room.bodyTurn * float2(1, -1));
+    if (!room.isPosed) { return position; }
+    float3 offset = turnedOffset(position - room.bodyPivot, room.bodyTurn * float2(1, -1));
+    offset        = leanedOffset(offset, room.bodyLean * float2(1, -1));
+    return room.bodyPivot + float3(offset.xy * sqrt(room.bodyStretch), offset.z / room.bodyStretch);
 }
 
 /// A point of the standing body at rest where its pose shows it in the scene.
 static float3 posedPoint(float3 position, Room room) {
-    if (room.bodyTurn.y == 0) { return position; }
-    return room.bodyPivot + turnedOffset(position - room.bodyPivot, room.bodyTurn);
+    if (!room.isPosed) { return position; }
+    return room.bodyPivot + posedOffset(position - room.bodyPivot, room);
 }
 
 /// The point of the body's core nearest `position`, the body being that core grown by the corner's
@@ -1166,9 +1191,13 @@ static Room makeTiltedRoom(constant RoomLightUniforms& uniforms) {
     }
     room.body.y        += uniforms.lights.z;
     room.body.z        += uniforms.stage.w;
+    room.body.x        += uniforms.posture.x;
     room.bodyPivot      = float3(room.body.xy, uniforms.stage.w);
     // Fast math's cosine and sine of zero need not be exactly one and zero.
     room.bodyTurn       = uniforms.stage.z == 0 ? float2(1, 0) : float2(cos(uniforms.stage.z), sin(uniforms.stage.z));
+    room.bodyLean       = uniforms.posture.z == 0 ? float2(1, 0) : float2(cos(uniforms.posture.z), sin(uniforms.posture.z));
+    room.bodyStretch    = uniforms.posture.y;
+    room.isPosed        = uniforms.stage.z != 0 || uniforms.posture.z != 0 || uniforms.posture.y != 1;
     return room;
 }
 
@@ -1296,6 +1325,13 @@ static float bodyHit(float3 origin, float3 direction, Room room) {
     if (!room.isOccupied) { return -1; }
     float3 centre = posedPoint(room.body, room);
     float  bound  = length(float2(room.coreSize + room.bodyCorner, room.bodySlab + room.bodyCorner + room.bodyDome));
+    // A stretched body reaches further one way and is thinner the other, so it steps more carefully.
+    float  shrink = 1;
+    if (room.isPosed) {
+        float grow = max(room.bodyStretch, rsqrt(room.bodyStretch));
+        bound     *= grow;
+        shrink     = min(room.bodyStretch, rsqrt(room.bodyStretch)) / grow;
+    }
     float3 offset = origin - centre;
     float  along  = -dot(offset, direction);
     float  miss   = dot(offset, offset) - along * along;
@@ -1313,7 +1349,7 @@ static float bodyHit(float3 origin, float3 direction, Room room) {
             }
             return far;
         }
-        float  free = length(position - nearestCore(position, room)) - room.bodyCorner - room.bodyDome;
+        float  free = (length(position - nearestCore(position, room)) - room.bodyCorner - room.bodyDome) * shrink;
         near = far;
         far += max(free, bodyMinStep * room.radius);
     }
@@ -1333,7 +1369,11 @@ static float3 bodyNormalAt(float3 position, Room room) {
         facing       = normalize(float3(outward + 2 * room.bodyDome * gauge.x * gauge.yz * rise, rise));
         facing.z    *= sign(local.z);
     }
-    return turnedOffset(float3(facing.x, facing.z, -facing.y), room.bodyTurn);
+    float3 normal = float3(facing.x, facing.z, -facing.y);
+    if (!room.isPosed) { return normal; }
+    // Normals take the inverse of the stretch, then the same lean and turn.
+    normal = float3(normal.xy * sqrt(room.bodyStretch), normal.z / room.bodyStretch);
+    return normalize(turnedOffset(leanedOffset(normal, room.bodyLean), room.bodyTurn));
 }
 
 /// How much the standing body hides of a floor or wall point right beside it: all of it where they

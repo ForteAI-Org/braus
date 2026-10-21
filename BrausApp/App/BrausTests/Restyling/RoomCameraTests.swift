@@ -43,7 +43,7 @@ struct RoomCameraTests {
     /// The digest of each tilted render, by `Sample.name`. Recorded at a53d9e46 and again with the
     /// screen, the moon, the metal that holds the light and the larger worker; the empty rooms are
     /// a53d9e46's. With the body's pose, three moved by fast math's rounding: one or two pixels each,
-    /// one channel by 1/255.
+    /// one channel by 1/255; with its stretch and lean, the lens again by one pixel.
     private static let tiltedDigests: [String: String] = [
         "pc-busy-circle-empty-260x84"  : "b1ab02eb6a4dbe7b",
         "pc-busy-circle-in-127x104"    : "a50b3d946125ce12",
@@ -56,7 +56,7 @@ struct RoomCameraTests {
         "pc-waiting-triangle-in-260x84": "419f68c5b72fd8b7",
         "rt-busy-circle-empty-260x84"  : "3c27fb0c2dbe18f1",
         "rt-busy-circle-in-127x104"    : "d2fd4ef6d5de8452",
-        "rt-busy-lens-in-260x104"      : "d182602359f98544",
+        "rt-busy-lens-in-260x104"      : "d9162f68142ed3fd",
         "rt-busy-pentagon-in-260x104"  : "c3bf5330a224a112",
         "rt-free-hexagon-in-260x84"    : "1ffc2aa60a083aa3",
         "rt-free-square-in-260x104"    : "cfff675587f8950b",
