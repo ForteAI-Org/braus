@@ -20,6 +20,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
     let status   : WorkerStatus
     let isHanging: Bool
     var camera   = RoomCamera.top
+    var lean     = Float(0)
 
     /// What the plate says, and what the room's accessibility label adds.
     static let text = "In chat with you"
@@ -29,7 +30,8 @@ struct HouseAwayPlaque: NSViewRepresentable {
             brows    : brows,
             status   : status,
             isHanging: isHanging,
-            camera   : camera
+            camera   : camera,
+            lean     : lean
         )
     }
 
@@ -40,6 +42,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
         view.brows     = brows
         view.status    = status
         view.camera    = camera
+        view.lean      = lean
         view.isHanging = isHanging
     }
 
@@ -55,7 +58,8 @@ struct HouseAwayPlaque: NSViewRepresentable {
     /// - The size: the plate follows the room's short side, as the sphere does, and never takes more
     ///   than 70% of the room's width; the text stays 9 points and is left out where it cannot fit.
     ///   Seen through the tilted camera, it hangs high on the back wall at the wall's perspective
-    ///   scale, facing the viewer so its text stays legible.
+    ///   scale, facing the viewer so its text stays legible. In a room leaning left it hangs where the
+    ///   worker stood, at the left, within the worker's place beside the name.
     /// - The light: a lit top edge and a sheen in the room's light, pulsing with the room on the
     ///   host clock, the sheen sliding as the plate turns under the lamp, and a soft shadow below
     ///   it; none of it in the room of a worker that is off.
@@ -81,6 +85,14 @@ struct HouseAwayPlaque: NSViewRepresentable {
         var camera: RoomCamera {
             didSet {
                 guard camera != oldValue else { return }
+                needsLayout = true
+            }
+        }
+
+        /// How far the room's composition leans left, which moves the plaque with the worker's place.
+        var lean: Float {
+            didSet {
+                guard lean != oldValue else { return }
                 needsLayout = true
             }
         }
@@ -172,11 +184,13 @@ struct HouseAwayPlaque: NSViewRepresentable {
             brows    : BrowState,
             status   : WorkerStatus,
             isHanging: Bool,
-            camera   : RoomCamera = .top
+            camera   : RoomCamera = .top,
+            lean     : Float = 0
         ) {
             self.brows     = brows
             self.status    = status
             self.camera    = camera
+            self.lean      = lean
             self.isHanging = isHanging
             super.init(frame: .zero)
             wantsLayer = true
@@ -250,7 +264,8 @@ struct HouseAwayPlaque: NSViewRepresentable {
         private func arrange() {
             let metrics  = Metrics(
                 room  : bounds.size,
-                camera: camera
+                camera: camera,
+                lean  : lean
             )
             let animates = showsText != nil && showsText != metrics.showsText && !RestylingMotion.reducesMotion
             showsText = metrics.showsText
@@ -580,11 +595,18 @@ struct HouseAwayPlaque: NSViewRepresentable {
             let drop     : CGFloat
             let showsText: Bool
 
-            /// The nail's distance below the room's top edge.
-            let top: CGFloat
+            /// The nail's distance below the room's top edge, and from its left edge.
+            let top  : CGFloat
+            let nailX: CGFloat
 
             /// The least margin beside the text.
             static let textMargin: CGFloat = 5
+
+            /// The least margin between the plate and the room's left wall in a room leaning left.
+            static let wallMargin: CGFloat = 8
+
+            /// The least scale that keeps the text on the plate, which below it has no height for it.
+            static let textScale: CGFloat = 0.65
 
             /// The text's width at its 9 points.
             static let textWidth = NSAttributedString(
@@ -592,17 +614,37 @@ struct HouseAwayPlaque: NSViewRepresentable {
                 attributes: [.font: PlaqueView.font]
             ).size().width.rounded(.up)
 
-            /// The plaque in a room of `room` points seen through `camera`: in a tilted room the nail is
-            /// high on the back wall and the plaque takes the wall's perspective scale there.
+            /// The plaque in a room of `room` points seen through `camera`, its composition leaning
+            /// `lean`: over the worker's place, in a tilted room high on the back wall at the wall's
+            /// perspective scale there. Leaning left, the plate keeps within the worker's place, clear
+            /// of the left wall and of the name beside it, and centres on the room's height, where no
+            /// name is under it.
             init(
                 room  : CGSize,
-                camera: RoomCamera = .top
+                camera: RoomCamera = .top,
+                lean  : Float = 0
             ) {
-                let nail   = camera == .tilted ? RoomCamera.Perspective(size: room).plaqueNail : nil
-                let widest = 0.7 * room.width
+                let nail = camera == .tilted ? RoomCamera.Perspective(
+                    size: room,
+                    lean: lean
+                ).plaqueNail : nil
+                nailX = nail.map { CGFloat($0.x) } ?? RoomLightUniforms.Shape.bodyX(
+                    in  : room,
+                    lean: lean
+                )
+                // Leaning, the worker's place reaches halfway from its body to the name beside it.
+                let place  = CGFloat(RoomLightUniforms.Shape(
+                    size: room,
+                    lean: lean
+                ).sphereRadius) + HouseLayout.nameGap / 2
+                let widest = lean > 0 ? min(
+                    0.7 * room.width,
+                    2 * (nailX - Self.wallMargin),
+                    2 * place
+                ) : 0.7 * room.width
                 let lined  = Self.textWidth + 2 * Self.textMargin
                 scale     = max(0, min(1, min(room.width, room.height) / 104)) * (nail?.scale ?? 1)
-                showsText = lined <= widest && scale >= 0.75
+                showsText = lined <= widest && scale >= Self.textScale
                 plate = CGSize(
                     width : max(0, min(widest, showsText ? max(88 * scale, lined) : 88 * scale)),
                     height: 30 * scale
@@ -610,7 +652,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
                 drop = 9 * scale
                 top  = nail?.top ?? max(
                     4,
-                    (room.height - HouseLayout.nameBand - plate.height - drop) / 2
+                    (room.height - CGFloat(1 - lean) * HouseLayout.nameBand - plate.height - drop) / 2
                 )
             }
         }
@@ -633,7 +675,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
                 y: 1
             )
             swingLayer.position = CGPoint(
-                x: bounds.midX,
+                x: bounds.minX + metrics.nailX,
                 y: bounds.maxY - metrics.top
             )
 

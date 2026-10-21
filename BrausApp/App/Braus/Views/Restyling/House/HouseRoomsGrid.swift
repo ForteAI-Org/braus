@@ -12,7 +12,7 @@ import SwiftUI
 ///
 /// The rooms are laid out `roomsWidth` across, the width `HouseSidebar` changes together with
 /// `columns`, so a change of columns moves every room from where it was on screen. They are seen
-/// through the camera `BRAUS_ROOM_CAMERA` picks at launch; the rows keep the view from above.
+/// through the camera `BRAUS_ROOM_CAMERA` picks at launch.
 struct HouseRoomsGrid: View {
     let workers   : [MockWorker]
     let columns   : Int

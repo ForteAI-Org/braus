@@ -51,8 +51,8 @@ struct RoomLightTests {
         #expect(busy.strength == 1)
         #expect(busy.lightColor == SIMD3<Float>(1, 176.0 / 255, 72.0 / 255))
         #expect(room(.off).strength == 0)
-        // Six float4 in RoomLight.metal.
-        #expect(MemoryLayout<RoomLightUniforms.Packed>.stride == 96)
+        // Seven float4 in RoomLight.metal.
+        #expect(MemoryLayout<RoomLightUniforms.Packed>.stride == 112)
     }
 
     @Test("The uniforms carry the worker's shape and no tint")
@@ -176,6 +176,37 @@ struct RoomLightTests {
             #expect(abs(rect.midX - 0.5) < 1e-9)
             #expect(abs(rect.midY - 0.5) < 1e-9)
         }
+        // A row leaning left keeps its worker where the room puts it, at the left, as the row resizes.
+        let rows: [(rendered: CGSize, bounds: CGSize)] = [
+            (CGSize(width: 260, height: 72), CGSize(width: 300, height: 72)),
+            (CGSize(width: 260, height: 72), CGSize(width: 200, height: 60)),
+        ]
+        for resize in rows {
+            let rect = RoomLightView.contentsRect(
+                rendered    : resize.rendered,
+                bounds      : resize.bounds,
+                renderedLean: 1,
+                lean        : 1
+            )
+            let placed = RoomLightUniforms.Shape.bodyX(
+                in  : resize.bounds,
+                lean: 1
+            ) / resize.bounds.width
+            let shown  = RoomLightUniforms.Shape.bodyX(
+                in  : resize.rendered,
+                lean: 1
+            ) / resize.rendered.width
+            #expect(abs(rect.minX + placed * rect.width - shown) < 1e-9)
+            #expect(abs(rect.midY - 0.5) < 1e-9)
+        }
+        // A compact row's image, its worker at the centre, shows its worker at the left once the row leans.
+        let reshaped = RoomLightView.contentsRect(
+            rendered    : CGSize(width: 120, height: 72),
+            bounds      : CGSize(width: 200, height: 72),
+            renderedLean: 0,
+            lean        : 1
+        )
+        #expect(abs(reshaped.minX + 36 / 200 * reshaped.width - 0.5) < 1e-9)
     }
 
     @Test("While its size changes a room draws one precomputed frame per coalesced change, and the full render once it settles")
@@ -379,6 +410,103 @@ struct RoomLightTests {
         #expect(RoomLightView.frameStorageMode(isAppleGPU: false, hasUnifiedMemory: false) == .managed)
     }
 
+    @Test("A row's room leans left: the worker larger at the left, and the stage tells the shaders where")
+    func leaningStage() {
+        let size = CGSize(
+            width : 260,
+            height: HouseLayout.rowHeight
+        )
+        let centred = RoomLightUniforms.Shape(size: size)
+        let leaning = RoomLightUniforms.Shape(
+            size: size,
+            lean: 1
+        )
+        #expect(centred.bodyX == 130 && leaning.bodyX == Float(0.5 * size.height))
+        // The rows' worker is about a sixth larger than in the rows before, 84 points tall.
+        let before = RoomLightUniforms.Shape(size: CGSize(width: 260, height: 84)).sphereRadius
+        #expect(leaning.sphereRadius / before > 1.15 && leaning.sphereRadius / before < 1.2)
+        for camera in [RoomCamera.top, .tilted] {
+            let packed = RoomLightUniforms(
+                status     : .busy,
+                shape      : .circle,
+                hasOccupant: true,
+                camera     : camera,
+                lean       : 1
+            ).packed(
+                size      : size,
+                pixelWidth: 520
+            )
+            #expect(packed.stage == SIMD4(leaning.bodyX, 1, 0, 0), "\(camera)")
+            #expect(packed.shape.z == leaning.sphereRadius, "\(camera)")
+        }
+    }
+
+    @Test("A room leaning left is lit from the worker at the left and fades toward the right, on both paths and cameras")
+    func leaningLight() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        var renderers: [any RoomRenderer] = [try #require(PrecomputedRoomRenderer(device: device))]
+        if let tracer = RayTracedRoomRenderer(device: device) {
+            renderers.append(tracer)
+        }
+        let size   = CGSize(
+            width : 260,
+            height: HouseLayout.rowHeight
+        )
+        let band   = 10
+        let worker = Int(RoomLightUniforms.Shape.bodyX(
+            in  : size,
+            lean: 1
+        )) / band
+        for renderer in renderers {
+            for camera in [RoomCamera.top, .tilted] {
+                // The mean brightness of each band of columns 10 points wide, of an empty room.
+                func bands(_ lean: Float) throws -> [Double] {
+                    let image = try render(
+                        RoomLightUniforms(
+                            status     : .busy,
+                            shape      : .circle,
+                            hasOccupant: false,
+                            camera     : camera,
+                            lean       : lean
+                        ),
+                        with  : renderer,
+                        size  : size,
+                        device: device
+                    )
+                    return stride(
+                        from: 0,
+                        to  : image.width,
+                        by  : band
+                    ).map { start in
+                        var sum = 0
+                        for x in start ..< min(start + band, image.width) {
+                            for y in 0 ..< image.height {
+                                let pixel = image.pixel(x, y)
+                                sum += pixel.red + pixel.green + pixel.blue
+                            }
+                        }
+                        return Double(sum) / Double(band * image.height)
+                    }
+                }
+                let name    = "\(type(of: renderer)) \(camera)"
+                let leaning = try bands(1)
+                let centred = try bands(0)
+                let peak    = try #require(leaning.indices.max { leaning[$0] < leaning[$1] })
+                let middle  = try #require(centred.indices.max { centred[$0] < centred[$1] })
+                #expect(abs(peak - worker) <= 2, "\(name): \(leaning)")
+                #expect(abs(middle - centred.count / 2) <= 3, "\(name): \(centred)")
+                // Right of the worker the light only fades, softly, and is dim by the last third, where the
+                // right wall begins to catch it.
+                let dim = Int(0.7 * size.width) / band
+                for index in (worker + 2) ..< dim {
+                    #expect(leaning[index + 1] <= leaning[index] + 1.5, "\(name) at band \(index): \(leaning)")
+                    #expect(leaning[index + 1] > 0.75 * leaning[index], "\(name) at band \(index): \(leaning)")
+                }
+                #expect(leaning[dim] < 0.4 * leaning[peak], "\(name): \(leaning)")
+            }
+        }
+    }
+
     @Test("The precomputed path renders without hardware ray tracing")
     func precomputed() throws {
         let device   = try #require(MTLCreateSystemDefaultDevice())
@@ -563,14 +691,16 @@ struct RoomLightTests {
         }
     }
 
-    /// Renders `uniforms` at one pixel per point into a room of 128 × 104 and reads it back.
+    /// Renders `uniforms` at one pixel per point into a room of `size`, 128 × 104 by default, and
+    /// reads it back.
     private func render(
-        _ uniforms: RoomLightUniforms,
+        _ uniforms   : RoomLightUniforms,
         with renderer: any RoomRenderer,
-        device    : MTLDevice
+        size         : CGSize = CGSize(width: 128, height: 104),
+        device       : MTLDevice
     ) throws -> Pixels {
-        let width  = 128
-        let height = 104
+        let width  = Int(size.width)
+        let height = Int(size.height)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm,
             width      : width,

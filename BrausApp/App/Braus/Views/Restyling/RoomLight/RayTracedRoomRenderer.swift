@@ -10,35 +10,36 @@ import Metal
 /// RayTracedRoomRenderer lights a room with hardware ray tracing.
 ///
 /// The room (a floor with a rounded outline and its cove walls) and the worker's tessellated body
-/// form one primitive acceleration structure, rebuilt only when the room's size, occupancy or shape
-/// changes. The body is a triangle mesh of its outline's bevel, built from the same `ShapeOutline`
-/// the shader shades, so the hardware intersects it like the room and its shadow follows the outline.
+/// form one primitive acceleration structure, rebuilt only when the room's size, occupancy, shape,
+/// camera or composition changes. The body is a triangle mesh of its outline's bevel, built from the
+/// same `ShapeOutline` the shader shades, so the hardware intersects it like the room and its shadow
+/// follows the outline.
 /// Per change, one compute pass accumulates 64 frames per pixel in linear light: a jittered primary
 /// ray, shadow rays to the disc lamp, one diffuse bounce that also gives the ambient occlusion, and on
 /// the body GGX reflection rays off its metal. Then it stops. A room seen through the tilted camera
 /// has tall walls with rounded coves, open at the front, a worker standing upright, and its own
-/// kernel, which casts the camera's rays.
+/// kernel, which casts the camera's rays; a room leaning left has its own pair (`RoomKernels`).
 final class RayTracedRoomRenderer: RoomRenderer {
     let commandQueue   : MTLCommandQueue
     let resolvePipeline: MTLComputePipelineState
 
-    private let device        : MTLDevice
-    private let pipeline      : MTLComputePipelineState
-    private let tiltedPipeline: MTLComputePipelineState
-    private var scene         : Scene?
+    private let device : MTLDevice
+    private let kernels: RoomKernels
+    private var scene  : Scene?
 
     /// Fails when the device has no ray tracing, gives no queue or a kernel cannot be loaded.
     init?(device: MTLDevice) {
         guard
             device.supportsRaytracing,
-            let queue    = device.makeCommandQueue(),
-            let pipeline = Self.pipeline(
-                named : "traceRoom",
-                device: device
-            ),
-            let tilted = Self.pipeline(
-                named : "traceTiltedRoom",
-                device: device
+            let queue   = device.makeCommandQueue(),
+            let kernels = RoomKernels(
+                verb: "trace",
+                load: { name in
+                    Self.pipeline(
+                        named : name,
+                        device: device
+                    )
+                }
             ),
             let resolve = Self.pipeline(
                 named : "resolveRoom",
@@ -47,8 +48,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
         else { return nil }
         self.device     = device
         commandQueue    = queue
-        self.pipeline   = pipeline
-        tiltedPipeline  = tilted
+        self.kernels    = kernels
         resolvePipeline = resolve
     }
 
@@ -64,6 +64,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
                 size         : size,
                 occupant     : uniforms.hasOccupant ? uniforms.shape : nil,
                 camera       : uniforms.camera,
+                lean         : uniforms.lean,
                 commandBuffer: commandBuffer
             ),
             let encoder = commandBuffer.makeComputeCommandEncoder()
@@ -73,7 +74,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
             bufferIndex: 1
         )
         dispatch(
-            uniforms.camera == .tilted ? tiltedPipeline : pipeline,
+            kernels.pipeline(for: uniforms),
             uniforms: uniforms,
             size    : size,
             base    : base,
@@ -82,13 +83,15 @@ final class RayTracedRoomRenderer: RoomRenderer {
         )
     }
 
-    /// Scene is a built acceleration structure and the room it was built for, as seen by its camera.
+    /// Scene is a built acceleration structure and the room it was built for, as seen by its camera,
+    /// with its composition's lean.
     /// It keeps the build's descriptor, which holds the vertex buffers, and its scratch buffer until
     /// the next rebuild, so the GPU never reads a released buffer.
     private struct Scene {
         let size      : CGSize
         let occupant  : WorkerShape?
         let camera    : RoomCamera
+        let lean      : Float
         let structure : MTLAccelerationStructure
         let descriptor: MTLPrimitiveAccelerationStructureDescriptor
         let scratch   : MTLBuffer
@@ -101,18 +104,23 @@ final class RayTracedRoomRenderer: RoomRenderer {
     private static let bevelRings    = 16
     private static let pointsPerTurn = 96
 
-    /// The acceleration structure for the room, the shape of the worker in it and the camera, encoding
-    /// its build into `commandBuffer` when any changed, before the pass that traces it.
+    /// The acceleration structure for the room, the shape of the worker in it, the camera and the
+    /// composition's lean, encoding its build into `commandBuffer` when any changed, before the pass
+    /// that traces it.
     private func structure(
         size         : CGSize,
         occupant     : WorkerShape?,
         camera       : RoomCamera,
+        lean         : Float,
         commandBuffer: MTLCommandBuffer
     ) -> MTLAccelerationStructure? {
-        if let scene, scene.size == size, scene.occupant == occupant, scene.camera == camera {
+        if let scene, scene.size == size, scene.occupant == occupant, scene.camera == camera, scene.lean == lean {
             return scene.structure
         }
-        let perspective = camera == .tilted ? RoomCamera.Perspective(size: size) : nil
+        let perspective = camera == .tilted ? RoomCamera.Perspective(
+            size: size,
+            lean: lean
+        ) : nil
         // Geometry 0 is the room and 1 the body, as RoomLight.metal expects.
         var geometries = [perspective.map(Self.tiltedRoom) ?? Self.room(size)]
         if let occupant, let perspective {
@@ -123,6 +131,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
         } else if let occupant {
             geometries.append(Self.body(
                 size,
+                lean   : lean,
                 outline: occupant.outline
             ))
         }
@@ -150,6 +159,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
             size      : size,
             occupant  : occupant,
             camera    : camera,
+            lean      : lean,
             structure : structure,
             descriptor: descriptor,
             scratch   : scratch
@@ -245,8 +255,11 @@ final class RayTracedRoomRenderer: RoomRenderer {
         _ perspective: RoomCamera.Perspective,
         outline      : ShapeOutline
     ) -> [SIMD3<Float>] {
-        let radius = Double(RoomLightUniforms.Shape(size: perspective.size).sphereRadius)
-        let centre = SIMD3(Double(perspective.size.width) / 2, perspective.bodyDepth, outline.bottom * radius)
+        let radius = Double(RoomLightUniforms.Shape(
+            size: perspective.size,
+            lean: perspective.lean
+        ).sphereRadius)
+        let centre = SIMD3(perspective.bodyX, perspective.bodyDepth, outline.bottom * radius)
         let slab   = RoomCamera.slab(of: outline) * radius
         let corner = outline.corner * radius
         func ring(
@@ -328,16 +341,27 @@ final class RayTracedRoomRenderer: RoomRenderer {
         }
     }
 
-    /// The worker's body around the room's centre, in points: rings of its outline grown from the
-    /// core along the bevel's quarter circle, from the equator to the core, mirrored below, and the
+    /// The worker's body where a room of `size` leaning `lean` stands it, across the room
+    /// (`RoomLightUniforms.Shape.bodyX`) and halfway down, in points: rings of its outline grown from
+    /// the core along the bevel's quarter circle, from the equator to the core, mirrored below, and the
     /// core as a flat cap on top and bottom. The dome is left out, so the mesh lies inside the top the
     /// shader shades and no reflected ray starts inside it. For the circle it is a sphere.
     private static func body(
         _ size : CGSize,
+        lean   : Float,
         outline: ShapeOutline
     ) -> [SIMD3<Float>] {
-        let radius = Double(RoomLightUniforms.Shape(size: size).sphereRadius)
-        let centre = SIMD2(Double(size.width) / 2, Double(size.height) / 2)
+        let radius = Double(RoomLightUniforms.Shape(
+            size: size,
+            lean: lean
+        ).sphereRadius)
+        let centre = SIMD2(
+            Double(RoomLightUniforms.Shape.bodyX(
+                in  : size,
+                lean: lean
+            )),
+            Double(size.height) / 2
+        )
         let corner = outline.corner * radius
         func ring(
             _ index: Int,

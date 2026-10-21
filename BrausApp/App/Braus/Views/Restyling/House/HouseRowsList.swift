@@ -7,9 +7,11 @@
 
 import SwiftUI
 
-/// HouseRowsList is the house as the system's list of rooms: a wide, low room per worker,
-/// one under the other, scrolling under the sidebar's foot (`HouseFoot`). In the compact sidebar the
-/// rooms are the compact floor plan's.
+/// HouseRowsList is the house as the system's list of rooms: a wide, low room per worker, one under
+/// the other, scrolling under the sidebar's foot (`HouseFoot`). Each row leans its room left: the
+/// worker at the left, lit from there, its name and subtitle beside it. In the compact sidebar the
+/// rooms are the compact floor plan's, the worker at the centre and its name under it. The rooms are
+/// seen through the camera `BRAUS_ROOM_CAMERA` picks at launch.
 ///
 /// The list keeps the system's selection, by click and by keys, but not its fill: the accent fill
 /// reads as a status light (an orange accent as busy, the blue one as waiting), so `QuietSelection`
@@ -28,7 +30,10 @@ struct HouseRowsList: View {
             ForEach(workers) { worker in
                 HouseRoomCell(
                     worker    : worker,
-                    isSelected: selection == worker.id
+                    isSelected: selection == worker.id,
+                    camera    : RoomCamera.launch,
+                    isBeside  : !isCompact,
+                    rowWidth  : roomsWidth
                 )
                 .frame(
                     width : roomsWidth,

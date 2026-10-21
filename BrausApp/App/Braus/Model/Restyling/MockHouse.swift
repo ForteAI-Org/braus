@@ -24,6 +24,7 @@ nonisolated struct MockHouse: Sendable {
         name    : String,
         status  : WorkerStatus,
         activity: String,
+        role    : String,
         category: AppCategory,
         shape   : WorkerShape,
         badge   : MockBadge?
@@ -32,15 +33,15 @@ nonisolated struct MockHouse: Sendable {
     // A room touches the next two rooms and, in two columns, the third after an odd one (diagonally):
     // no shape touches itself or a look-alike (circle, pentagon, hexagon; square, diamond; capsule, lens).
     private static let rows: [Row] = [
-        ("Delivery",  .busy,    "Exporting the AAF", .audio,  .circle,   nil),
-        ("Render",    .busy,    "Rendering 42%",     .video,  .triangle, .attention),
-        ("Mastering", .free,    "Free",              .audio,  .capsule,  nil),
-        ("Ingest",    .waiting, "Waiting for you",   .files,  .hexagon,  .unread(2)),
-        ("Mixing",    .free,    "Free",              .audio,  .diamond,  nil),
-        ("Design",    .free,    "Free",              .design, .lens,     nil),
-        ("Export",    .waiting, "Waiting for you",   .design, .triangle, nil),
-        ("Research",  .free,    "Free",              .web,    .pentagon, nil),
-        ("PT Agent",  .off,     "Off",               .audio,  .square,   nil),
+        ("Delivery",  .busy,    "Exports the stems",       "Delivers mixes to clients",   .audio,  .circle,   nil),
+        ("Render",    .busy,    "Renders the trailer",     "Renders and encodes video",   .video,  .triangle, .attention),
+        ("Mastering", .free,    "Free",                    "Mixes and masters",           .audio,  .capsule,  nil),
+        ("Ingest",    .waiting, "Needs your OK to import", "Sorts and imports footage",   .files,  .hexagon,  .unread(2)),
+        ("Mixing",    .free,    "Free",                    "Balances the session",        .audio,  .diamond,  nil),
+        ("Design",    .free,    "Free",                    "Lays out covers and posters", .design, .lens,     nil),
+        ("Export",    .waiting, "Needs your OK to send",   "Packages files for delivery", .design, .triangle, nil),
+        ("Research",  .free,    "Free",                    "Finds references online",     .web,    .pentagon, nil),
+        ("PT Agent",  .off,     "Off",                     "Edits in Pro Tools",          .audio,  .square,   nil),
     ]
 
     private static func worker(_ row: Row) -> MockWorker {
@@ -49,6 +50,7 @@ nonisolated struct MockHouse: Sendable {
             name    : row.name,
             status  : row.status,
             activity: row.activity,
+            role    : row.role,
             category: row.category,
             shape   : row.shape,
             badge   : row.badge

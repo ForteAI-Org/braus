@@ -153,10 +153,15 @@ already sits at the top of the conversation.
   across floor and walls, and a contact shadow under the sphere. Busy light
   flickers gently (3.4 s cycle); waiting light breathes (2.2 s). Off rooms are
   dark. No LED edge [decided].
-- **Rows.** One row per worker, 52 pt: the sphere with its status light behind
-  it as a halo, the name, the activity line, and at the trailing edge the
-  attention mark or the unread count. In the compact sidebar each row becomes a
-  tile with the sphere and the name.
+- **Rows** [decided]. One row per worker, 72 pt: each row is still the worker's
+  lit room, composed from the left. The worker stands at the left, 34 pt across,
+  the lamp above it, and the light spreads from it toward the right, fading into
+  the darker right side of the room. Beside it the name (headline, semibold) and
+  a one-line subtitle in plain words: what it is doing or needs while busy or
+  waiting, otherwise its role, never a status word. The attention mark or the
+  unread count sits at the trailing edge. In the compact sidebar each row
+  becomes the compact room, the worker at the centre and the name under it; the
+  change animates.
 
 In both modes:
 

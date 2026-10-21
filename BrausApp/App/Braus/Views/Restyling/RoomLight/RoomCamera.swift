@@ -17,8 +17,10 @@ import simd
 /// back wall rises above it, the side walls narrow toward it, and nothing outside the room shows. The
 /// camera stands on the window's axis, in front of it and above, `tilt` from vertical. Seen this way the
 /// worker stands on the floor, its outline upright and facing the camera, `thickness` of its width
-/// from front to back. The house reads `BRAUS_ROOM_CAMERA` once at launch: `tilted`, or `top` by
-/// default.
+/// from front to back. Where the composition leans left, as in the rows, the camera stands across
+/// from the worker instead of the middle, still looking through the whole cell, so the worker is seen
+/// head on and the room recedes to the right. The house reads `BRAUS_ROOM_CAMERA` once at launch:
+/// `tilted`, or `top` by default.
 nonisolated enum RoomCamera: String, Sendable {
     case top
     case tilted
@@ -62,13 +64,17 @@ nonisolated enum RoomCamera: String, Sendable {
         return max(0, thickness * side - outline.corner - outline.dome)
     }
 
-    /// Where the brows of a worker of `shape` show in a room of `size` seen by this camera; nil from
-    /// above, where they keep their place on the face.
+    /// Where the brows of a worker of `shape` show in a room of `size` whose composition leans `lean`
+    /// to the left, seen by this camera; nil from above, where they keep their place on the face.
     func face(
         of shape: WorkerShape,
-        in size : CGSize
+        in size : CGSize,
+        lean    : Float = 0
     ) -> Face? {
-        self == .tilted ? Perspective(size: size).face(of: shape) : nil
+        self == .tilted ? Perspective(
+            size: size,
+            lean: lean
+        ).face(of: shape) : nil
     }
 
     /// Face is where a tilted room shows the worker's brows: the point they centre on, from the
@@ -83,23 +89,31 @@ nonisolated enum RoomCamera: String, Sendable {
     ///
     /// Scene units are points: x to the right, y from the back wall toward the camera, z up from the
     /// floor, as in RoomLight.metal. The window's slant length is the cell's height, so its foot is
-    /// `depth` from the back wall and its top `wallTop` above the floor; the eye stands `focal` from its
-    /// centre. RoomLight.metal derives the same camera from `packed`.
+    /// `depth` from the back wall and its top `wallTop` above the floor; the eye stands `focal` in front
+    /// of the window, across from the worker. The worker stands `bodyX` from the left wall, where
+    /// `RoomLightUniforms.Shape.bodyX` shows it: the middle, or the left in a room leaning left.
+    /// RoomLight.metal derives the same camera from `packed` and the stage.
     struct Perspective {
         let size     : CGSize
+        let lean     : Float
         let depth    : Double
         let wallTop  : Double
         let focal    : Double
         let bodyDepth: Double
+        let bodyX    : Double
 
         private let centre: SIMD3<Double>
         private let normal: SIMD3<Double>
         private let up    : SIMD3<Double>
 
-        init(size: CGSize) {
+        init(
+            size: CGSize,
+            lean: Float = 0
+        ) {
             let width  = Double(size.width)
             let height = Double(size.height)
             self.size = size
+            self.lean = lean
             depth     = height * cos(RoomCamera.tilt)
             wallTop   = height * sin(RoomCamera.tilt)
             focal     = height / 2 / tan(RoomCamera.fieldOfView / 2)
@@ -107,6 +121,10 @@ nonisolated enum RoomCamera: String, Sendable {
             centre    = SIMD3(width / 2, depth / 2, wallTop / 2)
             normal    = SIMD3(0, wallTop, depth) / max(height, 1e-9)
             up        = SIMD3(0, -depth, wallTop) / max(height, 1e-9)
+            bodyX     = Double(RoomLightUniforms.Shape.bodyX(
+                in  : size,
+                lean: lean
+            ))
         }
 
         /// The radius of the coves where the walls meet the floor.
@@ -136,12 +154,13 @@ nonisolated enum RoomCamera: String, Sendable {
             )
         }
 
-        /// Where `point` shows in the cell, in points from its top-left corner with y down.
+        /// Where `point` shows in the cell, in points from its top-left corner with y down: across, its
+        /// offset from the eye, which stands across from the worker, shrinks with its distance.
         func project(_ point: SIMD3<Double>) -> CGPoint {
             let offset = point - centre
             let scale  = self.scale(at: point)
             return CGPoint(
-                x: Double(size.width) / 2 + scale * offset.x,
+                x: bodyX + scale * (point.x - bodyX),
                 y: Double(size.height) / 2 - scale * simd_dot(offset, up)
             )
         }
@@ -155,13 +174,16 @@ nonisolated enum RoomCamera: String, Sendable {
         /// `RoomCamera.browLift` of the face's width above its middle, projected, and stretched as the
         /// projection stretches the face there, across and upward.
         func face(of shape: WorkerShape) -> Face {
-            let radius  = Double(RoomLightUniforms.Shape(size: size).sphereRadius)
+            let radius  = Double(RoomLightUniforms.Shape(
+                size: size,
+                lean: lean
+            ).sphereRadius)
             let outline = shape.outline
             let slab    = RoomCamera.slab(of: outline)
             // The face's point in front of `local`, a point of the outline in sphere radii with y down.
             func point(_ local: SIMD2<Double>) -> SIMD3<Double> {
                 SIMD3(
-                    Double(size.width) / 2 + radius * local.x,
+                    bodyX + radius * local.x,
                     bodyDepth + radius * (slab + outline.faceHeight(at: local)),
                     radius * (outline.bottom - local.y)
                 )
@@ -183,12 +205,14 @@ nonisolated enum RoomCamera: String, Sendable {
             )
         }
 
-        /// Where the plaque hangs on the back wall: its nail's distance below the cell's top, and the
-        /// perspective's scale there.
-        var plaqueNail: (top: Double, scale: Double) {
-            let nail = SIMD3(Double(size.width) / 2, 0, RoomCamera.nailHeight * wallTop)
+        /// Where the plaque hangs on the back wall, behind the worker: its nail's place in the cell from
+        /// its top-left corner, and the perspective's scale there.
+        var plaqueNail: (x: Double, top: Double, scale: Double) {
+            let nail  = SIMD3(bodyX, 0, RoomCamera.nailHeight * wallTop)
+            let shown = project(nail)
             return (
-                top  : Double(project(nail).y),
+                x    : Double(shown.x),
+                top  : Double(shown.y),
                 scale: scale(at: nail)
             )
         }

@@ -51,6 +51,25 @@ struct MockHouseTests {
         #expect(house.mostUsed == ["Delivery", "Ingest", "Research", "Render"])
     }
 
+    @Test("A row's subtitle says what the worker is doing or needs, else its role, never a status word")
+    func subtitles() {
+        let workers = MockHouse.sample.workers
+        let byName  = Dictionary(uniqueKeysWithValues: workers.map { ($0.name, $0.subtitle) })
+        #expect(byName["Delivery"] == "Exports the stems")
+        #expect(byName["Export"] == "Needs your OK to send")
+        #expect(byName["Mastering"] == "Mixes and masters")
+        #expect(byName["PT Agent"] == "Edits in Pro Tools")
+        for worker in workers {
+            switch worker.status {
+            case .busy, .waiting: #expect(worker.subtitle == worker.activity, "\(worker.name)")
+            case .free, .off    : #expect(worker.subtitle == worker.role, "\(worker.name)")
+            }
+            let words = Set(worker.subtitle.lowercased().split(separator: " ").map(String.init))
+            #expect(words.isDisjoint(with: ["busy", "idle", "free", "off", "waiting"]), "\(worker.name)")
+            #expect(!worker.subtitle.contains { $0.isNumber }, "\(worker.name)")
+        }
+    }
+
     @Test("Every shape has a worker, and no room touches its own shape or a look-alike")
     func shapes() {
         let workers = MockHouse.sample.workers

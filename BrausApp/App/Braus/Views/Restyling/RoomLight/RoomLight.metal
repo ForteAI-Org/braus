@@ -17,7 +17,10 @@
 // them with a weight, tone maps once and writes sRGB, which lets the light pulse without rendering.
 // `traceRoom` traces the scene against an acceleration structure; `precomputeRoom` evaluates the
 // same scene analytically. `traceTiltedRoom` and `precomputeTiltedRoom` see a room with tall walls
-// through the tilted camera instead, as the section on the tilted view below describes.
+// through the tilted camera instead, as the section on the tilted view below describes. Each kernel
+// has a leaning twin (`traceLeaningRoom` and so on) for a room whose composition leans left, the
+// rows': the worker stands larger at the left, the lamp hangs above it and a little further left, and
+// the pool spreads from it toward the right; the tilted eye stands across from it.
 
 #include <metal_stdlib>
 #include <metal_raytracing>
@@ -25,7 +28,7 @@
 using namespace metal;
 using namespace raytracing;
 
-/// RoomLightUniforms matches `RoomLightUniforms.Packed` in Swift: six float4, 96 bytes.
+/// RoomLightUniforms matches `RoomLightUniforms.Packed` in Swift: seven float4, 112 bytes.
 struct RoomLightUniforms {
     float4 light;     // sRGB colour, strength in w
     float4 outline;   // the body's core: sides, size, turn or offset, and corner radius, in sphere radii
@@ -33,6 +36,7 @@ struct RoomLightUniforms {
     float4 room;      // width and height in points, points per pixel, the tilted room's cove radius
     float4 shape;     // wall height, wall reach, sphere radius, corner radius, in points
     float4 camera;    // the tilted view's floor depth, back wall top, focal length, worker's depth
+    float4 stage;     // the worker's distance from the left wall in points, the composition's lean
 };
 
 // The lamp, a disc facing down, as fractions of the room's short side. Its size keeps every shadow
@@ -51,6 +55,19 @@ constant float  tileGain   = 1.3;    // the tile's narrower core, as bright wher
 constant float  poolTail   = 0.005;
 constant float  tailWidth  = 1.1;
 constant float  wallCatch  = 13;
+
+// The pool of a room leaning left, as fractions of the room's short side around the worker: a
+// core as tall as the floor plan's, short toward the left wall and long toward the right, and a wash
+// that carries on right, widening as it goes and fading slowly, so the light dies into the room's
+// dark right side with no edge. The lamp hangs `lampLead` left of the worker.
+constant float lampLead       = 0.15;
+constant float leanCoreLeft   = 0.42;
+constant float leanCoreRight  = 0.75;
+constant float leanCoreHeight = 0.3;
+constant float leanWash       = 0.25;   // the wash's share of the pool at its centre
+constant float leanWashReach  = 1.3;    // how far right the wash falls to 1/e
+constant float leanWashSpread = 0.35;   // how much taller it grows for each short side it travels
+constant float2 leanTailReach = float2(1.8, 0.8);   // the walls' faint lit rim, rightward and across
 
 constant float  floorAlbedo = 0.5;
 constant float  wallAlbedo  = 0.7;
@@ -114,6 +131,8 @@ struct Room {
     float  bodyDome;
     float  bodyBottom;   // how far the outline reaches below its centre, in sphere radii
     float  bodySlab;     // standing, how far the core is thickened before and behind its middle
+    float  lean;         // 0 with the worker at the centre, 1 at the left
+    float2 poolCentre;   // where the pool centres once the composition leans, across on the worker
     float3 lamp;
     float  lampRadius;
     float3 light;        // linear colour times strength and exposure
@@ -165,6 +184,15 @@ static float4 encodedPixel(float3 linear, uint2 pixel) {
     return float4(sRGBFromLinear(linear) + (noise - 0.5) / 255, 1);
 }
 
+/// Moves `room`'s worker to where the stage puts it across the room, and its lamp `lampLead` further
+/// left, as far as the composition leans; the pool centres across on the worker, as far from the
+/// back as the floor plan's.
+static void leanLeft(thread Room& room, constant RoomLightUniforms& uniforms) {
+    room.body.x     = uniforms.stage.x;
+    room.lamp.x     = room.body.x - lampLead * room.side * room.lean;
+    room.poolCentre = float2(room.body.x, poolCentre.y * room.size.y);
+}
+
 static Room makeRoom(constant RoomLightUniforms& uniforms) {
     Room room;
     room.size           = uniforms.room.xy;
@@ -194,6 +222,20 @@ static Room makeRoom(constant RoomLightUniforms& uniforms) {
     room.fillet         = 0;
     room.footprint      = room.size;
     room.bodySlab       = 0;
+    room.lean           = 0;
+    return room;
+}
+
+/// The room as its composition stands it: the floor plan's, or, when it `leans`, moved left as far as
+/// the stage says. A template, so the floor plan's kernels compile with no lean at all and render
+/// exactly as they did before the rows leaned.
+template <bool leans>
+static Room stagedRoom(constant RoomLightUniforms& uniforms) {
+    Room room = makeRoom(uniforms);
+    if (leans) {
+        room.lean = uniforms.stage.y;
+        leanLeft(room, uniforms);
+    }
     return room;
 }
 
@@ -230,10 +272,40 @@ static Surface surfaceAt(float2 xy, Room room) {
     return surface;
 }
 
+/// The floor plan's pool around `centre`, 1 there, as `pool` lays it around the room's centre.
+static float centredPool(float2 xy, float2 centre, float wallShare, Room room) {
+    float distance = length((xy - centre) / (poolRadii * room.size));
+    float tail     = poolTail * (1 + wallCatch * wallShare);
+    float wide     = saturate((room.size.x / room.size.y - 1.3) / 0.7);
+    float core     = mix(tileCore, poolCore, wide);
+    float gain     = mix(tileGain, 1.0, wide);
+    return (1 - poolTail) * gain * exp(-square(distance / core)) + tail * exp(-square(distance / tailWidth));
+}
+
+/// The pool of a room leaning fully left, 1 at its centre: the core and the rightward wash, and
+/// the walls' lit rim, fading toward the right as the floor does.
+static float leaningPool(float2 xy, float wallShare, Room room) {
+    float2 offset = (xy - room.poolCentre) / room.side;
+    float  right  = max(offset.x, 0.0);
+    float  across = offset.x / (offset.x > 0 ? leanCoreRight : leanCoreLeft);
+    float  core   = exp(-square(across) - square(offset.y / leanCoreHeight));
+    float  height = leanCoreHeight + leanWashSpread * right;
+    float  wash   = exp(-right / leanWashReach - square(min(offset.x, 0.0) / leanCoreLeft) - square(offset.y / height))
+                  * leanCoreHeight / height;
+    float2 reach  = float2(offset.x > 0 ? leanTailReach.x : leanCoreLeft, leanTailReach.y);
+    float  tail   = poolTail * (1 + wallCatch * wallShare) * exp(-square(length(offset / reach) / tailWidth));
+    return (1 - poolTail) * ((1 - leanWash) * core + leanWash * wash) + tail;
+}
+
 /// The lamp's pool at a point of the room, 1 at its centre. The core falls off like the prototype's
 /// gradient; the tail is the lamp's side light, which the walls catch `wallCatch` times more than
-/// the floor, so they read as a lit rim.
+/// the floor, so they read as a lit rim. A room leaning left has the leaning pool, or a blend of the
+/// two while it leans part of the way.
 static float pool(float2 xy, float wallShare, Room room) {
+    if (room.lean > 0) {
+        float leaning = leaningPool(xy, wallShare, room);
+        return room.lean >= 1 ? leaning : mix(centredPool(xy, room.poolCentre, wallShare, room), leaning, room.lean);
+    }
     float distance = length((xy - poolCentre * room.size) / (poolRadii * room.size));
     float tail     = poolTail * (1 + wallCatch * wallShare);
     float wide     = saturate((room.size.x / room.size.y - 1.3) / 0.7);
@@ -578,13 +650,15 @@ static float3 roomSheen(float2 xy, float3 normal, Room room) {
     return metalFresnel(normal.z, room) * (ring * floor * sheenShare + rim * wall * rimShare);
 }
 
-kernel void precomputeRoom(texture2d<float, access::write> base     [[texture(0)]],
-                           texture2d<float, access::write> light    [[texture(1)]],
-                           constant RoomLightUniforms&     uniforms [[buffer(0)]],
-                           uint2                           pixel    [[thread_position_in_grid]])
+/// One pixel of `precomputeRoom`, or of `precomputeLeaningRoom` when the room `leans`.
+template <bool leans>
+static void precomputeRoomAt(texture2d<float, access::write> base,
+                             texture2d<float, access::write> light,
+                             constant RoomLightUniforms&     uniforms,
+                             uint2                           pixel)
 {
     if (pixel.x >= base.get_width() || pixel.y >= base.get_height()) { return; }
-    Room    room    = makeRoom(uniforms);
+    Room    room    = stagedRoom<leans>(uniforms);
     float2  xy      = (float2(pixel) + 0.5) * room.pointsPerPixel;
     Surface surface = surfaceAt(xy, room);
     Images  images  = { ambient * (1 - bodyAmbientOcclusion(surface, room)), analyticLight(xy, occlusionSamples, room) };
@@ -601,6 +675,23 @@ kernel void precomputeRoom(texture2d<float, access::write> base     [[texture(0)
     }
     base.write(float4(images.base, 1), pixel);
     light.write(float4(images.light, 1), pixel);
+}
+
+kernel void precomputeRoom(texture2d<float, access::write> base     [[texture(0)]],
+                           texture2d<float, access::write> light    [[texture(1)]],
+                           constant RoomLightUniforms&     uniforms [[buffer(0)]],
+                           uint2                           pixel    [[thread_position_in_grid]])
+{
+    precomputeRoomAt<false>(base, light, uniforms, pixel);
+}
+
+/// `precomputeRoom` for a room leaning left.
+kernel void precomputeLeaningRoom(texture2d<float, access::write> base     [[texture(0)]],
+                                  texture2d<float, access::write> light    [[texture(1)]],
+                                  constant RoomLightUniforms&     uniforms [[buffer(0)]],
+                                  uint2                           pixel    [[thread_position_in_grid]])
+{
+    precomputeRoomAt<true>(base, light, uniforms, pixel);
 }
 
 // MARK: - Resolve
@@ -781,14 +872,16 @@ static Images tracedBody(float2 xy, primitive_acceleration_structure scene, Room
     return images;
 }
 
-kernel void traceRoom(texture2d<float, access::write>  base     [[texture(0)]],
-                      texture2d<float, access::write>  light    [[texture(1)]],
-                      constant RoomLightUniforms&      uniforms [[buffer(0)]],
-                      primitive_acceleration_structure scene    [[buffer(1)]],
-                      uint2                            pixel    [[thread_position_in_grid]])
+/// One pixel of `traceRoom`, or of `traceLeaningRoom` when the room `leans`.
+template <bool leans>
+static void traceRoomAt(texture2d<float, access::write>  base,
+                        texture2d<float, access::write>  light,
+                        constant RoomLightUniforms&      uniforms,
+                        primitive_acceleration_structure scene,
+                        uint2                            pixel)
 {
     if (pixel.x >= base.get_width() || pixel.y >= base.get_height()) { return; }
-    Room   room     = makeRoom(uniforms);
+    Room   room     = stagedRoom<leans>(uniforms);
     uint   seed     = pcg(pixel.x + pcg(pixel.y));
     float2 rotation = float2(random(seed), random(seed));
     float  top      = room.lamp.z;
@@ -818,6 +911,25 @@ kernel void traceRoom(texture2d<float, access::write>  base     [[texture(0)]],
     }
     base.write(float4(sum.base / accumulatedFrames, 1), pixel);
     light.write(float4(sum.light / accumulatedFrames, 1), pixel);
+}
+
+kernel void traceRoom(texture2d<float, access::write>  base     [[texture(0)]],
+                      texture2d<float, access::write>  light    [[texture(1)]],
+                      constant RoomLightUniforms&      uniforms [[buffer(0)]],
+                      primitive_acceleration_structure scene    [[buffer(1)]],
+                      uint2                            pixel    [[thread_position_in_grid]])
+{
+    traceRoomAt<false>(base, light, uniforms, scene, pixel);
+}
+
+/// `traceRoom` for a room leaning left.
+kernel void traceLeaningRoom(texture2d<float, access::write>  base     [[texture(0)]],
+                             texture2d<float, access::write>  light    [[texture(1)]],
+                             constant RoomLightUniforms&      uniforms [[buffer(0)]],
+                             primitive_acceleration_structure scene    [[buffer(1)]],
+                             uint2                            pixel    [[thread_position_in_grid]])
+{
+    traceRoomAt<true>(base, light, uniforms, scene, pixel);
 }
 
 // MARK: - The tilted view
@@ -874,7 +986,8 @@ struct Camera {
 
 /// The tilted view's room: the body standing on its lowest point a little behind the floor's middle,
 /// the pool's frame centred on it as the room is from above, and the lamp over it and a little behind,
-/// so the body's shadow falls toward the camera.
+/// so the body's shadow falls toward the camera; when the room `leans`, moved left as the stage says.
+template <bool leans>
 static Room makeTiltedRoom(constant RoomLightUniforms& uniforms) {
     Room room      = makeRoom(uniforms);
     room.isTilted  = true;
@@ -885,10 +998,16 @@ static Room makeTiltedRoom(constant RoomLightUniforms& uniforms) {
     room.bodySlab  = uniforms.body.z * room.radius;
     room.body      = float3(room.size * 0.5, room.bodyBottom * room.radius);
     room.lamp      = float3(poolCentre.x * room.size.x, room.body.y - lampBehind * room.side, lampHeightShare * room.side);
+    if (leans) {
+        room.lean = uniforms.stage.y;
+        leanLeft(room, uniforms);
+    }
     return room;
 }
 
-/// The camera `RoomCamera.Perspective` describes: the window's slant length is the cell's height.
+/// The camera `RoomCamera.Perspective` describes: the window's slant length is the cell's height, and
+/// in a room leaning left the eye stands across from the worker.
+template <bool leans>
 static Camera makeCamera(constant RoomLightUniforms& uniforms) {
     float  height = uniforms.room.y;
     float  depth  = uniforms.camera.x;
@@ -898,6 +1017,7 @@ static Camera makeCamera(constant RoomLightUniforms& uniforms) {
     camera.normal = float3(0, top, depth) / height;
     camera.up     = float3(0, -depth, top) / height;
     camera.eye    = camera.centre + uniforms.camera.z * camera.normal;
+    if (leans) { camera.eye.x = uniforms.stage.x; }
     return camera;
 }
 
@@ -1088,14 +1208,16 @@ static float3 tiltedMirror(float3 position, float3 normal, float3 direction, Roo
          * (1 - smoothstep(-0.15 * room.side, 0.15 * room.side, before));
 }
 
-kernel void precomputeTiltedRoom(texture2d<float, access::write> base     [[texture(0)]],
-                                 texture2d<float, access::write> light    [[texture(1)]],
-                                 constant RoomLightUniforms&     uniforms [[buffer(0)]],
-                                 uint2                           pixel    [[thread_position_in_grid]])
+/// One pixel of `precomputeTiltedRoom`, or of `precomputeTiltedLeaningRoom` when the room `leans`.
+template <bool leans>
+static void precomputeTiltedRoomAt(texture2d<float, access::write> base,
+                                   texture2d<float, access::write> light,
+                                   constant RoomLightUniforms&     uniforms,
+                                   uint2                           pixel)
 {
     if (pixel.x >= base.get_width() || pixel.y >= base.get_height()) { return; }
-    Room    room      = makeTiltedRoom(uniforms);
-    Camera  camera    = makeCamera(uniforms);
+    Room    room      = makeTiltedRoom<leans>(uniforms);
+    Camera  camera    = makeCamera<leans>(uniforms);
     float2  xy        = (float2(pixel) + 0.5) * room.pointsPerPixel;
     float3  window    = windowPoint(xy, uniforms, camera);
     Surface surface   = tiltedSurfaceAt(tiltedRoomHit(window, normalize(window - camera.eye), room), room);
@@ -1134,6 +1256,23 @@ kernel void precomputeTiltedRoom(texture2d<float, access::write> base     [[text
     }
     base.write(float4(images.base, 1), pixel);
     light.write(float4(images.light, 1), pixel);
+}
+
+kernel void precomputeTiltedRoom(texture2d<float, access::write> base     [[texture(0)]],
+                                 texture2d<float, access::write> light    [[texture(1)]],
+                                 constant RoomLightUniforms&     uniforms [[buffer(0)]],
+                                 uint2                           pixel    [[thread_position_in_grid]])
+{
+    precomputeTiltedRoomAt<false>(base, light, uniforms, pixel);
+}
+
+/// `precomputeTiltedRoom` for a room leaning left.
+kernel void precomputeTiltedLeaningRoom(texture2d<float, access::write> base     [[texture(0)]],
+                                        texture2d<float, access::write> light    [[texture(1)]],
+                                        constant RoomLightUniforms&     uniforms [[buffer(0)]],
+                                        uint2                           pixel    [[thread_position_in_grid]])
+{
+    precomputeTiltedRoomAt<true>(base, light, uniforms, pixel);
 }
 
 /// One frame of a floor or wall point of the tilted room: the lamp's light under the body's soft
@@ -1195,15 +1334,17 @@ static Images tracedTiltedBody(float3 position, float3 direction, primitive_acce
     return images;
 }
 
-kernel void traceTiltedRoom(texture2d<float, access::write>  base     [[texture(0)]],
-                            texture2d<float, access::write>  light    [[texture(1)]],
-                            constant RoomLightUniforms&      uniforms [[buffer(0)]],
-                            primitive_acceleration_structure scene    [[buffer(1)]],
-                            uint2                            pixel    [[thread_position_in_grid]])
+/// One pixel of `traceTiltedRoom`, or of `traceTiltedLeaningRoom` when the room `leans`.
+template <bool leans>
+static void traceTiltedRoomAt(texture2d<float, access::write>  base,
+                              texture2d<float, access::write>  light,
+                              constant RoomLightUniforms&      uniforms,
+                              primitive_acceleration_structure scene,
+                              uint2                            pixel)
 {
     if (pixel.x >= base.get_width() || pixel.y >= base.get_height()) { return; }
-    Room   room     = makeTiltedRoom(uniforms);
-    Camera camera   = makeCamera(uniforms);
+    Room   room     = makeTiltedRoom<leans>(uniforms);
+    Camera camera   = makeCamera<leans>(uniforms);
     uint   seed     = pcg(pixel.x + pcg(pixel.y));
     float2 rotation = float2(random(seed), random(seed));
     intersector<> nearest = makeIntersector();
@@ -1243,6 +1384,25 @@ kernel void traceTiltedRoom(texture2d<float, access::write>  base     [[texture(
     light.write(float4(sum.light / accumulatedFrames, 1), pixel);
 }
 
+kernel void traceTiltedRoom(texture2d<float, access::write>  base     [[texture(0)]],
+                            texture2d<float, access::write>  light    [[texture(1)]],
+                            constant RoomLightUniforms&      uniforms [[buffer(0)]],
+                            primitive_acceleration_structure scene    [[buffer(1)]],
+                            uint2                            pixel    [[thread_position_in_grid]])
+{
+    traceTiltedRoomAt<false>(base, light, uniforms, scene, pixel);
+}
+
+/// `traceTiltedRoom` for a room leaning left.
+kernel void traceTiltedLeaningRoom(texture2d<float, access::write>  base     [[texture(0)]],
+                                   texture2d<float, access::write>  light    [[texture(1)]],
+                                   constant RoomLightUniforms&      uniforms [[buffer(0)]],
+                                   primitive_acceleration_structure scene    [[buffer(1)]],
+                                   uint2                            pixel    [[thread_position_in_grid]])
+{
+    traceTiltedRoomAt<true>(base, light, uniforms, scene, pixel);
+}
+
 // MARK: - Checks
 
 /// The body's normal at each of `points`, room coordinates in points, for the tests: the check that
@@ -1256,14 +1416,15 @@ kernel void bodyNormals(constant RoomLightUniforms& uniforms [[buffer(0)]],
 }
 
 /// Whether the tilted camera's ray through each of `points`, cell coordinates in points, meets the
-/// body, for the tests: the check that the brows sit on it.
+/// body, in a room centred or leaning left, for the tests: the check that the brows sit on it.
 kernel void tiltedBodyHits(constant RoomLightUniforms& uniforms [[buffer(0)]],
                            device const float2*        points   [[buffer(1)]],
                            device float*               hits     [[buffer(2)]],
                            uint                        index    [[thread_position_in_grid]])
 {
-    Room   room      = makeTiltedRoom(uniforms);
-    Camera camera    = makeCamera(uniforms);
+    bool   leans     = uniforms.stage.y > 0;
+    Room   room      = leans ? makeTiltedRoom<true>(uniforms) : makeTiltedRoom<false>(uniforms);
+    Camera camera    = leans ? makeCamera<true>(uniforms) : makeCamera<false>(uniforms);
     float3 direction = normalize(windowPoint(points[index], uniforms, camera) - camera.eye);
     hits[index] = bodyHit(camera.eye, direction, room) > 0 ? 1 : 0;
 }
