@@ -123,6 +123,9 @@ final class RoomLightView: MTKView, RoomRenderTarget {
 
     static let bodyKey = "body"
 
+    /// The body's pose as it showed when an action changed, fading out over the new motion.
+    let bodyFade = CALayer()
+
     /// The motion the room plays, or bakes frames for.
     private(set) var bodyMotion: RoomBodyMotion?
 
@@ -312,6 +315,9 @@ final class RoomLightView: MTKView, RoomRenderTarget {
             bodyLayer.addSublayer(frame)
         }
         layer?.addSublayer(bodyLayer)
+        bodyFade.isHidden        = true
+        bodyFade.contentsGravity = .resize
+        layer?.addSublayer(bodyFade)
         refineLayer.isHidden        = true
         refineLayer.contentsGravity = .resize
         layer?.addSublayer(refineLayer)
@@ -349,6 +355,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         bodyLayer.frame     = bounds
         bodyDim.frame       = bounds
         bodyLit.frame       = bounds
+        bodyFade.frame      = bounds
         passageLayer.frame  = bounds
         passageEmpty.frame  = bounds
         passageWorker.frame = bounds
@@ -875,6 +882,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         refineLayer.contentsRect = rect
         bodyDim.contentsRect     = rect
         bodyLit.contentsRect     = rect
+        bodyFade.contentsRect    = rect
     }
 
     /// Keeps the image shown over the room until the change's full render lands beneath it, and the
@@ -1166,6 +1174,30 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         )
     }
 
+    /// The body's motion for `action` in a room showing `uniforms` at `size`, a loop of its own: none
+    /// from above, in an empty room, for a worker that is off, or under Reduce Motion.
+    static func bodyMotion(
+        for action   : WorkerAction,
+        uniforms     : RoomLightUniforms,
+        size         : CGSize,
+        reducesMotion: Bool
+    ) -> RoomBodyMotion? {
+        guard
+            !reducesMotion,
+            uniforms.camera == .tilted,
+            uniforms.hasOccupant,
+            uniforms.status != .off
+        else { return nil }
+        return RoomBodyMotion(
+            intents    : [action.intent],
+            duration   : action.duration,
+            shape      : uniforms.shape,
+            size       : size,
+            lean       : uniforms.lean,
+            opensAtRest: false
+        )
+    }
+
     /// For a light that pulses in a room showing `uniforms`, the lamp's and the screen's weights of a
     /// pose's dim frame, each at its lowest, and for each of the pulse's frames how much of the pose's
     /// frame at full light shows over it, along the line between the two; nil for a light that holds
@@ -1193,32 +1225,95 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         return (low, pairs.map { max(0, min(1, (($0 - low) * span).sum() / length)) })
     }
 
-    /// Follows a new loop of the brows that `bodyLink` holds: the motion restarts on its clock.
+    /// Follows a new loop of the brows that `bodyLink` holds: the motion restarts on its clock. While
+    /// the body takes an action the loop waits.
     func bodyLoopDidChange() {
+        guard bodyLink?.action == nil else { return }
         stopBody()
         prepareBody()
     }
 
+    /// Follows the body's new action, or its return to the loop: the present pose fades out over
+    /// `actionFade` as the new motion starts beneath it, and the brows blend from where they show.
+    func bodyActionDidChange() {
+        let fades = bodyLayer.animation(forKey: Self.bodyKey) != nil && !RestylingMotion.reducesMotion
+        let shown = bodyLit.presentation()?.contents
+        let level = bodyLayer.presentation()?.opacity ?? 0
+        let brows = bodyLink?.mascot?.bodyOffset
+        stopBody()
+        prepareBody()
+        guard fades, let shown, level > 0 else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        bodyFade.removeAllAnimations()
+        bodyFade.isHidden     = false
+        bodyFade.contents     = shown
+        bodyFade.opacity      = 0
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = level
+        fade.toValue   = 0
+        fade.duration  = Self.actionFade
+        bodyFade.add(
+            fade,
+            forKey: Self.bodyKey
+        )
+        CATransaction.commit()
+        if let brows { bodyLink?.mascot?.blendBody(from: brows, over: Self.actionFade) }
+    }
+
+    /// How long the body cross-fades from one action to the next.
+    static let actionFade = 0.3
+
     /// Whether the body's motion still wants a pose baked for the room's current image.
     private var needsBodyFrame: Bool {
-        guard let bodyMotion, bodyRevision == renderRevision else { return false }
-        return bodyMotion.poses.contains { bodyFrames[$0] == nil }
+        guard bodyRevision == renderRevision else { return false }
+        return bodyPoses.contains { bodyFrames[$0] == nil }
     }
+
+    /// The poses the room bakes for its body: its motion's, and every action's where the body takes
+    /// actions (`actionPoses`), so a change of action plays at once.
+    private var bodyPoses: [RoomLightUniforms.Pose] {
+        let poses = bodyMotion?.poses ?? []
+        return poses + actionPoses.filter { !poses.contains($0) }
+    }
+
+    /// Every action's poses, for a body that takes actions, as the room's image was last prepared.
+    private var actionPoses: [RoomLightUniforms.Pose] = []
 
     /// Plays the body's motion for the room's current image once every pose has its frames, or asks
     /// the queue to bake the next one; stops it when there is none.
     private func prepareBody() {
-        let motion = bodyRevision == renderRevision ? lastRenderedSize.flatMap {
-            Self.bodyMotion(
+        let motion = bodyRevision == renderRevision ? lastRenderedSize.flatMap { size in
+            bodyLink?.action.map {
+                Self.bodyMotion(
+                    for          : $0,
+                    uniforms     : uniforms,
+                    size         : size,
+                    reducesMotion: RestylingMotion.reducesMotion
+                )
+            } ?? Self.bodyMotion(
                 for          : bodyLink?.loop,
                 uniforms     : uniforms,
-                size         : $0,
+                size         : size,
                 reducesMotion: RestylingMotion.reducesMotion
             )
         } : nil
         if motion != bodyMotion {
             stopBody()
             bodyMotion = motion
+        }
+        actionPoses = []
+        if bodyLink?.takesActions == true, bodyRevision == renderRevision, let size = lastRenderedSize {
+            for action in WorkerAction.allCases {
+                for pose in Self.bodyMotion(
+                    for          : action,
+                    uniforms     : uniforms,
+                    size         : size,
+                    reducesMotion: RestylingMotion.reducesMotion
+                )?.poses ?? [] where !actionPoses.contains(pose) {
+                    actionPoses.append(pose)
+                }
+            }
         }
         guard let motion else { return }
         guard motion.poses.allSatisfy({ bodyFrames[$0] != nil }) else {
@@ -1233,8 +1328,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     /// RoomRenderQueue once the full render has landed; plays the motion when it was the last.
     private func renderBodyFrame() {
         guard
-            let motion = bodyMotion,
-            let pose   = motion.poses.first(where: { bodyFrames[$0] == nil }),
+            let pose   = bodyPoses.first(where: { bodyFrames[$0] == nil }),
             let renderer,
             let size      = lastRenderedSize,
             let pixelSize = lastRenderedPixelSize,
@@ -1293,7 +1387,9 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     private func playBody(_ motion: RoomBodyMotion) {
         let lit = motion.poses.compactMap { bodyFrames[$0]?.first }
         let dim = motion.poses.compactMap { bodyFrames[$0]?.dropFirst().first }
-        guard lit.count == motion.poses.count, let link = bodyLink, link.loop != nil else { return }
+        guard lit.count == motion.poses.count, let link = bodyLink, link.action != nil || link.loop != nil else { return }
+        // An action runs on its own clock from its start; the loop on the brows'.
+        let start = link.action != nil ? link.actionStart : link.start
         let dims  = dim.count == lit.count
         let parts = [
             (bodyLayer, motion.envelope()),
@@ -1304,7 +1400,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         bodyLayer.isHidden = false
         bodyDim.isHidden   = !dims
         for (layer, animation) in parts {
-            animation.beginTime = layer.convertTime(link.start, from: nil)
+            animation.beginTime = layer.convertTime(start, from: nil)
             layer.add(
                 animation,
                 forKey: Self.bodyKey
@@ -1327,7 +1423,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         CATransaction.commit()
         link.mascot?.followBody(
             motion.browMotion(),
-            from: link.start
+            from: start
         )
     }
 
@@ -1340,6 +1436,9 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         }
         bodyLit.removeAnimation(forKey: Self.pulseKey)
         bodyLayer.isHidden = true
+        bodyFade.removeAllAnimations()
+        bodyFade.contents  = nil
+        bodyFade.isHidden  = true
         CATransaction.commit()
         bodyLink?.mascot?.followBody(nil)
     }

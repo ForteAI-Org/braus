@@ -40,9 +40,11 @@ nonisolated struct RoomBodyMotion: Equatable {
     let keyframes: [Keyframe]
     let faceMoves: [FaceMove]
 
-    /// What carries the body's outline at rest to where each pose shows it, in a layer of the room's
-    /// size, y up, about its origin.
-    let outlineTransforms: [CGAffineTransform]
+    /// The worker and the room the motion is for, which give the body's outlines when a room clipped
+    /// to them asks (`outline()`).
+    let shape: WorkerShape
+    let size : CGSize
+    let lean : Float
 
     /// The most poses a room bakes for its body's motion: two frames each for a light that pulses.
     static let maxPoses = 10
@@ -65,13 +67,16 @@ nonisolated struct RoomBodyMotion: Equatable {
         )
     }
 
-    /// The motion of `intents` over a loop of `duration` seconds, or nil when none of them moves.
+    /// The motion of `intents` over a loop of `duration` seconds, or nil when none of them moves. A
+    /// loop that `opensAtRest` starts and ends at rest; otherwise its intents' keys run from its start
+    /// to its end, as an action's do (`WorkerAction`).
     init?(
-        intents : [WorkerBehaviourLoop.BodyIntent],
-        duration: Double,
-        shape   : WorkerShape,
-        size    : CGSize,
-        lean    : Float
+        intents    : [WorkerBehaviourLoop.BodyIntent],
+        duration   : Double,
+        shape      : WorkerShape,
+        size       : CGSize,
+        lean       : Float,
+        opensAtRest: Bool = true
     ) {
         guard duration > 0 else { return nil }
         let side = Float(min(size.width, size.height))
@@ -106,10 +111,10 @@ nonisolated struct RoomBodyMotion: Equatable {
         let kept  = Set(ranked.prefix(Self.maxPoses).map(\.element))
         let poses = order.filter { kept.contains($0) }
         guard !poses.isEmpty else { return nil }
-        var keyframes = [Keyframe(
+        var keyframes = opensAtRest ? [Keyframe(
             time: 0,
             pose: nil
-        )]
+        )] : []
         for intent in intents {
             let steps = intent.keys.map { key in (time: intent.time + key.time, pose: room(key.pose)) }
             guard steps.allSatisfy({ $0.pose.map(kept.contains) ?? true }) else { continue }
@@ -120,10 +125,12 @@ nonisolated struct RoomBodyMotion: Equatable {
                 )
             }
         }
-        keyframes.append(Keyframe(
-            time: duration,
-            pose: nil
-        ))
+        if opensAtRest {
+            keyframes.append(Keyframe(
+                time: duration,
+                pose: nil
+            ))
+        }
         self.duration  = duration
         self.poses     = poses
         self.keyframes = keyframes
@@ -131,10 +138,6 @@ nonisolated struct RoomBodyMotion: Equatable {
             size: size,
             lean: lean
         )
-        let radius = Double(RoomLightUniforms.Shape(
-            size: size,
-            lean: lean
-        ).sphereRadius)
         faceMoves = poses.map {
             Self.faceMove(
                 of    : shape,
@@ -142,13 +145,9 @@ nonisolated struct RoomBodyMotion: Equatable {
                 pose  : $0
             )
         }
-        outlineTransforms = poses.map {
-            Self.outlineTransform(
-                camera: camera,
-                radius: radius,
-                pose  : $0
-            )
-        }
+        self.shape = shape
+        self.size  = size
+        self.lean  = lean
     }
 
     /// How much of the baked frames shows over the room's own: all of it in a gesture, none at rest.
@@ -192,17 +191,63 @@ nonisolated struct RoomBodyMotion: Equatable {
     /// The keys of `browMotion()`'s animations.
     static let browKeys = ["body.shift", "body.turn", "body.scale"]
 
-    /// The transform of an outline that clips the room to its worker, moving with the body.
+    /// The path of an outline that clips the room to its worker, moving with the body: the body's
+    /// outline at rest and in each pose, in a layer of the room's size, y up, each the same points in
+    /// the same order (`RoomCamera.Perspective.silhouette(of:pose:samples:)`).
+    @MainActor
     func outline() -> CAKeyframeAnimation {
-        animation(
-            "transform",
+        let outlines = ([RoomLightUniforms.Pose.rest] + poses).map(outline)
+        return animation(
+            "path",
             values: keyframes.map { keyframe in
-                NSValue(caTransform3D: CATransform3DMakeAffineTransform(
-                    keyframe.pose.map { outlineTransforms[$0] } ?? .identity
-                ))
+                outlines[keyframe.pose.map { $0 + 1 } ?? 0]
             }
         )
     }
+
+    /// The body's outline in `pose`, in a layer of the room's size, y up, built once.
+    @MainActor
+    func outline(_ pose: RoomLightUniforms.Pose) -> CGPath {
+        let key = OutlineKey(
+            shape : shape,
+            width : size.width,
+            height: size.height,
+            lean  : lean,
+            pose  : pose
+        )
+        if let known = Self.outlines[key] { return known }
+        var flip = CGAffineTransform(
+            a : 1,
+            b : 0,
+            c : 0,
+            d : -1,
+            tx: 0,
+            ty: size.height
+        )
+        let path = RoomCamera.Perspective(
+            size: size,
+            lean: lean
+        ).silhouette(
+            of  : shape,
+            pose: pose
+        )
+        let outline = path.copy(using: &flip) ?? path
+        // ponytail: an unbounded cache, a few hundred paths for a house; bound it if rooms grow many sizes.
+        Self.outlines[key] = outline
+        return outline
+    }
+
+    /// OutlineKey names an outline already built: the worker, the room and the pose.
+    private struct OutlineKey: Hashable {
+        let shape : WorkerShape
+        let width : CGFloat
+        let height: CGFloat
+        let lean  : Float
+        let pose  : RoomLightUniforms.Pose
+    }
+
+    @MainActor
+    private static var outlines: [OutlineKey: CGPath] = [:]
 
     /// The pose a frame shows at keyframe `index`: its own, or at rest its gesture's next or last.
     private func shownPose(at index: Int) -> Int {

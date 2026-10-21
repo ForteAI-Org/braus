@@ -194,18 +194,18 @@ struct BodyMotionTests {
             pose: RoomLightUniforms.Pose(tilt: 0.1)
         )
         #expect(turned.turn < camera.face(of: .circle).turn)
-        // At the top of a hop the outline rises without turning, its foot straight up.
+        // At the top of a hop the outline rises; every outline has the same points, so it morphs.
         let index = try #require(motion.poses.indices.max { motion.poses[$0].hop < motion.poses[$1].hop })
-        let lift  = motion.outlineTransforms[index]
-        let foot  = camera.project(SIMD3(camera.bodyX, camera.bodyDepth, 0))
-        let up    = CGPoint(
-            x: foot.x,
-            y: Self.size.height - foot.y
-        ).applying(lift)
-        #expect(abs(lift.b) < 1e-6 && abs(lift.c) < 1e-6)
-        #expect(abs(lift.a - 1) < 0.1 && abs(lift.d - 1) < 0.1)
-        #expect(abs(up.x - foot.x) < 1e-6)
-        #expect(up.y - (Self.size.height - foot.y) > 0.3 * Double(motion.poses[index].hop))
+        let still = motion.outline(.rest).boundingBoxOfPath
+        let lift  = motion.outline(motion.poses[index]).boundingBoxOfPath
+        #expect(lift.maxY > still.maxY + 0.3 * CGFloat(motion.poses[index].hop))
+        #expect(abs(lift.midX - still.midX) < 0.5)
+        func count(_ path: CGPath) -> Int {
+            var points = 0
+            path.applyWithBlock { _ in points += 1 }
+            return points
+        }
+        #expect(motion.poses.allSatisfy { count(motion.outline($0)) == count(motion.outline(.rest)) })
     }
 
     @Test("A posed body stands where its pose puts it: a hop lifts it and a tilt leans its top")

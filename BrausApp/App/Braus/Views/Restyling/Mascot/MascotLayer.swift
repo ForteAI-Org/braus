@@ -598,6 +598,53 @@ nonisolated final class MascotLayer: CALayer {
     /// The key of the brows' shift with the body.
     static let bodyKey = RoomBodyMotion.browKeys[0]
 
+    /// How far the brows show moved with the body now: the layer's shift, turn and change of scale.
+    var bodyOffset: RoomBodyMotion.FaceMove {
+        let shown = presentation() ?? self
+        func value(_ keyPath: String, of layer: CALayer) -> Double {
+            (layer.value(forKeyPath: keyPath) as? NSNumber)?.doubleValue ?? 0
+        }
+        return RoomBodyMotion.FaceMove(
+            shift: CGPoint(
+                x: shown.position.x - position.x,
+                y: shown.position.y - position.y
+            ),
+            turn : value("transform.rotation.z", of: shown) - value("transform.rotation.z", of: self),
+            scale: 1 + value("transform.scale.x", of: shown) - value("transform.scale.x", of: self)
+        )
+    }
+
+    /// Blends the brows from `offset`, where they showed with the body before its motion changed, to
+    /// where the new motion takes them, over `duration` seconds. Nothing under Reduce Motion.
+    @MainActor
+    func blendBody(
+        from offset: RoomBodyMotion.FaceMove,
+        over duration: Double
+    ) {
+        guard !RestylingMotion.reducesMotion else { return }
+        let now = bodyOffset
+        let parts: [(key: String, keyPath: String, from: Any, to: Any)] = [
+            ("body.blend.shift", "position", NSValue(point: CGPoint(
+                x: offset.shift.x - now.shift.x,
+                y: offset.shift.y - now.shift.y
+            )), NSValue(point: .zero)),
+            ("body.blend.turn", "transform.rotation.z", offset.turn - now.turn, 0.0),
+            ("body.blend.scale", "transform.scale", offset.scale - now.scale, 0.0),
+        ]
+        for part in parts {
+            let blend = CABasicAnimation(keyPath: part.keyPath)
+            blend.fromValue      = part.from
+            blend.toValue        = part.to
+            blend.isAdditive     = true
+            blend.duration       = duration
+            blend.timingFunction = Self.morphCurve
+            add(
+                blend,
+                forKey: part.key
+            )
+        }
+    }
+
     /// Whether the worker is away in the chat: the brows are hidden, but while they pass out of the
     /// room with the body or back in (`followPassage(_:from:)`).
     var isAway = false {

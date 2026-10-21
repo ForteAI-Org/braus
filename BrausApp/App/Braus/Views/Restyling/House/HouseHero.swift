@@ -15,8 +15,10 @@ import SwiftUI
 /// nothing lights the worker from behind. The kind of work shows on hover of the name, so the window
 /// says the name once.
 ///
-/// The conversation gives the moment's `status`, `brows` and `activity`, and raises `preparation`
-/// when the worker sets about a message, which the worker plays once.
+/// The conversation gives the moment's `status`, `brows` and `activity`, raises `preparation` when the
+/// worker sets about a message, which the worker plays once, and gives the body's `action` through
+/// the turn: it leans in to read, sways while it thinks, bobs at its screen while it works and hops
+/// when its reply arrives, cross-fading from one to the next.
 ///
 /// A change of worker brings the hero in and out on `HouseSwitch`'s beats. The hero's frame is the
 /// same for every shape and every subtitle, so the transcript under it never moves.
@@ -26,6 +28,9 @@ struct HouseHero: View {
     let brows      : BrowState
     let activity   : String
     let preparation: Int
+
+    /// What the worker does with its body through a turn, in place of its idle loop; nil outside one.
+    var action: WorkerAction?
 
     /// Where the hero is in a change of worker.
     var stage = HouseSwitch.Stage.present
@@ -70,7 +75,9 @@ struct HouseHero: View {
                 capsuleLight: HeroLight.capsuleLight(for: status),
                 changeFade  : HeroLight.fade,
                 preparation : preparation,
-                switchStage : stage
+                switchStage : stage,
+                action      : action,
+                takesActions: true
             )
             .frame(
                 height   : Self.portraitHeight,

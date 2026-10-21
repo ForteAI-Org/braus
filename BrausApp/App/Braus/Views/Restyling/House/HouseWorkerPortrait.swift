@@ -46,6 +46,13 @@ struct HouseWorkerPortrait: View {
     /// Where the worker is in a change of worker at the top of its conversation, or nil elsewhere.
     var switchStage: HouseSwitch.Stage?
 
+    /// What the body does in place of its idle loop, through a turn at the top of its conversation.
+    var action: WorkerAction?
+
+    /// Whether the body takes actions, so the room bakes them ahead: the worker at the top of its
+    /// conversation.
+    var takesActions = false
+
     /// The rows' worker: the sphere of a scene 72.9 points across.
     static let rowSize = 2 * CGFloat(RoomLightUniforms.Shape.leftSphereShare) * 72.9
 
@@ -249,6 +256,7 @@ struct HouseWorkerPortrait: View {
                 face,
                 animated: animated
             )
+            if portrait.takesActions { bodyLink.act(portrait.action) }
             if preparation == nil {
                 face.mascot.startBreathing()
                 isArrivalPending = portrait.switchStage.map { $0 != .leaving } ?? false

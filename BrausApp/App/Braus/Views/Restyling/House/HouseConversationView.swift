@@ -96,6 +96,7 @@ struct HouseConversationView: View {
                 brows      : heroBrows,
                 activity   : heroActivity,
                 preparation: conversation.turns,
+                action     : conversation.action,
                 stage      : stage
             )
             .padding(

@@ -251,9 +251,77 @@ nonisolated enum RoomCamera: String, Sendable {
             )
         }
 
+        /// The silhouette of the standing body of `shape` moved by `pose`, as this camera shows it, in
+        /// the cell's points with y down: `samples` points of its convex hull, where rays from the hull's
+        /// middle at even turns leave it, so silhouettes of every pose have the same points in the same
+        /// order and Core Animation can carry one into the next.
+        func silhouette(
+            of shape: WorkerShape,
+            pose    : RoomLightUniforms.Pose,
+            samples : Int = 96
+        ) -> CGPath {
+            // A coarser hull than the one at rest, enough for a clip that moves.
+            let hull   = self.hull(
+                of   : shape,
+                pose : pose,
+                rings: 8,
+                turn : 48
+            )
+            let middle = CGPoint(
+                x: hull.map(\.x).reduce(0, +) / CGFloat(max(1, hull.count)),
+                y: hull.map(\.y).reduce(0, +) / CGFloat(max(1, hull.count))
+            )
+            let points = (0..<samples).map { index -> CGPoint in
+                let angle = 2 * Double.pi * Double(index) / Double(samples)
+                let ray   = CGVector(
+                    dx: cos(angle),
+                    dy: sin(angle)
+                )
+                // The nearest crossing of the ray with the hull's edges, which surround the middle.
+                var reach = CGFloat.greatestFiniteMagnitude
+                for (start, end) in zip(hull, hull.dropFirst() + hull.prefix(1)) {
+                    let edge  = CGVector(
+                        dx: end.x - start.x,
+                        dy: end.y - start.y
+                    )
+                    let cross = ray.dx * edge.dy - ray.dy * edge.dx
+                    guard abs(cross) > 1e-12 else { continue }
+                    let along = ((start.x - middle.x) * edge.dy - (start.y - middle.y) * edge.dx) / cross
+                    let share = ((start.x - middle.x) * ray.dy - (start.y - middle.y) * ray.dx) / cross
+                    if along > 0, (-1e-9...1 + 1e-9).contains(share) { reach = min(reach, along) }
+                }
+                return reach == .greatestFiniteMagnitude ? middle : CGPoint(
+                    x: middle.x + ray.dx * reach,
+                    y: middle.y + ray.dy * reach
+                )
+            }
+            let path = CGMutablePath()
+            path.addLines(between: points)
+            path.closeSubpath()
+            return path
+        }
+
         /// The convex silhouette of the standing body of `shape`, as this camera shows it at rest, in the
         /// cell's points with y down: the hull of its outline grown along the bevel before and behind.
         func silhouette(of shape: WorkerShape) -> CGPath {
+            let hull = self.hull(
+                of  : shape,
+                pose: .rest
+            )
+            let path = CGMutablePath()
+            path.addLines(between: hull)
+            path.closeSubpath()
+            return path
+        }
+
+        /// The convex hull of the standing body of `shape` moved by `pose`, projected, clockwise on
+        /// screen, from `rings` rings of the bevel before and behind, `turn` points each.
+        private func hull(
+            of shape: WorkerShape,
+            pose    : RoomLightUniforms.Pose,
+            rings   : Int = 24,
+            turn    : Int = 128
+        ) -> [CGPoint] {
             let radius  = Double(RoomLightUniforms.Shape(
                 size: size,
                 lean: lean
@@ -262,17 +330,20 @@ nonisolated enum RoomCamera: String, Sendable {
             let slab    = RoomCamera.slab(of: outline)
             var points: [CGPoint] = []
             for front in [-1.0, 1.0] {
-                for index in 0...24 {
-                    let angle = Double.pi / 2 * Double(index) / 24
+                for index in 0...rings {
+                    let angle = Double.pi / 2 * Double(index) / Double(rings)
                     let depth = front * radius * (slab + outline.corner * sin(angle))
                     for point in outline.points(
                         growth       : outline.corner * cos(angle),
-                        pointsPerTurn: 128
+                        pointsPerTurn: turn
                     ) {
-                        points.append(project(SIMD3(
-                            bodyX + radius * point.x,
-                            bodyDepth + depth,
-                            radius * (outline.bottom - point.y)
+                        points.append(project(pose.moved(
+                            SIMD3(
+                                bodyX + radius * point.x,
+                                bodyDepth + depth,
+                                radius * (outline.bottom - point.y)
+                            ),
+                            foot: SIMD3(bodyX, bodyDepth, 0)
                         )))
                     }
                 }
@@ -292,11 +363,7 @@ nonisolated enum RoomCamera: String, Sendable {
                 }
                 return hull
             }
-            let hull = Array(half(points).dropLast()) + half(Array(points.reversed())).dropLast()
-            let path = CGMutablePath()
-            path.addLines(between: hull)
-            path.closeSubpath()
-            return path
+            return Array(half(points).dropLast()) + half(Array(points.reversed())).dropLast()
         }
 
         /// The centre of the lamp's disc: over the worker, a little behind it, and in a room leaning
