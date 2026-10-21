@@ -267,6 +267,33 @@ struct RoomLightTests {
         #expect(view.renderCounts.preview == settled.preview)
     }
 
+    @Test("A change of status renders fully at once; only the worker leaving or coming back waits for the swing")
+    func statusRendersAtOnce() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let window = Self.window()
+        defer { window.close() }
+        let view = RoomLightView(
+            device  : device,
+            uniforms: room(.busy),
+            frame   : CGRect(
+                x     : 0,
+                y     : 0,
+                width : 127,
+                height: 104
+            )
+        )
+        window.contentView?.addSubview(view)
+        try await until { view.renderCounts.full >= 1 }
+        try await Task.sleep(for: .milliseconds(300))
+        let settled = view.renderCounts
+        let changed = ContinuousClock.now
+
+        view.uniforms = room(.waiting)
+        try await until { view.renderCounts.full == settled.full + 1 }
+        #expect(ContinuousClock.now - changed < .milliseconds(500))
+        #expect(view.renderCounts.live == settled.live)
+    }
+
     @Test("The live frame's weight is the pulse's own at that moment")
     func liveWeightFollowsThePulse() {
         let weights = RoomLightView.pulseWeights(
@@ -277,10 +304,25 @@ struct RoomLightTests {
         let begin = RoomLightView.pulseBeginTime(in: nil)
         for (index, weight) in weights.enumerated() {
             let time = begin + 7 * cycle + Double(index) / Double(weights.count) * cycle
-            #expect(abs(RoomLightView.pulseWeight(for: .waiting, reducesMotion: false, at: time) - weight) < 1e-3)
+            let shown = RoomLightView.pulseWeight(
+                for          : .waiting,
+                reducesMotion: false,
+                at           : time
+            )
+            #expect(abs(shown - weight) < 1e-3)
         }
-        #expect(RoomLightView.pulseWeight(for: .free, reducesMotion: false, at: begin + 1.3) == 1)
-        #expect(RoomLightView.pulseWeight(for: .busy, reducesMotion: true, at: begin + 1.3) == 1)
+        let steady = RoomLightView.pulseWeight(
+            for          : .free,
+            reducesMotion: false,
+            at           : begin + 1.3
+        )
+        #expect(steady == 1)
+        let reduced = RoomLightView.pulseWeight(
+            for          : .busy,
+            reducesMotion: true,
+            at           : begin + 1.3
+        )
+        #expect(reduced == 1)
     }
 
     @Test("A busy light flickers and a waiting light breathes, neither under Reduce Motion")

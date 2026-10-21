@@ -113,10 +113,20 @@ struct HouseSidebarTests {
             reducesMotion    : false
         )
         #expect(left > 0)
-        #expect(Plaque.tilt(forAnchorVelocity: 120, reducesMotion: false) == -left)
-        #expect(Plaque.tilt(forAnchorVelocity: -1_000_000, reducesMotion: false) == lean)
-        #expect(Plaque.tilt(forAnchorVelocity: 1_000_000, reducesMotion: false) == -lean)
-        #expect(Plaque.tilt(forAnchorVelocity: -120, reducesMotion: true) == 0)
+        func tilt(_ velocity: Double) -> Double {
+            Plaque.tilt(
+                forAnchorVelocity: velocity,
+                reducesMotion    : false
+            )
+        }
+        #expect(tilt(120) == -left)
+        #expect(tilt(-1_000_000) == lean)
+        #expect(tilt(1_000_000) == -lean)
+        let still = Plaque.tilt(
+            forAnchorVelocity: -120,
+            reducesMotion    : true
+        )
+        #expect(still == 0)
     }
 
     @Test("A plate whose nail moves left lags, then swings past rest to the left and settles, within its clamp")
@@ -170,31 +180,127 @@ struct HouseSidebarTests {
         #expect(still.swingLayer.animation(forKey: Plaque.swingKey) == nil)
     }
 
+    @Test("Every swing Core Animation plays starts at the speed the plaque's model gives it")
+    func plaqueSwingsAgree() {
+        defer { RestylingMotion.overrideReducesMotion = nil }
+        typealias Plaque = HouseAwayPlaque.PlaqueView
+
+        RestylingMotion.overrideReducesMotion = false
+        let plaque = Plaque(
+            brows    : .idle,
+            status   : .busy,
+            isHanging: false
+        )
+        plaque.isHanging = true
+        #expect(Self.swingsAgree(plaque))
+        for step in 0...12 {
+            plaque.nailMoved(
+                to: 400 - CGFloat(step) * 4,
+                at: Double(step) / 120
+            )
+        }
+        #expect(Self.swingsAgree(plaque))
+        plaque.nailStopped(at: 0.2)
+        #expect(Self.swingsAgree(plaque))
+    }
+
+    /// Whether the rotation spring on `plaque` runs from and to the angles of the plaque's own
+    /// swing, at the swing's starting speed.
+    private static func swingsAgree(_ plaque: HouseAwayPlaque.PlaqueView) -> Bool {
+        let key = HouseAwayPlaque.PlaqueView.swingKey
+        guard
+            let swing  = plaque.swing,
+            let spring = plaque.swingLayer.animation(forKey: key) as? CASpringAnimation,
+            let from   = (spring.fromValue as? NSNumber)?.doubleValue,
+            let to     = (spring.toValue as? NSNumber)?.doubleValue
+        else { return false }
+        return from == swing.from && to == swing.target
+            && abs(spring.initialVelocity * (to - from) - swing.velocity) < 1e-9
+    }
+
+    @Test("Only a hanging plaque pulses with its room's light")
+    func plaquePulsesOnlyWhenHanging() {
+        defer { RestylingMotion.overrideReducesMotion = nil }
+        typealias Plaque = HouseAwayPlaque.PlaqueView
+
+        RestylingMotion.overrideReducesMotion = false
+        let window = NSWindow(
+            contentRect: CGRect(
+                x     : 0,
+                y     : 0,
+                width : 200,
+                height: 200
+            ),
+            styleMask  : [.borderless],
+            backing    : .buffered,
+            defer      : false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let plaque = Plaque(
+            brows    : .idle,
+            status   : .busy,
+            isHanging: false
+        )
+        window.contentView?.addSubview(plaque)
+        #expect(plaque.lightLayer.animation(forKey: Plaque.pulseKey) == nil)
+        plaque.isHanging = true
+        #expect(plaque.lightLayer.animation(forKey: Plaque.pulseKey) != nil)
+        plaque.isHanging = false
+        #expect(plaque.lightLayer.animation(forKey: Plaque.pulseKey) == nil)
+    }
+
     @Test("The plaque follows the room's short side, keeps to 70% of its width, and drops its text where it cannot fit")
     func plaqueSize() {
         typealias Metrics = HouseAwayPlaque.PlaqueView.Metrics
 
-        let room = Metrics(room: CGSize(width: 127, height: 104))
+        let room = Metrics(room: CGSize(
+            width : 127,
+            height: 104
+        ))
         #expect(room.scale == 1)
         #expect(room.plate.width == 88)
         #expect(room.showsText)
 
         // The compact rooms, a wide row, and a narrow room of the two-column floor plan.
-        for size in [CGSize(width: 120, height: 92), CGSize(width: 120, height: 84), CGSize(width: 260, height: 84)] {
+        let rooms = [
+            CGSize(
+                width : 120,
+                height: 92
+            ),
+            CGSize(
+                width : 120,
+                height: 84
+            ),
+            CGSize(
+                width : 260,
+                height: 84
+            ),
+        ]
+        for size in rooms {
             let metrics = Metrics(room: size)
             #expect(metrics.scale == min(size.width, size.height) / 104)
             #expect(metrics.plate.width <= 0.7 * size.width)
             #expect(metrics.showsText)
             #expect(metrics.top + metrics.drop + metrics.plate.height <= size.height - HouseLayout.nameBand)
         }
-        let narrow = Metrics(room: CGSize(width: 87, height: 104))
+        let narrow = Metrics(room: CGSize(
+            width : 87,
+            height: 104
+        ))
         #expect(!narrow.showsText)
         #expect(narrow.plate.width <= 0.7 * 87)
 
         // A room narrowing a point at a time shrinks the plate by no more than that, but where the text goes.
-        var previous = Metrics(room: CGSize(width: 160, height: 104))
+        var previous = Metrics(room: CGSize(
+            width : 160,
+            height: 104
+        ))
         for width in stride(from: 159.0, through: 80, by: -1) {
-            let metrics = Metrics(room: CGSize(width: width, height: 104))
+            let metrics = Metrics(room: CGSize(
+                width : width,
+                height: 104
+            ))
             if metrics.showsText == previous.showsText {
                 #expect(previous.plate.width - metrics.plate.width <= 1.01)
             }

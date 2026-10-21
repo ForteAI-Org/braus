@@ -18,10 +18,10 @@ import MetalKit
 /// with the precomputed light, then refined with the ray tracer through RoomRenderQueue, the preview
 /// fading out over the refinement; only the refinement bakes the pulse.
 ///
-/// A change of uniforms, such as the selection emptying the room, is drawn at once as a live frame
-/// too, and the full render follows 0.9 seconds later, after the plaque's swing, so the frames that
-/// start the swing carry neither ray tracing nor a pulse bake. A room with no image yet renders fully
-/// at once.
+/// The selection emptying the room, or its worker coming back, is drawn at once as a live frame too,
+/// and the full render follows 0.9 seconds later, after the plaque's swing, so the frames that start
+/// the swing carry neither ray tracing nor a pulse bake. Any other change of uniforms, and any change
+/// to a room with no image yet, renders fully at once.
 ///
 /// A render draws the room with its light at full strength and, for a light that pulses, a
 /// cycle of frames with the light at the pulse's weights, each tone mapped after the light is added;
@@ -34,8 +34,9 @@ import MetalKit
 /// host clock, so the brows' tint pulses in step with the room.
 final class RoomLightView: MTKView {
 
-    /// What the room shows. A change is drawn at once as a live frame; a resize in progress keeps its
-    /// own wait for the full render.
+    /// What the room shows. The worker leaving or coming back is drawn at once as a live frame and
+    /// rendered fully after the plaque's swing; another change renders fully at once. During a resize
+    /// every change is a live frame, and the resize's own wait leads to the full render.
     var uniforms: RoomLightUniforms {
         didSet {
             guard uniforms != oldValue else { return }
@@ -43,7 +44,8 @@ final class RoomLightView: MTKView {
             renderRevision += 1
             hasPendingRender   = true
             hasPendingUniforms = true
-            guard lastRenderedSize != nil else {
+            let isSelection = uniforms.hasOccupant != oldValue.hasOccupant
+            guard lastRenderedSize != nil, isResizing || isSelection else {
                 enqueueRenderIfReady()
                 return
             }
@@ -140,7 +142,7 @@ final class RoomLightView: MTKView {
 
     private static let resizeDelay = Duration.milliseconds(70)
 
-    /// How long a change of uniforms shows its live frame before the full render: about the plaque's
+    /// How long a change of occupancy shows its live frame before the full render: about the plaque's
     /// swing, which the ray tracer's work and the pulse bake would otherwise interrupt.
     private static let refineDelay = Duration.milliseconds(900)
 
@@ -379,8 +381,10 @@ final class RoomLightView: MTKView {
             pixelSize.height > 0,
             let metalLayer = layer as? CAMetalLayer
         else { return false }
+        // One whole number of pixels for the room's width, which the extent and the framing share.
+        let roomWidth    = Int(pixelSize.width.rounded(.up))
         let drawableSize = CGSize(
-            width : (pixelSize.width / widthStep).rounded(.up) * widthStep,
+            width : (CGFloat(roomWidth) / widthStep).rounded(.up) * widthStep,
             height: pixelSize.height
         )
         // MTKView's own drawableSize reaches the layer later, so its next drawable would keep the old size.
@@ -396,7 +400,7 @@ final class RoomLightView: MTKView {
             size         : size,
             into         : [(drawable.texture, weight)] + (copy.map { [(texture: $0, weight: weight)] } ?? []),
             extent       : MTLSize(
-                width : Int(pixelSize.width),
+                width : roomWidth,
                 height: Int(pixelSize.height),
                 depth : 1
             ),
@@ -423,7 +427,7 @@ final class RoomLightView: MTKView {
         drawable.present()
         lastRenderedSize      = size
         lastRenderedPixelSize = pixelSize
-        drawableWidthShare    = pixelSize.width / drawableSize.width
+        drawableWidthShare    = CGFloat(roomWidth) / drawableSize.width
         stopPulse()
         applyContentsRect()
         CATransaction.commit()

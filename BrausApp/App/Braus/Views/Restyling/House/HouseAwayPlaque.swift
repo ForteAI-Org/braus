@@ -155,8 +155,6 @@ struct HouseAwayPlaque: NSViewRepresentable {
         private var anchorVelocity = 0.0
         private var stopTask      : Task<Void, Never>?
 
-        private var frameObservation: NSObjectProtocol?
-
         init(
             brows    : BrowState,
             status   : WorkerStatus,
@@ -181,6 +179,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             anchor = nil
+            observeHost()
             guard window != nil else { return }
             updateContentsScale()
             // A pulse phased to the host clock needs the layer in a window.
@@ -194,19 +193,29 @@ struct HouseAwayPlaque: NSViewRepresentable {
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
-            if let frameObservation {
-                NotificationCenter.default.removeObserver(frameObservation)
-            }
-            frameObservation = nil
-            guard let superview else { return }
-            // SwiftUI moves a room, the springs included, by moving the view that hosts this one.
-            frameObservation = NotificationCenter.default.addObserver(
-                forName: NSView.frameDidChangeNotification,
-                object : superview,
-                queue  : .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.followAnchor() }
-            }
+            observeHost()
+        }
+
+        /// Follows the frame of the view hosting this one while both are in a window: SwiftUI moves a
+        /// room, its springs included, by moving that view. The observation is a selector's, which
+        /// the notification center also drops when this view goes away.
+        private func observeHost() {
+            NotificationCenter.default.removeObserver(
+                self,
+                name  : NSView.frameDidChangeNotification,
+                object: nil
+            )
+            guard window != nil, let superview else { return }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(hostMoved),
+                name    : NSView.frameDidChangeNotification,
+                object  : superview
+            )
+        }
+
+        @objc private func hostMoved(_ notification: Notification) {
+            followAnchor()
         }
 
         override func setFrameSize(_ newSize: NSSize) {
@@ -243,6 +252,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
             anchorVelocity = 0
             showsText      = nil
             arrange()
+            applyLight()
             withoutActions { swingLayer.isHidden = false }
             swingLayer.removeAnimation(forKey: Self.fadeKey)
             guard !RestylingMotion.reducesMotion else {
@@ -361,7 +371,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
             at time      : CFTimeInterval
         ) {
             let now      = swing?.state(at: time) ?? (angle: angle, velocity: 0)
-            let from     = min(Self.maximumTilt, max(-Self.maximumTilt, now.angle))
+            var from     = min(Self.maximumTilt, max(-Self.maximumTilt, now.angle))
             var velocity = now.velocity - Self.inertia * kicked
             let reach    = Self.maximumTilt - abs(target)
             let offset   = from - target
@@ -369,6 +379,11 @@ struct HouseAwayPlaque: NSViewRepresentable {
             if offset * offset + pow(velocity / Swing.frequency, 2) > reach * reach {
                 let allowed = max(0, reach * reach - offset * offset).squareRoot()
                 velocity = (velocity < 0 ? -1 : 1) * Swing.frequency * allowed
+            }
+            // Core Animation counts the speed in distances to the target, so a swing with speed starts
+            // a hair behind its target rather than on it, where the speed would be lost.
+            if from == target, velocity != 0 {
+                from = target - (velocity < 0 ? -1 : 1) * Swing.leeway
             }
             play(Swing(
                 from    : from,
@@ -433,6 +448,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
             anchorVelocity = 0
             withoutActions {
                 swingLayer.removeAllAnimations()
+                lightLayer.removeAnimation(forKey: Self.pulseKey)
                 swingLayer.isHidden = true
             }
             rest()
@@ -454,8 +470,12 @@ struct HouseAwayPlaque: NSViewRepresentable {
             /// The undamped angular frequency, in radians per second, for a mass of 1.
             static let frequency = stiffness.squareRoot()
 
+            /// How far behind its target a swing with speed starts when it would start on it, in radians.
+            static let leeway = 1e-4
+
             /// The starting speed as Core Animation counts it: distances to the target per second,
-            /// positive toward it.
+            /// positive toward it. Zero for a swing that starts on its target, which only one at rest
+            /// does: a swing with speed starts `leeway` behind.
             var relativeVelocity: Double {
                 target == from ? 0 : velocity / (target - from)
             }
@@ -480,8 +500,8 @@ struct HouseAwayPlaque: NSViewRepresentable {
 
         // MARK: Light
 
-        /// Lights the plate with the room's light, pulsing with it, or leaves it unlit, with no
-        /// shadow, when the worker is off.
+        /// Lights the plate with the room's light, pulsing with it while the plaque hangs in a window,
+        /// or leaves it unlit, with no shadow, when the worker is off.
         private func applyLight() {
             lightLayer.removeAnimation(forKey: Self.pulseKey)
             guard let light = status.light else {
@@ -510,7 +530,9 @@ struct HouseAwayPlaque: NSViewRepresentable {
                 for          : status,
                 reducesMotion: RestylingMotion.reducesMotion
             )
+            // Only a hanging plaque pulses; the hidden ones in occupied rooms cost nothing.
             guard
+                isHanging,
                 window != nil,
                 let first = weights.first,
                 let cycle = RoomLightView.pulseCycle(for: status)
