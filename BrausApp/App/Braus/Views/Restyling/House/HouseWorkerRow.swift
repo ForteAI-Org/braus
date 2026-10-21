@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// HouseWorkerRow presents a compact card with a lit worker, its name and its badge.
-/// Wide, the name sits beside the worker and the badge ends the card. Narrow (`isCompact`), the
-/// worker is centred with its name under it, as in a compact room, and the badge marks the corner.
+/// Wide, the name and what the worker is doing sit beside the worker and the badge ends the card. Narrow (`isCompact`), the
+/// worker is centred with its name alone under it, as in a compact room, and the badge marks the corner.
 /// Both forms are the same views in a different layout, so a change between them moves and resizes
 /// them. The worker stays visible when selected; the card and accessibility traits mark the choice.
 struct HouseWorkerRow: View {
@@ -26,21 +26,32 @@ struct HouseWorkerRow: View {
                 seed  : WorkerBehaviour.seed(for: worker.id)
             )
             .accessibilityHidden(true)
-            Text(worker.name)
-                .font(.system(
-                    size  : isCompact ? 11 : 13,
-                    weight: isCompact ? .regular : .medium
-                ))
-                .foregroundStyle(isCompact ? .secondary : .primary)
-                .lineLimit(1)
-                .padding(
-                    .trailing,
-                    isCompact || badge == nil ? 0 : Self.badgeRoom
-                )
-                .frame(
-                    maxWidth : isCompact ? nil : .infinity,
-                    alignment: .leading
-                )
+            VStack(
+                alignment: isCompact ? .center : .leading,
+                spacing  : 1
+            ) {
+                Text(worker.name)
+                    .font(.system(
+                        size  : isCompact ? 11 : 13,
+                        weight: isCompact ? .regular : .medium
+                    ))
+                    .foregroundStyle(isCompact ? .secondary : .primary)
+                    .lineLimit(1)
+                if !isCompact {
+                    Text(worker.subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(
+                .trailing,
+                isCompact || badge == nil ? 0 : Self.badgeRoom
+            )
+            .frame(
+                maxWidth : isCompact ? nil : .infinity,
+                alignment: .leading
+            )
         }
         .padding(
             .horizontal,
