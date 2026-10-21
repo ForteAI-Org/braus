@@ -52,7 +52,13 @@ struct HouseShellView: View {
             }
         } detail: {
             detail
-                .toolbar { toolbar }
+                .toolbar {
+                    HouseLiveToolbar(
+                        team                : team,
+                        isInspectorRequested: isInspectorRequested,
+                        toggleInspector     : { isInspectorRequested.toggle() }
+                    )
+                }
         } inspector: {
             inspector
         }
@@ -171,26 +177,6 @@ struct HouseShellView: View {
         isInspectorRequested = true
     }
 
-    // MARK: Toolbar
-
-    /// The inspector's toggle, until the house's own toolbar takes its place.
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        ToolbarItem {
-            Button(
-                isInspectorRequested ? "Hide Inspector" : "Show Inspector",
-                systemImage: "info.circle"
-            ) {
-                isInspectorRequested.toggle()
-            }
-            .keyboardShortcut(
-                "i",
-                modifiers: [.control, .option, .command]
-            )
-            .help("Show or hide the inspector.")
-        }
-    }
-
     // MARK: Areas
 
     /// The selected worker's screen over the whole window, while it is enlarged.
@@ -212,22 +198,24 @@ struct HouseShellView: View {
         }
     }
 
-    @ViewBuilder
+    /// Under a root of its own, so the toolbar's items keep their identities when no worker is chosen.
     private var detail: some View {
-        if let worker = team.selectedWorker {
-            WorkerConversationView(
-                team        : team,
-                worker      : worker,
-                focusRequest: composerFocus
-            )
-        } else if team.active.isEmpty && team.archived.isEmpty {
-            FirstLaunchView(team: team)
-        } else {
-            ContentUnavailableView(
-                "No Worker Selected",
-                systemImage: "person.crop.circle",
-                description: Text("Select a worker to open its conversation.")
-            )
+        ZStack {
+            if let worker = team.selectedWorker {
+                WorkerConversationView(
+                    team        : team,
+                    worker      : worker,
+                    focusRequest: composerFocus
+                )
+            } else if team.active.isEmpty && team.archived.isEmpty {
+                FirstLaunchView(team: team)
+            } else {
+                ContentUnavailableView(
+                    "No Worker Selected",
+                    systemImage: "person.crop.circle",
+                    description: Text("Select a worker to open its conversation.")
+                )
+            }
         }
     }
 
