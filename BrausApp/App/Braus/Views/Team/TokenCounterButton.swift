@@ -14,8 +14,11 @@ import SwiftUI
 /// The toolbar shows it only once the worker has recorded a turn.
 struct TokenCounterButton: View {
 
-    let worker: WorkerSnapshot
-    let usage : WorkerUsage
+    let workerName: String
+
+    /// The provider the worker answers with now, whose limits `usage` holds.
+    let provider  : ModelProvider?
+    let usage     : WorkerUsage
 
     /// Whether the popover is open: `TeamModel.showsUsage`, which `/usage` sets too.
     @Binding var isShowingDetail: Bool
@@ -50,8 +53,8 @@ struct TokenCounterButton: View {
             arrowEdge  : .bottom
         ) {
             TokenCounterPopover(
-                workerName: worker.name,
-                provider  : worker.configuration?.provider,
+                workerName: workerName,
+                provider  : provider,
                 usage     : usage
             )
         }

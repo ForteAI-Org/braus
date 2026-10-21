@@ -10,7 +10,7 @@ import SwiftUI
 /// RestylingWindowView is the restyling mockup's house window, dark only: the house in the sidebar,
 /// the conversation with the chosen worker, and an inspector that opens from the toolbar.
 ///
-/// The toolbar holds New Worker beside the traffic lights, and at the trailing edge the Screen and
+/// The toolbar holds New Worker by the traffic lights; at the trailing edge, the worker's usage, the Screen and
 /// Inspector controls; the window has no title, as the worker sits at the top of its conversation.
 /// New Worker is a placeholder. Edit > Find… focuses the sidebar's search (`HouseFindCommands`).
 ///
@@ -41,6 +41,9 @@ struct RestylingWindowView: View {
     private static let sidebarCompacting = Duration.milliseconds(50)
 
     @State private var house = MockHouse.sample
+
+    /// What the app's own components read, on mock values: the model, the usage, the connections.
+    @State private var team = MockTeam()
 
     @State private var selection: MockWorker.ID?
 
@@ -169,6 +172,7 @@ struct RestylingWindowView: View {
                 isComposerFocused = true
             }
         }
+        .environment(team)
         .preferredColorScheme(.dark)
     }
 
@@ -178,40 +182,15 @@ struct RestylingWindowView: View {
 
     // MARK: Toolbar
 
-    /// The Screen and Inspector controls at the trailing edge. The window has no title, so the
-    /// flexible space takes them there; before macOS 26 it is an item holding only a spacer.
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        if #available(macOS 26, *) {
-            ToolbarSpacer(.flexible)
-        } else {
-            ToolbarItem { Spacer() }
-        }
-
-        ToolbarItem {
-            Toggle(isOn: $showsScreen) {
-                Label(
-                    "Show Screen",
-                    systemImage: "display"
-                )
-            }
-            .toggleStyle(.button)
-            .disabled(selectedWorker?.status != .busy)
-            .help("Show or hide the worker’s screen.")
-        }
-
-        ToolbarItem {
-            Button(
-                isInspectorRequested ? "Hide Inspector" : "Show Inspector",
-                systemImage: "info.circle",
-                action     : toggleInspector
-            )
-            .keyboardShortcut(
-                "i",
-                modifiers: [.control, .option, .command]
-            )
-            .help("Show or hide the inspector.")
-        }
+        HouseToolbar(
+            worker              : selectedWorker,
+            team                : team,
+            isInspectorRequested: isInspectorRequested,
+            toggleInspector     : toggleInspector,
+            showsScreen         : $showsScreen
+        )
     }
 
     // MARK: Division

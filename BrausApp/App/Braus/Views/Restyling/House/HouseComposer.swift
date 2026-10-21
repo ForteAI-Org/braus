@@ -5,10 +5,11 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 20/10/2026.
 //
 
+import ModelTransports
 import SwiftUI
 
 /// HouseComposer is the mockup's composer: a glass pill holding, from leading to trailing, the `+`
-/// menu, the message field, the model and effort menu, the context ring and Send.
+/// menu, the message field, the app's model and effort button (`ConversationModelButton`) and Send.
 ///
 /// The pill is 52 points high for one line. The field (`HouseComposerField`) grows with its text up to
 /// eight lines, then scrolls inside; the pill keeps its ends' radius as it grows, and the controls
@@ -20,7 +21,8 @@ import SwiftUI
 /// blank: it hands `onSend` the text, the frame its lines start in, in `BubbleFlight.space`, and how
 /// far the field had scrolled them, when known; it clears the field in the same update. While
 /// `isDeparting`, the field shows no placeholder. Shift-Return and Option-Return break the line.
-/// The `+` menu's items and the ring's actions are placeholders.
+/// The model button opens the app's model popup above the pill, on `MockTeam`'s values; the `+`
+/// menu's Attach File and Search the Web are placeholders.
 struct HouseComposer: View {
     let worker: MockWorker
 
@@ -41,13 +43,13 @@ struct HouseComposer: View {
 
     @State private var link = HouseComposerField.Link()
 
-    @State private var model = "Opus 5.5"
+    @Environment(MockTeam.self)
+    private var team: MockTeam?
 
-    @State private var effort = "High"
+    @State private var isChoosingModel = false
 
-    @State private var showsChromeWindow = false
-
-    @State private var showsContext = false
+    /// The model button's frame in the window, which the popup is centred on.
+    @State private var modelButtonFrame = CGRect.zero
 
     var body: some View {
         HStack(
@@ -58,17 +60,7 @@ struct HouseComposer: View {
                 .frame(height: Self.rowHeight)
             field
             Group {
-                modelMenu
-                ConversationContextButton(
-                    context        : Self.context,
-                    worker         : worker.name,
-                    isCompacting   : false,
-                    waitReason     : nil,
-                    compact        : {},
-                    startFresh     : {},
-                    isShowingDetail: $showsContext
-                )
-                .buttonStyle(.borderless)
+                modelButton
                 sendButton
             }
             .frame(height: Self.rowHeight)
@@ -87,16 +79,15 @@ struct HouseComposer: View {
             radius: 20,
             y     : 20
         )
+        .modelPopup(
+            isPresented: $isChoosingModel,
+            button     : modelButtonFrame,
+            selection  : selection,
+            catalogue  : team.map { $0.catalogue(for: selection.wrappedValue.provider) },
+            unavailable: nil,
+            onClose    : {}
+        )
     }
-
-    /// The mock context: a third of a 200k window.
-    private static let context = WorkerUsage.Context(
-        tokens: 68_000,
-        window: 200_000
-    )
-
-    private static let models  = ["Opus 5.5", "Haiku 4.5"]
-    private static let efforts = ["Low", "Medium", "High"]
 
     /// The message field, its one line centred in the pill's first 52 points.
     private var field: some View {
@@ -133,7 +124,15 @@ struct HouseComposer: View {
             Button("Search the Web") {}
             Toggle(
                 "Show Chrome Window",
-                isOn: $showsChromeWindow
+                isOn: Binding(
+                    get: { team?.showsBrowserWindow(of: worker) ?? false },
+                    set: { shows in
+                        team?.setShowsBrowserWindow(
+                            shows,
+                            of: worker
+                        )
+                    }
+                )
             )
         } label: {
             Image(systemName: "plus")
@@ -159,50 +158,34 @@ struct HouseComposer: View {
         .accessibilityLabel("Add")
     }
 
-    private var modelMenu: some View {
-        Menu {
-            Picker(
-                "Model",
-                selection: $model
-            ) {
-                ForEach(
-                    Self.models,
-                    id: \.self
-                ) { Text($0) }
-            }
-            .pickerStyle(.inline)
-            Picker(
-                "Effort",
-                selection: $effort
-            ) {
-                ForEach(
-                    Self.efforts,
-                    id: \.self
-                ) { Text($0) }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Text("\(model) · \(effort)")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .padding(
-                    .horizontal,
-                    10
-                )
-                .padding(
-                    .vertical,
-                    5
-                )
-                .background(
-                    .white.opacity(0.06),
-                    in: Capsule()
-                )
+    /// The worker's model and effort, its highlight 24 points high as the house's own pill was;
+    /// nothing outside the house window, which supplies the team.
+    @ViewBuilder
+    private var modelButton: some View {
+        if let team {
+            ConversationModelButton(
+                selection: selection.wrappedValue,
+                catalogue: team.catalogue(for: selection.wrappedValue.provider),
+                isOpen   : $isChoosingModel,
+                frame    : $modelButtonFrame,
+                isEnabled: !team.isAnswering(worker),
+                height   : 24
+            )
+            .fixedSize()
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Choose the model and its effort.")
+    }
+
+    /// The worker's selection, which the popup changes at once.
+    private var selection: Binding<ModelSelection> {
+        Binding(
+            get: { team?.selection(of: worker) ?? .default },
+            set: { selection in
+                team?.select(
+                    selection,
+                    for: worker
+                )
+            }
+        )
     }
 
     private var sendButton: some View {

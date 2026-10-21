@@ -27,6 +27,9 @@ struct ConversationModelButton: View {
     /// False while the worker answers: its turn has already fixed its model.
     let isEnabled: Bool
 
+    /// The highlight's height, the composer's circle unless a composer of another size asks.
+    var height = ComposerBar.circleSide
+
     @State private var isHovered = false
 
     var body: some View {
@@ -47,7 +50,7 @@ struct ConversationModelButton: View {
                 .horizontal,
                 8
             )
-            .frame(height: ComposerBar.circleSide)
+            .frame(height: height)
             .background(
                 .quaternary.opacity(isOpen ? 1 : isHovered ? 0.5 : 0),
                 in: Capsule()

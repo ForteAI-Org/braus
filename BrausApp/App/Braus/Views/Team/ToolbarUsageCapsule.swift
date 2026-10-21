@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 13/10/2026.
 //
 
+import ModelTransports
 import SwiftUI
 
 /// ToolbarUsageCapsule is the toolbar's usage item: the context ring while the
@@ -43,7 +44,8 @@ struct ToolbarUsageCapsule: View {
             }
 
             TokenCounterButton(
-                worker         : worker,
+                workerName     : worker.name,
+                provider       : worker.configuration?.provider,
                 usage          : usage,
                 isShowingDetail: $team.showsUsage
             )

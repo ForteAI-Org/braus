@@ -9,14 +9,25 @@ import SwiftUI
 
 /// The worker's current or last turn as it ran, from the reading the
 /// inspector keeps: the model and effort it ran with, when it started and
-/// how it ended.
+/// how it ended. Given `isExpanded`, the section folds under its title.
 struct InspectorTurnSection: View {
 
-    let worker: WorkerSnapshot
-    let turn  : WorkerInspectorView.TurnReading
+    let workerName: String
+    let turn      : WorkerInspectorView.TurnReading
+
+    var isExpanded: Binding<Bool>?
 
     var body: some View {
-        Section(turnTitle) { turnRows }
+        if let isExpanded {
+            Section(
+                turnTitle,
+                isExpanded: isExpanded
+            ) {
+                turnRows
+            }
+        } else {
+            Section(turnTitle) { turnRows }
+        }
     }
 
     private var turnTitle: String {
@@ -49,7 +60,7 @@ struct InspectorTurnSection: View {
             .accessibilityLabel("Loading turn details")
 
         case .nothingYet:
-            Text("Turn details appear after \(worker.name) responds.")
+            Text("Turn details appear after \(workerName) responds.")
                 .foregroundStyle(.secondary)
 
         case .read(let summary):
