@@ -17,6 +17,9 @@ import Foundation
 nonisolated enum WorkerShape: CaseIterable, Sendable {
     case circle, square, triangle, diamond, pentagon, hexagon, capsule, lens
 
+    /// The shape's name, as the shape picker and VoiceOver say it.
+    var name: String { String(describing: self).capitalized }
+
     /// The outline in sphere radii, y down.
     var outline: ShapeOutline {
         switch self {

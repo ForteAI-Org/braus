@@ -18,11 +18,14 @@ import SwiftUI
 /// (`CrossFade`). The foot (`HouseFoot`) floats over the rooms with the account; the archive is in
 /// the sidebar's toolbar (`HouseArchiveButton`), left out while searching or empty.
 /// The search field draws no focus ring (`SearchFieldWithoutRing`): it keeps the keyboard focus,
-/// and the ring would only outline it against the dark sidebar.
+/// and the ring would only outline it against the dark sidebar. A room's context menu offers Edit
+/// Worker…, which calls `edit`.
 struct HouseSidebar: View {
     let house: MockHouse
 
     @Binding var selection: MockWorker.ID?
+
+    var edit: (MockWorker.ID) -> Void = { _ in }
 
     @State private var query = ""
 
@@ -41,14 +44,16 @@ struct HouseSidebar: View {
                     workers   : workers,
                     columns   : columns,
                     roomsWidth: roomsWidth,
-                    selection : $selection
+                    selection : $selection,
+                    edit      : edit
                 )
             case .rows:
                 HouseRowsList(
                     workers   : workers,
                     isCompact : columns == 1,
                     roomsWidth: roomsWidth,
-                    selection : $selection
+                    selection : $selection,
+                    edit      : edit
                 )
             }
         }

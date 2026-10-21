@@ -49,6 +49,15 @@ nonisolated enum HouseLayout {
         )
     }
 
+    /// How a room or row added to the house comes in: a short fade of its own, so the rooms around it
+    /// take their places at once and a room chosen there can be scrolled to in the same moment.
+    static var arrival: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.animation(.easeOut(duration: 0.25)),
+            removal  : .identity
+        )
+    }
+
     /// The colour of `status`'s light; a worker that is off shows a dim grey.
     static func light(of status: WorkerStatus) -> Color {
         guard let light = status.light else {

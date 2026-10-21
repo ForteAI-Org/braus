@@ -17,7 +17,8 @@ import SwiftUI
 /// reads as a status light (an orange accent as busy, the blue one as waiting), so `QuietSelection`
 /// turns the table's fill off and the selected room's ring is the only mark. The rooms are laid out
 /// `roomsWidth` across, which `HouseSidebar` changes together with `isCompact`, so they reshape
-/// from where they were.
+/// from where they were. A row chosen out of sight, as a worker just created is, scrolls into view;
+/// each offers Edit Worker… (`edit`) in its context menu.
 struct HouseRowsList: View {
     let workers   : [MockWorker]
     let isCompact : Bool
@@ -25,7 +26,20 @@ struct HouseRowsList: View {
 
     @Binding var selection: MockWorker.ID?
 
+    let edit: (MockWorker.ID) -> Void
+
     var body: some View {
+        ScrollViewReader { proxy in
+            list
+                .onChange(of: selection) {
+                    guard let selection else { return }
+                    // A row just added is laid out after this change, so it is found on the next turn.
+                    DispatchQueue.main.async { proxy.scrollTo(selection) }
+                }
+        }
+    }
+
+    private var list: some View {
         List(selection: $selection) {
             ForEach(workers) { worker in
                 HouseRoomCell(
@@ -48,6 +62,10 @@ struct HouseRowsList: View {
                     trailing: HouseLayout.margin
                 ))
                 .listRowSeparator(.hidden)
+                .transition(HouseLayout.arrival)
+                .contextMenu {
+                    Button("Edit Worker…") { edit(worker.id) }
+                }
             }
         }
         .listStyle(.plain)
