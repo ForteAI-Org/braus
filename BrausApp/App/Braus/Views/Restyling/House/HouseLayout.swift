@@ -26,11 +26,13 @@ nonisolated enum HouseLayout {
     /// The gap between a wide row's worker and its name beside it.
     static let nameGap: CGFloat = 12
 
-    /// The space between the rooms and the sidebar's edges.
+    /// The space between the rooms and the sidebar's edges. Wider, the compact rooms would be too
+    /// narrow for the plaque's text.
     static let margin: CGFloat = 10
 
-    /// The gap between rooms, across and down.
-    static let gap: CGFloat = 6
+    /// The gap between rooms, across and down: wide enough for each room's spilled light
+    /// (`RoomOpeningView`) to show around it without reaching a neighbour.
+    static let gap: CGFloat = 12
 
     /// How many columns of rooms a sidebar `sidebarWidth` points wide holds: one exactly when it
     /// shows the compact tiles, two otherwise.

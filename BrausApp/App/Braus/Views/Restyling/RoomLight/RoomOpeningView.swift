@@ -56,13 +56,14 @@ final class RoomOpeningView: NSView {
     static let revealWidth: CGFloat = 2
 
     /// How far the spill can reach from the opening, which its view covers.
-    static let spillReach: CGFloat = 16
+    static let spillReach = 2 * HouseLayout.gap
 
     /// The spill's glow: its blur, how far below the opening it centres, and its strength in the
-    /// light of a busy room.
-    static let spillRadius : CGFloat = 4
-    static let spillDrop   : CGFloat = 3
-    static let spillOpacity: Float   = 0.55
+    /// light of a busy room. The blur follows the gap between rooms, so the glow fills it and fades
+    /// out before the next room's edge.
+    static let spillRadius         = HouseLayout.gap / 2
+    static let spillDrop           = HouseLayout.gap / 3
+    static let spillOpacity: Float = 0.55
 
     /// The sill's strength in the light of a busy room.
     static let sillOpacity = 0.5
