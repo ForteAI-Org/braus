@@ -59,12 +59,17 @@ nonisolated struct WorkerBehaviourLoop: Equatable, Sendable {
 
     /// The loop as keyframe animations for one brow, keyed by the key each takes on the layer:
     /// an additive shift of the position in points for a face `face` points wide, an additive turn,
-    /// and the outline's path when the loop changes it. Empty under Reduce Motion, where the brows
-    /// hold the status's outline still.
+    /// and the outline's path when the loop changes it. In a tilted room `stretch` is how much wider
+    /// and taller the camera shows the face (`RoomCamera.Face`), so the shifts follow the body. Empty
+    /// under Reduce Motion, where the brows hold the status's outline still.
     @MainActor
     func animations(
         for side: Side,
-        face    : CGFloat
+        face    : CGFloat,
+        stretch : CGSize = CGSize(
+            width : 1,
+            height: 1
+        )
     ) -> [String: CAKeyframeAnimation] {
         guard !RestylingMotion.reducesMotion else { return [:] }
         let track    = side == .left ? left : right
@@ -75,8 +80,8 @@ nonisolated struct WorkerBehaviourLoop: Equatable, Sendable {
                 track : track,
                 values: track.map {
                     NSValue(point: CGPoint(
-                        x: $0.pose.dx * face,
-                        y: $0.pose.dy * face
+                        x: $0.pose.dx * face * stretch.width,
+                        y: $0.pose.dy * face * stretch.height
                     ))
                 }
             ),
