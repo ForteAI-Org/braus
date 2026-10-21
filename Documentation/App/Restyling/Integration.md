@@ -285,3 +285,10 @@ Mock data (`MockHouse`, `MockConversation`, `MockTeam`, `MockAccount`, `MessageQ
 3. Activity line until P8: desktop text ("Using Pro Tools") or "Working" — enough for the first test?
 4. First test without the send/quote/queue flights and the full worker switch (M1/M2 later) — acceptable?
 5. To `main`: behind a setting defaulting to off, with the shape column landing first as its own PR — OK?
+
+### Answers (the person, 22/10)
+1. Blue = pending approval **and** unread replies.
+2. Off = needs setup, missing model or disconnected provider; archived workers are never rooms.
+3. (activity line) the desktop text / "Working" is fine for the first test.
+4. First test without the flights and the full worker switch on real data: yes, they come later (Phase 3).
+5. **Not to `main` yet:** everything is integrated and tested in this branch; bringing it to `main` happens later, together, under the person's supervision. So no separate P5 PR now — the person tests the new look on a **copy** of the workspace (`BRAUS_APP_SUPPORT_DIR`) until then, because an older build may not open a store upgraded with the shape column.
