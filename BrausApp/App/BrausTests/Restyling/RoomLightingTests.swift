@@ -50,6 +50,67 @@ struct RoomLightingTests {
         }
     }
 
+    @Test("The hero's capsule lights the worker's front in its tone, in the screen's place")
+    func capsuleLightsTheFront() throws {
+        func hero(
+            _ capsule: SIMD4<Float>,
+            status   : WorkerStatus = .free,
+            camera   : RoomCamera = .tilted
+        ) -> RoomLightUniforms {
+            RoomLightUniforms(
+                status      : status,
+                shape       : .circle,
+                hasOccupant : true,
+                camera      : camera,
+                lean        : HouseWorkerPortrait.lean,
+                capsuleLight: capsule
+            )
+        }
+        let busy = hero(
+            HeroLight.capsuleLight(for: .busy),
+            status: .busy
+        )
+        #expect(busy.screenStrength == 0 && busy.capsuleStrength > 0 && busy.hasFrontLight)
+        #expect(!hero(HeroLight.capsuleLight(for: .busy), camera: .top).hasFrontLight)
+        #expect(!hero(.zero).hasFrontLight)
+        #expect(busy.packed(size: CGSize(width: 127, height: 104), pixelWidth: 127).capsule.w == busy.capsuleStrength)
+
+        let device   = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(PrecomputedRoomRenderer(device: device))
+        // The worker's front face under its brows, where the capsule's light rises onto it.
+        let size  = CGSize(width: 127, height: 104)
+        let face  = try #require(RoomCamera.tilted.face(of: .circle, in: size, lean: HouseWorkerPortrait.lean))
+        let lower = Double(RoomLightUniforms.Shape(size: size, lean: HouseWorkerPortrait.lean).sphereRadius) * 0.7
+        let x     = Int(size.width / 2 + face.anchor.dx)
+        let y     = Int(size.height / 2 + face.anchor.dy + lower)
+        func front(_ uniforms: RoomLightUniforms) throws -> (red: Double, green: Double, blue: Double) {
+            Self.mean(
+                try Self.render(uniforms, renderer: renderer, device: device)[0],
+                x: x - 4..<x + 4,
+                y: y - 3..<y + 3
+            )
+        }
+        let unlit = try front(hero(.zero))
+        let warm  = try front(hero(HeroLight.capsuleLight(for: .busy)))
+        let cool  = try front(hero(HeroLight.capsuleLight(for: .waiting)))
+        let moon  = try front(hero(HeroLight.capsuleLight(for: .off)))
+        func level(_ colour: (red: Double, green: Double, blue: Double)) -> Double {
+            colour.red + colour.green + colour.blue
+        }
+        #expect(level(warm) > level(unlit) + 12, "\(warm) against \(unlit)")
+        #expect(level(moon) > level(unlit) && level(moon) < level(warm), "\(moon)")
+        #expect(warm.red - warm.blue > cool.red - cool.blue + 4, "\(warm) against \(cool)")
+
+        // The capsule's light is the third image, the one a screen would write.
+        let images = try Self.render(
+            busy,
+            weights : [SIMD2(1, 1), SIMD2(1, 0)],
+            renderer: renderer,
+            device  : device
+        )
+        #expect(images[0] != images[1])
+    }
+
     @Test("A room that is off is lit by a cool moon and by no warm lamp")
     func moonlight() throws {
         let off = Self.room(.off)

@@ -7,12 +7,13 @@
 
 import SwiftUI
 
-/// HouseShapeGrid lets the person choose a worker's shape: the eight shapes as live mascots, four
-/// across, the chosen one ringed as a selected room is.
+/// HouseShapeGrid lets the person choose a worker's shape: the eight shapes as live workers standing
+/// in three quarters as their rooms show them (`HouseWorkerPortrait`), four across, the chosen one
+/// ringed as a selected room is.
 ///
 /// Each shape is a button named after it, selected while chosen. The grid takes the keyboard as one
 /// control, and the arrow keys move the choice across and down it. A shape just chosen raises its
-/// brows for a moment, a Core Animation morph through `MascotFace`; under Reduce Motion it does not.
+/// brows for a moment, a Core Animation morph; under Reduce Motion it does not.
 struct HouseShapeGrid: View {
     @Binding var selection: WorkerShape
 
@@ -25,7 +26,7 @@ struct HouseShapeGrid: View {
     static let mascotSize: CGFloat = 48
 
     /// Room for the widest body, the lens, and the tallest, the triangle, at `mascotSize`.
-    private static let cell = CGSize(
+    static let cell = CGSize(
         width : 76,
         height: 70
     )
@@ -90,11 +91,11 @@ struct HouseShapeGrid: View {
     private func option(_ shape: WorkerShape) -> some View {
         let isSelected = shape == selection
         return Button { choose(shape) } label: {
-            MascotFace(
+            HouseWorkerPortrait(
                 shape : shape,
                 status: .free,
-                brows : reacting == shape ? .listening : .idle,
-                size  : Self.mascotSize
+                size  : Self.mascotSize,
+                brows : reacting == shape ? .listening : .idle
             )
             .frame(
                 width : Self.cell.width,

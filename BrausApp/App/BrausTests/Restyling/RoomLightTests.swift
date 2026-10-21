@@ -54,8 +54,8 @@ struct RoomLightTests {
         #expect(busy.strength == 1)
         #expect(busy.lightColor == SIMD3<Float>(1, 176.0 / 255, 72.0 / 255))
         #expect(room(.off).strength == 0)
-        // Eight float4 in RoomLight.metal.
-        #expect(MemoryLayout<RoomLightUniforms.Packed>.stride == 128)
+        // Nine float4 in RoomLight.metal.
+        #expect(MemoryLayout<RoomLightUniforms.Packed>.stride == 144)
     }
 
     @Test("The uniforms carry the worker's shape and no tint")
@@ -326,6 +326,43 @@ struct RoomLightTests {
         try await until { view.renderCounts.full == settled.full + 1 }
         #expect(ContinuousClock.now - changed < .milliseconds(500))
         #expect(view.renderCounts.live == settled.live)
+    }
+
+    @Test("With a change fade the shown image cross-fades into the new render; without one or under Reduce Motion it cuts")
+    func changeCrossFades() async throws {
+        defer { RestylingMotion.overrideReducesMotion = nil }
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        for (fade, reducesMotion) in [(0.5, false), (0.5, true), (nil, false)] as [(Double?, Bool)] {
+            RestylingMotion.overrideReducesMotion = reducesMotion
+            let window = Self.window()
+            defer { window.close() }
+            let view = RoomLightView(
+                device  : device,
+                uniforms: room(.free),
+                frame   : CGRect(
+                    x     : 0,
+                    y     : 0,
+                    width : 127,
+                    height: 104
+                )
+            )
+            view.changeFade = fade
+            window.contentView?.addSubview(view)
+            try await until { view.renderCounts.full >= 1 }
+            try await Task.sleep(for: .milliseconds(300))
+            let settled = view.renderCounts
+
+            view.uniforms = room(.waiting)
+            try await until { view.renderCounts.full == settled.full + 1 }
+            guard let fade, !reducesMotion else {
+                try await Task.sleep(for: .milliseconds(100))
+                #expect(view.refineLayer.isHidden, "\(String(describing: fade)), \(reducesMotion)")
+                continue
+            }
+            #expect(!view.refineLayer.isHidden)
+            try await until { view.refineLayer.animation(forKey: RoomLightView.fadeKey) != nil }
+            #expect(view.refineLayer.animation(forKey: RoomLightView.fadeKey)?.duration == fade)
+        }
     }
 
     @Test("The live frame's weight is the pulse's own at that moment")

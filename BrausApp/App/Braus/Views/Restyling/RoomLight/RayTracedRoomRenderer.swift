@@ -285,7 +285,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
                 camera       : camera,
                 base         : base,
                 light        : light,
-                screen       : uniforms.screenStrength > 0 ? screen : nil,
+                screen       : uniforms.hasFrontLight ? screen : nil,
                 commandBuffer: commandBuffer
             )
             denoisedFrames += 1

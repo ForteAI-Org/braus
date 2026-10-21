@@ -21,9 +21,14 @@ struct HouseWorkerRow: View {
             : AnyLayout(HStackLayout(spacing: 8))
         layout {
             HouseWorkerPortrait(
-                shape : worker.shape,
-                status: worker.status,
-                seed  : WorkerBehaviour.seed(for: worker.id)
+                shape    : worker.shape,
+                status   : worker.status,
+                seed     : WorkerBehaviour.seed(for: worker.id),
+                showsHalo: true
+            )
+            .frame(
+                width : 56,
+                height: HouseWorkerPortrait.frameHeight
             )
             .accessibilityHidden(true)
             VStack(

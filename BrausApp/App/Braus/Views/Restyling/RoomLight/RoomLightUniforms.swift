@@ -16,7 +16,8 @@ import Foundation
 ///
 /// Seen through the tilted camera, a busy worker in its room also has its screen, a second, cool light
 /// in front of it (`screenStrength`), and a room that is off has the moon instead of its lamp
-/// (`moonStrength`).
+/// (`moonStrength`). The worker at the top of its conversation is lit from its name's capsule below
+/// instead of a screen (`capsuleLight`).
 ///
 /// At `lean` 0 the worker stands at the room's centre under its lamp, with the pool around it, as on
 /// the floor plan. At 1, as in the rows, it stands larger at the left, the lamp above it and a little
@@ -33,31 +34,49 @@ nonisolated struct RoomLightUniforms: Equatable {
     /// The status the light shows; it picks the light's pulse.
     var status: WorkerStatus
 
+    /// The light of the name's capsule under the worker at the top of its conversation (`HeroLight`):
+    /// sRGB colour, and its strength in `w`; zero where there is none. Seen through the tilted camera it
+    /// stands low in front of the worker, facing it, in the screen's place, and holds still.
+    var capsuleLight: SIMD4<Float>
+
     init(
-        status     : WorkerStatus,
-        shape      : WorkerShape,
-        hasOccupant: Bool,
-        camera     : RoomCamera = .top,
-        lean       : Float = 0
+        status      : WorkerStatus,
+        shape       : WorkerShape,
+        hasOccupant : Bool,
+        camera      : RoomCamera = .top,
+        lean        : Float = 0,
+        capsuleLight: SIMD4<Float> = .zero
     ) {
         let light = status.light ?? (red: 0, green: 0, blue: 0)
-        self.lightColor  = SIMD3(
+        self.lightColor   = SIMD3(
             Float(light.red),
             Float(light.green),
             Float(light.blue)
         )
-        self.strength    = Float(status.lightStrength)
-        self.shape       = shape
-        self.hasOccupant = hasOccupant
-        self.camera      = camera
-        self.lean        = lean
-        self.status      = status
+        self.strength     = Float(status.lightStrength)
+        self.shape        = shape
+        self.hasOccupant  = hasOccupant
+        self.camera       = camera
+        self.lean         = lean
+        self.status       = status
+        self.capsuleLight = capsuleLight
     }
 
     /// 1 when the worker's screen lights the room: a busy worker in its room, seen through the tilted
-    /// camera; 0 otherwise.
+    /// camera and not lit by a capsule; 0 otherwise.
     var screenStrength: Float {
-        camera == .tilted && status == .busy && hasOccupant ? 1 : 0
+        camera == .tilted && status == .busy && hasOccupant && capsuleStrength == 0 ? 1 : 0
+    }
+
+    /// The capsule's strength where it lights the worker: in its room, seen through the tilted camera;
+    /// 0 otherwise.
+    var capsuleStrength: Float {
+        camera == .tilted && hasOccupant ? capsuleLight.w : 0
+    }
+
+    /// Whether a light low in front of the worker, its screen or the capsule, writes the third image.
+    var hasFrontLight: Bool {
+        screenStrength > 0 || capsuleStrength > 0
     }
 
     /// 1 when the moon lights the room: a room that is off, seen through the tilted camera; 0 otherwise.
@@ -113,6 +132,12 @@ nonisolated struct RoomLightUniforms: Equatable {
                 moonStrength,
                 0,
                 0
+            ),
+            capsule: SIMD4(
+                capsuleLight.x,
+                capsuleLight.y,
+                capsuleLight.z,
+                capsuleStrength
             )
         )
     }
@@ -176,7 +201,7 @@ nonisolated struct RoomLightUniforms: Equatable {
         }
     }
 
-    /// Packed matches `RoomLightUniforms` in RoomLight.metal field for field: eight `float4`s, 128
+    /// Packed matches `RoomLightUniforms` in RoomLight.metal field for field: nine `float4`s, 144
     /// bytes, so no member needs padding on either side.
     struct Packed {
         /// sRGB colour, and the strength in `w`.
@@ -205,5 +230,8 @@ nonisolated struct RoomLightUniforms: Equatable {
 
         /// `screenStrength` and `moonStrength`.
         var lights: SIMD4<Float>
+
+        /// The capsule's sRGB colour, and `capsuleStrength` in `w`.
+        var capsule: SIMD4<Float>
     }
 }

@@ -70,7 +70,9 @@ struct MascotFace: NSViewRepresentable {
         )
     }
 
-    private func configure(
+    /// Gives `view`'s mascot this face's shape, status, brows, light and behaviour, and plays a new
+    /// `preparation` when `animated`; `HouseWorkerPortrait` dresses its own host's brows with it.
+    func configure(
         _ view  : HostView,
         animated: Bool
     ) {

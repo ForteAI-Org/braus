@@ -22,7 +22,8 @@ import MetalKit
 /// The selection emptying the room, or its worker coming back, is drawn at once as a live frame too,
 /// and the full render follows 0.9 seconds later, after the plaque's swing, so the frames that start
 /// the swing carry neither ray tracing nor a pulse bake. Any other change of uniforms, and any change
-/// to a room with no image yet, renders fully at once.
+/// to a room with no image yet, renders fully at once: a cut, or with `changeFade` a cross-fade from
+/// the image shown.
 ///
 /// A render draws the room with its light at full strength and, for a light that pulses, a
 /// cycle of frames with the light at the pulse's weights, each tone mapped after the light is added;
@@ -49,6 +50,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
             hasPendingUniforms = true
             let isSelection = uniforms.hasOccupant != oldValue.hasOccupant
             guard lastRenderedSize != nil, isResizing || isSelection else {
+                holdShownImage()
                 enqueueRenderIfReady()
                 return
             }
@@ -59,6 +61,10 @@ final class RoomLightView: MTKView, RoomRenderTarget {
             RoomRenderQueue.shared.live(self)
         }
     }
+
+    /// How long a change of uniforms that renders fully at once cross-fades from the image shown to the
+    /// new one, or nil for a cut, as rooms change. Under Reduce Motion every change cuts.
+    var changeFade: Double?
 
     /// How many times a change of `uniforms` has asked for a render.
     private(set) var requestedRenders = 0
@@ -101,11 +107,16 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         previewRenderer ?? renderer as? PrecomputedRoomRenderer
     }
 
-    /// Shows the preview over the refinement while the ray tracer works, then fades it out.
-    private let refineLayer = CALayer()
+    /// Shows the preview over the refinement while the ray tracer works, then fades it out; and, with
+    /// `changeFade`, the image shown before a change over the change's render.
+    let refineLayer = CALayer()
 
-    /// The preview's image, kept for `refineLayer`; nil until the preview has completed.
+    /// The preview's image, kept for `refineLayer`; nil until the preview has completed. With
+    /// `changeFade`, it holds `shownImage` while a change renders.
     private var previewImage: CGImage?
+
+    /// The last full render at full strength, read back only while `changeFade` is set.
+    private var shownImage: CGImage?
 
     /// Whether the drawable shows a preview the ray tracer has not replaced yet.
     private var needsRefinement = false
@@ -157,6 +168,8 @@ final class RoomLightView: MTKView, RoomRenderTarget {
 
     /// How long the refinement takes to replace the preview.
     private static let refineFade = 0.15
+
+    static let fadeKey = "fade"
 
     init(
         device  : MTLDevice,
@@ -379,11 +392,11 @@ final class RoomLightView: MTKView, RoomRenderTarget {
                     reducesMotion: RestylingMotion.reducesMotion,
                     at           : lastLiveFrame
                 ),
-                Self.screenWeight(
+                uniforms.screenStrength > 0 ? Self.screenWeight(
                     for          : uniforms.status,
                     reducesMotion: RestylingMotion.reducesMotion,
                     at           : lastLiveFrame
-                )
+                ) : 1
             ),
             keepsImage: keepsImage,
             widthStep : isResizing ? Self.liveWidthStep : 1
@@ -469,6 +482,8 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         lastRenderedPixelSize = pixelSize
         lastRenderedLean      = uniforms.lean
         drawableWidthShare    = CGFloat(roomWidth) / drawableSize.width
+        // A live frame or a preview replaces what a cross-fade would start from.
+        shownImage            = nil
         stopPulse()
         applyContentsRect()
         CATransaction.commit()
@@ -552,10 +567,11 @@ final class RoomLightView: MTKView, RoomRenderTarget {
             for          : uniforms.status,
             reducesMotion: RestylingMotion.reducesMotion
         )
-        let screen  = Self.screenWeights(
+        // Only a screen varies; the capsule in its place holds still.
+        let screen  = uniforms.screenStrength > 0 ? Self.screenWeights(
             for          : uniforms.status,
             reducesMotion: RestylingMotion.reducesMotion
-        )
+        ) : []
         let weights = lamp.indices.map { SIMD2(lamp[$0], screen.indices.contains($0) ? screen[$0] : 1) }
         let frames  = weights.compactMap { _ in Self.frameTexture(like: drawable.texture) }
         let pulse   = frames.count == weights.count ? Array(zip(frames, weights)) : []
@@ -563,15 +579,17 @@ final class RoomLightView: MTKView, RoomRenderTarget {
             $0.denoises && uniforms.camera == .tilted && $0.denoisedPixelSize == nil
         } ?? false
         let fallback = keepsFallback ? Self.frameTexture(like: drawable.texture) : nil
+        let shown    = changeFade != nil ? Self.frameTexture(like: drawable.texture) : nil
+        let whole    = [fallback, shown].compactMap { $0 }
         renderer.encode(
             uniforms,
             size         : size,
             into         : [(drawable.texture, SIMD2(1, 1))] + pulse.map { (texture: $0.0, weight: $0.1) }
-                + (fallback.map { [(texture: $0, weight: SIMD2<Float>(1, 1))] } ?? []),
+                + whole.map { (texture: $0, weight: SIMD2<Float>(1, 1)) },
             commandBuffer: commandBuffer
         )
         // A managed frame reaches the CPU only once the GPU's copy is synchronised.
-        let readbacks = frames + (fallback.map { [$0] } ?? [])
+        let readbacks = frames + whole
         if readbacks.contains(where: { $0.storageMode == .managed }),
            let blit = commandBuffer.makeBlitCommandEncoder() {
             for frame in readbacks {
@@ -582,14 +600,19 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         let render        = renderRevision
         let status        = uniforms.status
         let path          = path
-        let pulseFrames   = pulse.map(\.0) + (fallback.map { [$0] } ?? [])
+        let pulseFrames   = pulse.map(\.0) + whole
         let pulseCount    = pulse.count
         let hasFallback   = fallback != nil
+        let hasShown      = shown != nil
         let readbackCount = pulseFrames.count
+        // The preview over this render is the image shown before a change, which fades for longer.
+        let fade          = (previewImage === shownImage ? changeFade : nil) ?? Self.refineFade
         commandBuffer.addCompletedHandler { @Sendable [weak self] buffer in
             let readImages = buffer.status == .completed ? pulseFrames.compactMap(Self.image(from:)) : []
             let images = Array(readImages.prefix(pulseCount))
-            let fallbackImage = hasFallback && readImages.count == readbackCount ? readImages.last : nil
+            let isRead = readImages.count == readbackCount
+            let fallbackImage = hasFallback && isRead ? readImages[pulseCount] : nil
+            let shownImage    = hasShown && isRead ? readImages.last : nil
             Task { @MainActor in
                 defer { RoomRenderQueue.shared.didFinishRender(for: path) }
                 guard let self else { return }
@@ -601,11 +624,12 @@ final class RoomLightView: MTKView, RoomRenderTarget {
                         render: render
                     )
                 }
-                if refines, render == self.renderRevision { self.fadeOutRefinement() }
+                if refines, render == self.renderRevision { self.fadeOutRefinement(over: fade) }
                 if render == self.renderRevision, let fallbackImage {
                     self.previewImage = fallbackImage
                     self.needsRefinement = true
                 }
+                if render == self.renderRevision, let shownImage { self.shownImage = shownImage }
                 self.continueAfterRender()
             }
         }
@@ -708,13 +732,26 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         refineLayer.contentsRect = rect
     }
 
-    /// Fades the preview out over the ray-traced image now beneath it.
-    private func fadeOutRefinement() {
+    /// Keeps the image shown over the room until the change's full render lands beneath it, and the
+    /// render then fades it out over `changeFade`; nothing when changes cut or under Reduce Motion.
+    private func holdShownImage() {
+        guard
+            changeFade != nil,
+            !RestylingMotion.reducesMotion,
+            let shownImage,
+            lastRenderedSize == renderSize
+        else { return }
+        previewImage    = shownImage
+        needsRefinement = true
+    }
+
+    /// Fades the preview out over the image now beneath it, in `duration` seconds.
+    private func fadeOutRefinement(over duration: Double) {
         guard !refineLayer.isHidden else { return }
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1
         fade.toValue   = 0
-        fade.duration  = Self.refineFade
+        fade.duration  = duration
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             // A newer refinement shows the preview again at full opacity; leave that one alone.
@@ -725,7 +762,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         refineLayer.opacity = 0
         refineLayer.add(
             fade,
-            forKey: "fade"
+            forKey: Self.fadeKey
         )
         CATransaction.commit()
     }

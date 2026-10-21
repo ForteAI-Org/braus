@@ -197,11 +197,11 @@ struct HouseInspector: View {
                                     height: 18
                                 )
                                 .overlay {
-                                    MascotFace(
+                                    HouseWorkerPortrait(
                                         shape : worker.shape,
                                         status: .free,
-                                        brows : .idle,
-                                        size  : 18
+                                        size  : 18,
+                                        brows : .idle
                                     )
                                 }
                             Text(worker.shape.name)
