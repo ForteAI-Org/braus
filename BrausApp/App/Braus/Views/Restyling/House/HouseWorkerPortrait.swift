@@ -3,7 +3,8 @@ import SwiftUI
 
 /// HouseWorkerPortrait shows a worker outside its room as the room shows it: the room renderer's tilted,
 /// standing worker without its floor or walls, the scene clipped to the body's projected silhouette, and
-/// the brows on its projected face. It takes the silhouette's bounds in layout.
+/// the brows on its projected face. It takes the silhouette's bounds in layout. With a seed the body
+/// moves a little with its brows (`RoomBodyLink`), and the clip moves with it.
 ///
 /// `size` is the side of the worker's sphere, as `MascotFace` takes it; the scene is the rows' square
 /// room around that sphere at every size, so the worker reads the same in a row, at the top of its
@@ -187,7 +188,8 @@ struct HouseWorkerPortrait: View {
         /// The room's light, or nil on a Mac with no Metal device, where only the brows show.
         private(set) var room: RoomLightView?
 
-        private let clip = CAShapeLayer()
+        /// Joins the room's renderer to the brows over the body.
+        let bodyLink = RoomBodyLink()
 
         /// The sphere's and the scene's sides, and the silhouette in the scene, as last shown.
         private var size       : CGFloat = 0
@@ -243,15 +245,17 @@ struct HouseWorkerPortrait: View {
                     device  : device,
                     uniforms: uniforms
                 )
-                room.changeFade  = portrait.changeFade
-                room.layer?.mask = clip
+                room.changeFade = portrait.changeFade
                 figure.addSubview(
                     room,
                     positioned: .below,
                     relativeTo: face
                 )
-                self.room = room
+                self.room     = room
+                bodyLink.room = room
             }
+            // The room clips itself to the silhouette, which moves with the body.
+            room?.silhouette = silhouette.cgPath
             MascotFace(
                 shape           : portrait.shape,
                 status          : portrait.status,
@@ -267,7 +271,8 @@ struct HouseWorkerPortrait: View {
                     ),
                     lean: HouseWorkerPortrait.lean
                 ),
-                behaviourSeed   : portrait.seed
+                behaviourSeed   : portrait.seed,
+                bodyLink        : bodyLink
             ).configure(
                 face,
                 animated: animated
@@ -294,18 +299,6 @@ struct HouseWorkerPortrait: View {
             face.frame  = figure.bounds
             room?.frame = figure.bounds
             room?.needsLayout = true
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            clip.frame = figure.bounds
-            clip.path  = silhouette.applying(CGAffineTransform(
-                a : 1,
-                b : 0,
-                c : 0,
-                d : -1,
-                tx: 0,
-                ty: side
-            )).cgPath
-            CATransaction.commit()
         }
 
         /// Squashes and stretches the whole worker once with `MascotLayer.prepare()`'s keyframes, about

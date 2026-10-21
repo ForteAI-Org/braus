@@ -38,8 +38,10 @@ struct RoomLightUniforms {
     float4 room;      // width and height in points, points per pixel, the tilted room's cove radius
     float4 shape;     // wall height, wall reach, sphere radius, corner radius, in points
     float4 camera;    // the tilted view's floor depth, back wall top, focal length, worker's depth
-    float4 stage;     // the worker's distance from the left wall in points, the composition's lean
-    float4 lights;    // the tilted view's screen and moon, 1 when lit
+    float4 stage;     // the worker's distance from the left wall in points, the composition's lean,
+                      // and the standing body's pose: its turn in radians and its hop in points
+    float4 lights;    // the tilted view's screen and moon, 1 when lit, and the standing body's pose:
+                      // its slide toward the camera in points and its scale, 1 at rest
     float4 capsule;   // the hero's name capsule as a light: sRGB colour, strength in w, zero when off
 };
 
@@ -142,6 +144,8 @@ struct Room {
     float  bodyDome;
     float  bodyBottom;   // how far the outline reaches below its centre, in sphere radii
     float  bodySlab;     // standing, how far the core is thickened before and behind its middle
+    float3 bodyPivot;    // standing, the floor's point under the body, raised by its pose's hop
+    float2 bodyTurn;     // standing, the cosine and sine of its pose's turn about the pivot
     float  lean;         // 0 with the worker at the centre, 1 at the left
     float2 poolCentre;   // where the pool centres once the composition leans, across on the worker
     float3 lamp;
@@ -242,6 +246,8 @@ static Room makeRoom(constant RoomLightUniforms& uniforms) {
     room.fillet         = 0;
     room.footprint      = room.size;
     room.bodySlab       = 0;
+    room.bodyPivot      = room.body;
+    room.bodyTurn       = float2(1, 0);
     room.lean           = 0;
     room.screen         = float3(0);
     room.screenRight    = float3(0);
@@ -503,14 +509,35 @@ static BodyPoint bodyAt(float2 xy, Room room) {
     return point;
 }
 
+/// `offset` turned by `turn`, a cosine and a sine, about the axis toward the camera: a positive sine
+/// turns a point above the axis toward the right.
+static float3 turnedOffset(float3 offset, float2 turn) {
+    return float3(offset.x * turn.x + offset.z * turn.y, offset.y, offset.z * turn.x - offset.x * turn.y);
+}
+
+/// A point of the scene in the frame where the standing body stands as it does at rest: turned back
+/// about its pivot by its pose's turn. Its hop is already in `room.body`. Without a turn the point is
+/// returned as it is, so a body at rest renders bit for bit as it did before poses.
+static float3 uprightPoint(float3 position, Room room) {
+    if (room.bodyTurn.y == 0) { return position; }
+    return room.bodyPivot + turnedOffset(position - room.bodyPivot, room.bodyTurn * float2(1, -1));
+}
+
+/// A point of the standing body at rest where its pose shows it in the scene.
+static float3 posedPoint(float3 position, Room room) {
+    if (room.bodyTurn.y == 0) { return position; }
+    return room.bodyPivot + turnedOffset(position - room.bodyPivot, room.bodyTurn);
+}
+
 /// The point of the body's core nearest `position`, the body being that core grown by the corner's
 /// ball: from above the flat core at the equator; standing in the tilted view, the core upright in the
-/// plane facing the camera and thickened by the slab before and behind it.
+/// plane facing the camera and thickened by the slab before and behind it, then turned by its pose.
 static float3 nearestCore(float3 position, Room room) {
     if (room.isTilted) {
-        float2 core = corePoint(float2(position.x, room.body.y + room.body.z - position.z), room);
-        float  away = clamp(position.y - room.body.y, -room.bodySlab, room.bodySlab);
-        return float3(core.x, room.body.y + away, room.body.y + room.body.z - core.y);
+        float3 upright = uprightPoint(position, room);
+        float2 core    = corePoint(float2(upright.x, room.body.y + room.body.z - upright.z), room);
+        float  away    = clamp(upright.y - room.body.y, -room.bodySlab, room.bodySlab);
+        return posedPoint(float3(core.x, room.body.y + away, room.body.y + room.body.z - core.y), room);
     }
     return float3(corePoint(position.xy, room), room.body.z);
 }
@@ -1125,6 +1152,23 @@ static Room makeTiltedRoom(constant RoomLightUniforms& uniforms) {
         room.screenLight  = linearFromSRGB(uniforms.capsule.rgb) * uniforms.capsule.w * capsuleGain * exposure;
         room.screenCore   = 1.2 * length(capsuleSize) * room.radius;
     }
+    // The pose of a baked frame of the body's motion, after the lights, which stay where they stand:
+    // scaled about its foot, slid toward the camera, hopped, then turned.
+    float scale = uniforms.lights.w;
+    if (scale != 1) {
+        room.radius     *= scale;
+        room.coreSize   *= scale;
+        room.coreOffset *= scale;
+        room.bodyCorner *= scale;
+        room.bodyDome   *= scale;
+        room.bodySlab   *= scale;
+        room.body.z     *= scale;
+    }
+    room.body.y        += uniforms.lights.z;
+    room.body.z        += uniforms.stage.w;
+    room.bodyPivot      = float3(room.body.xy, uniforms.stage.w);
+    // Fast math's cosine and sine of zero need not be exactly one and zero.
+    room.bodyTurn       = uniforms.stage.z == 0 ? float2(1, 0) : float2(cos(uniforms.stage.z), sin(uniforms.stage.z));
     return room;
 }
 
@@ -1226,8 +1270,10 @@ static float3 tiltedAnalyticLight(Surface surface, uint samples, Room room) {
 }
 
 /// A point in the standing body's own frame: x across and y down its outline around `room.body.xy`,
-/// as `corePoint` reads points from above, and z how far in front of the body's middle it lies.
+/// as `corePoint` reads points from above, and z how far in front of the body's middle it lies; the
+/// pose's turn taken back first.
 static float3 standingLocal(float3 position, Room room) {
+    position = uprightPoint(position, room);
     return float3(position.x, room.body.y + room.body.z - position.z, position.y - room.body.y);
 }
 
@@ -1248,7 +1294,7 @@ static float bodyInside(float3 position, Room room) {
 /// the step that enters it.
 static float bodyHit(float3 origin, float3 direction, Room room) {
     if (!room.isOccupied) { return -1; }
-    float3 centre = room.body;
+    float3 centre = posedPoint(room.body, room);
     float  bound  = length(float2(room.coreSize + room.bodyCorner, room.bodySlab + room.bodyCorner + room.bodyDome));
     float3 offset = origin - centre;
     float  along  = -dot(offset, direction);
@@ -1275,7 +1321,7 @@ static float bodyHit(float3 origin, float3 direction, Room room) {
 }
 
 /// The standing body's facing at a point of its surface: on the slab's band away from the core, and
-/// before and behind it as `bodyAt` faces the top from above, turned upright.
+/// before and behind it as `bodyAt` faces the top from above, turned upright, then by its pose.
 static float3 bodyNormalAt(float3 position, Room room) {
     float3 local   = standingLocal(position, room);
     float2 outward = local.xy - corePoint(local.xy, room);
@@ -1287,7 +1333,7 @@ static float3 bodyNormalAt(float3 position, Room room) {
         facing       = normalize(float3(outward + 2 * room.bodyDome * gauge.x * gauge.yz * rise, rise));
         facing.z    *= sign(local.z);
     }
-    return float3(facing.x, facing.z, -facing.y);
+    return turnedOffset(float3(facing.x, facing.z, -facing.y), room.bodyTurn);
 }
 
 /// How much the standing body hides of a floor or wall point right beside it: all of it where they
@@ -1303,7 +1349,7 @@ static float bodyContact(Surface surface, Room room) {
 /// The body's paint coordinates at `position` as the camera sees it: the sphere's unit square
 /// around the body's centre, laid across the view, y down.
 static float2 tiltedBodyUV(float3 position, Room room, Camera camera) {
-    float3 offset = position - room.body;
+    float3 offset = uprightPoint(position, room) - room.body;
     return 0.5 + float2(offset.x, -dot(offset, camera.up)) / (2 * room.radius);
 }
 

@@ -22,12 +22,15 @@ import SwiftUI
 ///
 /// The selected worker has left for the conversation, so its room is empty: no body, no badge, a
 /// lit door at the bottom in the status colour, the plaque "In chat with you" (`HouseAwayPlaque`)
-/// hanging where the worker stood, and a white ring on its edge. Every room holds its plaque, hidden
+/// hanging where the worker stood, and a white ring on its edge. In a tilted room the worker steps
+/// out first and the plaque drops in after it (`RoomPassage`); coming back, it steps in once the plaque
+/// has faded. Every room holds its plaque, hidden
 /// while the worker is in, so that selecting it only shows the plaque. On the floor plan the room is
 /// a button that calls `select`; as a row, with no `select`, the list selects it.
 ///
 /// `camera` is how the room is seen: from above, or tilted into it, where the brows follow the
-/// body's face through the room's camera and the plaque hangs in the room where the worker stood.
+/// body's face through the room's camera and the plaque hangs in the room where the worker stood, and
+/// the body moves a little in step with the brows (`RoomBodyLink`).
 struct HouseRoomCell: View {
     let worker    : MockWorker
     let isSelected: Bool
@@ -79,6 +82,12 @@ struct HouseRoomCell: View {
         return isSelected ? "\(row), \(HouseAwayPlaque.text.lowercased())" : row
     }
 
+    /// How long the plaque waits before it drops in: in a tilted room, until the worker has stepped
+    /// out (`RoomPassage`); from above, not at all.
+    static func plaqueDelay(for camera: RoomCamera) -> TimeInterval {
+        camera == .tilted ? RestylingTiming.roomExit : 0
+    }
+
     /// The seed that makes `worker`'s brows live by its status in its room, or nil while it is away
     /// in the conversation and the room is empty.
     static func behaviourSeed(
@@ -114,6 +123,9 @@ struct HouseRoomCell: View {
         let camera    : RoomCamera
         var lean      : Double
         var width     : Double?
+
+        /// Joins the room's renderer to the brows over the body.
+        @State private var bodyLink = RoomBodyLink()
 
         var animatableData: AnimatablePair<Double, Double> {
             get {
@@ -151,16 +163,20 @@ struct HouseRoomCell: View {
                     lean: Float(lean)
                 )
                 ZStack {
-                    RoomLight(uniforms: RoomLightUniforms(
-                        status     : worker.status,
-                        shape      : worker.shape,
-                        hasOccupant: !isSelected,
-                        camera     : camera,
-                        lean       : Float(lean)
-                    ))
+                    RoomLight(
+                        uniforms: RoomLightUniforms(
+                            status     : worker.status,
+                            shape      : worker.shape,
+                            hasOccupant: !isSelected,
+                            camera     : camera,
+                            lean       : Float(lean)
+                        ),
+                        bodyLink: bodyLink
+                    )
                     .allowsHitTesting(false)
 
-                    if !isSelected {
+                    // A tilted room keeps the brows while its worker is away, so they can step out with the body.
+                    if !isSelected || camera == .tilted {
                         // The room draws the body where its composition stands it, a share of its short side across.
                         MascotFace(
                             shape           : worker.shape,
@@ -177,7 +193,9 @@ struct HouseRoomCell: View {
                             behaviourSeed   : HouseRoomCell.behaviourSeed(
                                 of        : worker,
                                 isSelected: isSelected
-                            )
+                            ),
+                            bodyLink        : bodyLink,
+                            isAway          : isSelected
                         )
                         .offset(x: camera == .top ? bodyX - size.width / 2 : 0)
                     }
@@ -187,7 +205,8 @@ struct HouseRoomCell: View {
                         status   : worker.status,
                         isHanging: isSelected,
                         camera   : camera,
-                        lean     : Float(lean)
+                        lean     : Float(lean),
+                        dropDelay: HouseRoomCell.plaqueDelay(for: camera)
                     )
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -367,25 +386,30 @@ struct HouseRoomCell: View {
     }
 
     /// RoomLight hosts the room set into the column (`RoomOpeningView`), lit on the system's default
-    /// GPU. Without one the room stays empty.
+    /// GPU, and joins it to the brows through `bodyLink`. Without a GPU the room stays empty.
     private struct RoomLight: NSViewRepresentable {
         let uniforms: RoomLightUniforms
+        let bodyLink: RoomBodyLink
 
         private static let device = MTLCreateSystemDefaultDevice()
 
         func makeNSView(context: Context) -> NSView {
             guard let device = Self.device else { return NSView() }
-            return RoomOpeningView(
+            let opening = RoomOpeningView(
                 device  : device,
                 uniforms: uniforms
             )
+            bodyLink.room = opening.room
+            return opening
         }
 
         func updateNSView(
             _ view : NSView,
             context: Context
         ) {
-            (view as? RoomOpeningView)?.uniforms = uniforms
+            guard let opening = view as? RoomOpeningView else { return }
+            opening.uniforms = uniforms
+            bodyLink.room    = opening.room
         }
     }
 }

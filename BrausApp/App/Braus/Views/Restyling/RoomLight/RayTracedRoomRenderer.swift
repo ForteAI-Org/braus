@@ -13,7 +13,7 @@ import MetalFX
 ///
 /// The room (a floor with a rounded outline and its cove walls) and the worker's tessellated body
 /// form one primitive acceleration structure, rebuilt only when the room's size, occupancy, shape,
-/// camera or composition changes. The body is a triangle mesh of its outline's bevel, built from the
+/// camera, composition or the standing body's pose changes. The body is a triangle mesh of its outline's bevel, built from the
 /// same `ShapeOutline` the shader shades, so the hardware intersects it like the room and its shadow
 /// follows the outline.
 /// Per change, one compute pass accumulates 64 frames per pixel in linear light: a jittered primary
@@ -188,6 +188,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
                 occupant     : uniforms.hasOccupant ? uniforms.shape : nil,
                 camera       : uniforms.camera,
                 lean         : uniforms.lean,
+                pose         : uniforms.pose,
                 commandBuffer: commandBuffer
             ),
             let encoder = commandBuffer.makeComputeCommandEncoder()
@@ -229,6 +230,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
                 occupant     : uniforms.hasOccupant ? uniforms.shape : nil,
                 camera       : .tilted,
                 lean         : uniforms.lean,
+                pose         : uniforms.pose,
                 commandBuffer: commandBuffer
             )
         else { return }
@@ -293,7 +295,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
     }
 
     /// Scene is a built acceleration structure and the room it was built for, as seen by its camera,
-    /// with its composition's lean.
+    /// with its composition's lean and the standing body's pose.
     /// It keeps the build's descriptor, which holds the vertex buffers, and its scratch buffer until
     /// the next rebuild, so the GPU never reads a released buffer.
     private struct Scene {
@@ -301,6 +303,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
         let occupant  : WorkerShape?
         let camera    : RoomCamera
         let lean      : Float
+        let pose      : RoomLightUniforms.Pose
         let structure : MTLAccelerationStructure
         let descriptor: MTLPrimitiveAccelerationStructureDescriptor
         let scratch   : MTLBuffer
@@ -313,17 +316,19 @@ final class RayTracedRoomRenderer: RoomRenderer {
     private static let bevelRings    = 16
     private static let pointsPerTurn = 96
 
-    /// The acceleration structure for the room, the shape of the worker in it, the camera and the
-    /// composition's lean, encoding its build into `commandBuffer` when any changed, before the pass
-    /// that traces it.
+    /// The acceleration structure for the room, the shape of the worker in it, the camera, the
+    /// composition's lean and the standing body's pose, encoding its build into `commandBuffer` when any
+    /// changed, before the pass that traces it.
     private func structure(
         size         : CGSize,
         occupant     : WorkerShape?,
         camera       : RoomCamera,
         lean         : Float,
+        pose         : RoomLightUniforms.Pose,
         commandBuffer: MTLCommandBuffer
     ) -> MTLAccelerationStructure? {
-        if let scene, scene.size == size, scene.occupant == occupant, scene.camera == camera, scene.lean == lean {
+        if let scene, scene.size == size, scene.occupant == occupant, scene.camera == camera, scene.lean == lean,
+           scene.pose == pose {
             return scene.structure
         }
         let perspective = camera == .tilted ? RoomCamera.Perspective(
@@ -335,7 +340,8 @@ final class RayTracedRoomRenderer: RoomRenderer {
         if let occupant, let perspective {
             geometries.append(Self.standingBody(
                 perspective,
-                outline: occupant.outline
+                outline: occupant.outline,
+                pose   : pose
             ))
         } else if let occupant {
             geometries.append(Self.body(
@@ -369,6 +375,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
             occupant  : occupant,
             camera    : camera,
             lean      : lean,
+            pose      : pose,
             structure : structure,
             descriptor: descriptor,
             scratch   : scratch
@@ -459,16 +466,24 @@ final class RayTracedRoomRenderer: RoomRenderer {
     /// its centroid `bottom` sphere radii over the floor so it rests on its lowest point, the core
     /// thickened by the slab before and behind its middle with a band between, and grown from there
     /// along the bevel's quarter circle to a flat cap in front and behind. The dome is left out, as
-    /// from above.
+    /// from above. Every point is then moved by `pose`, as RoomLight.metal moves the body it shades.
     private static func standingBody(
         _ perspective: RoomCamera.Perspective,
-        outline      : ShapeOutline
+        outline      : ShapeOutline,
+        pose         : RoomLightUniforms.Pose
     ) -> [SIMD3<Float>] {
         let radius = Double(RoomLightUniforms.Shape(
             size: perspective.size,
             lean: perspective.lean
         ).sphereRadius)
         let centre = SIMD3(perspective.bodyX, perspective.bodyDepth, outline.bottom * radius)
+        let foot   = SIMD3(centre.x, centre.y, 0)
+        func placed(_ point: SIMD3<Double>) -> SIMD3<Float> {
+            SIMD3<Float>(pose.moved(
+                point,
+                foot: foot
+            ))
+        }
         let slab   = RoomCamera.slab(of: outline) * radius
         let corner = outline.corner * radius
         func ring(
@@ -481,7 +496,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
                 growth       : outline.corner * cos(angle),
                 pointsPerTurn: pointsPerTurn
             ).map { point in
-                SIMD3(Float(centre.x + radius * point.x), Float(centre.y + depth), Float(centre.z - radius * point.y))
+                placed(SIMD3(centre.x + radius * point.x, centre.y + depth, centre.z - radius * point.y))
             }
         }
         var vertices = surface([
@@ -489,7 +504,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
             ring(0, front: false),
         ])
         for front in [true, false] {
-            let cap = SIMD3(Float(centre.x), Float(centre.y + (front ? 1 : -1) * (slab + corner)), Float(centre.z))
+            let cap = placed(SIMD3(centre.x, centre.y + (front ? 1 : -1) * (slab + corner), centre.z))
             vertices += surface(
                 (0...bevelRings).map { ring($0, front: front) },
                 centre: cap
