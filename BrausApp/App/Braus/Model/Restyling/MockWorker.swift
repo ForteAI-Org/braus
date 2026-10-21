@@ -9,8 +9,9 @@ import Foundation
 
 /// MockWorker is one worker of the mockup's simulated house.
 ///
-/// `activity` is what the worker is doing now, or what it needs from you while it waits, in plain
-/// words; `role` is what it does, in a few words.
+/// `activity` is what the worker is doing, or needs from you, while it works or waits, in plain
+/// words; `role` is what it does, in a few words. Every mock worker has both, so a worker shown in any
+/// state never reads as a status word.
 nonisolated struct MockWorker: Identifiable, Sendable {
     let id      : UUID
     var name    : String

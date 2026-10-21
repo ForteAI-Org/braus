@@ -69,6 +69,12 @@ constant float leanWashReach  = 1.3;    // how far right the wash falls to 1/e
 constant float leanWashSpread = 0.35;   // how much taller it grows for each short side it travels
 constant float2 leanTailReach = float2(1.8, 0.8);   // the walls' faint lit rim, rightward and across
 
+// Where a room leaning left goes dark, in short sides right of the worker: from `darkFrom` its light
+// fades, and from `darkTo` on its floor and walls are black, light and ambient alike, so the right
+// end shows no lit wall, corner or edge.
+constant float darkFrom = 1.0;
+constant float darkTo   = 2.3;
+
 constant float  floorAlbedo = 0.5;
 constant float  wallAlbedo  = 0.7;
 constant float  exposure    = 0.42;
@@ -282,8 +288,29 @@ static float centredPool(float2 xy, float2 centre, float wallShare, Room room) {
     return (1 - poolTail) * gain * exp(-square(distance / core)) + tail * exp(-square(distance / tailWidth));
 }
 
+/// How much of its light a point `right` short sides right of the worker keeps in a room leaning
+/// fully left: all of it up to `darkFrom`, none from `darkTo`.
+static float rightFade(float right) {
+    return 1 - smoothstep(darkFrom, darkTo, right);
+}
+
+/// How much of its light and ambient a floor or wall point at `x` keeps in a room leaning left, as
+/// far as it leans: less toward the right end, which is black.
+static float rightDarkness(float x, Room room) {
+    return mix(1.0, rightFade((x - room.body.x) / room.side), saturate(room.lean));
+}
+
+/// `images` of a floor or wall point at `x`, darkened toward the right end when the room `leans`;
+/// the bounced light and the ambient there go dark with the lamp's.
+template <bool leans>
+static Images darkenedRight(Images images, float x, Room room) {
+    if (!leans) { return images; }
+    float keep = rightDarkness(x, room);
+    return { images.base * keep, images.light * keep };
+}
+
 /// The pool of a room leaning fully left, 1 at its centre: the core and the rightward wash, and
-/// the walls' lit rim, fading toward the right as the floor does.
+/// the walls' lit rim, fading toward the right as the floor does and gone by `darkTo`.
 static float leaningPool(float2 xy, float wallShare, Room room) {
     float2 offset = (xy - room.poolCentre) / room.side;
     float  right  = max(offset.x, 0.0);
@@ -294,7 +321,7 @@ static float leaningPool(float2 xy, float wallShare, Room room) {
                   * leanCoreHeight / height;
     float2 reach  = float2(offset.x > 0 ? leanTailReach.x : leanCoreLeft, leanTailReach.y);
     float  tail   = poolTail * (1 + wallCatch * wallShare) * exp(-square(length(offset / reach) / tailWidth));
-    return (1 - poolTail) * ((1 - leanWash) * core + leanWash * wash) + tail;
+    return ((1 - poolTail) * ((1 - leanWash) * core + leanWash * wash) + tail) * rightFade(offset.x);
 }
 
 /// The lamp's pool at a point of the room, 1 at its centre. The core falls off like the prototype's
@@ -662,6 +689,7 @@ static void precomputeRoomAt(texture2d<float, access::write> base,
     float2  xy      = (float2(pixel) + 0.5) * room.pointsPerPixel;
     Surface surface = surfaceAt(xy, room);
     Images  images  = { ambient * (1 - bodyAmbientOcclusion(surface, room)), analyticLight(xy, occlusionSamples, room) };
+    images = darkenedRight<leans>(images, xy.x, room);
 
     if (room.isOccupied) {
         float coverage = saturate(-outlineDistance(xy, room) / room.pointsPerPixel + 0.5);
@@ -897,7 +925,7 @@ static void traceRoomAt(texture2d<float, access::write>  base,
         Images  images;
         Surface surface;
         if (hitRoom(hit, primary, room, surface)) {
-            images = tracedRoom(surface, scene, room, frame, seed);
+            images = darkenedRight<leans>(tracedRoom(surface, scene, room, frame, seed), xy.x, room);
         } else if (hit.type != intersection_type::none) {
             images = tracedBody(xy, scene, room, frame, seed);
         } else {
@@ -905,6 +933,7 @@ static void traceRoomAt(texture2d<float, access::write>  base,
             Surface rim = surfaceAt(xy, room);
             images.base  = ambient;
             images.light = rim.albedo * lampTerm(rim.position, rim.normal, room.lamp, room) * room.light;
+            images = darkenedRight<leans>(images, xy.x, room);
         }
         sum.base  += images.base;
         sum.light += images.light;
@@ -1229,6 +1258,7 @@ static void precomputeTiltedRoomAt(texture2d<float, access::write> base,
         tiltedAnalyticLight(surface, occlusionSamples, room) * (1 - occlusionLightShare * (1 - openness))
             * (1 - contactLight * contact) * fade
     };
+    images = darkenedRight<leans>(images, surface.position.x, room);
 
     // The body, found at four points of the pixel so its silhouette is smooth, shaded at the first.
     float  coverage = 0;
@@ -1369,12 +1399,13 @@ static void traceTiltedRoomAt(texture2d<float, access::write>  base,
             intersection_result<> hit = nearest.intersect(primary, scene);
             Surface surface;
             if (hitRoom(hit, primary, room, surface)) {
-                images = tracedTiltedRoom(surface, shadow, scene, room, frame, seed);
+                images = darkenedRight<leans>(tracedTiltedRoom(surface, shadow, scene, room, frame, seed), surface.position.x, room);
             } else if (hit.type != intersection_type::none) {
                 images = tracedTiltedBody(window + direction * hit.distance, direction, scene, room, camera, frame, seed);
             } else {
                 // Behind the back corners' rounding, which the view's corners clip: the wall there.
-                images = tracedTiltedRoom(tiltedSurfaceAt(window, room), shadow, scene, room, frame, seed);
+                Surface wall = tiltedSurfaceAt(window, room);
+                images = darkenedRight<leans>(tracedTiltedRoom(wall, shadow, scene, room, frame, seed), wall.position.x, room);
             }
         }
         sum.base  += images.base;

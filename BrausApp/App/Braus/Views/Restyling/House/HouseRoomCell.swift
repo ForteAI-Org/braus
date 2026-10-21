@@ -61,12 +61,12 @@ struct HouseRoomCell: View {
         }
     }
 
-    /// What VoiceOver says for `worker`'s room: its name and what it is doing, or that it is in chat.
+    /// What VoiceOver says for `worker`'s room: its name and its subtitle, or that it is in chat.
     static func spokenLabel(
         for worker: MockWorker,
         isSelected: Bool
     ) -> String {
-        isSelected ? "\(worker.name), \(HouseAwayPlaque.text.lowercased())" : "\(worker.name), \(worker.activity)"
+        isSelected ? "\(worker.name), \(HouseAwayPlaque.text.lowercased())" : "\(worker.name), \(worker.subtitle)"
     }
 
     /// What VoiceOver says for `worker`'s row: its name and subtitle, and that it is in chat.

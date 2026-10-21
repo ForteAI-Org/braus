@@ -8,7 +8,8 @@
 import SwiftUI
 
 /// HouseHero is the selected worker at the top of its conversation: its 56 point mascot, its name
-/// and what it is doing now. The role shows on hover of the name, so the window says the name once.
+/// and its subtitle, what it is doing or needs, or what it does while free or off. The kind of work
+/// shows on hover of the name, so the window says the name once.
 struct HouseHero: View {
     let worker: MockWorker
 
@@ -30,7 +31,7 @@ struct HouseHero: View {
                     8
                 )
                 .help(role)
-            Text(worker.activity)
+            Text(worker.subtitle)
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .padding(

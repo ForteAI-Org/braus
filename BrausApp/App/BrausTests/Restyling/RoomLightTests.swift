@@ -495,14 +495,18 @@ struct RoomLightTests {
                 let middle  = try #require(centred.indices.max { centred[$0] < centred[$1] })
                 #expect(abs(peak - worker) <= 2, "\(name): \(leaning)")
                 #expect(abs(middle - centred.count / 2) <= 3, "\(name): \(centred)")
-                // Right of the worker the light only fades, softly, and is dim by the last third, where the
-                // right wall begins to catch it.
+                // Right of the worker the light only fades, softly, with no step a hard edge would make,
+                // and is dim by the last third.
                 let dim = Int(0.7 * size.width) / band
-                for index in (worker + 2) ..< dim {
+                for index in (worker + 2) ..< (leaning.count - 1) {
                     #expect(leaning[index + 1] <= leaning[index] + 1.5, "\(name) at band \(index): \(leaning)")
-                    #expect(leaning[index + 1] > 0.75 * leaning[index], "\(name) at band \(index): \(leaning)")
+                    #expect(leaning[index] - leaning[index + 1] < 0.12 * leaning[peak], "\(name) at band \(index): \(leaning)")
                 }
                 #expect(leaning[dim] < 0.4 * leaning[peak], "\(name): \(leaning)")
+                // The right end is black, its walls and corners too: only the dither's half step is left.
+                for index in (Int(0.82 * size.width) / band) ..< leaning.count {
+                    #expect(leaning[index] < 3, "\(name) at band \(index): \(leaning)")
+                }
             }
         }
     }
