@@ -35,6 +35,7 @@ final class AppPreferenceValues {
     private(set) var chatFontFamily             = AppPreferences.chatFontFamilyDefault
     private(set) var bodyPointSize              = Double(TranscriptStyle.actualSize.bodyPointSize)
     private(set) var restylingSidebarMode       = SidebarMode(preference: AppPreferences.restylingSidebarModeDefault)
+    private(set) var newLook                    = AppPreferences.newLookDefault
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -99,6 +100,10 @@ final class AppPreferenceValues {
         set(
             \.restylingSidebarMode,
             to: SidebarMode(preference: defaults.string(forKey: AppPreferences.restylingSidebarMode))
+        )
+        set(
+            \.newLook,
+            to: bool(AppPreferences.newLook, AppPreferences.newLookDefault)
         )
     }
 

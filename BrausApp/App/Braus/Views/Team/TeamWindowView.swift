@@ -11,7 +11,10 @@ import SeatBroker
 import SwiftUI
 
 /// TeamWindowView is the app's front door: it opens the workspace and hands
-/// the team to `TeamShellView`, the three areas of the window.
+/// the team to `TeamShellView`, the three areas of the window, or to
+/// `HouseShellView` while the new look is on (`AppPreferences.newLook`). A
+/// change of the setting swaps the shell over the same team; the new look is
+/// dark only, so the app turns dark with it and follows the system again after.
 ///
 /// It is also the window's memory (§3.1). Whether the inspector was asked
 /// for and the selected worker are scene storage, so each window restores its
@@ -78,16 +81,35 @@ struct TeamWindowView: View {
                 team = model
                 await model.openSelectedConversation()
             }
+            .onChange(
+                of     : AppPreferenceValues.shared.newLook,
+                initial: true
+            ) { wasOn, isOn in
+                if isOn {
+                    NSApp.appearance = NSAppearance(named: .darkAqua)
+                } else if wasOn {
+                    NSApp.appearance = nil
+                }
+            }
     }
 
     @ViewBuilder
     private var content: some View {
         if let team {
             
-            TeamShellView(
-                team                : team,
-                isInspectorRequested: $isInspectorRequested
-            )
+            Group {
+                if AppPreferenceValues.shared.newLook {
+                    HouseShellView(
+                        team                : team,
+                        isInspectorRequested: $isInspectorRequested
+                    )
+                } else {
+                    TeamShellView(
+                        team                : team,
+                        isInspectorRequested: $isInspectorRequested
+                    )
+                }
+            }
             .onChange(of: team.selection) {
                 storedSelection = team.selection?.uuidString ?? ""
             }

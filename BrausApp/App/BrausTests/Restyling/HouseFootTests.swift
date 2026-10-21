@@ -106,7 +106,7 @@ struct HouseFootTests {
     /// Choice is the worker a test's sidebar selects.
     @Observable
     final class Choice {
-        var worker: MockWorker.ID?
+        var worker: HouseWorker.ID?
     }
 
     /// SidebarHost is the house window's split with the house's sidebar and New Worker beside it.

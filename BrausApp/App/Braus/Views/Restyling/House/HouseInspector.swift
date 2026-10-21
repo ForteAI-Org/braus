@@ -17,11 +17,11 @@ import SwiftUI
 /// Every section is always open. The list of providers opens in place, and the inspector keeps
 /// which worker's list is open, so coming back to that worker finds it as it was left.
 struct HouseInspector: View {
-    let worker     : Binding<MockWorker>?
+    let worker     : Binding<HouseWorker>?
     let showsScreen: Bool
 
     /// The worker whose list of providers is open, as the app's `TeamModel.choosingProviderFor`.
-    @State private var choosingProviderFor: MockWorker.ID?
+    @State private var choosingProviderFor: HouseWorker.ID?
 
     @Environment(MockTeam.self)
     private var team: MockTeam?
@@ -72,7 +72,7 @@ struct HouseInspector: View {
     @ViewBuilder
     private func section(
         _ part  : Part,
-        binding : Binding<MockWorker>,
+        binding : Binding<HouseWorker>,
         team    : MockTeam
     ) -> some View {
         let worker = binding.wrappedValue
@@ -117,7 +117,7 @@ struct HouseInspector: View {
     /// The role follows every keystroke, as the room shows it. The name is taken on Return or when
     /// the field loses the keyboard, and a name emptied there comes back: a worker always has one.
     private struct WorkerSection: View {
-        @Binding var worker: MockWorker
+        @Binding var worker: HouseWorker
 
         @State private var name: String
 
@@ -125,7 +125,7 @@ struct HouseInspector: View {
 
         @FocusState private var isNameFocused: Bool
 
-        init(worker: Binding<MockWorker>) {
+        init(worker: Binding<HouseWorker>) {
             _worker = worker
             _name   = State(initialValue: worker.wrappedValue.name)
         }

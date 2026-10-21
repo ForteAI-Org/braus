@@ -6,7 +6,7 @@ import SwiftUI
 /// Both forms are the same views in a different layout, so a change between them moves and resizes
 /// them. The worker stays visible when selected; the card and accessibility traits mark the choice.
 struct HouseWorkerRow: View {
-    let worker    : MockWorker
+    let worker    : HouseWorker
     let isSelected: Bool
     var isCompact : Bool = false
 
@@ -16,7 +16,7 @@ struct HouseWorkerRow: View {
     /// Makes the worker's brows follow the pointer while it is over the card.
     @State private var gaze = WorkerGaze()
 
-    private var badge: MockBadge? { isSelected ? nil : worker.badge }
+    private var badge: HouseBadge? { isSelected ? nil : worker.badge }
 
     var body: some View {
         let layout = isCompact
@@ -24,11 +24,12 @@ struct HouseWorkerRow: View {
             : AnyLayout(HStackLayout(spacing: 8))
         layout {
             HouseWorkerPortrait(
-                shape    : worker.shape,
-                status   : worker.status,
-                seed     : WorkerBehaviour.seed(for: worker.id),
-                showsHalo: true,
-                gaze     : gaze
+                shape     : worker.shape,
+                status    : worker.status,
+                seed      : WorkerBehaviour.seed(for: worker.id),
+                showsHalo : true,
+                gaze      : gaze,
+                usesScreen: worker.usesScreen
             )
             .frame(
                 width : 56,

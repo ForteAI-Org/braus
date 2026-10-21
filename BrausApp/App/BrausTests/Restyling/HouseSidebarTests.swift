@@ -825,7 +825,7 @@ struct HouseSidebarTests {
 
     @Test("The house window never asks for less than all its columns, and its sidebar does not collapse")
     func sidebarStays() async throws {
-        #expect(RestylingWindowView.columnVisibility == .all)
+        #expect(RestylingWindowLayout.columnVisibility == .all)
 
         let window = NSWindow(
             contentRect: CGRect(
@@ -841,7 +841,7 @@ struct HouseSidebarTests {
         window.isReleasedWhenClosed = false
         defer { window.close() }
         window.contentView = NSHostingView(rootView: NavigationSplitView(
-            columnVisibility: .constant(RestylingWindowView.columnVisibility)
+            columnVisibility: .constant(RestylingWindowLayout.columnVisibility)
         ) {
             Color.clear.background(SidebarBridge())
         } detail: {
@@ -892,7 +892,7 @@ struct HouseSidebarTests {
         }
         let before = window.toolbar?.items.map(\.itemIdentifier) ?? []
 
-        let sequence: [MockWorker?] = workers[1...3].map { $0 } + [nil, workers.first]
+        let sequence: [HouseWorker?] = workers[1...3].map { $0 } + [nil, workers.first]
         for worker in sequence {
             choice.worker = worker
             try await Task.sleep(for: .milliseconds(150))
@@ -904,7 +904,7 @@ struct HouseSidebarTests {
     /// Choice is the worker a test's detail column shows.
     @Observable
     final class Choice {
-        var worker: MockWorker?
+        var worker: HouseWorker?
     }
 
     /// DetailHost is the house window's split with its detail column and a toolbar item there.

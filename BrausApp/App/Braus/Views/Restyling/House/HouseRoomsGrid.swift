@@ -15,13 +15,13 @@ import SwiftUI
 /// through the camera `BRAUS_ROOM_CAMERA` picks at launch. A room chosen out of sight, as a worker
 /// just created is, scrolls into view; each offers Edit Worker… (`edit`) in its context menu.
 struct HouseRoomsGrid: View {
-    let workers   : [MockWorker]
+    let workers   : [HouseWorker]
     let columns   : Int
     let roomsWidth: CGFloat?
 
-    @Binding var selection: MockWorker.ID?
+    @Binding var selection: HouseWorker.ID?
 
-    let edit: (MockWorker.ID) -> Void
+    let edit: (HouseWorker.ID) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -54,7 +54,7 @@ struct HouseRoomsGrid: View {
 
     private var isCompact: Bool { columns == 1 }
 
-    private func room(_ worker: MockWorker) -> some View {
+    private func room(_ worker: HouseWorker) -> some View {
         HouseRoomCell(
             worker    : worker,
             isSelected: selection == worker.id,

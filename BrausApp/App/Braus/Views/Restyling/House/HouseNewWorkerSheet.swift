@@ -26,7 +26,7 @@ import SwiftUI
 struct HouseNewWorkerSheet: View {
     @Binding var house: MockHouse
 
-    let created: (MockWorker.ID) -> Void
+    let created: (HouseWorker.ID) -> Void
 
     @Environment(\.dismiss)
     private var dismiss
@@ -51,7 +51,7 @@ struct HouseNewWorkerSheet: View {
 
     init(
         house  : Binding<MockHouse>,
-        created: @escaping (MockWorker.ID) -> Void
+        created: @escaping (HouseWorker.ID) -> Void
     ) {
         _house       = house
         self.created = created

@@ -14,8 +14,8 @@ import Foundation
 /// Colours are sRGB components in 0...1; the shaders linearise them. Every worker's body is the
 /// same graphite metal, so only its shape reaches the shaders.
 ///
-/// Seen through the tilted camera, a busy worker in its room also has its screen, a second, cool light
-/// in front of it (`screenStrength`), and a room that is off has the moon instead of its lamp
+/// Seen through the tilted camera, a worker in its room that uses a screen (`screenLit`) also has it, a
+/// second, cool light in front of it (`screenStrength`), and a room that is off has the moon instead of its lamp
 /// (`moonStrength`). The worker at the top of its conversation is lit from its name's capsule below
 /// instead of a screen (`capsuleLight`).
 ///
@@ -38,6 +38,9 @@ nonisolated struct RoomLightUniforms: Equatable {
     /// The status the light shows; it picks the light's pulse.
     var status: WorkerStatus
 
+    /// Whether the worker uses a screen, an app it drives, which lights it from the front.
+    var screenLit: Bool
+
     /// The light of the name's capsule under the worker at the top of its conversation (`HeroLight`):
     /// sRGB colour, and its strength in `w`; zero where there is none. Seen through the tilted camera it
     /// stands low in front of the worker, facing it, in the screen's place, and holds still.
@@ -49,6 +52,7 @@ nonisolated struct RoomLightUniforms: Equatable {
         hasOccupant : Bool,
         camera      : RoomCamera = .top,
         lean        : Float = 0,
+        screenLit   : Bool = false,
         capsuleLight: SIMD4<Float> = .zero
     ) {
         let light = status.light ?? (red: 0, green: 0, blue: 0)
@@ -63,13 +67,14 @@ nonisolated struct RoomLightUniforms: Equatable {
         self.camera       = camera
         self.lean         = lean
         self.status       = status
+        self.screenLit    = screenLit
         self.capsuleLight = capsuleLight
     }
 
-    /// 1 when the worker's screen lights the room: a busy worker in its room, seen through the tilted
-    /// camera and not lit by a capsule; 0 otherwise.
+    /// 1 when the worker's screen lights the room: a worker using a screen in its room, seen through the
+    /// tilted camera and not lit by a capsule; 0 otherwise.
     var screenStrength: Float {
-        camera == .tilted && status == .busy && hasOccupant && capsuleStrength == 0 ? 1 : 0
+        camera == .tilted && screenLit && hasOccupant && capsuleStrength == 0 ? 1 : 0
     }
 
     /// The capsule's strength where it lights the worker: in its room, seen through the tilted camera;

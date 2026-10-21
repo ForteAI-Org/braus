@@ -37,10 +37,11 @@ struct BehaviourPreview: View {
                 let entry = Self.statuses[index]
                 VStack(spacing: 18) {
                     HouseWorkerPortrait(
-                        shape : .circle,
-                        status: entry.status,
-                        size  : 120,
-                        seed  : UInt64(index + 1)
+                        shape     : .circle,
+                        status    : entry.status,
+                        size      : 120,
+                        seed      : UInt64(index + 1),
+                        usesScreen: entry.status == .busy
                     )
                     Text(entry.title)
                         .foregroundStyle(.secondary)

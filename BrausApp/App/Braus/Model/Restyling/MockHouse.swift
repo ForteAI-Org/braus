@@ -9,7 +9,7 @@ import Foundation
 
 /// MockHouse is the simulated team the restyling mockup shows.
 nonisolated struct MockHouse: Sendable {
-    var workers      : [MockWorker]
+    var workers      : [HouseWorker]
     var archivedCount: Int
     var mostUsed     : [String]
 
@@ -27,7 +27,7 @@ nonisolated struct MockHouse: Sendable {
         role    : String,
         category: AppCategory,
         shape   : WorkerShape,
-        badge   : MockBadge?
+        badge   : HouseBadge?
     )
 
     // A room touches the next two rooms and, in two columns, the third after an odd one (diagonally):
@@ -50,16 +50,17 @@ nonisolated struct MockHouse: Sendable {
         name : String,
         role : String,
         shape: WorkerShape
-    ) -> MockWorker.ID {
-        let worker = MockWorker(
-            id      : UUID(),
-            name    : name,
-            status  : .free,
-            activity: "",
-            role    : role,
-            category: .general,
-            shape   : shape,
-            badge   : nil
+    ) -> HouseWorker.ID {
+        let worker = HouseWorker(
+            id        : UUID(),
+            name      : name,
+            status    : .free,
+            activity  : "",
+            role      : role,
+            category  : .general,
+            shape     : shape,
+            badge     : nil,
+            usesScreen: false
         )
         workers.append(worker)
         return worker.id
@@ -74,16 +75,18 @@ nonisolated struct MockHouse: Sendable {
         return candidates[Int(seed % UInt64(candidates.count))]
     }
 
-    private static func worker(_ row: Row) -> MockWorker {
-        MockWorker(
-            id      : UUID(),
-            name    : row.name,
-            status  : row.status,
-            activity: row.activity,
-            role    : row.role,
-            category: row.category,
-            shape   : row.shape,
-            badge   : row.badge
+    private static func worker(_ row: Row) -> HouseWorker {
+        // A simulated busy worker sits at its screen.
+        HouseWorker(
+            id        : UUID(),
+            name      : row.name,
+            status    : row.status,
+            activity  : row.activity,
+            role      : row.role,
+            category  : row.category,
+            shape     : row.shape,
+            badge     : row.badge,
+            usesScreen: row.status == .busy
         )
     }
 }

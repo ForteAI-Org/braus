@@ -19,7 +19,7 @@ import SwiftUI
 /// ready connections and lists every provider in a popover, standing in for the app's Providers
 /// sheet.
 struct HouseModelSection: View {
-    let worker: MockWorker
+    let worker: HouseWorker
     let team  : MockTeam
 
     /// Whether this worker's list of providers is open.

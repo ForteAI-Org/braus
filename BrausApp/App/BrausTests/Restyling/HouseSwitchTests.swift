@@ -138,7 +138,7 @@ struct HouseSwitchTests {
     /// Choice is the worker a test's detail column shows.
     @Observable
     final class Choice {
-        var worker: MockWorker?
+        var worker: HouseWorker?
     }
 
     /// DetailHost is the house window's split with its detail column and a toolbar item there.
