@@ -27,7 +27,7 @@ import SwiftUI
 /// a button that calls `select`; as a row, with no `select`, the list selects it.
 ///
 /// `camera` is how the room is seen: from above, or tilted into it, where the brows follow the
-/// body's face through the room's camera and the plaque hangs on the back wall.
+/// body's face through the room's camera and the plaque hangs in the room where the worker stood.
 struct HouseRoomCell: View {
     let worker    : MockWorker
     let isSelected: Bool
