@@ -19,6 +19,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
     let brows    : BrowState
     let status   : WorkerStatus
     let isHanging: Bool
+    var camera   = RoomCamera.top
 
     /// What the plate says, and what the room's accessibility label adds.
     static let text = "In chat with you"
@@ -27,7 +28,8 @@ struct HouseAwayPlaque: NSViewRepresentable {
         PlaqueView(
             brows    : brows,
             status   : status,
-            isHanging: isHanging
+            isHanging: isHanging,
+            camera   : camera
         )
     }
 
@@ -37,6 +39,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
     ) {
         view.brows     = brows
         view.status    = status
+        view.camera    = camera
         view.isHanging = isHanging
     }
 
@@ -51,6 +54,8 @@ struct HouseAwayPlaque: NSViewRepresentable {
     ///   the room's layout moves it, so nothing runs at rest. Under Reduce Motion it never tilts.
     /// - The size: the plate follows the room's short side, as the sphere does, and never takes more
     ///   than 70% of the room's width; the text stays 9 points and is left out where it cannot fit.
+    ///   Seen through the tilted camera, it hangs high on the back wall at the wall's perspective
+    ///   scale, facing the viewer so its text stays legible.
     /// - The light: a lit top edge and a sheen in the room's light, pulsing with the room on the
     ///   host clock, the sheen sliding as the plate turns under the lamp, and a soft shadow below
     ///   it; none of it in the room of a worker that is off.
@@ -69,6 +74,14 @@ struct HouseAwayPlaque: NSViewRepresentable {
             didSet {
                 guard status != oldValue else { return }
                 applyLight()
+            }
+        }
+
+        /// How the room is seen, which decides where the plaque hangs.
+        var camera: RoomCamera {
+            didSet {
+                guard camera != oldValue else { return }
+                needsLayout = true
             }
         }
 
@@ -158,10 +171,12 @@ struct HouseAwayPlaque: NSViewRepresentable {
         init(
             brows    : BrowState,
             status   : WorkerStatus,
-            isHanging: Bool
+            isHanging: Bool,
+            camera   : RoomCamera = .top
         ) {
             self.brows     = brows
             self.status    = status
+            self.camera    = camera
             self.isHanging = isHanging
             super.init(frame: .zero)
             wantsLayer = true
@@ -233,7 +248,10 @@ struct HouseAwayPlaque: NSViewRepresentable {
 
         /// Places the plaque for the room's size, fading the text in or out when that changes.
         private func arrange() {
-            let metrics  = Metrics(room: bounds.size)
+            let metrics  = Metrics(
+                room  : bounds.size,
+                camera: camera
+            )
             let animates = showsText != nil && showsText != metrics.showsText && !RestylingMotion.reducesMotion
             showsText = metrics.showsText
             CATransaction.begin()
@@ -574,17 +592,23 @@ struct HouseAwayPlaque: NSViewRepresentable {
                 attributes: [.font: PlaqueView.font]
             ).size().width.rounded(.up)
 
-            init(room: CGSize) {
+            /// The plaque in a room of `room` points seen through `camera`: in a tilted room the nail is
+            /// high on the back wall and the plaque takes the wall's perspective scale there.
+            init(
+                room  : CGSize,
+                camera: RoomCamera = .top
+            ) {
+                let nail   = camera == .tilted ? RoomCamera.Perspective(size: room).plaqueNail : nil
                 let widest = 0.7 * room.width
                 let lined  = Self.textWidth + 2 * Self.textMargin
-                scale     = max(0, min(1, min(room.width, room.height) / 104))
+                scale     = max(0, min(1, min(room.width, room.height) / 104)) * (nail?.scale ?? 1)
                 showsText = lined <= widest && scale >= 0.75
                 plate = CGSize(
                     width : max(0, min(widest, showsText ? max(88 * scale, lined) : 88 * scale)),
                     height: 30 * scale
                 )
                 drop = 9 * scale
-                top  = max(
+                top  = nail?.top ?? max(
                     4,
                     (room.height - HouseLayout.nameBand - plate.height - drop) / 2
                 )

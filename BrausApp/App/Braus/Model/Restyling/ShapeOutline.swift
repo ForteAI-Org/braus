@@ -7,6 +7,7 @@
 
 import CoreGraphics
 import Foundation
+import simd
 
 /// ShapeOutline is a worker's body seen from above: a flat convex core grown by a disc of `corner`
 /// radius, centred on its centroid at the origin.
@@ -219,6 +220,45 @@ nonisolated struct ShapeOutline: Equatable, Sendable {
         }
         path.closeSubpath()
         return path
+    }
+
+    /// How far the body's face rises over the core's plane at `point`, zero off the body: the bevel's
+    /// quarter circle over the core and the dome on it, as RoomLight.metal's `bodyAt` shapes the top
+    /// seen from above. The dome's gauge is measured against the inradius rather than along the ray
+    /// to the outline.
+    func faceHeight(at point: SIMD2<Double>) -> Double {
+        // ponytail: gauge against the inradius, off by under 2% of a radius; trace the outline if brows drift.
+        let core = points(
+            growth       : 0,
+            pointsPerTurn: 96
+        )
+        let across = distance(
+            from: point,
+            to  : core
+        )
+        guard across < corner else { return 0 }
+        let gauge = min(1, simd_length(point) / inradius)
+        return (corner * corner - across * across).squareRoot() + dome * (1 - gauge * gauge)
+    }
+
+    /// How far `point` lies from the convex outline `ring` traces, zero inside it.
+    private func distance(
+        from point: SIMD2<Double>,
+        to ring   : [SIMD2<Double>]
+    ) -> Double {
+        let edges = zip(ring, ring.dropFirst() + ring.prefix(1)).filter { simd_distance($0, $1) > 1e-9 }
+        // The ring turns with the normals' angle, so the inside lies to the left of every edge.
+        let isInside = edges.count > 2 && edges.allSatisfy { start, end in
+            let along = end - start
+            let to    = point - start
+            return along.x * to.y - along.y * to.x >= 0
+        }
+        guard !isInside else { return 0 }
+        return edges.map { start, end in
+            let along = end - start
+            let share = min(1, max(0, simd_dot(point - start, along) / simd_dot(along, along)))
+            return simd_distance(point, start + share * along)
+        }.min() ?? simd_length(point)
     }
 
     /// The outline as RoomLight.metal reads it: the sides (0 for a segment, 2 for a lens), the

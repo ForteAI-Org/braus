@@ -7,7 +7,8 @@
 
 import MetalKit
 
-/// RoomLightView shows one room lit by its worker, seen from above.
+/// RoomLightView shows one room lit by its worker, seen from above or through the tilted camera its
+/// uniforms name (`RoomCamera`).
 ///
 /// While the room is resized, every new size is drawn at once as a live frame: one precomputed frame
 /// at the pulse's current weight, presented with the transaction that lays the size out, with the
@@ -30,8 +31,9 @@ import MetalKit
 /// body stays, at the cost of compositing only. Under Reduce Motion nothing pulses.
 ///
 /// The brows belong to a `MascotFace` with `drawsBody` false and `catchesRoomLight` true placed over
-/// the sphere, a circle of 34% of the room's short side at its centre; every pulse is phased to the
-/// host clock, so the brows' tint pulses in step with the room.
+/// the sphere, a circle of 34% of the room's short side at its centre, or where the tilted camera shows
+/// the body's face; every pulse is phased to the host clock, so the brows' tint pulses in step with
+/// the room.
 final class RoomLightView: MTKView {
 
     /// What the room shows. The worker leaving or coming back is drawn at once as a live frame and
