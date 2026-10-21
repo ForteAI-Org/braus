@@ -61,6 +61,48 @@ struct HouseWorkerRowTests {
         }
     }
 
+    @Test("The compact card is chosen below the grid's compaction threshold")
+    func compactBelowThreshold() {
+        let threshold = ShellMetrics.sidebar.minimum
+        #expect(HouseLayout.columns(sidebarWidth: threshold - 1) == 1)
+        #expect(HouseLayout.columns(sidebarWidth: threshold) == 2)
+        #expect(HouseLayout.rowHeight(isCompact: false) == HouseLayout.rowHeight)
+        #expect(HouseLayout.rowHeight(isCompact: true) == HouseLayout.compactRowHeight)
+        #expect(HouseLayout.compactRowHeight > HouseLayout.rowHeight)
+    }
+
+    @Test("Compacting keeps the same views")
+    func compactingKeepsIdentity() async throws {
+        let worker = try #require(MockHouse.sample.workers.first { $0.badge != nil })
+        let host = NSHostingView(rootView: HouseWorkerRow(
+            worker    : worker,
+            isSelected: false
+        ))
+        host.frame = CGRect(
+            x     : 0,
+            y     : 0,
+            width : 260,
+            height: HouseLayout.rowHeight
+        )
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(50))
+        let wide = try #require(lights(in: host).first)
+        host.rootView = HouseWorkerRow(
+            worker    : worker,
+            isSelected: false,
+            isCompact : true
+        )
+        host.frame.size = CGSize(
+            width : 120,
+            height: HouseLayout.compactRowHeight
+        )
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(50))
+        let compact = lights(in: host)
+        #expect(compact.count == 1)
+        #expect(compact.first === wide, "the portrait is not rebuilt")
+    }
+
     private func lights(in view: NSView) -> [RoomLightView] {
         let own = (view as? RoomLightView).map { [$0] } ?? []
         return own + view.subviews.flatMap { lights(in: $0) }

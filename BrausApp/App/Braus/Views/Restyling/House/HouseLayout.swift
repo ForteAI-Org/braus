@@ -15,8 +15,15 @@ nonisolated enum HouseLayout {
     static let roomHeight       : CGFloat = 104
     static let compactRoomHeight: CGFloat = 92
 
-    /// A compact list row keeps its worker and name side by side at every sidebar width.
-    static let rowHeight: CGFloat = 44
+    /// A list row's card: the worker beside its name, and the taller one with the name under the
+    /// worker in the compact sidebar.
+    static let rowHeight       : CGFloat = 44
+    static let compactRowHeight: CGFloat = 66
+
+    /// A list row's height in the full sidebar and in the compact one.
+    static func rowHeight(isCompact: Bool) -> CGFloat {
+        isCompact ? compactRowHeight : rowHeight
+    }
 
     /// The height the worker's name takes at a room's foot.
     static let nameBand: CGFloat = 22
