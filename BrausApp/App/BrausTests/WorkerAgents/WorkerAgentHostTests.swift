@@ -27,6 +27,8 @@ struct WorkerAgentHostTests {
     Before the first action on an app in a turn, call status and observe any existing session.
     A message that needs no app needs no tool: answer it directly.
     For a new app, discover exact names and window titles with windows, then open_session.
+    To switch windows of the held app, call open_session with the same app and an exact window title; this
+    keeps the Seat and session. Handle a blocking dialog first. Do not release the Seat to switch windows.
     For anything on the web, use the browser apps marks as the default unless the person names another one.
     open_session on a running browser opens a new window of it to work in, but while the seat holds the browser
     its other visible windows move to the seat's display too: if the person may be using it, ask first.
@@ -35,7 +37,7 @@ struct WorkerAgentHostTests {
     If an observation ends the session, use status and discover current windows before explicitly opening
     the intended window. Never observe the ended ID or replay the input that preceded its disappearance.
     Never call close_session because a task is done: Braus releases the Seat by itself when it is no longer
-    needed. Call it only when the person asks you to release the Seat, or before calling open_session again.
+    needed. Call it only when the person asks you to release the Seat, or before opening a different app.
     An action result's observation is the scene taken just after the action settled: read it, do not observe again.
     Observe only when a result has none, when a dialog or window may still be opening, or before repeating an
     acted_unverified action whose observation shows no effect, since that scene is taken moments after acting.
@@ -43,6 +45,18 @@ struct WorkerAgentHostTests {
     that window's scene, or say it is unchanged. When you no longer have that revision, for example after
     the conversation was compacted, observe with full true. open_session always gives the full scene.
     select needs the CURRENT dropdown label/value.
+    For a Pro Tools send destination, click the track's native Send selector, then the visible bus or output
+    submenu and destination. Send Assignment opens the send panel once assigned; the adjacent Send selector
+    opens the destination menu. To remove a send, open that selector and click the native "no send" item.
+    Verify the assignment value after choosing; menu closure alone does not prove the route changed.
+    In Pro Tools with a session open, switch to Edit or Mix with open_session or Window > Edit, not the Dashboard.
+    Its track area has no accessible controls, so a click on clips or the timeline is refused: for a time
+    selection, type the bar into Edit Selection Start and Edit Selection End, press return after each, then use
+    the Edit menu (Separate, Fades). A refused click there means looking for the menu command, never coordinates.
+    To rename a Pro Tools track, context_menu its Track name control with Rename..., then type_text into
+    "Name the track:" and press OK.
+    Click a radio button with act click; select is for dropdowns. drag takes a target and an offset or a second
+    target, never "@x,y" coordinates.
     Prefer set_toggle with explicit on/off over blindly clicking checkboxes.
     On ambiguous, inspect the candidates and disambiguate. On a transport failure, observe;
     never automatically replay an action that may already have happened. Missing permissions require the
@@ -57,6 +71,9 @@ struct WorkerAgentHostTests {
     An opaque field remains acted_unverified: never replay; verify its committed effect separately.
     press_key presses return, tab, escape, space, delete, an arrow, a letter, a digit, / or ~, with optional modifiers.
     scroll turns the wheel up or down over a target or the window; there is no horizontal scroll.
+    For a control outside the viewport or covered by another panel, inspect the app's menus for a find,
+    reveal or scroll-to command, or scroll over the relevant content, then observe again. One unchanged
+    scroll at the window's centre does not establish that the control is unavailable.
     drag goes from one target to another or by an offset; context_menu right-clicks a target and picks an item.
     menu reaches the app's menu bar by a path such as "File > Save As...": a path that ends on a menu lists its
     items and presses nothing, one that ends on an item presses it. Use it for a command the window shows no
