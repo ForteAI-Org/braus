@@ -1,4 +1,5 @@
 import AppKit
+import SeatBroker
 import Testing
 @testable import Braus
 
@@ -66,5 +67,54 @@ struct WorkerScreenWindowTests {
 
         presented.first?.close()
         #expect(WorkerScreenWindowController.openWindows[worker.id] == nil)
+    }
+
+    @Test("A live window marks its worker windowed, so the small views pause, and unmarks it on close")
+    func liveWindowPausesTheSmallViews() throws {
+        let worker    = try busyWorker
+        let directory = TemporaryStore.directory()
+        defer { TemporaryStore.discard(directory) }
+        let team = TeamModel(
+            store      : try WorkspaceStore.opening(in: directory),
+            connections: ModelSettingsStore(),
+            broker     : SeatBroker()
+        )
+        let present = WorkerScreenWindowController.present
+        var presented: [WorkerScreenWindowController] = []
+        WorkerScreenWindowController.present = { presented.append($0) }
+        defer { WorkerScreenWindowController.present = present }
+
+        let first  = WorkerScreenWindowController.open(
+            worker: worker,
+            team  : team
+        )
+        let second = WorkerScreenWindowController.open(
+            worker: worker,
+            team  : team
+        )
+        #expect(first === second, "one window per worker")
+        #expect(team.windowedScreens == [worker.id])
+
+        first.close()
+        #expect(team.windowedScreens.isEmpty)
+        #expect(WorkerScreenWindowController.openWindows[worker.id] == nil)
+    }
+
+    @Test("Nothing opens for a worker with no screen to watch")
+    func noScreenNoWindow() async throws {
+        let directory = TemporaryStore.directory()
+        defer { TemporaryStore.discard(directory) }
+        let team = TeamModel(
+            store      : try WorkspaceStore.opening(in: directory),
+            connections: ModelSettingsStore(),
+            broker     : SeatBroker()
+        )
+        let id = UUID()
+        WorkerScreenWindowController.open(
+            workerID: id,
+            team    : team
+        )
+        #expect(WorkerScreenWindowController.openWindows[id] == nil)
+        #expect(team.windowedScreens.isEmpty)
     }
 }

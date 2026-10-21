@@ -1,0 +1,23 @@
+//
+//  OpenWorkerScreen.swift
+//  Braus
+//
+//  Created by Eliomar Alejandro Rodriguez Ferrer on 21/10/2026.
+//
+
+import SwiftUI
+
+private struct OpenWorkerScreenKey: EnvironmentKey {
+    static let defaultValue: ((UUID) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+
+    /// What opens a worker's screen in its own window, set by the new look's shell over the real
+    /// team. Nil in the mockup, which opens its mock screen, and in today's shell, which has no
+    /// such window.
+    var openWorkerScreen: ((UUID) -> Void)? {
+        get { self[OpenWorkerScreenKey.self] }
+        set { self[OpenWorkerScreenKey.self] = newValue }
+    }
+}

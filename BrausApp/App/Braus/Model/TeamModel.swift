@@ -1345,6 +1345,18 @@ final class TeamModel {
     /// The worker's screen enlarged over the conversation, nil while it is small.
     var enlargedScreen: ScreenEnlargement?
 
+    /// The workers whose screen shows in its own window; their small views stay paused, so the
+    /// stream is drawn once.
+    private(set) var windowedScreens: Set<UUID> = []
+
+    /// Records that the worker's screen window opened or closed.
+    func setScreenWindowed(
+        _ workerID : UUID,
+        _ isWindowed: Bool
+    ) {
+        if isWindowed { windowedScreens.insert(workerID) } else { windowedScreens.remove(workerID) }
+    }
+
     /// The small live views on screen, by place: where the enlarged one grows from and shrinks into.
     @ObservationIgnored
     private var smallScreens: [ScreenPlace: WeakScreenView] = [:]

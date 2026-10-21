@@ -13,9 +13,14 @@ import SwiftUI
 /// with the worker's three-quarter portrait and its status, and ends with Open in Braus.
 ///
 /// One window per worker: opening a worker whose window is open brings that window forward. The
-/// window leaves `openWindows` when it closes.
+/// window leaves `openWindows` when it closes. Given a team it shows the worker's real screen
+/// (`LiveScreenView`), pauses the small views of it, and closes when the worker's screen ends;
+/// without one it shows the mockup's script.
 final class WorkerScreenWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
     let worker: HouseWorker
+
+    /// The team whose screen the window shows; nil in the mockup.
+    private let team: TeamModel?
 
     /// The open screen windows, by worker.
     private(set) static var openWindows: [HouseWorker.ID: WorkerScreenWindowController] = [:]
@@ -31,19 +36,58 @@ final class WorkerScreenWindowController: NSWindowController, NSWindowDelegate, 
     private static let openItem     = NSToolbarItem.Identifier("openInBraus")
 
     /// Opens `worker`'s screen window, or brings its open one forward, and returns its controller.
+    /// With a `team` the window shows the worker's real screen.
     @discardableResult
-    static func open(worker: HouseWorker) -> WorkerScreenWindowController {
-        let controller = openWindows[worker.id] ?? WorkerScreenWindowController(worker: worker)
+    static func open(
+        worker: HouseWorker,
+        team  : TeamModel? = nil
+    ) -> WorkerScreenWindowController {
+        let controller = openWindows[worker.id] ?? WorkerScreenWindowController(
+            worker: worker,
+            team  : team
+        )
         openWindows[worker.id] = controller
+        team?.setScreenWindowed(
+            worker.id,
+            true
+        )
         present(controller)
         return controller
     }
 
-    init(worker: HouseWorker) {
+    /// Opens through `opener`, which the new look's shell sets over its team, or as the mockup does.
+    static func open(
+        worker: HouseWorker,
+        via opener: ((UUID) -> Void)?
+    ) {
+        if let opener { opener(worker.id) } else { open(worker: worker) }
+    }
+
+    /// Opens the real screen of `workerID` in `team`; nothing while it has no screen to watch.
+    static func open(
+        workerID: UUID,
+        team    : TeamModel
+    ) {
+        guard team.hasScreen(workerID),
+              let worker = HouseRoster.workers(of: team).first(where: { $0.id == workerID }) else { return }
+
+        open(
+            worker: worker,
+            team  : team
+        )
+    }
+
+    init(
+        worker: HouseWorker,
+        team  : TeamModel? = nil
+    ) {
         self.worker = worker
-        let size = CGSize(
+        self.team   = team
+        let frame = team?.screenFrame(of: worker.id) ?? .zero
+        let ratio = frame.width > 0 && frame.height > 0 ? frame.width / frame.height : 16.0 / 10.0
+        let size  = CGSize(
             width : Self.contentWidth,
-            height: Self.contentWidth * 10 / 16
+            height: Self.contentWidth / ratio
         )
         let window = NSWindow(
             contentRect: CGRect(
@@ -54,7 +98,10 @@ final class WorkerScreenWindowController: NSWindowController, NSWindowDelegate, 
             backing    : .buffered,
             defer      : true
         )
-        let content = NSHostingView(rootView: MockScreenView(worker: worker))
+        let content = NSHostingView(rootView: Content(
+            worker: worker,
+            team  : team
+        ))
         content.sizingOptions = []
         window.contentView          = content
         window.title                = worker.name
@@ -76,6 +123,7 @@ final class WorkerScreenWindowController: NSWindowController, NSWindowDelegate, 
         window.toolbar = toolbar
         window.setContentSize(size)
         window.center()
+        watchScreen()
     }
 
     @available(*, unavailable)
@@ -83,6 +131,33 @@ final class WorkerScreenWindowController: NSWindowController, NSWindowDelegate, 
 
     func windowWillClose(_ notification: Notification) {
         Self.openWindows[worker.id] = nil
+        team?.setScreenWindowed(
+            worker.id,
+            false
+        )
+    }
+
+    /// Follows the team: the subtitle says what the worker does now, and the window closes once
+    /// the worker has no screen. Re-armed after each change, it stops with the window.
+    private func watchScreen() {
+        guard let team else { return }
+
+        let id = worker.id
+        withObservationTracking {
+            _ = team.hasScreen(id)
+            _ = team.activity(of: id)
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self, Self.openWindows[id] === self else { return }
+
+                if team.hasScreen(id) {
+                    self.window?.subtitle = team.activity(of: id) ?? self.worker.activity
+                    self.watchScreen()
+                } else {
+                    self.close()
+                }
+            }
+        }
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -127,6 +202,23 @@ final class WorkerScreenWindowController: NSWindowController, NSWindowDelegate, 
         NSApp.windows
             .first { !($0.windowController is Self) && $0.isVisible && $0.canBecomeMain }?
             .makeKeyAndOrderFront(nil)
+    }
+
+    /// Content is the window's picture: the real screen with a team, the mockup's script without.
+    private struct Content: View {
+        let worker: HouseWorker
+        let team  : TeamModel?
+
+        var body: some View {
+            if let team {
+                LiveScreenView(
+                    team    : team,
+                    workerID: worker.id
+                )
+            } else {
+                MockScreenView(worker: worker)
+            }
+        }
     }
 
     /// Portrait is the toolbar's worker: the rows' three-quarter portrait at toolbar size, with a

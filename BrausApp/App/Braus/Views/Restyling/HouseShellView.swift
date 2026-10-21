@@ -57,6 +57,15 @@ struct HouseShellView: View {
             inspector
         }
         .overlay { enlargedScreen }
+        .environment(
+            \.openWorkerScreen,
+            { [team] workerID in
+                WorkerScreenWindowController.open(
+                    workerID: workerID,
+                    team    : team
+                )
+            }
+        )
         .onChange(of: team.selection) {
             // Another worker takes the enlarged screen away with no shrink to land.
             team.dismissEnlargedScreen()
