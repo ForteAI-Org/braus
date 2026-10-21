@@ -9,9 +9,14 @@ struct HouseWorkerRow: View {
     var body: some View {
         HStack(spacing: 8) {
             HouseWorkerPortrait(
-                shape : worker.shape,
-                status: worker.status,
-                seed  : WorkerBehaviour.seed(for: worker.id)
+                shape    : worker.shape,
+                status   : worker.status,
+                seed     : WorkerBehaviour.seed(for: worker.id),
+                showsHalo: true
+            )
+            .frame(
+                width : 56,
+                height: HouseLayout.rowHeight
             )
             .accessibilityHidden(true)
             Text(worker.name)

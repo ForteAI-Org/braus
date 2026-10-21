@@ -14,8 +14,9 @@
 //
 // Every kernel writes two linear images: `base`, the room without its worker's light, and `light`,
 // the light alone with its bleed on the walls and its reflections on the body; a tilted room with a
-// busy worker writes a third, `screen`, its screen's light. `resolveRoom` adds them with their
-// weights, tone maps once and writes sRGB, which lets the lights pulse without rendering.
+// busy worker writes a third, `screen`, its screen's light, or the light of the name's capsule that
+// takes the screen's place under the worker at the top of its conversation. `resolveRoom` adds them
+// with their weights, tone maps once and writes sRGB, which lets the lights pulse without rendering.
 // `traceRoom` traces the scene against an acceleration structure; `precomputeRoom` evaluates the
 // same scene analytically. `traceTiltedRoom` and `precomputeTiltedRoom` see a room with tall walls
 // through the tilted camera instead, as the section on the tilted view below describes. Each kernel
@@ -29,7 +30,7 @@
 using namespace metal;
 using namespace raytracing;
 
-/// RoomLightUniforms matches `RoomLightUniforms.Packed` in Swift: eight float4, 128 bytes.
+/// RoomLightUniforms matches `RoomLightUniforms.Packed` in Swift: nine float4, 144 bytes.
 struct RoomLightUniforms {
     float4 light;     // sRGB colour, strength in w
     float4 outline;   // the body's core: sides, size, turn or offset, and corner radius, in sphere radii
@@ -39,6 +40,7 @@ struct RoomLightUniforms {
     float4 camera;    // the tilted view's floor depth, back wall top, focal length, worker's depth
     float4 stage;     // the worker's distance from the left wall in points, the composition's lean
     float4 lights;    // the tilted view's screen and moon, 1 when lit
+    float4 capsule;   // the hero's name capsule as a light: sRGB colour, strength in w, zero when off
 };
 
 // The lamp, a disc facing down, as fractions of the room's short side. Its size keeps every shadow
@@ -159,6 +161,7 @@ struct Room {
     float3 screenUp;
     float3 screenNormal; // toward the worker
     float3 screenLight;  // linear colour times power and exposure, zero when it is off
+    float  screenCore;   // a little more than its diagonal, which sizes its core in the metal
     float  moonStrength; // 1 in a tilted room that is off
 };
 
@@ -245,6 +248,7 @@ static Room makeRoom(constant RoomLightUniforms& uniforms) {
     room.screenUp       = float3(0);
     room.screenNormal   = float3(0, -1, 0);
     room.screenLight    = float3(0);
+    room.screenCore     = 0;
     room.moonStrength   = 0;
     return room;
 }
@@ -1055,6 +1059,14 @@ constant float  screenPower   = 0.65;
 constant float  screenGlow    = 0.18;
 constant uint   screenSamples = 16;
 
+/// The name's capsule under the worker at the top of its conversation, as the light in the screen's
+/// place, in sphere radii: its width and height, how far in front of the worker's middle it stands, and
+/// how high its centre is over the floor, below the face; and its gain against the screen's power.
+constant float2 capsuleSize   = float2(2.4, 0.5);
+constant float  capsuleFront  = 1.8;
+constant float  capsuleHeight = 0.6;
+constant float  capsuleGain   = 3;
+
 /// The moon of a room that is off: the direction toward it, high, from the left and a little from the
 /// open front, as through a window at night; the half angle of its disc, which softens its shadow;
 /// its colour; and the faint fill of the night sky. Linear.
@@ -1100,7 +1112,19 @@ static Room makeTiltedRoom(constant RoomLightUniforms& uniforms) {
     room.screenRight    = across * 0.5 * screenSize.x * room.radius;
     room.screenUp       = normalize(cross(across, room.screenNormal)) * 0.5 * screenSize.y * room.radius;
     room.screenLight    = screenColor * uniforms.lights.x * exposure;
+    room.screenCore     = 1.2 * length(screenSize) * room.radius;
     room.moonStrength   = uniforms.lights.y;
+    // The hero's name capsule takes the screen's place: wide, thin and just over the floor in front of
+    // the worker, facing it, so its light rises onto the front face.
+    if (uniforms.capsule.w > 0) {
+        room.screen       = float3(room.body.x, room.body.y + capsuleFront * room.radius, capsuleHeight * room.radius);
+        room.screenNormal = normalize(room.body - room.screen);
+        float3 along      = normalize(cross(room.screenNormal, float3(0, 0, 1)));
+        room.screenRight  = along * 0.5 * capsuleSize.x * room.radius;
+        room.screenUp     = normalize(cross(along, room.screenNormal)) * 0.5 * capsuleSize.y * room.radius;
+        room.screenLight  = linearFromSRGB(uniforms.capsule.rgb) * uniforms.capsule.w * capsuleGain * exposure;
+        room.screenCore   = 1.2 * length(capsuleSize) * room.radius;
+    }
     return room;
 }
 
@@ -1393,7 +1417,7 @@ static float3 screenHighlight(BodyPoint point, float3 view, float roughness, Roo
     float  distance = length(toScreen);
     float3 toward   = toScreen / distance;
     float  apart    = acos(clamp(dot(reflect(-view, point.normal), toward), -1.0, 1.0));
-    float  core     = atan(1.2 * length(screenSize) * room.radius / distance);
+    float  core     = atan(room.screenCore / distance);
     float  gloss    = 1.2 * roughness;
     float  spread   = core * core + gloss * gloss;
     float  facing   = saturate(4 * dot(point.normal, toward)) * saturate(dot(room.screenNormal, -toward));

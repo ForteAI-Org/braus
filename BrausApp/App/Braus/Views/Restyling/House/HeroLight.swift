@@ -7,27 +7,44 @@
 
 import SwiftUI
 
-/// HeroLight is the soft presentation light under the worker at the top of its conversation: a
-/// wide, faint radial glow of warm white that takes a share of the status light's colour (amber
-/// busy, green free, blue waiting) and a dim moonlight when the worker is off.
+/// HeroLight is the soft presentation light the worker at the top of its conversation gets from the
+/// capsule that holds its name: warm white that takes a share of the status light's colour (amber
+/// busy, green free, blue waiting), and a dim moonlight when the worker is off.
 ///
-/// It is a single Core Animation gradient with no hard edge: a colour change cross-fades, and the
-/// light breathes by a layer animation, so nothing renders at rest. Under Reduce Motion a change
-/// is a cut and the light holds still.
+/// The light itself belongs to the worker's render: `capsuleLight(for:)` gives the room shader a soft
+/// area light low in front of the worker, so it rises from the capsule onto the worker's front face.
+/// This view draws only the faint glow it leaves along the capsule's top edge, a single Core Animation
+/// gradient with no hard edge: a change of status cross-fades over `fade`, or cuts under Reduce
+/// Motion, and nothing moves at rest.
 struct HeroLight: NSViewRepresentable {
     let status: WorkerStatus
 
-    /// The light's colour and opacity at its centre for a status.
+    /// How long a change of status takes to cross-fade, on the capsule and on the worker.
+    static let fade = 1.2
+
+    /// The light's colour for a status, and the glow's opacity at its centre.
     static func tone(for status: WorkerStatus) -> (red: Double, green: Double, blue: Double, alpha: Double) {
         guard let light = status.light else {
-            return (red: 0.62, green: 0.70, blue: 0.84, alpha: 0.10)
+            return (red: 0.62, green: 0.70, blue: 0.84, alpha: 0.18)
         }
         let share = 0.5
         return (
             red  : 1.00 + (light.red - 1.00) * share,
             green: 0.95 + (light.green - 0.95) * share,
             blue : 0.86 + (light.blue - 0.86) * share,
-            alpha: 0.12 + 0.06 * status.lightStrength
+            alpha: 0.22 + 0.12 * status.lightStrength
+        )
+    }
+
+    /// The light as the worker's render takes it (`RoomLightUniforms.capsuleLight`): the tone's colour
+    /// at a soft strength, lower for the moonlight of a worker that is off.
+    static func capsuleLight(for status: WorkerStatus) -> SIMD4<Float> {
+        let tone = tone(for: status)
+        return SIMD4(
+            Float(tone.red),
+            Float(tone.green),
+            Float(tone.blue),
+            status == .off ? 0.45 : 0.9
         )
     }
 
@@ -97,30 +114,13 @@ struct HeroLight: NSViewRepresentable {
             let fades = animated && !RestylingMotion.reducesMotion
             CATransaction.begin()
             CATransaction.setDisableActions(!fades)
-            CATransaction.setAnimationDuration(1.2)
+            CATransaction.setAnimationDuration(HeroLight.fade)
             glow.colors = [
                 color,
                 color.copy(alpha: tone.alpha * 0.4) as Any,
                 color.copy(alpha: 0) as Any,
             ]
             CATransaction.commit()
-            breathe()
-        }
-
-        private func breathe() {
-            glow.removeAnimation(forKey: "breathe")
-            guard !RestylingMotion.reducesMotion else { return }
-            let pulse = CABasicAnimation(keyPath: "opacity")
-            pulse.fromValue      = 1
-            pulse.toValue        = 0.78
-            pulse.duration       = 3.4
-            pulse.autoreverses   = true
-            pulse.repeatCount    = .infinity
-            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            glow.add(
-                pulse,
-                forKey: "breathe"
-            )
         }
     }
 }

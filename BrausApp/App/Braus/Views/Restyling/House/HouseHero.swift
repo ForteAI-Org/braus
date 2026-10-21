@@ -7,19 +7,25 @@
 
 import SwiftUI
 
-/// HouseHero is the selected worker at the top of its conversation: its 56 point mascot, raised a
-/// little over a glass capsule that holds its name and its subtitle (what it is doing or needs, or
-/// what it does while free or off), lit from below by a soft `HeroLight` that follows the status.
-/// The kind of work shows on hover of the name, so the window says the name once.
+/// HouseHero is the selected worker at the top of its conversation, standing in three quarters as its
+/// room shows it (`HouseWorkerPortrait`), just over a small glass capsule that holds its name and its
+/// subtitle (what it is doing or needs, or what it does while free or off). The capsule lights the
+/// worker: a soft presentation light rises from it onto the worker's front face, warm white taking a
+/// share of the status's colour (`HeroLight`), and leaves a faint glow along the capsule's top edge;
+/// nothing lights the worker from behind. The kind of work shows on hover of the name, so the window
+/// says the name once.
 ///
 /// The conversation gives the moment's `status`, `brows` and `activity`, and raises `preparation`
-/// when the worker sets about a message, which the head plays once.
+/// when the worker sets about a message, which the worker plays once.
 struct HouseHero: View {
     let worker     : MockWorker
     let status     : WorkerStatus
     let brows      : BrowState
     let activity   : String
     let preparation: Int
+
+    /// The side of the worker's sphere, in points.
+    static let workerSize: CGFloat = 60
 
     /// The seed that makes the hero's brows live by `status`, or nil while `brows` is the conversation's
     /// own expression (listening, at work) rather than the status's, which the loop would override.
@@ -32,54 +38,53 @@ struct HouseHero: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            MascotFace(
-                shape        : worker.shape,
-                status       : status,
-                brows        : brows,
-                size         : 56,
-                preparation  : preparation,
-                behaviourSeed: Self.behaviourSeed(
+        VStack(spacing: 4) {
+            HouseWorkerPortrait(
+                shape       : worker.shape,
+                status      : status,
+                size        : Self.workerSize,
+                brows       : brows,
+                seed        : Self.behaviourSeed(
                     of    : worker,
                     status: status,
                     brows : brows
-                )
+                ),
+                capsuleLight: HeroLight.capsuleLight(for: status),
+                changeFade  : HeroLight.fade,
+                preparation : preparation
             )
-            .offset(y: -4)
-            VStack(spacing: 2) {
+            .accessibilityHidden(true)
+            VStack(spacing: 1) {
                 Text(worker.name)
                     .font(.system(
-                        size  : 15,
+                        size  : 13,
                         weight: .semibold
                     ))
                     .help(role)
                 Text(activity)
-                    .font(.system(size: 11.5))
+                    .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
             }
             .padding(
                 .horizontal,
-                18
+                12
             )
             .padding(
                 .vertical,
-                7
+                4
             )
             .modifier(GlassCapsule(cornerRadius: 40))
-            .padding(
-                .top,
-                6
-            )
-        }
-        .background(alignment: .top) {
-            // Centred a little below the mascot's middle; it fades to nothing before its frame's edge.
-            HeroLight(status: status)
-                .frame(
-                    width : 300,
-                    height: 140
-                )
-                .offset(y: -22)
-                .allowsHitTesting(false)
+            .overlay(alignment: .top) {
+                // The light the capsule gives the worker, where it leaves the glass.
+                HeroLight(status: status)
+                    .frame(height: 10)
+                    .padding(
+                        .horizontal,
+                        14
+                    )
+                    .offset(y: -4)
+                    .allowsHitTesting(false)
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityHint(role)

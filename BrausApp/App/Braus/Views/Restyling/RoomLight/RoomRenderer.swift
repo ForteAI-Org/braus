@@ -13,7 +13,8 @@ import os
 /// RoomRenderer lights a room with its worker into textures, once per change.
 ///
 /// A renderer writes two linear images: the room without its worker's light, and the light alone; a
-/// tilted room with a busy worker writes a third, its screen's light (`RoomLightUniforms.screenStrength`).
+/// tilted room with a busy worker writes a third, its screen's light, or the capsule's in the screen's
+/// place (`RoomLightUniforms.hasFrontLight`).
 /// Each target then receives their sum with the lamp's light and the screen's at their own weights,
 /// tone mapped once; the view uses the weights to play the lights' pulse as a sequence of finished
 /// frames. Nothing is left running, so a room at rest costs only compositing.
@@ -26,8 +27,8 @@ protocol RoomRenderer: AnyObject {
     var resolvePipeline: MTLComputePipelineState { get }
 
     /// Encodes the room of `size` points into linear `rgba16Float` images of one pixel size: `base`
-    /// without the worker's light, `light` the light alone, and `screen` the screen's light, written
-    /// only for a room whose `screenStrength` is above zero.
+    /// without the worker's light, `light` the light alone, and `screen` the screen's or the capsule's
+    /// light, written only for a room that `hasFrontLight`.
     func encodeImages(
         _ uniforms   : RoomLightUniforms,
         size         : CGSize,
@@ -147,7 +148,7 @@ extension RoomRenderer {
             // A room with no screen leaves its screen image unwritten, so the resolve must not read it.
             var weights = SIMD2(
                 target.weight.x,
-                uniforms.screenStrength > 0 ? target.weight.y : 0
+                uniforms.hasFrontLight ? target.weight.y : 0
             )
             encoder.setTexture(
                 target.texture,

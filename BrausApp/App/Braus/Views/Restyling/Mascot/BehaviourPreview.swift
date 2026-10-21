@@ -7,9 +7,9 @@
 
 import SwiftUI
 
-/// BehaviourPreview shows the four statuses' brow behaviour side by side on `MascotFace`, outside
-/// rooms, so it can be judged. Debug builds open it instead of the window when launched with
-/// `BRAUS_BEHAVIOUR_PREVIEW=1`; every mascot plays its own seed's loop.
+/// BehaviourPreview shows the four statuses' brow behaviour side by side on the worker as it stands
+/// outside rooms (`HouseWorkerPortrait`), so it can be judged. Debug builds open it instead of the
+/// window when launched with `BRAUS_BEHAVIOUR_PREVIEW=1`; every worker plays its own seed's loop.
 struct BehaviourPreview: View {
 
     /// Whether this debug process was launched with `BRAUS_BEHAVIOUR_PREVIEW=1`.
@@ -36,12 +36,11 @@ struct BehaviourPreview: View {
             ) { index in
                 let entry = Self.statuses[index]
                 VStack(spacing: 18) {
-                    MascotFace(
-                        shape        : .circle,
-                        status       : entry.status,
-                        brows        : BrowState(entry.status),
-                        size         : 120,
-                        behaviourSeed: UInt64(index + 1)
+                    HouseWorkerPortrait(
+                        shape : .circle,
+                        status: entry.status,
+                        size  : 120,
+                        seed  : UInt64(index + 1)
                     )
                     Text(entry.title)
                         .foregroundStyle(.secondary)
