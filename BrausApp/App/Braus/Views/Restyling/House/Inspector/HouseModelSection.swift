@@ -36,7 +36,7 @@ struct HouseModelSection: View {
     var body: some View {
         let selection = team.selection(of: worker)
 
-        Section("Model") {
+        Section {
             providerRow(selection.provider)
 
             if isChoosing {
@@ -48,10 +48,14 @@ struct HouseModelSection: View {
                     ) {
                         choose(provider)
                     }
-                    // The first provider stands a little apart from the row that opened the list.
+                    // The list stands apart from the row that opened it, its rows a little taller.
                     .padding(
                         .top,
-                        provider == ModelProvider.allCases.first ? 5 : 0
+                        provider == ModelProvider.allCases.first ? 10 : 0
+                    )
+                    .padding(
+                        .vertical,
+                        3
                     )
                 }
             }
@@ -66,6 +70,10 @@ struct HouseModelSection: View {
             )
             LabeledContent("Connection") { connection(selection.provider) }
             allProviders
+        } header: {
+            Text("Model")
+        } footer: {
+            HouseSectionGap()
         }
         .confirmationDialog(
             "Change \(worker.name)’s Provider?",
@@ -99,7 +107,10 @@ struct HouseModelSection: View {
     private func providerRow(_ provider: ModelProvider) -> some View {
         Button { setChoosing(!isChoosing) } label: {
             LabeledContent("Provider") {
-                HStack(spacing: 6) {
+                HStack(
+                    alignment: .firstTextBaseline,
+                    spacing  : 6
+                ) {
                     Text(provider.title)
                     DisclosureChevron(isOpen: isChoosing)
                 }
@@ -194,7 +205,10 @@ struct HouseModelSection: View {
     private var allProviders: some View {
         Button { showsProviders = true } label: {
             LabeledContent("All Providers") {
-                HStack(spacing: 6) {
+                HStack(
+                    alignment: .firstTextBaseline,
+                    spacing  : 6
+                ) {
                     Text("\(team.readyConnections) Ready")
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
@@ -228,15 +242,15 @@ struct HouseModelSection: View {
                     .font(.headline)
                     .padding(
                         .bottom,
-                        8
+                        12
                     )
                 ForEach(ModelProvider.allCases) { provider in
                     if provider != ModelProvider.allCases.first { Divider() }
                     row(provider)
                 }
             }
-            .padding(16)
-            .frame(width: 280)
+            .padding(20)
+            .frame(width: 300)
         }
 
         private func row(_ provider: ModelProvider) -> some View {
@@ -264,7 +278,7 @@ struct HouseModelSection: View {
             }
             .padding(
                 .vertical,
-                8
+                11
             )
             .accessibilityElement(children: .combine)
         }

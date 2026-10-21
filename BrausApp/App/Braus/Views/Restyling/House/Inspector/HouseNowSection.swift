@@ -15,7 +15,7 @@ struct HouseNowSection: View {
     let team  : MockTeam
 
     var body: some View {
-        Section("Now") {
+        Section {
             LabeledContent("Status") {
                 if team.isAnswering(worker) || team.isCompacting(worker) {
                     StatusText(
@@ -31,6 +31,10 @@ struct HouseNowSection: View {
             }
 
             LabeledContent("Computer") { computer }
+        } header: {
+            Text("Now")
+        } footer: {
+            HouseSectionGap()
         }
     }
 
