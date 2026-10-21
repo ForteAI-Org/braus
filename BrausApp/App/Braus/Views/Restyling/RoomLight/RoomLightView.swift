@@ -34,7 +34,7 @@ import MetalKit
 /// the sphere, a circle of 34% of the room's short side at its centre, larger at the left when the
 /// composition leans (`RoomLightUniforms.Shape`), or where the tilted camera shows the body's face;
 /// every pulse is phased to the host clock, so the brows' tint pulses in step with the room.
-final class RoomLightView: MTKView {
+final class RoomLightView: MTKView, RoomRenderTarget {
 
     /// What the room shows. The worker leaving or coming back is drawn at once as a live frame and
     /// rendered fully after the plaque's swing; another change renders fully at once. During a resize
@@ -451,13 +451,25 @@ final class RoomLightView: MTKView {
         hasPendingRender && !isRendering && window != nil && renderer != nil && settleTask == nil
     }
 
+    var renderPriority: (visible: Bool, uniforms: Bool, top: CGFloat) {
+        (
+            visible : !visibleRect.isEmpty && !isHiddenOrHasHiddenAncestor,
+            uniforms: hasPendingUniforms,
+            top     : convert(
+                bounds,
+                to: nil
+            ).maxY
+        )
+    }
+
     private func enqueueRenderIfReady() {
         guard canRenderQueuedFrame else { return }
         RoomRenderQueue.shared.enqueue(self)
     }
 
     /// Uses MTKView's explicit draw entry point; the drawable comes straight from the layer, so it
-    /// always has the size just asked for. Called only by RoomRenderQueue after reserving its sole slot.
+    /// always has the size just asked for. RoomRenderQueue batches precomputed rooms and reserves a
+    /// single slot for ray-traced refinements; each room still permits only one submission in flight.
     /// Returns false when newer geometry or a missing drawable prevented work from being submitted.
     func renderQueuedFrame() -> Bool {
         guard canRenderQueuedFrame else { return false }
@@ -521,11 +533,12 @@ final class RoomLightView: MTKView {
         }
         let render      = renderRevision
         let status      = uniforms.status
+        let path        = path
         let pulseFrames = pulse.map(\.0)
         commandBuffer.addCompletedHandler { @Sendable [weak self] buffer in
             let images = buffer.status == .completed ? pulseFrames.compactMap(Self.image(from:)) : []
             Task { @MainActor in
-                defer { RoomRenderQueue.shared.didFinishRender() }
+                defer { RoomRenderQueue.shared.didFinishRender(for: path) }
                 guard let self else { return }
                 self.isRendering = false
                 if self.window != nil {
