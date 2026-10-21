@@ -71,7 +71,8 @@ constant float2 leanTailReach = float2(1.8, 0.8);   // the walls' faint lit rim,
 
 // Where a room leaning left goes dark, in short sides right of the worker: from `darkFrom` its light
 // fades, and from `darkTo` on its floor and walls are black, light and ambient alike, so the right
-// end shows no lit wall, corner or edge.
+// end shows no lit wall, corner or edge. `RoomLightUniforms.Shape.rightDark` holds the same range for
+// the light the room spills onto the column.
 constant float darkFrom = 1.0;
 constant float darkTo   = 2.3;
 
