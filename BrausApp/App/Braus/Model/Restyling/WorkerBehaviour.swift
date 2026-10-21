@@ -40,14 +40,14 @@ nonisolated struct WorkerBehaviour: Sendable {
         let weighted: [(BrowAction, Double)]
         switch status {
         case .busy:
-            weighted = [(.lookAtScreen, 5), (.lookLeft, 1.5), (.lookRight, 1.5), (.frown, 2), (.settle, 1)]
-            rests    = 2.5...7
+            weighted = [(.lookAtScreen, 5), (.lookLeft, 1.5), (.lookRight, 1.5), (.frown, 2), (.doubleGlance, 1.5), (.settle, 1)]
+            rests    = 1.9...5.3
         case .waiting:
-            weighted = [(.lookAtCamera, 4), (.raise, 3), (.impatient, 2), (.lookLeft, 1), (.lookRight, 1)]
-            rests    = 2...6
+            weighted = [(.lookAtCamera, 4), (.raise, 3), (.impatient, 2), (.lookLeft, 1), (.lookRight, 1), (.leanIn, 1.5)]
+            rests    = 1.5...4.5
         case .free:
-            weighted = [(.lookLeft, 3), (.lookRight, 3), (.lookUp, 2), (.flick, 2), (.settle, 1)]
-            rests    = 3...9
+            weighted = [(.lookLeft, 3), (.lookRight, 3), (.lookUp, 2), (.flick, 2), (.lookAround, 1.2), (.settle, 1)]
+            rests    = 2.2...6.8
         case .off:
             weighted = [(.sleepBreath, 6), (.deepBreath, 3), (.settle, 1)]
             rests    = 0.3...1.2
