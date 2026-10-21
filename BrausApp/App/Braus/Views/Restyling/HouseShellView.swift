@@ -32,6 +32,7 @@ struct HouseShellView: View {
             HouseSidebar(
                 house    : house,
                 selection: $team.selection,
+                team     : team,
                 edit     : edit
             )
             .onKeyPress(.return) {

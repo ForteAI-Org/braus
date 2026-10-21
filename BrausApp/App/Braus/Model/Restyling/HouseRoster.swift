@@ -12,8 +12,8 @@ import ModelTransports
 /// real state of each worker becomes the light of its room (`status(...)`), its badge and its screen.
 ///
 /// The app stores no status: a worker's light is derived each time from what the team knows. An
-/// archived worker is never a room. A worker's shape is not stored yet, so it is derived from its id
-/// (`shape(for:)`), the same on every launch.
+/// archived worker is never a room. A worker's shape is its own (`WorkerSnapshot.shape`), derived from
+/// its id until the person picks one.
 @MainActor
 enum HouseRoster {
 
@@ -40,6 +40,7 @@ enum HouseRoster {
     /// `row`'s worker as the house shows it. `provider` is what the last check of its provider found,
     /// nil before one. While it answers with nothing more precise to say, its activity is "Working";
     /// otherwise, with no activity, it is the worker's role, so the line under the name never reads empty.
+    /// A worker with no model reads "Needs Setup" under its name, and VoiceOver reads it as its team row.
     nonisolated static func worker(
         _ row             : TeamRow,
         provider          : ConnectionState?,
@@ -50,24 +51,26 @@ enum HouseRoster {
     ) -> HouseWorker {
         let role = row.worker.role?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return HouseWorker(
-            id        : row.id,
-            name      : row.name,
-            status    : status(
+            id         : row.id,
+            name       : row.name,
+            status     : status(
                 needsConfiguring  : row.needsConfiguring,
                 provider          : provider,
                 isAwaitingApproval: isAwaitingApproval,
                 isAnswering       : isAnswering,
                 unreadReplies     : row.unread.replies
             ),
-            activity  : row.activity ?? (isAnswering ? "Working" : role),
-            role      : role,
-            category  : .general,
-            shape     : shape(for: row.id),
-            badge     : badge(
+            activity   : row.activity ?? (isAnswering ? "Working" : role),
+            role       : role,
+            category   : .general,
+            shape      : row.worker.shape,
+            badge      : badge(
                 of              : row,
                 showsUnreadCount: showsUnreadCount
             ),
-            usesScreen: usesScreen
+            usesScreen : usesScreen,
+            needsSetup : row.needsConfiguring,
+            spokenLabel: row.accessibilityLabel
         )
     }
 
@@ -92,12 +95,6 @@ enum HouseRoster {
         if isAwaitingApproval { return .waiting }
         if isAnswering { return .busy }
         return unreadReplies > 0 ? .waiting : .free
-    }
-
-    /// The shape of the worker `id`, the same on every launch, until the worker stores its own.
-    nonisolated static func shape(for id: UUID) -> WorkerShape {
-        let shapes = WorkerShape.allCases
-        return shapes[Int(WorkerBehaviour.seed(for: id) % UInt64(shapes.count))]
     }
 
     /// The attention mark for a failed or stopped turn the person has not seen, otherwise the unread

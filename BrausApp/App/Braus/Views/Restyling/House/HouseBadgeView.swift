@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// HouseBadgeView is the mark on a room's or a row's corner: an exclamation mark in the busy light
-/// when a worker needs attention, otherwise a white capsule with its unread count.
+/// when a worker needs attention, otherwise a white capsule with its unread count, "99+" beyond 99.
 struct HouseBadgeView: View {
     let badge : HouseBadge
     let height: CGFloat
@@ -28,10 +28,7 @@ struct HouseBadgeView: View {
                 )
                 .accessibilityLabel(Self.spokenText(for: badge))
         case .unread(let count):
-            Text(
-                count,
-                format: .number
-            )
+            Text(Self.countText(count))
                 .font(.system(
                     size  : height * 0.58,
                     weight: .semibold
@@ -52,6 +49,11 @@ struct HouseBadgeView: View {
                 )
                 .accessibilityLabel(Self.spokenText(for: badge))
         }
+    }
+
+    /// The unread count as the capsule shows it, capped as the team row's badge is (`TeamRow.badgeLimit`).
+    static func countText(_ count: Int) -> String {
+        count > TeamRow.badgeLimit ? "\(TeamRow.badgeLimit)+" : count.formatted()
     }
 
     /// What VoiceOver says for `badge`, also given as the value of the room or row that carries it.

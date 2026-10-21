@@ -7,15 +7,17 @@
 
 import SwiftUI
 
-/// HouseSidebar is the mockup's sidebar: the house's workers as rooms or as rows, as Settings
+/// HouseSidebar is the house's sidebar: the house's workers as rooms or as rows, as Settings
 /// chooses, with a search field that finds a worker by name and that Edit > Find… (⌘F) focuses.
+/// Over a real `team` the search also finds a worker by its role (`TeamRow.matches`), each room's
+/// context menu holds the worker's commands, the archive opens and the foot holds no account.
 ///
 /// The room column count follows the sidebar width; rows are cards that put the name under the worker when compact.
 /// Nothing here changes the width the split gives the sidebar. When it turns compact or wide again,
 /// rooms and rows keep their previous width until the new layout is applied, all at once,
 /// with `HouseLayout.reshaping`: each one moves and resizes from where it was, its Metal room drawing
 /// a live frame at every size on the way. Under Reduce Motion the sidebar cross-fades
-/// (`CrossFade`). The foot (`HouseFoot`) floats over the rooms with the account; the archive is in
+/// (`CrossFade`). The foot (`HouseFoot`) floats over the rooms with the mockup's account; the archive is in
 /// the sidebar's toolbar (`HouseArchiveButton`), left out while searching or empty.
 /// The search field draws no focus ring (`SearchFieldWithoutRing`): it keeps the keyboard focus,
 /// and the ring would only outline it against the dark sidebar. A room's context menu offers Edit
@@ -24,6 +26,9 @@ struct HouseSidebar: View {
     let house: MockHouse
 
     @Binding var selection: HouseWorker.ID?
+
+    /// The real team the house shows, nil in the mockup.
+    var team: TeamModel?
 
     var edit: (HouseWorker.ID) -> Void = { _ in }
 
@@ -45,6 +50,7 @@ struct HouseSidebar: View {
                     columns   : columns,
                     roomsWidth: roomsWidth,
                     selection : $selection,
+                    team      : team,
                     edit      : edit
                 )
             case .rows:
@@ -53,6 +59,7 @@ struct HouseSidebar: View {
                     roomsWidth: roomsWidth,
                     isCompact : columns == 1,
                     selection : $selection,
+                    team      : team,
                     edit      : edit
                 )
             }
@@ -62,13 +69,18 @@ struct HouseSidebar: View {
             edge   : .bottom,
             spacing: 0
         ) {
-            HouseFoot(account: .sample)
+            HouseFoot(account: team == nil ? .sample : nil)
         }
         // The archive sits above the rooms in the sidebar's toolbar, beside New Worker.
         .toolbar {
             if archivedCount > 0 {
                 ToolbarItem {
-                    HouseArchiveButton(archivedCount: archivedCount)
+                    HouseArchiveButton(
+                        archivedCount: archivedCount,
+                        team         : team
+                    ) { worker in
+                        selection = worker
+                    }
                 }
             }
         }
@@ -111,7 +123,11 @@ struct HouseSidebar: View {
 
     private var workers: [HouseWorker] {
         guard !query.isEmpty else { return house.workers }
-        return house.workers.filter { $0.name.localizedCaseInsensitiveContains(query) }
+        guard let team else { return house.workers.filter { $0.name.localizedCaseInsensitiveContains(query) } }
+
+        let words   = query.trimmingCharacters(in: .whitespaces)
+        let matches = Set(team.rows.filter { words.isEmpty || $0.matches(words) }.map(\.id))
+        return house.workers.filter { matches.contains($0.id) }
     }
 
     private var archivedCount: Int {

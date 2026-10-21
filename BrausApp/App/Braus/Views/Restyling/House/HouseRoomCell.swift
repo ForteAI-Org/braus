@@ -65,21 +65,37 @@ struct HouseRoomCell: View {
         }
     }
 
-    /// What VoiceOver says for `worker`'s room: its name and its subtitle, or that it is in chat.
+    /// What VoiceOver says for `worker`'s room: its name and its subtitle, or its team row's label for
+    /// a real worker, or that it is in chat.
     static func spokenLabel(
         for worker: HouseWorker,
         isSelected: Bool
     ) -> String {
-        isSelected ? "\(worker.name), \(HouseAwayPlaque.text.lowercased())" : "\(worker.name), \(worker.subtitle)"
+        isSelected ? "\(worker.name), \(HouseAwayPlaque.text.lowercased())" : spoken(worker)
     }
 
-    /// What VoiceOver says for `worker`'s row: its name and subtitle, and that it is in chat.
+    /// What VoiceOver says for `worker`'s row: its name and subtitle, or its team row's label for a
+    /// real worker, and that it is in chat.
     static func spokenRowLabel(
         for worker: HouseWorker,
         isSelected: Bool
     ) -> String {
-        let row = "\(worker.name), \(worker.subtitle)"
+        let row = spoken(worker)
         return isSelected ? "\(row), \(HouseAwayPlaque.text.lowercased())" : row
+    }
+
+    /// The value VoiceOver reads after the label: the badge, unless the label already says it, as a
+    /// team row's label does.
+    static func spokenValue(
+        for worker: HouseWorker,
+        isSelected: Bool
+    ) -> String {
+        guard !isSelected, worker.spokenLabel == nil else { return "" }
+        return worker.badge.map(HouseBadgeView.spokenText(for:)) ?? ""
+    }
+
+    private static func spoken(_ worker: HouseWorker) -> String {
+        worker.spokenLabel ?? "\(worker.name), \(worker.subtitle)"
     }
 
     /// How long the plaque waits before it drops in: in a tilted room, until the worker has stepped
@@ -391,7 +407,10 @@ struct HouseRoomCell: View {
         func body(content: Content) -> some View {
             content
                 .accessibilityLabel(label)
-                .accessibilityValue(isSelected ? "" : worker.badge.map(HouseBadgeView.spokenText(for:)) ?? "")
+                .accessibilityValue(HouseRoomCell.spokenValue(
+                    for       : worker,
+                    isSelected: isSelected
+                ))
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
         }
     }

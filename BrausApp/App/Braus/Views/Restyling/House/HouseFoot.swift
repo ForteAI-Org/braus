@@ -8,14 +8,15 @@
 import SwiftUI
 
 /// HouseFoot is the sidebar's foot: the account's monogram at the leading edge, a menu that holds
-/// Settings and Sign Out. The archive is in the sidebar's toolbar (`HouseArchiveButton`).
+/// Settings and Sign Out. The archive is in the sidebar's toolbar (`HouseArchiveButton`). The app
+/// has no account of its own, so over the real team the foot holds no monogram, only its fade.
 ///
 /// It floats over the rooms, which scroll under it to the window's edge. It has no box of its own:
 /// its ground is the sidebar's colour, solid behind the monogram and fading to clear over
 /// `fadeHeight` above it, so a room passing under dissolves with no edge. The fade lets clicks
 /// through to the rooms. Its height, fade included, is the inset the rooms scroll clear of.
 struct HouseFoot: View {
-    let account: MockAccount
+    let account: MockAccount?
 
     /// The height over which the foot's ground fades to clear, above the monogram.
     static let fadeHeight: CGFloat = 32
@@ -24,24 +25,26 @@ struct HouseFoot: View {
     static let accountSide: CGFloat = 28
 
     var body: some View {
-        AccountButton(account: account)
-            .frame(
-                maxWidth : .infinity,
-                alignment: .leading
-            )
-            .padding(
-                .horizontal,
-                HouseLayout.margin
-            )
-            .padding(
-                .bottom,
-                HouseLayout.margin
-            )
-            .padding(
-                .top,
-                Self.fadeHeight
-            )
-            .background { ground }
+        Group {
+            if let account { AccountButton(account: account) }
+        }
+        .frame(
+            maxWidth : .infinity,
+            alignment: .leading
+        )
+        .padding(
+            .horizontal,
+            HouseLayout.margin
+        )
+        .padding(
+            .bottom,
+            HouseLayout.margin
+        )
+        .padding(
+            .top,
+            Self.fadeHeight
+        )
+        .background { ground }
     }
 
     private var ground: some View {

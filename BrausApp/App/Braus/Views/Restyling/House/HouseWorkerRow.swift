@@ -102,7 +102,10 @@ struct HouseWorkerRow: View {
             for       : worker,
             isSelected: isSelected
         ))
-        .accessibilityValue(isSelected ? "" : worker.badge.map(HouseBadgeView.spokenText(for:)) ?? "")
+        .accessibilityValue(HouseRoomCell.spokenValue(
+            for       : worker,
+            isSelected: isSelected
+        ))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
