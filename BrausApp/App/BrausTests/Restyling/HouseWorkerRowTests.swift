@@ -13,7 +13,7 @@ struct HouseWorkerRowTests {
             let path = HouseWorkerPortrait.silhouette(of: shape)
             let bounds = path.boundingRect
             #expect(bounds.width > 0 && bounds.height > 0)
-            #expect(bounds.width < 56 && bounds.height < HouseLayout.rowHeight)
+            #expect(bounds.width < 56 && bounds.height < HouseWorkerPortrait.frameHeight)
             #expect(!path.contains(.zero))
             #expect(!path.contains(CGPoint(
                 x: size.width,
@@ -69,6 +69,19 @@ struct HouseWorkerRowTests {
         #expect(HouseLayout.rowHeight(isCompact: false) == HouseLayout.rowHeight)
         #expect(HouseLayout.rowHeight(isCompact: true) == HouseLayout.compactRowHeight)
         #expect(HouseLayout.compactRowHeight > HouseLayout.rowHeight)
+    }
+
+    @Test("The wide card holds a name and a subtitle, and its spoken label carries both")
+    func subtitleInWideCard() throws {
+        #expect((52...56).contains(HouseLayout.rowHeight))
+        #expect(HouseWorkerPortrait.frameHeight <= HouseLayout.rowHeight)
+        let worker = try #require(MockHouse.sample.workers.first)
+        #expect(!worker.subtitle.isEmpty)
+        let label = HouseRoomCell.spokenRowLabel(
+            for       : worker,
+            isSelected: false
+        )
+        #expect(label == "\(worker.name), \(worker.subtitle)")
     }
 
     @Test("Compacting keeps the same views")

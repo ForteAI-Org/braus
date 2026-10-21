@@ -14,6 +14,9 @@ struct HouseWorkerPortrait: View {
     )
     static let lean: Float = 1
 
+    /// The portrait's frame height, within the wide card and above the compact card's name.
+    static let frameHeight: CGFloat = 44
+
     // The portrait size is fixed, so each shape's projected outline is built once.
     private static let silhouettes = Dictionary(uniqueKeysWithValues: WorkerShape.allCases.map {
         ($0, makeSilhouette(of: $0))
@@ -68,7 +71,7 @@ struct HouseWorkerPortrait: View {
         .offset(y: size.height / 2 - silhouette.boundingRect.midY)
         .frame(
             width : 56,
-            height: HouseLayout.rowHeight
+            height: Self.frameHeight
         )
         .allowsHitTesting(false)
     }

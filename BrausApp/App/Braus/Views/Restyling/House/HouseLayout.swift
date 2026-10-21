@@ -15,9 +15,9 @@ nonisolated enum HouseLayout {
     static let roomHeight       : CGFloat = 104
     static let compactRoomHeight: CGFloat = 92
 
-    /// A list row's card: the worker beside its name, and the taller one with the name under the
-    /// worker in the compact sidebar.
-    static let rowHeight       : CGFloat = 44
+    /// A list row's card: the worker beside its name and subtitle, and the taller one with the name
+    /// under the worker in the compact sidebar.
+    static let rowHeight       : CGFloat = 54
     static let compactRowHeight: CGFloat = 66
 
     /// A list row's height in the full sidebar and in the compact one.
