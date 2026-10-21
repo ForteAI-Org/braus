@@ -37,17 +37,18 @@ struct MockConversationTests {
         #expect(!conversation.messages.contains { $0.isThinking })
     }
 
-    @Test("At the end of a turn the oldest queued message goes, and only then")
-    func endOfTurnSendsTheOldest() throws {
+    @Test("At the end of a turn the shown queued message goes, and only then")
+    func endOfTurnSendsTheShown() throws {
         let conversation = MockConversation(workerName: "Delivery")
         conversation.send("Export the stems.")
         conversation.send("One.")
         conversation.send("Two.")
+        conversation.queue.page = 1
         #expect(conversation.sendQueued() == nil)
         conversation.stopTurn()
         let sent = try #require(conversation.sendQueued())
-        #expect(sent.text == "One.")
-        #expect(conversation.queue.items == ["Two."])
+        #expect(sent.text == "Two.")
+        #expect(conversation.queue.items == ["One."])
     }
 
     @Test("A reply carries its quote, with the worker's name before the worker's words")

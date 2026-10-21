@@ -80,7 +80,8 @@ final class BubbleFlight {
     /// The view that holds the flights, to lay over the conversation.
     var overlay: Overlay { Overlay(stage: stage) }
 
-    private let stage = Stage()
+    /// Built the first time a flight or the overlay needs it, not each time a view makes this.
+    private lazy var stage = Stage()
 
     private var flights: [UUID: Flight] = [:]
 
@@ -301,16 +302,10 @@ final class BubbleFlight {
             (from, "position", NSValue(point: textOrigin)),
             (to, "position", NSValue(point: textOrigin)),
         ] as [(CALayer, String, NSValue)] {
-            let animation = CABasicAnimation(keyPath: keyPath)
-            animation.fromValue = layer.value(forKeyPath: keyPath)
-            animation.toValue   = value
-            layer.add(
-                animation,
-                forKey: keyPath
-            )
-            layer.setValue(
-                value,
-                forKeyPath: keyPath
+            Self.animate(
+                layer,
+                keyPath,
+                to: value
             )
         }
         // The copy emerges from the bubble, which moves as the strip opens, rather than lying on it.
@@ -323,11 +318,11 @@ final class BubbleFlight {
             fade.values   = values
             fade.keyTimes = times
             fade.duration = duration
+            Self.quietly { layer.opacity = values[3] }
             layer.add(
                 fade,
                 forKey: "opacity"
             )
-            layer.opacity = values[3]
         }
         CATransaction.commit()
     }
@@ -392,18 +387,42 @@ final class BubbleFlight {
             ("position", NSValue(point: target)),
             ("opacity", NSNumber(value: 0)),
         ] as [(String, Any)] {
-            let animation = CABasicAnimation(keyPath: keyPath)
-            animation.fromValue = text.value(forKeyPath: keyPath)
-            animation.toValue   = value
-            text.add(
-                animation,
-                forKey: keyPath
+            animate(
+                text,
+                keyPath,
+                to: value
             )
-            text.setValue(
+        }
+        CATransaction.commit()
+    }
+
+    /// Animates `layer`'s `keyPath` from its value to `value`, over the transaction's duration and
+    /// curve: the model takes `value` first, with no implicit action, which would replace this one.
+    private static func animate(
+        _ layer  : CALayer,
+        _ keyPath: String,
+        to value : Any
+    ) {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = layer.value(forKeyPath: keyPath)
+        animation.toValue   = value
+        quietly {
+            layer.setValue(
                 value,
                 forKeyPath: keyPath
             )
         }
+        layer.add(
+            animation,
+            forKey: keyPath
+        )
+    }
+
+    /// Runs `change` with Core Animation's implicit actions off.
+    static func quietly(_ change: () -> Void) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        change()
         CATransaction.commit()
     }
 
@@ -720,13 +739,14 @@ final class BubbleFlight {
             )
             clip.opacity       = 0
             clip.addSublayer(ghost)
-            box.superlayer?.addSublayer(clip)
+            BubbleFlight.quietly { box.superlayer?.addSublayer(clip) }
             self.ghost = clip
             fade(
                 clip,
                 from: 1,
                 to  : 0
             )
+            // Nothing travels: the box is at the bubble before it shows.
             _ = land(at: target)
             fade(
                 box,
@@ -743,25 +763,29 @@ final class BubbleFlight {
                 x: line.minX - padding.leading,
                 y: line.midY - BubbleFlight.lineHeight / 2 - padding.top
             )
+            let from    = box.position
+            let shown   = typedClip.opacity
+            BubbleFlight.quietly {
+                box.position      = target
+                typedClip.opacity = 0
+            }
             add(
                 "position",
-                from: box.position,
+                from: from,
                 to  : target,
                 on  : box
             )
-            box.position = target
             fade(
                 typedClip,
-                from   : typedClip.opacity,
+                from   : shown,
                 to     : 0,
                 between: BubbleFlight.glideFade
             )
-            typedClip.opacity = 0
         }
 
         /// Fades the whole flight out where it is, in a cross-fade's time.
         func vanish() {
-            box.opacity = 0
+            BubbleFlight.quietly { box.opacity = 0 }
             fade(
                 box,
                 from: 1,
@@ -797,6 +821,10 @@ final class BubbleFlight {
                     height: target.height
                 ))
             renderer.scale = typed.contentsScale
+            // Every value at once and with no implicit action: the caller animates what travels.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
             fill.contents  = renderer.cgImage
             box.position   = target.origin
             box.bounds     = bounds

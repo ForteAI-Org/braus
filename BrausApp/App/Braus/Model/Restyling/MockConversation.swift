@@ -14,8 +14,9 @@ import Observation
 /// A turn starts when the person sends (`isAnswering`), and the worker answers once the message
 /// has landed (`answer(then:)`): it reads, thinks in a bubble while a tool line above it says what
 /// it does, then replies. What the person sends meanwhile waits in `queue`; at the end of the turn
-/// the caller sends the oldest (`sendQueued()`), and Send Now stops the turn for the shown one
-/// (`sendNow()`). The next message the person sends quotes `quote`.
+/// the caller sends the one the strip shows (`sendQueued()`), and Send Now stops the turn for it
+/// (`sendNow()`). The next message the person sends quotes `quote`. A turn's message is composed
+/// first and posted when the transcript is ready for it (`compose(_:)`, `post(_:)`).
 @MainActor
 @Observable
 final class MockConversation {
@@ -98,6 +99,15 @@ final class MockConversation {
     /// into the queue while a turn runs, returning nil.
     @discardableResult
     func send(_ text: String) -> Message? {
+        guard let message = compose(text) else { return nil }
+
+        post(message)
+        return message
+    }
+
+    /// Starts a turn with `text`, which takes the quote, and returns it unposted, so the transcript
+    /// can reach its foot first (`post(_:)`); while a turn runs, queues it and returns nil.
+    func compose(_ text: String) -> Message? {
         guard !isAnswering else {
             queue.add(text)
             return nil
@@ -110,11 +120,15 @@ final class MockConversation {
         )
         quote       = nil
         isAnswering = true
-        messages.append(message)
         return message
     }
 
-    /// Stops the turn and sends the queued message the strip shows.
+    /// Adds `message`, composed for this turn, at the foot of the transcript.
+    func post(_ message: Message) {
+        messages.append(message)
+    }
+
+    /// Stops the turn and starts one with the queued message the strip shows, returned unposted.
     func sendNow() -> Message? {
         guard let text = queue.sendNow() else { return nil }
 
@@ -122,7 +136,7 @@ final class MockConversation {
         return start(text)
     }
 
-    /// At the end of a turn, sends the oldest queued message, if any.
+    /// At the end of a turn, starts one with the queued message the strip shows, returned unposted.
     func sendQueued() -> Message? {
         guard !isAnswering, let text = queue.endOfTurn() else { return nil }
 
@@ -182,13 +196,11 @@ final class MockConversation {
     }
 
     private func start(_ text: String) -> Message {
-        let message = Message(
+        isAnswering = true
+        return Message(
             .person,
             text
         )
-        isAnswering = true
-        messages.append(message)
-        return message
     }
 
     private func update(

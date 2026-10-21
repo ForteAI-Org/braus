@@ -8,28 +8,25 @@
 import Foundation
 
 /// MessageQueue holds what the person sends while the worker is answering, oldest first, and which
-/// of them the strip above the composer shows (`page`).
+/// of them the strip above the composer shows (`page`): the one that goes next.
 ///
-/// A new message is shown at once. The end of a turn sends the oldest; Send Now sends the shown one.
-/// Whatever is taken out, `page` stays on a message while there is one, and is 0 when there is none.
+/// The strip starts on the oldest and stays where the person pages it as more arrive. The end of the
+/// turn and Send Now both take out the shown message, so what flies out is the line the strip shows;
+/// the strip then shows the oldest again. `page` stays on a message while there is one, and is 0
+/// when there is none.
 nonisolated struct MessageQueue: Equatable, Sendable {
     private(set) var items: [String] = []
 
     var page = 0
 
-    /// Queues `text` and shows it.
+    /// Queues `text` behind the others; the strip keeps showing the message that goes next.
     mutating func add(_ text: String) {
         items.append(text)
-        page = items.count - 1
     }
 
     /// Takes the shown message out, to send it now.
     mutating func sendNow() -> String? {
-        guard items.indices.contains(page) else { return nil }
-
-        let text = items.remove(at: page)
-        page = min(page, max(0, items.count - 1))
-        return text
+        takeShown()
     }
 
     /// Removes the shown message, showing the one before it.
@@ -40,11 +37,16 @@ nonisolated struct MessageQueue: Equatable, Sendable {
         page = min(max(0, page - 1), max(0, items.count - 1))
     }
 
-    /// Takes the oldest message out, for the turn that starts; the strip keeps showing the same one.
+    /// Takes the shown message out, for the turn that starts.
     mutating func endOfTurn() -> String? {
-        guard !items.isEmpty else { return nil }
+        takeShown()
+    }
 
-        page = max(0, page - 1)
-        return items.removeFirst()
+    private mutating func takeShown() -> String? {
+        guard items.indices.contains(page) else { return nil }
+
+        let text = items.remove(at: page)
+        page = 0
+        return text
     }
 }

@@ -10,35 +10,36 @@ import SwiftUI
 /// HouseComposer is the mockup's composer: a glass pill holding, from leading to trailing, the `+`
 /// menu, the message field, the model and effort menu, the context ring and Send.
 ///
-/// The pill is 52 points high for one line. The field grows with its text up to `maximumLines`, then
-/// scrolls inside; the pill keeps its ends' radius as it grows, and the controls stay in a 52 point
-/// row at its foot, beside the field's last line. Whoever owns `text` animates the growth.
+/// The pill is 52 points high for one line. The field (`HouseComposerField`) grows with its text up to
+/// eight lines, then scrolls inside; the pill keeps its ends' radius as it grows, and the controls
+/// stay in a 52 point row at its foot, beside the field's last line. Whoever owns `text` animates
+/// the growth, from the field's width (`onFieldWidth`) and `HouseComposerField.height(of:width:)`.
 ///
 /// The field's focus belongs to the window, through `isFocused`, which moves it here when a worker
-/// is chosen by pointer or Return pressed in the sidebar. Return sends a message that is not blank:
-/// it hands `onSend` the text, the field's frame in `BubbleFlight.space`, where the text leaves
-/// from, and how far the field had scrolled its lines, when known; it clears the field in the same
-/// update. Shift-Return and Option-Return break the line.
+/// is chosen by pointer or Return pressed in the sidebar. Return or Send sends a message that is not
+/// blank: it hands `onSend` the text, the frame its lines start in, in `BubbleFlight.space`, and how
+/// far the field had scrolled them, when known; it clears the field in the same update. While
+/// `isDeparting`, the field shows no placeholder. Shift-Return and Option-Return break the line.
 /// The `+` menu's items and the ring's actions are placeholders.
 struct HouseComposer: View {
     let worker: MockWorker
 
     @Binding var text: String
 
-    let isFocused: FocusState<Bool>.Binding
-    let onSend   : (_ text: String, _ field: CGRect, _ scroll: CGFloat?) -> Void
+    let isFocused   : FocusState<Bool>.Binding
 
-    /// The lines the field shows before it scrolls.
-    static let maximumLines = 8
+    /// Whether a sent text is still leaving the field, which shows no placeholder meanwhile.
+    let isDeparting : Bool
+
+    let onFieldWidth: (CGFloat) -> Void
+    let onSend      : (_ text: String, _ field: CGRect, _ scroll: CGFloat?) -> Void
 
     /// The height of the pill around one line, and of the row the controls sit in.
     static let rowHeight: CGFloat = 52
 
     @State private var fieldFrame = CGRect.zero
 
-    /// How far the field had scrolled its lines when Return was pressed, read before Return ends
-    /// the editing, which takes the field's editor and its scroll away.
-    @State private var scrollAtReturn: CGFloat?
+    @State private var link = HouseComposerField.Link()
 
     @State private var model = "Opus 5.5"
 
@@ -99,29 +100,14 @@ struct HouseComposer: View {
 
     /// The message field, its one line centred in the pill's first 52 points.
     private var field: some View {
-        TextField(
-            "Message \(worker.name)",
-            text: $text,
-            axis: .vertical
-        )
-        .lineLimit(1...Self.maximumLines)
-        .textFieldStyle(.plain)
-        .font(.system(size: 14))
-        .focused(isFocused)
-        // Return in the field sends too; a second call from Send's shortcut finds the field empty.
-        .onSubmit(send)
-        .onKeyPress(
-            .return,
-            phases: .down
-        ) { press in
-            guard press.modifiers.contains(.shift) else {
-                scrollAtReturn = Self.editorScroll()
-                return .ignored
-            }
-
-            // Shift-Return breaks the line, as Option-Return does, through the field's editor.
-            (NSApp.keyWindow?.firstResponder as? NSTextView)?.insertNewlineIgnoringFieldEditor(nil)
-            return .handled
+        HouseComposerField(
+            text            : $text,
+            placeholder     : "Message \(worker.name)",
+            isFocused       : isFocused,
+            hidesPlaceholder: isDeparting,
+            link            : link
+        ) { scroll in
+            send(scrolled: scroll)
         }
         .padding(
             .vertical,
@@ -134,6 +120,7 @@ struct HouseComposer: View {
                 dx: 0,
                 dy: Self.fieldInset
             )
+            onFieldWidth(fieldFrame.width)
         }
     }
 
@@ -219,7 +206,9 @@ struct HouseComposer: View {
     }
 
     private var sendButton: some View {
-        Button(action: send) {
+        Button {
+            send(scrolled: nil)
+        } label: {
             Image(systemName: "arrow.up")
                 .font(.system(
                     size  : 15,
@@ -250,29 +239,16 @@ struct HouseComposer: View {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func send() {
+    /// Sends the message, from Return with the scroll the field read, or from Send, which leaves
+    /// the field editing, so its editor still knows how far it has scrolled.
+    private func send(scrolled scroll: CGFloat?) {
         guard !message.isEmpty else { return }
 
-        // Send keeps the field editing, so its editor answers; Return has ended it.
         onSend(
             message,
             fieldFrame,
-            Self.editorScroll() ?? scrollAtReturn
+            scroll ?? link.scroll()
         )
-        text           = ""
-        scrollAtReturn = nil
-    }
-
-    /// How far the field editor has scrolled its lines up, when one is editing: the key window's,
-    /// or, while the app is not active, the one a window keeps editing. The editor's clip view sits
-    /// a little off the field, so the scroll is how far its bounds have moved past its frame.
-    private static func editorScroll() -> CGFloat? {
-        let windows = [NSApp.keyWindow].compactMap(\.self) + NSApp.windows
-        let editors = windows.lazy.compactMap { $0.firstResponder as? NSTextView }
-        guard let editor = editors.first(where: { $0.isFieldEditor && $0.window != nil }),
-              let clip   = editor.superview as? NSClipView
-        else { return nil }
-
-        return clip.bounds.minY - clip.frame.minY
+        text = ""
     }
 }

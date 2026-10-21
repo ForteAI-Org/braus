@@ -11,18 +11,35 @@ import Testing
 @Suite("MessageQueue")
 struct MessageQueueTests {
 
-    @Test("Adding pages to the newest message")
-    func addPagesToTheNewest() {
+    @Test("Adding keeps the strip on the message that goes next, the oldest at first")
+    func addKeepsTheNextShown() {
         var queue = MessageQueue()
         queue.add("One")
         queue.add("Two")
         queue.add("Three")
         #expect(queue.items == ["One", "Two", "Three"])
+        #expect(queue.page == 0)
+        queue.page = 2
+        queue.add("Four")
         #expect(queue.page == 2)
     }
 
-    @Test("Send Now takes the paged message out")
-    func sendNowTakesThePagedMessage() {
+    @Test("The end of a turn takes out the shown message, then shows the oldest")
+    func endOfTurnTakesTheShown() {
+        var queue = MessageQueue()
+        queue.add("One")
+        queue.add("Two")
+        queue.add("Three")
+        #expect(queue.endOfTurn() == "One")
+        #expect(queue.items == ["Two", "Three"])
+        queue.page = 1
+        #expect(queue.endOfTurn() == "Three")
+        #expect(queue.items == ["Two"])
+        #expect(queue.page == 0)
+    }
+
+    @Test("Send Now takes out the shown message, then shows the oldest")
+    func sendNowTakesTheShown() {
         var queue = MessageQueue()
         queue.add("One")
         queue.add("Two")
@@ -30,15 +47,16 @@ struct MessageQueueTests {
         queue.page = 1
         #expect(queue.sendNow() == "Two")
         #expect(queue.items == ["One", "Three"])
-        #expect(queue.items.indices.contains(queue.page))
+        #expect(queue.page == 0)
     }
 
-    @Test("Dropping removes the paged message and keeps the page in range")
+    @Test("Dropping removes the shown message and keeps the page in range")
     func dropKeepsThePageInRange() {
         var queue = MessageQueue()
         queue.add("One")
         queue.add("Two")
         queue.add("Three")
+        queue.page = 2
         queue.drop()
         #expect(queue.items == ["One", "Two"])
         #expect(queue.items.indices.contains(queue.page))
@@ -49,17 +67,6 @@ struct MessageQueueTests {
         queue.drop()
         #expect(queue.items.isEmpty)
         #expect(queue.page == 0)
-    }
-
-    @Test("The end of a turn takes the first message out")
-    func endOfTurnTakesTheFirst() {
-        var queue = MessageQueue()
-        queue.add("One")
-        queue.add("Two")
-        queue.add("Three")
-        #expect(queue.endOfTurn() == "One")
-        #expect(queue.items == ["Two", "Three"])
-        #expect(queue.items.indices.contains(queue.page))
     }
 
     @Test("An empty queue gives nothing")

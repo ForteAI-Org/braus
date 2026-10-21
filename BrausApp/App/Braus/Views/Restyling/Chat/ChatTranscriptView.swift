@@ -18,13 +18,18 @@ import SwiftUI
 /// goes to `onColumnWidth`, so a flight can break its text into the bubble's lines beforehand.
 ///
 /// Hovering a bubble shows its reply button beside it, also a VoiceOver action; choosing it nudges
-/// and dims the bubble and hands it to `onReply`. `frames` keeps every bubble's frame.
+/// and dims the bubble and hands it to `onReply`. `frames` keeps every bubble's frame. Whether the
+/// transcript shows its end goes to `onAtEnd`; `position` scrolls it there.
 struct ChatTranscriptView: View {
     let messages      : [MockConversation.Message]
     let landing       : Set<MockConversation.Message.ID>
     let frames        : Frames
+
+    @Binding var position: ScrollPosition
+
     let onLandingFrame: (MockConversation.Message.ID, CGRect) -> Void
     let onColumnWidth : (CGFloat) -> Void
+    let onAtEnd       : (Bool) -> Void
     let onReply       : (MockConversation.Message) -> Void
 
     /// The width of the messages and the composer, as the prototype's column.
@@ -85,11 +90,19 @@ struct ChatTranscriptView: View {
             )
             .frame(maxWidth: .infinity)
         }
+        .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
         .defaultScrollAnchor(
             .bottom,
             for: .sizeChanges
         )
+        .onScrollGeometryChange(
+            for: Bool.self,
+            of : Self.showsEnd
+        ) { _, showsEnd in
+            onAtEnd(showsEnd)
+        }
+        // The fade at the top; the mask reaches under the floating composer, whose ground fades the foot.
         .mask {
             LinearGradient(
                 stops     : [
@@ -99,7 +112,15 @@ struct ChatTranscriptView: View {
                 startPoint: .top,
                 endPoint  : .bottom
             )
+            .ignoresSafeArea()
         }
+    }
+
+    /// Whether `geometry` shows the content's end, within a point or two. The container's size is the
+    /// part the content scrolls in, its insets left out.
+    nonisolated private static func showsEnd(_ geometry: ScrollGeometry) -> Bool {
+        let end = geometry.contentSize.height - geometry.containerSize.height
+        return geometry.contentOffset.y >= end - 2
     }
 
     /// The text of a bubble as every bubble and every flight draws it.

@@ -8,13 +8,14 @@
 import SwiftUI
 
 /// HouseConversationView is the conversation with the chosen worker: the worker at the top centre,
-/// the transcript under it, and the composer at the foot.
+/// the transcript under it, and the composer floating over the transcript's foot.
 ///
 /// A message the person sends flies from the composer's field into its bubble at the transcript's
 /// foot (`BubbleFlight`), while the transcript makes room for it with the flight's spring; the
-/// bubble is drawn once the flight lands, and the worker answers it. What the person sends while
-/// the worker answers flies into the queue strip above the composer instead; at the end of the
-/// turn, or on Send Now, a queued message flies from the strip into the transcript.
+/// bubble is drawn once the flight lands, and the worker answers it. A transcript scrolled up first
+/// scrolls to its end, and only then takes the message, so the flight knows where it lands. What
+/// the person sends while the worker answers flies into the queue strip above the composer instead;
+/// at the end of the turn, or on Send Now, a queued message flies from the strip into the transcript.
 struct HouseConversationView: View {
     let worker           : MockWorker
     let isComposerFocused: FocusState<Bool>.Binding
@@ -28,6 +29,12 @@ struct HouseConversationView: View {
 
     /// What the person is writing in the composer.
     @State private var draft = ""
+
+    /// Whether a sent text is still leaving the composer's field, which hides its placeholder.
+    @State private var isDeparting = false
+
+    /// The composer field's width, which, with the draft, gives its height.
+    @State private var fieldWidth: CGFloat = 0
 
     /// Where the transcript's foot rests in `BubbleFlight.space`, above the composer.
     @State private var foot: CGFloat = 0
@@ -46,6 +53,15 @@ struct HouseConversationView: View {
 
     /// Every bubble's latest frame, where quotes leave from and return to.
     @State private var frames = ChatTranscriptView.Frames()
+
+    /// Where the transcript is scrolled, which a send brings to its end.
+    @State private var position = ScrollPosition(edge: .bottom)
+
+    /// Whether the transcript shows its end.
+    @State private var isAtEnd = true
+
+    /// What waits for the transcript to show its end, run when it does.
+    @State private var atEndActions: [() -> Void] = []
 
     /// The transcript column's width, which breaks a flight's text as its bubble will.
     @State private var columnWidth = ChatTranscriptView.columnWidth
@@ -76,36 +92,29 @@ struct HouseConversationView: View {
                 messages      : conversation.messages,
                 landing       : landing,
                 frames        : frames,
+                position      : $position,
                 onLandingFrame: land,
                 onColumnWidth : { columnWidth = $0 },
+                onAtEnd       : reached,
                 onReply       : reply
             )
-            // The transcript's foot as it rests: unanimated, it reports the layout's final frame
-            // while the composer and the transcript animate toward it.
-            Color.clear
-                .frame(height: 0)
-                .transaction { $0.animation = nil }
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.frame(in: .named(BubbleFlight.space)).minY
-                } action: { minY in
-                    foot = minY
-                }
-            dock
-                .frame(maxWidth: ChatTranscriptView.columnWidth)
-                .padding(
-                    .horizontal,
-                    24
-                )
-                .padding(
-                    .bottom,
-                    20
-                )
+            // The composer and its strips float over the transcript, which scrolls under them to the
+            // window's edge and keeps its last message clear of them.
+            .safeAreaInset(
+                edge   : .bottom,
+                spacing: 0
+            ) {
+                dock
+            }
         }
-        // The composer grows and shrinks with the draft, a strip comes and goes above it, and the
+        // The composer grows and shrinks a line at a time, a strip comes and goes above it, and the
         // transcript gives way, together.
         .animation(
             BubbleFlight.transcriptAnimation,
-            value: draft
+            value: HouseComposerField.height(
+                of   : draft,
+                width: fieldWidth
+            )
         )
         .animation(
             BubbleFlight.transcriptAnimation,
@@ -123,7 +132,11 @@ struct HouseConversationView: View {
         }
     }
 
-    /// The composer with the strips joined above it.
+    /// The composer with the strips joined above it, floating on the conversation's ground: solid
+    /// behind them and fading to clear over `HouseFoot.fadeHeight` above, as the sidebar's foot does,
+    /// so a message passing under dissolves with no edge. Its top is where the transcript's last
+    /// message rests, which an unanimated marker there reports as the layout's final frame while the
+    /// composer and the transcript animate toward it.
     private var dock: some View {
         VStack(spacing: 0) {
             if !conversation.queue.items.isEmpty {
@@ -138,7 +151,7 @@ struct HouseConversationView: View {
             }
             if let quote = conversation.quote {
                 QuoteStrip(
-                    title      : quote.author == .worker ? "Reply to \(worker.name)" : "Reply to Your Message",
+                    title      : quote.author == .worker ? "Reply to \(worker.name)" : "Reply",
                     text       : quote.text,
                     hidesText  : isQuoteLanding,
                     onTextFrame: { quoteLine = $0 },
@@ -147,11 +160,52 @@ struct HouseConversationView: View {
                 .transition(.opacity)
             }
             HouseComposer(
-                worker   : worker,
-                text     : $draft,
-                isFocused: isComposerFocused,
-                onSend   : send
+                worker      : worker,
+                text        : $draft,
+                isFocused   : isComposerFocused,
+                isDeparting : isDeparting,
+                onFieldWidth: { fieldWidth = $0 },
+                onSend      : send
             )
+        }
+        .frame(maxWidth: ChatTranscriptView.columnWidth)
+        .padding(
+            .horizontal,
+            24
+        )
+        .padding(
+            .top,
+            HouseFoot.fadeHeight
+        )
+        .padding(
+            .bottom,
+            20
+        )
+        .frame(maxWidth: .infinity)
+        .background { ground }
+        .overlay(alignment: .top) {
+            Color.clear
+                .frame(height: 0)
+                .transaction { $0.animation = nil }
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.frame(in: .named(BubbleFlight.space)).minY
+                } action: { minY in
+                    foot = minY
+                }
+        }
+    }
+
+    /// The floating composer's ground, the conversation's colour.
+    private var ground: some View {
+        VStack(spacing: 0) {
+            LinearGradient(
+                colors    : [Color("RestylingGround").opacity(0), Color("RestylingGround")],
+                startPoint: .top,
+                endPoint  : .bottom
+            )
+            .frame(height: HouseFoot.fadeHeight)
+            .allowsHitTesting(false)
+            Color("RestylingGround")
         }
     }
 
@@ -180,31 +234,32 @@ struct HouseConversationView: View {
         from field: CGRect,
         scrolled scroll: CGFloat?
     ) {
-        // A queued text's line waits for its flight, unanimated, whatever animates around it.
-        if conversation.isAnswering { isQueueLanding = true }
-        withAnimation(BubbleFlight.transcriptAnimation) {
-            if let message = conversation.send(text) {
-                fly(
-                    message,
-                    from: .field(
-                        field,
-                        scroll: scroll
-                    )
-                )
-            } else {
-                queue(
-                    text,
-                    from: .field(
-                        field,
-                        scroll: scroll
-                    )
-                )
-            }
+        let origin = BubbleFlight.Origin.field(
+            field,
+            scroll: scroll
+        )
+        isDeparting = true
+        // A queued text the strip will show waits for its flight there, unanimated, whatever
+        // animates around it; behind others, it flies to the strip and fades over the shown one.
+        if conversation.isAnswering, conversation.queue.items.isEmpty { isQueueLanding = true }
+        let message = withAnimation(BubbleFlight.transcriptAnimation) {
+            conversation.compose(text)
+        }
+        if let message {
+            fly(
+                message,
+                from: origin
+            )
+        } else {
+            queue(
+                text,
+                from: origin
+            )
         }
     }
 
-    /// Carries `text`, just queued and shown in the strip, from the composer's field into the
-    /// strip's line, which shows it once it is there.
+    /// Carries `text`, just queued, from the composer's field into the strip's line, which shows it
+    /// once it is there when it is the message that goes next.
     private func queue(
         _ text: String,
         from field: BubbleFlight.Origin
@@ -217,6 +272,7 @@ struct HouseConversationView: View {
             from  : field,
             column: columnWidth
         )
+        departed()
         // A turn later, once the strip has laid out its line.
         DispatchQueue.main.async {
             flight.glide(
@@ -228,13 +284,12 @@ struct HouseConversationView: View {
         }
     }
 
-    /// Lays `message` out hidden at the transcript's foot, with room made for it, and starts its
-    /// flight from `origin`, where its text was.
+    /// Starts `message`'s flight from `origin`, where its text was, then, once the transcript shows
+    /// its end, lays the message out hidden at its foot, with room made for it.
     private func fly(
         _ message: MockConversation.Message,
         from origin: BubbleFlight.Origin
     ) {
-        landing.insert(message.id)
         flight.launch(
             message.id,
             text  : message.text,
@@ -242,7 +297,61 @@ struct HouseConversationView: View {
             from  : origin,
             column: columnWidth
         )
+        reachEnd {
+            withAnimation(BubbleFlight.transcriptAnimation) {
+                landing.insert(message.id)
+                conversation.post(message)
+            }
+            departed()
+        }
     }
+
+    /// Shows the field's placeholder again once a text that left it has lifted clear of it.
+    private func departed() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + BubbleFlight.crossFade) {
+            isDeparting = false
+        }
+    }
+
+    /// Brings the transcript to its end, when it is scrolled up, then runs `action`: a quick native
+    /// scroll, or a jump under Reduce Motion. A scroll is no animation SwiftUI reports the end of,
+    /// so `action` waits for the transcript to show its end, or at most `scrollToEndLimit`.
+    private func reachEnd(then action: @escaping () -> Void) {
+        guard !isAtEnd else {
+            action()
+            return
+        }
+
+        atEndActions.append(action)
+        if RestylingMotion.reducesMotion {
+            position.scrollTo(edge: .bottom)
+        } else {
+            withAnimation(.smooth(duration: Self.scrollToEnd)) {
+                position.scrollTo(edge: .bottom)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.scrollToEndLimit) {
+            runAtEndActions()
+        }
+    }
+
+    /// Keeps whether the transcript shows its end, and runs what waits for it once it does.
+    private func reached(end isAtEnd: Bool) {
+        self.isAtEnd = isAtEnd
+        if isAtEnd { runAtEndActions() }
+    }
+
+    private func runAtEndActions() {
+        let actions = atEndActions
+        atEndActions = []
+        actions.forEach { $0() }
+    }
+
+    /// The longest a send waits for the transcript to reach its end.
+    private static let scrollToEndLimit = 0.8
+
+    /// How long a transcript scrolled up takes to reach its end before a send.
+    private static let scrollToEnd = 0.3
 
     /// Flies a landing message to its bubble, `bubble` across and in size, above the transcript's
     /// resting foot; draws the bubble once it is there, and has the worker answer it.
@@ -292,28 +401,30 @@ struct HouseConversationView: View {
         guard !conversation.queue.items.isEmpty else { return }
 
         isQueueLanding = true
-        withAnimation(BubbleFlight.transcriptAnimation) {
-            guard let message = conversation.sendQueued() else { return }
-
-            leaveQueue(
-                message,
-                from: line
-            )
+        let message = withAnimation(BubbleFlight.transcriptAnimation) {
+            conversation.sendQueued()
         }
+        guard let message else { return }
+
+        leaveQueue(
+            message,
+            from: line
+        )
     }
 
     /// Stops the turn and sends the queued message the strip shows.
     private func sendNow() {
         let line = queueLine
         isQueueLanding = true
-        withAnimation(BubbleFlight.transcriptAnimation) {
-            guard let message = conversation.sendNow() else { return }
-
-            leaveQueue(
-                message,
-                from: line
-            )
+        let message = withAnimation(BubbleFlight.transcriptAnimation) {
+            conversation.sendNow()
         }
+        guard let message else { return }
+
+        leaveQueue(
+            message,
+            from: line
+        )
     }
 
     /// Flies `message` from the strip's `line`, hidden by the caller, which shows the next queued
