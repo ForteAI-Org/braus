@@ -40,6 +40,10 @@ struct HouseLiveInspector: View {
         let team  : TeamModel
         let worker: WorkerSnapshot
 
+        /// The room the house gives its rows and the end of its sections, passed to every real section.
+        static let rowPadding = InspectorRowSpacing.vertical
+        static let footerGap  = HouseSectionGap.height
+
         @State private var turn = WorkerInspectorView.TurnReading.reading
 
         /// What reading the turn again depends on, as the app's inspector reads it.
@@ -52,8 +56,9 @@ struct HouseLiveInspector: View {
         var body: some View {
             Form {
                 InspectorScreenSection(
-                    team  : team,
-                    worker: worker
+                    team     : team,
+                    worker   : worker,
+                    footerGap: Self.footerGap
                 )
 
                 HouseWorkerSection(
@@ -61,7 +66,7 @@ struct HouseLiveInspector: View {
                     role             : worker.role ?? "",
                     shape            : worker.shape,
                     roleFollowsTyping: false,
-                    isSpacious       : false,
+                    isSpacious       : true,
                     commitName       : { update(.name($0)) },
                     commitRole       : { update(.role($0.isEmpty ? nil : $0)) },
                     commitShape      : { update(.shape($0.rawValue)) }
@@ -69,20 +74,27 @@ struct HouseLiveInspector: View {
                 .id(worker.id)
 
                 InspectorNowSection(
-                    team  : team,
-                    worker: worker
+                    team      : team,
+                    worker    : worker,
+                    rowPadding: Self.rowPadding,
+                    footerGap : Self.footerGap
                 )
                 InspectorModelSection(
-                    team  : team,
-                    worker: worker
+                    team      : team,
+                    worker    : worker,
+                    rowPadding: Self.rowPadding,
+                    footerGap : Self.footerGap
                 )
                 InspectorBrowserSection(
-                    team  : team,
-                    worker: worker
+                    team      : team,
+                    worker    : worker,
+                    rowPadding: Self.rowPadding,
+                    footerGap : Self.footerGap
                 )
                 InspectorTurnSection(
                     workerName: worker.name,
-                    turn      : turn
+                    turn      : turn,
+                    rowPadding: Self.rowPadding
                 )
             }
             .formStyle(.grouped)
