@@ -153,6 +153,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
         size         : CGSize,
         base         : MTLTexture,
         light        : MTLTexture,
+        screen       : MTLTexture,
         commandBuffer: MTLCommandBuffer
     ) {
         prepareDenoiser(
@@ -173,6 +174,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
                 denoiser     : denoiser,
                 base         : base,
                 light        : light,
+                screen       : screen,
                 commandBuffer: commandBuffer
             )
             commandBuffer.addCompletedHandler { _ in
@@ -200,13 +202,14 @@ final class RayTracedRoomRenderer: RoomRenderer {
             size    : size,
             base    : base,
             light   : light,
+            screen  : screen,
             encoder : encoder
         )
     }
 
     /// Encodes `frames` frames of the tilted room, each traced at `denoiser`'s input size with
-    /// `samples` samples per pixel and then denoised, which leaves the images in `base` and `light`, of
-    /// `denoiser`'s full size.
+    /// `samples` samples per pixel and then denoised, which leaves the images in `base`, `light` and,
+    /// for a room with a screen, `screen`, of `denoiser`'s full size.
     @available(macOS 26, *)
     func encodeDenoised(
         _ uniforms   : RoomLightUniforms,
@@ -216,6 +219,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
         samples      : Int = RoomDenoiser.samples,
         base         : MTLTexture,
         light        : MTLTexture,
+        screen       : MTLTexture,
         commandBuffer: MTLCommandBuffer
     ) {
         guard
@@ -281,6 +285,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
                 camera       : camera,
                 base         : base,
                 light        : light,
+                screen       : uniforms.screenStrength > 0 ? screen : nil,
                 commandBuffer: commandBuffer
             )
             denoisedFrames += 1

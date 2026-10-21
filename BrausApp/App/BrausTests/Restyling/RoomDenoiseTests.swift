@@ -135,10 +135,10 @@ struct RoomDenoiseTests {
             camera   : .tilted
         )
         try await Self.until { renderer.denoisedPixelSize != nil }
-        let occupied = try Self.render(Self.room(.tilted), with: renderer, device: device, size: size)
+        let occupied = try Self.render(Self.room(.tilted, status: .waiting), with: renderer, device: device, size: size)
         #expect(renderer.denoisedFrames == RoomDenoiser.burst)
         try await Self.until { renderer.denoisedPixelSize != nil }
-        let empty = try Self.render(Self.room(.tilted, hasOccupant: false), with: renderer, device: device, size: size)
+        let empty = try Self.render(Self.room(.tilted, hasOccupant: false, status: .waiting), with: renderer, device: device, size: size)
         #expect(renderer.denoisedFrames == 2 * RoomDenoiser.burst)
 
         // The floor just in front of the sphere, which the camera sees past it and the lamp behind it does not.
@@ -493,10 +493,11 @@ struct RoomDenoiseTests {
 
     private static func room(
         _ camera   : RoomCamera,
-        hasOccupant: Bool = true
+        hasOccupant: Bool = true,
+        status     : WorkerStatus = .busy
     ) -> RoomLightUniforms {
         RoomLightUniforms(
-            status     : .busy,
+            status     : status,
             shape      : .circle,
             hasOccupant: hasOccupant,
             camera     : camera

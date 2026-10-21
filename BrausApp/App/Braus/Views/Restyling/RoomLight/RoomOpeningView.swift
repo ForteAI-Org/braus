@@ -10,18 +10,19 @@ import MetalKit
 /// RoomOpeningView is a room set into the house's column: its `RoomLightView` seen through an
 /// opening in the sidebar, whose wall has a thickness. The sidebar itself stays plain.
 ///
-/// - The reveal: a band `revealWidth` wide just inside the opening, the wall's thickness, a little
+/// - The reveal: a band `revealWidth` wide just inside the opening, the wall's thickness, barely
 ///   lighter than the sidebar at the top and the sides, where it faces the light.
 /// - The top shadow: a thread of shadow under the top edge, where the column overhangs the room.
-/// - The sill: the bottom edge catching a little of the room's light, a thin line in its colour.
+/// - The sill: the bottom edge catching a little of the room's light, a hairline in its colour.
 /// - The spill: the room's light on the sidebar around the opening, as from a lit window at night,
-///   strongest below the sill and along the sides, fading out within `spillReach`. Its reach up and
-///   to the sides stays within the gap between rooms, so it never lights a neighbour; below, it
+///   faint, strongest below the sill and along the sides, fading out within `spillReach`. Its reach up
+///   and to the sides stays within the gap between rooms, so it never lights a neighbour; below, it
 ///   passes under the rooms that follow.
 ///
 /// The sill and the spill pulse with the room's busy flicker or waiting breath, in step with it on
 /// the host clock (`RoomLightView.pulseFollowing`); under Reduce Motion they hold still. A room that
-/// is off spills nothing and has no lit sill. In a room leaning left both fade toward the right as its
+/// is off spills only the moon's faint cool light, which holds still. In a room leaning left both fade
+/// toward the right as its
 /// light does (`RoomLightUniforms.Shape.rightDark`), so none spills where the room is black. Every part
 /// is a Core Animation layer laid out with the room's frame, so it follows a resize, a compaction and
 /// a row reshaping at once, and nothing runs at rest but the pulse.
@@ -53,7 +54,10 @@ final class RoomOpeningView: NSView {
     static let pulseKey = "openingPulse"
 
     /// The wall's thickness, seen inside the opening.
-    static let revealWidth: CGFloat = 2
+    static let revealWidth: CGFloat = 1.5
+
+    /// The sill's height, a hairline.
+    static let sillHeight: CGFloat = 1
 
     /// How far the spill can reach from the opening, which its view covers.
     static let spillReach = 2 * HouseLayout.gap
@@ -61,12 +65,16 @@ final class RoomOpeningView: NSView {
     /// The spill's glow: its blur, how far below the opening it centres, and its strength in the
     /// light of a busy room. The blur follows the gap between rooms, so the glow fills it and fades
     /// out before the next room's edge.
-    static let spillRadius         = HouseLayout.gap / 2
-    static let spillDrop           = HouseLayout.gap / 3
-    static let spillOpacity: Float = 0.55
+    static let spillRadius         = HouseLayout.gap / 3
+    static let spillDrop           = HouseLayout.gap / 4
+    static let spillOpacity: Float = 0.28
 
     /// The sill's strength in the light of a busy room.
-    static let sillOpacity = 0.5
+    static let sillOpacity = 0.3
+
+    /// How strongly a room that is off spills and lights its sill with the moon, against a busy room's
+    /// light.
+    static let moonStrength = 0.35
 
     /// The top shadow's height and its darkness at the top edge.
     static let shadowHeight : CGFloat = 5
@@ -124,16 +132,28 @@ final class RoomOpeningView: NSView {
         CATransaction.commit()
     }
 
-    /// The colour a room of `status` spills and lights its sill with, or nil for a room that is off,
-    /// which spills nothing: the place for a faint moonlight should it land.
-    static func spillColor(for status: WorkerStatus) -> CGColor? {
-        guard let light = status.light else { return nil }
+    /// The colour a room of `status` spills and lights its sill with: its light's, or for a room that is
+    /// off the moon's cool grey blue.
+    static func spillColor(for status: WorkerStatus) -> CGColor {
+        guard let light = status.light else {
+            return CGColor(
+                srgbRed: 0.6,
+                green  : 0.68,
+                blue   : 0.85,
+                alpha  : 1
+            )
+        }
         return CGColor(
             srgbRed: light.red,
             green  : light.green,
             blue   : light.blue,
             alpha  : 1
         )
+    }
+
+    /// How strongly a room of `status` spills and lights its sill, against a busy room.
+    static func spillStrength(for status: WorkerStatus) -> Double {
+        status == .off ? moonStrength : status.lightStrength
     }
 
     private func build() {
@@ -153,8 +173,8 @@ final class RoomOpeningView: NSView {
         spillView.layer?.addSublayer(glow)
         spillView.layer?.mask = spillMask
 
-        // Lighter at the top, where the wall faces down into the lit room, the sidebar's at the foot.
-        reveal.colors     = [Self.gray(0x23), Self.gray(0x1D), Self.gray(0x17)]
+        // Barely lighter at the top, where the wall faces down into the lit room, the sidebar's at the foot.
+        reveal.colors     = [Self.gray(0x1F), Self.gray(0x1B), Self.gray(0x17)]
         reveal.locations  = [0, 0.5, 1]
         reveal.startPoint = CGPoint(
             x: 0.5,
@@ -245,7 +265,7 @@ final class RoomOpeningView: NSView {
             x     : 0,
             y     : 0,
             width : size.width,
-            height: band
+            height: Self.sillHeight
         )
         sill.locations = fadeLocations(
             offset: 0,
@@ -273,11 +293,8 @@ final class RoomOpeningView: NSView {
     }
 
     private func applySillColors() {
-        guard let color = Self.spillColor(for: uniforms.status) else {
-            sill.colors = nil
-            return
-        }
-        let strength = CGFloat(Self.sillOpacity * uniforms.status.lightStrength)
+        let color    = Self.spillColor(for: uniforms.status)
+        let strength = CGFloat(Self.sillOpacity * Self.spillStrength(for: uniforms.status))
         sill.colors = [1, 1, rightKeep].map { color.copy(alpha: strength * $0) ?? color }
     }
 
@@ -294,15 +311,14 @@ final class RoomOpeningView: NSView {
         glow.removeAnimation(forKey: Self.pulseKey)
         sill.removeAnimation(forKey: Self.pulseKey)
         let status = uniforms.status
-        let color  = Self.spillColor(for: status)
-        let base   = Self.spillOpacity * Float(status.lightStrength)
-        glow.shadowColor   = color
-        glow.shadowOpacity = color == nil ? 0 : base
-        glow.isHidden      = color == nil
-        sill.isHidden      = color == nil
+        let base   = Self.spillOpacity * Float(Self.spillStrength(for: status))
+        glow.shadowColor   = Self.spillColor(for: status)
+        glow.shadowOpacity = base
+        glow.isHidden      = false
+        sill.isHidden      = false
         applySillColors()
         CATransaction.commit()
-        guard color != nil, window != nil else { return }
+        guard window != nil else { return }
         if let pulse = RoomLightView.pulseFollowing(
             "shadowOpacity",
             for  : status,

@@ -31,7 +31,7 @@ import MetalKit
 /// body stays, at the cost of compositing only. Under Reduce Motion nothing pulses.
 ///
 /// The brows belong to a `MascotFace` with `drawsBody` false and `catchesRoomLight` true placed over
-/// the sphere, a circle of 34% of the room's short side at its centre, larger at the left when the
+/// the sphere, a circle of 40% of the room's short side at its centre, larger at the left when the
 /// composition leans (`RoomLightUniforms.Shape`), or where the tilted camera shows the body's face;
 /// every pulse is phased to the host clock, so the brows' tint pulses in step with the room.
 final class RoomLightView: MTKView {
@@ -324,7 +324,7 @@ final class RoomLightView: MTKView {
         guard canPreview else { return false }
         let render    = renderRevision
         let submitted = presentPrecomputed(
-            weight    : 1,
+            weight    : SIMD2(1, 1),
             keepsImage: true
         ) { [weak self] image in
             guard let self else { return }
@@ -373,10 +373,17 @@ final class RoomLightView: MTKView {
         let keepsImage = !isResizing && previewRenderer != nil
         let render     = renderRevision
         let submitted  = presentPrecomputed(
-            weight    : Self.pulseWeight(
-                for          : uniforms.status,
-                reducesMotion: RestylingMotion.reducesMotion,
-                at           : lastLiveFrame
+            weight    : SIMD2(
+                Self.pulseWeight(
+                    for          : uniforms.status,
+                    reducesMotion: RestylingMotion.reducesMotion,
+                    at           : lastLiveFrame
+                ),
+                Self.screenWeight(
+                    for          : uniforms.status,
+                    reducesMotion: RestylingMotion.reducesMotion,
+                    at           : lastLiveFrame
+                )
             ),
             keepsImage: keepsImage,
             widthStep : isResizing ? Self.liveWidthStep : 1
@@ -391,14 +398,15 @@ final class RoomLightView: MTKView {
         renderCounts.live += 1
     }
 
-    /// Draws the room at its current size with the precomputed light at `weight` into a drawable of
+    /// Draws the room at its current size with the precomputed light at `weight`, the lamp's and the
+    /// screen's, into a drawable of
     /// its pixel height and its pixel width rounded up to `widthStep`, the room at the leading edge
     /// and framed by `contentsRect` one pixel to one, presented with the transaction that frames it.
     /// `keepsImage`, for drawables of exactly the room's size, also reads the frame back;
     /// `completion` gets that image, or nil, on the main actor once the GPU is done. Returns false
     /// when nothing was submitted.
     private func presentPrecomputed(
-        weight    : Float,
+        weight    : SIMD2<Float>,
         keepsImage: Bool,
         widthStep : CGFloat = 1,
         completion: @escaping @MainActor @Sendable (CGImage?) -> Void
@@ -528,12 +536,17 @@ final class RoomLightView: MTKView {
         needsRefinement       = false
         isRendering           = true
         renderCounts.full    += 1
-        let weights = Self.pulseWeights(
+        let lamp    = Self.pulseWeights(
             for          : uniforms.status,
             reducesMotion: RestylingMotion.reducesMotion
         )
-        let frames = weights.compactMap { _ in Self.frameTexture(like: drawable.texture) }
-        let pulse  = frames.count == weights.count ? Array(zip(frames, weights)) : []
+        let screen  = Self.screenWeights(
+            for          : uniforms.status,
+            reducesMotion: RestylingMotion.reducesMotion
+        )
+        let weights = lamp.indices.map { SIMD2(lamp[$0], screen.indices.contains($0) ? screen[$0] : 1) }
+        let frames  = weights.compactMap { _ in Self.frameTexture(like: drawable.texture) }
+        let pulse   = frames.count == weights.count ? Array(zip(frames, weights)) : []
         let keepsFallback = (renderer as? RayTracedRoomRenderer).map {
             $0.denoises && uniforms.camera == .tilted && $0.denoisedPixelSize == nil
         } ?? false
@@ -541,8 +554,8 @@ final class RoomLightView: MTKView {
         renderer.encode(
             uniforms,
             size         : size,
-            into         : [(drawable.texture, 1)] + pulse.map { (texture: $0.0, weight: $0.1) }
-                + (fallback.map { [(texture: $0, weight: Float(1))] } ?? []),
+            into         : [(drawable.texture, SIMD2(1, 1))] + pulse.map { (texture: $0.0, weight: $0.1) }
+                + (fallback.map { [(texture: $0, weight: SIMD2<Float>(1, 1))] } ?? []),
             commandBuffer: commandBuffer
         )
         // A managed frame reaches the CPU only once the GPU's copy is synchronised.
@@ -720,12 +733,48 @@ final class RoomLightView: MTKView {
         for status   : WorkerStatus,
         reducesMotion: Bool
     ) -> [Float] {
-        let keys: [(time: Float, weight: Float)]
         switch status {
-        case .busy   : keys = [(0, 1), (0.4, 0.8), (0.55, 0.95), (1, 1)]
-        case .waiting: keys = [(0, 1), (0.5, 0.55), (1, 1)]
-        case .free, .off: return []
+        case .busy      : sampled([(0, 1), (0.4, 0.8), (0.55, 0.95), (1, 1)], reducesMotion: reducesMotion)
+        case .waiting   : sampled([(0, 1), (0.5, 0.55), (1, 1)], reducesMotion: reducesMotion)
+        case .free, .off: []
         }
+    }
+
+    /// The screen's weight in each frame of one pulse cycle, apart from the lamp's: small, slow changes,
+    /// as of what a busy worker's screen shows; none for a worker with no screen or under Reduce Motion.
+    static func screenWeights(
+        for status   : WorkerStatus,
+        reducesMotion: Bool
+    ) -> [Float] {
+        guard status == .busy else { return [] }
+        return sampled(
+            [(0, 1), (0.3, 0.88), (0.5, 0.96), (0.78, 0.84), (1, 1)],
+            reducesMotion: reducesMotion
+        )
+    }
+
+    /// The weight at the screen's place in the pulse at `hostTime`, as `pulseWeight` reads the lamp's.
+    static func screenWeight(
+        for status   : WorkerStatus,
+        reducesMotion: Bool,
+        at hostTime  : CFTimeInterval
+    ) -> Float {
+        weight(
+            in    : screenWeights(
+                for          : status,
+                reducesMotion: reducesMotion
+            ),
+            status: status,
+            at    : hostTime
+        )
+    }
+
+    /// `keys`, weights at times in 0...1 of a cycle, sampled `framesPerCycle` times and eased between
+    /// them, or none under Reduce Motion.
+    private static func sampled(
+        _ keys       : [(time: Float, weight: Float)],
+        reducesMotion: Bool
+    ) -> [Float] {
         guard !reducesMotion else { return [] }
         return (0..<framesPerCycle).map { index in
             let time = Float(index) / Float(framesPerCycle)
@@ -747,10 +796,23 @@ final class RoomLightView: MTKView {
         reducesMotion: Bool,
         at hostTime  : CFTimeInterval
     ) -> Float {
-        let weights = pulseWeights(
-            for          : status,
-            reducesMotion: reducesMotion
+        weight(
+            in    : pulseWeights(
+                for          : status,
+                reducesMotion: reducesMotion
+            ),
+            status: status,
+            at    : hostTime
         )
+    }
+
+    /// The weight at `hostTime` between the frames of `weights`, one cycle of the pulse for `status`, as
+    /// a keyframe animation phased to the host clock interpolates them; 1 when there are none.
+    private static func weight(
+        in weights : [Float],
+        status     : WorkerStatus,
+        at hostTime: CFTimeInterval
+    ) -> Float {
         guard let cycle = pulseCycle(for: status), !weights.isEmpty else { return 1 }
         let elapsed  = (hostTime - pulseBeginTime(in: nil)) / cycle
         let position = (elapsed - elapsed.rounded(.down)) * Double(weights.count)

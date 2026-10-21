@@ -51,8 +51,8 @@ struct RoomLightTests {
         #expect(busy.strength == 1)
         #expect(busy.lightColor == SIMD3<Float>(1, 176.0 / 255, 72.0 / 255))
         #expect(room(.off).strength == 0)
-        // Seven float4 in RoomLight.metal.
-        #expect(MemoryLayout<RoomLightUniforms.Packed>.stride == 112)
+        // Eight float4 in RoomLight.metal.
+        #expect(MemoryLayout<RoomLightUniforms.Packed>.stride == 128)
     }
 
     @Test("The uniforms carry the worker's shape and no tint")
@@ -83,7 +83,7 @@ struct RoomLightTests {
     func circleIsTheSphere() throws {
         let device   = try #require(MTLCreateSystemDefaultDevice())
         let size     = CGSize(width: 128, height: 104)
-        let radius   = 0.17 * Float(size.height)
+        let radius   = RoomLightUniforms.Shape.centreSphereShare * Float(size.height)
         let centre   = SIMD2(Float(size.width) / 2, Float(size.height) / 2)
         // A grid across the sphere and a little past its silhouette.
         let offsets  = stride(from: -1.1, through: 1.1, by: 0.1).flatMap { x in
@@ -422,8 +422,9 @@ struct RoomLightTests {
             lean: 1
         )
         #expect(centred.bodyX == 130 && leaning.bodyX == Float(0.5 * size.height))
-        // The rows' worker is about a sixth larger than in the rows before, 84 points tall.
-        let before = RoomLightUniforms.Shape(size: CGSize(width: 260, height: 84)).sphereRadius
+        // The rows' worker is about a sixth larger than in the rows before, 84 points tall, whose share
+        // of the short side was 0.17.
+        let before: Float = 0.17 * 84
         #expect(leaning.sphereRadius / before > 1.15 && leaning.sphereRadius / before < 1.2)
         for camera in [RoomCamera.top, .tilted] {
             let packed = RoomLightUniforms(
@@ -511,7 +512,7 @@ struct RoomLightTests {
         }
     }
 
-    @Test("A room set into the column spills its light's colour, and nothing when the worker is off")
+    @Test("A room set into the column spills its light's colour, and the moon's faint cool light when the worker is off")
     func openingSpillColor() throws {
         let device  = try #require(MTLCreateSystemDefaultDevice())
         let opening = RoomOpeningView(
@@ -532,8 +533,15 @@ struct RoomLightTests {
             #expect(!opening.glow.isHidden && opening.glow.shadowOpacity > 0 && !opening.sill.isHidden, "\(status)")
         }
         opening.uniforms = room(.off)
-        #expect(opening.glow.isHidden && opening.glow.shadowOpacity == 0 && opening.sill.isHidden)
-        #expect(RoomOpeningView.spillColor(for: .off) == nil)
+        let moon = try #require(opening.glow.shadowColor?.converted(
+            to     : sRGB,
+            intent : .defaultIntent,
+            options: nil
+        )?.components)
+        #expect(moon[2] > moon[0], "cool: \(moon)")
+        #expect(!opening.glow.isHidden && opening.glow.shadowOpacity > 0)
+        #expect(opening.glow.shadowOpacity < RoomOpeningView.spillOpacity * Float(WorkerStatus.free.lightStrength))
+        #expect(opening.glow.animation(forKey: RoomOpeningView.pulseKey) == nil)
     }
 
     @Test("The spill and the sill pulse on the room's own cycle and phase, and hold still under Reduce Motion")
@@ -787,7 +795,7 @@ struct RoomLightTests {
             with  : renderer,
             device: device
         )
-        let radius = Int(0.17 * Double(occupied.height))
+        let radius = Int(Double(RoomLightUniforms.Shape.centreSphereShare) * Double(occupied.height))
         let x      = occupied.width / 2
         let y      = occupied.height / 2 + radius + 3
         #expect(occupied.pixel(x, y).red + 6 < empty.pixel(x, y).red)

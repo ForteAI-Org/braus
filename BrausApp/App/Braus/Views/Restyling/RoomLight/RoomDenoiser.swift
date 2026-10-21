@@ -12,11 +12,12 @@ import os
 import simd
 
 /// RoomDenoiser has MetalFX's denoised upscaler turn noisy ray-traced frames of a room, traced at a
-/// reduced size, into the room's full-size base and light images.
+/// reduced size, into the room's full-size base, light and screen images.
 ///
-/// It owns one scaler per image, so the light keeps its own image and pulses by its weight as it does
-/// without the denoiser, and the frames' inputs: the noisy base and light, and the guides the tracer
-/// writes noise-free from the scene, which both scalers read: depth, normals, diffuse and specular
+/// It owns one scaler per image, so the lamp's light and the screen's keep their own images and pulse
+/// by their weights as they do without the denoiser; the screen's runs only for a room that has one.
+/// It also owns the frames' inputs: the noisy images, and the guides the tracer writes noise-free from
+/// the scene, which every scaler reads: depth, normals, diffuse and specular
 /// albedo, roughness, and a motion that stays zero, since the room holds still. A render is a burst of
 /// `burst` frames: the first resets the scalers' history, and each is jittered by the Halton sequence
 /// and averages `samples` samples spread over each pixel. Then nothing more runs.
@@ -52,12 +53,13 @@ nonisolated final class RoomDenoiser: @unchecked Sendable {
         case diffuseAlbedo
         case specularAlbedo
         case roughness
+        case screen
 
         var pixelFormat: MTLPixelFormat {
             switch self {
-            case .base, .light, .normal, .diffuseAlbedo, .specularAlbedo: .rgba16Float
-            case .depth                                                 : .r32Float
-            case .roughness                                             : .r16Float
+            case .base, .light, .normal, .diffuseAlbedo, .specularAlbedo, .screen: .rgba16Float
+            case .depth                                                          : .r32Float
+            case .roughness                                                      : .r16Float
             }
         }
     }
@@ -88,7 +90,7 @@ nonisolated final class RoomDenoiser: @unchecked Sendable {
 
     private let preparedInputs: [MTLTexture]
 
-    /// The scalers of the base and the light image.
+    /// The scalers of the base, the light and the screen image.
     @MainActor
     var scalers: [any MTLFXTemporalDenoisedScaler] { preparedScalers }
 
@@ -131,7 +133,7 @@ nonisolated final class RoomDenoiser: @unchecked Sendable {
         descriptor.isAutoExposureEnabled       = true
         // Returning from this call is the readiness barrier; MetalFX exposes no compilation callback.
         descriptor.requiresSynchronousInitialization = true
-        let scalers = (0..<2).compactMap { _ in descriptor.makeTemporalDenoisedScaler(device: device) }
+        let scalers = (0..<3).compactMap { _ in descriptor.makeTemporalDenoisedScaler(device: device) }
         let inputs  = Input.allCases.compactMap { input in
             Self.texture(
                 input.pixelFormat,
@@ -141,7 +143,7 @@ nonisolated final class RoomDenoiser: @unchecked Sendable {
             )
         }
         guard
-            scalers.count == 2,
+            scalers.count == 3,
             inputs.count == Input.allCases.count,
             let motion = Self.zeroMotion(
                 width : inputWidth,
@@ -170,19 +172,21 @@ nonisolated final class RoomDenoiser: @unchecked Sendable {
     }
 
     /// Encodes the scalers for frame `index` of a burst, after the tracer has written `inputs`, into
-    /// `base` and `light`: private `outputFormat` textures of the full size. `camera` sees the scene the
-    /// frame's depth was written for.
+    /// `base`, `light` and, for a room with a screen, `screen`: private `outputFormat` textures of the
+    /// full size. `camera` sees the scene the frame's depth was written for.
     @MainActor
     func encode(
         frame index  : Int,
         camera       : RoomCamera.Perspective,
         base         : MTLTexture,
         light        : MTLTexture,
+        screen       : MTLTexture?,
         commandBuffer: MTLCommandBuffer
     ) {
         // MetalFX takes the offset from each sample back to its pixel's centre.
         let jitter = -Self.jitter(index)
-        for (scaler, images) in zip(scalers, [(Input.base, base), (.light, light)]) {
+        let images = [(Input.base, base), (.light, light)] + (screen.map { [(Input.screen, $0)] } ?? [])
+        for (scaler, images) in zip(scalers, images) {
             scaler.colorTexture       = inputs[images.0.rawValue]
             scaler.outputTexture      = images.1
             scaler.jitterOffsetX      = jitter.x

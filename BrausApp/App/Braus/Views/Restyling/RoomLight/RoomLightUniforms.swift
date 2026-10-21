@@ -14,6 +14,10 @@ import Foundation
 /// Colours are sRGB components in 0...1; the shaders linearise them. Every worker's body is the
 /// same graphite metal, so only its shape reaches the shaders.
 ///
+/// Seen through the tilted camera, a busy worker in its room also has its screen, a second, cool light
+/// in front of it (`screenStrength`), and a room that is off has the moon instead of its lamp
+/// (`moonStrength`).
+///
 /// At `lean` 0 the worker stands at the room's centre under its lamp, with the pool around it, as on
 /// the floor plan. At 1, as in the rows, it stands larger at the left, the lamp above it and a little
 /// further left, and the pool spreads from it toward the right, fading into the room's darker right
@@ -48,6 +52,17 @@ nonisolated struct RoomLightUniforms: Equatable {
         self.camera      = camera
         self.lean        = lean
         self.status      = status
+    }
+
+    /// 1 when the worker's screen lights the room: a busy worker in its room, seen through the tilted
+    /// camera; 0 otherwise.
+    var screenStrength: Float {
+        camera == .tilted && status == .busy && hasOccupant ? 1 : 0
+    }
+
+    /// 1 when the moon lights the room: a room that is off, seen through the tilted camera; 0 otherwise.
+    var moonStrength: Float {
+        camera == .tilted && status == .off ? 1 : 0
     }
 
     /// The uniforms as the shaders read them, for a room of `size` points drawn into a texture of
@@ -92,6 +107,12 @@ nonisolated struct RoomLightUniforms: Equatable {
                 lean,
                 0,
                 0
+            ),
+            lights : SIMD4(
+                screenStrength,
+                moonStrength,
+                0,
+                0
             )
         )
     }
@@ -101,7 +122,7 @@ nonisolated struct RoomLightUniforms: Equatable {
     struct Shape {
         /// The sphere's radius, as a share of the room's short side, with the worker at the centre and
         /// at the left: at the left it is larger, the rows' worker.
-        static let centreSphereShare: Float = 0.17
+        static let centreSphereShare: Float = 0.2
         static let leftSphereShare  : Float = 0.235
 
         /// How far from the room's left wall the worker stands when the composition leans left, as a
@@ -155,7 +176,7 @@ nonisolated struct RoomLightUniforms: Equatable {
         }
     }
 
-    /// Packed matches `RoomLightUniforms` in RoomLight.metal field for field: seven `float4`s, 112
+    /// Packed matches `RoomLightUniforms` in RoomLight.metal field for field: eight `float4`s, 128
     /// bytes, so no member needs padding on either side.
     struct Packed {
         /// sRGB colour, and the strength in `w`.
@@ -181,5 +202,8 @@ nonisolated struct RoomLightUniforms: Equatable {
         /// Where the worker stands across the room in the scene, in points from its left wall, and in
         /// `y` the composition's lean; the shaders read them only when the lean is above zero.
         var stage: SIMD4<Float>
+
+        /// `screenStrength` and `moonStrength`.
+        var lights: SIMD4<Float>
     }
 }

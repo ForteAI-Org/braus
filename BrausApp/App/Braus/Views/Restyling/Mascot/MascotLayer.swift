@@ -16,6 +16,9 @@ import QuartzCore
 /// of rooms. The bounds are the sphere's square; other shapes reach past them by up to their
 /// `ShapeOutline.extent`, and the brows sit on the shape's inscribed circle, its face.
 ///
+/// The brows are white enamel inlaid in the metal: a little lighter at the top, where the light falls,
+/// a little shaded at the bottom, with a thread of shadow under them where they meet the body.
+///
 /// The head never changes colour for an outcome, since the room light tells it; only a worker that
 /// is off dims the body and greys the brows. Every motion asks `RestylingMotion` first: under
 /// Reduce Motion a morph is a cut, the brows turn without travel and the head does not breathe.
@@ -42,7 +45,7 @@ nonisolated final class MascotLayer: CALayer {
     /// How far above the face's centre the brows' line sits, as a share of the face's width.
     static let browLift = 0.5 - 0.36
 
-    /// What the worker is doing: its light colours the bounce at the bottom.
+    /// What the worker is doing: a worker that is off dims and greys.
     var status = WorkerStatus.free {
         didSet { applyColors() }
     }
@@ -56,9 +59,14 @@ nonisolated final class MascotLayer: CALayer {
     let leftBrow  = CAShapeLayer()
     let rightBrow = CAShapeLayer()
 
-    /// The copies that keep each brow white below its lit top edge, by brow: one half way down in
-    /// the half-lit colour, one a full step down in white, each clipped to the brow by a mask that
-    /// morphs with it. Hidden unless the brows catch a room's light.
+    /// The thread of shadow under each brow where the enamel meets the body: the brow's outline a
+    /// little lower, beneath it, morphing with it.
+    let leftContact  = CAShapeLayer()
+    let rightContact = CAShapeLayer()
+
+    /// The copies that shade each brow's enamel below its top band, by brow: one half way down in the
+    /// middle tone, one a full step down in the shaded bottom tone, each clipped to the brow by a mask
+    /// that morphs with it. In a room the top band and the middle one also take the room's light.
     private var leftLight : [CAShapeLayer] = []
     private var rightLight: [CAShapeLayer] = []
 
@@ -108,8 +116,13 @@ nonisolated final class MascotLayer: CALayer {
         ]
         shading.locations = [0.55, 1]
 
-        // A crescent of status light on the lowest tenth, inside the outline.
+        // A barely visible neutral bounce on the lowest tenth, inside the outline: no light without a source.
         bounce.locations = [0, 0.2, 0.34]
+        bounce.colors    = [
+            CGColor(gray: 1, alpha: 0.05),
+            CGColor(gray: 1, alpha: 0.025),
+            CGColor(gray: 1, alpha: 0),
+        ]
 
         // A broad, faint, warm sheen upper left with no hard core, as the lamp's reflection on the
         // room's Metal body, so the mascot keeps its volume and looks like the same object.
@@ -129,18 +142,21 @@ nonisolated final class MascotLayer: CALayer {
         dimming.backgroundColor = CGColor(gray: 0, alpha: 1)
 
         let sides = [
-            (leftBrow, BrowOutlines.bundled.left),
-            (rightBrow, BrowOutlines.bundled.right),
+            (leftBrow, leftContact, BrowOutlines.bundled.left),
+            (rightBrow, rightContact, BrowOutlines.bundled.right),
         ]
-        for (brow, outlines) in sides {
-            brow.bounds = CGRect(
-                x     : 0,
-                y     : 0,
-                width : Self.artboard.width,
-                height: Self.artboard.height
-            )
-            brow.path = outlines[.idle].map(Self.path)
-            addSublayer(brow)
+        for (brow, contact, outlines) in sides {
+            for layer in [contact, brow] {
+                layer.bounds = CGRect(
+                    x     : 0,
+                    y     : 0,
+                    width : Self.artboard.width,
+                    height: Self.artboard.height
+                )
+                layer.path = outlines[.idle].map(Self.path)
+                addSublayer(layer)
+            }
+            contact.fillColor = CGColor(gray: 0, alpha: Self.contactOpacity)
         }
         leftLight  = Self.lightCopies(over: leftBrow)
         rightLight = Self.lightCopies(over: rightBrow)
@@ -164,10 +180,16 @@ nonisolated final class MascotLayer: CALayer {
         }
     }
 
-    /// Every layer that holds `brow`'s outline: the brow, its light copies and their masks.
-    private func outlineLayers(of brow: CAShapeLayer) -> [CAShapeLayer] {
+    /// Every layer that holds `brow`'s outline: the brow, its contact shadow, its light copies and
+    /// their masks.
+    func outlineLayers(of brow: CAShapeLayer) -> [CAShapeLayer] {
         let copies = lightCopies(of: brow)
-        return [brow] + copies + copies.compactMap { $0.mask as? CAShapeLayer }
+        return [brow, contact(of: brow)] + copies + copies.compactMap { $0.mask as? CAShapeLayer }
+    }
+
+    /// The contact shadow under `brow`.
+    func contact(of brow: CAShapeLayer) -> CAShapeLayer {
+        brow === leftBrow ? leftContact : rightContact
     }
 
     /// Forwards the scale to every sublayer, so the gradients and brows render at the display's
@@ -175,7 +197,7 @@ nonisolated final class MascotLayer: CALayer {
     override var contentsScale: CGFloat {
         didSet {
             let lit = (leftLight + rightLight).flatMap { [$0, $0.mask].compactMap { $0 } }
-            for layer in [body, silhouette, leftBrow, rightBrow] + (body.sublayers ?? []) + lit {
+            for layer in [body, silhouette, leftBrow, rightBrow, leftContact, rightContact] + (body.sublayers ?? []) + lit {
                 layer.contentsScale = contentsScale
             }
         }
@@ -455,6 +477,14 @@ nonisolated final class MascotLayer: CALayer {
                 1
             )
             brow.opacity = Float(0.35 + 0.65 * min(1, depth * 1.6))
+            // The contact shadow sits a hair lower, so a thread of it shows under the brow.
+            let contact = self.contact(of: brow)
+            contact.position  = CGPoint(
+                x: brow.position.x,
+                y: brow.position.y - stretch.y * Self.contactDrop * face
+            )
+            contact.transform = brow.transform
+            contact.opacity   = brow.opacity
         }
     }
 
@@ -469,50 +499,39 @@ nonisolated final class MascotLayer: CALayer {
         for layer in litLayers {
             layer.removeAnimation(forKey: Self.roomLightKey)
         }
-        guard catches, let light = status.light else {
-            withoutActions {
-                for copy in leftLight + rightLight {
-                    copy.isHidden = true
-                }
-            }
-            applyColors()
-            return
-        }
+        applyColors()
+        guard catches, let light = status.light else { return }
         let strength = status.lightStrength
-        let white    = Self.color(hex: 0xF5F5F7)
-        // The edge, and half way to white below it, at a weight of the pulse.
+        // The top band and the middle one take the room's light at a weight of the pulse, over the
+        // enamel's own tone; the shaded bottom keeps its tone.
         func fill(
             _ weight: Float,
-            share   : Double
+            share   : Double,
+            tone    : (red: Double, green: Double, blue: Double)
         ) -> CGColor {
             let amount = Self.roomLightTint * strength * Double(weight) * share
             return CGColor(
-                srgbRed: 0xF5 / 255.0 * (1 - amount) + light.red * amount,
-                green  : 0xF5 / 255.0 * (1 - amount) + light.green * amount,
-                blue   : 0xF7 / 255.0 * (1 - amount) + light.blue * amount,
+                srgbRed: tone.red * (1 - amount) + light.red * amount,
+                green  : tone.green * (1 - amount) + light.green * amount,
+                blue   : tone.blue * (1 - amount) + light.blue * amount,
                 alpha  : 1
             )
         }
-        let layers: [(layer: CAShapeLayer, share: Double)] =
-            [leftBrow, rightBrow].map { ($0, 1) }
-            + [leftLight[0], rightLight[0]].map { ($0, 0.5) }
+        let tones = Self.enamel
+        let layers: [(layer: CAShapeLayer, share: Double, tone: (red: Double, green: Double, blue: Double))] =
+            [leftBrow, rightBrow].map { ($0, 1, tones.top) }
+            + [leftLight[0], rightLight[0]].map { ($0, 0.5, tones.middle) }
         withoutActions {
-            for (layer, share) in layers {
-                layer.fillColor = fill(1, share: share)
-            }
-            for copy in [leftLight[1], rightLight[1]] {
-                copy.fillColor = white
-            }
-            for copy in leftLight + rightLight {
-                copy.isHidden = false
+            for (layer, share, tone) in layers {
+                layer.fillColor = fill(1, share: share, tone: tone)
             }
         }
-        for (layer, share) in layers {
+        for (layer, share, tone) in layers {
             guard let pulse = RoomLightView.pulseFollowing(
                 "fillColor",
                 for  : status,
                 in   : layer,
-                value: { fill($0, share: share) }
+                value: { fill($0, share: share, tone: tone) }
             ) else { return }
             layer.add(
                 pulse,
@@ -524,6 +543,23 @@ nonisolated final class MascotLayer: CALayer {
     /// The share of the room's light at the brows' top edge, at full strength.
     static let roomLightTint = 0.4
 
+    /// The enamel's tones, sRGB, from its lit top band through the middle to its shaded bottom: white,
+    /// or grey for a worker that is off.
+    static let enamel    = (
+        top   : (red: 0.98, green: 0.98, blue: 0.985),
+        middle: (red: 0.95, green: 0.95, blue: 0.955),
+        bottom: (red: 0.89, green: 0.89, blue: 0.9)
+    )
+    static let offEnamel = (
+        top   : (red: 0.52, green: 0.53, blue: 0.56),
+        middle: (red: 0.48, green: 0.49, blue: 0.52),
+        bottom: (red: 0.42, green: 0.43, blue: 0.46)
+    )
+
+    /// The contact shadow's darkness, and how far below the brow it sits, as a share of the face.
+    static let contactOpacity     = 0.5
+    static let contactDrop: Double = 0.012
+
     static let roomLightKey = "roomLight"
 
     /// How deep the lit edge reaches into a brow, in the 240 × 170 artboard.
@@ -534,28 +570,29 @@ nonisolated final class MascotLayer: CALayer {
         brow === leftBrow ? leftLight : rightLight
     }
 
+    /// The enamel's own tones on the brows and their copies, and the dimming of a worker that is off.
     private func applyColors() {
-        let isOff    = status == .off
-        let strength = status.lightStrength
-        // A worker that is off has no light, so the bounce is clear.
-        let light = status.light.map {
+        let isOff = status == .off
+        let tones = isOff ? Self.offEnamel : Self.enamel
+        func color(_ tone: (red: Double, green: Double, blue: Double)) -> CGColor {
             CGColor(
-                srgbRed: $0.red,
-                green  : $0.green,
-                blue   : $0.blue,
+                srgbRed: tone.red,
+                green  : tone.green,
+                blue   : tone.blue,
                 alpha  : 1
             )
-        } ?? CGColor(gray: 0, alpha: 0)
+        }
         withoutActions {
-            bounce.colors = [
-                light.copy(alpha: strength * 0.6) as Any,
-                light.copy(alpha: strength * 0.35) as Any,
-                light.copy(alpha: 0) as Any,
-            ]
             dimming.opacity = isOff ? 0.55 : 0
-            let brow = isOff ? Self.color(hex: 0x6E6E6E) : Self.color(hex: 0xF5F5F7)
-            leftBrow.fillColor  = brow
-            rightBrow.fillColor = brow
+            for brow in [leftBrow, rightBrow] {
+                brow.fillColor = color(tones.top)
+                let copies = lightCopies(of: brow)
+                copies[0].fillColor = color(tones.middle)
+                copies[1].fillColor = color(tones.bottom)
+                for copy in copies {
+                    copy.isHidden = false
+                }
+            }
         }
     }
 
