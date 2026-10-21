@@ -17,6 +17,9 @@ import SwiftUI
 ///
 /// The conversation gives the moment's `status`, `brows` and `activity`, and raises `preparation`
 /// when the worker sets about a message, which the worker plays once.
+///
+/// A change of worker brings the hero in and out on `HouseSwitch`'s beats. The hero's frame is the
+/// same for every shape and every subtitle, so the transcript under it never moves.
 struct HouseHero: View {
     let worker     : MockWorker
     let status     : WorkerStatus
@@ -24,8 +27,19 @@ struct HouseHero: View {
     let activity   : String
     let preparation: Int
 
+    /// Where the hero is in a change of worker.
+    var stage = HouseSwitch.Stage.present
+
     /// The side of the worker's sphere, in points.
     static let workerSize: CGFloat = 60
+
+    /// The height the worker stands in: the tallest shape's, so every worker takes the same room.
+    static let portraitHeight = WorkerShape.allCases.map { shape in
+        HouseWorkerPortrait.silhouette(
+            of  : shape,
+            side: HouseWorkerPortrait.sceneSide(for: workerSize)
+        ).boundingRect.height
+    }.max() ?? workerSize
 
     /// The seed that makes the hero's brows live by `status`, or nil while `brows` is the conversation's
     /// own expression (listening, at work) rather than the status's, which the loop would override.
@@ -38,6 +52,10 @@ struct HouseHero: View {
     }
 
     var body: some View {
+        let pose = HouseSwitch.pose(
+            stage,
+            reducesMotion: RestylingMotion.reducesMotion
+        )
         VStack(spacing: 4) {
             HouseWorkerPortrait(
                 shape       : worker.shape,
@@ -51,7 +69,12 @@ struct HouseHero: View {
                 ),
                 capsuleLight: HeroLight.capsuleLight(for: status),
                 changeFade  : HeroLight.fade,
-                preparation : preparation
+                preparation : preparation,
+                switchStage : stage
+            )
+            .frame(
+                height   : Self.portraitHeight,
+                alignment: .bottom
             )
             .accessibilityHidden(true)
             VStack(spacing: 1) {
@@ -60,10 +83,12 @@ struct HouseHero: View {
                         size  : 13,
                         weight: .semibold
                     ))
+                    .lineLimit(1)
                     .help(role)
                 Text(activity)
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             .padding(
                 .horizontal,
@@ -85,6 +110,19 @@ struct HouseHero: View {
                     .offset(y: -4)
                     .allowsHitTesting(false)
             }
+            .scaleEffect(
+                pose.scale,
+                anchor: .bottom
+            )
+            .offset(y: pose.drop)
+            .opacity(pose.opacity)
+            .animation(
+                HouseSwitch.capsuleAnimation(
+                    to           : stage,
+                    reducesMotion: RestylingMotion.reducesMotion
+                ),
+                value: stage
+            )
         }
         .accessibilityElement(children: .combine)
         .accessibilityHint(role)

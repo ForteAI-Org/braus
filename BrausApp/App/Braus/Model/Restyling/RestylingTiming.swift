@@ -29,4 +29,11 @@ nonisolated enum RestylingTiming {
 
     /// The delay between one word of a reply fading in and the next.
     static let wordStagger   : Double = 0.045
+
+    /// How long a chosen worker takes to step out of its room toward the chat, and to step back in;
+    /// its plaque drops in once it is out, and what follows in the chat can start from it.
+    static let roomExit      : Double = 0.45
+
+    /// How long a plaque takes to fade when its worker comes back, before the worker steps in.
+    static let plaqueLeave   : Double = 0.2
 }
