@@ -31,6 +31,8 @@ struct SettlingTests {
             var scenes   : Int
         }
         var waits: [Wait] = []
+        /// What each wait answers.
+        var result = SettleResult.settled
         /// How many gestures had been delivered when each `prepare` ran.
         var prepares: [Int] = []
         var scenes  : ScriptedScenes?
@@ -38,13 +40,14 @@ struct SettlingTests {
         func prepare(in processID: pid_t) async {
             prepares.append(actuator?.gestures.count ?? 0)
         }
-        func settle(in processID: pid_t, cap: Duration) async {
+        func settle(in processID: pid_t, cap: Duration) async -> SettleResult {
             waits.append(Wait(
                 processID: processID,
                 cap      : cap,
                 gestures : actuator?.gestures.count ?? 0,
                 scenes   : scenes?.calls ?? 0
             ))
+            return result
         }
     }
 
@@ -140,6 +143,130 @@ struct SettlingTests {
         #expect(pauses.slept.isEmpty)
         #expect(actuator.gestures.count > 1)
         #expect(settling.prepares == [0], "one reference, before the first gesture")
+    }
+
+    @Test("a wait that ended at its cap leaves a click's verdict from the scene unknown, a change seen or not, with the limit and the reason",
+          arguments: [true, false])
+    func cappedSceneVerdictIsUnknown(changed: Bool) async throws {
+        let scenes   = ScriptedScenes([scene([toggleOff]), scene([changed ? toggleOn : toggleOff])])
+        let settling = RecordingSettling()
+        settling.result = .capped
+        let outcome = await engine(scenes: scenes, actuator: RecordingActuator(), settling: settling, pauses: Pauses())
+            .act(ActionRequest(processID: pid, bundleID: "com.x", appName: "X", target: "Facebook", verb: .click))
+        let check = try #require(outcome.check)
+        #expect(check.method == .sceneDifference, "the premise: the click is judged by the scene")
+        #expect(check.verdict == .unknown && check.limits.contains(.settleCapped), "\(check)")
+        #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
+        #expect(outcome.message.contains("ended at its cap (300 ms)") && outcome.message.contains("do not repeat it"),
+                Comment(rawValue: outcome.message))
+    }
+
+    @Test("a wait with nothing to watch leaves a click's scene verdict unknown, the limit naming it")
+    func unwatchedSceneVerdictIsUnknown() async throws {
+        let scenes   = ScriptedScenes([scene([toggleOff]), scene([toggleOn])])
+        let settling = RecordingSettling()
+        settling.result = .unavailable
+        let outcome = await engine(scenes: scenes, actuator: RecordingActuator(), settling: settling, pauses: Pauses())
+            .act(ActionRequest(processID: pid, bundleID: "com.x", appName: "X", target: "Facebook", verb: .click))
+        let check = try #require(outcome.check)
+        #expect(check.verdict == .unknown && check.limits.contains(.settleUnwatched), "\(check)")
+        #expect(outcome.kind == .actedUnverified && outcome.message.contains("Nothing could be watched"),
+                Comment(rawValue: outcome.message))
+    }
+
+    @Test("after a capped wait a direct read-back that found the text stays passed, with the limit; one that did not find it is unknown",
+          arguments: [("Braus", OperationCheck.Verdict.passed), ("Altro", .unknown)])
+    func cappedReadBack(read: String, verdict: OperationCheck.Verdict) async throws {
+        let scenes   = ScriptedScenes([scene([field(value: "")])])
+        let controls = FakeControls()
+        controls.focused = read
+        let settling = RecordingSettling()
+        settling.result = .capped
+        let outcome = await engine(scenes: scenes, actuator: RecordingActuator(), controls: controls, settling: settling,
+                                   pauses: Pauses())
+            .deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
+                                  input: .typeText("Braus", into: "Project Name", replacing: true)))
+        let check = try #require(outcome.check)
+        #expect(check.method == .controlValue, "the premise: the text is read back from the field")
+        #expect(check.verdict == verdict && check.limits.contains(.settleCapped), "\(check)")
+        #expect(outcome.kind == (verdict == .passed ? .foundActed : .actedUnverified), Comment(rawValue: outcome.message))
+    }
+
+    @Test("the actuator is told what the verdict holds: after a capped wait, unknown, a change seen or not; after a settled one, what was seen",
+          arguments: [(true, SettleResult.capped, DeliveryEffect.unknown), (false, .capped, .unknown),
+                      (true, .unavailable, .unknown), (true, .settled, .observed)])
+    func clickReceiptFollowsTheVerdict(changed: Bool, ended: SettleResult, receipt: DeliveryEffect) async {
+        let scenes   = ScriptedScenes([scene([toggleOff]), scene([changed ? toggleOn : toggleOff])])
+        let actuator = RecordingActuator()
+        let settling = RecordingSettling()
+        settling.result = ended
+        _ = await engine(scenes: scenes, actuator: actuator, settling: settling, pauses: Pauses())
+            .act(ActionRequest(processID: pid, bundleID: "com.x", appName: "X", target: "Facebook", verb: .click))
+        #expect(actuator.confirmations == [receipt])
+    }
+
+    @Test("a key's receipt follows its verdict too: unknown after a capped wait though the scene changed, observed after a settled one",
+          arguments: [(SettleResult.capped, DeliveryEffect.unknown), (.settled, .observed)])
+    func keyReceiptFollowsTheVerdict(ended: SettleResult, receipt: DeliveryEffect) async throws {
+        // A field that appears is a structural change, which a key's verdict attributes.
+        let scenes   = ScriptedScenes([scene([toggleOff]), scene([toggleOff, field(value: "")])])
+        let actuator = RecordingActuator()
+        let settling = RecordingSettling()
+        settling.result = ended
+        let outcome = await engine(scenes: scenes, actuator: actuator, settling: settling, pauses: Pauses())
+            .deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
+                                  input: .pressKey(KeyChord(.character("x")), times: 1)))
+        #expect(actuator.confirmations.last == receipt, Comment(rawValue: outcome.message))
+        #expect(ended == .settled || outcome.check?.verdict == .unknown, Comment(rawValue: outcome.message))
+    }
+
+    @Test("a toggle the control cannot read is judged by the scene: after a capped wait that is unknown, though the scene shows it on; read from the control, it stays passed",
+          arguments: [(ControlState?.none, OperationCheck.Verdict.unknown, DeliveryEffect.unknown),
+                      (ControlState?.some(.on), .passed, .observed)])
+    func toggleReadBackKeepsItsSource(control: ControlState?, verdict: OperationCheck.Verdict, receipt: DeliveryEffect) async throws {
+        let scenes   = ScriptedScenes([scene([toggleOff]), scene([toggleOn])])
+        let actuator = RecordingActuator()
+        let controls = FakeControls()
+        controls.toggle = control
+        let settling = RecordingSettling()
+        settling.result = .capped
+        let outcome = await engine(scenes: scenes, actuator: actuator, controls: controls, settling: settling,
+                                   pauses: Pauses())
+            .act(ActionRequest(processID: pid, bundleID: "com.x", appName: "X", target: "Facebook", verb: .setToggle,
+                               desiredState: .on))
+        let check = try #require(outcome.check)
+        #expect(check.method == .controlState && check.observed == "on", "the premise: the state read is on, \(check)")
+        #expect(check.verdict == verdict && check.limits.contains(.settleCapped), "\(check)")
+        #expect(actuator.confirmations.last == receipt)
+    }
+
+    @Test("a typed text the field cannot read back is judged by the scene: after a capped wait that is unknown, though the scene shows the text")
+    func typedReadBackFromTheScene() async throws {
+        let scenes   = ScriptedScenes([scene([field(value: "")]), scene([field(value: "Braus")])])
+        let actuator = RecordingActuator()
+        let controls = FakeControls()
+        controls.focused = nil
+        let settling = RecordingSettling()
+        settling.result = .capped
+        let outcome = await engine(scenes: scenes, actuator: actuator, controls: controls, settling: settling,
+                                   pauses: Pauses())
+            .deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
+                                  input: .typeText("Braus", into: "Project Name", replacing: true)))
+        let check = try #require(outcome.check)
+        #expect(check.method == .controlValue && check.observed == "Braus", "the premise: the scene shows the text, \(check)")
+        #expect(check.verdict == .unknown && check.limits.contains(.settleCapped), "\(check)")
+        #expect(actuator.confirmations.last == .unknown)
+    }
+
+    @Test("a wait that settled leaves the verdict as it was, with no settling limit")
+    func settledVerdictStands() async throws {
+        let scenes = ScriptedScenes([scene([toggleOff]), scene([toggleOn])])
+        let outcome = await engine(scenes: scenes, actuator: RecordingActuator(), settling: RecordingSettling(),
+                                   pauses: Pauses())
+            .act(ActionRequest(processID: pid, bundleID: "com.x", appName: "X", target: "Facebook", verb: .click))
+        let check = try #require(outcome.check)
+        #expect(check.verdict == .passed && outcome.kind == .foundActed)
+        #expect(!check.limits.contains(.settleCapped) && !check.limits.contains(.settleUnwatched))
     }
 
     @Test("with no settling role the engine sleeps the click settle, as before the role existed")

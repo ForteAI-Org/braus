@@ -84,6 +84,16 @@ public struct SeatSettler: Settling {
 
         /// There were no frames to watch, and the rest of the cap was waited out.
         case fallback(LiveFrameFallback)
+
+        /// The engine's reading of the ending: a window that changed and held still, or never changed in the
+        /// whole cap, settled; one still changing at the cap did not; no frames is nothing watched.
+        package var result: SettleResult {
+            switch self {
+                case .stable, .stableAgainstBaseline, .quiet: .settled
+                case .cap                                    : .capped
+                case .fallback                               : .unavailable
+            }
+        }
     }
 
     /// What `prepare` copied before a gesture: the window's frame, as displayed at `displayedAt`,
@@ -157,14 +167,16 @@ public struct SeatSettler: Settling {
     }
 
     /// `processID` is not read: the seat drives one window, the one it targets.
-    public func settle(in processID: pid_t, cap: Duration) async {
+    @discardableResult
+    public func settle(in processID: pid_t, cap: Duration) async -> SettleResult {
         #if BRAUS_PHASES
         let phase = PhaseInterval.begin("settle")
         let ending = await settled(cap: cap)
         phase.end(ending.detail)
         #else
-        _ = await settled(cap: cap)
+        let ending = await settled(cap: cap)
         #endif
+        return ending.result
     }
 
     @MainActor

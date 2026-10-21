@@ -154,6 +154,17 @@ scene.resolve(target: "Export")               // .found, .ambiguous(n) or .none
   only for a found window and a finished, unstopped walk; a fact nobody observed stays unknown and
   never adds up to complete, and facts that contradict each other are an `inconsistency` every
   consumer refuses. `elements(...)` is the same walk without the quality.
+- Children are listed through `AccessibilityTreeReading.readChildren` (M2): nil is a list that did not
+  answer, `[]` a leaf.
+  - The default answers `children`, for a reader that cannot tell.
+  - `LiveAccessibilityReader` retries a timeout once. It reads only `noValue` and `attributeUnsupported` as a
+    leaf, and any other failure, or an answer that is no list of elements, as unread.
+  - The harvest follows it in its general walk, a table's children, a row's cells and a row's name. An unread
+    list leaves `walkCompleted` false with no `stoppedBy`, keeping every readable sibling.
+  - `AccessibilityController`'s walk answers incomplete, so `controlValue` and `toggleState(labelled:)` attest no
+    single match.
+  - Unchanged, as declared limits: `PopupRowHarvest`, `AccessibilityWindowMatching`,
+    `DropdownOpening.nativeMenuItem`, the reader's window listing, and `firstControl`'s first match.
 - A checkbox, switch (`AXCheckBox` with subrole `AXSwitch`) or radio button with no title or
   description is named, never dropped: by the `AXStaticText` immediately before it among its
   parent's children (origin `value`; System Settings keeps the caption there), when it fits the

@@ -24,6 +24,7 @@ import SwiftUI
 /// leading edge (`SlashCommandPopup`). The keyboard stays in the field, which
 /// hands the popup ↑ ↓, Tab, Return and Escape while it is open; a first
 /// Escape closes it, and the next one drops a quote as it always does.
+///
 struct ConversationComposer: View {
 
     @Bindable
@@ -92,14 +93,17 @@ struct ConversationComposer: View {
             }
         }
         .accessory {
-            if let configuration = worker.configuration {
-                ConversationModelButton(
-                    selection: pending ?? configuration,
-                    catalogue: team.connections.catalogues[configuration.provider],
-                    isOpen   : $isChoosingModel,
-                    frame    : $modelButton,
-                    isEnabled: !team.isAnswering(worker.id)
-                )
+            HStack(spacing: 2) {
+
+                if let configuration = worker.configuration {
+                    ConversationModelButton(
+                        selection: pending ?? configuration,
+                        catalogue: team.connections.catalogues[configuration.provider],
+                        isOpen   : $isChoosingModel,
+                        frame    : $modelButton,
+                        isEnabled: !team.isAnswering(worker.id)
+                    )
+                }
             }
         }
         .modelPopup(

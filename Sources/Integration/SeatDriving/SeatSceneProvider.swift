@@ -105,7 +105,7 @@ public struct SeatSceneProvider: SceneProviding {
         }
         // Only the windows on the seat's display: one left on the person's display is not in this scene.
         let seatBounds = await displayBounds(target)
-        let onSeat = try windows.windows(ownedBy: processID).filter { $0.frame.intersects(seatBounds) }
+        let onSeat = try await windows.windows(ownedBy: processID).filter { $0.frame.intersects(seatBounds) }
         let popups = WindowSurfaceClassifier.classify(onSeat).popups
         var image: CGImage
         let frame: CGRect
@@ -153,7 +153,7 @@ public struct SeatSceneProvider: SceneProviding {
             }
         }
         // Adoption keeps a recovery title; only a fresh census can name the document now displayed.
-        let matchingRows = try windows.windows(ownedBy: processID).filter { $0.number == observedWindow.id }
+        let matchingRows = try await windows.windows(ownedBy: processID).filter { $0.number == observedWindow.id }
         let currentTitle = matchingRows.count == 1 ? matchingRows[0].title ?? "" : ""
         let window = ScenePipeline.Window(
             bundleID    : application.bundleID,

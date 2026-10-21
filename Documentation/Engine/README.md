@@ -44,16 +44,18 @@ and is never a reason to send the gesture again.
 | `WorkspaceActivation` | `ApplicationActivating` over AppKit's workspace |
 | `Memory` | what the agent remembers, pure: `AppKnowledge` (observed objects per window state, menu commands, the brain, routes), `UIBrain` with `ObjectAnchor`, `SiblingGroup`, `LearnedTransition`, `BrainMatcher`, `BrainUpdater` and `BrainRetention`, `Route`, `RouteEarning`, `Recall` with `RecallEvidence` and `SightingGraph`, `Allowlist`, `KnowledgeCoding`, the role `KnowledgeStoring` with `InMemoryKnowledgeStore`, and `BrainMemory`, which fills `EffectExpecting` and enriches scenes from the stored brain (`BrainReading`); and the contracts of the living memory, pure: the observation contract (`ObservationKind`, `CaptureSample` with `CaptureElement`, `MemoryEventRecord`, `SceneSkeleton` and `SceneStructureMatcher`, `SceneDefinition`), the brain's storage and applications (`BrainStoring`, `BrainApplicationStoring` with `BrainApplicationCommand` and `BrainApplicationKey`, `BrainKeys`, `DecayReport`, `BrainClock`, `TransitionEffectRecord`), the agent calls (`AgentCallStoring` with `AgentTool`, `AgentCallRequest`, `AgentCallRecord`, `AgentCallProgress`, `AgentCallResult`, `ObservedEffect`), the menu commands as data (`MenuCommandStoring`), the observed inputs and explicit attributions (`ObservedInputStoring`, `VerificationStoring`, `TaskAttributionStoring`), the procedures and experiences (`RouteStoring`, `StepOccurrenceStoring`, `ExperienceStoring`), since D2 the procedures built from a task (`ProcedureSegmentation` and `ProcedureCandidate`, `ProcedureInterpretation`, `ProcedureAssembly` and `ProcedureVersion`, `QualificationPolicy` and `PartQualification`, `ProcedureInspection`) and the functional Brain's relations (`BrainRelationPolicy`, `BrainRelation`, `SceneElementKey`, `BrainRelationReading`), the brain's general graph (`BrainGraphStoring`, `MemoryOverview`) and the read of traces (`MemoryTraceReading`); the store's answers (`MemoryStoreError`, `MemoryReceipt`, `MemorySchemaMismatch`, `MemoryTextFault`, `MemorySnapshotRefusal`) |
 | `FileKnowledge` | `KnowledgeStoring` over one JSON file per application: write-behind, a directory lock, daily backups, quarantine and restore; and `FileAllowlistStore`. No source imports it since the Brain moved to SQLite; `braus` still lists it as a dependency and the `BrausEngine` library vends it. The JSON files it wrote are not read at run time |
-| `SQLiteMemory` | the living memory's SQLite store, composed by `AutomationRuntime`'s `MemoryService`: `SQLiteMemoryStore` opens one file, bootstraps the current schema from the module's one schema text (its part 1 is schema 1, the version an archive migrates from) and refuses any other shape, runs typed write and read transactions over a serial writer and a separate reader, checkpoints passively, copies the file through the backup API (`snapshot(to:)`) and reports the reader's `data_version`; the `SQLite*Repository` types fill the `Memory` roles above, one transaction per write. 46 of the 48 tables are contract data with a typed writer and reader; `brain_scene_roles` and `brain_scene_labels` are projections written and not read. Schemas 2 to 5 add the facts of D1 and the procedures and relations of D2 with their history of evaluations (`SQLiteProcedureRepository`, `SQLiteBrainRelationRepository`); schema 6 adds the Recall's derived index and its facts (`SQLiteRecallRepository`). See [the memory schema](MemorySchema.md), [the memory contracts](MemoryContracts.md), [the memory procedures](MemoryProcedures.md) and [the memory recall](MemoryRecall.md) |
+| `SQLiteMemory` | the living memory's SQLite store, composed by `AutomationRuntime`'s `MemoryService`: `SQLiteMemoryStore` opens one file, bootstraps current schema 19 from the module's one schema text and migrates only explicitly recognized historical shapes after a verified copy; other shapes are refused, runs typed write and read transactions over a serial writer and a separate reader, checkpoints passively, copies the file through the backup API (`snapshot(to:)`) and reports the reader's `data_version`; the `SQLite*Repository` types fill the `Memory` roles above, one transaction per write. The current table inventory and historical shapes are documented in [Memory schema](MemorySchema.md); do not derive compatibility from a schema version number alone. Schemas 2 to 5 add the facts of D1 and the procedures and relations of D2 with their history of evaluations (`SQLiteProcedureRepository`, `SQLiteBrainRelationRepository`); schema 6 adds the Recall's derived index and its facts (`SQLiteRecallRepository`). See [the memory schema](MemorySchema.md), [the memory contracts](MemoryContracts.md), [the memory procedures](MemoryProcedures.md), [the memory recall](MemoryRecall.md) and [uncertain effects and refusals](MemoryContracts.md#uncertain-effects-and-persistent-refusals) |
 | `LocalEmbedding` | `TextEmbedding` over a pinned local model (`LocalEmbeddingModel`, `EmbeddingModelManifest`): safetensors by memory mapping, the XLM-RoBERTa Unigram tokenizer, a BERT-family encoder on Accelerate, pooling and normalization, every file checked against its sha256. Imports `Memory`, Foundation and Accelerate; no network. The models are installed by `Tools/Engine/Scripts/fetch-recall-model.sh` ([MemoryRecall](MemoryRecall.md#local-embedding)) |
 | `LocalEmbeddingKernels` | the encoder's matrix product over Accelerate's current CBLAS interface, a C target because it needs a define |
 | `memory-probe` (tool, `Tools/Engine/memory-probe`) | a second real process on one store file for the module's tests and `measure-memory-store.sh`: driven by lines on its standard input, one answer per line; a package executable, bundled nowhere |
 | `LiveScenes` | `LiveSceneProvider`, the `SceneProviding` for a window on the real screen: census, capture (the union with an open pop-up), pipeline |
 | `SeatDriving` (`Sources/Integration`) | the Driver's seat filling the Engine's roles: `SeatTarget` owns the host, the seat and the adopted window; `SeatSceneProvider` is `SceneProviding` over the seat's stills; `SeatActuator` is `Actuating` over routed Commands inside a Turn, answering every receipt with what the engine saw; `SeatControls` is `ControlPressing` without the geometric read; `SeatSettler` is `Settling` over the window stream the seat's owner runs ([ADR 0035](../Driver/adr/Adr0035SettleOnTheRunningWindowStream.md)) |
-| `AutomationRuntime` (`Sources/Integration`) | the composition root: `EngineRuntime` wires the foreground adapters or the Seat's, the expectations from `BrainMemory` over the directory's `MemoryService`, and the call's `CallRecorder` as the engine's observer. `MemoryService` is the one living memory of a Knowledge directory in the process (`shared(for:)`): `memory.sqlite`, opened on first use, written through one ordered queue no action waits for, read with a Brain cache, copied once a day; `CallRecorder` records one call (its request, start and end, its samples and what it taught the Brain); `ActionContext` is who acts under which trace; `MemoryClock` keeps the facts' calendar, the Brain's clock and durations apart; `ProcedureProducer` builds an attempt's candidate at a checkpoint or an end and records the agent's interpretation of it ([MemoryProcedures](MemoryProcedures.md)); `RecallService` keeps the Recall's index in line with the catalogue and answers a task's query with one selection per need, `RecallConfiguration` says how it searches, `RecallDelivery` is what the agent receives ([MemoryRecall](MemoryRecall.md); how the selector decides, on which data, and what it cannot decide: [RecallSelection](RecallSelection.md); the product's one path, in which the agent chooses the tracts and Engine validates them, `RecallService.propose`/`choose`: [RecallAgentChoice](RecallAgentChoice.md)). `AutomationSessionOperating` is the role the tools drive; its one desktop conformer is SeatBroker's `BrokeredAutomationSession`, for the app, the command line and the benchmark server alike |
+| `AutomationRuntime` (`Sources/Integration`) | the composition root: `EngineRuntime` wires the foreground adapters or the Seat's, the expectations from `BrainMemory` over the directory's `MemoryService`, and the call's `CallRecorder` as the engine's observer. `MemoryService` is the one living memory of a Knowledge directory in the process (`shared(for:)`): `memory.sqlite`, opened on first use, written with essential facts confirmed before effects and at completion, with derived Brain/index work queued separately, read with a Brain cache, copied once a day; `CallRecorder` records one call (its request, start and end, its samples and what it taught the Brain); `ActionContext` is who acts under which trace; `MemoryClock` keeps the facts' calendar, the Brain's clock and durations apart; `ProcedureProducer` builds an attempt's candidate at a checkpoint or an end and records the agent's interpretation of it ([MemoryProcedures](MemoryProcedures.md)); `RecallService` keeps the Recall's index in line with the catalogue and answers a task's query with one selection per need, `RecallConfiguration` says how it searches, `RecallDelivery` is what the agent receives ([MemoryRecall](MemoryRecall.md); how the selector decides, on which data, and what it cannot decide: [RecallSelection](RecallSelection.md); the product's one path, in which the agent chooses the tracts and Engine validates them, `RecallService.propose`/`choose`: [RecallAgentChoice](RecallAgentChoice.md)). `AutomationSessionOperating` is the role the tools drive; its one desktop conformer is SeatBroker's `BrokeredAutomationSession`, for the app, the command line and the benchmark server alike |
 | `AutomationMCP` (`Sources/Integration`) | `AutomationTools`, the seventeen tools over `AutomationSessionOperating` and `memory_task` (`MemoryTaskTool`), with which the agent declares the task its calls serve, interprets the candidate procedure segmented from them, receives the Recall's proposal at `begin` and chooses its tracts (`choose`), searches again for a stated reason (`recall`) and reports their use (`use`); each call it answers is recorded under its `CallProducer` (the app's worker, an external MCP client, the CLI chat) when the session names a memory: a call that may change the application is refused when the memory cannot confirm its start, and its end, with the check its path made, is confirmed after it ([MemoryFacts](MemoryFacts.md)) |
 | `WebDriver` and `WebDriving` (`Sources/Web`) | Chrome over its DevTools pipe, and a page as the engine's roles see a window: the scene from Chrome's accessibility tree and layout, the actuator, controls, settler and window listing over the protocol, tabs named by synthetic process ids ([Web engine](WebDriver.md)) |
-| `WebSession` (`Sources/Integration`) | `WebAutomationSession`, a Chrome tab as a session with the same engine, recorder and memory, filed under `web:<host>`; `RoutingAutomationSession` sends addresses to it and every other name to the desktop session ([Web engine](WebDriver.md#sessions-and-the-memory)) |
+| `WebSession` (`Sources/Integration`) | `WebAutomationSession`, a Chrome tab as a session with the same engine, recorder and memory, filed under `web:<host>`, reached through the app's router ([Web engine](WebDriver.md#sessions-and-the-memory)) |
+| `MacSession` (`Sources/Integration`) | `MacAutomationSession`, a native app through the MacDriver with no seat; at `open` it gives an app back to the router with a `MacHandoff`. `MacAppLeases`: one owner (a worker, an external connection) drives an app at a time in the process; another owner's session is refused before anything reaches the app, with no handoff to the seat (I03) |
+| `Router` (`Sources/Integration`) | `RoutingAutomationSession`, the one router before the drivers, knowing none of them: addresses to the web session it is handed, native apps to the native session (the MacDriver), and what that gives back (`RouteHandoff`) to the desktop session ([Web engine](WebDriver.md#the-router-before-the-drivers)) |
 | `braus` (tool, `Tools/Engine/braus`) | the command line: `windows`, `scene`, `act`, `select`, `batch`, `memory` (an application's Brain, `--status`, `--import-json <dir>` to copy earlier JSON Brains into the archive by hand, `--task <id> [--graph]` to read one task's procedures and relations, the non-destructive `--part`, `--requalify`, `--quarantine-policy` and `--apply-relations`, and the Recall's `--recall-status`, `--recall-rebuild` and `--recall-explain <text>`); the composition root that wires the foreground adapters, or with `--seat` a worker's brokered session as the app composes it |
 
 Before the first SeatDriving observation reaches the Engine, `SeatTarget`
@@ -72,6 +74,76 @@ supported macOS runs the same library. In production it is imported by
 product vends it. A background seat fills
 `Actuating` with its own delivery and leaves `ApplicationActivating` unfilled: its windows are never
 in front and its gestures need no raising, which is why the engine treats that role as optional.
+
+### Routing and adapter consent
+
+The application resolver supplies the bundle identity before `open_session` chooses another route. The unified
+router keeps the native, desktop and web sessions, their dispatch records and explicit handoffs; closing it closes
+all owned sessions.
+Mail's default route is the local `mail` adapter. An irreversible adapter verb needs approval for that call and its
+own read-back contract; a stopped worker turn refuses its pending approvals. The standalone adapter CLI has no
+approver and therefore refuses irreversible verbs. The explicit channel selection remains authoritative; the legacy
+`computer.web` preference additionally enables the web channel.
+
+### Channels beyond the Seat
+
+`AutomationChannels` (`AutomationRuntime`) names the routes a composition adds to the Seat. The
+empty set, the default, composes every app on the Seat with no adapter or routing tool:
+the tools and sessions are those that existed before these routes.
+
+| Channel | What it composes |
+| --- | --- |
+| `native` | `RoutingAutomationSession` with `MacAutomationSession` before the Seat; a `RouteHandoff` gives the app to the desktop session |
+| `web` | the router's Chrome tab (`WebAutomationSession`), and `TaskRouter` before `open_session`, which then takes `named` |
+| `adapters` | `app_capabilities` and `app_call` over `AppAdapters.standard()` |
+
+A composition root reads the set once at start and hands it to what it builds: the app from
+the `computer.channels` default (`AppPreferences.channels`, also a launch argument such as
+`-computer.channels native,web`), and `braus chat` from `--channels`, which supports `native`, `adapters` and `web`. `AutomationTools` serves the tools its
+state allows (`toolDefinitions`): the adapter tools while `adapters` is set, `named` while `router` is.
+A channel grants no authority of its own. Each route keeps its consent, permissions and policy.
+
+These are optional routes in this release; they are not enabled by default. Enabling a route
+does not qualify every app, permission state or workflow. The implementation and its recorded
+checks remain distinct from a full validation of every combined route.
+
+### Advanced channel configuration
+
+Quit Braus before changing its launch configuration. For one app launch, enable the routes you need:
+
+```sh
+open -a Braus --args -computer.channels native,web,adapters
+```
+
+The app reads `computer.channels` once at startup. This launch argument applies to that launch;
+without a stored selection or the legacy web preference, the default remains the virtual desktop
+alone. `none` selects no additional routes; it does not disable the desktop Seat. A route grants no
+macOS permission by itself. Local MCP clients inherit the running app's channel composition.
+
+For CLI chat:
+
+```sh
+.build/debug/braus chat --channels native,web,adapters
+```
+
+Choose only the routes needed by the task. The CLI's Chrome runs headless on its own profile,
+and the CLI has no per-call approval interface for irreversible adapter verbs. `--allow-destructive`
+does not provide that missing adapter approver.
+
+For the app's Chrome pairing flow, use [Connect Chrome](WebDriver.md#chrome-profiles-and-setup).
+That flow can enable the web channel for the next launch while keeping the other stored channels.
+
+### Local app adapters
+
+The current adapter set covers System Settings, Calendar, Reminders, files, Contacts, Mail,
+Messages and Notes, with specific verbs and permissions for each. `app_capabilities` reports
+availability and operations; `app_call` invokes one of those operations. These are local Mac
+transports, not outbound MCP connections to remote service catalogs.
+
+When adapters are enabled, the app can request consent for an irreversible verb for that one call.
+The verb must also have the required read-back contract. Without an approver, including CLI chat,
+the verb is refused. See [permissions and data](../README.md#permissions-and-data).
+
 
 ## Using it
 
@@ -470,7 +542,7 @@ Driver offers is not yet turned on here.
   scores a command, and no producer writes one yet.
 - Inputs, correlations, verifications, episodes and labels are facts and stated attributions:
   nothing observes, correlates, judges or labels on its own. Since D2 the system segments an attempt's
-  started operations into a candidate procedure (`app-blocks-2`: a menu that only listed is no step); labels, parameters and outcomes come only
+  started operations into a candidate procedure (`app-blocks-2`: a menu that only listed is no step; `app-blocks-3` with adapter or read steps); labels, parameters and outcomes come only
   from the agent's interpretation. The Watcher
   (`InteractionListener`, `braus watch`) is not connected to the memory.
 - A procedure is a definition, not a script (`RouteStoring`): publication checks its structure,
@@ -533,13 +605,13 @@ other adapters are proven at their framework boundary on a Mac.
 
 1. `Scrolling`: the scroll and reach machinery, over `Actuating` and `SceneProviding`; reach reads
    `UIBrain.revealers` so a name behind a dropdown is never hunted by scrolling.
-2. The experience and sighting stores behind `Recall.World`, and read-hit accounting with them.
-   `SQLiteMemory` has every repository of schema 1; production writes the calls, samples, scene
-   associations and Brain applications through `MemoryService`. The Watcher's inputs, the menus,
-   tasks, Routes and experiences have repositories and fixtures, not producers, and nothing searches
-   or recalls over them ([the memory contracts](MemoryContracts.md)).
-3. `AppAdapters`: Premiere, Pro Tools, Resolve, AppleScript, Chrome, each behind one capability
-   role, so the engine never imports a bridge.
+2. The legacy experience and sighting path behind `Recall.World`, and its read-hit accounting,
+   remain separate from the current procedural memory. Current production records tasks and calls,
+   builds qualified procedure parts and offers recall proposals; see [Memory procedures](MemoryProcedures.md)
+   and [Memory recall](MemoryRecall.md). Passive watching does not automatically teach that memory.
+3. Additional professional-app adapters beyond the [current local set](#local-app-adapters).
+   The existing `AppAdapters` implementation and Chrome route are already in main; that does not
+   establish a dedicated adapter for Premiere, Pro Tools or Resolve.
 4. A native `AgentLoop`. CLI chat currently delegates reasoning and conversation context to
    Claude Code or Codex through the MCP tool adapter; see [CLI chat](Chat.md).
 

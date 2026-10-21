@@ -199,4 +199,49 @@ struct ProviderWebSearchTests {
             #expect(!(try events(.codex, fixture)).contains(where: isWeb))
         }
     }
+
+    /// M07: what a call searches or reads goes through the withholding before it is encoded, announced or not, so a
+    /// text JSON escapes (a quote, a backslash) is found as written; the rest of the call and its result stay.
+    @Test("M07: a web call's query or address is written with the withholding applied before it is encoded",
+          arguments: ["sec-Q7z9", "se\"c-Q7z9", "se\\c-Q7z9"])
+    func webCallsWithhold(secret: String) throws {
+        let withhold = { (text: String) in text.replacingOccurrences(of: secret, with: "[withheld]") }
+        var records = WebToolRecords()
+        let lines = try [
+            ProviderEvent.web(id: "t1", kind: .search, detail: "invoice \(secret) March", phase: .started),
+            .web(id: "t1", kind: .search, detail: "invoice \(secret) March", phase: .finished(failed: false)),
+            .web(id: nil, kind: .fetch, detail: "https://example.test/a?key=\(secret)", phase: .finished(failed: true)),
+        ].flatMap { try records.lines(for: $0, withholding: withhold) }
+        #expect(lines == [
+            #"→ web_search {"query":"invoice [withheld] March"}"#,
+            "← web_search done",
+            #"→ web_fetch {"url":"https://example.test/a?key=[withheld]"}"#,
+            "← web_fetch error: The web tool reported a failure.",
+        ])
+        #expect(!lines.joined().contains("Q7z9"), "\(lines)")
+    }
+
+    /// M07: a secret an address carries percent-encoded (a quote as `%22`, a space as `%20` or, in a query, `+`) is not
+    /// found as written, so the record looks for it in the decoded address too; an ordinary encoded address is kept as
+    /// it came.
+    @Test("M07: a secret an address carries percent-encoded is withheld; an ordinary encoded address is kept as it came")
+    func encodedAddressesWithhold() throws {
+        let secrets = ["se\"c-Q7z9", "pa ss-Q7z9"]
+        let withhold = { (text: String) in
+            secrets.reduce(text) { $0.replacingOccurrences(of: $1, with: "[withheld]") }
+        }
+        var records = WebToolRecords()
+        func written(_ address: String) throws -> String? {
+            try records.lines(for: .web(id: nil, kind: .fetch, detail: address, phase: .finished(failed: false)),
+                              withholding: withhold).first
+        }
+        #expect(try written("https://example.invalid/?q=se%22c-Q7z9")
+                == #"→ web_fetch {"url":"https://example.invalid/?q=[withheld]"}"#)
+        #expect(try written("https://example.invalid/?q=pa%20ss-Q7z9&page=2")
+                == #"→ web_fetch {"url":"https://example.invalid/?q=[withheld]&page=2"}"#)
+        #expect(try written("https://example.invalid/search?q=pa+ss-Q7z9&next=se%22c-Q7z9")
+                == #"→ web_fetch {"url":"https://example.invalid/search?q=[withheld]&next=[withheld]"}"#)
+        let ordinary = "https://example.invalid/a%20b?q=caf%C3%A9+cr%C3%A8me&p=100%"
+        #expect(try written(ordinary) == "→ web_fetch {\"url\":\"\(ordinary)\"}")
+    }
 }

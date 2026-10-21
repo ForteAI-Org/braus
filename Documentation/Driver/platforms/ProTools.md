@@ -5,6 +5,20 @@ remains its event policy; that choice does not establish which framework drew a 
 The input driver still sends coordinates and events. Accessibility actions belong to
 `SeatSession`, inside the observation admission and command gate.
 
+## UI frameworks
+
+Braus supports **Pro Tools 2026.4 and later**.
+
+Pro Tools combines Qt6 with Avid/Digidesign's proprietary legacy UI frameworks:
+
+| Framework | UI components |
+| --- | --- |
+| `DFW.framework` | Views and drawing. |
+| `DUI.framework` | Dialogs and menus. |
+| `BUI.framework` | Views, controls and Workspace menus. |
+
+Support for DFW, DUI and BUI here refers to Pro Tools and the controls documented in this guide. The framework names do not imply coverage of every control or plugin. The `QtPlatform` event policy described above is separate from the framework that draws a particular control.
+
 ## Resolving a click
 
 `SeatControls` declines the application-wide label shortcut for `com.avid.ProTools`.

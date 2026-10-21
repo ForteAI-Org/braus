@@ -9,6 +9,7 @@ import CoreGraphics
 import CoreVideo
 import Darwin
 import Dispatch
+import EngineCore
 import SeatCapture
 import SeatCore
 import SeatDriving
@@ -182,6 +183,16 @@ struct SeatSettlerTests {
 
         #expect(ending == .cap)
         #expect(stream.elapsed == 300 * Self.millisecond)
+    }
+
+    @Test("how a wait ended, as the engine reads it: a change that held or no change is settled, the cap with frames still changing is capped, no frames is nothing watched")
+    func endingsAsResults() {
+        #expect(SeatSettler.Ending.stable.result == .settled)
+        #expect(SeatSettler.Ending.stableAgainstBaseline.result == .settled)
+        #expect(SeatSettler.Ending.quiet.result == .settled)
+        #expect(SeatSettler.Ending.cap.result == .capped)
+        #expect(SeatSettler.Ending.fallback(.notLive).result == .unavailable)
+        #expect(SeatSettler.Ending.fallback(.recovering).result == .unavailable)
     }
 
     @Test("no frame changing waits the whole cap, so a new window is not missed")

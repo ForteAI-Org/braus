@@ -19,7 +19,7 @@ nonisolated enum MemoryTaskTool {
 
     /// Operation is what one call of the tool asks.
     enum Operation: String, CaseIterable {
-        case begin, update, checkpoint, end, resume, status, interpret, candidate, recall, use, choose
+        case begin, update, checkpoint, end, resume, status, interpret, candidate, recall, use, choose, reconcile
 
         /// The operations the tool offers: all of them.
         static var offered: [Operation] { allCases }
@@ -39,6 +39,8 @@ nonisolated enum MemoryTaskTool {
         case recall(RecallReason, RecallPlan)
         case use([UseReport])
         case choose(RecallChoice.Plan)
+        /// P2-06: what a later completed call read of an earlier call whose effect was not known.
+        case reconcile(call: String, finding: CallReconciliation.Finding, evidence: String, note: String?)
     }
 
     /// ResultCheck is one result check a call names (`TaskResultCheck.Expectation`): as Braus reads it, with the paths
@@ -245,7 +247,9 @@ nonisolated enum MemoryTaskTool {
                 + "recall with the tracts' steps, the task's values bound, conditions and evidence. With no source, or none that "
                 + "fits, do not choose. recall: search again, with reason request_changed, input_changed, new_need or "
                 + "path_unusable. use (also in checkpoint and end): [{query (the one choose answered), need, outcome followed, "
-                + "adapted, abandoned or not_executed, cause, note}]. "
+                + "adapted, abandoned or not_executed, cause, note}]. reconcile: call (the id of an earlier call whose "
+                + "effect was not known), finding happened, not_happened or unknown, evidence (the id of a later completed "
+                + "call that read it), note: until then Braus refuses to repeat that call or to act on what it reached. "
                 + "This tool performs no app action."
             ),
             "inputSchema": .object([
@@ -279,6 +283,10 @@ nonisolated enum MemoryTaskTool {
                     "needs": .object(["type": .string("array"), "maxItems": .number(Double(RecallContract.maximumNeeds)), "items": need]),
                     "recall": .object(["type": .string("boolean")]),
                     "use": .object(["type": .string("array"), "items": report]),
+                    "call": text,
+                    "finding": .object(["type": .string("string"),
+                                        "enum": .array(CallReconciliation.Finding.allCases.map { .string($0.rawValue) })]),
+                    "evidence": text,
                 ].merging(Self.choiceProperties(text), uniquingKeysWith: { $1 })),
                 "required": .array([.string("operation")]),
                 "additionalProperties": .bool(false),
@@ -402,7 +410,8 @@ nonisolated enum MemoryTaskTool {
         let allowed = Set<String>(["operation", "task", "revision", "goal", "result", "constraints", "inputs",
                                     "remove_inputs", "reason", "note", "outcome", "outputs", "candidate", "procedure",
                                     "parts", "steps", "phases", "parameters", "uses", "variant_of", "divergence_step", "remaining",
-                                    "needs", "recall", "use", "proposal", "plan", "recall_mode", "result_check"])
+                                    "needs", "recall", "use", "proposal", "plan", "recall_mode", "result_check", "call",
+                                    "finding", "evidence"])
         guard Set(object.keys).isSubset(of: allowed) else { throw invalid("unknown argument") }
         guard let word = arguments["operation"].string, let operation = Operation(rawValue: word), Operation.offered.contains(operation) else {
             throw invalid("operation must be one of \(Operation.offered.map(\.rawValue).joined(separator: ", "))")
@@ -535,6 +544,13 @@ nonisolated enum MemoryTaskTool {
                     let uses = try reports(arguments["use"], minimization)
                     guard !uses.isEmpty else { throw invalid("use needs [{query, need, outcome}]") }
                     return .use(uses)
+                case .reconcile:
+                    guard let call = optionalText(arguments, "call"), let evidence = optionalText(arguments, "evidence"),
+                          let word = arguments["finding"].string, let finding = CallReconciliation.Finding(rawValue: word) else {
+                        throw invalid("reconcile needs call, finding (happened, not_happened or unknown) and evidence, the id of "
+                                      + "a later completed call that read it")
+                    }
+                    return .reconcile(call: call, finding: finding, evidence: evidence, note: text("note"))
             }
         } catch let error as TaskContextError {
             throw Failure(code: "invalid_task", message: "The task cannot be recorded as given: \(error).")

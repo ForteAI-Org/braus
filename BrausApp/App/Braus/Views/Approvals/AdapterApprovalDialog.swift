@@ -35,6 +35,7 @@ struct AdapterApprovalDialog: ViewModifier {
                     )
                 }
             )
+            .onAppear { approvals?.didPresent(pending.id) }
         }
     }
 }

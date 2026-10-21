@@ -9,11 +9,14 @@ import AppKit
 import AutomationMCP
 import AutomationRuntime
 import ChatCore
+import ChromeProfiles
 import Foundation
+import MacSession
 import Memory
 import ModelTransports
 import Observation
 import PerceptionCore
+import Router
 import os
 import SeatBroker
 import WebSession
@@ -161,8 +164,14 @@ final class TeamModel {
     private var sendsQueuedOnEnd: Set<UUID> = []
 
     /// One agent host per conversation, kept for the process so its turns share
-    /// one loopback host. The provider session lives on the conversation.
-    private var hosts: [UUID: WorkerAgentHost] = [:]
+    /// its tools and its router (each command line turn gets a loopback host of
+    /// its own, `WorkerAgentHost`), with the desktop its tools were composed over:
+    /// its worker's one desktop (`desktop(for:)`), so a conversation's host never
+    /// runs over another desktop. The provider session lives on the conversation.
+    private var hosts: [UUID: (host: WorkerAgentHost, desktop: BrokeredAutomationSession)] = [:]
+
+    /// The conversation each worker last started a turn or a compaction in, the one context it acts in (I02).
+    private var activeContexts: [UUID: UUID] = [:]
 
     /// The command line that answers for a provider, and the bridge it launches for Braus's tools.
     private let agents          : (ModelProvider) throws -> (ChatProvider, URL)
@@ -170,6 +179,13 @@ final class TeamModel {
 
     /// Where a turn reads the app's preferences as it starts (`AppPreferences`).
     private let preferences: UserDefaults
+
+    /// The routes beyond the Seat each worker's session composes (`AppModel.session`); none keeps every
+    /// app on the Seat and starts no Chrome.
+    private let channels: AutomationChannels
+
+    /// Whether the workers reach web pages in Braus's Chrome, so the Inspector offers its window.
+    var composesWeb: Bool { channels.contains(.web) }
 
     /// The irreversible adapter calls waiting for the person's answer, which the window shows; nil refuses them.
     let approvals: AdapterApprovals?
@@ -187,16 +203,30 @@ final class TeamModel {
     /// or holds the computer (§4.2).
     private var desktops: [UUID: BrokeredAutomationSession] = [:]
 
-    /// Whether workers open web addresses as pages in Braus's own Chrome (`AppPreferences.web`), read as the
-    /// team opens. Without it no web session exists and the tools teach none.
-    let offersWeb: Bool
-
-    /// Each conversation's web session, a Chrome tab its worker's tools reach with `web:<host>` or an http(s)
-    /// address, with the worker it belongs to. It takes no seat.
+    /// Each conversation's web session, a Chrome tab its worker's tools reach with `web:<host>` or a URL,
+    /// with the worker it belongs to. It takes no seat.
     private var webs: [UUID: (workerID: UUID, session: WebAutomationSession)] = [:]
 
     /// The conversations that show Braus's Chrome as a window instead of headless, kept across launches.
-    private(set) var browserWindows: Set<UUID>
+    private(set) var browserWindows = Set(
+        (UserDefaults.standard.stringArray(forKey: AppPreferences.showsBrowserWindow) ?? []).compactMap(UUID.init)
+    )
+
+    /// The conversations that open their pages in the person's own Chrome instead of Braus's, kept across launches.
+    private(set) var personalChromes = Set(
+        (UserDefaults.standard.stringArray(forKey: AppPreferences.usesPersonalChrome) ?? []).compactMap(UUID.init)
+    )
+
+    /// The person's Chrome profiles paired with the Braus extension, the app's one hub; nil offers none.
+    private let chromeProfileHub: ChromeProfileHub?
+
+    /// The paired Chrome profiles as the hub last reported them, each connected or not: what the Inspector offers.
+    private(set) var pairedChromeProfiles: [ChromeProfile] = []
+
+    /// The paired Chrome profile each conversation opens its pages in, as the person chose it, kept across launches
+    /// (`AppPreferences.chromeProfiles`). None by default: the conversation keeps Braus's Chrome, or the person's
+    /// with Use My Chrome.
+    private(set) var chromeProfileChoices: [UUID: ChromeProfileChoice] = TeamModel.storedChromeProfiles()
 
     /// Increment 1 has one workspace per store, and the schema gives it no row
     /// yet, so its events carry this fixed id.
@@ -233,6 +263,8 @@ final class TeamModel {
         agents          : @escaping (ModelProvider) throws -> (ChatProvider, URL) = WorkerAgentHost.agent(for:),
         bridgeExecutable: URL = Bundle.main.bundleURL.appending(path: "Contents/Helpers/braus-bridge"),
         preferences     : UserDefaults = .standard,
+        channels        : AutomationChannels = [],
+        chromeProfiles  : ChromeProfileHub? = nil,
         approvals       : AdapterApprovals? = nil
     ) {
         self.store            = store
@@ -242,7 +274,18 @@ final class TeamModel {
         self.bridgeExecutable = bridgeExecutable
         self.preferences      = preferences
         self.approvals        = approvals
-        self.offersWeb        = preferences.bool(forKey: AppPreferences.web)
+        var composed = channels
+        if preferences.bool(forKey: AppPreferences.web) { composed.insert(.web) }
+        self.channels         = composed
+        self.chromeProfileHub = chromeProfiles
+        pairedChromeProfiles  = chromeProfiles?.profiles ?? []
+        // The hub reports from its own threads: the list the Inspector shows changes on the main actor.
+        chromeProfiles?.observe { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.pairedChromeProfiles = self.chromeProfileHub?.profiles ?? []
+            }
+        }
         self.browserWindows   = Set(
             (preferences.stringArray(forKey: AppPreferences.showsBrowserWindow) ?? []).compactMap(UUID.init)
         )
@@ -500,7 +543,8 @@ final class TeamModel {
     /// queue sends through it for a conversation that is not on screen.
     /// `holding` says the caller already holds the worker as answering there,
     /// as the queue does from the end of one turn to the start of the next.
-    private func post(
+    /// Internal, not private, so a hosted test posts into a conversation that is not on screen.
+    func post(
         _ text           : String,
         quote            : MessageQuote?,
         in conversationID: UUID,
@@ -629,14 +673,17 @@ final class TeamModel {
             workspaceID   : Self.workspaceID,
             workerID      : workerID,
             conversationID: conversationID,
-            messageID     : message.id
+            messageID     : message.id,
+            withholding   : host.withheld
         ) { [weak self] in
             await self?.reloadTranscript(of: conversationID)
         }
 
         Task {
-            // A turn here ends the pages the worker left open in its other conversations.
-            for (id, web) in webs where web.workerID == workerID && id != conversationID { await web.session.close() }
+            await activate(conversationID, for: workerID)
+            // A page held from an earlier turn under a choice of Chrome profile since changed, or in a paired profile
+            // no longer connected, closes first, so this turn opens its page where the person now chose.
+            await webs[conversationID]?.session.closeIfSuperseded()
             var ending: WorkerTurnRecorder.Ending?
             do {
                 var provider: ModelProvider?
@@ -715,29 +762,31 @@ final class TeamModel {
         }
     }
 
-    /// The conversation's agent host and the worker's desktop, made on first
-    /// use and kept for the process.
+    /// The conversation's agent host and the desktop its tools drive, the
+    /// worker's one, made on first use and kept for the process.
     private func agentHost(
         of conversationID: UUID,
         for workerID     : UUID
     ) -> (host: WorkerAgentHost, desktop: BrokeredAutomationSession) {
-        if let existing = hosts[conversationID], let held = desktops[workerID] { return (existing, held) }
+        if let existing = hosts[conversationID] { return existing }
 
-        let desktop = self.desktop(for: workerID)
-        var session: any AutomationSessionOperating = desktop
-        if offersWeb {
-            let web = webs[conversationID]?.session
-                ?? AppModel.webSession(showsWindow: browserWindows.contains(conversationID))
-            webs[conversationID] = (workerID, web)
-            session = RoutingAutomationSession(
-                desktop: desktop,
-                web    : web
-            )
+        let desktop  = desktops[workerID] ?? self.desktop(for: workerID)
+        let channels = self.channels
+        var web: WebAutomationSession?
+        if channels.contains(.web) {
+            let session = webs[conversationID]?.session
+                ?? AppModel.webSession(showsWindow: browserWindows.contains(conversationID),
+                                       personal   : personalChromes.contains(conversationID),
+                                       profile    : chromeProfile(in: conversationID),
+                                       hub        : chromeProfileHub)
+            webs[conversationID] = (workerID, session)
+            web = session
         }
-        let host    = WorkerAgentHost(
+        let host     = WorkerAgentHost(
             workingDirectory: workingFolder(of: conversationID),
             bridgeExecutable: bridgeExecutable,
-            session         : { session },
+            session         : { AppModel.session(desktop: desktop, channels: channels, web: web, owner: workerID) },
+            channels        : channels,
             agents          : agents,
             transports      : { [connections] in $0.transport(settings: connections.providerSettings) },
             contextWindows  : { [connections] selection in
@@ -748,14 +797,39 @@ final class TeamModel {
                 )
             },
             seatLine        : { desktop.turnStatus },
-            adapterApprover : approvals.map { AdapterApprover(approvals: $0) },
-            approvals       : approvals,
-            offersWeb       : offersWeb
+            // P2-06: what the person refused in this conversation is refused again after the app restarts.
+            barrier         : ActionBarrier(persistingIn: AppModel.refusalFolder,
+                                            context: "conversation-" + conversationID.uuidString),
+            adapterApprover: approvals.map { AdapterApprover(approvals: $0) },
+            approvals: approvals
         )
         host.callProducer = CallProducer(source: .app, streamID: "worker-" + workerID.uuidString)
-        hosts[conversationID] = host
+        hosts[conversationID] = (host, desktop)
         return (host, desktop)
     }
+
+    /// Makes `conversationID` the context `workerID` acts in, as a turn or a compaction starts there (I02). When the
+    /// worker last acted in another conversation, that context is retired first: its host admits no call from any
+    /// connection, a call in flight finishes, and its sessions close, the worker's desktop and the conversation's page
+    /// with them, so no session ID they gave is valid again and nothing is replayed. Its host, its provider session
+    /// and the conversation stay, and its next turn opens what it needs again. Looking at another conversation
+    /// retires nothing: only a turn that starts in it does, and the worker runs one at a time (`answering`).
+    private func activate(_ conversationID: UUID, for workerID: UUID) async {
+        guard let previous = activeContexts.updateValue(conversationID, forKey: workerID), previous != conversationID
+        else { return }
+        await hosts[previous]?.host.retire()
+        await webs[previous]?.session.close()
+        await desktops[workerID]?.close()
+    }
+
+    /// What a hosted test reads of a conversation's context and of the worker's.
+    func agentContext(of conversationID: UUID) -> (host: WorkerAgentHost, desktop: BrokeredAutomationSession)? {
+        hosts[conversationID]
+    }
+
+    func activeContext(of workerID: UUID) -> UUID? { activeContexts[workerID] }
+
+    func desktopSession(of workerID: UUID) -> BrokeredAutomationSession? { desktops[workerID] }
 
     /// The conversation before `sequence` as a model provider is sent it: the
     /// person's messages as `user`, the worker's replies as `assistant`, in order,
@@ -952,6 +1026,7 @@ final class TeamModel {
         ).host
 
         Task {
+            await activate(conversationID, for: workerID)
             var compacted: (compaction: ContextCompaction, usage: TurnUsage?)?
             var stopped = false
             do {
@@ -1083,7 +1158,7 @@ final class TeamModel {
     func stopAnswering(_ workerID: UUID) {
         guard let conversationID = answering[workerID] else { return }
 
-        if let host = hosts[conversationID], host.isRunning {
+        if let host = hosts[conversationID]?.host, host.isRunning {
             host.stop()
         } else {
             pendingStops.insert(workerID)
@@ -1310,23 +1385,65 @@ final class TeamModel {
     /// Shows or hides Braus's Chrome for the conversation, from the next time it starts. A Chrome already
     /// running between turns is closed, so the next page opens the way the person chose; during a turn it
     /// is left alone and the choice applies once it closes.
-    func setShowsBrowserWindow(
-        _ shows          : Bool,
-        in conversationID: UUID
-    ) async {
+    func setShowsBrowserWindow(_ shows: Bool, in conversationID: UUID) async {
         if shows { browserWindows.insert(conversationID) } else { browserWindows.remove(conversationID) }
-        preferences.set(
-            browserWindows.map(\.uuidString),
-            forKey: AppPreferences.showsBrowserWindow
-        )
+        preferences.set(browserWindows.map(\.uuidString), forKey: AppPreferences.showsBrowserWindow)
         guard let web = webs[conversationID] else { return }
-
         web.session.launchOptions = AppModel.chromeOptions(showsWindow: shows)
         if !isAnswering(web.workerID) { await web.session.close() }
     }
 
-    /// Gives the worker's seat back (§3.4), and closes its pages. The conversation, a running turn and
-    /// the worker stay as they are; the next tool call that needs the computer waits in the queue for it again.
+    /// Whether the conversation opens its pages in the person's own Chrome.
+    func usesPersonalChrome(in conversationID: UUID) -> Bool { personalChromes.contains(conversationID) }
+
+    /// Opens the conversation's pages in the person's own Chrome, or in Braus's again, from the next page it opens.
+    /// A browser held between turns is closed (Braus's Chrome quits; in the person's, only the tab Braus opened
+    /// closes), so the next page opens in the one the person chose; during a turn it is left alone and the choice
+    /// applies once it closes.
+    func setUsesPersonalChrome(_ uses: Bool, in conversationID: UUID) async {
+        if uses { personalChromes.insert(conversationID) } else { personalChromes.remove(conversationID) }
+        preferences.set(personalChromes.map(\.uuidString), forKey: AppPreferences.usesPersonalChrome)
+        guard let web = webs[conversationID] else { return }
+        web.session.usesPersonalChrome = uses
+        if !isAnswering(web.workerID) { await web.session.close() }
+    }
+
+    /// The paired Chrome profile the conversation opens its pages in, under the name the person last confirmed for
+    /// it; nil for none.
+    func chromeProfile(in conversationID: UUID) -> ChromeProfileChoice? {
+        guard let choice = chromeProfileChoices[conversationID] else { return nil }
+        let label = pairedChromeProfiles.first { $0.instanceID == choice.instanceID }?.label ?? choice.label
+        return ChromeProfileChoice(instanceID: choice.instanceID, label: label)
+    }
+
+    /// Opens the conversation's pages in the paired Chrome profile `choice`, or nil for none, from the next page it
+    /// opens. A browser held between turns is closed (in a profile, only the tab Braus opened closes). During a turn
+    /// the session refuses its next calls on the page it holds, with nothing sent, and the next turn opens its page
+    /// where the person now chose (`WebAutomationSession.closeIfSuperseded`).
+    func setChromeProfile(_ choice: ChromeProfileChoice?, in conversationID: UUID) async {
+        chromeProfileChoices[conversationID] = choice
+        preferences.set(
+            Dictionary(uniqueKeysWithValues: chromeProfileChoices.map { conversation, choice in
+                (conversation.uuidString, [choice.instanceID, choice.label])
+            }),
+            forKey: AppPreferences.chromeProfiles
+        )
+        guard let web = webs[conversationID] else { return }
+        web.session.chromeProfile = choice
+        if !isAnswering(web.workerID) { await web.session.close() }
+    }
+
+    /// The choices `AppPreferences.chromeProfiles` holds: by conversation, the instance's ID and the name.
+    private static func storedChromeProfiles() -> [UUID: ChromeProfileChoice] {
+        let stored = UserDefaults.standard.dictionary(forKey: AppPreferences.chromeProfiles) as? [String: [String]]
+        return (stored ?? [:]).reduce(into: [:]) { choices, entry in
+            guard let conversation = UUID(uuidString: entry.key), entry.value.count == 2 else { return }
+            choices[conversation] = ChromeProfileChoice(instanceID: entry.value[0], label: entry.value[1])
+        }
+    }
+
+    /// Gives the worker's seat back (§3.4). The conversation, a running turn and the worker stay
+    /// as they are; the next tool call that needs the computer waits in the queue for it again.
     func releaseComputer(_ workerID: UUID) async {
         await desktops[workerID]?.close()
         for web in webs.values where web.workerID == workerID { await web.session.close() }
@@ -1360,7 +1477,7 @@ final class TeamModel {
         )
     }
 
-    /// True while an agent host holds a loopback port and a temporary directory.
+    /// True while an agent host is kept: it may hold a temporary directory, and a loopback port during a turn.
     var hasAgentHosts: Bool { !hosts.isEmpty }
 
     /// Ends every agent host before quitting: a running turn stops, the
@@ -1374,7 +1491,8 @@ final class TeamModel {
         webs.removeAll()
         // Chrome quits with its sessions, so no browser outlives the app.
         for web in pages { await web.close() }
-        for host in closing.values {
+        activeContexts.removeAll()
+        for (host, _) in closing.values {
             do { try await host.close() }
             catch {
                 problem = issue(
@@ -1642,6 +1760,7 @@ final class TeamModel {
 
         await releaseComputer(id)
         desktops[id] = nil
+        activeContexts[id] = nil
 
         if selection == id {
             selection = nil
@@ -1665,7 +1784,7 @@ final class TeamModel {
         for conversationID in conversations {
             queues[conversationID]      = nil
             shownQueued[conversationID] = nil
-            if let host = hosts.removeValue(forKey: conversationID) {
+            if let host = hosts.removeValue(forKey: conversationID)?.host {
                 do { try await host.close() }
                 catch {
                     problem = issue(
@@ -1750,6 +1869,8 @@ final class TeamModel {
     private func name(of id: UUID) -> String {
         worker(id)?.name ?? "That worker"
     }
+
+
 }
 
 /// A small live view held without keeping it alive; the card that made it owns it.

@@ -39,11 +39,19 @@ public enum BrainMatcher {
     /// Matches one detection. `index` must be built from this exact brain; nil builds one. `claimed`
     /// hides anchors already taken in this scene from every tier, which is how an ingest keeps its
     /// each-anchor-claimable-once rule.
+    ///
+    /// `admitsWeakMatch` decides whether a candidate may be bound on weaker evidence than an exact
+    /// one: by a model-named anchor's positional claim or a group ordinal slot, when the detection's
+    /// normalized label is empty or is neither the anchor's label nor one of its aliases (binding
+    /// would adopt or append it). An exact candidate (the same kind and a normalized label the
+    /// anchor already holds) never asks. A refused candidate is invisible to the tier that asked, so
+    /// the cascade goes on and may end in a new anchor. The default admits every candidate.
     public static func match(
         _ detection    : BrainDetection,
         in brain       : UIBrain,
         index prebuilt : BrainIndex? = nil,
-        excluding claimed: Set<String> = []
+        excluding claimed: Set<String> = [],
+        admitsWeakMatch: (ObjectAnchor) -> Bool = { _ in true }
     ) -> Match {
         let index = prebuilt ?? BrainIndex(brain)
         func alive(_ i: Int) -> ObjectAnchor? {
@@ -53,6 +61,12 @@ public enum BrainMatcher {
         // Tolerance scales with the element: rows sit about two heights apart and must not be spanned.
         let tolerance = max(max(bounds.width, bounds.height) * 1.25, 0.02)
         let normalizedLabel = LabelText.normalize(detection.label)
+        func admitted(_ anchor: ObjectAnchor) -> Bool {
+            let exact = !normalizedLabel.isEmpty && anchor.kind == detection.kind
+                && (LabelText.normalize(anchor.label) == normalizedLabel
+                    || anchor.aliases.contains { LabelText.normalize($0) == normalizedLabel })
+            return exact || admitsWeakMatch(anchor)
+        }
         let byLabel = normalizedLabel.isEmpty
             ? []
             : (index.byNormalizedLabel[normalizedLabel] ?? []).compactMap(alive).filter { anchor in
@@ -67,6 +81,7 @@ public enum BrainMatcher {
         // anchors get positional pull, because giving it to every anchor poisoned aliases across screens.
         let modelNamedNear = (index.modelNamedByKind[detection.kind] ?? []).compactMap(alive).filter { anchor in
             sizeCompatible(bounds, anchor.boundsTypical) && distance(anchor.boundsTypical, bounds) <= tolerance
+                && admitted(anchor)
         }
         if modelNamedNear.count == 1 { return .found(modelNamedNear[0].anchorKey) }
         if modelNamedNear.count > 1 { return .ambiguous(modelNamedNear.map(\.anchorKey)) }
@@ -80,8 +95,9 @@ public enum BrainMatcher {
                     guard distance(anchor.boundsTypical, bounds) <= slotTolerance,
                           sizeCompatible(bounds, anchor.boundsTypical) else { return false }
                     let anchorLabel = LabelText.normalize(anchor.label)
-                    return normalizedLabel.isEmpty || anchorLabel.isEmpty || normalizedLabel == anchorLabel
+                    let agrees = normalizedLabel.isEmpty || anchorLabel.isEmpty || normalizedLabel == anchorLabel
                         || anchor.aliases.contains { LabelText.normalize($0) == normalizedLabel }
+                    return agrees && admitted(anchor)
                 }
             if hits.count == 1 { return .found(hits[0].anchorKey) }
             if hits.count > 1 { return .ambiguous(hits.map(\.anchorKey)) }

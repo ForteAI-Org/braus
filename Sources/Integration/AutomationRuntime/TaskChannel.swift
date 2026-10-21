@@ -148,24 +148,61 @@ nonisolated public enum TaskChannel {
         return targets
     }
 
+    /// UnfinishedCall is a call of an attempt that started and has no end in the archive: the process that made it
+    /// ended before its result, or it still runs elsewhere. Its effect is unknown, so it may have run (M06).
+    public struct UnfinishedCall: Sendable, Equatable {
+        public let eventID    : String
+        public let tool       : String
+        public let startedAtMS: Int64?
+    }
+
     /// Opens a new attempt of an open task of the producer, which resumes its last attempt: that one,
-    /// if still running, is marked interrupted. Nothing of the earlier attempt is replayed.
+    /// if still running, is marked interrupted. Nothing of the earlier attempts is replayed. It answers too
+    /// the calls of every earlier attempt of the task that started and never ended, read before the new
+    /// attempt is written, so a failed read leaves none: the agent must take them as possibly run. None of
+    /// them is ended here, so a late end of one is still accepted, and a later resumption names it again.
     public static func resume(
         _ taskID: String,
         producer: TaskProducer,
         memory  : MemoryService
-    ) async throws -> OpenTask {
+    ) async throws -> (task: OpenTask, unfinished: [UnfinishedCall]) {
         let attempts = try await memory.perform { try await $0.tasks.attempts(of: taskID, for: producer) }
         guard let task = try await memory.perform({ try await $0.tasks.task(taskID, for: producer) }),
               let last = attempts.last else {
             throw TaskContextError.unknownTask(taskID: taskID)
         }
         if task.status.isClosed { throw TaskContextError.closed(taskID: taskID, status: task.status) }
+        var unfinished: [UnfinishedCall] = []
+        for earlier in attempts {
+            for call in try await unfinishedCalls(of: earlier.attempt.attemptID, producer: producer, memory: memory)
+                where !unfinished.contains(where: { $0.eventID == call.eventID }) {
+                unfinished.append(call)
+            }
+        }
         let ordinal = try TaskContextContract.successor(of: last.attempt.ordinal, field: "ordinal")
         let attempt = try TaskAttempt(attemptID: UUID().uuidString, taskID: taskID, ordinal: ordinal,
                                       resumes: last.attempt.attemptID, producer: producer,
                                       openedAtMS: memory.clock.calendarMS(), openedAtRevision: task.currentRevision)
         _ = try await memory.perform { try await $0.tasks.resume(attempt) }
-        return OpenTask(taskID: taskID, attemptID: attempt.attemptID, revision: task.currentRevision)
+        return (OpenTask(taskID: taskID, attemptID: attempt.attemptID, revision: task.currentRevision), unfinished)
+    }
+
+    /// The calls attributed to `attemptID` that started and never ended, in the order they were attributed. It only
+    /// reads: nothing is ended, retried or replayed.
+    public static func unfinishedCalls(
+        of attemptID: String,
+        producer    : TaskProducer,
+        memory      : MemoryService
+    ) async throws -> [UnfinishedCall] {
+        let eventIDs = try await memory.perform { try await $0.tasks.calls(of: attemptID, for: producer) }
+        var unfinished: [UnfinishedCall] = []
+        for eventID in eventIDs {
+            guard let call = try await memory.perform({ try await $0.calls.call(eventID) }),
+                  call.progress.status == .started
+            else { continue }
+            unfinished.append(UnfinishedCall(eventID: eventID, tool: call.request.tool.rawValue,
+                                             startedAtMS: call.startedAtMS))
+        }
+        return unfinished
     }
 }

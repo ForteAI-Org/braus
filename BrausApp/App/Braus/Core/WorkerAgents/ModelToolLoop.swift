@@ -90,6 +90,9 @@ final class ModelToolLoop {
     /// `seat`, Braus's seat line, goes ahead of `prompt` when the model can
     /// call tools; one without tools is told it cannot use apps.
     ///
+    /// `baseTools` are the tools Braus serves this turn (`AutomationTools.toolDefinitions`), and `instructions` the
+    /// base text of the same channels (`AutomationTools.instructions`).
+    ///
     /// Throws `CancellationError` after `stop`, once a tool call in flight has
     /// finished; the transport's failure, in the provider's words; or a failure
     /// naming `toolRoundLimit` when the model keeps calling tools.
@@ -100,16 +103,19 @@ final class ModelToolLoop {
         prompt       : String,
         seat         : String? = nil,
         contextWindow: Int? = nil,
+        baseTools    : [JSONValue]? = nil,
+        instructions : String = AutomationTools.instructions,
         onEvent      : @escaping @MainActor (WorkerAgentEvent) -> Void
     ) async throws {
         let hasTools = try await transport.capabilities().supportsTools
-        let tools    = hasTools ? try Self.toolDefinitions(definitions) : []
+        let offered  = try Self.toolDefinitions(baseTools ?? definitions)
+        let tools    = hasTools ? offered : []
         var messages = [TurnMessage(
             role: .system,
             text: WorkerAgentHost.instructions(
-                role     : role,
-                hasTools : hasTools,
-                offersWeb: offersWeb
+                role      : role,
+                hasTools  : hasTools,
+                tools     : instructions
             )
         )]
         messages += history
@@ -180,7 +186,9 @@ final class ModelToolLoop {
             ))
             for toolCall in reply.calls {
                 if isStopRequested { throw CancellationError() }
-                messages.append(await result(of: toolCall))
+                messages.append(await result(
+                    of: toolCall
+                ))
             }
         }
     }
@@ -303,7 +311,9 @@ final class ModelToolLoop {
 
     /// The tool's answer as the model reads it: the text of the MCP result, and
     /// on a thrown error the same failure result `MCPRouter` gives a command line.
-    private func result(of toolCall: ToolCall) async -> TurnMessage {
+    private func result(
+        of toolCall: ToolCall
+    ) async -> TurnMessage {
         let result: JSONValue
         do {
             let arguments = try JSONDecoder().decode(
@@ -318,8 +328,12 @@ final class ModelToolLoop {
             result = MCPRouter.failureResult(error)
         }
 
+        var text = result["content"].array?.first?["text"].string ?? ""
+        if result["structuredContent"] != .null, let data = try? JSONEncoder().encode(result["structuredContent"]) {
+            text += "\n" + String(decoding: data, as: UTF8.self)
+        }
         return TurnMessage(
-            result : result["content"].array?.first?["text"].string ?? "",
+            result : text,
             of     : toolCall,
             isError: result["isError"].bool == true
         )

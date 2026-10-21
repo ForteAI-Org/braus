@@ -18,16 +18,14 @@ import WebDriver
 /// could do, so a test proves what Braus does with it. Layout, real events and frames' own trees are not
 /// imitated; what needs them belongs to the Chrome tier.
 ///
-/// The engine's scripts reach the page through its isolated world (`SyntheticWorld`), which here shares the page's
-/// one script context; the page's own world answers no script. A script evaluated without `returnByValue` answers
-/// a remote object, which `DOM.describeNode` names by
+/// A script evaluated without `returnByValue` answers a remote object, which `DOM.describeNode` names by
 /// its backend id (an element's numeric `id`), node name and `type`, and `Runtime.callFunctionOn` runs a
-/// function on; `DOM.getDocument` answers the document's backend id. `DOM.resolveNode` resolves a node by its backend
-/// id, and the click's hit test (`braus:hit-test`), called in the world with the nodes so resolved, answers from the
-/// boxes: a cover on top of the point, the field, or a field gone. The settler's observer runs on a
-/// `MutationObserver` that a text step (`step(texts:)`) notifies, one step at each settling read. A test can emit
-/// an event on the page's session (`emit`) and count the commands the page received (`count(of:)`, `order`), and
-/// hold the answers to a command until it releases them (`hold`). A test can
+/// function on; `DOM.getDocument` answers the document's backend id. `DOM.resolveNode` resolves a field by its backend
+/// id, and the click's hit test (`braus:hit-test`) answers from the boxes: a cover on top of the point, the field, or
+/// a field gone. The settler's observer runs on a `MutationObserver` that a text step (`step(texts:)`) notifies,
+/// one step at each settling read. A test can emit an event on the page's session (`emit`) and count the commands
+/// the page received (`count(of:)`, `order`), and hold the answers to a command until it releases them (`hold`). A
+/// test can
 /// change the page (`Change`) now, once right after the next press, or once every read of the n-th scene
 /// was answered (the tree, the snapshot, the metrics and the document of one perception): a field replaced
 /// by a new node in the same place under the same name, a field's type changed, the document replaced, or a cover
@@ -69,10 +67,23 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
     function MutationObserver(callback) { this.callback = callback; }
     MutationObserver.prototype.observe = function () { __observers.push(this); };
     var __fields = [];
+    function __hydrate(e) {
+      if (!e || typeof e !== 'object') return e;
+      if (e.tagName && !e.getAttribute) e.getAttribute = function (n) {
+        return this[n] === undefined || this[n] === null ? null : String(this[n]);
+      };
+      if (e.shadowRoot) __hydrate(e.shadowRoot.activeElement);
+      if (e.contentDocument) __hydrate(e.contentDocument.activeElement);
+      return e;
+    }
+    function __node(id) {
+      return __fields.find(e => e.id === id)
+        || (document.activeElement && document.activeElement.id === id ? document.activeElement : null);
+    }
     function __input(id, type, name, value, box) {
       var e = { tagName: 'INPUT', id: id, type: type, name: name, value: value, box: box,
                 shadowRoot: null, contentDocument: null, isContentEditable: false };
-      __fields.push(e);
+      __fields.push(__hydrate(e));
       return e;
     }
     var document = {
@@ -80,6 +91,11 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
       getElementsByTagName: function () { return __fields; },
       querySelectorAll: function () { return __fields; }
     };
+    var __focus = null;
+    Object.defineProperty(document, 'activeElement', {
+      get: function () { return __focus; },
+      set: function (e) { __focus = __hydrate(e); }
+    });
     var location = { href: 'https://fixture.test/login' };
     var innerWidth = 1280, innerHeight = 720;
     var __selected = false;
@@ -173,6 +189,22 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
         for reply in replies { feed.yield(reply) }
     }
 
+    /// A fault the page plays on one command (M05, the web's rung): the browser rejects it (an error answer), its
+    /// answer is dropped (and `then` runs, so a test can cancel the call waiting for it), or the transport throws as a
+    /// closed connection does, before anything is answered. `occurrence` counts the commands named `method` the page
+    /// received, from the first (1); a fault plays once.
+    enum Fault {
+        case rejected
+        case dropped(then: @Sendable () -> Void)
+        case transportClosed
+    }
+
+    private var faults: [String: [Int: Fault]] = [:]
+
+    func fault(_ method: String, atOccurrence occurrence: Int, _ fault: Fault) {
+        lock.withLock { faults[method, default: [:]][occurrence] = fault }
+    }
+
     /// The commands the page received, in order, among `methods`.
     func order(of methods: Set<String>) -> [String] {
         lock.withLock { received.filter(methods.contains) }
@@ -235,7 +267,7 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
                       var old = __fields[i];
                       var e = { tagName: 'INPUT', id: \(newID), type: \(Self.literal(type ?? old.type)), name: old.name,
                                 value: '', box: old.box, shadowRoot: null, contentDocument: null, isContentEditable: false };
-                      __fields[i] = e;
+                      __fields[i] = __hydrate(e);
                       if (document.activeElement === old) { document.activeElement = null; }
                     })();
                     """)
@@ -257,9 +289,10 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
         let request = try JSONDecoder().decode(JSONValue.self, from: message)
         guard let id = request["id"] else { return }
         let method = request["method"]?.stringValue ?? ""
-        let result = lock.withLock {
+        let (result, fault): (JSONValue, Fault?) = lock.withLock {
             commands[method, default: 0] += 1
             received.append(method)
+            if let fault = faults[method]?.removeValue(forKey: commands[method] ?? 0) { return (.object([:]), fault) }
             let answered = answer(method, request["params"] ?? .object([:]))
             if Self.sceneReads.contains(method) {
                 reads[method, default: 0] += 1
@@ -268,9 +301,20 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
                     for change in afterScene.removeValue(forKey: scene) ?? [] { apply(change) }
                 }
             }
-            return answered
+            return (answered, nil)
         }
         var reply: [String: JSONValue] = ["id": id, "result": result]
+        switch fault {
+            case .transportClosed?:
+                throw CDPError.connectionClosed(method: method)
+            case .dropped(let then)?:
+                then()
+                return
+            case .rejected?:
+                reply = ["id": id, "error": ["code": -32000, "message": "rejected by the fixture"]]
+            case nil:
+                break
+        }
         if let session = request["sessionId"] { reply["sessionId"] = session }
         var data = try JSONEncoder().encode(JSONValue.object(reply))
         data.append(0)
@@ -334,6 +378,16 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
                 texts += 1
                 context.evaluateScript("__type(\(Self.literal(params["text"]?.stringValue ?? "")));")
                 return .object([:])
+            // The browser's side of the protocol, so a session can attach to the page as to a Chrome of the person's
+            // (M05 W-R2): one tab, the page's own session id, closed on request.
+            case "Browser.getVersion":
+                return ["product": "SyntheticPage/1"]
+            case "Target.createTarget":
+                return ["targetId": "target-1"]
+            case "Target.attachToTarget":
+                return ["sessionId": "session-1"]
+            case "Target.closeTarget":
+                return ["success": true]
             default:
                 return .object([:])
         }
@@ -373,7 +427,11 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
             return ["exceptionDetails": ["text": .string(exception.toString() ?? "exception")]]
         }
         if index < 0 { return ["result": ["type": "object", "subtype": "null", "value": .null]] }
-        return ["result": ["type": "object", "objectId": .string("obj-\(index)")]]
+        var object: [String: JSONValue] = ["type": "object", "objectId": .string("obj-\(index)")]
+        if context.evaluateScript("__objects[\(index)] === document || typeof __objects[\(index)].tagName === 'string'")?.toBool() == true {
+            object["subtype"] = "node"
+        }
+        return ["result": .object(object)]
     }
 
     /// The registry's script for the object `objectID` names.
@@ -402,8 +460,7 @@ final class SyntheticPage: CDPTransporting, @unchecked Sendable {
                          "attributes": .array(attributes)]]
     }
 
-    /// The click's hit test on a field, its first node argument, from the boxes: a cover holding the point is on top;
-    /// else the field there.
+    /// The click's hit test on a field, from the boxes: a cover holding the point is on top; else the field there.
     private func hit(_ params: JSONValue) -> JSONValue {
         let arguments = params["arguments"]?.arrayValue ?? []
         let id = Int((arguments.dropFirst(2).first?["objectId"]?.stringValue ?? "").dropFirst("field-".count)) ?? 0

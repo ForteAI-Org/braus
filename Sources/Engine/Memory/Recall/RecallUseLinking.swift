@@ -31,7 +31,7 @@ import Foundation
 /// Typed text and file names are compared as the person wrote them: only canonical Unicode equivalence is ignored,
 /// never case or accents. Names the application shows (an item, a button, a menu path, a label) are compared
 /// ignoring case and surrounding space, as the screen spells them. A call that matches a later step skips the ones
-/// between, which stay not carried out; a call that matches none is the agent's own operation (a connector or a
+/// between, which stay not carried out; a call that matches none is the agent's own operation (a
 /// deviation), unless it would carry out the next step were the facts it lacks to agree (its application not
 /// recorded, the element's identity not derived while its label differs): that use is `undetermined`, neither a
 /// confirmation nor a deviation. A step is confirmed when its call's own check passed. The rule reads facts only:
@@ -86,6 +86,8 @@ public enum RecallUseLinking {
         .insertText: ["text": .written, "expected_value": .written],
         .pressKey: ["key": .shown, "modifiers": .shown, "count": .value], .scroll: ["direction": .shown, "lines": .value],
         .drag: ["dx": .value, "dy": .value], .contextMenu: ["item": .shown], .menu: ["path": .shown], .press: ["button": .shown],
+        // P2-01: an adapter's step is its verb on its adapter; its values are the run's own, compared by the parameters
+        .appCall: ["app": .shown, "verb": .shown],
     ]
 
     /// The arguments that name the element an operation acts on: the first is the one the Brain identifies.

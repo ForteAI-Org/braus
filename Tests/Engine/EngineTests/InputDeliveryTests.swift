@@ -330,7 +330,8 @@ struct InputDeliveryTests {
     func insertionKeepsTheExistingSelection() async {
         let text = "Braus-à-中-🙂\nSeconda\r\nTerza"
         let actuator = RecordingActuator()
-        let controls = FakeControls(); controls.focused = text
+        // An insertion is read back only into a focus its provider attests ordinary (W1).
+        let controls = FakeControls(); controls.focused = text; controls.focus = [.ordinary(TargetIdentity("double|field"))]
         let activation = FakeActivation(frontmost: 9999)
         let result = await engine(
             scenes: ScriptedScenes([scene([field(value: "Layer 1")])]), actuator: actuator,
@@ -346,7 +347,7 @@ struct InputDeliveryTests {
           arguments: [nil, "different", "Braus"] as [String?])
     func insertionNeedsNativeReadback(value: String?) async {
         let actuator = RecordingActuator()
-        let controls = FakeControls(); controls.focused = value
+        let controls = FakeControls(); controls.focused = value; controls.focus = [.ordinary(TargetIdentity("double|field"))]
         let result = await engine(
             scenes: ScriptedScenes([scene([field(value: "Braus")])]), actuator: actuator, controls: controls
         ).deliver(request(.insertText("Braus", expecting: value == "Braus" ? nil : "Braus")))
@@ -360,6 +361,7 @@ struct InputDeliveryTests {
     func insertionVerifiesTheWholeValue() async {
         let actuator = RecordingActuator()
         let controls = FakeControls(); controls.focused = "prefix Braus suffix"
+        controls.focus = [.ordinary(TargetIdentity("double|field"))]
         let result = await engine(
             scenes: ScriptedScenes([scene([])]), actuator: actuator, controls: controls
         ).deliver(request(.insertText("Braus", expecting: "prefix Braus suffix")))
@@ -411,17 +413,19 @@ struct InputDeliveryTests {
         #expect(actuator.gestures.isEmpty)
     }
 
-    @Test("Command-Delete needs the person's permission")
+    @Test("R07: Command-Delete is refused without the person's permission, and with it: no route here verifies it")
     func commandDeleteIsDestructive() async {
         let chord = KeyChord(.delete, modifiers: .command)
         let refused = await engine(scenes: ScriptedScenes([scene([export])]))
             .deliver(request(.pressKey(chord, times: 1)))
-        #expect(refused.kind == .refused)
-        let actuator = RecordingActuator()
-        _ = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator,
-                         permissions: ActionPermissions(allowsDestructive: true))
+        #expect(refused.kind == .refused && refused.message.contains("person must allow destructive actions"))
+        let blind = RecordingActuator()
+        let unconfirmed = await engine(scenes: ScriptedScenes([scene([export])]), actuator: blind,
+                                       permissions: ActionPermissions(allowsDestructive: true))
             .deliver(request(.pressKey(chord, times: 1)))
-        #expect(actuator.gestures == [.key(code: Key.delete, modifiers: .command)])
+        #expect(unconfirmed.kind == .refused && unconfirmed.message.contains("cannot read its effect back"),
+                Comment(rawValue: unconfirmed.message))
+        #expect(blind.gestures.isEmpty)
     }
 
     @Test("a key's changed native selection is verified without a text or pixel change")

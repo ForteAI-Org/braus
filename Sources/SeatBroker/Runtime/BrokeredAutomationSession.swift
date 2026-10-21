@@ -59,6 +59,10 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// which let the window elapse when they choose; the public init sleeps on the task's clock.
     typealias IdleWaiting = @MainActor (_ window: Duration) async throws -> Void
 
+    /// The bundle ID of the application `word` names, as the seat would open it, before anything is launched or
+    /// adopted. A seam for the controlled tests; the public init resolves as `AgentSession.open` does.
+    typealias Resolving = @MainActor (_ word: String) throws -> String
+
     /// Reads the dialog the application `pid` has open. A seam for the controlled tests; the public
     /// init reads it through accessibility.
     typealias DialogReading = @MainActor (_ pid: pid_t) -> DialogButtonPress.OpenDialog?
@@ -121,6 +125,14 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// empty when the scene had none. Kept across `close`, so a later turn can name it.
     @ObservationIgnored private var lastOpened: (name: String, bundleID: String, window: String)?
 
+    /// The claims every route of every Braus process takes on an app (`AppClaims`, I03), this session's owner in
+    /// them (its worker, as the worker's native session), and its hold of the app it opened: dropped at `close`, or
+    /// with the session.
+    @ObservationIgnored private let claims    : AppClaims
+    @ObservationIgnored private let claimOwner: AnyHashable
+    @ObservationIgnored private let resolving : Resolving
+    @ObservationIgnored private var claim     : AppClaims.Hold?
+
     /// `workerID` labels this session's entry in `SeatQueue.entries` as its `uuidString`, so two
     /// workers with one name still read their own position; no view shows that label.
     /// `knowledgeDirectory` is the Brain's, the command line's own, so what either learns applies
@@ -131,7 +143,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         workerID          : UUID,
         knowledgeDirectory: URL,
         allowsDestructive : Bool = false,
-        grantee           : String = "Braus"
+        grantee           : String = "Braus",
+        claims            : AppClaims = .shared
     ) {
         self.init(
             broker            : broker,
@@ -139,11 +152,18 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             knowledgeDirectory: knowledgeDirectory,
             allowsDestructive : allowsDestructive,
             grantee           : grantee,
+            claims            : claims,
+            resolving         : Self.resolvedByTheSeat,
             missingGrant      : { Permissions.firstMissing(of: [.screenRecording, .accessibility, .postEvent]) },
             requestGrants     : { _ = broker.requestMissingPermissions() },
             seating           : Self.seatedByTheBroker,
             perceiving        : Self.perceivedThroughTheEngine
         )
+    }
+
+    /// The seat's own resolution, the one `AgentSession.open(applicationNamed:)` makes, without opening anything.
+    static let resolvedByTheSeat: Resolving = { word in
+        try ApplicationOpening.resolve(word, in: TargetEnumerator.targets()).bundleID
     }
 
     /// The broker's own path: `open(applicationNamed:windowTitled:)` launches an application that
@@ -202,6 +222,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         knowledgeDirectory: URL,
         allowsDestructive : Bool,
         grantee           : String = "Braus",
+        claims            : AppClaims = AppClaims(),
+        resolving         : @escaping Resolving = { $0 },
         missingGrant      : @escaping @MainActor () -> PermissionKind?,
         requestGrants     : @escaping @MainActor () -> Void,
         seating           : @escaping Seating,
@@ -216,6 +238,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     ) {
         self.broker             = broker
         self.label              = workerID.uuidString
+        self.claims             = claims
+        self.claimOwner         = AnyHashable(workerID)
+        self.resolving          = resolving
         self.knowledgeDirectory = knowledgeDirectory
         self.allowsDestructive  = allowsDestructive
         self.grantee            = grantee
@@ -290,6 +315,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         return "Waiting for the computer (\(index) ahead)"
     }
 
+    /// The route this session is when no routing session fronts it (M05).
+    public var dispatchRoute: CallRoute.Route? { .desktop }
+
     /// Checks the grants, waits for a seat, opens the application on it and returns the first
     /// scene, which the Brain observes. A missing grant is asked for through the broker and
     /// refused at once, before the queue. Any failure after the seat was granted closes, so the
@@ -332,7 +360,20 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         do {
             // The queue can admit an entry in the same turn its wait was cancelled.
             try Task.checkCancellation()
-            let seated = try await seating(lease.session, word, title)
+            // Claimed before anything is launched or adopted: another owner's session, on any route or in another
+            // Braus process, holding it refuses this open with nothing sent.
+            let bundleID = try resolving(word)
+            switch claims.acquire(bundleID, owner: claimOwner) {
+                case .success(let hold): claim = hold
+                case .failure(let refusal): throw AutomationFailure(AppClaims.sentence(refusal, name: word))
+            }
+            // Opened by the bundle ID claimed, never the word again: a resolution that changed meanwhile cannot launch
+            // or adopt another application.
+            let seated = try await seating(lease.session, bundleID, title)
+            guard seated.opened.bundleID == bundleID else {
+                throw AutomationFailure("\(seated.opened.name) is not the application claimed for \(word); nothing "
+                    + "more was sent to it. Open it again by its bundle ID.")
+            }
             target  = seated.target
             runtime = EngineRuntime(knowledgeDirectory: knowledgeDirectory, seat: seated.target)
             guard let pid = seated.opened.pid, let running = NSRunningApplication(processIdentifier: pid) else {
@@ -419,7 +460,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         try? ApplicationOpening.resolve(application, in: TargetEnumerator.targets()).bundleID
     }
 
-    public func windowCandidates(ownedBy processID: pid_t) throws -> [WindowRow] {
+    /// The windows of `processID`, the seat's already adopted windows included: a held floating window keeps its
+    /// row with its current identity even when the system's list no longer shows it.
+    public func windowCandidates(ownedBy processID: pid_t) async throws -> [WindowRow] {
         let held = (try? target?.agentSeat().adoptedWindows.map(\.reference)) ?? []
         return TargetEnumerator.windows(of: processID, includingHeld: held).map {
             WindowRow(layer: 0, frame: $0.frame, title: $0.title, number: $0.windowNumber)
@@ -516,22 +559,66 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         )
         let remotePanel = try seat.agentSeat().holdsRemoteFilePanel
         let inFront     = Self.preparesMenuInFront(application)
+        // The engine's act through a menu item records no rung in this slice: its command gets no recorder (M05, open).
         let menus       = MenuItemCommands(
-            menuCommand(application, runtime, try seat.agentSeat(), inFront: inFront),
+            menuCommand(application, runtime, try seat.agentSeat(), inFront: inFront, recorder: nil),
             inFront: inFront ? application.localizedName ?? "The application" : nil
         )
-        return await enriched(runtime.engine(
-            recorder                    : Self.recorder(runtime, sessionID: id),
+        let recorder = Self.recorder(runtime, sessionID: id)
+        let outcome  = await runtime.engine(
+            recorder                    : recorder,
             allowsDestructive           : allowsDestructive,
             contextMenusOnTextFieldsOnly: Self.drawsMenusUnderThePointer(application),
             selectsFieldsByTripleClick  : remotePanel,
             refusesMenuOpeningClicks    : remotePanel,
             windowClosure               : windowClosure(of: seat),
             menus                       : menus
-        ).act(request), by: runtime)
+        ).act(request)
+        await Self.handRung(of: runtime, to: recorder)
+        return await enriched(outcome, by: runtime)
+    }
+
+    /// The Seat's last send of this call, as its receipt says, handed once to the recorder the engine was given (M05):
+    /// taken right after the engine, on every outcome, before the scene is enriched, so no later call reads it. The
+    /// foreground's HID events carry no receipt and the web posts none: those actuators leave nothing to take, and
+    /// nothing is inferred for them.
+    static func handRung(of runtime: EngineRuntime, to recorder: CallRecorder) async {
+        guard let seat = runtime.actuator as? SeatActuator, let send = await seat.takeLastSend() else { return }
+        await recorder.dispatched(rung: CallRung(send))
     }
 
     public func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome {
+        try await deliver(input, section: section, withholdsText: false)
+    }
+
+    /// The Seat attests no field (W1): it classifies nothing, so a bound text is refused with nothing typed, and a
+    /// withheld one is delivered with the engine told, so its answer quotes no value of the field and its check keeps
+    /// none of the texts.
+    public func deliver(_ input: InputRequest.Input, section: String?, dispatch: TextDispatch) async throws -> ActOutcome {
+        guard dispatch == .withheld else {
+            throw AutomationFailure("This session cannot type only into the field the call recorded, so nothing was typed.")
+        }
+        return try await deliver(input, section: section, withholdsText: true)
+    }
+
+    /// The engine's request for an input to `application`, telling it whether the call withholds the input's text.
+    static func request(
+        _ input      : InputRequest.Input,
+        section      : String?,
+        application  : NSRunningApplication,
+        withholdsText: Bool
+    ) -> InputRequest {
+        InputRequest(
+            processID    : application.processIdentifier,
+            bundleID     : application.bundleIdentifier ?? "pid.\(application.processIdentifier)",
+            appName      : application.localizedName ?? "application",
+            input        : input,
+            section      : section,
+            withholdsText: withholdsText
+        )
+    }
+
+    private func deliver(_ input: InputRequest.Input, section: String?, withholdsText: Bool) async throws -> ActOutcome {
         let (application, runtime, seat) = try current()
         if case .refuse(let sentence) = try await SeatAdmission.awaited(
             seat.agentSeat(),
@@ -540,8 +627,11 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             throw AutomationFailure(sentence)
         }
         if case .contextMenu(let control, let item) = input {
+            // The call's recorder, bound once before the selector runs: it takes the selector's perceptions, and the
+            // Seat's receipt the selector returns is handed to it before the scene is enriched (M05).
+            let recorder = Self.recorder(runtime, sessionID: id)
             let selector = SeatContextMenuSelector(target: seat, pipeline: ProductionPerception.pipeline())
-            let chosen = try await selector.select(
+            let chosen = try await selector.selectWithReceipt(
                 item: item, on: control,
                 identity: SeatDriving.ApplicationIdentity(
                     bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)",
@@ -553,29 +643,27 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                     contextMenusOnTextFieldsOnly: Self.drawsMenusUnderThePointer(application)
                 ),
                 report: SelectorReporting.reporting(
-                    to: CallRecorder.current,
+                    to: recorder,
                     bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)"
                 )
             )
-            return await enriched(chosen, by: runtime)
+            await Self.handContextMenuRung(of: chosen.receipt, to: recorder)
+            return await enriched(chosen.outcome, by: runtime)
         }
-        let request = InputRequest(
-            processID: application.processIdentifier,
-            bundleID : application.bundleIdentifier ?? "pid.\(application.processIdentifier)",
-            appName  : application.localizedName ?? "application",
-            input    : input,
-            section  : section
-        )
+        let request = Self.request(input, section: section, application: application, withholdsText: withholdsText)
         // Of these inputs only Escape closes a window: the engine refuses text that carries one.
         var closesTheWindow = false
         if case .pressKey(let chord, _) = input { closesTheWindow = chord.key == .escape }
-        return await enriched(runtime.engine(
-            recorder                    : Self.recorder(runtime, sessionID: id),
+        let recorder = Self.recorder(runtime, sessionID: id)
+        let outcome  = await runtime.engine(
+            recorder                    : recorder,
             allowsDestructive           : allowsDestructive,
             contextMenusOnTextFieldsOnly: Self.drawsMenusUnderThePointer(application),
             selectsFieldsByTripleClick  : try seat.agentSeat().holdsRemoteFilePanel,
             windowClosure               : closesTheWindow ? windowClosure(of: seat) : WindowClosureGuard()
-        ).deliver(request), by: runtime)
+        ).deliver(request)
+        await Self.handRung(of: runtime, to: recorder)
+        return await enriched(outcome, by: runtime)
     }
 
     public func menu(path: String) async throws -> ActOutcome {
@@ -597,10 +685,12 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             bundleIdentifier     : application.bundleIdentifier,
             isEnabledInBackground: { MenuBarCommand.isEnabled(path, processID: processID) }
         )
-        let command = menuCommand(application, runtime, agentSeat, inFront: inFront)
+        // The call's recorder, bound once before anything is awaited: the perceptions and the press's rung go to it (M05).
+        let recorder = Self.recorder(runtime, sessionID: id)
+        let command = menuCommand(application, runtime, agentSeat, inFront: inFront, recorder: recorder)
         return try await PerceivedCommand.perform(
             bundleID: application.bundleIdentifier ?? "pid.\(processID)",
-            recorder: Self.recorder(runtime, sessionID: id),
+            recorder: recorder,
             perceive: { try await runtime.scenes.currentScene(of: processID) }
         ) { observe in
             try await command(path, processID, observe)
@@ -613,7 +703,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         _ application: NSRunningApplication,
         _ runtime    : EngineRuntime,
         _ agentSeat  : AgentSeat,
-        inFront      : Bool
+        inFront      : Bool,
+        recorder     : CallRecorder?
     ) -> MenuItemCommands.Command {
         let closingRefusal    = closingRefusal(application, agentSeat)
         let allowsDestructive = self.allowsDestructive
@@ -624,6 +715,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                     path,
                     processID: processID,
                     allowsDestructive: allowsDestructive,
+                    recorder: recorder,
                     closingRefusal: closingRefusal,
                     withFront: { command in
                         let outcome = await agentSeat.performMenuCommandBrieflyInFront(
@@ -642,6 +734,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 path,
                 processID        : processID,
                 allowsDestructive: allowsDestructive,
+                recorder         : recorder,
                 closingRefusal   : closingRefusal,
                 settling         : settling,
                 observe          : observe
@@ -796,6 +889,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         onCapture: @escaping @MainActor @Sendable (String, CGImage) throws -> Void = { _, _ in }
     ) async throws -> (outcome: ActOutcome, receipt: PopupMenuReceipt?) {
         let (application, runtime, target) = try current()
+        // The call's recorder, bound once before the selector runs: the selector reports its perceptions to it, and
+        // the receipt it returns is handed to it before the scene is enriched (M05).
+        let recorder = Self.recorder(runtime, sessionID: id)
         let selector = SeatDropdownSelector(target: target, pipeline: ProductionPerception.pipeline(), windows: runtime.windows)
         let result = try await selector.select(
             control: control, item: item,
@@ -808,11 +904,33 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             onMenu: onMenu,
             onCapture: onCapture,
             report: SelectorReporting.reporting(
-                to: CallRecorder.current,
+                to: recorder,
                 bundleID: application.bundleIdentifier ?? "pid.\(application.processIdentifier)"
             )
         )
+        await Self.handSelectRung(of: result.receipt, to: recorder)
         return (await enriched(result.outcome, by: runtime), result.receipt)
+    }
+
+    /// The last receipt the Seat's dropdown returned for this call, the last key's or, when no key went out, the
+    /// opener's click, handed once to the recorder the selector reported to (M05): the receipt the selector returned,
+    /// not the last gesture of the whole call nor the menu's cleanup. A native popup (accessibility actions, which
+    /// carry no receipt), a refusal or a dry run before any gesture (no receipt) and a selector that threw (the
+    /// receipts of what went out are not returned) hand nothing, erase nothing the recorder holds, and nothing is
+    /// inferred for them.
+    package static func handSelectRung(of receipt: PopupMenuReceipt?, to recorder: CallRecorder) async {
+        guard let last = receipt?.choosing.last ?? receipt?.opening else { return }
+        await recorder.dispatched(rung: CallRung(SeatSend(last)))
+    }
+
+    /// The last receipt the Seat returned for this call's contextual menu, the row's click when one went out or the
+    /// opener's right click, handed once to the recorder the selector reported to (M05): the receipt returned, not the
+    /// menu's cleanup (its Escape is posted outside the receipts) nor the whole call. A choice refused before the Seat
+    /// was asked (no receipt) and a Seat that threw (no outcome returned) hand nothing, erase nothing the recorder
+    /// holds, and nothing is inferred for them.
+    package static func handContextMenuRung(of receipt: SeatMenuOutcome?, to recorder: CallRecorder) async {
+        guard let last = receipt?.insideMenu.last ?? receipt?.opening else { return }
+        await recorder.dispatched(rung: CallRung(SeatSend(last)))
     }
 
     /// Flushes the Brain, ends the borrow, finishes with the application and gives the seat back.
@@ -844,6 +962,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 }
                 lease.giveBack()
             }
+            // Given back once the application is finished with: only this session's hold.
+            claim = nil
             // Reset here, so every caller awaiting this task finds the session idle when it resumes.
             closing = nil
             phase   = .idle
@@ -1028,5 +1148,17 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             + "to the front. Nothing was adopted and the computer was given back. "
             + ApplicationOpening.unseated(name, wasLaunched: wasLaunched, wasQuit: wasQuit)
             + " Open \(name) with a window yourself and ask again, or use another application.")
+    }
+}
+
+extension CallRung {
+    /// The Seat's send as the record keeps it: the receipt's posting call, the counts as `how`, nothing skipped.
+    init(_ send: SeatSend) {
+        let rung: Rung = switch send.poster {
+            case .publicProcess      : .seatPublicProcess
+            case .skyLightProcess    : .seatSkyLightProcess
+            case .accessibilityAction: .seatAccessibilityAction
+        }
+        self.init(rung: rung, how: "\(send.eventCount) events, \(send.routedEventCount) routed to window \(send.windowNumber)")
     }
 }

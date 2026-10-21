@@ -8,6 +8,7 @@ import EngineCore
 import Foundation
 import PerceptionCore
 import Synchronization
+import TestScratch
 import Testing
 import WebDriver
 import WebDriving
@@ -16,8 +17,9 @@ import WebDriving
 /// `requests.html` served by the test's own `FixtureHTTPServer` on 127.0.0.1: the settler waits for a fetch the click
 /// started and whose body the page reads, for one that fails and for one that is aborted, and does not wait without its
 /// watch. A fetch whose body the page never reads keeps the wait to its cap, a limit the protocol's events show: its
-/// start and its answer come, its end does not. Two limits are measured as known issues: a timer is no request, and the
-/// engine's own wait ends at its 300 ms cap with the request in flight. Of the protocol's events only the method, the
+/// start and its answer come, its end does not, in the window measured. Through the engine, whose wait ends at its
+/// 300 ms cap, a click on a slow fetch is answered unverified with an unknown check. Two limits are measured as known
+/// issues: a timer is no request, and the engine reads the scene before an answer later than its cap. Of the protocol's events only the method, the
 /// request id and the timestamp of the fetches are kept, and printed for the evidence; no address, header or body. Opt in with `BRAUS_WEB_LIVE_TESTS=1`; needs Google Chrome in `/Applications`. No external network.
 @Suite(
     "Requests in flight, live (W12)",
@@ -51,11 +53,11 @@ struct RequestsLiveTests {
     }
 
     /// Clicks `label` as the engine does, after the settler's `prepare` when `watched`, settles with `cap`, and answers
-    /// how long the settling took, what the status reads then, and the events of the fetches the click started, which
-    /// it prints for the evidence.
+    /// how long the settling took, how it ended, what the status reads then, and the events of the fetches the click
+    /// started, which it prints for the evidence.
     static func settle(after label: String, watched: Bool = true, cap: Duration = .seconds(3), tabs: WebTabs, id: pid_t,
                        page: WebPage) async throws
-        -> (took: Duration, state: String?, events: [FetchEvent]) {
+        -> (took: Duration, result: SettleResult, state: String?, events: [FetchEvent]) {
         let window  = try await WebScenes(tabs: tabs).currentScene(of: id)
         let element = try WebDrivingLiveTests.element(label, in: window)
         let settler = WebSettler(tabs: tabs)
@@ -79,7 +81,7 @@ struct RequestsLiveTests {
         try await WebActuator(tabs: tabs).perform(.click(at: window.globalPoint(of: element)), expecting: element.label,
                                                   in: id)
         let started = ContinuousClock.now
-        await settler.settle(in: id, cap: cap)
+        let result = await settler.settle(in: id, cap: cap)
         let took = ContinuousClock.now - started
         let state = try await page.evaluate("document.getElementById('state').textContent").stringValue
         await page.stopObserving(key)
@@ -87,7 +89,7 @@ struct RequestsLiveTests {
         for event in events {
             print("cdp-event \(label): \(event.method) \(event.requestID) \(event.timestamp)")
         }
-        return (took, state, events)
+        return (took, result, state, events)
     }
 
     @Test("a fetch the click started, answered after 600 ms, whose body the page reads: the settler returns once it ended, before the cap")
@@ -95,7 +97,8 @@ struct RequestsLiveTests {
         try await Self.withServedFixture { tabs, id, page, server in
             let settled = try await Self.settle(after: "Carica", tabs: tabs, id: id, page: page)
             #expect(settled.state == "Caricato", "settled after \(settled.took)")
-            #expect(settled.took >= .milliseconds(550) && settled.took < .seconds(3), "settled after \(settled.took)")
+            #expect(settled.result == .settled && settled.took >= .milliseconds(550) && settled.took < .seconds(3),
+                    "settled after \(settled.took), \(settled.result)")
             #expect(settled.events.map(\.method) == ["Network.requestWillBeSent", "Network.responseReceived",
                                                      "Network.loadingFinished"], "\(settled.events)")
             #expect(await server.counts["/slow"] == 1)
@@ -107,7 +110,7 @@ struct RequestsLiveTests {
         try await Self.withServedFixture { tabs, id, page, _ in
             let settled = try await Self.settle(after: "Ignora", cap: .milliseconds(1500), tabs: tabs, id: id, page: page)
             #expect(settled.state == "Ricevuto", "the headers came and resolved the page's promise")
-            #expect(settled.took >= .milliseconds(1450), "settled after \(settled.took)")
+            #expect(settled.result == .capped && settled.took >= .milliseconds(1450), "settled after \(settled.took), \(settled.result)")
             #expect(settled.events.map(\.method) == ["Network.requestWillBeSent", "Network.responseReceived"],
                     "the start and the answer came, no end: \(settled.events)")
         }
@@ -152,7 +155,7 @@ struct RequestsLiveTests {
         }
     }
 
-    @Test("the limit: through the engine, whose wait is capped at 300 ms, the click is judged before the 600 ms answer")
+    @Test("through the engine, whose wait is capped at 300 ms: the wait ends with the fetch in flight, and the click is answered unverified, its check unknown with settle_capped")
     func engineCap() async throws {
         try await Self.withServedFixture { tabs, id, page, _ in
             let engine = ActionEngine(ActionEngine.Dependencies(
@@ -164,12 +167,16 @@ struct RequestsLiveTests {
             ))
             let outcome = await engine.act(ActionRequest(processID: id, bundleID: "web:127.0.0.1", appName: "127.0.0.1",
                                                          target: "Carica", verb: .click))
-            withKnownIssue("W12: the engine's 300 ms cap ends the wait with the request in flight; the verdict does not say so yet") {
+            #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
+            #expect(outcome.check?.verdict == .unknown && outcome.check?.limits.contains(.settleCapped) == true,
+                    "\(String(describing: outcome.check))")
+            #expect(outcome.message.contains("ended at its cap (300 ms)"), Comment(rawValue: outcome.message))
+            withKnownIssue("W12: the engine does not wait past its 300 ms cap, so the scene it read is before the answer") {
                 #expect(outcome.scene?.elements.contains { $0.label == "Caricato" } == true, Comment(rawValue: outcome.message))
             }
             try await Task.sleep(for: .seconds(1))
             #expect(try await page.evaluate("document.getElementById('state').textContent").stringValue == "Caricato",
-                    "the request did finish, after the engine judged")
+                    "the request did finish, after the engine answered")
         }
     }
 }

@@ -507,6 +507,11 @@ class FakeSender: CommandSending, @unchecked Sendable {
 
     var unvalidatedBuild = false
 
+    /// What the Receipts say posted the events and how many went out: the public call with two events unless a
+    /// test says otherwise, as an accessibility action with none (M05, the Seat's rung).
+    var receiptPoster: PostRoute = .publicProcess
+    var receiptEventCount = 2
+
     /// A real gate, not a stub: the seat's own window transfer and a focus
     /// recovery close it at the same time, and whether one of them reopens it
     /// for the other is exactly what a test has to be able to see.
@@ -633,10 +638,10 @@ class FakeSender: CommandSending, @unchecked Sendable {
 
     private func receipt(for window: WindowReference, index: Int = 0) -> InputReceipt {
         InputReceipt(
-            eventCount              : 2,
+            eventCount              : receiptEventCount,
             route                   : InputRoute(
-                poster           : .publicProcess,
-                routedEventCount : 2,
+                poster           : receiptPoster,
+                routedEventCount : receiptEventCount,
                 windowNumber     : window.windowNumber,
                 ownerConnectionID: 1
             ),

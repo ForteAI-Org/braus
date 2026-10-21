@@ -30,6 +30,17 @@ In an interactive terminal this continues as a chat. For one turn and exit:
   --provider codex --once --allow-unvalidated-build
 ```
 
+Optional native, web and adapter routes are selected explicitly. With no `--channels` option,
+chat uses the virtual desktop alone:
+
+```sh
+.build/debug/braus chat --channels native,web,adapters
+```
+
+The CLI's web route uses its own headless Chrome profile; it does not join a personal or paired
+profile from the app. Adapter verbs that require one-call approval are refused because CLI chat
+has no approval interface. See [channel configuration](README.md#advanced-channel-configuration).
+
 Saved conversations:
 
 ```sh
@@ -99,7 +110,9 @@ Likewise, `--allow-destructive` belongs to this invocation, not the saved model 
 - **ChatCore:** provider/turn/event/conversation values. No process, MCP, storage,
   AppKit, perception or Driver dependency.
 - **CLIProviders:** argv construction, Claude/Codex JSONL decoding, streaming
-  child process ownership and cancellation. No shell command interpolation.
+  child process ownership and cancellation. No shell command interpolation. The
+  command lines' own web searches and page reads become tool records
+  (`WebToolRecords`), through the withholding the host passes (M07).
 - **FileConversations:** private atomic transcripts and exclusive conversation leases.
 - **LocalMCP:** JSON-RPC stdio bridge, authenticated ephemeral loopback host and
   serialized tool router. No application behavior.
@@ -142,8 +155,8 @@ share these definitions and their validation.
 
 `app_capabilities` and `app_call` reach an app's adapter (`AppAdapters`) with
 no session, and exist only where the composition passes the adapters to
-`AutomationTools`: the app does for its workers and external clients, CLI chat
-does not. An irreversible verb (`mail.send`, `messages.send_message`,
+`AutomationTools`: the app and CLI chat do so when the `adapters` channel is enabled. CLI chat
+does not install a per-call approver. An irreversible verb (`mail.send`, `messages.send_message`,
 `calendar.delete_event`, `files.move_to_trash`) runs only when the person
 allows that one call: `AppAdapters` asks its approver (`AdapterApproving`)
 with what the call would do (recipient, subject and first lines of a mail,
@@ -158,8 +171,8 @@ session holds on the seat (`memoryApplication`, among the adapter's bundle
 ids) is refused with nothing done, telling the model to finish with the
 interface and `close_session` first or to use one route for the whole task;
 the files adapter is exempt, since its verbs are file operations a Finder
-window on the seat neither holds nor reads back. Only the calling session's
-own hold counts. An `app_call` keeps the values of its
+window on the seat neither holds nor reads back. Holds in other sessions of the same process are checked too (`SeatHolds`); a conflicting
+adapter call is refused before it runs. An `app_call` keeps the values of its
 verb's content parameters out of its record and transcript, and a verb's
 content results out of the transcript line of its answer. Content is what a
 person writes, reads or is called: a file's text, a mail's addresses, subject
@@ -171,9 +184,9 @@ ids, dates, states and counts stay. The call's content texts are also
 withheld wherever its record repeats them, such as a message naming the note
 it just created.
 
-The model reads an adapter's answer as compact text (`AdapterText`), the same
-for every adapter, while the record and the transcript keep its JSON
-(`AdapterOutcome.json`). The first line is the outcome's word (`ok`,
+The model receives an adapter's compact text (`AdapterText`) and its structured result
+(`structuredContent`). The app's tool loop preserves both. The call record and transcript apply
+their separate minimization policy; that policy does not remove content from the live answer. The first line is the outcome's word (`ok`,
 `unverified`, `noop`, `miss`, `ambiguous`, `refused`) and the message; a
 top-level text the message already says whole is not repeated. Each field is
 a `key: value` line, numbers and booleans bare, ISO 8601 instants as
@@ -214,9 +227,10 @@ or its `changes` since an earlier revision (`since`) of the same window.
 The existing engine observes afresh before acting; saved observations are not
 coordinates or authority for later input.
 
-A result carries its value once, as the JSON text of one content item. No tool
-declares an output schema, so there is no `structuredContent` copy, which a
-client that shows both made the model read twice. AutomationMCP keeps the last
+Ordinary desktop results use the existing text content item. Adapter results additionally
+carry `structuredContent` with their outcome and evidence. A host must preserve the result fields
+it needs; the app's model loop explicitly includes the structured adapter result. This transport
+change is not a measured token-saving claim. AutomationMCP keeps the last
 scene the model read of up to eight windows, by the seat's window number or else
 by bundle ID and title; an untitled window of the same size is taken for the
 titled one it was. An action's or `observe`'s scene of such a window is sent as
@@ -257,7 +271,7 @@ and inserts one intact payload. Only exact native focused-field readback against
 an explicit complete `expected_value` verifies that insertion. An opaque field
 remains unverified; batch stops before a subsequent Return. A separately
 authorized commit must be followed by verification of its actual effect.
-There is no foreground fallback. Multi-app concurrent control and remote
+The Seat path has no foreground fallback. Multi-app concurrent control and remote
 ChatGPT connections remain separate work.
 
 ## Permissions and provider access
@@ -276,9 +290,10 @@ uses a read-only sandbox, and explicitly authorizes the Braus server's tools.
 Neither adapter uses a global permission/sandbox bypass. Managed provider policies
 can still refuse a request.
 
-Normal chat sends the user's prompts and Braus's textual tool results to the
-selected provider. Screenshots are not sent by this interface. Provider sign-in
-credentials remain with the provider CLI.
+Chat sends the user's prompts and the selected routes' live tool answers to the provider.
+Adapter content can reach the model even when it is withheld from stored records. Desktop
+window-to-text processing runs locally; this does not make remote model inference local.
+Provider sign-in credentials remain with the provider CLI.
 
 ## Persistence
 

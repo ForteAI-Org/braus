@@ -35,6 +35,16 @@ struct ExternalMCPSessionTests {
         await session.close()
     }
 
+    @Test("R09: a profile without the desktop is told so, and its instructions name none of the desktop's tools")
+    func withoutTheDesktopNoDesktopInstructions() async throws {
+        let session = ExternalMCPSession(profile: MCPClientProfile(name: "No access", desktop: false),
+                                         session: SyntheticMCPDesktop())
+        let initialized = await session.router.handle(request("initialize"))
+        let instructions = try #require(initialized?["result"]["instructions"].string)
+        #expect(instructions == ExternalMCPSession.withoutDesktop)
+        await session.close()
+    }
+
     private func request(_ method: String, params: JSONValue = .object([:])) -> JSONValue {
         .object(["jsonrpc": .string("2.0"), "id": .number(1), "method": .string(method), "params": params])
     }

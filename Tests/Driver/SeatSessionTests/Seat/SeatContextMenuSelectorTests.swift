@@ -129,6 +129,19 @@ struct SeatContextMenuSelectorTests {
         #expect(c.sensing.menus.isEmpty)
     }
 
+    @Test("R07: a destructive menu choice the person allowed is still refused: the seat cannot read its effect back")
+    func destructiveChoiceWithoutReadBack() async throws {
+        let c = try await ContextMenuTests.ready()
+        try c.seat.release(c.turn)
+        let outcome = try await selector(seat: c.seat).select(
+            item: "Delete", on: "field", identity: identity, permissions: ActionPermissions(allowsDestructive: true)
+        )
+        #expect(outcome.kind == .refused && outcome.message.contains("cannot read its effect back"),
+                Comment(rawValue: outcome.message))
+        #expect(c.sender.sent.isEmpty)
+        #expect(c.sensing.menus.isEmpty)
+    }
+
     @Test("Qt's text-field-only restriction survives the scoped menu route")
     func nonFieldRefuses() async throws {
         let c = try await ContextMenuTests.ready()
@@ -205,5 +218,66 @@ struct SeatContextMenuSelectorTests {
         #expect(c.sensing.menus.isEmpty)
         let next = try await c.seat.acquire()
         try c.seat.release(next)
+    }
+
+    @Test("M05 CM-2: the real selector returns the Seat's outcome it used to drop, and the session's hand-over writes the last receipt of it: the row's click when chosen, the opener's when the item was missing or its delivery refused, nothing when refused before the Seat was asked; nothing replayed, the item's word nowhere")
+    func receiptReachesTheRecord() async throws {
+        let record = try ContextMenuRecord(secret: "Select All")
+        let (task, producer, attribution) = try await record.beginTask()
+        func send(_ receipt: InputReceipt) -> CallRung { record.expected(receipt) }
+
+        // The row chosen: the opener and one click inside the menu; the row's click is the rung.
+        let c = try await ContextMenuTests.ready()
+        try c.seat.release(c.turn)
+        let chosen = try await selector(seat: c.seat).selectWithReceipt(item: "Select All", on: "field", identity: identity)
+        #expect(chosen.outcome.kind == .actedUnverified && chosen.receipt?.insideMenu.count == 1 && c.sender.sent.count == 2)
+        let first = try await record.contextMenu(chosen.receipt, attribution: attribution)
+        #expect(try await record.rung(of: first) == send(try #require(chosen.receipt?.insideMenu.last)))
+        #expect(try await record.attribution(of: first) == attribution)
+
+        // The item missing: the menu opened and withdrawn, no click inside; the opener's is the rung.
+        let m = try await ContextMenuTests.ready()
+        try m.seat.release(m.turn)
+        let missing = try await selector(seat: m.seat, rows: .absent).selectWithReceipt(item: "Select All", on: "field", identity: identity)
+        #expect(missing.outcome.kind == .honestMiss && missing.receipt?.insideMenu.isEmpty == true && m.sender.sent.count == 1)
+        let second = try await record.contextMenu(missing.receipt, attribution: attribution)
+        #expect(try await record.rung(of: second) == send(try #require(missing.receipt?.opening)))
+        try await record.endTask(task, producer)
+
+        // The row's delivery refused: the opener went out, the row's click never did; the opener's is the rung, the
+        // outcome unverified as today, under no task now.
+        let r = try await ContextMenuTests.ready()
+        try r.seat.release(r.turn)
+        r.sender.refusedCommand = { command in
+            if case .click(_, .left, _) = command { return SeatDrivingFailure.gestureUnsupported("controlled refusal") }
+            return nil
+        }
+        let refused = try await selector(seat: r.seat).selectWithReceipt(item: "Select All", on: "field", identity: identity)
+        #expect(refused.outcome.kind == .actedUnverified && refused.receipt?.insideMenu.isEmpty == true && r.sender.sent.count == 1)
+        let third = try await record.contextMenu(refused.receipt)
+        #expect(try await record.rung(of: third) == send(try #require(refused.receipt?.opening)))
+        #expect(try await record.attribution(of: third) == nil)
+
+        // Refused before the Seat was asked: a dry run, and a control the scene lacks; no outcome from the Seat, no
+        // command, no rung.
+        let p = try await ContextMenuTests.ready()
+        try p.seat.release(p.turn)
+        let rehearsed = try await selector(seat: p.seat).selectWithReceipt(item: "Select All", on: "field", identity: identity, dryRun: true)
+        let unresolved = try await selector(seat: p.seat).selectWithReceipt(item: "Select All", on: "nothing here", identity: identity)
+        #expect(rehearsed.outcome.kind == .dryRun && rehearsed.receipt == nil && unresolved.outcome.kind == .honestMiss
+                && unresolved.receipt == nil && p.sender.sent.isEmpty)
+        let fourth = try await record.contextMenu(rehearsed.receipt)
+        let fifth  = try await record.contextMenu(unresolved.receipt)
+        let fourthRung = try await record.rung(of: fourth)
+        let fifthRung  = try await record.rung(of: fifth)
+        #expect(fourthRung == nil && fifthRung == nil)
+
+        let ids = try await record.callIDs()
+        #expect(ids.count == 5 && Set(ids) == Set([first, second, third, fourth, fifth]))
+        try await record.expectSecretNowhere()
+        for context in [c, m, r, p] {
+            let next = try await context.seat.acquire()
+            try context.seat.release(next)
+        }
     }
 }

@@ -28,6 +28,14 @@ enum Usage {
       braus batch   <app> --window <title> --seat [options] -- <step> --then <step> ...
                                               run several steps in one Seat lifetime
       braus memory  <app>                      what the brain remembers about the application
+      braus adapters [<app> [<query>]]         the app adapters: availability and verbs, or one app's as JSON
+      braus adapters call <adapter.verb> [<json>]
+                                              run one adapter verb and print its outcome
+      braus mac open|windows|read|record <app> [<file.json>] [--window <n>] [--limit <n>]
+                                              the MacDriver's reading side: background launch, windows,
+                                              one window's scene and coverage, its tree as a fixture
+      braus mac pane <name|id> | reveal <path> | open-with <path> [<app>]
+                                              open a Settings pane, reveal a file, open a file, app behind
       braus memory  --status                   what the memory's archive file is, and the Recall this build
                                               would run (channel, model and its files, ablation), read only
       braus memory  --tasks [--last <n>] [--producer app|mcp|cli] [--json]

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Braus secure fields</title>
+</head>
+<body>
+<!-- W1 fixture: prefilled password fields under neutral labels, in the page, a shadow root and a
+     same-origin frame, and two with an explicit ARIA role (what Chrome's tree makes of them is
+     measured), beside an ordinary text field. Synthetic values only; no network. What a test may read of a
+     field without its value: how many input events reached it (__inputs, and the visible line below for
+     the password field), and whether it holds exactly an expected text, as a boolean only (__holds). -->
+<form aria-label="Access">
+  <label for="access">Accesso</label>
+  <input id="access" type="password" value="Prefilled-Secret-4417">
+  <label for="name">Nome</label>
+  <input id="name" type="text" value="Ada">
+  <input id="search" type="password" role="searchbox" aria-label="Riservato" value="Prefilled-Secret-4417-aria-search">
+  <input id="combo" type="password" role="combobox" aria-label="Parola" value="Prefilled-Secret-4417-aria-combo">
+  <x-login></x-login>
+  <iframe id="frame" title="Inner" width="400" height="80"
+          srcdoc='<label for="inner">Chiave</label><input id="inner" type="password" value="Prefilled-Secret-4417-frame">'></iframe>
+</form>
+<p id="effects">Modifiche Accesso: 0</p>
+<script>
+window.__inputs = {};
+document.addEventListener('input', event => {
+  const field = event.composedPath()[0] || event.target;
+  const id = field.id || 'unknown';
+  window.__inputs[id] = (window.__inputs[id] || 0) + 1;
+  if (id === 'access') { document.getElementById('effects').textContent = 'Modifiche Accesso: ' + window.__inputs[id]; }
+}, true);
+window.__holds = (id, expected) => document.getElementById(id).value === expected;
+customElements.define('x-login', class extends HTMLElement {
+  constructor() {
+    super();
+    const root = this.attachShadow({ mode: 'open' });
+    root.innerHTML = '<label for="pin">Codice</label><input id="pin" type="password" value="Prefilled-Secret-4417-shadow">';
+  }
+});
+</script>
+</body>
+</html>

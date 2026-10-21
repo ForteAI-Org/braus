@@ -138,7 +138,8 @@ public struct AppAdapters: Sendable {
     /// It runs off the caller's actor: a verb may block its thread on a script, a contacts fetch, a
     /// database read or a process, and a caller on the main actor keeps the interface answering.
     @concurrent
-    public func call(app: String, verb: String, arguments: JSONValue) async throws -> AdapterOutcome {
+    public func call(app: String, verb: String, arguments: JSONValue,
+                     invoking: (@Sendable (AdapterDispatch) async -> Void)? = nil) async throws -> AdapterOutcome {
         let (adapter, found) = try resolve(app: app, verb: verb, arguments: arguments)
         let arguments = arguments == .null ? JSONValue.object([:]) : arguments
         let qualified = "\(adapter.name).\(found.name)"
@@ -176,6 +177,7 @@ public struct AppAdapters: Sendable {
                                 + "Do not try it again unless the person asks.")
             }
         }
+        await invoking?(AdapterDispatch(adapter: adapter.name, verb: found.name))
         let outcome = try await adapter.call(found.name, arguments)
         return Self.checked(outcome, of: found, in: adapter.name)
     }

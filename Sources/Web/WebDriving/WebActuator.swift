@@ -35,8 +35,8 @@ public struct WebActuator: Actuating {
         try await deliver(gesture, expecting: label, in: processID)
     }
 
-    /// The same check for any other pointer gesture over `label`: a right click at its point, a drag at its start, a
-    /// scroll at its point (W10).
+    /// The same check for any pointer gesture over `label`: a right click and the click that focuses a field at their
+    /// point, a drag at its start, a scroll at its point (W10).
     public func perform(_ gesture: Gesture, over label: String, in processID: pid_t) async throws {
         try await deliver(gesture, expecting: label, in: processID)
     }
@@ -73,9 +73,33 @@ public struct WebActuator: Actuating {
                     break
             }
         }
-        for (method, params) in try Self.events(for: gesture) {
-            _ = try await page.send(method, params)
+        // What is known of the send, for the record (M05): the method, the commands planned, the ones handed to the
+        // connection, the ones the browser acknowledged, and how it ended. Noted once, as the sequence ends or as a
+        // command throws (the counts up to that command); a gesture of no command notes nothing, and nothing is
+        // known of the wire itself.
+        let events = try Self.events(for: gesture)
+        guard let first = events.first, let method = WebSend.Method(rawValue: first.0) else { return }
+        var attempted = 0, acknowledged = 0
+        func note(_ outcome: WebSend.Outcome) {
+            tabs.note(send: WebSend(method: method, planned: events.count, attempted: attempted,
+                                    acknowledged: acknowledged, outcome: outcome), for: processID)
         }
+        for (name, params) in events {
+            attempted += 1
+            do { _ = try await page.send(name, params) } catch {
+                note(Self.outcome(of: error))
+                throw error
+            }
+            acknowledged += 1
+        }
+        note(.completed)
+    }
+
+    /// How a sequence ended when a command threw: rejected by the browser (`protocolError`, which had no effect), or
+    /// unanswered (the connection closed, the deadline passed, the call was cancelled, anything else).
+    static func outcome(of error: any Error) -> WebSend.Outcome {
+        if case CDPError.protocolError = error { return .rejectedByBrowser }
+        return .unanswered
     }
 
     /// Refuses, with nothing sent, a pointer gesture at `point` that the page would not deliver to the element the

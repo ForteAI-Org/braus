@@ -17,6 +17,8 @@ public struct RecallSource: Sendable {
     public enum Entry: Sendable, Equatable {
         case state(String)
         case unknown
+        /// An adapter's step, which starts from no screen state (P2-01).
+        case notApplicable
     }
 
     public struct Step: Sendable {
@@ -37,6 +39,39 @@ public struct RecallSource: Sendable {
         /// value of the task must name to concern this choice. A label's words are not enough: a value named `file_name`
         /// does not concern a filter chosen in a step labelled with the word file. Computed once.
         let choiceWords: Set<String>
+        /// The leaves of an adapter's arguments as the source's call recorded them (P2-02): what a reuse
+        /// fills from the task, from an earlier step of its own run, or keeps; never a value of the source's run that an
+        /// earlier step produced.
+        public let fields: [Field]
+        /// Whether the source's call named the account it acted from (P2-05): a reuse resolves its own.
+        public let namesAccount: Bool
+        /// Account resolution is required even when the historical service used a default or unknown account.
+        public let requiresAccountResolution: Bool
+
+        /// Field is one leaf of a step's structured arguments, as a reuse must fill it.
+        public struct Field: Sendable, Equatable {
+            public enum Kind: Sendable, Equatable {
+                /// A constant of the method, as recorded.
+                case constant(String?)
+                /// A declared parameter of this version, filled only from the current task's typed binding.
+                case parameter(String)
+                /// A value the record withholds: the task supplies its own.
+                case withheld
+                /// The result of an earlier step of the version, at that path: the run's own step's, never the source's.
+                case stepResult(position: Int, path: String)
+                /// A result the source's run produced outside the method, or two that held the value: resolved anew.
+                case unresolved
+            }
+            public let path: String
+            public let kind: Kind
+            public let valueKind: StructuredField.ValueKind?
+
+            public init(path: String, kind: Kind, valueKind: StructuredField.ValueKind? = nil) {
+                self.valueKind = valueKind
+                self.path = path
+                self.kind = kind
+            }
+        }
         /// The step's own words: its label and its fixed texts, as a constraint is compared with them.
         let words: Set<String>
         /// The words that state the step's operation: its label's and its fixed texts', its parameters' placeholders left
@@ -44,7 +79,11 @@ public struct RecallSource: Sendable {
         let operationWords: Set<String>
 
         public init(position: Int, partID: String, label: String?, bundleID: String?, tool: AgentTool, arguments: [OperationArgument],
-                    entry: Entry, exit: Entry = .unknown, isOffered: Bool, elementKey: String? = nil) {
+                    entry: Entry, exit: Entry = .unknown, isOffered: Bool, elementKey: String? = nil, fields: [Field] = [],
+                    namesAccount: Bool = false, requiresAccountResolution: Bool? = nil) {
+            self.fields       = fields
+            self.namesAccount = namesAccount
+            self.requiresAccountResolution = requiresAccountResolution ?? (namesAccount || tool == .appCall)
             self.position  = position
             self.partID    = partID
             self.label     = label
@@ -78,6 +117,9 @@ public struct RecallSource: Sendable {
         /// The ids of the parameters the step's operation reads, in order, once each.
         public var parameterIDs: [String] {
             var ids: [String] = []
+            for field in fields {
+                if case .parameter(let id) = field.kind, !ids.contains(id) { ids.append(id) }
+            }
             for argument in arguments {
                 switch argument.value {
                     case .parameter(let id): if !ids.contains(id) { ids.append(id) }
@@ -319,11 +361,19 @@ public struct RecallSource: Sendable {
         var units: [Unit] = []
         for block in blocks {
             guard case .state(let base)? = byPosition[block.lowerBound]?.entry else {
-                units += block.map { Unit(positions: $0...$0, isUncertain: $0 != block.lowerBound) }
+                // A step with no screen state is its own certain unit: an adapter's call needs no window prepared.
+                units += block.map {
+                    Unit(positions: $0...$0, isUncertain: $0 != block.lowerBound && byPosition[$0]?.entry != .notApplicable)
+                }
                 continue
             }
             var position = block.lowerBound
             while position <= block.upperBound {
+                if byPosition[position]?.entry == .notApplicable {
+                    units.append(Unit(positions: position...position, isUncertain: false))
+                    position += 1
+                    continue
+                }
                 guard byPosition[position]?.entry == .state(base) else {
                     units.append(Unit(positions: position...position, isUncertain: true))
                     position += 1

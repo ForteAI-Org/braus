@@ -51,6 +51,12 @@ public struct InputRequest: Sendable, Equatable {
     public var section: String?
     /// A rehearsal: resolve and report what would happen, perform nothing.
     public var isDryRun: Bool
+    /// The field the call classified ordinary before its first write (`ActionEngine.classify`), for a text
+    /// input: the engine types only into it, or stops. Nil for an input the call did not bind.
+    public var binding: TextTargetBinding?
+    /// The call withholds this input's text from every record (W1): the engine quotes no value of the field in its
+    /// answer, in any form, and keeps the expected and observed texts out of its check, whose verdict stands.
+    public var withholdsText: Bool
 
     public init(
         processID: pid_t,
@@ -58,7 +64,9 @@ public struct InputRequest: Sendable, Equatable {
         appName  : String,
         input    : Input,
         section  : String? = nil,
-        isDryRun : Bool = false
+        isDryRun : Bool = false,
+        binding  : TextTargetBinding? = nil,
+        withholdsText: Bool = false
     ) {
         self.processID = processID
         self.bundleID  = bundleID
@@ -66,6 +74,8 @@ public struct InputRequest: Sendable, Equatable {
         self.input     = input
         self.section   = section
         self.isDryRun  = isDryRun
+        self.binding   = binding
+        self.withholdsText = withholdsText
     }
 }
 

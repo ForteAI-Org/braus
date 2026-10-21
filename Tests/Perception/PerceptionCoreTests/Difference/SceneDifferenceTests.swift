@@ -223,6 +223,119 @@ struct SceneDifferenceTests {
         #expect(effect([start], [moved]) == .textSelectionChanged)
     }
 
+    @Test("a text read natively that now reads another value is an effect, for a click too")
+    func nativeTextChange() {
+        var display = element("m0.1", "6", kind: .text)
+        display.value = "6"
+        var result = display
+        result.label = "42"
+        result.value = "42"
+        let effect = SceneDifference.effect(before: scene([display]), after: scene([result]), targetID: "m0.5",
+                                            countsNativeTextChange: true)
+        #expect(effect == .valueChanged(label: "6", value: "42"))
+        #expect(effect?.summary == "'6' now reads '42'")
+    }
+
+    @Test("by default a static text that reads another value is no effect: a clock or timecode changes alone")
+    func nativeTextChangeIsOptIn() {
+        var clock = element("t0", "00:00:01:12", kind: .text)
+        clock.value = "00:00:01:12"
+        var later = clock
+        later.label = "00:00:01:19"
+        later.value = "00:00:01:19"
+        #expect(SceneDifference.effect(before: scene([clock]), after: scene([later]), targetID: "b1") == nil)
+        #expect(SceneDifference.effect(before: scene([clock]), after: scene([later]), targetID: "b1",
+                                       countsNativeTextChange: true) != nil, "only a source that asks for it")
+    }
+
+    @Test("a recognized text, a duplicate id, an unread side or another app names no text change")
+    func nativeTextChangeNeedsAReading() {
+        var display = element("m0.1", "6", kind: .text)
+        display.value = "6"
+        var result = display
+        result.label = "42"
+        result.value = "42"
+        func effect(_ old: [SceneElement], _ new: [SceneElement], app: String = "com.x") -> SceneEffect? {
+            var after = scene(new)
+            after.bundleID = app
+            return SceneDifference.effect(before: scene(old), after: after, targetID: nil, countsNativeTextChange: true)
+        }
+        // Pixels: the words are only in the label, and a relabel is no effect.
+        #expect(effect([element("m0.1", "6", kind: .text)], [element("m0.1", "42", kind: .text)]) == nil)
+        var unread = result
+        unread.value = nil
+        #expect(effect([display], [unread]) == nil)
+        #expect(effect([display, display], [result, result]) == nil)
+        #expect(effect([display], [result], app: "com.y") == nil)
+        #expect(effect([display], [display]) == nil)
+    }
+
+    @Test("a display whose id moved names its new value at the same place")
+    func nativeTextChangeAtTheSamePlace() {
+        // On = Calculator adds the expression area above: the display's path shifts, and its old id
+        // now names the expression, which still reads 7×6.
+        var typed = element("m0.0", "7×6", kind: .text, y: 0.2)
+        typed.value = "7×6"
+        var expression = element("m0.0", "7×6", kind: .text, y: 0.1)
+        expression.value = "7×6"
+        var result = element("m1.0", "42", kind: .text, y: 0.2)
+        result.value = "42"
+        let effect = SceneDifference.effect(before: scene([typed]), after: scene([expression, result]), targetID: "m2",
+                                            countsNativeTextChange: true)
+        #expect(effect == .valueChanged(label: "7×6", value: "42"))
+    }
+
+    @Test("a place reading needs a native text alone at that place on both sides")
+    func nativeTextChangeAtTheSamePlaceNeedsOneReading() {
+        var typed = element("m0.0", "7×6", kind: .text)
+        typed.value = "7×6"
+        var result = element("m1.0", "42", kind: .text)
+        result.value = "42"
+        var elsewhere = result
+        elsewhere.bounds = NormalizedRect(x: 0.6, y: 0.6, width: 0.05, height: 0.02)
+        func effect(_ old: [SceneElement], _ new: [SceneElement]) -> SceneEffect? {
+            SceneDifference.effect(before: scene(old), after: scene(new), targetID: nil, countsNativeTextChange: true)
+        }
+        // Pixels at the same place carry no value.
+        #expect(effect([element("m0.0", "7×6", kind: .text)], [element("m1.0", "42", kind: .text)]) == nil)
+        #expect(effect([typed], [elsewhere]) == nil)
+        var other = result
+        other.id = "m1.1"
+        other.value = "43"
+        #expect(effect([typed], [result, other]) == nil)
+    }
+
+    @Test("a scoped target and a native text reading compose: a homonym's flip is never the target's, a text is its own")
+    func scopedTargetWithNativeText() {
+        var bus = element("control|mute", "Mute", state: .off)
+        bus.role = "AXButton"
+        bus.container = "Bus"
+        var kick = bus
+        kick.container = "Kick"
+        kick.bounds.x = 0.4
+        var display = element("m0.1", "-12 dB", kind: .text, y: 0.6)
+        display.value = "-12 dB"
+        var busOn = bus
+        busOn.state = .on
+        var read = display
+        read.label = "-6 dB"
+        read.value = "-6 dB"
+        func effect(_ after: [SceneElement], native: Bool) -> SceneEffect? {
+            SceneDifference.effect(before: scene([bus, kick, display]), after: scene(after), targetID: kick.id,
+                                   target: kick, countsNativeTextChange: native)
+        }
+        // The homonym in another container flipped, the selected one did not: no state flip, with or without texts.
+        #expect(effect([busOn, kick, display], native: false) == nil)
+        #expect(effect([busOn, kick, display], native: true) == nil)
+        // A native reading that changed is named as a text change, never as the selected control's state.
+        #expect(effect([busOn, kick, read], native: true) == .valueChanged(label: "-12 dB", value: "-6 dB"))
+        #expect(effect([busOn, kick, read], native: false) == nil)
+        // The selected control's own flip still wins over a text that also changed.
+        var kickOn = kick
+        kickOn.state = .on
+        #expect(effect([bus, kickOn, read], native: true) == .stateFlip(from: .off, to: .on))
+    }
+
     @Test("a value change summary is shortened and survives the encoded round trip")
     func valueChangeSummaryAndRoundTrip() {
         let long = SceneEffect.valueChanged(label: "Notes", value: String(repeating: "x", count: 80))

@@ -7,7 +7,7 @@ import PerceptionCore
 /// DropdownOpening requests the native show-menu action on one uniquely named control in one window.
 /// Some applications retain the AX request until their menu closes. A timeout is therefore an
 /// uncertain delivery, never a reason to repeat it; the caller must observe the menu through WindowServer.
-@MainActor
+/// Not tied to an actor: `AccessibilityController` calls it off the main actor.
 public enum DropdownOpening {
 
     /// Window binds native dropdown lookup to an attested capture recipient and its current frame.

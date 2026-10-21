@@ -33,7 +33,7 @@ struct HouseWebSection: View {
         } header: {
             Text("Web")
         } footer: {
-            Text("Braus uses its own Chrome, never yours.")
+            Text("Braus uses its own Chrome, or yours if you choose.")
                 .padding(.bottom, 12)
         }
     }

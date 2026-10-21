@@ -1,3 +1,4 @@
+import EngineCore
 import Foundation
 import Testing
 import WebDriver
@@ -11,13 +12,13 @@ import WebDriver
 struct WebRequestsTests {
 
     struct Watched {
-        let stack  : SyntheticForm.Stack
+        let stack  : TextTargetWebTests.Stack
         let page   : WebPage
         let settler: WebSettler
     }
 
     static func watched(lifetime: Duration = .seconds(10)) async throws -> Watched {
-        let stack = await SyntheticForm.stack()
+        let stack = await TextTargetWebTests.stack()
         return Watched(stack: stack, page: try stack.tabs.page(for: stack.processID),
                        settler: WebSettler(tabs: stack.tabs, lifetime: lifetime))
     }
@@ -58,6 +59,23 @@ struct WebRequestsTests {
         let took = await Self.settle(watched)
         #expect(took >= .milliseconds(500) && took < .seconds(3), "\(took)")
         #expect(await Self.cleaned(watched) && watched.stack.page.count(of: "Network.enable") == 1)
+    }
+
+    @Test("the settler answers how its wait ended: settled on a still page, capped with a request still in flight, unavailable for a tab gone")
+    func results() async throws {
+        let still = try await Self.watched()
+        await still.settler.prepare(in: still.stack.processID)
+        #expect(await still.settler.settle(in: still.stack.processID, cap: .seconds(2)) == .settled)
+
+        let busy = try await Self.watched()
+        await busy.settler.prepare(in: busy.stack.processID)
+        busy.stack.page.emit("Network.requestWillBeSent", Self.started("r1"))
+        #expect(await busy.settler.settle(in: busy.stack.processID, cap: .milliseconds(300)) == .capped)
+        #expect(await Self.cleaned(busy), "a capped wait ends its watch too")
+
+        let gone = try await Self.watched()
+        gone.stack.tabs.remove(gone.stack.processID)
+        #expect(await gone.settler.settle(in: gone.stack.processID, cap: .milliseconds(100)) == .unavailable)
     }
 
     @Test("a request that failed, or was cancelled, ends the wait as a finished one does", arguments: [false, true])

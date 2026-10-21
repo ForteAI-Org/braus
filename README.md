@@ -5,7 +5,7 @@
 <p align="center">Braus gives agents a desktop workspace on your Mac. Give a worker a task in the Braus app, or connect Claude Code or Codex through MCP to work in desktop apps, even when they expose neither an API nor an AX tree.</p>
 
 <p align="center">
-  <a href="https://github.com/ForteAI-Org/braus/releases/download/v1.0-4/Braus-1.0-4.dmg"><img src="readme-assets/badge-download.svg" alt="Download Braus 1.0-4 for macOS" width="213" height="30" /></a>
+  <a href="https://github.com/ForteAI-Org/braus/releases/download/v1.1.0-2/Braus-1.1.0-2.dmg"><img src="readme-assets/badge-download.svg" alt="Download Braus 1.1.0-2 for macOS" width="213" height="30" /></a>
   <a href="Documentation/README.md"><img src="readme-assets/badge-docs.svg" alt="Docs" width="94" height="30" /></a>
   <a href="https://discord.gg/SBqrAN9wDg"><img src="readme-assets/badge-discord.svg" alt="Discord" width="125" height="30" /></a>
   <a href="https://x.com/brausai_"><img src="readme-assets/badge-x.svg" alt="Follow Braus on X" width="158" height="30" /></a>
@@ -74,15 +74,19 @@ Check registration with `claude mcp get braus` or `codex mcp list`. Start a new 
 
 Each connection entry accepts one active client. Create separate entries for independently running clients. Never share the contents of `*.connection.json`.
 
-The [local MCP guide](Documentation/Engine/LocalMCP.md) covers generated configurations, access scope and connection lifecycle. Not every client has been tested end to end. URL-only web connectors cannot use this local bridge.
+The [local MCP guide](Documentation/Engine/LocalMCP.md) covers generated configurations, access scope and connection lifecycle. Not every client has been tested end to end.
 
 </details>
 
 ## What works today
 
-Supported frameworks: **AppKit, Chromium, Electron and Qt**. UXP support is in development (Adobe apps).
+Supported frameworks: **AppKit, Chromium, Electron and Qt**, plus **DFW, DUI and BUI** for [Pro Tools 2026.4+](Documentation/Driver/platforms/ProTools.md#ui-frameworks). UXP support is in development (Adobe apps).
 
-Workers take turns controlling desktop apps. While one works, the others wait in line.
+Workers that use the virtual desktop take turns. While one works there, the others wait in line.
+
+Optional routes can work with native Mac controls, Chrome pages and local app adapters. They are enabled separately; available operations depend on the app and its permissions. See [automation routes and setup](Documentation/Engine/README.md#channels-beyond-the-seat).
+
+In this release, we focused on improving background work in Pro Tools, including [track renaming and selection counters](Documentation/Driver/platforms/ProTools.md#live-seat-verification-19-october-2026) and [file dialogs, Send and Output controls](Documentation/Driver/platforms/ProTools.md#save-panel-send-and-output-verification-16-october-2026).
 
 Read the [compatibility and limitations guide](Documentation/LaunchCompatibility.md) for the current scope and how to report a workflow.
 
@@ -91,7 +95,7 @@ Read the [compatibility and limitations guide](Documentation/LaunchCompatibility
 - **[Driver](Documentation/Driver/README.md):** written in Swift, it moves app windows to a virtual display and routes the agent's input there, so you can keep working on your Mac without a virtual machine.
 - **[Perception](Documentation/Perception/README.md):** turns the current interface into structured text and refreshes it as the window changes.
 - **[Brain](Documentation/README.md#brain):** builds a map of each app's controls, relationships and transitions, giving agents context about how the app works.
-- **[Memory](Documentation/README.md#memory):** keeps interactions, outcomes and learned procedures in a local SQLite archive shared by Braus workers and local MCP clients. Recall can suggest steps for a new task; the agent still checks the live interface. Recall is still in development and can be inconsistent.
+- **[Memory](Documentation/README.md#memory):** keeps interactions, outcomes and learned procedures in a local SQLite archive shared by Braus workers and local MCP clients. Procedures can combine interface actions and adapter calls, using values from the current task. Recall can suggest steps for a new task; the agent still checks the live interface and result. Recall is still in development and can be inconsistent.
 
 Driver, Perception and Engine are [Swift package libraries](Package.swift) you can use in your own macOS apps.
 

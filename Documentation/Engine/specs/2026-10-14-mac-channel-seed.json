@@ -1,0 +1,125 @@
+{
+  "about": "Seed of the MacDriver channel table, from the macspike live checks of 14 Oct 2026 on macOS 26.6 (25G5028f), it-IT. Raw records: docs/probes/2026-10-14.jsonl (personal). Each entry says how to approach an app: which rung worked, which element to use, and the traps. To be replaced by what the living memory learns.",
+  "rules": [
+    "Call only actions the element lists: AXPress on an element without it returns success and does nothing.",
+    "Check AXEnabled before pressing a menu item: with the app inactive, commands that need the key window are disabled and AXPress still returns success.",
+    "Menu commands that open a new window work with the app inactive (Mail New Message, TextEdit New); commands on the current window do not (Close, New Folder, New Reminder).",
+    "Typing: AXMain on the window, AXFocused on the field, then keyboardSetUnicodeString + postToPid. Works with the app behind.",
+    "A window title is not a read-back (System Settings Generali has an empty title).",
+    "Launch with activates=false; some apps activate themselves anyway (see launch.selfActivates).",
+    "First launch often shows an onboarding sheet; dismiss with the non-committal button, never one that migrates data.",
+    "Walk only visible rows: Notes, Contacts and Mail have thousands of elements (19 s, 11 s, 104 s for 3000 naive reads).",
+    "Irreversible steps (send, delete, pay) go through an adapter with a read-back, never the scene: a GUI send can close its window and deliver nothing.",
+    "Commands that need the key window work in background with the seat's preparation (activation record + key-window records 0x01/0x02, as AppKitStatePreparation): the menu item becomes enabled in about 1 s. The activation record alone is not enough. Name the target window in the records."
+  ],
+  "launch": {
+    "selfActivates": [
+      "com.apple.FaceTime",
+      "com.apple.mobilephone",
+      "com.apple.SystemProfiler",
+      "com.apple.Safari"
+    ],
+    "noWindowWithin12s": [
+      "com.apple.mail",
+      "com.apple.MobileSMS",
+      "com.apple.TextEdit",
+      "com.apple.QuickTimePlayerX",
+      "com.apple.Automator",
+      "com.apple.Safari"
+    ],
+    "onboardingSheet": [
+      "com.apple.Maps",
+      "com.apple.Music",
+      "com.apple.iBooksX",
+      "com.apple.Home",
+      "com.apple.journal",
+      "com.apple.reminders"
+    ],
+    "ignoresTerminateWithSheet": [
+      "com.apple.Home",
+      "com.apple.iBooksX",
+      "com.apple.journal"
+    ]
+  },
+  "apps": {
+    "com.apple.systempreferences": {
+      "navigate": [
+        "api:system.open_settings_pane",
+        "ax:AXSelected=true on the sidebar AXOutlineRow",
+        "events.background:skyclick on the sidebar label"
+      ],
+      "never": [
+        "AXPress on the sidebar AXStaticText (false success)"
+      ],
+      "readBack": "selected sidebar row and a known control of the pane; not the window title",
+      "notes": "Pane content is in the host window's tree (same pid) although the pane runs in an appex process. Aspetto: Automatico/Chiaro/Scuro are AXButton with AXPress."
+    },
+    "com.apple.calculator": {
+      "click": [
+        "ax:AXPress"
+      ],
+      "labels": "digits, 'Aggiungi', 'Sottrai', 'Moltiplica', 'Dividi', 'Uguale', 'Cancella tutto'",
+      "readBack": "AXStaticText display (last one is the result; carries a left-to-right mark)"
+    },
+    "com.apple.reminders": {
+      "create": [
+        "ax:AXPress toolbar 'Aggiungi promemoria'",
+        "ax:AXFocused on the new row's empty AXTextField",
+        "events.background:type, Return"
+      ],
+      "never": [
+        "menu File > Nuovo promemoria while inactive (disabled)",
+        "'Aggiorna ora' / 'AGGIORNA' (migrates the person's reminders)"
+      ],
+      "readBack": "smart list button 'Tutti, N promemoria' and the row's AXTextField value",
+      "firstRun": "prompt 'Passa alla nuova versione': press 'Aggiorna più tardi'"
+    },
+    "com.apple.Notes": {
+      "type": [
+        "events.background:AXMain + AXFocused on the body AXTextArea, postToPid"
+      ],
+      "readBack": "the AXTextArea value",
+      "notes": "Main window has 5000+ elements (notes list): walk visible rows only."
+    },
+    "com.apple.mail": {
+      "compose": [
+        "ax:menu File > Nuovo messaggio",
+        "events.background:AXFocused on the empty AXTextField after 'A:', type",
+        "events.background:AXFocused on the AXTextField after 'Oggetto:', type",
+        "events.background:AXFocused on AXWebArea 'message body', type"
+      ],
+      "send": [
+        "api:AppleScript make new outgoing message + to recipient + send; read back in sent mailbox by subject and date (verified 14 Oct)"
+      ],
+      "readBack": "fields: AXTextField values and the web area's AXStaticText; recipient becomes a contact token whose address is not readable; sending: none by AX, needs the Mail adapter's sent mailbox",
+      "notes": "Fields have no labels of their own: the label is the preceding AXStaticText. Viewer window has 3000+ elements (104 s naive).",
+      "never": [
+        "AXPress toolbar 'Invia' with the app inactive: window closed, AXPress said success, the message went to Drafts and was never sent (14 Oct)"
+      ]
+    },
+    "com.apple.TextEdit": {
+      "new": [
+        "ax:menu File > Nuovo"
+      ],
+      "type": [
+        "events.background:AXFocused on AXTextArea, postToPid"
+      ],
+      "close": [
+        "ax:AXPress AXCloseButton, then the sheet's 'Elimina' / 'Salva'"
+      ],
+      "never": [
+        "menu File > Chiudi or cmd+w while inactive (disabled / ignored)"
+      ]
+    },
+    "com.apple.finder": {
+      "newFolder": [
+        "api:FileManager (Finder adapter)",
+        "events.background:seat preparation records on the target window, then menu File > Nuova cartella"
+      ],
+      "never": [
+        "menu File > Nuova cartella while inactive without the key-window records (disabled)"
+      ],
+      "notes": "Menu is 'File', not 'Archivio', on it-IT 26.6. open -g opens a folder window without activating Finder."
+    }
+  }
+}

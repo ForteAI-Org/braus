@@ -12,7 +12,7 @@ struct WebSettlingTests {
 
     @Test("a text replaced by others of the same length, read after read: the settler returns only after the last one, before the cap")
     func sameLength() async throws {
-        let stack = await SyntheticForm.stack()
+        let stack = await TextTargetWebTests.stack()
         stack.page.step(texts: (1...8).map { "Passo \($0)" })
         let settler = WebSettler(tabs: stack.tabs)
         await settler.prepare(in: stack.processID)
@@ -24,7 +24,7 @@ struct WebSettlingTests {
 
     @Test("a page that holds still: the settler returns well before the cap (positive control)")
     func still() async throws {
-        let stack = await SyntheticForm.stack()
+        let stack = await TextTargetWebTests.stack()
         let settler = WebSettler(tabs: stack.tabs)
         await settler.prepare(in: stack.processID)
         let started = ContinuousClock.now

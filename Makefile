@@ -33,14 +33,14 @@ BASELINES := Tests/Driver/Benchmarks/Baselines
 BENCH_OUT := .build/bench
 REPORTS   := Documentation/Driver/compatibility
 
-# SwiftPM filters out SeatSession and reports 34 Swift Testing summaries.
+# SwiftPM filters out SeatSession and reports 40 Swift Testing summaries.
 # Filtering also omits the empty Swift Testing companions of the two XCTest-only
 # targets; their XCTest tests still run. SeatSession's tests run separately
-# through the synchronous native entry point, for 35 required summaries:
+# through the synchronous native entry point, for 41 required summaries:
 # AppKit RunLoop pumping can also end this otherwise pure bundle before its
 # async main reports completion.
 # The app's own tests remain in BrausTests. This is a run count, not a test count.
-UNIT_BUNDLES := 35
+UNIT_BUNDLES := 39
 
 # The seat cycle, alone in its own process.
 HOST_CYCLE_TESTS := 1
@@ -126,15 +126,28 @@ test: native-test-runner
 
 # The synchronous entry point survives native RunLoop returns during capture.
 # It loads the same built Swift Testing bundle; each tier still checks its count.
+# It links the Testing of the compiler that built the bundle, or it loads none of
+# its tests: a toolchain that carries its own (usr/lib/swift/macosx/testing, as
+# Swift 6.4 from swift.org does) by include, link and rpath to that folder, else
+# Xcode's Testing.framework. The macOS SDK and the XCTest rpaths are Xcode's.
 native-test-runner:
 	@$(SWIFT) build --build-tests
-	@$(SWIFT)c -parse-as-library \
-	    -F "$$(xcrun --sdk macosx --show-sdk-platform-path)/Developer/Library/Frameworks" \
-	    -Xlinker -rpath \
-	    -Xlinker "$$(xcrun --sdk macosx --show-sdk-platform-path)/Developer/Library/Frameworks" \
-	    -Xlinker -rpath \
-	    -Xlinker "$$(xcrun --sdk macosx --show-sdk-platform-path)/Developer/usr/lib" \
-	    Tools/Driver/Scripts/NativeTestMain.swift -o .build/native-driver-test-main
+	@platform="$$(xcrun --sdk macosx --show-sdk-platform-path)"; \
+	sdk="$$(xcrun --sdk macosx --show-sdk-path)"; \
+	testing="$$($(SWIFT)c -print-target-info | $(PYTHON) -c 'import json, sys; print(json.load(sys.stdin)["paths"]["runtimeResourcePath"])')/macosx/testing"; \
+	if [ -f "$$testing/libTesting.dylib" ]; then \
+	    $(SWIFT)c -parse-as-library -sdk "$$sdk" \
+	        -I "$$testing" -L "$$testing" -lTesting -Xlinker -rpath -Xlinker "$$testing" \
+	        -Xlinker -rpath -Xlinker "$$platform/Developer/Library/Frameworks" \
+	        -Xlinker -rpath -Xlinker "$$platform/Developer/usr/lib" \
+	        Tools/Driver/Scripts/NativeTestMain.swift -o .build/native-driver-test-main; \
+	else \
+	    $(SWIFT)c -parse-as-library -sdk "$$sdk" \
+	        -F "$$platform/Developer/Library/Frameworks" \
+	        -Xlinker -rpath -Xlinker "$$platform/Developer/Library/Frameworks" \
+	        -Xlinker -rpath -Xlinker "$$platform/Developer/usr/lib" \
+	        Tools/Driver/Scripts/NativeTestMain.swift -o .build/native-driver-test-main; \
+	fi
 
 host-tests: native-test-runner
 	@AGENTSEAT_HOST_TESTS=1 $(TIER) host-seat-cycle $(HOST_CYCLE_TESTS) \

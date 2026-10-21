@@ -20,8 +20,19 @@ import EngineCore
 public enum ProcedureSegmentation {
 
     /// The version of the rule, kept with every candidate it made: `app-blocks-2` since a menu listing
-    /// is no step (13 October 2026); the candidates `app-blocks-1` made stay as they were made.
+    /// is no step (13 October 2026); the candidates `app-blocks-1` made stay as they were made. A candidate
+    /// with a step that is no UI operation (P2-01) is made under `mixedPolicyVersion`, so a structure with
+    /// kinds never reuses the version of one without; a candidate of operations only is made as before.
     public static let policyVersion = "app-blocks-2"
+    public static let mixedPolicyVersion = "app-blocks-3"
+
+    /// StepKind distinguishes a UI operation, an adapter mutation and a read used by a later step.
+    /// An unused read stays in the trace as exploration and is no procedural step.
+    public enum StepKind: String, Sendable, Equatable, Hashable, CaseIterable {
+        case operation
+        case adapterCall   = "adapter_call"
+        case requiredRead  = "required_read"
+    }
 
     /// Call is what the rule reads of one call attributed to the attempt: the tool, how far it ran, the
     /// application it acted on, and the kind of outcome it concluded with when it concluded with one.
@@ -31,21 +42,36 @@ public enum ProcedureSegmentation {
         public let status: AgentCallStatus
         public let bundleID: String?
         public let resultKind: ActOutcomeKind?
+        public let checkCondition: OperationCheck.Condition?
+        /// Whether a later call of the attempt names a result field of this one (P2-02).
+        public let isReferenced: Bool
 
         public init(callEventID: String, tool: AgentTool, status: AgentCallStatus, bundleID: String?,
-                    resultKind: ActOutcomeKind? = nil) {
-            self.callEventID = callEventID
-            self.tool        = tool
-            self.status      = status
-            self.bundleID    = bundleID
-            self.resultKind  = resultKind
+                    resultKind: ActOutcomeKind? = nil, checkCondition: OperationCheck.Condition? = nil,
+                    isReferenced: Bool = false) {
+            self.callEventID    = callEventID
+            self.tool           = tool
+            self.status         = status
+            self.bundleID       = bundleID
+            self.resultKind     = resultKind
+            self.checkCondition = checkCondition
+            self.isReferenced   = isReferenced
         }
     }
 
-    /// Whether a call is a step: an operation that started and was not a menu listing.
-    public static func isStep(_ call: Call) -> Bool {
-        call.tool.isOperation && call.status != .planned && call.status != .skipped
-            && !isListing(tool: call.tool, resultKind: call.resultKind)
+    /// Whether a call is a step: an operation that started and was not a menu listing, an adapter's
+    /// call that started, or a read whose result a later call used (`kind(of:)`).
+    public static func isStep(_ call: Call) -> Bool { kind(of: call) != nil }
+
+    /// The kind of step a call is, nil when it is none (P2-01).
+    public static func kind(of call: Call) -> StepKind? {
+        guard call.status != .planned, call.status != .skipped else { return nil }
+        if call.tool.isOperation { return isListing(tool: call.tool, resultKind: call.resultKind) ? nil : .operation }
+        guard call.tool == .appCall else { return nil }
+        if call.checkCondition == .adapterRead {
+            return call.isReferenced ? .requiredRead : nil
+        }
+        return .adapterCall
     }
 
     /// Whether a call only listed a menu's items: a `menu` whose path ended on a menu answers the items
@@ -58,7 +84,8 @@ public enum ProcedureSegmentation {
     /// The steps of the calls, in their order, each with its block.
     public static func steps(of calls: [Call]) -> [ProcedureCandidate.Step] {
         var steps: [ProcedureCandidate.Step] = []
-        for call in calls where isStep(call) {
+        for call in calls {
+            guard let kind = kind(of: call) else { continue }
             let block: Int
             if let previous = steps.last {
                 block = EventFactText.same(previous.bundleID, call.bundleID) ? previous.blockIndex : previous.blockIndex + 1
@@ -70,17 +97,27 @@ public enum ProcedureSegmentation {
                 stepOccurrenceID: ProcedureCandidate.occurrenceID(of: call.callEventID),
                 callEventID     : call.callEventID,
                 blockIndex      : block,
-                bundleID        : call.bundleID
+                bundleID        : call.bundleID,
+                kind            : kind
             ))
         }
         return steps
     }
 
-    /// The digest of a structure: the rule's version and every step's call, in order. Equal digests
-    /// mean the same calls in the same order; a digest is a name, the steps are compared too.
+    /// The version a structure is made under: the mixed one when a step is no UI operation.
+    public static func version(of steps: [ProcedureCandidate.Step]) -> String {
+        steps.allSatisfy { $0.kind == .operation } ? policyVersion : mixedPolicyVersion
+    }
+
+    /// The digest of a structure: the rule's version and every step's call, in order, with its kind under the mixed
+    /// version. Equal digests mean the same calls in the same order; a digest is a name, the steps are compared too.
     public static func digest(of steps: [ProcedureCandidate.Step]) -> String {
-        var canonical = policyVersion
-        for step in steps { canonical += "\n" + CanonicalText.field(step.callEventID) }
+        let version = version(of: steps)
+        var canonical = version
+        for step in steps {
+            canonical += "\n" + CanonicalText.field(step.callEventID)
+            if version == mixedPolicyVersion { canonical += "\u{1F}" + step.kind.rawValue }
+        }
         return StructuralDigest.fnv1a(canonical)
     }
 }
@@ -99,19 +136,23 @@ public struct ProcedureCandidate: Sendable, Equatable {
         public let callEventID: String
         public let blockIndex: Int
         public let bundleID: String?
+        /// What the step is (P2-01): a UI operation unless the call was an adapter's.
+        public let kind: ProcedureSegmentation.StepKind
 
-        public init(position: Int, stepOccurrenceID: String, callEventID: String, blockIndex: Int, bundleID: String?) {
+        public init(position: Int, stepOccurrenceID: String, callEventID: String, blockIndex: Int, bundleID: String?,
+                    kind: ProcedureSegmentation.StepKind = .operation) {
             self.position         = position
             self.stepOccurrenceID = stepOccurrenceID
             self.callEventID      = callEventID
             self.blockIndex       = blockIndex
             self.bundleID         = bundleID
+            self.kind             = kind
         }
 
         public static func == (lhs: Step, rhs: Step) -> Bool {
             lhs.position == rhs.position && lhs.stepOccurrenceID.utf8.elementsEqual(rhs.stepOccurrenceID.utf8)
                 && lhs.callEventID.utf8.elementsEqual(rhs.callEventID.utf8) && lhs.blockIndex == rhs.blockIndex
-                && EventFactText.same(lhs.bundleID, rhs.bundleID)
+                && EventFactText.same(lhs.bundleID, rhs.bundleID) && lhs.kind == rhs.kind
         }
     }
 
@@ -172,7 +213,7 @@ public struct ProcedureCandidate: Sendable, Equatable {
             candidateID       : "candidate-\(attemptID)-\(digest)",
             taskID            : taskID,
             attemptID         : attemptID,
-            policyVersion     : ProcedureSegmentation.policyVersion,
+            policyVersion     : ProcedureSegmentation.version(of: steps),
             structureDigest   : digest,
             checkpointSequence: checkpointSequence,
             builtAtMS         : builtAtMS,

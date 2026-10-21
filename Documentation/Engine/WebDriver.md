@@ -1,18 +1,41 @@
 # Web engine
 
 Braus drives web pages with the same engine, the same tools and the same living memory it uses for
-applications. A page is not captured as pixels: Braus starts its own Chrome, talks to it over the
-DevTools protocol through a pipe, and reads each page's accessibility tree and layout. The engine
+applications when the optional web channel is enabled. By default, Braus starts its own Chrome
+and reads the page's accessibility tree and layout through the DevTools pipe. The app also has
+explicit personal and paired-profile modes; the transport and authority depend on the chosen mode. The engine
 sees a tab the way it sees a window, and what a page teaches is filed under `web:<host>` the way an
 application's knowledge is filed under its bundle id.
+
+## Chrome profiles and setup
+
+In the app, open **Settings → Chrome Profiles** and choose **Connect Chrome**. If web pages are
+off, the setup enables the web channel for the next launch and asks to restart Braus; it will not
+restart while a worker or external client is busy. Braus prepares its extension folder and native
+host registration. In the chosen Chrome profile, enable Developer mode and load the folder with
+**Load unpacked**, allow the extension and confirm the profile name on its pairing page. The
+extension is not yet distributed through the Chrome Web Store.
+
+Pairing is not a website login or permission to silently select another account. Choose the paired
+profile for the conversation. If it is unavailable, the operation refuses instead of switching
+profiles. The chosen paired profile takes precedence over personal-Chrome mode.
+
+| Composition | Browser/profile scope |
+| --- | --- |
+| App worker | Braus's own Chrome by default; explicit personal or paired-profile choices per conversation. |
+| Local MCP client | Braus's own Chrome in the current composition when the app's web channel is enabled; no inherited worker profile choice. |
+| CLI chat | Its own headless Chrome and profile under the CLI history directory; no personal or paired app profile. |
+
+Connecting Chrome and granting permissions do not enable the separate native or adapter channels.
+For those options, see [advanced channel configuration](README.md#advanced-channel-configuration).
 
 ## Shape
 
 | Module | What it owns |
 |---|---|
 | `WebDriver` (`Sources/Web`) | Chrome over its DevTools pipe, Foundation only: `ChromeProcess` starts Chrome with `--remote-debugging-pipe`, and `--headless` unless a window is asked for, with the pipe on descriptors 3 and 4; `CDPConnection` is the protocol connection (NUL-framed JSON, command ids, timeouts, flattened sessions, events by session); `WebBrowser` opens, lists and attaches pages; `WebPage` sends commands in its session, navigates and evaluates, in the page's world or in a `WebWorld`. `ChromeLaunchOptions.brausProfile` is Braus's own profile, never the user's everyday one |
-| `WebDriving` (`Sources/Web`) | a page as the engine's roles see a window. `WebTabs` names each tab with a synthetic negative process id, because every role is keyed by one. `WebScenes` is `SceneProviding`: `Accessibility.getFullAXTree`, `DOMSnapshot.captureSnapshot` and `Page.getLayoutMetrics`, built into a scene by `WebSceneBuilder`. `WebActuator` is `Actuating` over `Input.dispatchMouseEvent`, `dispatchKeyEvent` and `insertText` (`WebKeys` maps macOS key codes to DOM keys). `WebControls` is `ControlPressing` over the page's DOM; `WebSettler` is `Settling` on a DOM signature; `WebWindows` is `WindowListing` for a tab |
-| `WebSession` (`Sources/Integration`) | `WebEngineRuntime`, `EngineRuntime` over the web roles; `WebAutomationSession`, the session on one tab behind the tools; `RoutingAutomationSession`, which sends `web:` and URLs to the web session and every other name to the desktop one, so `AutomationTools` needs no change |
+| `WebDriving` (`Sources/Web`) | a page as the engine's roles see a window. `WebTabs` names each tab with a synthetic negative process id, because every role is keyed by one. `WebScenes` is `SceneProviding`: `Accessibility.getFullAXTree`, `DOMSnapshot.captureSnapshot` and `Page.getLayoutMetrics`, built into a scene by `WebSceneBuilder`. `WebActuator` is `Actuating` over `Input.dispatchMouseEvent`, `dispatchKeyEvent` and `insertText` (`WebKeys` maps macOS key codes to DOM keys): a gesture goes only to the document its scene was read from, and a click aimed at a scene element only where the page's own hit test lands on that element's node. `WebControls` is `ControlPressing` over the page's DOM; `WebSettler` is `Settling` on a DOM signature with a count of the DOM's changes and a watch of the tab's requests in flight (`WebRequests`), and answers whether the wait settled, reached its cap or had nothing to watch; `WebWindows` is `WindowListing` for a tab |
+| `WebSession` (`Sources/Integration`) | `WebEngineRuntime`, `EngineRuntime` over the web roles; `WebAutomationSession`, the session on one tab behind the tools. `RoutingAutomationSession` (`Router`) sends `web:` and URLs to it, so `AutomationTools` needs no change |
 
 ## The scene
 
@@ -39,6 +62,31 @@ application's knowledge is filed under its bundle id.
   `web:blank` for a page with no host.
 - **Quality.** The tree is read whole, so the capture is complete unless the 600-element limit
   stopped it; the memory relies on that statement as it does on a desktop capture's.
+- **Secure fields (W1).** An `<input type=password>`, read from the DOM snapshot's own attribute in
+  every document (`WebLayout.secureFieldIDs`), is an `AXSecureTextField` with no value whatever role
+  Chrome's tree gives it, an explicit ARIA role included. `WebControls` never reads its value back.
+- **Physical identity.** Each element with a DOM node carries an opaque `TargetIdentity` in the
+  `PerceivedWindow` (`identities`): the tab's target and session, the document's own node
+  (`DOM.getDocument`) and the element's node, by backend ids. The scene id names kind, label and place,
+  which a node replaced in the same place keeps; the identity changes with the node or the document.
+
+## Typed text and the focus
+
+Before a call writes anything, the tools ask the engine where its text would go (`ActionEngine.classify`, on a
+fresh perception). A `type_text` field is resolved as the dispatch resolves it: secure by its role; ordinary only
+when it takes text and its identity is attested, and the dispatch is then bound to it (`InputRequest.binding`);
+anything else is unclassified. An `insert_text` goes to the focus as `WebControls.focusedField` attests it, by the
+DOM on the focused object itself, never by an ARIA role: a password input is secure; a text input, a text area or an
+element the DOM makes editable is ordinary, with its node's identity; anything else (a button, a link, a select, a
+checkbox, no focus, a frame whose document cannot be read) is unknown. Never a value. Only a focus attested
+ordinary is read back after an insertion, or keeps its expected value in the check.
+
+A bound dispatch checks before any gesture and after its click. Before any gesture, the resolved field must still
+be the same node, with the same role, not secure: otherwise it is refused, nothing sent. After the click, before
+each key that prepares the field (selecting what it holds, moving to its end) and again right before the text, the
+focus must be that node and not secure: otherwise the input stops there, and what went out (the click, any
+preparation key) stands as a partial delivery closed as unknown, never replayed. A race remains between the last
+read and the text: a node swapped exactly then would receive it. No read from outside the page can close it.
 
 ## Page scripts
 
@@ -189,26 +237,33 @@ address loads in the same tab. Every call then goes through the same `ActionEngi
 actions and the task's procedure candidates under `web:<host>` with no change to its logic.
 Opening an application closes the web session, and opening an address closes the desktop one.
 
-`RoutingAutomationSession` sends `web:<host>` and `http(s)://` addresses to the web session and
-every other name to the desktop (Seat) session; a window id below zero is a tab, listed by the web
-session. A `file://` address goes to the web session too, which refuses it with a sentence unless it
-was made with `allowsLocalFiles`: a local file opened in Chrome would be read into the scene, the
-model's context and the memory, whatever it holds. Only the tests' local fixtures turn it on.
+When native or web routes are enabled, workers and external clients use
+`RoutingAutomationSession(native:desktop:web:)` with only the configured routes. A web address
+uses the web session when enabled; a native app goes to the MacDriver only with the native
+channel. A `MacHandoff` passes an app to the desktop session by its bundle id. The desktop side goes through the seat queue as
+before; the web side and the MacDriver take no seat. A conversation hands the same web session to every
+router it makes, so the Chrome its "Show Chrome Window" setting opened stays the one it drives. They all
+use `chrome-web` in the app's directory only in Braus-owned mode. Personal and paired-profile
+modes keep their explicit profile choice. Profile/session ownership still applies; a route that
+cannot acquire the chosen profile refuses instead of reusing a different one. Releasing a
+worker's computer, or quitting, closes its web session too.
 
-In the app the web is off unless the `computer.web` preference is on (a launch argument
-`-computer.web YES` turns it on for one run). With it, every external MCP client and every worker
-conversation drives a `RoutingAutomationSession`, and `open_session`'s description and the
-instructions teach `web:<host>`; without it they say nothing of it and no Chrome is ever started.
-The desktop side goes through the seat queue as before, the web side takes no seat. They all use
-one Chrome profile, `chrome-web` in the app's directory, and Chrome lets one process at a time use a
-profile, so a second web session is refused with a sentence until the first closes.
+### The router before the drivers
 
-Each conversation has its own web session. A turn that starts in another conversation of the same
-worker closes it, as do releasing the worker's computer and quitting. The inspector's Show Chrome
-Window switch, kept per conversation, starts that conversation's Chrome visible instead of headless:
-Chrome is started with `--no-startup-window` and its tab opened in the background in a new window,
-so the window never takes the person's focus. A change applies the next time Chrome starts; a
-Chrome idle between turns is closed at once.
+The router is its own package target, `Router` (`Sources/Integration/Router`), and knows no driver: it
+depends on `AutomationRuntime`, `EngineCore`, `PerceptionCore` and `WindowServerListing` only. The app,
+the `braus chat` command line and the tests hand it a session for each route; `native` and `web` are
+optional, so a router with only a desktop and a web session is the web branch's old one. A native
+session gives an app back by throwing a `RouteHandoff` (the router's vocabulary), which `MacHandoff`
+adopts; the drivers depend on the router, never the other way round. Decided with issue #39, when the
+app moved off the web branch's `RoutingAutomationSession` in `WebSession` (desktop or web, nothing
+else) and the Mac branch's `DriverRoutingAutomationSession` in `MacSession`: one router, outside both,
+so the app and the tests cannot drift between two. Because `WebSession` does not depend on it, the
+router's address test (`web:`, `http`, `https`, `file`) mirrors `WebAutomationSession.address(in:)`,
+which still refuses a `web:` word naming no address.
+
+A `file://` address is refused unless the session explicitly enables `allowsLocalFiles`, as the local fixture tests do.
+The legacy `computer.web` switch enables the web channel alongside the channel configuration.
 
 ## Tests
 
@@ -224,6 +279,11 @@ window test (`BRAUS_WEB_WINDOW_TESTS=1`) opens a Chrome window on the person's s
 that the frontmost application never changes.
 
 ## Limits
+
+- Local `file://` navigation is refused by default (`allowsLocalFiles = false`). The router's ability
+  to recognize a file address is not permission to open it. A test composition can explicitly allow it.
+- The web channel and profile choices must be enabled explicitly. A missing paired profile does not
+  authorize fallback to another profile or account.
 
 - Only the main frame is read: a frame is a section whose contents are not read, and nothing in it is
   clickable by name. The isolated world is the main frame's alone. Closed shadow roots are not

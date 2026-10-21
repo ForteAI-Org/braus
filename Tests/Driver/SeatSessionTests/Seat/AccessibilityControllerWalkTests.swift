@@ -1,137 +1,174 @@
-import ApplicationServices
 import CoreGraphics
 import Foundation
 import PerceptionCore
 import Testing
 @testable import AccessibilityActions
 
-/// The controller's walks on built trees: each stays inside its budget whatever the tree's size, a walk
-/// the budget stopped answers incomplete, as one that met unread children does, and a press goes only to
-/// a control that lists AXPress.
-@Suite("Accessibility controller walk budget and press target")
+/// The controller's walks on built trees: each stays inside its budget, whatever the app's size, so a
+/// dense app answers in time with a partial answer (MacDriver spec section 3, rule 3; #47).
+@Suite("Accessibility controller walk budget")
 struct AccessibilityControllerWalkTests {
 
-    @Test("A walk visits at most the budget's elements and then answers incomplete")
+    final class Node: @unchecked Sendable {
+        let role: String
+        let value: String?
+        let title: String?
+        let number: Int?
+        let children: [Node]
+        /// The children did not answer: `children` reads empty, as the live reader's does.
+        let unreadable: Bool
+        init(_ role: String, value: String? = nil, title: String? = nil, number: Int? = nil, unreadable: Bool = false,
+             children: [Node] = []) {
+            self.role = role
+            self.value = value
+            self.title = title
+            self.number = number
+            self.unreadable = unreadable
+            self.children = children
+        }
+    }
+
+    struct Reader: AccessibilityTreeReading {
+        func role(_ node: Node) -> String? { node.role }
+        func subrole(_ node: Node) -> String? { nil }
+        func title(_ node: Node) -> String? { node.title }
+        func descriptionText(_ node: Node) -> String? { nil }
+        func identifier(_ node: Node) -> String? { nil }
+        func value(_ node: Node) -> String? { node.value }
+        func numericValue(_ node: Node) -> Int? { node.number }
+        func isEnabled(_ node: Node) -> Bool? { true }
+        func actions(_ node: Node) -> [String] { [] }
+        func frame(_ node: Node) -> CGRect? { nil }
+        func children(_ node: Node) -> [Node] { node.unreadable ? [] : node.children }
+        func readChildren(_ node: Node) -> [Node]? { node.unreadable ? nil : node.children }
+    }
+
+    /// A reader that cannot tell an unread list from a leaf: it answers `children` only.
+    struct PlainReader: AccessibilityTreeReading {
+        func role(_ node: Node) -> String? { node.role }
+        func subrole(_ node: Node) -> String? { nil }
+        func title(_ node: Node) -> String? { node.title }
+        func descriptionText(_ node: Node) -> String? { nil }
+        func identifier(_ node: Node) -> String? { nil }
+        func value(_ node: Node) -> String? { node.value }
+        func numericValue(_ node: Node) -> Int? { node.number }
+        func isEnabled(_ node: Node) -> Bool? { true }
+        func actions(_ node: Node) -> [String] { [] }
+        func frame(_ node: Node) -> CGRect? { nil }
+        func children(_ node: Node) -> [Node] { node.unreadable ? [] : node.children }
+    }
+
+    /// A pop-up showing "Medio" and a box "Muto" on, then a group whose children did not answer and may
+    /// hold another of each; `unreadable` false lists them.
+    private func duplicates(unreadable: Bool) -> Node {
+        Node("AXWindow", children: [
+            Node("AXPopUpButton", value: "Medio"), Node("AXCheckBox", title: "Muto", number: 1),
+            Node("AXGroup", unreadable: unreadable, children: [Node("AXPopUpButton", value: "Medio"),
+                                                              Node("AXCheckBox", title: "Muto", number: 0)]),
+        ])
+    }
+
+    @Test("M2: a candidate found before a branch that did not list its children is not the only one: no value, no state, an incomplete walk")
+    func candidateBeforeUnreadable() {
+        let root = duplicates(unreadable: true)
+        #expect(AccessibilityController.controlValue(matchingAny: ["medio"], in: [root], reader: Reader(), budget: .standard) == nil)
+        #expect(AccessibilityController.toggleState(labelled: "muto", in: [root], reader: Reader(), budget: .standard) == nil)
+        #expect(!AccessibilityController.walk([root], reader: Reader(), budget: .standard) { _ in false })
+    }
+
+    @Test("M2 positive controls: an empty leaf is a complete walk that answers the one value and state; the duplicates read in full are two")
+    func completeControls() {
+        let root = Node("AXWindow", children: [Node("AXPopUpButton", value: "Medio"), Node("AXCheckBox", title: "Muto", number: 1),
+                                               Node("AXGroup", children: [])])
+        #expect(AccessibilityController.walk([root], reader: Reader(), budget: .standard) { _ in false })
+        #expect(AccessibilityController.controlValue(matchingAny: ["medio"], in: [root], reader: Reader(), budget: .standard) == "Medio")
+        #expect(AccessibilityController.toggleState(labelled: "muto", in: [root], reader: Reader(), budget: .standard) == .on)
+        let listed = duplicates(unreadable: false)
+        #expect(AccessibilityController.controlValue(matchingAny: ["medio"], in: [listed], reader: Reader(), budget: .standard) == nil)
+    }
+
+    @Test("M2: a reader that answers only children walks as before: what it lists is all there is")
+    func readerWithoutReadChildren() {
+        #expect(AccessibilityController.walk([duplicates(unreadable: true)], reader: PlainReader(), budget: .standard) { _ in false })
+        #expect(AccessibilityController.controlValue(matchingAny: ["medio"], in: [duplicates(unreadable: true)],
+                                                     reader: PlainReader(), budget: .standard) == "Medio")
+    }
+
+    /// A window holding `count` groups, with a pop-up showing "Medio" after them.
+    private func wide(_ count: Int) -> Node {
+        Node("AXWindow", children: (0..<count).map { _ in Node("AXGroup") } + [Node("AXPopUpButton", value: "Medio")])
+    }
+
+    @Test("A walk visits at most the budget's elements, and a control past them is not found")
     func elementBudget() {
-        let budget = budget(elements: 50)
         var visited = 0
-        let complete = AccessibilityController.walk([wide(100)], reader: WalkReader(), budget: budget) { _ in
+        AccessibilityController.walk([wide(5_000)], reader: Reader(), budget: .standard) { _ in
             visited += 1
             return false
         }
-        #expect(visited == 50)
-        #expect(!complete)
-        #expect(AccessibilityController.firstControl(in: [wide(100)], reader: WalkReader(), budget: budget) { _ in true } == nil)
-        #expect(AccessibilityController.firstControl(in: [wide(10)], reader: WalkReader(), budget: budget) { _ in true } != nil)
+        #expect(visited == AccessibilityController.WalkBudget.standard.elements)
+        #expect(AccessibilityController.firstControl(in: [wide(5_000)], reader: Reader(), budget: .standard) { _ in true } == nil)
+        #expect(AccessibilityController.firstControl(in: [wide(10)], reader: Reader(), budget: .standard) { _ in true } != nil)
     }
 
-    @Test("A tree that fits the budget is complete")
-    func fitsBudget() {
-        let complete = AccessibilityController.walk([wide(10)], reader: WalkReader(), budget: budget(elements: 12)) { _ in
-            false
-        }
-        #expect(complete)
-    }
-
-    @Test("A walk past its deadline visits nothing and answers incomplete")
-    func deadline() {
+    @Test("A walk stops at the depth limit and at the deadline")
+    func depthAndDeadline() {
+        var deep = Node("AXPopUpButton", value: "Medio")
+        for _ in 0..<20 { deep = Node("AXGroup", children: [deep]) }
+        #expect(AccessibilityController.firstControl(in: [deep], reader: Reader(), budget: .standard) { _ in true } == nil)
         var visited = 0
-        let complete = AccessibilityController.walk([wide(10)], reader: WalkReader(), budget: budget(deadline: .zero)) { _ in
+        AccessibilityController.walk([wide(10)], reader: Reader(), budget: .init(deadline: .zero)) { _ in
             visited += 1
             return false
         }
         #expect(visited == 0)
-        #expect(!complete)
-    }
-
-    @Test("A control below the depth limit is not reached")
-    func depth() {
-        var deep = WalkNode("AXPopUpButton", value: "Medio")
-        for _ in 0..<20 { deep = WalkNode("AXGroup", children: [deep]) }
-        #expect(AccessibilityController.firstControl(in: [deep], reader: WalkReader()) { _ in true } == nil)
     }
 
     @Test("Every visited element gets its messaging timeout before it is read")
     func timeoutOnEveryElement() {
         var timed = 0
         var visited = 0
-        AccessibilityController.walk([wide(10)], reader: WalkReader(), timeout: { _ in timed += 1 }) { _ in
+        AccessibilityController.walk([wide(10)], reader: Reader(), budget: .standard, timeout: { _ in timed += 1 }) { _ in
             visited += 1
             return false
         }
         #expect(timed == visited && visited == 12)
     }
 
-    @Test("The standard budget leaves room for a dense mixer")
-    func standardBudget() {
-        #expect(AccessibilityController.WalkBudget.standard.elements >= 4_000)
-        #expect(AccessibilityController.WalkBudget.standard.deadline >= .seconds(3))
-        #expect(AccessibilityController.WalkBudget.standard.depth == 10)
-    }
-
-    @Test("A labelled control without AXPress is skipped for the next one that lists it")
-    func skipsControlWithoutPress() {
-        let pressable = WalkNode("AXPopUpButton", value: "Medio")
-        let window = WalkNode("AXWindow", children: [
-            WalkNode("AXPopUpButton", value: "Medio", actions: [kAXShowMenuAction]),
-            pressable,
+    @Test("A control's value among the labels, only when one control has it")
+    func controlValue() {
+        let window = Node("AXWindow", children: [
+            Node("AXPopUpButton", value: "Medio"), Node("AXComboBox", value: "Doppio"), Node("AXPopUpButton", value: "Doppio"),
         ])
-        #expect(AccessibilityController.pressTarget(labelled: "medio", in: [window], reader: WalkReader()) === pressable)
+        #expect(AccessibilityController.controlValue(matchingAny: ["medio"], in: [window], reader: Reader(), budget: .standard) == "Medio")
+        #expect(AccessibilityController.controlValue(matchingAny: ["doppio"], in: [window], reader: Reader(), budget: .standard) == nil)
     }
 
-    @Test("No control is pressed when none lists AXPress")
-    func refusesWithoutPress() {
-        let window = WalkNode("AXWindow", children: [WalkNode("AXComboBox", value: "Medio", actions: [])])
-        #expect(AccessibilityController.pressTarget(labelled: "medio", in: [window], reader: WalkReader()) == nil)
+    @Test("A walk the budget cut short says so; one that covered the tree, or stopped at a match, does not")
+    func walkReportsTheCut() {
+        #expect(!AccessibilityController.walk([wide(5_000)], reader: Reader(), budget: .standard) { _ in false })
+        #expect(AccessibilityController.walk([wide(10)], reader: Reader(), budget: .standard) { _ in false })
+        #expect(AccessibilityController.walk([wide(5_000)], reader: Reader(), budget: .standard) { _ in true })
     }
 
-    /// A window holding `count` groups, with a pop-up showing "Medio" after them.
-    private func wide(_ count: Int) -> WalkNode {
-        WalkNode("AXWindow", children: (0..<count).map { _ in WalkNode("AXGroup") } + [
-            WalkNode("AXPopUpButton", value: "Medio")
+    @Test("A value found once in a walk the budget cut short is unknown: a second may lie past the cut")
+    func controlValuePastTheCut() {
+        let window = Node("AXWindow", children: [Node("AXPopUpButton", value: "Medio")]
+            + (0..<5_000).map { _ in Node("AXGroup") } + [Node("AXPopUpButton", value: "Medio")])
+        #expect(AccessibilityController.controlValue(matchingAny: ["medio"], in: [window], reader: Reader(), budget: .standard) == nil)
+    }
+
+    @Test("A toggle's state by its title, only for one toggle so named in a walk that covered the tree")
+    func toggleStateByLabel() {
+        let window = Node("AXWindow", children: [
+            Node("AXCheckBox", title: "Loop", number: 1), Node("AXRadioButton", title: "Doppio", number: 0),
+            Node("AXCheckBox", title: "Doppio", number: 1), Node("AXButton", title: "Solo", number: 1),
         ])
-    }
-
-    private func budget(
-        elements: Int      = 4_000,
-        deadline: Duration = .seconds(3)
-    ) -> AccessibilityController.WalkBudget {
-        AccessibilityController.WalkBudget(
-            elements          : elements,
-            depth             : 10,
-            deadline          : deadline,
-            applicationTimeout: 1,
-            elementTimeout    : 0.25
-        )
+        #expect(AccessibilityController.toggleState(labelled: "loop", in: [window], reader: Reader(), budget: .standard) == .on)
+        #expect(AccessibilityController.toggleState(labelled: "doppio", in: [window], reader: Reader(), budget: .standard) == nil)
+        #expect(AccessibilityController.toggleState(labelled: "solo", in: [window], reader: Reader(), budget: .standard) == nil)
+        let cut = Node("AXWindow", children: [Node("AXCheckBox", title: "Loop", number: 1)]
+            + (0..<5_000).map { _ in Node("AXGroup") })
+        #expect(AccessibilityController.toggleState(labelled: "loop", in: [cut], reader: Reader(), budget: .standard) == nil)
     }
 }
-
-final class WalkNode: @unchecked Sendable {
-    let role: String
-    let value: String?
-    let actions: [String]
-    let children: [WalkNode]
-
-    init(_ role: String, value: String? = nil, actions: [String] = [kAXPressAction], children: [WalkNode] = []) {
-        self.role     = role
-        self.value    = value
-        self.actions  = actions
-        self.children = children
-    }
-}
-
-struct WalkReader: AccessibilityTreeReading {
-    func isSameNode(_ first: WalkNode, _ second: WalkNode) -> Bool { first === second }
-    func role(_ node: WalkNode) -> String? { node.role }
-    func subrole(_ node: WalkNode) -> String? { nil }
-    func title(_ node: WalkNode) -> String? { nil }
-    func descriptionText(_ node: WalkNode) -> String? { nil }
-    func identifier(_ node: WalkNode) -> String? { nil }
-    func value(_ node: WalkNode) -> String? { node.value }
-    func numericValue(_ node: WalkNode) -> Int? { nil }
-    func isEnabled(_ node: WalkNode) -> Bool? { true }
-    func actions(_ node: WalkNode) -> [String] { node.actions }
-    func frame(_ node: WalkNode) -> CGRect? { nil }
-    func children(_ node: WalkNode) -> [WalkNode] { node.children }
-}
-

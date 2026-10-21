@@ -193,6 +193,10 @@ final class LearningSession: AutomationSessionOperating {
         }
     }
 
+    func classify(_ input: InputRequest.Input, section: String?) async -> TextTargetClass { AttestedFields.classify(input) }
+    func deliver(_ input: InputRequest.Input, section: String?, dispatch: TextDispatch) async throws -> ActOutcome {
+        try await deliver(input, section: section)
+    }
     func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome {
         let bundle = application ?? ""
         switch input {

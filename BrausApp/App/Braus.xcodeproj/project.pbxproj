@@ -13,7 +13,10 @@
 		000000000000000200000004 /* BrausEngine in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000014 /* BrausEngine */; };
 		000000000000000200000005 /* BrausPerception in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000016 /* BrausPerception */; };
 		000000000000000200000006 /* BrausWeb in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000017 /* BrausWeb */; };
+		000000000000000200000007 /* BrausMac in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000018 /* BrausMac */; };
+		000000000000000200000008 /* Router in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000019 /* Router */; };
 		04975A2F3064044900FB69FD /* braus-bridge in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000015 /* braus-bridge */; };
+		0000000000000002000000A2 /* braus-chrome-host in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000002000000A1 /* braus-chrome-host */; };
 		049760CE3065351100FB69FD /* braus_logo.icon in Resources */ = {isa = PBXBuildFile; fileRef = 049760CD3065351100FB69FD /* braus_logo.icon */; };
 /* End PBXBuildFile section */
 
@@ -64,11 +67,14 @@
 			isa = PBXFrameworksBuildPhase;
 			files = (
 				04975A2F3064044900FB69FD /* braus-bridge in Frameworks */,
+				0000000000000002000000A2 /* braus-chrome-host in Frameworks */,
 				000000000000000200000001 /* SeatBroker in Frameworks */,
 				000000000000000200000002 /* ModelTransports in Frameworks */,
 				000000000000000200000005 /* BrausPerception in Frameworks */,
 				000000000000000200000004 /* BrausEngine in Frameworks */,
 				000000000000000200000006 /* BrausWeb in Frameworks */,
+				000000000000000200000007 /* BrausMac in Frameworks */,
+				000000000000000200000008 /* Router in Frameworks */,
 				000000000000000200000003 /* BrausChat in Frameworks */,
 			);
 		};
@@ -110,6 +116,7 @@
 				000000000000000130000000 /* Frameworks */,
 				000000000000000140000000 /* Resources */,
 				000000000000000150000000 /* Embed Helper */,
+				000000000000000170000000 /* Embed Chrome Extension */,
 				000000000000000160000000 /* Stamp Commit */,
 			);
 			buildRules = (
@@ -122,9 +129,12 @@
 				000000000000000200000011 /* SeatBroker */,
 				000000000000000200000012 /* ModelTransports */,
 				000000000000000200000015 /* braus-bridge */,
+				0000000000000002000000A1 /* braus-chrome-host */,
 				000000000000000200000016 /* BrausPerception */,
 				000000000000000200000014 /* BrausEngine */,
 				000000000000000200000017 /* BrausWeb */,
+				000000000000000200000018 /* BrausMac */,
+				000000000000000200000019 /* Router */,
 				000000000000000200000013 /* BrausChat */,
 			);
 			productName = Braus;
@@ -215,14 +225,39 @@
 				"$(PROJECT_DIR)/Scripts/embed-helper.sh",
 				"$(BUILT_PRODUCTS_DIR)/braus-bridge",
 				"$(UNINSTALLED_PRODUCTS_DIR)/$(PLATFORM_NAME)/braus-bridge",
+				"$(BUILT_PRODUCTS_DIR)/braus-chrome-host",
+				"$(UNINSTALLED_PRODUCTS_DIR)/$(PLATFORM_NAME)/braus-chrome-host",
 			);
 			name = "Embed Helper";
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/braus-bridge",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/braus-chrome-host",
 			);
 			shellPath = /bin/sh;
 			shellScript = (
 				"exec \"$PROJECT_DIR/Scripts/embed-helper.sh\"",
+				"",
+			);
+		};
+		000000000000000170000000 /* Embed Chrome Extension */ = {
+			isa = PBXShellScriptBuildPhase;
+			inputPaths = (
+				"$(PROJECT_DIR)/Scripts/embed-chrome-extension.sh",
+				"$(PROJECT_DIR)/../ChromeExtension/manifest.json",
+				"$(PROJECT_DIR)/../ChromeExtension/background.js",
+				"$(PROJECT_DIR)/../ChromeExtension/pair.html",
+				"$(PROJECT_DIR)/../ChromeExtension/pair.js",
+			);
+			name = "Embed Chrome Extension";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ChromeExtension/manifest.json",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ChromeExtension/background.js",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ChromeExtension/pair.html",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ChromeExtension/pair.js",
+			);
+			shellPath = /bin/sh;
+			shellScript = (
+				"exec \"$PROJECT_DIR/Scripts/embed-chrome-extension.sh\"",
 				"",
 			);
 		};
@@ -574,6 +609,11 @@
 			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
 			productName = "braus-bridge";
 		};
+		0000000000000002000000A1 /* braus-chrome-host */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
+			productName = "braus-chrome-host";
+		};
 		000000000000000200000016 /* BrausPerception */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
@@ -583,6 +623,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
 			productName = BrausWeb;
+		};
+		000000000000000200000018 /* BrausMac */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
+			productName = BrausMac;
+		};
+		000000000000000200000019 /* Router */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
+			productName = Router;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

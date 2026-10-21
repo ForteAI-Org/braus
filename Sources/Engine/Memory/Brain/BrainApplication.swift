@@ -79,8 +79,13 @@ public struct BrainApplicationKey: Sendable, Equatable, Hashable {
 /// key, the application's bundle id, the requested instant as a canonical millisecond, and every
 /// input the current algorithm reads, in its order and type. It is what is stored and what a retry
 /// is compared against, exactly; building it is the one place values are derived (the detections
-/// of a scene, its title's letter family, the effect's typed columns), and nothing is derived again
-/// on the way back.
+/// of a scene, its title's letter family, the effect's typed columns, an observation's coverage),
+/// and nothing is derived again on the way back.
+///
+/// An observation may carry its `coverage`. A command without one is a contract version 1 command
+/// and is decided exactly as before coverage existed (`brain-updater-1`); a command with one is a
+/// version 3 command decided under `brain-updater-3`, with explicit spatial scope. Each command keeps its own versions,
+/// so an application stored before coverage existed replays as it was decided.
 public struct BrainApplicationCommand: Sendable {
 
     /// Input is what the algorithm reads for each operation.
@@ -102,9 +107,23 @@ public struct BrainApplicationCommand: Sendable {
     public let requestedAtMS: Int64
     public let input: Input
 
+    /// What the observation could see; nil for a record, a naming and an observation made before
+    /// coverage existed, which keeps the behavior of contract version 1.
+    public let coverage: BrainObservationCoverage?
+
     /// A command from its parts, validated: an identity, a bundle id, a non-negative ordinal, an
-    /// instant inside `BrainClock.range` and finite bounds; the input must be the key's operation's.
-    public init(key: BrainApplicationKey, bundleID: String, requestedAtMS: Int64, input: Input) throws {
+    /// instant inside `BrainClock.range` and finite bounds; the input must be the key's operation's,
+    /// and only an observation carries a coverage.
+    ///
+    /// A command rebuilt from another one must pass its `coverage` on: leaving it out makes the
+    /// rebuilt command a version 1 observation, whose partial captures age the Brain.
+    public init(
+        key          : BrainApplicationKey,
+        bundleID     : String,
+        requestedAtMS: Int64,
+        input        : Input,
+        coverage     : BrainObservationCoverage? = nil
+    ) throws {
         guard !key.eventID.isEmpty else { throw BrainApplicationError.invalidCommand(.emptyEventID) }
         guard !bundleID.isEmpty else { throw BrainApplicationError.invalidCommand(.emptyBundleID) }
         if let sample = key.sample, sample.ordinal < 0 { throw BrainApplicationError.invalidCommand(.negativeOrdinal) }
@@ -123,10 +142,20 @@ public struct BrainApplicationCommand: Sendable {
             default:
                 throw BrainApplicationError.invalidCommand(.inputDoesNotMatchOperation)
         }
+        guard coverage == nil || key.operation == .observe else {
+            throw BrainApplicationError.invalidCommand(.inputDoesNotMatchOperation)
+        }
         self.key           = key
         self.bundleID      = bundleID
         self.requestedAtMS = requestedAtMS
         self.input         = input
+        self.coverage      = coverage
+    }
+
+    /// Version 3 for spatially scoped observations, version 2 for historical window-wide coverage, version 1 otherwise.
+    public var contractVersion: Int {
+        guard let coverage else { return BrainApplicationContract.legacyVersion }
+        return coverage.spatialScope == .legacyWindow ? 2 : BrainApplicationContract.version
     }
 
     private static func requireFinite(_ detection: BrainDetection, prefix: String, position: Int) throws {
@@ -141,26 +170,45 @@ public struct BrainApplicationCommand: Sendable {
 
     /// The observation of a scene as `BrainMemory.observe` ingests it: every element as a
     /// `BrainDetection`, scoped to `LabelText.letters(windowTitle)`, the empty family being no
-    /// scope. `sample` names the real sample the scene was captured as.
+    /// scope. `sample` names the real sample the scene was captured as. Without coverage the
+    /// command is a version 1 observation: every substantial scene ages what it does not show.
     public static func observe(_ scene: SceneSnapshot, sample: CaptureSampleKey, requestedAt: Date) throws -> BrainApplicationCommand {
+        try observe(scene, sample: sample, requestedAt: requestedAt, coverage: nil)
+    }
+
+    /// The observation of a scene with what its capture could see: a version 3 observation when
+    /// `coverage` is given. Only a coverage that attests absence ages the anchors the scene does
+    /// not show; any other observation updates presence only.
+    public static func observe(
+        _ scene    : SceneSnapshot,
+        sample     : CaptureSampleKey,
+        requestedAt: Date,
+        coverage   : BrainObservationCoverage?
+    ) throws -> BrainApplicationCommand {
         let window = LabelText.letters(scene.windowTitle)
         return try observe(
-            detections: scene.elements.map(BrainDetection.init), window: window.isEmpty ? nil : window,
-            bundleID: scene.bundleID, sample: sample, requestedAt: requestedAt
+            detections : scene.elements.map(BrainDetection.init),
+            window     : window.isEmpty ? nil : window,
+            bundleID   : scene.bundleID,
+            sample     : sample,
+            requestedAt: requestedAt,
+            coverage   : coverage
         )
     }
 
-    /// An observation of detections already made, with the window family the ingest uses.
+    /// An observation of detections already made, with the window family the ingest uses and,
+    /// for an observation with coverage, its spatial scope.
     public static func observe(
         detections : [BrainDetection],
         window     : String?,
         bundleID   : String,
         sample     : CaptureSampleKey,
-        requestedAt: Date
+        requestedAt: Date,
+        coverage   : BrainObservationCoverage? = nil
     ) throws -> BrainApplicationCommand {
         try BrainApplicationCommand(
             key: .observe(sample), bundleID: bundleID, requestedAtMS: try canonical(requestedAt),
-            input: .observe(window: window, detections: detections)
+            input: .observe(window: window, detections: detections), coverage: coverage
         )
     }
 
@@ -352,6 +400,10 @@ public enum BrainApplicationError: Error, Sendable, Equatable {
         /// An observation's `detection_count` that the detections received do not match: the
         /// count is checked against the rows before anything is sized by it.
         case detectionCount(declared: Int64, found: Int)
+
+        /// A stored contract version other than the one its arguments make: coverage is stored
+        /// only under versions 2 and 3, which require coverage.
+        case contractVersion(stored: Int, arguments: Int)
     }
 }
 
@@ -371,15 +423,36 @@ public enum BrainApplicationError: Error, Sendable, Equatable {
 /// - set_name: `anchor_key` (text, one; a literal: it need not name a stored anchor), `name`
 ///   (text, one).
 ///
+/// Version 2 is version 1 with an observation's coverage: observe adds `capture_completeness`
+/// (a `CaptureQuality.Completeness` code), `capture_surface` (a `CaptureSurface` code) and
+/// `representation` (a `BrainObservationCoverage.Representation` code), text, one each. Record and
+/// set_name have no version 2. A command is stored under the version its content makes, so a
+/// version 1 application is never rewritten and reads back as it was stored.
+/// Version 3 adds `spatial_coverage`: visible captures prove presence only; whole surfaces may attest absence.
+///
 /// Every scalar sits at position 0. Any other name, a value of another type, a duplicate, a gap in
 /// a list or a value outside a vocabulary is refused on the way in and on the way out.
 public enum BrainApplicationContract {
 
-    /// The contract version of the arguments.
-    public static let version = 1
+    /// The newest contract version of the arguments: an observation with coverage.
+    public static let version = 3
 
-    /// The algorithm the applications of this build are decided by: `BrainUpdater` as it is.
+    /// The contract version of every command without coverage, and of every application stored
+    /// before coverage existed.
+    public static let legacyVersion = 1
+
+    /// The contract versions this build reads.
+    public static let supportedVersions: ClosedRange<Int> = legacyVersion...version
+
+    /// The algorithm a command without coverage is decided by. `BrainUpdater` decides such a
+    /// command exactly as `brain-updater-1` did (every substantial scene ticks the clock, every
+    /// match tier binds), so stored version 1 applications replay identically.
     public static let algorithmVersion = "brain-updater-1"
+
+    /// The algorithm a command with coverage is decided by: only an observation whose coverage
+    /// attests absence ticks the clock and decays, and a weak match never binds an anchor seen
+    /// only by another representation.
+    public static let coverageAlgorithmVersion = "brain-updater-3"
 
     /// Cardinality is how many rows an argument has.
     public enum Cardinality: Sendable, Equatable {
@@ -393,15 +466,25 @@ public enum BrainApplicationContract {
         public let cardinality: Cardinality
     }
 
-    /// The admitted arguments of an operation, in their stored order.
-    public static func arguments(of operation: BrainOperation) -> [ArgumentSpec] {
+    /// The admitted arguments of an operation under a contract version, in their stored order. A
+    /// version this build does not read admits nothing; record and set_name admit the same names
+    /// under every version, although only version 1 stores them.
+    public static func arguments(
+        of operation: BrainOperation,
+        version     : Int = BrainApplicationContract.version
+    ) -> [ArgumentSpec] {
         func spec(_ name: String, _ kind: BrainArgument.Kind, _ cardinality: Cardinality) -> ArgumentSpec {
             ArgumentSpec(name: name, kind: kind, cardinality: cardinality)
         }
+        guard supportedVersions.contains(version) else { return [] }
         switch operation {
             case .observe:
-                return [
-                    spec("detection_count", .integer, .one), spec("window", .text, .optional),
+                let coverage = version == legacyVersion ? [] : [
+                    spec("capture_completeness", .text, .one), spec("capture_surface", .text, .one),
+                    spec("representation", .text, .one),
+                ]
+                let spatial = version >= 3 ? [spec("spatial_coverage", .text, .one)] : []
+                return [spec("detection_count", .integer, .one), spec("window", .text, .optional)] + coverage + spatial + [
                     spec("detection_kind", .text, .perDetection), spec("detection_label", .text, .perDetection),
                     spec("detection_x", .real, .perDetection), spec("detection_y", .real, .perDetection),
                     spec("detection_width", .real, .perDetection), spec("detection_height", .real, .perDetection),
@@ -510,6 +593,12 @@ extension BrainApplicationCommand {
             case .observe(let window, let detections):
                 add("detection_count", 0, .integer(Int64(detections.count)))
                 if let window { add("window", 0, .text(window)) }
+                if let coverage {
+                    add("capture_completeness", 0, .text(coverage.completeness.rawValue))
+                    add("capture_surface", 0, .text(coverage.surface.rawValue))
+                    add("representation", 0, .text(coverage.representation.rawValue))
+                    if contractVersion >= 3 { add("spatial_coverage", 0, .text(coverage.spatialScope.rawValue)) }
+                }
                 for (position, item) in detections.enumerated() { detection("detection", item, at: position, into: &byName) }
             case .record(let verb, let target, let effect):
                 add("verb", 0, .text(verb.rawValue))
@@ -528,23 +617,33 @@ extension BrainApplicationCommand {
                 add("name", 0, .text(name))
         }
         for argument in rows { byName[argument.name, default: []].append(argument) }
-        return BrainApplicationContract.arguments(of: key.operation).flatMap { byName[$0.name] ?? [] }
+        return BrainApplicationContract.arguments(of: key.operation, version: contractVersion).flatMap { byName[$0.name] ?? [] }
     }
 
-    /// The command rebuilt from stored arguments, refusing every argument the contract does not
-    /// admit for the key's operation and every gap, duplicate, type or code it does not know.
+    /// The command rebuilt from arguments stored under `contractVersion`, refusing every argument
+    /// that version does not admit for the key's operation and every gap, duplicate, type or code
+    /// it does not know. A version 1 observation has no coverage; a version 2 one must have it.
+    /// The version defaults to 1, the version of every application stored before coverage existed.
     /// `applicationID` names the stored row in the refusal.
     public init(
-        key          : BrainApplicationKey,
-        bundleID     : String,
-        requestedAtMS: Int64,
-        arguments    : [BrainArgument],
-        applicationID: Int64
+        key            : BrainApplicationKey,
+        bundleID       : String,
+        requestedAtMS  : Int64,
+        arguments      : [BrainArgument],
+        applicationID  : Int64,
+        contractVersion: Int = BrainApplicationContract.legacyVersion
     ) throws {
         func refuse(_ malformation: BrainApplicationError.Malformation) -> BrainApplicationError {
             .malformedApplication(applicationID: applicationID, malformation: malformation)
         }
-        let specs = Dictionary(uniqueKeysWithValues: BrainApplicationContract.arguments(of: key.operation).map { ($0.name, $0) })
+        guard BrainApplicationContract.supportedVersions.contains(contractVersion) else {
+            throw BrainApplicationError.unsupportedContractVersion(contractVersion)
+        }
+        guard contractVersion == BrainApplicationContract.legacyVersion || key.operation == .observe else {
+            throw refuse(.contractVersion(stored: contractVersion, arguments: BrainApplicationContract.legacyVersion))
+        }
+        let admitted = BrainApplicationContract.arguments(of: key.operation, version: contractVersion)
+        let specs = Dictionary(uniqueKeysWithValues: admitted.map { ($0.name, $0) })
         var byName: [String: [Int: BrainArgument.Value]] = [:]
         for argument in arguments {
             guard let spec = specs[argument.name] else { throw refuse(.forbiddenArgument(argument.name)) }
@@ -601,6 +700,7 @@ extension BrainApplicationCommand {
             return BrainDetection(kind: try code(ElementKind.self, "\(prefix)_kind", kindCode), label: label, bounds: bounds, state: state)
         }
         let input: Input
+        var coverage: BrainObservationCoverage?
         switch key.operation {
             case .observe:
                 // The declared count is a stored value, not a size: it must name the detections the
@@ -610,7 +710,7 @@ extension BrainApplicationCommand {
                 guard case .integer(let declared)? = try scalar("detection_count") else { throw refuse(.missingArgument("detection_count")) }
                 let found = byName["detection_kind"]?.count ?? 0
                 guard declared == Int64(found) else { throw refuse(.detectionCount(declared: declared, found: found)) }
-                for spec in BrainApplicationContract.arguments(of: .observe) where spec.cardinality != .one && spec.cardinality != .optional {
+                for spec in admitted where spec.cardinality != .one && spec.cardinality != .optional {
                     let positions = (byName[spec.name] ?? [:]).keys
                     let inRange = positions.allSatisfy { (0..<found).contains($0) }
                     if spec.cardinality == .perDetection, !inRange || positions.count != found { throw refuse(.positionsNotContiguous(spec.name)) }
@@ -620,6 +720,17 @@ extension BrainApplicationCommand {
                     window: try text("window"),
                     detections: try (0..<found).map { try detection("detection", at: $0, single: false) }
                 )
+                if contractVersion != BrainApplicationContract.legacyVersion {
+                    coverage = BrainObservationCoverage(
+                        completeness  : try code(CaptureQuality.Completeness.self, "capture_completeness",
+                                                 try required("capture_completeness")),
+                        surface       : try code(CaptureSurface.self, "capture_surface", try required("capture_surface")),
+                        representation: try code(BrainObservationCoverage.Representation.self, "representation",
+                                                 try required("representation")),
+                        spatialScope: contractVersion == 2 ? .legacyWindow
+                            : try code(BrainObservationCoverage.SpatialScope.self, "spatial_coverage", try required("spatial_coverage"))
+                    )
+                }
             case .record:
                 for name in ["target_kind", "target_label", "target_x", "target_y", "target_width", "target_height", "target_state"] {
                     _ = try scalar(name)
@@ -649,6 +760,9 @@ extension BrainApplicationCommand {
             case .setName:
                 input = .setName(anchorKey: try required("anchor_key"), name: try required("name"))
         }
-        try self.init(key: key, bundleID: bundleID, requestedAtMS: requestedAtMS, input: input)
+        try self.init(key: key, bundleID: bundleID, requestedAtMS: requestedAtMS, input: input, coverage: coverage)
+        guard self.contractVersion == contractVersion else {
+            throw refuse(.contractVersion(stored: contractVersion, arguments: self.contractVersion))
+        }
     }
 }

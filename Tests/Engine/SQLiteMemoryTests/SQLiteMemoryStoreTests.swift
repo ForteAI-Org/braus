@@ -86,7 +86,7 @@ struct SQLiteMemoryStoreTests {
         let names = SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text())
         #expect(names.count == SchemaShape.current.tables)
         #expect(names.first == "brain_apps")
-        #expect(names.last == "memory_recall_choice_links")
+        #expect(names.last == "memory_call_reconciliations")
         #expect(Set(names).count == SchemaShape.current.tables)
         let first = SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text(of: 1))
         #expect(first.count == 48 && first.last == "memory_experience_uses" && Array(names.prefix(48)) == first)

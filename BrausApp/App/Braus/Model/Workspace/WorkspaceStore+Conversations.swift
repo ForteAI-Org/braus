@@ -65,6 +65,7 @@ extension WorkspaceStore {
         case .providerSessionCleared:
             row.providerSessionProvider = nil
             row.providerSessionID       = nil
+
         }
 
         try saveOrRollBack()

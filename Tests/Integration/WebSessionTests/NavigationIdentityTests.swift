@@ -14,11 +14,11 @@ import WebDriver
 @Suite("Acting on the document that was read (W11)")
 struct NavigationIdentityTests {
 
-    static func stack() async -> SyntheticForm.Stack {
-        await SyntheticForm.stack()
+    static func stack() async -> TextTargetWebTests.Stack {
+        await TextTargetWebTests.stack()
     }
 
-    private static func click(_ target: String, _ stack: SyntheticForm.Stack) async -> ActOutcome {
+    private static func click(_ target: String, _ stack: TextTargetWebTests.Stack) async -> ActOutcome {
         await stack.engine.act(ActionRequest(processID: stack.processID, bundleID: "web:fixture.test", appName: "fixture.test",
                                              target: target, verb: .click))
     }

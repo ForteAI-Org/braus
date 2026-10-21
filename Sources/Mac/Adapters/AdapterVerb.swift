@@ -10,8 +10,8 @@ public struct AdapterVerb: Sendable, Equatable {
     /// qualified by the adapter, `calendar.create_event`.
     public typealias Name = String
 
-    /// How far a verb reaches. `irreversible` verbs (send, delete, trash) run only when the person allows
-    /// that one call and the verb reads its change back (`IrreversiblePolicy`).
+    /// How far a verb reaches. `irreversible` verbs (send, delete, trash) run only when the engine's
+    /// per-call approver allows them and their read-back contract can confirm the change.
     public enum Safety: String, Sendable, Equatable {
         case read, write, irreversible
     }
@@ -32,10 +32,47 @@ public struct AdapterVerb: Sendable, Equatable {
     /// not the contract: that is `confirmation`.
     public let readBack   : String
     public let confirmation: Confirmation
-    /// The keys of the verb's result that hold content (a file's text, a person's message, name or address), matched
-    /// by name at any depth: `subject` names the field of the result and of every object in its lists. The model reads
-    /// them; every record of the call keeps the marker in their place, as it does for a content parameter.
+    /// The fields of the verb's result that hold a file's content (`files.read`'s `text`): the model reads them; the
+    /// transcript line of the answer keeps the marker in their place, as it does for a content parameter.
     public let contentResults: [String]
+    /// What of the verb's result is confidential content (P1-06): the model reads all of it; the record and the
+    /// transcript keep none of its confidential fields.
+    public let resultConfidentiality: ResultConfidentiality
+    /// The parameter that names the account the verb acts from (P2-05), such as a mail's `from`: absent, the service
+    /// uses its own default, which the record says without naming it. Nil for a verb that names no account.
+    public let accountParameter: String?
+
+    /// ResultConfidentiality is what of a verb's result the records may keep. `ordinary` keeps it all, as before.
+    /// `confidential` withholds every text of it except the fields named, however deep: identifiers, dates and flags
+    /// that say which item and when, never what it says or who it names.
+    public enum ResultConfidentiality: Sendable, Equatable {
+        case ordinary
+        case confidential(keeping: Set<String>)
+
+        /// The fields a confidential result keeps: an item's identifier, its dates and its flags.
+        public static let identifiersAndDates = ResultConfidentiality.confidential(keeping: [
+            "id", "calendar", "list", "date", "modified", "start", "end", "due", "all_day", "read", "completed",
+            "writable", "default",
+        ])
+    }
+
+    /// The confidential texts of a result of this verb: every string of it outside the fields its confidentiality keeps,
+    /// in order, each once. Empty for an ordinary verb.
+    public func confidentialTexts(of result: JSONValue) -> [String] {
+        guard case .confidential(let keeping) = resultConfidentiality else { return [] }
+        var texts: [String] = []
+        func walk(_ value: JSONValue) {
+            switch value {
+                case .string(let text)  : if !text.isEmpty, !texts.contains(text) { texts.append(text) }
+                case .array(let items)  : items.forEach(walk)
+                case .object(let fields):
+                    for (key, field) in fields.sorted(by: { $0.key < $1.key }) where !keeping.contains(key) { walk(field) }
+                default                 : break
+            }
+        }
+        walk(result)
+        return texts
+    }
 
     public init(
         _ name        : Name,
@@ -44,15 +81,19 @@ public struct AdapterVerb: Sendable, Equatable {
         safety        : Safety,
         readBack      : String,
         confirms      : Confirmation = .none,
-        contentResults: [String] = []
+        contentResults: [String] = [],
+        results       : ResultConfidentiality = .ordinary,
+        account       : String? = nil
     ) {
-        self.name           = name
-        self.summary        = summary
-        self.parameters     = parameters
-        self.safety         = safety
-        self.readBack       = readBack
-        self.confirmation   = confirms
-        self.contentResults = contentResults
+        self.name                  = name
+        self.summary               = summary
+        self.parameters            = parameters
+        self.safety                = safety
+        self.readBack              = readBack
+        self.confirmation          = confirms
+        self.contentResults        = contentResults
+        self.resultConfidentiality = results
+        self.accountParameter      = account
     }
 
     /// The parameters as a JSON schema object, as `app_capabilities` shows them.
@@ -103,9 +144,21 @@ public struct AdapterParameter: Sendable, Equatable {
     /// Whether an empty string is a value (a text that empties a file, a replacement that removes): false, and
     /// refused, unless the verb says so.
     public let allowsEmpty: Bool
-    /// Whether the value is content (a text written, appended, found or put in place, a person's words, name or
-    /// address): the tools withhold it from every record, transcript line and echo of the call, as a typed text.
+    /// Whether the value is a file's content (a text written, appended, found or put in place): the tools withhold
+    /// it from every record, transcript line and echo of the call, as they withhold a typed text.
     public let isContent  : Bool
+    /// What the value is to the person (P1-06), field by field: the tools withhold a confidential one from every record
+    /// and transcript line of the call, and its answer shows it.
+    public let confidentiality: Confidentiality
+
+    /// Confidentiality is what a parameter's value is to the person. `content` is what they wrote, will send or keep (a
+    /// mail's subject and body, a message, a note, an event's title or notes); `sensitiveMetadata` names a person, an
+    /// address or an account, or searches for one (a recipient, a sender, a query of a mailbox). `ordinary` is kept.
+    public enum Confidentiality: String, Sendable, Equatable {
+        case ordinary
+        case content
+        case sensitiveMetadata = "sensitive_metadata"
+    }
 
     public init(
         _ name     : String,
@@ -115,16 +168,18 @@ public struct AdapterParameter: Sendable, Equatable {
         choices    : [String]? = nil,
         range      : ClosedRange<Double>? = nil,
         allowsEmpty: Bool = false,
-        content    : Bool = false
+        content    : Bool = false,
+        confidential: Confidentiality = .ordinary
     ) {
-        self.name        = name
-        self.kind        = kind
-        self.summary     = summary
-        self.isRequired  = required
-        self.choices     = choices
-        self.range       = range
-        self.allowsEmpty = allowsEmpty
-        self.isContent   = content
+        self.name            = name
+        self.kind            = kind
+        self.summary         = summary
+        self.isRequired      = required
+        self.choices         = choices
+        self.range           = range
+        self.allowsEmpty     = allowsEmpty
+        self.isContent       = content
+        self.confidentiality = confidential
     }
 
     var schema: JSONValue {

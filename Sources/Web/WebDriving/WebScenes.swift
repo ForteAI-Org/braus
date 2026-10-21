@@ -13,9 +13,10 @@ import WebDriver
 /// its layout and its viewport, and builds the scene from them. The window is the viewport, at the
 /// origin, so a scene's global point is a CSS pixel of the page, which is what the actuator sends.
 ///
-/// A node a script found is named in a scene by its identity (`WebNodeIdentity`): the tab's target and
-/// session, the document's own node and the element's node, by their backend ids. The scene's element
-/// id, made of kind, label and place, is kept by a node replaced in the same place; the identity is not.
+/// Each element with a DOM node gets the physical identity of that node (`identity`): the tab's
+/// target and session, the document's own node and the element's node, by their backend ids. The
+/// scene's element id, made of kind, label and place, is kept by a node replaced in the same place;
+/// this identity is not. When the document cannot be read, no element has one.
 public struct WebScenes: SceneProviding {
 
     let tabs: WebTabs
@@ -33,10 +34,8 @@ public struct WebScenes: SceneProviding {
     /// by its ordinal, whichever a click resolves to that element alone. Nil when that node is not in this read:
     /// another document (a navigation, a reload), a node removed or replaced, an element outside the view, or a name
     /// that resolves to another element too.
-    public func currentScene(
-        of processID   : pid_t,
-        naming identity: WebNodeIdentity
-    ) async throws -> (window: PerceivedWindow, target: String?) {
+    public func currentScene(of processID: pid_t, naming identity: TargetIdentity) async throws
+        -> (window: PerceivedWindow, target: String?) {
         let page = try tabs.page(for: processID)
         let read = try await scene(of: processID)
         guard let document = read.document, let node = Self.node(of: identity, page: page, document: document),
@@ -55,7 +54,7 @@ public struct WebScenes: SceneProviding {
     public func element(
         resolving target: String,
         in processID    : pid_t
-    ) async throws -> (element: SceneElement, identity: WebNodeIdentity?)? {
+    ) async throws -> (element: SceneElement, identity: TargetIdentity?)? {
         let page = try tabs.page(for: processID)
         let read = try await scene(of: processID)
         guard case .found(let element) = read.window.scene.resolve(target: target, preferNativeControls: true) else {
@@ -70,12 +69,10 @@ public struct WebScenes: SceneProviding {
     /// Runs `body`, the gestures decided on the node `identity` names, with its tab held to that node: a click reaches
     /// that node only, and no gesture another document, even when a read in between, the engine's own, saw another
     /// node in its place (W05).
-    public func holding<Result>(
-        _ identity  : WebNodeIdentity,
-        in processID: pid_t,
-        _ body      : () async throws -> Result
-    ) async rethrows -> Result {
-        tabs.hold((document: identity.document, node: identity.node), for: processID)
+    public func holding<Result>(_ identity: TargetIdentity, in processID: pid_t,
+                                _ body: () async throws -> Result) async rethrows -> Result {
+        // An identity that names no node holds the tab to none: nothing is sent.
+        tabs.hold(Self.place(of: identity) ?? (document: 0, node: 0), for: processID)
         defer { tabs.hold(nil, for: processID) }
         return try await body()
     }
@@ -105,22 +102,36 @@ public struct WebScenes: SceneProviding {
         tabs.note(targets: built.scene.elements.enumerated().map { index, element in
             WebTabs.Target(label: element.label, box: element.bounds.pixelBox(in: layout.viewport), node: elementNodes[index])
         }, for: processID)
+        let identities = read.map { document in
+            built.backendNodes.mapValues { Self.identity(page: page, document: document, node: $0) }
+        } ?? [:]
         let window = PerceivedWindow(scene: built.scene, frame: CGRect(origin: .zero, size: layout.viewport),
-                                     capture: built.capture, surface: popup == nil ? .window : .popupUnion)
+                                     capture: built.capture, surface: popup == nil ? .window : .popupUnion,
+                                     identities: identities)
         return (window, read, built.backendNodes, built.nodeElements)
     }
 
-    /// The identity of DOM node `node` of the document whose own node is `document`, in `page`'s tab.
-    static func identity(page: WebPage, document: Int, node: Int) -> WebNodeIdentity {
-        WebNodeIdentity(targetID: page.targetID, sessionID: page.sessionID, document: document, node: node)
+    /// The identity of DOM node `node` of the document whose own node is `document`, in `page`'s tab: opaque
+    /// to everything but this module, compared whole.
+    static func identity(page: WebPage, document: Int, node: Int) -> TargetIdentity {
+        TargetIdentity("web|\(page.targetID)|\(page.sessionID)|\(document)|\(node)")
     }
 
     /// The DOM node `identity` names, when it names a node of `page`'s tab and of its document `document`; nil for
     /// another tab, session or document, which is no longer the node that was read.
-    static func node(of identity: WebNodeIdentity, page: WebPage, document: Int) -> Int? {
-        guard identity.targetID == page.targetID, identity.sessionID == page.sessionID, identity.document == document
+    static func node(of identity: TargetIdentity, page: WebPage, document: Int) -> Int? {
+        let parts = identity.token.split(separator: "|", omittingEmptySubsequences: false)
+        guard parts.count == 5, parts[0] == "web", parts[1] == page.targetID, parts[2] == page.sessionID,
+              Int(parts[3]) == document
         else { return nil }
-        return identity.node
+        return Int(parts[4])
+    }
+
+    /// The DOM node `identity` names and its document's node, whatever its tab.
+    static func place(of identity: TargetIdentity) -> (document: Int, node: Int)? {
+        let parts = identity.token.split(separator: "|", omittingEmptySubsequences: false)
+        guard parts.count == 5, parts[0] == "web", let document = Int(parts[3]), let node = Int(parts[4]) else { return nil }
+        return (document, node)
     }
 
     /// The backend id of the page's document node, which another document (a navigation, a reload) does not keep.

@@ -77,8 +77,12 @@ final class ChatEvidence {
             "assistant_messages": transcript.conversation.entries.filter { $0.kind == .assistant }.count,
             "repeated_calls": Self.longestRepeat(in: Array(transcript.conversation.entries.prefix(agentEntries ?? .max))),
         ]
-        summary["error"] = failure?.localizedDescription ?? (signal.map { "stopped by signal \($0)" } ?? NSNull())
-        summary["failure"] = Self.failure(failure, signal: signal) ?? NSNull()
+        summary["error"] = failure.map { transcript.shown($0.localizedDescription) }
+            ?? (signal.map { "stopped by signal \($0)" } ?? NSNull())
+        // The provider's subtype is its own free text: its copy here is withheld as the transcript's texts are.
+        var failed = Self.failure(failure, signal: signal)
+        if let subtype = failed?["subtype"] as? String { failed?["subtype"] = transcript.shown(subtype) }
+        summary["failure"] = failed ?? NSNull()
         summary["braus_closed"] = abandonment.map { closed -> [String: Any] in
             ["task": closed.task, "closed": closed.closed, "problem": closed.problem ?? NSNull()]
         } ?? NSNull()

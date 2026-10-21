@@ -217,7 +217,7 @@ public struct WebControls: ControlPressing {
         /// option): nothing is sent.
         case refused(String)
         /// The one option to click, by the identity `WebScenes` gives its node.
-        case option(WebNodeIdentity)
+        case option(TargetIdentity)
     }
 
     /// The option named `item` of the ARIA list that the control `owner` opened: the control the session clicked,
@@ -226,7 +226,7 @@ public struct WebControls: ControlPressing {
     /// ` #n` picks the n-th option of that name, as the scene reads twins apart; with several and no ordinal, it
     /// refuses. The control and the option are kept on the isolated world's window for `ariaReadBack`, out of the
     /// DOM and of the page's globals. A control the page no longer has, or one that cannot be read, is refused.
-    public func ariaOption(named item: String, owner: WebNodeIdentity, in processID: pid_t) async -> AriaOption {
+    public func ariaOption(named item: String, owner: TargetIdentity, in processID: pid_t) async -> AriaOption {
         guard let page = try? tabs.page(for: processID) else { return .noList }
         guard let document = try? await WebScenes.documentNode(of: page),
               let node = WebScenes.node(of: owner, page: page, document: document)
@@ -344,8 +344,42 @@ public struct WebControls: ControlPressing {
         await evaluate(Self.focusedFieldScript, in: processID)?.stringValue
     }
 
-    /// The script's value from the tab's isolated world; nil when the page cannot say, which every read
-    /// answers as not knowing.
+    /// The element with the focus, through shadow roots and same-origin frames, as the page's DOM says it is,
+    /// on that same object (`fieldKindFunction`): a password input is secure; a text input, a text area or an
+    /// element the DOM makes editable is ordinary, with the identity `WebScenes` gives its node; anything else
+    /// (a button, a link, a select, a checkbox, an element with only a role, no focus, a frame whose document
+    /// cannot be read, an answer it cannot read) is unknown. Its value is never read.
+    public func focusedField(in processID: pid_t) async -> FocusedField {
+        guard let page = try? tabs.page(for: processID),
+              let backend = (try? await tabs.node(of: Self.focusedElementScript, in: processID)) ?? nil,
+              let kind = try? await tabs.call(Self.fieldKindFunction, in: processID, nodes: [backend], timeoutSeconds: 5),
+              let document = try? await WebScenes.documentNode(of: page)
+        else { return .unknown }
+        let identity = WebScenes.identity(page: page, document: document, node: backend)
+        switch kind.stringValue {
+            case "secure"?: return .secure(identity)
+            case "text"?  : return .ordinary(identity)
+            default       : return .unknown
+        }
+    }
+
+    /// What kind of field an element is, by the DOM alone, never its ARIA role: `secure` for a password input,
+    /// `text` for an input that takes text, a text area or an element the DOM makes editable, `other` otherwise.
+    static let fieldKindFunction = """
+    function (field) {
+      const secure = \(WebSecureFields.function);
+      if (secure(field)) return 'secure';
+      const tag = (field.tagName || '').toUpperCase();
+      if (tag === 'INPUT') {
+        const type = (field.type || 'text').toLowerCase();
+        return ['text', 'search', 'email', 'url', 'tel', 'number'].includes(type) ? 'text' : 'other';
+      }
+      if (tag === 'TEXTAREA') return 'text';
+      if (field.isContentEditable === true) return 'text';
+      return 'other';
+    }
+    """
+
     private func evaluate(_ script: String, in processID: pid_t) async -> JSONValue? {
         try? await tabs.evaluate(script, in: processID, timeoutSeconds: 5)
     }
@@ -459,6 +493,24 @@ public struct WebControls: ControlPressing {
 
     // One expression, not two statements: a world's script is evaluated as the value of a function.
     static let closeScript = "delete window.__brausSelect, delete window.__brausOptions"
+
+    /// The element with the focus, through open shadow roots and same-origin frames; the frame itself when its
+    /// document cannot be read.
+    static let focusedElementScript = """
+    (() => {
+      let e = document.activeElement;
+      while (e) {
+        if (e.shadowRoot && e.shadowRoot.activeElement) { e = e.shadowRoot.activeElement; continue; }
+        if (e.tagName === 'IFRAME' || e.tagName === 'FRAME') {
+          let inner = null;
+          try { inner = e.contentDocument ? e.contentDocument.activeElement : null; } catch (error) { inner = null; }
+          if (inner && inner !== e.contentDocument.body) { e = inner; continue; }
+        }
+        break;
+      }
+      return e;
+    })()
+    """
 
     /// Run in the isolated world on the control the session clicked (`control`, resolved there): the option
     /// `label` (normalized like `LabelText.normalize`) of the ARIA list that control opened, `ordinal` the n-th of

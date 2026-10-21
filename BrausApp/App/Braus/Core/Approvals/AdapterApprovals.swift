@@ -114,6 +114,12 @@ final class AdapterApprovals {
         continuation.resume(returning: allowed)
     }
 
+    /// Starts the accidental-input delay when the sheet actually appears, including after another queue hid it.
+    func didPresent(_ id: UUID) {
+        guard pending.first?.id == id else { return }
+        shownAt = now()
+    }
+
     /// When the person's answers to `id` start to count: `answerDelay` after it became the request shown;
     /// nil while it is not the one shown.
     func answerableAt(_ id: UUID) -> ContinuousClock.Instant? {

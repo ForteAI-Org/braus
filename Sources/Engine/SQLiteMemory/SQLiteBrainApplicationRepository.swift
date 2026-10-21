@@ -27,6 +27,12 @@ import PerceptionCore
 ///    repository uses; the difference, the `brain_evidence` links the algorithm's own counters
 ///    justify, the arguments and, last, the application row that seals them are written.
 ///
+/// Each application is stored under its command's own versions: a command without coverage under
+/// contract version 1 and the legacy algorithm version, an observation with coverage under contract
+/// version 3 and the coverage algorithm version. Historical contract 2 keeps brain-updater-2. Coverage reads the
+/// representations that saw each anchor it might bind weakly from the anchor's recent supporting
+/// evidence (`SQLiteBrainApplicationRows.provenance`).
+///
 /// An application that changed nothing (no effect, no anchor, an empty ingest, an unknown anchor
 /// named) is concluded and answered like any other. A failure rolls the transaction back whole: no
 /// application, argument, evidence or difference is left, and offering the same command again
@@ -39,28 +45,34 @@ public struct SQLiteBrainApplicationRepository: BrainApplicationStoring {
     private let makeTransitionID: @Sendable () -> String
     private let makeSceneID: @Sendable () -> String
     private let algorithmVersion: String
+    private let coverageAlgorithmVersion: String
 
-    /// `algorithmVersion` is the version this build decides under, recorded with each application;
-    /// a test supplies another to prove that a new version does not re-apply a concluded key.
+    /// `algorithmVersion` is the version this build decides a command without coverage under and
+    /// `coverageAlgorithmVersion` the one it decides an observation with coverage under, each
+    /// recorded with its applications; a test supplies others to prove that a new version does not
+    /// re-apply a concluded key.
     public init(
-        store           : SQLiteMemoryStore,
-        keys            : BrainKeys = .random,
-        makeTransitionID: @escaping @Sendable () -> String = { UUID().uuidString },
-        makeSceneID     : @escaping @Sendable () -> String = { UUID().uuidString },
-        algorithmVersion: String = BrainApplicationContract.algorithmVersion
+        store                   : SQLiteMemoryStore,
+        keys                    : BrainKeys = .random,
+        makeTransitionID        : @escaping @Sendable () -> String = { UUID().uuidString },
+        makeSceneID             : @escaping @Sendable () -> String = { UUID().uuidString },
+        algorithmVersion        : String = BrainApplicationContract.algorithmVersion,
+        coverageAlgorithmVersion: String = BrainApplicationContract.coverageAlgorithmVersion
     ) {
-        self.store            = store
-        self.keys             = keys
-        self.makeTransitionID = makeTransitionID
-        self.makeSceneID      = makeSceneID
-        self.algorithmVersion = algorithmVersion
+        self.store                    = store
+        self.keys                     = keys
+        self.makeTransitionID         = makeTransitionID
+        self.makeSceneID              = makeSceneID
+        self.algorithmVersion         = algorithmVersion
+        self.coverageAlgorithmVersion = coverageAlgorithmVersion
     }
 
     public func apply(_ command: BrainApplicationCommand) async throws -> BrainApplicationResult {
         let keys             = self.keys
         let makeTransitionID = self.makeTransitionID
         let makeSceneID      = self.makeSceneID
-        let algorithmVersion = self.algorithmVersion
+        let algorithmVersion = command.coverage == nil ? self.algorithmVersion
+            : command.contractVersion == 2 ? "brain-updater-2" : coverageAlgorithmVersion
         return try await store.write { transaction in
             let appID = try SQLiteBrainApplicationRows.resolveApp(transaction, command: command)
             if let stored = try SQLiteBrainApplicationRows.header(transaction, key: command.key) {
@@ -91,7 +103,19 @@ public struct SQLiteBrainApplicationRepository: BrainApplicationStoring {
             switch command.input {
                 case .observe(let window, let detections):
                     let mutation = try mutate { brain, now in
-                        let stats = BrainUpdater.ingest(detections, into: &brain, now: now, window: window, keys: keys)
+                        var failure: (any Error)?
+                        let stats = BrainUpdater.ingest(
+                            detections, into: &brain, now: now, window: window, coverage: command.coverage, keys: keys
+                        ) { anchorKey in
+                            do {
+                                return try SQLiteBrainApplicationRows.provenance(transaction, anchorKey: anchorKey)
+                            } catch {
+                                failure = failure ?? error
+                                return []
+                            }
+                        }
+                        // A provenance that could not be read rolls the whole application back.
+                        if let failure { throw failure }
                         return (stats, stats.decay ?? DecayReport())
                     }
                     outcome = .observed(created: mutation.result.created, updated: mutation.result.updated,
@@ -198,6 +222,34 @@ enum SQLiteBrainApplicationRows {
             throw BrainApplicationError.eventWithoutApp(eventID: eventID)
         }
         return appID
+    }
+
+    /// How many of an anchor's latest supporting events `provenance` reads: a bound on the work a
+    /// weak match costs, whatever the anchor's age.
+    static let provenanceWindow = 64
+
+    /// The known representations that saw an anchor: the `representation` arguments of the
+    /// observations of the anchor's latest `provenanceWindow` supporting events. An event observed
+    /// only under contract version 1, or that only recorded or named, adds nothing, so an anchor
+    /// seen only before coverage existed has an empty, unknown provenance. Two samples of one event
+    /// read by different representations (a hand-back during a call) both count.
+    static func provenance(
+        _ transaction: SQLiteTransaction,
+        anchorKey    : String
+    ) throws -> Set<BrainObservationCoverage.Representation> {
+        let codes = try transaction.query(
+            """
+            SELECT DISTINCT r.text_value
+            FROM (SELECT event_id FROM brain_evidence
+                  WHERE anchor_id = ? AND relation = 'supports'
+                  ORDER BY evidence_id DESC LIMIT ?) e
+            JOIN brain_applications a ON a.event_id = e.event_id AND a.operation = 'observe'
+            JOIN memory_operation_arguments r
+                ON r.brain_application_id = a.application_id AND r.argument_name = 'representation'
+            """,
+            [.text(anchorKey), .integer(Int64(provenanceWindow))]
+        ) { try $0.text(0) }
+        return Set(codes.compactMap { $0.flatMap(BrainObservationCoverage.Representation.init(rawValue:)) })
     }
 
     /// The capture row of a sample, or nil when the store holds none.
@@ -362,7 +414,7 @@ enum SQLiteBrainApplicationRows {
                 .integer(id), .integer(appID), .text(command.key.eventID), .text(command.key.operation.rawValue),
                 sample.map { .text($0.phase.rawValue) } ?? .null, sample.map { .integer(Int64($0.ordinal)) } ?? .null,
                 sampleObservationID.map(SQLiteValue.integer) ?? .null, sample == nil ? .null : .text("capture"),
-                .integer(Int64(BrainApplicationContract.version)), .text(algorithmVersion),
+                .integer(Int64(command.contractVersion)), .text(algorithmVersion),
                 .integer(command.requestedAtMS), .integer(effectiveMS), .text(outcome.code),
                 created, updated, skipped, anchor, transitionID, evidence,
             ]
@@ -373,18 +425,20 @@ enum SQLiteBrainApplicationRows {
     // MARK: Retry
 
     /// Answers a concluded application offered again: its stored outcome when the command is the
-    /// stored one exactly and was decided under the same versions, a conflict otherwise. The
-    /// algorithm version is a text compared byte for byte, like every other text of the contract.
+    /// stored one exactly and was decided under the same versions (the contract version the
+    /// offered command is written under, and `algorithmVersion`, the one this build decides it
+    /// under), a conflict otherwise. The algorithm version is a text compared byte for byte, like
+    /// every other text of the contract.
     static func retry(
         _ transaction   : SQLiteTransaction,
         stored          : Header,
         offered         : BrainApplicationCommand,
         algorithmVersion: String
     ) throws -> BrainApplicationResult {
-        var same = stored.contractVersion == BrainApplicationContract.version
+        var same = stored.contractVersion == offered.contractVersion
             && stored.algorithmVersion.utf8.elementsEqual(algorithmVersion.utf8)
         var storedDigest = "undecoded"
-        if stored.contractVersion == BrainApplicationContract.version {
+        if BrainApplicationContract.supportedVersions.contains(stored.contractVersion) {
             let command = try command(transaction, stored: stored)
             storedDigest = command.inputDigest
             same = same && command.hasSameInput(as: offered)
@@ -393,7 +447,7 @@ enum SQLiteBrainApplicationRows {
             throw MemoryStoreError.identity(MemoryIdentityConflict(
                 identity          : offered.key.identity,
                 storedFingerprint : "v\(stored.contractVersion)/\(stored.algorithmVersion)/\(storedDigest)",
-                offeredFingerprint: "v\(BrainApplicationContract.version)/\(algorithmVersion)/\(offered.inputDigest)"
+                offeredFingerprint: "v\(offered.contractVersion)/\(algorithmVersion)/\(offered.inputDigest)"
             ))
         }
         return BrainApplicationResult(
@@ -493,9 +547,10 @@ enum SQLiteBrainApplicationRows {
         )
     }
 
-    /// The stored command of an application, rebuilt from its arguments under the contract.
+    /// The stored command of an application, rebuilt from its arguments under the contract version
+    /// it was stored under: a version 1 observation reads back without coverage.
     static func command(_ handle: some SQLiteQuerying, stored: Header) throws -> BrainApplicationCommand {
-        guard stored.contractVersion == BrainApplicationContract.version else {
+        guard BrainApplicationContract.supportedVersions.contains(stored.contractVersion) else {
             throw BrainApplicationError.unsupportedContractVersion(stored.contractVersion)
         }
         let id = stored.applicationID
@@ -527,7 +582,7 @@ enum SQLiteBrainApplicationRows {
         }
         return try BrainApplicationCommand(
             key: stored.key, bundleID: stored.bundleID, requestedAtMS: stored.requestedAtMS,
-            arguments: arguments, applicationID: id
+            arguments: arguments, applicationID: id, contractVersion: stored.contractVersion
         )
     }
 

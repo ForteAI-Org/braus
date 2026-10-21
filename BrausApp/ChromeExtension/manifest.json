@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Braus",
+  "version": "0.1.0",
+  "description": "Lets Braus open, drive and close its own tabs in this Chrome profile, once you pair the profile with Braus under a name you choose. Reads no cookies or passwords.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1v4DFqF/daQZIZ3R+7DF2dSlsmPWQdN6v2ZtOhHJlnOCySHMydZi2U2JZL/vrFM1BPaOAjjEFi73qLya6qe4THmp1WOZT4azpfH82cXkgYENpzd7MiOD0xT39WKe6hrRb/OWELeK9r38TjZnkiV1BvwGBiGxuJgLnzPhPN5kE2YZEAUFkC9U6cFrFy6KQ2AUiB60Wx5KW22YspZPM+ZlZDpEfn4iV0r724Zo+tPzHZS1QamZHad0B0uZYhWrWaIcXjpQVUcl3U0lcM51iG3VYYdvfYBW1+3r745lsVHAIY1G8PyX3s7l/LZitJlAQ+FnwzhyYEamKJfmG7XGaseQawIDAQAB",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Braus: pair this profile",
+    "default_popup": "pair.html"
+  },
+  "permissions": [
+    "nativeMessaging",
+    "alarms",
+    "storage",
+    "tabs",
+    "debugger"
+  ],
+  "minimum_chrome_version": "125"
+}

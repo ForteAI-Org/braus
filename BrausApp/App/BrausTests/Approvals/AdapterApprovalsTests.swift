@@ -85,6 +85,10 @@ struct AdapterApprovalsTests {
         let shown = try #require(approvals.pending.first)
         #expect(approvals.answerableAt(shown.id) == clock.now.advanced(by: AdapterApprovals.answerDelay))
         #expect(approvals.answerableAt(approvals.pending[1].id) == nil)
+        // A different approval sheet can have hidden this queue after it started waiting.
+        clock.now = clock.now.advanced(by: .seconds(2))
+        approvals.didPresent(shown.id)
+        #expect(approvals.answerableAt(shown.id) == clock.now.advanced(by: AdapterApprovals.answerDelay))
 
         approvals.respond(shown.id, allowed: true)
         approvals.respond(shown.id, allowed: false)

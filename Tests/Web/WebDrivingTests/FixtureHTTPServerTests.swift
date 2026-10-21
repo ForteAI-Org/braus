@@ -5,6 +5,7 @@
 
 import Foundation
 import Network
+import TestScratch
 import Testing
 
 /// The request tests' own server on 127.0.0.1, without Chrome: it answers its routes, and `stop` ends every task it

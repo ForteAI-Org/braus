@@ -99,12 +99,16 @@ public struct OperationVerification: Sendable {
 }
 
 /// WithholdingReason is why a value is not kept: the task declared it secret, it has the shape of a
-/// credential, the control it went to is named for a secret, or the field was a secure one.
+/// credential, the control it went to is named for a secret, the field was a secure one, the call could not
+/// attest its target, or it is the content of a confidential surface (`ConfidentialSurfaces`, P1-06: mail,
+/// messages, notes, contacts, calendars, reminders), which the live answer carries and no record keeps.
 public enum WithholdingReason: String, Sendable, Equatable, Hashable, CaseIterable {
-    case declaredSecret    = "declared_secret"
-    case credentialPattern = "credential_pattern"
-    case secretTarget      = "secret_target"
-    case secureField       = "secure_field"
+    case declaredSecret      = "declared_secret"
+    case credentialPattern   = "credential_pattern"
+    case secretTarget        = "secret_target"
+    case secureField         = "secure_field"
+    case unclassifiedTarget  = "unclassified_target"
+    case confidentialContent = "confidential_content"
 }
 
 /// ValueRedaction is the declared gap a withheld value leaves: which value of which event it was, and
@@ -160,6 +164,8 @@ public struct OperationOpening: Sendable {
     public let startedAtMS: Int64
     public let attribution: TaskCallAttribution?
     public let redactions: [ValueRedaction]
+    /// The process that runs the call (P2-06), linked with its start so a later process can tell whether it ended.
+    public var executor: ExecutorRecord?
 
     public init(call: AgentCallRecord, startedAtMS: Int64, attribution: TaskCallAttribution? = nil,
                 redactions: [ValueRedaction] = []) throws {
@@ -182,6 +188,8 @@ public struct BatchOpening: Sendable {
     public let startedAtMS: Int64
     public let attribution: TaskCallAttribution?
     public let redactions: [ValueRedaction]
+    /// The process that runs the batch and its steps (P2-06).
+    public var executor: ExecutorRecord?
 
     public init(batch: AgentCallRecord, steps: [AgentCallRecord], startedAtMS: Int64,
                 attribution: TaskCallAttribution? = nil, redactions: [ValueRedaction] = []) throws {
@@ -201,7 +209,9 @@ public struct BatchOpening: Sendable {
 /// perceived, its terminal state with its result, what it really did, its verifications and the
 /// values withheld from them, written in one transaction. `withdrawn` names argument values the
 /// opening kept and a later fact showed to be secret (the resolved field is one): the conclusion
-/// replaces them with the marker in the same transaction and declares why.
+/// replaces them with the marker in the same transaction and declares why. `route` is the route a routing
+/// session dispatched the call on, with a hand-back's reason (M05); nil for a call of a session that is not routed,
+/// or that reached none.
 public struct OperationConclusion: Sendable {
 
     public let end: AgentCallTransition
@@ -212,10 +222,29 @@ public struct OperationConclusion: Sendable {
     public let withdrawn: [ValueRedaction]
     /// The parts of the end the archive refused as offered and the call concludes without.
     public let unsaved: [OperationRecordingGap]
+    public let route: CallRoute?
+    /// The adapter verb the call invoked (M05): its invocation, not its success.
+    public let adapterDispatch: AdapterDispatch?
+    /// The rung the MacDriver's last gesture of the call took (M05); nil when it sent none, or none was noted.
+    public let rung: CallRung?
+    /// The router's decision an `open_session` answered with its words (M05): use or ask instead of opening, or open with
+    /// a note; nil for a call with none.
+    public let advice: CallRouteAdvice?
+    /// The leaves of an adapter's argument object, as admitted (P2-02); the store decides which are
+    /// references to an earlier call's result.
+    public let argumentFields: [CallArgumentField]
+    /// The leaves of an adapter's result the record may keep, the others withheld with a reason (P2-02).
+    public let resultFields: [StructuredField]
+    /// The data the call reached, as it attests it (P2-05).
+    public let dataContext: CallDataContext?
 
     public init(end: AgentCallTransition, samples: [CaptureSample] = [], effect: OperationEffect? = nil,
                 verifications: [OperationVerification] = [], redactions: [ValueRedaction] = [],
-                withdrawn: [ValueRedaction] = [], unsaved: [OperationRecordingGap] = []) throws {
+                withdrawn: [ValueRedaction] = [], unsaved: [OperationRecordingGap] = [],
+                route: CallRoute? = nil, adapterDispatch: AdapterDispatch? = nil,
+                rung: CallRung? = nil, advice: CallRouteAdvice? = nil,
+                argumentFields: [CallArgumentField] = [], resultFields: [StructuredField] = [],
+                dataContext: CallDataContext? = nil) throws {
         func refuse(_ invalidity: OperationFactError.Invalidity) -> OperationFactError { .invalid(invalidity) }
         let call = end.eventID
         guard end.progress.status.isTerminal else { throw refuse(.notTerminal) }
@@ -250,6 +279,15 @@ public struct OperationConclusion: Sendable {
         self.redactions    = redactions
         self.withdrawn     = withdrawn
         self.unsaved       = unsaved
+        self.route         = route
+        self.adapterDispatch = adapterDispatch
+        self.rung              = rung
+        self.advice            = advice
+        guard Set(argumentFields.map(\.field.path)).count == argumentFields.count,
+              Set(resultFields.map(\.path)).count == resultFields.count else { throw refuse(.duplicateCondition) }
+        self.argumentFields    = Array(argumentFields.prefix(StructuredField.maximumLeaves))
+        self.resultFields      = Array(resultFields.prefix(StructuredField.maximumLeaves))
+        self.dataContext       = dataContext
     }
 }
 
