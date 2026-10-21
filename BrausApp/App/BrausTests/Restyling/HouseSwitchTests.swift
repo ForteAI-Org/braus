@@ -14,44 +14,30 @@ import Testing
 @MainActor
 struct HouseSwitchTests {
 
-    @Test("Under Reduce Motion every pose keeps its place and size, so a change of worker only fades")
-    func reduceMotionOnlyFades() {
-        for stage in [HouseSwitch.Stage.arriving, .present, .leaving] {
-            let pose = HouseSwitch.pose(
-                stage,
-                reducesMotion: true
-            )
-            #expect(pose.drop == 0 && pose.scale == 1)
-            #expect(pose.opacity == (stage == .present ? 1 : 0))
-        }
-        let arriving = HouseSwitch.pose(
-            .arriving,
-            reducesMotion: false
-        )
-        let leaving  = HouseSwitch.pose(
-            .leaving,
-            reducesMotion: false
-        )
-        #expect(arriving.drop > 0 && arriving.scale < 1)
-        #expect(leaving.drop > 0 && leaving.scale < 1)
-        #expect(HouseSwitch.entryDelay == RestylingTiming.roomExit)
-        #expect(HouseSwitch.capsuleAnimation(
-            to           : .present,
-            reducesMotion: false
-        ) != nil)
-        #expect(HouseSwitch.capsuleAnimation(
-            to           : .leaving,
-            reducesMotion: true
-        ) != nil)
+    @Test("The switch is quick: the worker drops into its capsule, then hops out, landing as its room lets it go")
+    func timingAndPoses() {
+        #expect(HouseSwitch.exit <= HouseSwitch.entryDelay)
+        #expect(HouseSwitch.entryDelay + HouseSwitch.hop <= 0.45)
+        #expect(HouseSwitch.entryDelay + HouseSwitch.hop == RestylingTiming.roomExit)
+        #expect(HouseSwitch.sunk.drop > 0 && HouseSwitch.sunk.scaleX < 1)
+        let keys = HouseSwitch.hopKeys
+        #expect(keys.first?.time == 0 && keys.last?.time == 1)
+        #expect(keys.last?.pose == .rest)
+        // Small inside the capsule, then up past its place, then squashed as it lands.
+        #expect((keys.first?.pose.drop ?? 0) > 0 && (keys.first?.pose.scaleY ?? 1) < 0.5)
+        #expect(keys.contains { $0.pose.drop < 0 && $0.pose.scaleY > 1 })
+        #expect(keys.contains { $0.pose.drop == 0 && $0.pose.scaleX > 1 && $0.pose.scaleY < 1 })
     }
 
-    @Test("The hero's worker rises in after the entry delay and steps down when it leaves")
+    @Test("The hero's worker hops out after the entry delay and drops back in when it leaves")
     func portraitArrivesAndLeaves() throws {
         let view  = try shownPortrait(stage: .present)
         let layer = try #require(view.layer)
         let fade  = try #require(layer.animation(forKey: HouseWorkerPortrait.HostView.switchKeys.opacity))
         let rise  = try #require(layer.animation(forKey: HouseWorkerPortrait.HostView.switchKeys.transform))
-        #expect(rise is CASpringAnimation)
+        let hop   = try #require(rise as? CAKeyframeAnimation)
+        #expect(hop.duration == HouseSwitch.hop)
+        #expect(hop.values?.count == HouseSwitch.hopKeys.count)
         #expect(fade.beginTime > 0 && fade.beginTime == rise.beginTime)
 
         view.show(

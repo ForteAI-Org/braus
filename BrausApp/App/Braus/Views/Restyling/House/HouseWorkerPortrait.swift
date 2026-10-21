@@ -17,8 +17,8 @@ import SwiftUI
 /// head. Under Reduce Motion a change cuts and nothing squashes; at rest nothing renders, and only the
 /// brows' own Core Animation loop moves.
 ///
-/// With a `switchStage`, the worker at the top of its conversation comes in on `HouseSwitch`'s beats
-/// when it is first shown, and steps down once that stage turns to leaving.
+/// With a `switchStage`, the worker at the top of its conversation hops out of its name's capsule on
+/// `HouseSwitch`'s beats when it is first shown, and drops back into it once that stage turns to leaving.
 struct HouseWorkerPortrait: View {
     let shape : WorkerShape
     let status: WorkerStatus
@@ -327,8 +327,9 @@ struct HouseWorkerPortrait: View {
             }
         }
 
-        /// Brings the worker in after `HouseSwitch.entryDelay`: up from a little below on the arriving
-        /// spring, fading in; under Reduce Motion, only the fade.
+        /// Hops the worker out of its name's capsule after `HouseSwitch.entryDelay`: small inside it,
+        /// up past its place and down with a squash (`HouseSwitch.hopKeys`), showing as it leaves the
+        /// capsule; under Reduce Motion, only a fade.
         private func arrive() {
             guard let layer else { return }
             let start = layer.convertTime(
@@ -339,7 +340,7 @@ struct HouseWorkerPortrait: View {
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue      = 0
             fade.toValue        = 1
-            fade.duration       = HouseSwitch.arrival * (reduces ? 1 : 0.6)
+            fade.duration       = HouseSwitch.hop * (reduces ? 1 : HouseSwitch.hopFade)
             fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
             fade.beginTime      = start
             fade.fillMode       = .backwards
@@ -349,35 +350,40 @@ struct HouseWorkerPortrait: View {
             )
             guard !reduces else { return }
 
-            let rise = CASpringAnimation(
-                perceptualDuration: HouseSwitch.arrival,
-                bounce            : HouseSwitch.bounce
-            )
-            rise.keyPath   = "transform"
-            rise.fromValue = NSValue(caTransform3D: switchTransform(for: .arriving))
-            rise.toValue   = NSValue(caTransform3D: CATransform3DIdentity)
-            rise.duration  = rise.settlingDuration
-            rise.beginTime = start
-            rise.fillMode  = .backwards
+            let keys = HouseSwitch.hopKeys
+            let jump = CAKeyframeAnimation(keyPath: "transform")
+            jump.values          = keys.map { NSValue(caTransform3D: switchTransform(for: $0.pose)) }
+            jump.keyTimes        = keys.map { NSNumber(value: $0.time) }
+            // Up fast and slowing, down falling, then settling.
+            jump.timingFunctions = [
+                CAMediaTimingFunction(name: .easeOut),
+                CAMediaTimingFunction(name: .easeIn),
+                CAMediaTimingFunction(name: .easeInEaseOut),
+                CAMediaTimingFunction(name: .easeInEaseOut),
+            ]
+            jump.duration        = HouseSwitch.hop
+            jump.beginTime       = start
+            jump.fillMode        = .backwards
             layer.add(
-                rise,
+                jump,
                 forKey: Self.switchKeys.transform
             )
         }
 
-        /// Steps the worker down and fades it over `HouseSwitch.exit`, and keeps it hidden; under
-        /// Reduce Motion, only the fade.
+        /// Drops the worker into its name's capsule over `HouseSwitch.exit`, shrinking and fading, and
+        /// keeps it hidden; under Reduce Motion, only the fade.
         private func leave() {
             guard let layer else { return }
             isArrivalPending = false
             let reduces = RestylingMotion.reducesMotion
             let from    = layer.presentation()?.opacity ?? layer.opacity
+            let shown   = layer.presentation()?.transform ?? layer.transform
             layer.removeAnimation(forKey: Self.switchKeys.opacity)
             layer.removeAnimation(forKey: Self.switchKeys.transform)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer.opacity = 0
-            if !reduces { layer.transform = switchTransform(for: .leaving) }
+            if !reduces { layer.transform = switchTransform(for: HouseSwitch.sunk) }
             CATransaction.commit()
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue      = from
@@ -390,24 +396,20 @@ struct HouseWorkerPortrait: View {
             )
             guard !reduces else { return }
 
-            let step = CABasicAnimation(keyPath: "transform")
-            step.fromValue      = NSValue(caTransform3D: CATransform3DIdentity)
-            step.toValue        = NSValue(caTransform3D: layer.transform)
-            step.duration       = HouseSwitch.exit
-            step.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            let sink = CABasicAnimation(keyPath: "transform")
+            sink.fromValue      = NSValue(caTransform3D: shown)
+            sink.toValue        = NSValue(caTransform3D: layer.transform)
+            sink.duration       = HouseSwitch.exit
+            sink.timingFunction = CAMediaTimingFunction(name: .easeIn)
             layer.add(
-                step,
+                sink,
                 forKey: Self.switchKeys.transform
             )
         }
 
-        /// The view's transform at `stage`'s pose: lowered by its drop and scaled about its foot.
-        private func switchTransform(for stage: HouseSwitch.Stage) -> CATransform3D {
+        /// The view's transform at `pose`: lowered by its drop and scaled about its foot.
+        private func switchTransform(for pose: HouseSwitch.Pose) -> CATransform3D {
             guard let layer else { return CATransform3DIdentity }
-            let pose  = HouseSwitch.pose(
-                stage,
-                reducesMotion: false
-            )
             // The layer scales about its anchor; the foot's centre is from there, y up.
             let pivot = CGPoint(
                 x: (0.5 - layer.anchorPoint.x) * layer.bounds.width,
@@ -420,8 +422,8 @@ struct HouseWorkerPortrait: View {
             )
             transform = CATransform3DScale(
                 transform,
-                pose.scale,
-                pose.scale,
+                pose.scaleX,
+                pose.scaleY,
                 1
             )
             return CATransform3DTranslate(
