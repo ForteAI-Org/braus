@@ -297,7 +297,7 @@ struct NewWorkerSheet: View {
 
     /// A random seed and the first palette, both of which the person changes
     /// before saving if they want to.
-    private static func startingAppearance() -> WorkerAppearance {
+    static func startingAppearance() -> WorkerAppearance {
         WorkerAppearance(
             seed            : Int64.random(in: Int64.min...Int64.max),
             generatorVersion: MascotDrawing.generatorVersion,
