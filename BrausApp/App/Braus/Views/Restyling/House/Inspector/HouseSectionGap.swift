@@ -12,7 +12,7 @@ import SwiftUI
 struct HouseSectionGap: View {
     var body: some View {
         Color.clear
-            .frame(height: 2)
+            .frame(height: 12)
             .accessibilityHidden(true)
     }
 }

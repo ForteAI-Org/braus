@@ -29,11 +29,12 @@ struct HouseWebSection: View {
                     }
                 )
             )
+            .inspectorRow()
         } header: {
             Text("Web")
         } footer: {
             Text("Braus uses its own Chrome, never yours.")
-                .padding(.bottom, 2)
+                .padding(.bottom, 12)
         }
     }
 }

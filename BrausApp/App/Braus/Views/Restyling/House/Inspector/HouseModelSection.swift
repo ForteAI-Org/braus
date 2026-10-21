@@ -53,10 +53,7 @@ struct HouseModelSection: View {
                         .top,
                         provider == ModelProvider.allCases.first ? 10 : 0
                     )
-                    .padding(
-                        .vertical,
-                        3
-                    )
+                    .inspectorRow()
                 }
             }
 
@@ -64,11 +61,14 @@ struct HouseModelSection: View {
                 "Model",
                 value: selection.line
             )
+            .inspectorRow()
             LabeledContent(
                 "Access",
                 value: Self.access(selection.provider)
             )
+            .inspectorRow()
             LabeledContent("Connection") { connection(selection.provider) }
+                .inspectorRow()
             allProviders
         } header: {
             Text("Model")
@@ -116,6 +116,7 @@ struct HouseModelSection: View {
                 }
             }
             .contentShape(Rectangle())
+            .inspectorRow()
         }
         .buttonStyle(.plain)
         .accessibilityValue(isChoosing ? "Expanded" : "Collapsed")
@@ -216,6 +217,7 @@ struct HouseModelSection: View {
                 }
             }
             .contentShape(Rectangle())
+            .inspectorRow()
         }
         .buttonStyle(.plain)
         .accessibilityHint("Shows every provider and its connection")

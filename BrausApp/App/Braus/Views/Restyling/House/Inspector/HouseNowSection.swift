@@ -29,8 +29,10 @@ struct HouseNowSection: View {
                     )
                 }
             }
+            .inspectorRow()
 
             LabeledContent("Computer") { computer }
+                .inspectorRow()
         } header: {
             Text("Now")
         } footer: {
