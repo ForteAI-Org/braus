@@ -107,57 +107,13 @@ struct HouseWorkerPortrait: View {
     /// scene one point across. Masking the room keeps its material, light sources and reflections on
     /// the worker only.
     private static func makeSilhouette(of shape: WorkerShape) -> Path {
-        let size = CGSize(
-            width : 1,
-            height: 1
-        )
-        let camera = RoomCamera.Perspective(
-            size: size,
+        Path(RoomCamera.Perspective(
+            size: CGSize(
+                width : 1,
+                height: 1
+            ),
             lean: lean
-        )
-        let radius = Double(RoomLightUniforms.Shape(
-            size: size,
-            lean: lean
-        ).sphereRadius)
-        let outline = shape.outline
-        let slab = RoomCamera.slab(of: outline)
-        var points: [CGPoint] = []
-        for front in [-1.0, 1.0] {
-            for index in 0...24 {
-                let angle = Double.pi / 2 * Double(index) / 24
-                let depth = front * radius * (slab + outline.corner * sin(angle))
-                for point in outline.points(
-                    growth       : outline.corner * cos(angle),
-                    pointsPerTurn: 128
-                ) {
-                    points.append(camera.project(SIMD3(
-                        camera.bodyX + radius * point.x,
-                        camera.bodyDepth + depth,
-                        radius * (outline.bottom - point.y)
-                    )))
-                }
-            }
-        }
-        points.sort { $0.x == $1.x ? $0.y < $1.y : $0.x < $1.x }
-        func half(_ points: [CGPoint]) -> [CGPoint] {
-            var hull: [CGPoint] = []
-            for point in points {
-                while hull.count >= 2 {
-                    let a = hull[hull.count - 2]
-                    let b = hull[hull.count - 1]
-                    let cross = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x)
-                    if cross > 0 { break }
-                    hull.removeLast()
-                }
-                hull.append(point)
-            }
-            return hull
-        }
-        let hull = Array(half(points).dropLast()) + half(Array(points.reversed())).dropLast()
-        return Path { path in
-            path.addLines(hull)
-            path.closeSubpath()
-        }
+        ).silhouette(of: shape))
     }
 
     /// Figure hosts the portrait's AppKit view.

@@ -251,6 +251,54 @@ nonisolated enum RoomCamera: String, Sendable {
             )
         }
 
+        /// The convex silhouette of the standing body of `shape`, as this camera shows it at rest, in the
+        /// cell's points with y down: the hull of its outline grown along the bevel before and behind.
+        func silhouette(of shape: WorkerShape) -> CGPath {
+            let radius  = Double(RoomLightUniforms.Shape(
+                size: size,
+                lean: lean
+            ).sphereRadius)
+            let outline = shape.outline
+            let slab    = RoomCamera.slab(of: outline)
+            var points: [CGPoint] = []
+            for front in [-1.0, 1.0] {
+                for index in 0...24 {
+                    let angle = Double.pi / 2 * Double(index) / 24
+                    let depth = front * radius * (slab + outline.corner * sin(angle))
+                    for point in outline.points(
+                        growth       : outline.corner * cos(angle),
+                        pointsPerTurn: 128
+                    ) {
+                        points.append(project(SIMD3(
+                            bodyX + radius * point.x,
+                            bodyDepth + depth,
+                            radius * (outline.bottom - point.y)
+                        )))
+                    }
+                }
+            }
+            points.sort { $0.x == $1.x ? $0.y < $1.y : $0.x < $1.x }
+            func half(_ points: [CGPoint]) -> [CGPoint] {
+                var hull: [CGPoint] = []
+                for point in points {
+                    while hull.count >= 2 {
+                        let a     = hull[hull.count - 2]
+                        let b     = hull[hull.count - 1]
+                        let cross = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x)
+                        if cross > 0 { break }
+                        hull.removeLast()
+                    }
+                    hull.append(point)
+                }
+                return hull
+            }
+            let hull = Array(half(points).dropLast()) + half(Array(points.reversed())).dropLast()
+            let path = CGMutablePath()
+            path.addLines(between: hull)
+            path.closeSubpath()
+            return path
+        }
+
         /// The centre of the lamp's disc: over the worker, a little behind it, and in a room leaning
         /// left a little left of it.
         var lamp: SIMD3<Double> {

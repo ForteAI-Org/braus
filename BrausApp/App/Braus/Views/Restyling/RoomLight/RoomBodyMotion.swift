@@ -256,7 +256,7 @@ nonisolated struct RoomBodyMotion: Equatable {
 
     /// The flat transform that carries three points of the body at rest, its foot, a point above it and
     /// one beside it, to where `pose` shows them through `camera`, in the room's layer, y up.
-    private static func outlineTransform(
+    static func outlineTransform(
         camera: RoomCamera.Perspective,
         radius: Double,
         pose  : RoomLightUniforms.Pose

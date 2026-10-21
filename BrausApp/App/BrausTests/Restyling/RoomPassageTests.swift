@@ -95,62 +95,67 @@ struct RoomPassageTests {
         #expect(mascot.leftBrow.animationKeys()?.contains { $0.hasPrefix("passage") } != true)
     }
 
-    @Test("Choosing a worker bakes its exit at once, plays it over the room's image, and renders fully only after it and the plaque")
-    func exitBakedOnSelection() async throws {
+    @Test("A room at rest bakes its exit ahead, and choosing its worker plays it at once, the full render after it and the plaque")
+    func exitBakedAhead() async throws {
         defer { RestylingMotion.overrideReducesMotion = nil }
         RestylingMotion.overrideReducesMotion = false
-        let device = try #require(MTLCreateSystemDefaultDevice())
         let window = Self.window()
         defer { window.close() }
-        let view   = RoomLightView(
-            device  : device,
-            uniforms: Self.room(hasOccupant: true),
-            frame   : CGRect(
-                origin: .zero,
-                size  : Self.size
-            )
-        )
-        let mascot = MascotLayer()
-        mascot.frame = CGRect(
-            x     : 0,
-            y     : 0,
-            width : 56,
-            height: 56
-        )
-        window.contentView?.wantsLayer = true
-        window.contentView?.layer?.addSublayer(mascot)
-        let link = RoomBodyLink()
-        link.browsDidBehave(mascot)
-        link.room = view
-        window.contentView?.addSubview(view)
-        try await Self.until { view.renderCounts.full >= 1 }
-        try await Task.sleep(for: .milliseconds(300))
+        let (view, mascot) = try Self.room(in: window)
+        try await Self.until { view.passageFrames != nil }
+        try await Task.sleep(for: .milliseconds(100))
         let settled = view.renderCounts
         let chosen  = ContinuousClock.now
+        let baked   = try #require(view.passageFrames)
+        // A busy light pulses: every pose of the way out, and the empty room, at full light and at its dimmest.
+        #expect(baked.poses.count == RoomPassage.steps + 1 && baked.poses.values.allSatisfy { $0.count == 2 })
+        #expect(baked.empty.count == 2)
 
         view.uniforms = Self.room(hasOccupant: false)
-        // The room keeps its image while the exit bakes; the brows start at once.
+        // The baked passage plays at once, over the live frame of the empty room; the brows start with it.
         let passage = try #require(view.passage)
         #expect(passage.isLeaving)
-        #expect(view.renderCounts == settled)
-        #expect(mascot.animation(forKey: "passage.fade") != nil)
-        #expect(mascot.animation(forKey: "passage.shift") != nil)
-        #expect(mascot.leftBrow.animation(forKey: "passage.look.position") != nil)
-
-        try await Self.until { view.passageWorker.animation(forKey: RoomLightView.passageKey) != nil }
         #expect(view.passageRenders == 1)
-        #expect(!view.passageLayer.isHidden)
-        #expect(view.passageEmpty.contents != nil)
+        #expect(!view.passageLayer.isHidden && view.passageEmpty.contents != nil)
+        #expect(!view.passageWorkerLit.isHidden)
         let frames = try #require(view.passageWorker.animation(forKey: RoomLightView.passageKey) as? CAKeyframeAnimation)
         #expect(frames.duration == RestylingTiming.roomExit)
         #expect(frames.values?.count == passage.keyframes.count)
-        // The live frame of the empty room is drawn beneath it.
+        #expect(view.passageSnapshot.isHidden)
+        #expect(mascot.animation(forKey: "passage.fade") != nil)
+        #expect(mascot.animation(forKey: "passage.shift") != nil)
+        #expect(mascot.leftBrow.animation(forKey: "passage.look.position") != nil)
         try await Self.until { view.renderCounts.live == settled.live + 1 }
 
         try await Self.until { view.renderCounts.full == settled.full + 1 }
         #expect(ContinuousClock.now - chosen >= .seconds(RestylingTiming.roomExit) + .milliseconds(850))
         #expect(view.passage == nil)
         #expect(view.passageLayer.isHidden)
+    }
+
+    @Test("Chosen before its exit is baked, the worker's body still steps out, then the fresh frames take over")
+    func exitBeforeBaking() async throws {
+        defer { RestylingMotion.overrideReducesMotion = nil }
+        RestylingMotion.overrideReducesMotion = false
+        let window = Self.window()
+        defer { window.close() }
+        let (view, mascot) = try Self.room(in: window)
+        try await Self.until { view.renderCounts.full >= 1 && view.shownImage != nil }
+        try #require(view.passageFrames == nil, "the exit was baked before the test could choose the worker")
+
+        view.uniforms = Self.room(hasOccupant: false)
+        // The body's image steps out on Core Animation alone, with the brows.
+        #expect(!view.passageSnapshot.isHidden)
+        #expect(view.passageSnapshot.mask != nil)
+        let carry = try #require(view.passageSnapshot.animation(forKey: RoomLightView.passageKey) as? CAKeyframeAnimation)
+        let poses = try #require(carry.values as? [NSValue]).map(\.caTransform3DValue)
+        #expect(poses.contains { !CATransform3DIsIdentity($0) })
+        #expect(view.passageSnapshot.animation(forKey: RoomLightView.passageFadeKey) != nil)
+        #expect(mascot.animation(forKey: "passage.fade") != nil)
+
+        try await Self.until { view.passageWorker.animation(forKey: RoomLightView.passageKey) != nil }
+        #expect(view.passageSnapshot.isHidden)
+        #expect(view.passageRenders == 1)
     }
 
     @Test("Coming back, the worker steps in once the plaque has faded")
@@ -223,6 +228,39 @@ struct RoomPassageTests {
     }
 
     // MARK: - Helpers
+
+    /// A busy worker's tilted room in `window`, with the brows over it playing their loop.
+    private static func room(in window: NSWindow) throws -> (RoomLightView, MascotLayer) {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let view   = RoomLightView(
+            device  : device,
+            uniforms: room(hasOccupant: true),
+            frame   : CGRect(
+                origin: .zero,
+                size  : size
+            )
+        )
+        let mascot = MascotLayer()
+        mascot.frame  = CGRect(
+            x     : 0,
+            y     : 0,
+            width : 56,
+            height: 56
+        )
+        mascot.status = .busy
+        window.contentView?.wantsLayer = true
+        window.contentView?.layer?.addSublayer(mascot)
+        mascot.behave(seed: 7)
+        let link = RoomBodyLink()
+        link.browsDidBehave(mascot)
+        link.room = view
+        window.contentView?.addSubview(view)
+        links.append(link)
+        return (view, mascot)
+    }
+
+    /// Keeps each test's link alive, as the views hold it weakly.
+    private static var links: [RoomBodyLink] = []
 
     private static func room(hasOccupant: Bool) -> RoomLightUniforms {
         RoomLightUniforms(
