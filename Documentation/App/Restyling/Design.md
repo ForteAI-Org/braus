@@ -2,6 +2,12 @@
 
 Date: 20 October 2026. Branch: `elio/app-restyling`, from `main` at `39aa712c`.
 
+> **22 October 2026, phase R:** the restyling is now the app's only interface. The house
+> (`HouseShellView`) is the team window over the real team, dark only, in every window. The
+> mockup (`BRAUS_RESTYLING=1`, its fake data and its copies of the app's views), the behaviour
+> preview, the `restyling.newLook` switch and the old window are gone. What this document says
+> about "mockup mode" and fake data is history: those surfaces now run on the real team.
+
 This document records what the restyling brainstorm decided. A builder who knows
 SwiftUI, AppKit, Core Animation and Metal should be able to plan the work from it
 without going back to the person who decided it. The interactive prototypes in
