@@ -73,7 +73,7 @@ nonisolated struct UserFacingIssue: Sendable, Equatable {
 @MainActor
 final class TeamModel {
 
-    private let store: WorkspaceStore
+    let store: WorkspaceStore
 
     let connections: ModelSettingsStore
 
@@ -1591,52 +1591,6 @@ final class TeamModel {
         }
     }
 
-    // MARK: Writing the team
-
-    /// Creates a worker and, when `selection` is given, writes it as the
-    /// worker's first configuration version. A worker whose model could not be
-    /// written is still created, with no model. Creation is always the person's
-    /// act: nothing else in the app calls this.
-    func createWorker(
-        name        : String,
-        role        : String?,
-        instructions: String?,
-        appearance  : WorkerAppearance,
-        selection   : ModelSelection? = nil
-    ) async {
-        do {
-            let made = try await store.createWorker(
-                name        : name,
-                role        : role,
-                instructions: instructions,
-                appearance  : appearance
-            )
-            if let selection {
-                do {
-                    try await store.configure(
-                        worker   : made.id,
-                        selection: selection
-                    )
-                } catch {
-                    problem = issue(
-                        title  : "Couldn’t Change Model",
-                        message: "\(made.name) was created without a model.",
-                        error  : error
-                    )
-                }
-            }
-            await load()
-            self.selection = made.id
-            await openSelectedConversation()
-        } catch {
-            problem = issue(
-                title  : "Couldn’t Create Worker",
-                message: "Review the worker details and try again.",
-                error  : error
-            )
-        }
-    }
-
     // MARK: The model
 
     /// Writes `selection` as the worker's next configuration version. The
@@ -1828,7 +1782,7 @@ final class TeamModel {
 
     // MARK: Refusals
 
-    private func issue(
+    func issue(
         title  : String,
         message: String,
         error  : any Error

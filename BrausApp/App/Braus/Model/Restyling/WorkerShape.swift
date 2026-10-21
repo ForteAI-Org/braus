@@ -14,8 +14,17 @@ import Foundation
 /// so they weigh the same, and centred on its centroid. The polygons' corners are as round as the
 /// outline stays legible at 16 points: tighter on the pentagon and hexagon, which otherwise read as
 /// circles. A gentle dome a third of the inradius high keeps every top from looking flat.
-nonisolated enum WorkerShape: CaseIterable, Sendable {
+nonisolated enum WorkerShape: String, CaseIterable, Sendable {
     case circle, square, triangle, diamond, pentagon, hexagon, capsule, lens
+
+    /// WorkerShape derives a stable default by summing the UUID's bytes.
+    /// Unlike Swift's randomized Hasher, this mapping survives process restarts.
+    static func derived(from id: UUID) -> WorkerShape {
+        let sum = withUnsafeBytes(of: id.uuid) { bytes in
+            bytes.reduce(0) { $0 + Int($1) }
+        }
+        return allCases[sum % allCases.count]
+    }
 
     /// The shape's name, as the shape picker and VoiceOver say it.
     var name: String { String(describing: self).capitalized }

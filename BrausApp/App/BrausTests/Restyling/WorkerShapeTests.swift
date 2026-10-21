@@ -6,11 +6,28 @@
 //
 
 import CoreGraphics
+import Foundation
 import Testing
 @testable import Braus
 
 @Suite("WorkerShape")
 struct WorkerShapeTests {
+
+    @Test("Derived shapes keep fixed UUID mappings across launches")
+    func derivedShapes() throws {
+        let fixtures: [(String, WorkerShape)] = [
+            ("00000000-0000-0000-0000-000000000000", .circle),
+            ("00000000-0000-0000-0000-000000000001", .square),
+            ("00000000-0000-0000-0000-000000000007", .lens),
+            ("00000000-0000-0000-0000-000000000008", .circle),
+            ("01000000-0000-0000-0000-000000000001", .triangle),
+            ("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", .circle),
+        ]
+        for (text, expected) in fixtures {
+            let id = try #require(UUID(uuidString: text))
+            #expect(WorkerShape.derived(from: id) == expected)
+        }
+    }
 
     @Test("Every outline is one closed loop, centred on its centroid and as large as the sphere")
     func outlines() throws {

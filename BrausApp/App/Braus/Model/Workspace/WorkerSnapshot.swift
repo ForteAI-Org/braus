@@ -24,6 +24,9 @@ nonisolated struct WorkerSnapshot: Sendable, Hashable, Identifiable {
     let createdAt   : Date
     let appearance  : WorkerAppearance
 
+    /// WorkerSnapshot resolves absent or unknown case names without rewriting the stored value.
+    let shape: WorkerShape
+
     /// The current configuration version, or nil while the worker has none.
     let configurationVersion: Int?
 
@@ -34,7 +37,10 @@ nonisolated struct WorkerSnapshot: Sendable, Hashable, Identifiable {
     /// it cannot answer, and nothing pretends it can.
     var isConfigured: Bool { configuration != nil }
 
-    init(_ worker: Worker, configuration: WorkerConfiguration?) {
+    init(
+        _ worker     : Worker,
+        configuration: WorkerConfiguration?
+    ) {
         self.id                   = worker.id
         self.name                 = worker.name
         self.role                 = worker.role
@@ -42,6 +48,8 @@ nonisolated struct WorkerSnapshot: Sendable, Hashable, Identifiable {
         self.isArchived           = worker.isArchived
         self.createdAt            = worker.createdAt
         self.appearance           = worker.appearance
+        self.shape                = worker.shape.flatMap(WorkerShape.init(rawValue:))
+            ?? WorkerShape.derived(from: worker.id)
         self.configurationVersion = configuration?.version
         self.configuration        = configuration?.selection
     }
