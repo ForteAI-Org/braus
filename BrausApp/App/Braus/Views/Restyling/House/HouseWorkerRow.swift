@@ -1,13 +1,25 @@
 import SwiftUI
 
 /// HouseWorkerRow presents a compact card with a lit worker, its name and its badge.
-/// The worker stays visible during selection; the card and accessibility traits mark the choice.
+/// Wide, the name sits beside the worker and the badge ends the card. Narrow (`isCompact`), the
+/// worker is centred with its name under it, as in a compact room, and the badge marks the corner.
+/// Both forms are the same views in a different layout, so a change between them moves and resizes
+/// them. The worker stays visible when selected; the card and accessibility traits mark the choice.
 struct HouseWorkerRow: View {
     let worker    : MockWorker
     let isSelected: Bool
+    var isCompact : Bool = false
+
+    /// The room a trailing badge takes beside a wide card's name.
+    private static let badgeRoom: CGFloat = 30
+
+    private var badge: MockBadge? { isSelected ? nil : worker.badge }
 
     var body: some View {
-        HStack(spacing: 8) {
+        let layout = isCompact
+            ? AnyLayout(VStackLayout(spacing: 0))
+            : AnyLayout(HStackLayout(spacing: 8))
+        layout {
             HouseWorkerPortrait(
                 shape : worker.shape,
                 status: worker.status,
@@ -16,30 +28,41 @@ struct HouseWorkerRow: View {
             .accessibilityHidden(true)
             Text(worker.name)
                 .font(.system(
-                    size  : 13,
-                    weight: .medium
+                    size  : isCompact ? 11 : 13,
+                    weight: isCompact ? .regular : .medium
                 ))
-                .foregroundStyle(.primary)
+                .foregroundStyle(isCompact ? .secondary : .primary)
                 .lineLimit(1)
+                .padding(
+                    .trailing,
+                    isCompact || badge == nil ? 0 : Self.badgeRoom
+                )
                 .frame(
-                    maxWidth : .infinity,
+                    maxWidth : isCompact ? nil : .infinity,
                     alignment: .leading
                 )
-            if !isSelected, let badge = worker.badge {
-                HouseBadgeView(
-                    badge : badge,
-                    height: 17
-                )
-            }
         }
         .padding(
-            .trailing,
-            12
+            .horizontal,
+            isCompact ? 8 : 0
+        )
+        .padding(
+            .bottom,
+            isCompact ? 5 : 0
         )
         .frame(
             maxWidth : .infinity,
             maxHeight: .infinity
         )
+        .overlay(alignment: isCompact ? .topTrailing : .trailing) {
+            if let badge {
+                HouseBadgeView(
+                    badge : badge,
+                    height: isCompact ? 15 : 17
+                )
+                .padding(isCompact ? 6 : 12)
+            }
+        }
         .background {
             RoundedRectangle(cornerRadius: 8)
                 .fill(.white.opacity(isSelected ? 0.08 : 0.035))

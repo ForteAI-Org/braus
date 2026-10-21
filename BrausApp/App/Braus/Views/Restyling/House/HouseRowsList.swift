@@ -8,11 +8,12 @@
 import SwiftUI
 
 /// HouseRowsList presents compact worker rows with their room lighting and native list selection.
-/// Names stay beside the workers at every sidebar width. A newly selected worker scrolls into view,
+/// Names sit beside the workers, or under them when the sidebar is compact. A newly selected worker scrolls into view,
 /// and each row offers Edit Worker… in its context menu.
 struct HouseRowsList: View {
     let workers   : [MockWorker]
     let roomsWidth: CGFloat?
+    let isCompact : Bool
 
     @Binding var selection: MockWorker.ID?
 
@@ -34,11 +35,12 @@ struct HouseRowsList: View {
             ForEach(workers) { worker in
                 HouseWorkerRow(
                     worker    : worker,
-                    isSelected: selection == worker.id
+                    isSelected: selection == worker.id,
+                    isCompact : isCompact
                 )
                 .frame(
                     width : roomsWidth,
-                    height: HouseLayout.rowHeight
+                    height: HouseLayout.rowHeight(isCompact: isCompact)
                 )
                 .background(QuietSelection())
                 .tag(Optional(worker.id))
