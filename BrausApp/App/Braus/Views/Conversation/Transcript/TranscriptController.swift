@@ -96,6 +96,12 @@ final class TranscriptController: NSObject {
     /// Why the last read did not apply, in a sentence. Nil once one applies.
     private(set) var problem: String?
 
+    /// How far the newest turn has got while it runs, as the rows show it; nil while none runs.
+    private(set) var runningTurn: RunningTurn?
+
+    /// The running turn's latest tool step in its tool line's words; nil before one or with no turn.
+    var runningStep: String? { runningTurn?.step }
+
     /// Called once scrolling rests, with the message the reader is anchored on
     /// and the offset in points from its top to the viewport's top.
     @ObservationIgnored
@@ -194,6 +200,7 @@ final class TranscriptController: NSObject {
         readingOffset   : Double
     ) {
         self.conversationID = conversationID
+        runningTurn         = nil
         enqueue {
             do {
                 let window = try await TranscriptWindow.opening(conversationID, around: readingAnchor,
@@ -448,6 +455,8 @@ final class TranscriptController: NSObject {
         showSelection()
         lastUpdate = update
         isEmpty    = rows.isEmpty
+        let turn   = RunningTurn(rows.map(\.item))
+        if turn != runningTurn { runningTurn = turn }
         scheduleUnsentCheck(window, now: now)
     }
 

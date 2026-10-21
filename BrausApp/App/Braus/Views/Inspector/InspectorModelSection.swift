@@ -21,6 +21,11 @@ struct InspectorModelSection: View {
     let team  : TeamModel
     let worker: WorkerSnapshot
 
+    /// Vertical padding added to each row, and the gap held after the section; the app's inspector
+    /// keeps the system's own, the house passes its own.
+    var rowPadding: CGFloat = 0
+    var footerGap : CGFloat = 0
+
     /// The provider waiting on the person's consent, with the sentence they consent to.
     @State private var pending: (provider: ModelProvider, sentence: String)?
 
@@ -28,7 +33,7 @@ struct InspectorModelSection: View {
     private var reducesMotion
 
     var body: some View {
-        Section("Model") {
+        Section {
             providerRow
 
             if isChoosing {
@@ -43,8 +48,9 @@ struct InspectorModelSection: View {
                     // The first provider stands a little apart from the row that opened the list.
                     .padding(
                         .top,
-                        provider == ModelProvider.allCases.first ? 5 : 0
+                        provider == ModelProvider.allCases.first ? (rowPadding > 0 ? 10 : 5) : 0
                     )
+                    .padding(.vertical, rowPadding)
                     .listRowSeparatorTint(Color(nsColor: .tertiaryLabelColor))
                 }
             }
@@ -54,11 +60,18 @@ struct InspectorModelSection: View {
                     "Model",
                     value: selection.line
                 )
+                .padding(.vertical, rowPadding)
                 LabeledContent("Connection") { connectionState(selection.provider) }
+                    .padding(.vertical, rowPadding)
             } else {
                 Text("\(worker.name) needs a provider before it can answer.")
                     .foregroundStyle(.secondary)
+                    .padding(.vertical, rowPadding)
             }
+        } header: {
+            Text("Model")
+        } footer: {
+            if footerGap > 0 { HouseSectionGap(height: footerGap) }
         }
         .confirmationDialog(
             "Change \(worker.name)’s Provider?",
@@ -96,6 +109,7 @@ struct InspectorModelSection: View {
                 }
             }
             .contentShape(Rectangle())
+            .padding(.vertical, rowPadding)
         }
         .buttonStyle(.plain)
         .accessibilityValue(isChoosing ? "Expanded" : "Collapsed")

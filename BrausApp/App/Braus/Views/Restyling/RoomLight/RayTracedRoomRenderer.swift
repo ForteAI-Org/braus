@@ -42,6 +42,9 @@ final class RayTracedRoomRenderer: RoomRenderer {
     private var scene          : Scene?
     private var denoiserRequest: (any RoomDenoiserInterest)?
 
+    /// A RoomDenoiserPool other than the shared one, which a test gives a room to keep it apart from the rest.
+    var denoiserPool: AnyObject?
+
     /// Schedules a refinement through the view's render queue when its pending bucket becomes ready.
     var denoiserDidBecomeReady: (() -> Void)?
 
@@ -71,7 +74,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
             return
         }
         releaseDenoiser()
-        denoiserRequest = RoomDenoiserPool.shared.request(
+        denoiserRequest = (denoiserPool as? RoomDenoiserPool ?? .shared).request(
             device : device,
             width  : bucket.width,
             height : bucket.height,
