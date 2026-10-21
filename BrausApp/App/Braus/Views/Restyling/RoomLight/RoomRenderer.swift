@@ -12,25 +12,28 @@ import os
 
 /// RoomRenderer lights a room with its worker into textures, once per change.
 ///
-/// A renderer writes two linear images: the room without its worker's light, and the light alone.
-/// Each target then receives their sum with the light at its own weight, tone mapped once; the view
-/// uses the weights to play the light's pulse as a sequence of finished frames. Nothing is left
-/// running, so a room at rest costs only compositing.
+/// A renderer writes two linear images: the room without its worker's light, and the light alone; a
+/// tilted room with a busy worker writes a third, its screen's light (`RoomLightUniforms.screenStrength`).
+/// Each target then receives their sum with the lamp's light and the screen's at their own weights,
+/// tone mapped once; the view uses the weights to play the lights' pulse as a sequence of finished
+/// frames. Nothing is left running, so a room at rest costs only compositing.
 protocol RoomRenderer: AnyObject {
 
     /// The queue the renderer's command buffers come from.
     var commandQueue: MTLCommandQueue { get }
 
-    /// The kernel that adds the two images and tone maps them.
+    /// The kernel that adds the images and tone maps them.
     var resolvePipeline: MTLComputePipelineState { get }
 
-    /// Encodes the room of `size` points into two linear `rgba16Float` images of the same pixel
-    /// size: `base` without the worker's light, `light` the light alone.
+    /// Encodes the room of `size` points into linear `rgba16Float` images of one pixel size: `base`
+    /// without the worker's light, `light` the light alone, and `screen` the screen's light, written
+    /// only for a room whose `screenStrength` is above zero.
     func encodeImages(
         _ uniforms   : RoomLightUniforms,
         size         : CGSize,
         base         : MTLTexture,
         light        : MTLTexture,
+        screen       : MTLTexture,
         commandBuffer: MTLCommandBuffer
     )
 
@@ -84,18 +87,19 @@ extension RoomRenderer {
         encode(
             uniforms,
             size         : size,
-            into         : [(texture, 1)],
+            into         : [(texture, SIMD2(1, 1))],
             commandBuffer: commandBuffer
         )
     }
 
-    /// Encodes the room once and resolves it into every target with the light at its weight. The
-    /// targets are writable `bgra8Unorm` textures of one pixel size. The room covers `extent` pixels
-    /// from their top leading corner, or all of them when nil; beyond it each row repeats its last pixel.
+    /// Encodes the room once and resolves it into every target with the lamp's light and the screen's
+    /// at its weights, `x` and `y`. The targets are writable `bgra8Unorm` textures of one pixel size.
+    /// The room covers `extent` pixels from their top leading corner, or all of them when nil; beyond it
+    /// each row repeats its last pixel.
     func encode(
         _ uniforms   : RoomLightUniforms,
         size         : CGSize,
-        into targets : [(texture: MTLTexture, weight: Float)],
+        into targets : [(texture: MTLTexture, weight: SIMD2<Float>)],
         extent       : MTLSize? = nil,
         commandBuffer: MTLCommandBuffer
     ) {
@@ -110,6 +114,11 @@ extension RoomRenderer {
                 width : base.width,
                 height: base.height,
                 device: first.device
+            ),
+            let screen = Self.linearImage(
+                width : base.width,
+                height: base.height,
+                device: first.device
             )
         else { return }
         encodeImages(
@@ -117,6 +126,7 @@ extension RoomRenderer {
             size         : size,
             base         : base,
             light        : light,
+            screen       : screen,
             commandBuffer: commandBuffer
         )
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
@@ -129,15 +139,23 @@ extension RoomRenderer {
             light,
             index: 1
         )
+        encoder.setTexture(
+            screen,
+            index: 3
+        )
         for target in targets {
-            var weight = target.weight
+            // A room with no screen leaves its screen image unwritten, so the resolve must not read it.
+            var weights = SIMD2(
+                target.weight.x,
+                uniforms.screenStrength > 0 ? target.weight.y : 0
+            )
             encoder.setTexture(
                 target.texture,
                 index: 2
             )
             encoder.setBytes(
-                &weight,
-                length: MemoryLayout<Float>.size,
+                &weights,
+                length: MemoryLayout<SIMD2<Float>>.size,
                 index : 0
             )
             Self.dispatchPerPixel(
@@ -175,13 +193,14 @@ extension RoomRenderer {
     }
 
     /// Encodes `pipeline` over every pixel of `base` with the room's uniforms in buffer 0
-    /// and the two images in textures 0 and 1.
+    /// and the images in textures 0, 1 and 2.
     func dispatch(
         _ pipeline   : MTLComputePipelineState,
         uniforms     : RoomLightUniforms,
         size         : CGSize,
         base         : MTLTexture,
         light        : MTLTexture,
+        screen       : MTLTexture,
         encoder      : MTLComputeCommandEncoder
     ) {
         var packed = uniforms.packed(
@@ -196,6 +215,10 @@ extension RoomRenderer {
         encoder.setTexture(
             light,
             index: 1
+        )
+        encoder.setTexture(
+            screen,
+            index: 2
         )
         encoder.setBytes(
             &packed,
@@ -239,7 +262,8 @@ extension RoomRenderer {
             height     : height,
             mipmapped  : false
         )
-        descriptor.usage       = [.shaderRead, .shaderWrite]
+        // MetalFX's denoiser writes its output as a render target.
+        descriptor.usage       = [.shaderRead, .shaderWrite, .renderTarget]
         descriptor.storageMode = .private
         return device.makeTexture(descriptor: descriptor)
     }

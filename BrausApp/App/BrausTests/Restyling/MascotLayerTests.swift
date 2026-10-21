@@ -80,8 +80,10 @@ struct MascotLayerTests {
     func roomLight() throws {
         defer { RestylingMotion.overrideReducesMotion = nil }
         RestylingMotion.overrideReducesMotion = false
-        let white  = CGColor(srgbRed: 0xF5 / 255.0, green: 0xF5 / 255.0, blue: 0xF7 / 255.0, alpha: 1)
         let srgb   = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        func color(_ tone: (red: Double, green: Double, blue: Double)) -> CGColor {
+            CGColor(srgbRed: tone.red, green: tone.green, blue: tone.blue, alpha: 1)
+        }
         func components(_ color: CGColor?) throws -> [CGFloat] {
             try #require(color?.converted(to: srgb, intent: .defaultIntent, options: nil)?.components)
         }
@@ -93,13 +95,13 @@ struct MascotLayerTests {
         let edge = try components(mascot.leftBrow.fillColor)
         #expect(edge[0] - edge[2] > 0.2)
         #expect(0xF7 / 255.0 - edge[2] <= MascotLayer.roomLightTint + 1e-6)
-        // Below it, half way, then white: green and blue stay near white away from the edge.
+        // Below it, half way, then the enamel's shaded bottom tone, which takes no light.
         let copies = mascot.lightCopies(of: mascot.leftBrow)
         #expect(copies.count == 2 && copies.allSatisfy { !$0.isHidden && $0.mask != nil })
         let half = try components(copies[0].fillColor)
-        #expect(half[2] > edge[2] && half[2] < 0xF7 / 255.0)
+        #expect(half[2] > edge[2] && half[2] < MascotLayer.enamel.middle.blue)
         let inner = try components(copies[1].fillColor)
-        #expect(abs(inner[1] - 0xF5 / 255.0) < 0.01 && abs(inner[2] - 0xF7 / 255.0) < 0.01)
+        #expect(abs(inner[1] - MascotLayer.enamel.bottom.green) < 0.01 && abs(inner[2] - MascotLayer.enamel.bottom.blue) < 0.01)
 
         // The edge and the half step pulse with the room, phased like it.
         let pulse = try #require(mascot.leftBrow.animation(forKey: MascotLayer.roomLightKey) as? CAKeyframeAnimation)
@@ -121,13 +123,15 @@ struct MascotLayerTests {
         mascot.status = .off
         mascot.catchRoomLight(true)
         #expect(mascot.leftBrow.animation(forKey: MascotLayer.roomLightKey) == nil)
-        #expect(copies.allSatisfy { $0.isHidden })
-        #expect(mascot.leftBrow.fillColor == CGColor(srgbRed: 0x6E / 255.0, green: 0x6E / 255.0, blue: 0x6E / 255.0, alpha: 1))
+        #expect(copies.allSatisfy { !$0.isHidden })
+        #expect(mascot.leftBrow.fillColor == color(MascotLayer.offEnamel.top))
 
+        // Out of a room the enamel keeps its own tones, lighter at the top.
         mascot.status = .busy
         mascot.catchRoomLight(false)
-        #expect(mascot.leftBrow.fillColor == white)
-        #expect(copies.allSatisfy { $0.isHidden })
+        #expect(mascot.leftBrow.fillColor == color(MascotLayer.enamel.top))
+        #expect(copies[1].fillColor == color(MascotLayer.enamel.bottom))
+        #expect(copies.allSatisfy { !$0.isHidden })
     }
 
     @Test("Each shape draws its own outline and keeps the brows on its face")

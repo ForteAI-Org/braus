@@ -50,6 +50,7 @@ final class PrecomputedRoomRenderer: RoomRenderer {
         size         : CGSize,
         base         : MTLTexture,
         light        : MTLTexture,
+        screen       : MTLTexture,
         commandBuffer: MTLCommandBuffer
     ) {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
@@ -59,6 +60,7 @@ final class PrecomputedRoomRenderer: RoomRenderer {
             size    : size,
             base    : base,
             light   : light,
+            screen  : screen,
             encoder : encoder
         )
     }

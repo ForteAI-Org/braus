@@ -17,49 +17,51 @@ struct RoomCameraTests {
     /// The GPU the top view's digests were recorded on, from 09b7b881's renderers.
     nonisolated private static let recordingGPU = "Apple M4"
 
-    /// The digest of each top-view render at 09b7b881, by `Sample.name`: SHA-256, first 16 hex digits.
+    /// The digest of each top-view render, by `Sample.name`: SHA-256, first 16 hex digits. Recorded at
+    /// 09b7b881 and again once the grid's worker grew a sixth; the empty rooms are 09b7b881's.
     private static let topDigests: [String: String] = [
         "pc-busy-circle-empty-260x84"  : "944465b71b8272ba",
-        "pc-busy-circle-in-127x104"    : "d6c9c68dd1c61310",
-        "pc-busy-lens-in-260x104"      : "636e2d96e37ba3ad",
-        "pc-busy-pentagon-in-260x104"  : "7220faecc24578f9",
-        "pc-free-hexagon-in-260x84"    : "40411638fc10dab7",
-        "pc-free-square-in-260x104"    : "9ec36bb4989a215c",
-        "pc-off-diamond-in-127x104"    : "c852caeff51cc54a",
-        "pc-waiting-capsule-in-127x104": "aa4fe3b34f2ea595",
-        "pc-waiting-triangle-in-260x84": "12a0d8801414fbbe",
+        "pc-busy-circle-in-127x104"    : "3a8a25840e93ded7",
+        "pc-busy-lens-in-260x104"      : "e2da8adcc78780d5",
+        "pc-busy-pentagon-in-260x104"  : "196f122737b8ccb7",
+        "pc-free-hexagon-in-260x84"    : "35276a3b1cb4eb88",
+        "pc-free-square-in-260x104"    : "97439ef8be9f418e",
+        "pc-off-diamond-in-127x104"    : "78fb04554d917b72",
+        "pc-waiting-capsule-in-127x104": "36088ddae0a79543",
+        "pc-waiting-triangle-in-260x84": "60528188a01c886d",
         "rt-busy-circle-empty-260x84"  : "07eea9869362c828",
-        "rt-busy-circle-in-127x104"    : "03c4d3243fefa2ed",
-        "rt-busy-lens-in-260x104"      : "0fe215e83b39af54",
-        "rt-busy-pentagon-in-260x104"  : "8517c0839fe6b3ec",
-        "rt-free-hexagon-in-260x84"    : "fb4167f2b4322055",
-        "rt-free-square-in-260x104"    : "a6a7bd781b56ba6c",
-        "rt-off-diamond-in-127x104"    : "aa2a42d3ca45e78f",
-        "rt-waiting-capsule-in-127x104": "e9aa465318aeafa7",
-        "rt-waiting-triangle-in-260x84": "619754ed07c1bff2",
+        "rt-busy-circle-in-127x104"    : "47700f2d80fb4ed3",
+        "rt-busy-lens-in-260x104"      : "d40482cef9ceb14f",
+        "rt-busy-pentagon-in-260x104"  : "f3332d3d5e284cf3",
+        "rt-free-hexagon-in-260x84"    : "1d48c8936a24f83b",
+        "rt-free-square-in-260x104"    : "20b8b02648c22846",
+        "rt-off-diamond-in-127x104"    : "997ec3416339c5c0",
+        "rt-waiting-capsule-in-127x104": "053c85aabb9267b6",
+        "rt-waiting-triangle-in-260x84": "a96c24133432e47c",
     ]
 
-    /// The digest of each tilted render at a53d9e46, before the rows' left composition, by
-    /// `Sample.name`.
+    /// The digest of each tilted render, by `Sample.name`. Recorded at a53d9e46 and again with the
+    /// screen, the moon, the metal that holds the light and the larger worker; the empty rooms are
+    /// a53d9e46's.
     private static let tiltedDigests: [String: String] = [
         "pc-busy-circle-empty-260x84"  : "b1ab02eb6a4dbe7b",
-        "pc-busy-circle-in-127x104"    : "e8a4c76eddd44d00",
-        "pc-busy-lens-in-260x104"      : "87520876d2d61a69",
-        "pc-busy-pentagon-in-260x104"  : "bebce06b71212921",
-        "pc-free-hexagon-in-260x84"    : "4d1f562a179fa58e",
-        "pc-free-square-in-260x104"    : "d97db6fc2169eb09",
-        "pc-off-diamond-in-127x104"    : "67b25a5e266b87aa",
-        "pc-waiting-capsule-in-127x104": "f191cff8d7fe235c",
-        "pc-waiting-triangle-in-260x84": "fca3a61bcfad747a",
+        "pc-busy-circle-in-127x104"    : "a50b3d946125ce12",
+        "pc-busy-lens-in-260x104"      : "34bfd81d27855ce1",
+        "pc-busy-pentagon-in-260x104"  : "3a6a682fc6e47ff7",
+        "pc-free-hexagon-in-260x84"    : "ae0c65355301af4e",
+        "pc-free-square-in-260x104"    : "225ee0238146a469",
+        "pc-off-diamond-in-127x104"    : "a10103b31af4ba53",
+        "pc-waiting-capsule-in-127x104": "e36d0e16f1f2b1ea",
+        "pc-waiting-triangle-in-260x84": "419f68c5b72fd8b7",
         "rt-busy-circle-empty-260x84"  : "3c27fb0c2dbe18f1",
-        "rt-busy-circle-in-127x104"    : "b4ece342da99b037",
-        "rt-busy-lens-in-260x104"      : "d3bbf3ac9f681893",
-        "rt-busy-pentagon-in-260x104"  : "65c11772c4f13f6c",
-        "rt-free-hexagon-in-260x84"    : "efb8e0fa29447833",
-        "rt-free-square-in-260x104"    : "9e3dd4d9b5338b78",
-        "rt-off-diamond-in-127x104"    : "c58e37cee40535b3",
-        "rt-waiting-capsule-in-127x104": "94d445dd57ee4f75",
-        "rt-waiting-triangle-in-260x84": "0f76e5a70bc79f00",
+        "rt-busy-circle-in-127x104"    : "d2fd4ef6d5de8452",
+        "rt-busy-lens-in-260x104"      : "cff09c03650fcd40",
+        "rt-busy-pentagon-in-260x104"  : "c3bf5330a224a112",
+        "rt-free-hexagon-in-260x84"    : "1ffc2aa60a083aa3",
+        "rt-free-square-in-260x104"    : "fe4d055131834364",
+        "rt-off-diamond-in-127x104"    : "f4321d2dfc068c4e",
+        "rt-waiting-capsule-in-127x104": "e009b5ac28340252",
+        "rt-waiting-triangle-in-260x84": "f58212bf597d8eb7",
     ]
 
     @Test("BRAUS_ROOM_CAMERA names the top camera, and anything else or nothing keeps the tilted one")
@@ -157,7 +159,7 @@ struct RoomCameraTests {
     }
 
     @Test(
-        "The floor plan's rooms render exactly as before, from above and tilted, on both paths",
+        "The floor plan's rooms render as recorded, from above and tilted, on both paths",
         .enabled(if: MTLCreateSystemDefaultDevice()?.name == recordingGPU)
     )
     func centreIsUnchanged() throws {
