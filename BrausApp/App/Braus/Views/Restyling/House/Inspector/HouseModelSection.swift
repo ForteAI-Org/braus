@@ -38,8 +38,8 @@ struct HouseModelSection: View {
     var body: some View {
         let selection = team.selection(of: worker)
 
-        Section(
-            "Model",
+        HouseFoldableSection(
+            title     : "Model",
             isExpanded: $isExpanded
         ) {
             providerRow(selection.provider)

@@ -30,8 +30,8 @@ struct HouseScreenSection: View {
     @FocusState private var isButtonFocused: Bool
 
     var body: some View {
-        Section(
-            "Screen",
+        HouseFoldableSection(
+            title     : "Screen",
             isExpanded: $isExpanded
         ) {
             LabeledContent(

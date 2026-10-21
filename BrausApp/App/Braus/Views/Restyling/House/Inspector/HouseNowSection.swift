@@ -17,8 +17,8 @@ struct HouseNowSection: View {
     @Binding var isExpanded: Bool
 
     var body: some View {
-        Section(
-            "Now",
+        HouseFoldableSection(
+            title     : "Now",
             isExpanded: $isExpanded
         ) {
             LabeledContent("Status") {

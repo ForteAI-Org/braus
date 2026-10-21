@@ -13,7 +13,7 @@ import SwiftUI
 /// toolbar's Screen toggle is on, its model and provider, its Chrome window, and its current or last
 /// turn (`InspectorTurnSection`). With no worker chosen it says where the details come from.
 ///
-/// Every section folds under its title, and the list of providers opens in place; the inspector
+/// Every section but the worker's folds under its title, and the list of providers opens in place; the inspector
 /// keeps both per worker (`InspectorDisclosure`), so coming back to a worker finds its inspector
 /// as it was left.
 struct HouseInspector: View {
@@ -29,53 +29,16 @@ struct HouseInspector: View {
         if let binding = worker, let team {
             let worker = binding.wrappedValue
             Form {
-                WorkerSection(worker: binding)
-                    .id(worker.id)
-                HouseNowSection(
-                    worker    : worker,
-                    team      : team,
-                    isExpanded: expansion(
-                        .now,
-                        of: worker
-                    )
-                )
-                if showsScreen, worker.status == .busy {
-                    HouseScreenSection(
-                        worker    : worker,
-                        isExpanded: expansion(
-                            .screen,
-                            of: worker
-                        )
+                ForEach(Self.parts(
+                    showsScreen: showsScreen,
+                    isBusy     : worker.status == .busy
+                )) { part in
+                    section(
+                        part,
+                        binding: binding,
+                        team   : team
                     )
                 }
-                HouseModelSection(
-                    worker    : worker,
-                    team      : team,
-                    isExpanded: expansion(
-                        .model,
-                        of: worker
-                    ),
-                    isChoosing: Binding(
-                        get: { disclosure.choosingProviderFor == worker.id },
-                        set: { disclosure.choosingProviderFor = $0 ? worker.id : nil }
-                    )
-                )
-                HouseWebSection(
-                    worker    : worker,
-                    team      : team,
-                    isExpanded: expansion(
-                        .web,
-                        of: worker
-                    )
-                )
-                InspectorTurnSection(
-                    workerName: worker.name,
-                    turn      : team.lastTurn(of: worker),
-                    isExpanded: expansion(
-                        .turn,
-                        of: worker
-                    )
-                )
             }
             .formStyle(.grouped)
         } else {
@@ -83,6 +46,84 @@ struct HouseInspector: View {
                 "No Worker",
                 systemImage: "info.circle",
                 description: Text("Details appear when you choose a room.")
+            )
+        }
+    }
+
+    /// Part is one section of the inspector, in the order they stand.
+    enum Part: Identifiable, CaseIterable {
+        case screen, worker, now, model, web, turn
+
+        var id: Self { self }
+    }
+
+    /// The sections that stand now, in order: Screen comes first whenever the worker is busy and
+    /// the toolbar's Screen toggle is on, then the worker itself.
+    static func parts(
+        showsScreen: Bool,
+        isBusy     : Bool
+    ) -> [Part] {
+        Part.allCases.filter { $0 != .screen || (showsScreen && isBusy) }
+    }
+
+    @ViewBuilder
+    private func section(
+        _ part  : Part,
+        binding : Binding<MockWorker>,
+        team    : MockTeam
+    ) -> some View {
+        let worker = binding.wrappedValue
+        switch part {
+        case .screen:
+            HouseScreenSection(
+                worker    : worker,
+                isExpanded: expansion(
+                    .screen,
+                    of: worker
+                )
+            )
+        case .worker:
+            WorkerSection(worker: binding)
+                .id(worker.id)
+        case .now:
+            HouseNowSection(
+                worker    : worker,
+                team      : team,
+                isExpanded: expansion(
+                    .now,
+                    of: worker
+                )
+            )
+        case .model:
+            HouseModelSection(
+                worker    : worker,
+                team      : team,
+                isExpanded: expansion(
+                    .model,
+                    of: worker
+                ),
+                isChoosing: Binding(
+                    get: { disclosure.choosingProviderFor == worker.id },
+                    set: { disclosure.choosingProviderFor = $0 ? worker.id : nil }
+                )
+            )
+        case .web:
+            HouseWebSection(
+                worker    : worker,
+                team      : team,
+                isExpanded: expansion(
+                    .web,
+                    of: worker
+                )
+            )
+        case .turn:
+            InspectorTurnSection(
+                workerName: worker.name,
+                turn      : team.lastTurn(of: worker),
+                isExpanded: expansion(
+                    .turn,
+                    of: worker
+                )
             )
         }
     }
