@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 21/10/2026.
 //
 
+import Foundation
 import Metal
 import MetalFX
 import os
@@ -24,12 +25,12 @@ import simd
 /// 16 frames of one sample in error, grain and cost: the scalers' cost is per frame, and they do best
 /// with clean input.
 ///
-/// Creating a denoiser compiles and allocates on the calling thread, 0.1 seconds per size and close to
-/// a second the first time, so the rooms of one size share one: `borrow` hands out an idle denoiser,
-/// and the borrower gives it back with `giveBack` once its command buffer has completed, so no two
-/// bursts ever share a history.
+/// Construction runs only on a background executor. After construction, the pool transfers the
+/// object to the main actor, which alone configures its scalers. One borrower owns all inputs and
+/// both histories until GPU completion; the pool never hands them to overlapping submissions.
+/// This ownership transfer and the actor-isolated encoding protect the unchecked Sendable boundary.
 @available(macOS 26, *)
-final class RoomDenoiser {
+nonisolated final class RoomDenoiser: @unchecked Sendable {
 
     /// Frames per burst.
     static let burst = 1
@@ -82,15 +83,16 @@ final class RoomDenoiser {
     let inputHeight : Int
 
     /// The tracer's images for one frame, indexed by `Input`, at the input size.
-    let inputs: [MTLTexture]
+    @MainActor
+    var inputs: [MTLTexture] { preparedInputs }
+
+    private let preparedInputs: [MTLTexture]
 
     /// The scalers of the base and the light image.
-    let scalers: [any MTLFXTemporalDenoisedScaler]
+    @MainActor
+    var scalers: [any MTLFXTemporalDenoisedScaler] { preparedScalers }
 
-    /// Idle denoisers, the latest given back last. A few are kept, so the sizes in use stay ready
-    /// while the sizes a resize passed through are let go.
-    private static var idle: [RoomDenoiser] = []
-    private static let idleLimit = 4
+    private let preparedScalers: [any MTLFXTemporalDenoisedScaler]
 
     private static let logger = Logger(
         subsystem: "dev.forte.Braus",
@@ -104,6 +106,7 @@ final class RoomDenoiser {
         height    : Int,
         inputScale: Float = RoomDenoiser.inputScale
     ) {
+        precondition(!Thread.isMainThread, "Create room denoisers off the main thread")
         // The device's limits are the full size against the traced one.
         let scale = min(
             max(inputScale, 1 / MTLFXTemporalDenoisedScalerDescriptor.supportedInputContentMaxScale(device: device)),
@@ -126,7 +129,7 @@ final class RoomDenoiser {
         descriptor.outputHeight                = height
         // The rooms are dim: at exposure 1 the denoiser smooths their shadows away.
         descriptor.isAutoExposureEnabled       = true
-        // A burst follows at once; a scaler still compiling in the background made its GPU work time out.
+        // Returning from this call is the readiness barrier; MetalFX exposes no compilation callback.
         descriptor.requiresSynchronousInitialization = true
         let scalers = (0..<2).compactMap { _ in descriptor.makeTemporalDenoisedScaler(device: device) }
         let inputs  = Input.allCases.compactMap { input in
@@ -157,45 +160,19 @@ final class RoomDenoiser {
             scaler.roughnessTexture      = inputs[Input.roughness.rawValue]
             scaler.motionTexture         = motion
         }
-        self.device      = device
-        self.width       = width
-        self.height      = height
-        self.inputWidth  = inputWidth
-        self.inputHeight = inputHeight
-        self.inputs      = inputs
-        self.scalers     = scalers
-    }
-
-    /// An idle denoiser for images of `width` by `height` pixels on `device`, or a new one.
-    static func borrow(
-        device: MTLDevice,
-        width : Int,
-        height: Int
-    ) -> RoomDenoiser? {
-        let index = idle.lastIndex { denoiser in
-            denoiser.device.registryID == device.registryID && denoiser.width == width && denoiser.height == height
-        }
-        guard let index else {
-            return RoomDenoiser(
-                device: device,
-                width : width,
-                height: height
-            )
-        }
-        return idle.remove(at: index)
-    }
-
-    /// Makes the denoiser available again. Called once the command buffer of its burst has completed.
-    func giveBack() {
-        Self.idle.append(self)
-        if Self.idle.count > Self.idleLimit {
-            Self.idle.removeFirst()
-        }
+        self.device          = device
+        self.width           = width
+        self.height          = height
+        self.inputWidth      = inputWidth
+        self.inputHeight     = inputHeight
+        self.preparedInputs  = inputs
+        self.preparedScalers = scalers
     }
 
     /// Encodes the scalers for frame `index` of a burst, after the tracer has written `inputs`, into
     /// `base` and `light`: private `outputFormat` textures of the full size. `camera` sees the scene the
     /// frame's depth was written for.
+    @MainActor
     func encode(
         frame index  : Int,
         camera       : RoomCamera.Perspective,

@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 20/10/2026.
 //
 
+import CoreGraphics
 import Metal
 import MetalFX
 
@@ -39,6 +40,49 @@ final class RayTracedRoomRenderer: RoomRenderer {
     private let tiltedPipeline: MTLComputePipelineState
     private let framePipeline : MTLComputePipelineState?
     private var scene         : Scene?
+    private var denoiserRequest: (any RoomDenoiserInterest)?
+
+    /// Schedules a refinement through the view's render queue when its pending bucket becomes ready.
+    var denoiserDidBecomeReady: (() -> Void)?
+
+    /// The bucket to draw into, or nil while this room must keep full-resolution analytic shadows.
+    var denoisedPixelSize: CGSize? {
+        denoiserRequest?.isReady == true ? denoiserRequest?.size : nil
+    }
+
+    /// Prewarms the current layout before it reaches the render queue. A bucket change releases
+    /// the old interest; completion of an obsolete request cannot schedule a new-size refinement.
+    func prepareDenoiser(
+        pixelSize: CGSize,
+        camera   : RoomCamera
+    ) {
+        guard #available(macOS 26, *), denoises, camera == .tilted,
+              pixelSize.width > 0, pixelSize.height > 0 else {
+            releaseDenoiser()
+            return
+        }
+        let bucket = RoomDenoiserPool.Bucket(
+            deviceID: device.registryID,
+            width   : Int(pixelSize.width),
+            height  : Int(pixelSize.height)
+        )
+        if denoiserRequest?.size == bucket.size {
+            (denoiserRequest as? RoomDenoiserPool.Request)?.prepare()
+            return
+        }
+        releaseDenoiser()
+        denoiserRequest = RoomDenoiserPool.shared.request(
+            device : device,
+            width  : bucket.width,
+            height : bucket.height,
+            onReady: { [weak self] in self?.denoiserDidBecomeReady?() }
+        )
+    }
+
+    func releaseDenoiser() {
+        denoiserRequest?.cancel()
+        denoiserRequest = nil
+    }
 
     /// Fails when the device has no ray tracing, gives no queue or a kernel cannot be loaded. It
     /// `denoises` when asked to and the burst's kernel loads.
@@ -102,11 +146,18 @@ final class RayTracedRoomRenderer: RoomRenderer {
         light        : MTLTexture,
         commandBuffer: MTLCommandBuffer
     ) {
-        if #available(macOS 26, *), denoises, uniforms.camera == .tilted, let denoiser = RoomDenoiser.borrow(
-            device: device,
-            width : base.width,
-            height: base.height
-        ) {
+        prepareDenoiser(
+            pixelSize: CGSize(
+                width : base.width,
+                height: base.height
+            ),
+            camera   : uniforms.camera
+        )
+        if #available(macOS 26, *),
+           let request = denoiserRequest as? RoomDenoiserPool.Request,
+           request.bucket.width == base.width,
+           request.bucket.height == base.height,
+           let denoiser = request.borrow() {
             encodeDenoised(
                 uniforms,
                 size         : size,
@@ -116,7 +167,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
                 commandBuffer: commandBuffer
             )
             commandBuffer.addCompletedHandler { _ in
-                Task { @MainActor in denoiser.giveBack() }
+                Task { @MainActor in request.giveBack(denoiser) }
             }
             return
         }

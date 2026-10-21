@@ -8,6 +8,7 @@
 import AppKit
 import Metal
 import MetalFX
+import Synchronization
 import Testing
 import simd
 @testable import Braus
@@ -52,17 +53,24 @@ struct RoomDenoiseTests {
     }
 
     @Test("The guides the tracer writes have the formats, sizes and usage the denoiser's scalers expect", .enabled(if: hasDenoiser))
-    func guidesMatchTheScalers() throws {
+    func guidesMatchTheScalers() async throws {
         guard #available(macOS 26, *) else { return }
         let device   = try #require(MTLCreateSystemDefaultDevice())
-        let denoiser = try #require(RoomDenoiser(device: device, width: 508, height: 416))
+        let prepared = await Task.detached {
+            RoomDenoiser(
+                device: device,
+                width : 512,
+                height: 448
+            )
+        }.value
+        let denoiser = try #require(prepared)
         let inputs   = denoiser.inputs
         func input(_ which: RoomDenoiser.Input) -> MTLTexture { inputs[which.rawValue] }
         #expect(inputs.count == RoomDenoiser.Input.allCases.count)
         for texture in inputs {
             #expect(texture.width == denoiser.inputWidth && texture.height == denoiser.inputHeight)
         }
-        #expect(denoiser.inputWidth == 381 && denoiser.inputHeight == 312)
+        #expect(denoiser.inputWidth == 384 && denoiser.inputHeight == 336)
         for scaler in denoiser.scalers {
             let pairs: [(MTLTexture, MTLPixelFormat, MTLTextureUsage)] = [
                 (input(.base), scaler.colorTextureFormat, scaler.colorTextureUsage),
@@ -79,7 +87,7 @@ struct RoomDenoiseTests {
                 #expect(texture.usage.isSuperset(of: usage))
             }
             #expect(scaler.inputWidth == denoiser.inputWidth && scaler.inputHeight == denoiser.inputHeight)
-            #expect(scaler.outputWidth == 508 && scaler.outputHeight == 416)
+            #expect(scaler.outputWidth == 512 && scaler.outputHeight == 448)
             // The renderers' linear images, which the scalers write.
             #expect(scaler.outputTextureFormat == .rgba16Float)
             #expect(MTLTextureUsage([.shaderRead, .shaderWrite, .renderTarget]).isSuperset(of: scaler.outputTextureUsage))
@@ -109,13 +117,20 @@ struct RoomDenoiseTests {
     }
 
     @Test("A denoised render traces one burst, and the body casts its shadow toward the camera", .enabled(if: hasDenoiser))
-    func oneBurstWithAShadow() throws {
+    func oneBurstWithAShadow() async throws {
         guard #available(macOS 26, *) else { return }
         let device   = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(RayTracedRoomRenderer(device: device, denoises: true))
         let size     = CGSize(width: 254, height: 208)
+        defer { renderer.releaseDenoiser() }
+        renderer.prepareDenoiser(
+            pixelSize: size,
+            camera   : .tilted
+        )
+        try await Self.until { renderer.denoisedPixelSize != nil }
         let occupied = try Self.render(Self.room(.tilted), with: renderer, device: device, size: size)
         #expect(renderer.denoisedFrames == RoomDenoiser.burst)
+        try await Self.until { renderer.denoisedPixelSize != nil }
         let empty = try Self.render(Self.room(.tilted, hasOccupant: false), with: renderer, device: device, size: size)
         #expect(renderer.denoisedFrames == 2 * RoomDenoiser.burst)
 
@@ -158,8 +173,10 @@ struct RoomDenoiseTests {
             )
         )
         window.contentView?.addSubview(view)
-        let deadline = ContinuousClock.now + .seconds(5)
-        while view.renderCounts.full < 1 {
+        let expectsDenoising = Self.hasDenoiser && view.path == .rayTraced
+            && ProcessInfo.processInfo.environment["BRAUS_ROOM_DENOISE"] != "off"
+        let deadline = ContinuousClock.now + .seconds(30)
+        while view.renderCounts.full < 1 || (expectsDenoising && view.denoisedFrames == 0) {
             try #require(ContinuousClock.now < deadline, "timed out")
             try await Task.sleep(for: .milliseconds(4))
         }
@@ -167,6 +184,244 @@ struct RoomDenoiseTests {
         let settled = view.renderCounts
         try await Task.sleep(for: .seconds(1))
         #expect(view.renderCounts == settled)
+        if expectsDenoising { #expect(view.denoisedFrames == 1) }
+    }
+
+    @Test("Room sizes reuse 64-pixel buckets at both backing scales")
+    func buckets() {
+        guard #available(macOS 26, *) else { return }
+        let examples = [
+            (127, 104, 128, 128), (120, 92, 128, 128), (260, 104, 320, 128),
+            (254, 208, 256, 256), (240, 184, 256, 192), (520, 208, 576, 256),
+        ]
+        for (width, height, outputWidth, outputHeight) in examples {
+            let bucket = RoomDenoiserPool.Bucket(
+                deviceID: 1,
+                width   : width,
+                height  : height
+            )
+            #expect(bucket.width == outputWidth)
+            #expect(bucket.height == outputHeight)
+        }
+    }
+
+    @Test("Creation leaves the main thread; cancellation and failed creation release the slot")
+    func backgroundCreationAndCancellation() async throws {
+        guard #available(macOS 26, *) else { return }
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let started = Mutex(false)
+        let gate = DispatchSemaphore(value: 0)
+        let pool = RoomDenoiserPool(
+            capacity: 1,
+            create  : { _, _ in
+                #expect(!Thread.isMainThread)
+                started.withLock { $0 = true }
+                _ = gate.wait(timeout: .now() + 5)
+                return nil
+            }
+        )
+        let request = pool.request(
+            device : device,
+            width  : 127,
+            height : 104,
+            onReady: { Issue.record("A failed scaler must not become ready") }
+        )
+        defer { gate.signal() }
+        try await Self.until { started.withLock { $0 } }
+        #expect(!request.isReady)
+        #expect(request.borrow() == nil)
+        #expect(pool.count == 1)
+        request.cancel()
+        #expect(pool.count == 1, "In-progress construction still consumes its slot")
+        gate.signal()
+        try await Self.until { pool.count == 0 }
+    }
+
+    @Test(
+        "A pending room draws analytic shadows, then switches once its bucket is ready",
+        .enabled(if: hasDenoiser)
+    )
+    func fallbackUntilReady() async throws {
+        guard #available(macOS 26, *) else { return }
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(RayTracedRoomRenderer(
+            device  : device,
+            denoises: true
+        ))
+        let analytic = try #require(RayTracedRoomRenderer(
+            device  : device,
+            denoises: false
+        ))
+        let size = CGSize(
+            width : 191,
+            height: 109
+        )
+        defer { renderer.releaseDenoiser() }
+        var notifications = 0
+        renderer.denoiserDidBecomeReady = { notifications += 1 }
+        renderer.prepareDenoiser(
+            pixelSize: size,
+            camera   : .tilted
+        )
+        #expect(renderer.denoisedPixelSize == nil)
+        let fallback = try Self.render(
+            Self.room(.tilted),
+            with  : renderer,
+            device: device,
+            size  : size
+        )
+        let reference = try Self.render(
+            Self.room(.tilted),
+            with  : analytic,
+            device: device,
+            size  : size
+        )
+        #expect(fallback.bytes == reference.bytes)
+        #expect(renderer.denoisedFrames == 0)
+        try await Self.until { renderer.denoisedPixelSize != nil }
+        #expect(notifications == 1)
+        try Self.render(
+            Self.room(.tilted),
+            with  : renderer,
+            device: device,
+            size  : size
+        )
+        #expect(renderer.denoisedFrames == RoomDenoiser.burst)
+        try await Self.until { renderer.denoisedPixelSize != nil }
+        #expect(notifications == 1, "Giving back a used scaler must not schedule another still frame")
+    }
+
+    @Test(
+        "Buckets share one exclusive pair, retain GPU loans, and evict the least recently used pair",
+        .enabled(if: hasDenoiser)
+    )
+    func reuseAndCap() async throws {
+        guard #available(macOS 26, *) else { return }
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let pool = RoomDenoiserPool(capacity: 2)
+        let first = pool.request(
+            device : device,
+            width  : 127,
+            height : 104,
+            onReady: {}
+        )
+        let same = pool.request(
+            device : device,
+            width  : 120,
+            height : 92,
+            onReady: {}
+        )
+        let second = pool.request(
+            device : device,
+            width  : 190,
+            height : 104,
+            onReady: {}
+        )
+        defer {
+            first.cancel()
+            same.cancel()
+            second.cancel()
+        }
+        try await Self.until { first.isReady && second.isReady }
+        #expect(pool.count == 2)
+        let original = try #require(first.borrow())
+        #expect(same.borrow() == nil, "The second room cannot overwrite a borrowed history")
+        pool.giveBack(original)
+        let reused = try #require(same.borrow())
+        #expect(reused === original)
+        pool.giveBack(reused)
+        let newer = try #require(second.borrow())
+        pool.giveBack(newer)
+        let third = pool.request(
+            device : device,
+            width  : 255,
+            height : 104,
+            onReady: {}
+        )
+        defer { third.cancel() }
+        try await Self.until { third.isReady }
+        #expect(pool.count == 2)
+        #expect(!first.isReady && second.isReady, "The oldest idle bucket was evicted")
+        let held = try #require(third.borrow())
+        third.cancel()
+        #expect(pool.count == 2, "Cancellation cannot release an in-flight loan")
+        pool.giveBack(held)
+        #expect(pool.count == 1)
+        first.cancel()
+        same.cancel()
+        second.cancel()
+        #expect(pool.count == 0)
+    }
+
+    @Test(
+        "Many pending sizes render immediately and every fallback and denoised submission completes",
+        .enabled(if: hasDenoiser)
+    )
+    func stressPendingSizes() async throws {
+        guard #available(macOS 26, *) else { return }
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        var rooms: [(renderer: RayTracedRoomRenderer, size: CGSize)] = []
+        defer { rooms.forEach { $0.renderer.releaseDenoiser() } }
+        for index in 0..<12 {
+            let renderer = try #require(RayTracedRoomRenderer(
+                device  : device,
+                denoises: true
+            ))
+            let size = CGSize(
+                width : 97 + index * 64,
+                height: 107
+            )
+            rooms.append((renderer, size))
+            renderer.prepareDenoiser(
+                pixelSize: size,
+                camera   : .tilted
+            )
+            try Self.render(
+                Self.room(.tilted),
+                with  : renderer,
+                device: device,
+                size  : size
+            )
+            #expect(renderer.denoisedFrames == 0)
+            #expect(RoomDenoiserPool.shared.count <= 6)
+        }
+        var remaining = Set(rooms.indices)
+        let deadline = ContinuousClock.now + .seconds(60)
+        while !remaining.isEmpty {
+            try #require(ContinuousClock.now < deadline, "Pending rooms did not receive their denoisers")
+            for index in remaining.sorted() {
+                let room = rooms[index]
+                guard room.renderer.denoisedPixelSize != nil else { continue }
+                try Self.render(
+                    Self.room(.tilted),
+                    with  : room.renderer,
+                    device: device,
+                    size  : room.size
+                )
+                #expect(room.renderer.denoisedFrames == RoomDenoiser.burst)
+                remaining.remove(index)
+            }
+            #expect(RoomDenoiserPool.shared.count <= 6)
+            try await Task.sleep(for: .milliseconds(4))
+        }
+        // A final ordinary submission also has to complete after all MetalFX work.
+        let analytic = try #require(RayTracedRoomRenderer(
+            device  : device,
+            denoises: false
+        ))
+        try Self.render(
+            Self.room(.tilted),
+            with  : analytic,
+            device: device
+        )
+    }
+
+    private static func until(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while !condition() {
+            try #require(ContinuousClock.now < deadline, "timed out")
+            try await Task.sleep(for: .milliseconds(4))
+        }
     }
 
     private static func room(
@@ -183,16 +438,20 @@ struct RoomDenoiseTests {
 
     /// Pixels is a rendered room read back, in BGRA order.
     private struct Pixels {
-        let width: Int
-        let bytes: [UInt8]
+        let width : Int
+        let height: Int
+        let size  : CGSize
+        let bytes : [UInt8]
 
         func luma(_ x: Int, _ y: Int) -> Double {
-            let index = (y * width + x) * 4
+            let column = min(width - 1, Int((Double(x) + 0.5) * Double(width) / size.width))
+            let row = min(height - 1, Int((Double(y) + 0.5) * Double(height) / size.height))
+            let index = (row * width + column) * 4
             return 0.2126 * Double(bytes[index + 2]) + 0.7152 * Double(bytes[index + 1]) + 0.0722 * Double(bytes[index])
         }
     }
 
-    /// Renders `uniforms` at one pixel per point into a room of `size` and reads it back.
+    /// Renders `uniforms` into its ready bucket, or at one pixel per point, and reads it back.
     @discardableResult
     private static func render(
         _ uniforms   : RoomLightUniforms,
@@ -200,8 +459,9 @@ struct RoomDenoiseTests {
         device       : MTLDevice,
         size         : CGSize = CGSize(width: 127, height: 104)
     ) throws -> Pixels {
-        let width      = Int(size.width)
-        let height     = Int(size.height)
+        let outputSize = (renderer as? RayTracedRoomRenderer)?.denoisedPixelSize ?? size
+        let width      = Int(outputSize.width)
+        let height     = Int(outputSize.height)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm,
             width      : width,
@@ -232,8 +492,10 @@ struct RoomDenoiseTests {
             mipmapLevel: 0
         )
         return Pixels(
-            width: width,
-            bytes: bytes
+            width : width,
+            height: height,
+            size  : size,
+            bytes : bytes
         )
     }
 }
