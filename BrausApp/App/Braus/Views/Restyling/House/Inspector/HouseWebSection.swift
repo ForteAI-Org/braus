@@ -9,9 +9,8 @@ import SwiftUI
 
 /// HouseWebSection is the conversation's choice of how Braus's Chrome runs, as the app's
 /// `InspectorBrowserSection` offers it, on `MockTeam`'s values: headless, or a window the person
-/// can watch. It is the same choice as Show Chrome Window in the composer's `+` menu. What the
-/// app's section says in its footer is the toggle's description here, since a section that folds
-/// has no footer.
+/// can watch. It is the same choice as Show Chrome Window in the composer's `+` menu. The toggle
+/// carries one short line where the app's section has a footer, since a section that folds has none.
 struct HouseWebSection: View {
     let worker: MockWorker
     let team  : MockTeam
@@ -19,8 +18,8 @@ struct HouseWebSection: View {
     @Binding var isExpanded: Bool
 
     var body: some View {
-        Section(
-            "Web",
+        HouseFoldableSection(
+            title     : "Web",
             isExpanded: $isExpanded
         ) {
             Toggle(isOn: Binding(
@@ -33,7 +32,7 @@ struct HouseWebSection: View {
                 }
             )) {
                 Text("Show Chrome Window")
-                Text("Braus drives pages in its own Chrome, never yours. Shown or hidden, it does not take your focus. A change applies the next time Braus opens a page.")
+                Text("Braus uses its own Chrome, never yours.")
             }
         }
     }

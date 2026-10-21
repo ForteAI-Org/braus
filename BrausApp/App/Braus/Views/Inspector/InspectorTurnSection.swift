@@ -19,8 +19,8 @@ struct InspectorTurnSection: View {
 
     var body: some View {
         if let isExpanded {
-            Section(
-                turnTitle,
+            HouseFoldableSection(
+                title     : turnTitle,
                 isExpanded: isExpanded
             ) {
                 turnRows
