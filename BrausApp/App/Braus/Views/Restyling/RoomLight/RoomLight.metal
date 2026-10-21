@@ -375,6 +375,7 @@ static BodyPoint bodyAt(float2 xy, Room room) {
 /// measured without the dome: the closest points of the segment and the core, found by projecting
 /// each onto the other in turn. Exact at once for the circle's point core.
 static float bodyMiss(float3 start, float3 line, Room room) {
+    // ponytail: for flat cores three projections give an upper bound; iterate on if shadows look short.
     float3 core = room.body;
     float3 near = start;
     for (uint step = 0; step < 3; step++) {

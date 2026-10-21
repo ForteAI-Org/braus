@@ -7,9 +7,12 @@
 
 import SwiftUI
 
-/// MascotFace shows a worker's mascot in the sphere's square of `size` points: a `MascotLayer` in
-/// the worker's shape, breathing, whose brows morph whenever `brows` changes. In a room,
+/// MascotFace shows a worker's mascot around the sphere's square of `size` points: a `MascotLayer`
+/// in the worker's shape, breathing, whose brows morph whenever `brows` changes. In a room,
 /// `catchesRoomLight` lets the brows take a faint tint of the room's light, pulsing with it.
+///
+/// A body the face draws itself can reach past that square (`ShapeOutline.halfSize`), so the view
+/// takes room for it in layout, centred on the square; brows alone take only the square.
 struct MascotFace: NSViewRepresentable {
     let shape           : WorkerShape
     let status          : WorkerStatus
@@ -20,13 +23,11 @@ struct MascotFace: NSViewRepresentable {
 
     func makeNSView(context: Context) -> HostView {
         let view = HostView(frame: CGRect(
-            x     : 0,
-            y     : 0,
-            width : size,
-            height: size
+            origin: .zero,
+            size  : footprint
         ))
         configure(
-            view.mascot,
+            view,
             animated: false
         )
         view.mascot.startBreathing()
@@ -38,7 +39,7 @@ struct MascotFace: NSViewRepresentable {
         context: Context
     ) {
         configure(
-            view.mascot,
+            view,
             animated: true
         )
     }
@@ -48,16 +49,24 @@ struct MascotFace: NSViewRepresentable {
         nsView    : HostView,
         context   : Context
     ) -> CGSize? {
-        CGSize(
-            width : size,
-            height: size
+        footprint
+    }
+
+    /// The room the face takes: the sphere's square, grown to hold the body it draws.
+    private var footprint: CGSize {
+        let reach = drawsBody ? shape.outline.halfSize : (width: 1, height: 1)
+        return CGSize(
+            width : size * max(1, reach.width),
+            height: size * max(1, reach.height)
         )
     }
 
     private func configure(
-        _ mascot: MascotLayer,
+        _ view  : HostView,
         animated: Bool
     ) {
+        view.sphereSize = size
+        let mascot = view.mascot
         mascot.shape     = shape
         mascot.status    = status
         mascot.drawsBody = drawsBody
@@ -68,9 +77,14 @@ struct MascotFace: NSViewRepresentable {
         mascot.catchRoomLight(catchesRoomLight)
     }
 
-    /// HostView holds the mascot layer and keeps it the size of the view.
+    /// HostView holds the mascot layer, the sphere's square centred in the view.
     final class HostView: NSView {
         let mascot = MascotLayer()
+
+        /// The side of the sphere's square, in points.
+        var sphereSize: CGFloat = 0 {
+            didSet { placeMascot() }
+        }
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -101,9 +115,18 @@ struct MascotFace: NSViewRepresentable {
 
         override func layout() {
             super.layout()
+            placeMascot()
+        }
+
+        private func placeMascot() {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            mascot.frame = bounds
+            mascot.frame = CGRect(
+                x     : bounds.midX - sphereSize / 2,
+                y     : bounds.midY - sphereSize / 2,
+                width : sphereSize,
+                height: sphereSize
+            )
             CATransaction.commit()
         }
     }

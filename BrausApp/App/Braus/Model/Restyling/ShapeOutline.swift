@@ -143,14 +143,18 @@ nonisolated struct ShapeOutline: Equatable, Sendable {
         reach { $0.y }
     }
 
-    /// How far the outline reaches from the origin along either axis, its half-size.
-    var extent: Double {
-        max(
-            reach { $0.x },
-            reach { -$0.x },
-            reach { $0.y },
-            reach { -$0.y }
+    /// How far the outline reaches from the origin across and up or down, the farther side of each:
+    /// the half-size of the smallest box centred on the origin that holds it.
+    var halfSize: (width: Double, height: Double) {
+        (
+            width : max(reach { $0.x }, reach { -$0.x }),
+            height: max(reach { $0.y }, reach { -$0.y })
         )
+    }
+
+    /// How far the outline reaches from the origin along either axis.
+    var extent: Double {
+        max(halfSize.width, halfSize.height)
     }
 
     /// The outline scaled about its centroid so its area is the unit sphere's disc, π.

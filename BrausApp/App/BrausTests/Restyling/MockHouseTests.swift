@@ -51,17 +51,20 @@ struct MockHouseTests {
         #expect(house.mostUsed == ["Delivery", "Ingest", "Research", "Render"])
     }
 
-    @Test("Every shape has a worker, and no room's neighbour shares its shape")
+    @Test("Every shape has a worker, and no room touches its own shape or a look-alike")
     func shapes() {
         let workers = MockHouse.sample.workers
         let shapes  = workers.map(\.shape)
         #expect(Set(shapes) == Set(WorkerShape.allCases))
-        // In rows and in one or two columns, a room's neighbours are the next two workers.
-        for index in shapes.indices.dropFirst() {
-            #expect(shapes[index] != shapes[index - 1])
-        }
-        for index in shapes.indices.dropFirst(2) {
-            #expect(shapes[index] != shapes[index - 2])
+        // Rows and one column: the next room. Two columns under the wide first room: the room beside,
+        // the one below, and diagonally the one below the other side.
+        var touching = shapes.indices.dropFirst().map { ($0 - 1, $0) }
+        touching += shapes.indices.dropFirst(2).map { ($0 - 2, $0) }
+        touching += stride(from: 1, to: shapes.count - 3, by: 2).map { ($0, $0 + 3) }
+        let alike: [Set<WorkerShape>] = [[.circle, .pentagon, .hexagon], [.square, .diamond], [.capsule, .lens]]
+        for (first, second) in touching {
+            let pair = Set([shapes[first], shapes[second]])
+            #expect(pair.count == 2 && !alike.contains { pair.isSubset(of: $0) }, "\(first) and \(second)")
         }
         #expect(Set(workers.map(\.id)).count == workers.count)
     }
