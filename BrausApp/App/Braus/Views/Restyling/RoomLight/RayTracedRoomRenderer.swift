@@ -15,14 +15,17 @@ import Metal
 /// the shader shades, so the hardware intersects it like the room and its shadow follows the outline.
 /// Per change, one compute pass accumulates 64 frames per pixel in linear light: a jittered primary
 /// ray, shadow rays to the disc lamp, one diffuse bounce that also gives the ambient occlusion, and on
-/// the body GGX reflection rays off its metal. Then it stops.
+/// the body GGX reflection rays off its metal. Then it stops. A room seen through the tilted camera
+/// has tall walls with rounded coves, open at the front, a worker standing upright, and its own
+/// kernel, which casts the camera's rays.
 final class RayTracedRoomRenderer: RoomRenderer {
     let commandQueue   : MTLCommandQueue
     let resolvePipeline: MTLComputePipelineState
 
-    private let device  : MTLDevice
-    private let pipeline: MTLComputePipelineState
-    private var scene   : Scene?
+    private let device        : MTLDevice
+    private let pipeline      : MTLComputePipelineState
+    private let tiltedPipeline: MTLComputePipelineState
+    private var scene         : Scene?
 
     /// Fails when the device has no ray tracing, gives no queue or a kernel cannot be loaded.
     init?(device: MTLDevice) {
@@ -33,6 +36,10 @@ final class RayTracedRoomRenderer: RoomRenderer {
                 named : "traceRoom",
                 device: device
             ),
+            let tilted = Self.pipeline(
+                named : "traceTiltedRoom",
+                device: device
+            ),
             let resolve = Self.pipeline(
                 named : "resolveRoom",
                 device: device
@@ -41,6 +48,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
         self.device     = device
         commandQueue    = queue
         self.pipeline   = pipeline
+        tiltedPipeline  = tilted
         resolvePipeline = resolve
     }
 
@@ -55,6 +63,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
             let structure = structure(
                 size         : size,
                 occupant     : uniforms.hasOccupant ? uniforms.shape : nil,
+                camera       : uniforms.camera,
                 commandBuffer: commandBuffer
             ),
             let encoder = commandBuffer.makeComputeCommandEncoder()
@@ -64,7 +73,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
             bufferIndex: 1
         )
         dispatch(
-            pipeline,
+            uniforms.camera == .tilted ? tiltedPipeline : pipeline,
             uniforms: uniforms,
             size    : size,
             base    : base,
@@ -73,12 +82,13 @@ final class RayTracedRoomRenderer: RoomRenderer {
         )
     }
 
-    /// Scene is a built acceleration structure and the room it was built for. It keeps the build's
-    /// descriptor, which holds the vertex buffers, and its scratch buffer until the next rebuild, so
-    /// the GPU never reads a released buffer.
+    /// Scene is a built acceleration structure and the room it was built for, as seen by its camera.
+    /// It keeps the build's descriptor, which holds the vertex buffers, and its scratch buffer until
+    /// the next rebuild, so the GPU never reads a released buffer.
     private struct Scene {
         let size      : CGSize
         let occupant  : WorkerShape?
+        let camera    : RoomCamera
         let structure : MTLAccelerationStructure
         let descriptor: MTLPrimitiveAccelerationStructureDescriptor
         let scratch   : MTLBuffer
@@ -91,19 +101,26 @@ final class RayTracedRoomRenderer: RoomRenderer {
     private static let bevelRings    = 16
     private static let pointsPerTurn = 96
 
-    /// The acceleration structure for the room and the shape of the worker in it, encoding its build
-    /// into `commandBuffer` when either changed, before the pass that traces it.
+    /// The acceleration structure for the room, the shape of the worker in it and the camera, encoding
+    /// its build into `commandBuffer` when any changed, before the pass that traces it.
     private func structure(
         size         : CGSize,
         occupant     : WorkerShape?,
+        camera       : RoomCamera,
         commandBuffer: MTLCommandBuffer
     ) -> MTLAccelerationStructure? {
-        if let scene, scene.size == size, scene.occupant == occupant {
+        if let scene, scene.size == size, scene.occupant == occupant, scene.camera == camera {
             return scene.structure
         }
+        let perspective = camera == .tilted ? RoomCamera.Perspective(size: size) : nil
         // Geometry 0 is the room and 1 the body, as RoomLight.metal expects.
-        var geometries = [Self.room(size)]
-        if let occupant {
+        var geometries = [perspective.map(Self.tiltedRoom) ?? Self.room(size)]
+        if let occupant, let perspective {
+            geometries.append(Self.standingBody(
+                perspective,
+                outline: occupant.outline
+            ))
+        } else if let occupant {
             geometries.append(Self.body(
                 size,
                 outline: occupant.outline
@@ -132,6 +149,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
         scene = Scene(
             size      : size,
             occupant  : occupant,
+            camera    : camera,
             structure : structure,
             descriptor: descriptor,
             scratch   : scratch
@@ -184,6 +202,86 @@ final class RayTracedRoomRenderer: RoomRenderer {
                 z     : shape.wallHeight * rise * rise
             )
         }
+        return surface(
+            rings,
+            centre: SIMD3(width / 2, height / 2, 0)
+        )
+    }
+
+    /// The tilted view's room: tall walls that meet the floor in coves of the camera's fillet radius
+    /// and each other in the room's rounded corners, on a footprint that reaches far past the window
+    /// toward the camera, so the room shows open at the front. The rings follow the footprint from
+    /// the walls' top down to the cove's top, then round the cove to the floor's edge.
+    private static func tiltedRoom(_ perspective: RoomCamera.Perspective) -> [SIMD3<Float>] {
+        let width   = Float(perspective.size.width)
+        let depth   = Float(perspective.footprintDepth)
+        let corner  = RoomLightUniforms.Shape(size: perspective.size).cornerRadius
+        let fillet  = Float(perspective.fillet)
+        let profile = [(inset: Float(0), z: Float(perspective.wallHeight))] + (0...coveRings).map { index in
+            let angle = Float.pi / 2 * Float(index) / Float(coveRings)
+            return (inset: fillet * (1 - cos(angle)), z: fillet * (1 - sin(angle)))
+        }
+        let rings = profile.map { step in
+            outline(
+                width : width,
+                height: depth,
+                inset : step.inset,
+                radius: corner - step.inset,
+                z     : step.z
+            )
+        }
+        return surface(
+            rings,
+            centre: SIMD3(width / 2, depth / 2, 0)
+        )
+    }
+
+    /// The tilted view's standing body, in points: its outline upright in the plane facing the camera,
+    /// its centroid `bottom` sphere radii over the floor so it rests on its lowest point, the core
+    /// thickened by the slab before and behind its middle with a band between, and grown from there
+    /// along the bevel's quarter circle to a flat cap in front and behind. The dome is left out, as
+    /// from above.
+    private static func standingBody(
+        _ perspective: RoomCamera.Perspective,
+        outline      : ShapeOutline
+    ) -> [SIMD3<Float>] {
+        let radius = Double(RoomLightUniforms.Shape(size: perspective.size).sphereRadius)
+        let centre = SIMD3(Double(perspective.size.width) / 2, perspective.bodyDepth, outline.bottom * radius)
+        let slab   = RoomCamera.slab(of: outline) * radius
+        let corner = outline.corner * radius
+        func ring(
+            _ index: Int,
+            front  : Bool
+        ) -> [SIMD3<Float>] {
+            let angle = Double.pi / 2 * Double(index) / Double(bevelRings)
+            let depth = (front ? 1 : -1) * (slab + corner * sin(angle))
+            return outline.points(
+                growth       : outline.corner * cos(angle),
+                pointsPerTurn: pointsPerTurn
+            ).map { point in
+                SIMD3(Float(centre.x + radius * point.x), Float(centre.y + depth), Float(centre.z - radius * point.y))
+            }
+        }
+        var vertices = surface([
+            ring(0, front: true),
+            ring(0, front: false),
+        ])
+        for front in [true, false] {
+            let cap = SIMD3(Float(centre.x), Float(centre.y + (front ? 1 : -1) * (slab + corner)), Float(centre.z))
+            vertices += surface(
+                (0...bevelRings).map { ring($0, front: front) },
+                centre: cap
+            )
+        }
+        return vertices
+    }
+
+    /// The triangles that join each ring to the next, outer to inner, and close the innermost with a
+    /// fan from `centre` when there is one.
+    private static func surface(
+        _ rings: [[SIMD3<Float>]],
+        centre : SIMD3<Float>? = nil
+    ) -> [SIMD3<Float>] {
         var vertices: [SIMD3<Float>] = []
         for (outer, inner) in zip(rings, rings.dropFirst()) {
             for index in outer.indices {
@@ -196,10 +294,9 @@ final class RayTracedRoomRenderer: RoomRenderer {
                 )
             }
         }
-        let floor  = rings[coveRings]
-        let centre = SIMD3<Float>(width / 2, height / 2, 0)
-        for index in floor.indices {
-            vertices += [centre, floor[index], floor[(index + 1) % floor.count]]
+        guard let centre, let inner = rings.last else { return vertices }
+        for index in inner.indices {
+            vertices += [centre, inner[index], inner[(index + 1) % inner.count]]
         }
         return vertices
     }

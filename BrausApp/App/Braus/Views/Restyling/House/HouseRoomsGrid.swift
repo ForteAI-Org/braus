@@ -11,7 +11,8 @@ import SwiftUI
 /// room across both when there are two, and the archive's closed cellar pinned under them.
 ///
 /// The rooms are laid out `roomsWidth` across, the width `HouseSidebar` changes together with
-/// `columns`, so a change of columns moves every room from where it was on screen.
+/// `columns`, so a change of columns moves every room from where it was on screen. They are seen
+/// through the camera `BRAUS_ROOM_CAMERA` picks at launch; the rows keep the view from above.
 struct HouseRoomsGrid: View {
     let workers      : [MockWorker]
     let archivedCount: Int
@@ -56,7 +57,8 @@ struct HouseRoomsGrid: View {
     private func room(_ worker: MockWorker) -> some View {
         HouseRoomCell(
             worker    : worker,
-            isSelected: selection == worker.id
+            isSelected: selection == worker.id,
+            camera    : RoomCamera.launch
         ) {
             selection = worker.id
         }

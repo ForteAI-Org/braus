@@ -17,9 +17,13 @@ import SwiftUI
 /// hanging where the worker sat, and a white ring on its edge. Every room holds its plaque, hidden
 /// while the worker is in, so that selecting it only shows the plaque. On the floor plan the room is
 /// a button that calls `select`; as a row, with no `select`, the list selects it.
+///
+/// `camera` is how the room is seen: from above, or tilted into it, where the brows follow the
+/// body's face through the room's camera and the plaque hangs on the back wall.
 struct HouseRoomCell: View {
     let worker    : MockWorker
     let isSelected: Bool
+    var camera    = RoomCamera.top
     var select    : (() -> Void)?
 
     var body: some View {
@@ -54,7 +58,8 @@ struct HouseRoomCell: View {
                 RoomLight(uniforms: RoomLightUniforms(
                     status     : worker.status,
                     shape      : worker.shape,
-                    hasOccupant: !isSelected
+                    hasOccupant: !isSelected,
+                    camera     : camera
                 ))
                 .allowsHitTesting(false)
 
@@ -66,14 +71,19 @@ struct HouseRoomCell: View {
                         brows           : BrowState(worker.status),
                         size            : 0.34 * min(proxy.size.width, proxy.size.height),
                         drawsBody       : false,
-                        catchesRoomLight: true
+                        catchesRoomLight: true,
+                        projectedFace   : camera.face(
+                            of: worker.shape,
+                            in: proxy.size
+                        )
                     )
                 }
 
                 HouseAwayPlaque(
                     brows    : BrowState(worker.status),
                     status   : worker.status,
-                    isHanging: isSelected
+                    isHanging: isSelected,
+                    camera   : camera
                 )
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)

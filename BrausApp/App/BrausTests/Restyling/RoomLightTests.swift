@@ -51,8 +51,8 @@ struct RoomLightTests {
         #expect(busy.strength == 1)
         #expect(busy.lightColor == SIMD3<Float>(1, 176.0 / 255, 72.0 / 255))
         #expect(room(.off).strength == 0)
-        // Five float4 in RoomLight.metal.
-        #expect(MemoryLayout<RoomLightUniforms.Packed>.stride == 80)
+        // Six float4 in RoomLight.metal.
+        #expect(MemoryLayout<RoomLightUniforms.Packed>.stride == 96)
     }
 
     @Test("The uniforms carry the worker's shape and no tint")
