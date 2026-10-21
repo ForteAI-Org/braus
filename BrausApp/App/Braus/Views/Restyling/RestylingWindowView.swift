@@ -104,37 +104,40 @@ struct RestylingWindowView: View {
                 max  : sidebarWidth.maximum
             )
         } detail: {
-            detail
+            HouseDetail(
+                worker           : selectedWorker,
+                isComposerFocused: $isComposerFocused
+            )
+            .frame(
+                minWidth : 0,
+                maxWidth : .infinity,
+                minHeight: 0,
+                maxHeight: .infinity
+            )
+            .background { Color("RestylingGround").ignoresSafeArea() }
+            .toolbar { toolbar }
+            .inspector(isPresented: inspectorPresentation) {
+                HouseInspector(
+                    worker     : selectedWorker,
+                    showsScreen: showsScreen
+                )
+                .scrollContentBackground(.hidden)
                 .frame(
-                    minWidth : 0,
                     maxWidth : .infinity,
-                    minHeight: 0,
                     maxHeight: .infinity
                 )
-                .background { Color("RestylingGround").ignoresSafeArea() }
-                .toolbar { toolbar }
-                .inspector(isPresented: inspectorPresentation) {
-                    HouseInspector(
-                        worker     : selectedWorker,
-                        showsScreen: showsScreen
-                    )
-                    .scrollContentBackground(.hidden)
-                    .frame(
-                        maxWidth : .infinity,
-                        maxHeight: .infinity
-                    )
-                    .background { Color("RestylingInspector").ignoresSafeArea() }
-                    // The system's separator between the conversation and the inspector.
-                    .overlay(alignment: .leading) {
-                        HStack(spacing: 0) { Divider() }
-                            .ignoresSafeArea()
-                    }
-                    .inspectorColumnWidth(
-                        min  : RestylingWindowLayout.inspectorWidth.minimum,
-                        ideal: RestylingWindowLayout.inspectorWidth.ideal,
-                        max  : RestylingWindowLayout.inspectorWidth.maximum
-                    )
+                .background { Color("RestylingInspector").ignoresSafeArea() }
+                // The system's separator between the conversation and the inspector.
+                .overlay(alignment: .leading) {
+                    HStack(spacing: 0) { Divider() }
+                        .ignoresSafeArea()
                 }
+                .inspectorColumnWidth(
+                    min  : RestylingWindowLayout.inspectorWidth.minimum,
+                    ideal: RestylingWindowLayout.inspectorWidth.ideal,
+                    max  : RestylingWindowLayout.inspectorWidth.maximum
+                )
+            }
         }
         .toolbar(removing: .title)
         // The toolbar's own grey would band the dark ground; the ground runs up under it instead.
@@ -280,25 +283,6 @@ struct RestylingWindowView: View {
             guard !Task.isCancelled, target == next else { return }
             division = next
             secondStep = nil
-        }
-    }
-
-    // MARK: Areas
-
-    @ViewBuilder
-    private var detail: some View {
-        if let worker = selectedWorker {
-            HouseConversationView(
-                worker           : worker,
-                isComposerFocused: $isComposerFocused
-            )
-            .id(worker.id)
-        } else {
-            ContentUnavailableView(
-                "Choose a Room",
-                systemImage: "house",
-                description: Text("Pick a room to talk with its worker.")
-            )
         }
     }
 
