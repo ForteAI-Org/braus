@@ -1,0 +1,116 @@
+//
+//  HouseLiveInspector.swift
+//  Braus
+//
+//  Created by Eliomar Alejandro Rodriguez Ferrer on 22/10/2026.
+//
+
+import SwiftUI
+
+/// HouseLiveInspector is the house's inspector on the real team (`HouseShellView`): the mockup's
+/// grouped form and spacing (`HouseInspector`) over the sections of today's inspector, so what it
+/// shows and does is the app's own.
+///
+/// The Screen section comes first while the worker has a screen to watch, then the worker itself,
+/// which the person edits here and which is saved through `TeamModel.update`, then where the worker
+/// is now, its model and provider, its Chrome window and its current or last turn. With no worker
+/// chosen it says where the details come from.
+struct HouseLiveInspector: View {
+
+    let team: TeamModel
+
+    var body: some View {
+        if let worker = team.selectedWorker {
+            Content(
+                team  : team,
+                worker: worker
+            )
+        } else {
+            ContentUnavailableView(
+                "No Worker Selected",
+                systemImage: "info.circle",
+                description: Text("Select a worker to view current activity and turn details.")
+            )
+        }
+    }
+
+    /// Content is the form for a chosen worker.
+    struct Content: View {
+
+        let team  : TeamModel
+        let worker: WorkerSnapshot
+
+        @State private var turn = WorkerInspectorView.TurnReading.reading
+
+        /// What reading the turn again depends on, as the app's inspector reads it.
+        private struct TurnKey: Equatable {
+            let workerID : UUID
+            let revision : Int
+            let isRunning: Bool
+        }
+
+        var body: some View {
+            Form {
+                InspectorScreenSection(
+                    team  : team,
+                    worker: worker
+                )
+
+                HouseWorkerSection(
+                    name             : worker.name,
+                    role             : worker.role ?? "",
+                    shape            : worker.shape,
+                    roleFollowsTyping: false,
+                    isSpacious       : false,
+                    commitName       : { update(.name($0)) },
+                    commitRole       : { update(.role($0.isEmpty ? nil : $0)) },
+                    commitShape      : { update(.shape($0.rawValue)) }
+                )
+                .id(worker.id)
+
+                InspectorNowSection(
+                    team  : team,
+                    worker: worker
+                )
+                InspectorModelSection(
+                    team  : team,
+                    worker: worker
+                )
+                InspectorBrowserSection(
+                    team  : team,
+                    worker: worker
+                )
+                InspectorTurnSection(
+                    workerName: worker.name,
+                    turn      : turn
+                )
+            }
+            .formStyle(.grouped)
+            // Room above the first section and below the last, as the house's own inspector has it.
+            .contentMargins(.vertical, 28, for: .scrollContent)
+            .task(id: TurnKey(
+                workerID : worker.id,
+                revision : team.transcriptRevision,
+                isRunning: team.isAnswering(worker.id)
+            )) {
+                await readTurn()
+            }
+        }
+
+        /// Saves one edit of this worker; the id is taken now, so a worker chosen next is not touched.
+        private func update(_ change: WorkerChange) {
+            let id   = worker.id
+            let team = team
+            Task { await team.update(id, change) }
+        }
+
+        private func readTurn() async {
+            do {
+                let summary = try await team.latestTurn(of: worker.id)
+                turn = summary.map(WorkerInspectorView.TurnReading.read) ?? .nothingYet
+            } catch {
+                turn = .failed(String(describing: error))
+            }
+        }
+    }
+}
