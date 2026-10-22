@@ -248,7 +248,7 @@ Window passes than there are views in the window" exception (6.2).
   motion on a 120 Hz display, so it is not applied.
 - **The first selection** stalls the main thread for 0.73–0.93 s in both builds. Repeated selections in the
   same window stall at most 80 ms, so it is the conversation built the first time (`HouseLiveConversation`),
-  not the rooms.
+  not the rooms. Most of it was the hero's silhouettes, built once (section 7).
 - **The M1.** Not measured. The precomputed columns are its path; its GPU is slower than the M4's, so its
   GPU numbers will be higher in proportion.
 
@@ -261,6 +261,36 @@ Window passes than there are views in the window" exception (6.2).
   main thread before this pass and 0.35–1.9 s after. In rows mode the same start aborts the app with
   AppKit's "more Update Constraints in Window passes than there are views in the window" exception, raised
   from SwiftUI's toolbar bridge. Starting that many turns at once is the probe's doing and may not happen by
-  hand, but the loop is real. It needs a ticket of its own.
+  hand, but the loop is real. It needs a ticket of its own (fixed since: section 7).
 - **AppKit's `visibleRect`** reaches beyond a view's bounds now that views do not clip to them, so any
   "is it visible" test needs the bounds too (finding 1).
+
+---
+
+## 7. Follow-up: the layout loop and the first selection
+
+Branch `elio/app-restyling-loopfix`, from `8a6bb9ab`. Same probe, machine and build as section 1, on screen,
+ray traced, with the busy workers of section 1.
+
+- **The layout loop (6.2).** `HouseSidebar` bound its search field's focus with `.searchFocused`. Each layout
+  of a hosting view in the window hands the window's focus store to its graph, which invalidated the
+  sidebar's focus state and ran the sidebar's body again; that body places the search field again
+  (`.searchable`), whose hosting view then needs layout. Started while the house changed, the cycle never
+  settled. The sidebar now holds no focus state, and Find… (⌘F) makes the search field first responder
+  through AppKit (`HouseSidebar.find(in:)`). Tested by `HouseAnsweringTeamTests`: before, the window held the
+  main thread until the test's three-minute watchdog; after, its longest stretch is about 0.1 s.
+- **The first selection (6.1).** Most of it was the one-time build of the portraits' eight silhouettes, which
+  the hero needs for its height (`HouseHero.portraitHeight`): the hull read `ShapeOutline.bottom`, which
+  walks the outline's arcs, once for every point. It now reads it once per hull, the same value. Rows built
+  the silhouettes as they appeared, so there it was their appearance that paid.
+
+| Event | Metric | 9 rooms | 30 rooms | 60 rooms | 30 rows | 60 rows |
+|---|---|---|---|---|---|---|
+| Cold appear, turns starting | Main | 633 → 594 | still looping at 150 s → 1193 | still looping at 480 s → 1548 | exception after 195 s → 1452 | → 1420 |
+| | Longest stall | 19 → 12 | → 27 | → 145 | → 205 | → 62 |
+| First selection | Main | 1270 → 599 | 1482 → 767 | 1598 → 1016 | 690 → 648 | 693 → 672 |
+| | Longest stall | 760 → 200 | 913 → 259 | 901 → 315 | 209 → 207 | 214 → 271 |
+
+Milliseconds. With 30 and 60 workers the selection's "before" is the build with only the loop fixed, since
+the base never reaches it; for rows, its cold appear took 2501 and 2224 ms there. The 60 rows' base was not
+run again.
