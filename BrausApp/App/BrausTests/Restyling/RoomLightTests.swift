@@ -266,6 +266,63 @@ struct RoomLightTests {
         #expect(view.renderCounts.preview == settled.preview + (view.path == .rayTraced ? 1 : 0))
     }
 
+    @Test("A room scrolled far out of sight renders nothing and lets its pulse go, and renders again back in sight")
+    func culledOutOfSight() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let window = Self.window()
+        defer { window.close() }
+        let scroll = NSScrollView(frame: CGRect(
+            x     : 0,
+            y     : 0,
+            width : 400,
+            height: 300
+        ))
+        let document = NSView(frame: CGRect(
+            x     : 0,
+            y     : 0,
+            width : 400,
+            height: 2000
+        ))
+        scroll.documentView = document
+        window.contentView?.addSubview(scroll)
+        let clip = scroll.contentView
+        clip.scroll(to: CGPoint(
+            x: 0,
+            y: 1600
+        ))
+        let view = RoomLightView(
+            device  : device,
+            uniforms: room(.busy),
+            frame   : CGRect(
+                x     : 0,
+                y     : 0,
+                width : 127,
+                height: 104
+            )
+        )
+        document.addSubview(view)
+        #expect(view.isCulled)
+        #expect(!view.isShown)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(view.renderCounts == RoomLightView.RenderCounts())
+
+        // Back in sight it renders, and its light pulses.
+        clip.scroll(to: .zero)
+        try await until { view.renderCounts.full >= 1 && view.pulseLayer.animation(forKey: RoomLightView.pulseKey) != nil }
+        #expect(!view.isCulled)
+        #expect(view.isShown)
+
+        // Far out of sight again, it keeps only its last image.
+        clip.scroll(to: CGPoint(
+            x: 0,
+            y: 1600
+        ))
+        try await until { view.isCulled }
+        #expect(view.pulseLayer.animation(forKey: RoomLightView.pulseKey) == nil)
+        #expect(view.bodyFrames.isEmpty && view.passageFrames == nil && view.shownImage == nil)
+        #expect(!view.canRenderQueuedFrame)
+    }
+
     @Test("A change of uniforms draws a live frame at once and the full render only after the plaque's swing")
     func uniformsDrawLiveFirst() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())

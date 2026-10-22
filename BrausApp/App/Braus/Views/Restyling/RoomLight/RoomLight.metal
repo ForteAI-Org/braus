@@ -581,16 +581,43 @@ static float bodyMiss(float3 start, float3 line, Room room) {
     return length(near - core) - room.bodyCorner;
 }
 
+/// BodyBound is a ball around the body's centre that holds every point `nearestCore` finds, grown by
+/// the bevel and by the tenth of the sphere's radius that softens the shadows, with a little to spare
+/// for the rounding: the core lies within its size across and the slab before and behind the centre,
+/// scaled by the pose's stretch at most.
+struct BodyBound {
+    float3 centre;
+    float  reach;
+};
+
+static BodyBound bodyBound(Room room) {
+    float grow = room.isPosed ? max(room.bodyStretch, rsqrt(room.bodyStretch)) : 1;
+    return { posedPoint(room.body, room), length(float2(room.coreSize, room.bodySlab)) * grow + room.bodyCorner + 0.11 * room.radius };
+}
+
+/// Whether every segment from `start` to a point within `spread` of `end` passes outside `bound`, so
+/// `bodyMiss` finds each at least a tenth of the sphere's radius clear of the body and none of them
+/// hides any light: each lies within `spread` of the segment to `end`.
+static bool missesBody(float3 start, float3 end, float spread, BodyBound bound) {
+    float3 line = end - start;
+    float3 near = start + line * saturate(dot(bound.centre - start, line) / dot(line, line));
+    return length(near - bound.centre) - spread > bound.reach;
+}
+
 /// The share of the lamp the body hides from `position`, over a spiral of points on the lamp's
 /// disc: each counts as hidden by how deep its line to `position` passes inside the body, softened
 /// over a tenth of the sphere's radius, so the penumbra has no steps.
 static float bodyOcclusion(float3 position, uint samples, Room room) {
     if (!room.isOccupied) { return 0; }
+    BodyBound bound = bodyBound(room);
+    if (missesBody(position, room.lamp, room.lampRadius, bound)) { return 0; }
     float hidden = 0;
     for (uint index = 0; index < samples; index++) {
         float  radius    = room.lampRadius * sqrt((index + 0.5) / samples);
         float  angle     = 2 * M_PI_F * fract(index * 0.618034);
         float3 lampPoint = room.lamp + float3(radius * cos(angle), radius * sin(angle), 0);
+        // A line clear of the body adds nothing; only those near it need the search.
+        if (missesBody(position, lampPoint, 0, bound)) { continue; }
         float  miss      = bodyMiss(position, lampPoint - position, room);
         hidden += 1 - smoothstep(-0.1 * room.radius, 0.1 * room.radius, miss);
     }
@@ -1448,9 +1475,12 @@ static float screenTerm(float3 position, float3 normal, float3 point, Room room)
 static float screenOcclusion(Surface surface, uint samples, Room room) {
     float3 position = surface.position;
     if (!room.isOccupied || screenTerm(position, surface.normal, room.screen, room) < 1e-3) { return 0; }
+    BodyBound bound = bodyBound(room);
+    if (missesBody(position, room.screen, length(room.screenRight) + length(room.screenUp), bound)) { return 0; }
     float hidden = 0;
     for (uint index = 0; index < samples; index++) {
         float3 point = screenPoint(room, float2((index + 0.5) / samples, fract(index * 0.618034)));
+        if (missesBody(position, point, 0, bound)) { continue; }
         float  miss  = bodyMiss(position, point - position, room);
         hidden += 1 - smoothstep(-0.1 * room.radius, 0.1 * room.radius, miss);
     }
@@ -1472,9 +1502,11 @@ static float moonOcclusion(float3 position, uint samples, Room room) {
     if (!room.isOccupied) { return 0; }
     float reach = moonSpread * length(position - room.body) + 0.15 * room.radius;
     if (bodyMiss(position, moonDirection * 4 * room.side, room) > reach) { return 0; }
-    float hidden = 0;
+    BodyBound bound  = bodyBound(room);
+    float     hidden = 0;
     for (uint index = 0; index < samples; index++) {
         float3 line = moonSample(float2((index + 0.5) / samples, fract(index * 0.618034))) * 4 * room.side;
+        if (missesBody(position, position + line, 0, bound)) { continue; }
         float  miss = bodyMiss(position, line, room);
         hidden += 1 - smoothstep(-0.1 * room.radius, 0.1 * room.radius, miss);
     }

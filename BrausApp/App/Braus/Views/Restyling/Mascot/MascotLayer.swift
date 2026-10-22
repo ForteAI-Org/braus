@@ -48,7 +48,10 @@ nonisolated final class MascotLayer: CALayer {
 
     /// What the worker is doing: a worker that is off dims and greys.
     var status = WorkerStatus.free {
-        didSet { applyColors() }
+        didSet {
+            guard status != oldValue else { return }
+            applyColors()
+        }
     }
 
     /// Whether this layer draws the sphere. False when another renderer draws the body underneath
@@ -1014,6 +1017,14 @@ nonisolated final class MascotLayer: CALayer {
     /// still. Call it after every change of `status`.
     @MainActor
     func catchRoomLight(_ catches: Bool) {
+        // Every update of the face asks again; the same light plays on, phased to the host clock.
+        let state = RoomLightState(
+            catches      : catches,
+            status       : status,
+            reducesMotion: RestylingMotion.reducesMotion
+        )
+        guard state != roomLightState else { return }
+        roomLightState = state
         let litLayers = [leftBrow, rightBrow] + leftLight + rightLight
         for layer in litLayers {
             layer.removeAnimation(forKey: Self.roomLightKey)
@@ -1058,6 +1069,15 @@ nonisolated final class MascotLayer: CALayer {
             )
         }
     }
+
+    /// RoomLightState is what the brows' room light was last caught for.
+    private struct RoomLightState: Equatable {
+        let catches      : Bool
+        let status       : WorkerStatus
+        let reducesMotion: Bool
+    }
+
+    private var roomLightState: RoomLightState?
 
     /// The share of the room's light at the brows' top edge, at full strength.
     static let roomLightTint = 0.4

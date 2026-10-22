@@ -7,6 +7,7 @@
 
 import CoreGraphics
 import Foundation
+import os
 import simd
 
 /// RoomCamera is how a room is seen: straight down onto its floor plan, or, as a trial to compare
@@ -75,11 +76,37 @@ nonisolated enum RoomCamera: String, Sendable {
         in size : CGSize,
         lean    : Float = 0
     ) -> Face? {
-        self == .tilted ? Perspective(
+        guard self == .tilted else { return nil }
+        let key = FaceKey(
+            shape : shape,
+            width : size.width,
+            height: size.height,
+            lean  : lean
+        )
+        if let face = Self.faces.withLock({ $0[key] }) { return face }
+        let face = Perspective(
             size: size,
             lean: lean
-        ).face(of: shape) : nil
+        ).face(of: shape)
+        Self.faces.withLock { faces in
+            // ponytail: a resize misses at every size it passes; a full reset past 512 keeps it small.
+            if faces.count > 512 { faces.removeAll() }
+            faces[key] = face
+        }
+        return face
     }
+
+    /// FaceKey is what a tilted room's face depends on.
+    private struct FaceKey: Hashable {
+        let shape : WorkerShape
+        let width : CGFloat
+        let height: CGFloat
+        let lean  : Float
+    }
+
+    /// The faces found so far: every room asks again for its own at each update of its view, and
+    /// finding one walks the outline many times.
+    private static let faces = OSAllocatedUnfairLock<[FaceKey: Face?]>(initialState: [:])
 
     /// Face is where a tilted room shows the worker's brows: the point they centre on, from the
     /// room's centre in points with y down, how much wider and taller they show than from above, and

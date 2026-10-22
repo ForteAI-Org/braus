@@ -76,6 +76,28 @@ struct MascotLayerTests {
         #expect(breathing.animation(forKey: "breathe") != nil)
     }
 
+    @Test("Caught again with the same light the brows keep their pulse and tint, and a new status lights them anew")
+    func roomLightCaughtOnce() throws {
+        defer { RestylingMotion.overrideReducesMotion = nil }
+        RestylingMotion.overrideReducesMotion = false
+        let mascot = makeMascot()
+        mascot.status = .busy
+        mascot.catchRoomLight(true)
+        let pulse = try #require(mascot.leftBrow.animation(forKey: MascotLayer.roomLightKey))
+        let tint  = mascot.leftBrow.fillColor
+
+        mascot.status = .busy
+        mascot.catchRoomLight(true)
+        #expect(mascot.leftBrow.animation(forKey: MascotLayer.roomLightKey) === pulse)
+        #expect(mascot.leftBrow.fillColor == tint)
+
+        mascot.status = .waiting
+        mascot.catchRoomLight(true)
+        let breath = try #require(mascot.leftBrow.animation(forKey: MascotLayer.roomLightKey))
+        #expect(breath !== pulse)
+        #expect(mascot.leftBrow.fillColor != tint)
+    }
+
     @Test("In a room the brows' top edge catches its light, white below it, never when off")
     func roomLight() throws {
         defer { RestylingMotion.overrideReducesMotion = nil }

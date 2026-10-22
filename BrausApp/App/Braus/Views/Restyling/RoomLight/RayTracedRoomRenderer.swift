@@ -87,6 +87,12 @@ final class RayTracedRoomRenderer: RoomRenderer {
         denoiserRequest = nil
     }
 
+    /// Lets the acceleration structure go, its buffers with it, once no command buffer in flight reads
+    /// it: a room at rest traces nothing more, and its next render builds the structure again.
+    func releaseScene() {
+        scene = nil
+    }
+
     /// Fails when the device has no ray tracing, gives no queue or a kernel cannot be loaded. It
     /// `denoises` when asked to and the burst's kernel loads.
     init?(
@@ -300,7 +306,7 @@ final class RayTracedRoomRenderer: RoomRenderer {
     /// Scene is a built acceleration structure and the room it was built for, as seen by its camera,
     /// with its composition's lean and the standing body's pose.
     /// It keeps the build's descriptor, which holds the vertex buffers, and its scratch buffer until
-    /// the next rebuild, so the GPU never reads a released buffer.
+    /// the next rebuild or `releaseScene()`, so the GPU never reads a released buffer.
     private struct Scene {
         let size      : CGSize
         let occupant  : WorkerShape?
