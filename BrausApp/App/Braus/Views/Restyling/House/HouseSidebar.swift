@@ -37,8 +37,6 @@ struct HouseSidebar: View {
     /// The width the rooms and rows are laid out at, which changes with `columns` in one transaction.
     @State private var layoutWidth: CGFloat?
 
-    @FocusState private var isSearchFocused: Bool
-
     var body: some View {
         Group {
             switch AppPreferenceValues.shared.restylingSidebarMode {
@@ -87,17 +85,27 @@ struct HouseSidebar: View {
             text     : $query,
             placement: .sidebar
         )
-        .searchFocused($isSearchFocused)
         .background(SearchFieldWithoutRing())
+        // Not `.searchFocused`: its focus state re-ran this body on every layout, and the field this body
+        // places laid the window out again, without end while workers answered.
         .focusedSceneValue(
             \.findInHouse,
-            { isSearchFocused = true }
+            { Self.find(in: NSApp.keyWindow) }
         )
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
         } action: { width in
             resize(to: width)
         }
+    }
+
+    /// What Find… (⌘F) does: puts the keyboard in `window`'s sidebar search field, as a click there does.
+    static func find(in window: NSWindow?) {
+        guard let window, let frame = window.contentView?.superview,
+              let field = SearchFieldWithoutRing.BridgeView.searchField(in: frame)
+        else { return }
+
+        window.makeFirstResponder(field)
     }
 
     /// The rooms' width inside the sidebar's margins, nil until the sidebar is measured.
@@ -185,8 +193,8 @@ struct HouseSidebar: View {
     ///
     /// Once in a window, on the next turn, it walks up to the window's frame view and down to the one
     /// search field there, the sidebar's, and sets its `focusRingType`. The field keeps the keyboard
-    /// focus and ⌘F. It takes no clicks and draws nothing. Remove it when SwiftUI's focus effect
-    /// reaches the searchable field.
+    /// focus, and Find… (⌘F) finds it the same way (`find(in:)`). It takes no clicks and draws
+    /// nothing. Remove the ring's part when SwiftUI's focus effect reaches the searchable field.
     private struct SearchFieldWithoutRing: NSViewRepresentable {
 
         func makeNSView(context: Context) -> BridgeView { BridgeView() }
@@ -212,7 +220,7 @@ struct HouseSidebar: View {
                 }
             }
 
-            private static func searchField(in view: NSView) -> NSSearchField? {
+            fileprivate static func searchField(in view: NSView) -> NSSearchField? {
                 if let field = view as? NSSearchField { return field }
                 for subview in view.subviews {
                     if let field = searchField(in: subview) { return field }

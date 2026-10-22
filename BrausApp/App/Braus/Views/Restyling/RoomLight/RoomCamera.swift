@@ -355,6 +355,8 @@ nonisolated enum RoomCamera: String, Sendable {
             ).sphereRadius)
             let outline = shape.outline
             let slab    = RoomCamera.slab(of: outline)
+            // Read once: the outline computes it on every read, and the loops below read it for every point.
+            let bottom  = outline.bottom
             var points: [CGPoint] = []
             for front in [-1.0, 1.0] {
                 for index in 0...rings {
@@ -368,7 +370,7 @@ nonisolated enum RoomCamera: String, Sendable {
                             SIMD3(
                                 bodyX + radius * point.x,
                                 bodyDepth + depth,
-                                radius * (outline.bottom - point.y)
+                                radius * (bottom - point.y)
                             ),
                             foot: SIMD3(bodyX, bodyDepth, 0)
                         )))
