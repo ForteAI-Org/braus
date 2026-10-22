@@ -1,5 +1,5 @@
 //
-//  RestylingMotion.swift
+//  HouseMotion.swift
 //  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 20/10/2026.
@@ -7,12 +7,12 @@
 
 import AppKit
 
-/// RestylingMotion tells every animation of the house whether the person asked
+/// HouseMotion tells every animation of the house whether the person asked
 /// the system to reduce motion or transparency.
 ///
 /// The overrides are process-wide and main-actor isolated, for tests only; a
 /// test that sets one resets it to `nil` when it ends.
-enum RestylingMotion {
+enum HouseMotion {
 
     /// When set, `reducesMotion` returns it instead of the system setting.
     static var overrideReducesMotion: Bool?

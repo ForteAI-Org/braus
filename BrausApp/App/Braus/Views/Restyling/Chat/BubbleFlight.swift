@@ -70,7 +70,7 @@ final class BubbleFlight {
     /// Lifts a copy of a bubble into the quote strip: `start`, a picture placed at `origin` in
     /// `bubble`'s frame over `fill`, emerges from the bubble and shrinks into a pill around the strip's
     /// `line` as its fill fades, and its text turns into the strip's, `lineText`, never scaled: the
-    /// bubble's text fades out and the strip's in as they move, over `RestylingTiming.quoteFlight`.
+    /// bubble's text fades out and the strip's in as they move, over `HouseTiming.quoteFlight`.
     /// Calls `completion` once there, for the strip to show its line, which the flight's last frame
     /// already matches. The transcript gives a picture of its bubble, fill included, and no fill; the
     /// caller skips it under Reduce Motion.
@@ -129,7 +129,7 @@ final class BubbleFlight {
         box.addSublayer(to)
 
         let curve      = CAMediaTimingFunction(controlPoints: 0.5, 0, 0.15, 1)
-        let duration   = RestylingTiming.quoteFlight
+        let duration   = HouseTiming.quoteFlight
         let textOrigin = CGPoint(
             x: Self.quotePill.width,
             y: Self.quotePill.height
@@ -195,7 +195,7 @@ final class BubbleFlight {
         lineText  : String,
         to bubble : @escaping @MainActor () -> CGRect?
     ) {
-        guard !RestylingMotion.reducesMotion,
+        guard !HouseMotion.reducesMotion,
               let scale = stage.window?.backingScaleFactor,
               let image = Self.image(
                   of   : lineText,

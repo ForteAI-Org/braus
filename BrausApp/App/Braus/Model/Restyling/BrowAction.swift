@@ -208,7 +208,7 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
             )
             return Performance(
                 moves   : Self.mirrored([
-                    (pose, RestylingTiming.browsDecisive, .move),
+                    (pose, HouseTiming.browsDecisive, .move),
                     (pose, Self.hold(0.8...2.0, &random), .move),
                     (.rest, 0.4, .move),
                 ]),
@@ -335,7 +335,7 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
     ) -> Performance {
         Performance(
             moves   : mirrored([
-                (pose, max(0.45, RestylingTiming.browsCalm), .move),
+                (pose, max(0.45, HouseTiming.browsCalm), .move),
                 (pose, Self.hold(hold, &random), .move),
                 (.rest, 0.5, .move),
             ]),

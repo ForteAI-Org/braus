@@ -1,5 +1,5 @@
 //
-//  RestylingWindowLayoutTests.swift
+//  HouseWindowLayoutTests.swift
 //  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 20/10/2026.
@@ -8,8 +8,8 @@
 import Testing
 @testable import Braus
 
-@Suite("The restyling window reserves conversation space with stable column widths")
-struct RestylingWindowLayoutTests {
+@Suite("The house window reserves conversation space with stable column widths")
+struct HouseWindowLayoutTests {
 
     private typealias Division = ShellMetrics.Division
 
@@ -34,14 +34,14 @@ struct RestylingWindowLayoutTests {
         for previous in previousDivisions {
             for requested in [false, true] {
                 for window in stride(from: 600.0, through: 1_400, by: 0.5) {
-                    let division = RestylingWindowLayout.division(
+                    let division = HouseWindowLayout.division(
                         window              : window,
                         isInspectorRequested: requested,
                         previous            : previous
                     )
-                    let sidebar = RestylingWindowLayout.sidebarWidth(for: division)
+                    let sidebar = HouseWindowLayout.sidebarWidth(for: division)
                     let inspector = division.isInspectorShown
-                        ? RestylingWindowLayout.inspectorWidth.ideal : 0
+                        ? HouseWindowLayout.inspectorWidth.ideal : 0
                     #expect(window - sidebar.ideal - inspector >= 460)
                     #expect(sidebar.minimum <= sidebar.ideal && sidebar.ideal <= sidebar.maximum)
                     if !requested { #expect(!division.isInspectorShown) }
@@ -63,7 +63,7 @@ struct RestylingWindowLayoutTests {
             (600, true, Self.full, Self.narrow)
         ]
         for (window, requested, previous, expected) in cases {
-            #expect(RestylingWindowLayout.division(
+            #expect(HouseWindowLayout.division(
                 window              : window,
                 isInspectorRequested: requested,
                 previous            : previous
@@ -83,7 +83,7 @@ struct RestylingWindowLayoutTests {
             (1_400, false, Self.narrow, .withoutInspector)
         ]
         for (window, requested, previous, expected) in cases {
-            #expect(RestylingWindowLayout.division(
+            #expect(HouseWindowLayout.division(
                 window              : window,
                 isInspectorRequested: requested,
                 previous            : previous
@@ -96,7 +96,7 @@ struct RestylingWindowLayoutTests {
         var previous = Self.full
         var changes = 0
         for window in [1_110.0, 1_099, 1_101, 1_098, 1_123, 1_124, 1_101] {
-            let next = RestylingWindowLayout.division(
+            let next = HouseWindowLayout.division(
                 window              : window,
                 isInspectorRequested: true,
                 previous            : previous

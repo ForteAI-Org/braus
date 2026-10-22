@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// WorkspaceFailureView is what the team window says when the store did not open, on the house's
-/// own dark ground (`RestylingGround`) rather than the system's grey, up under the transparent
+/// own dark ground (`HouseGround`) rather than the system's grey, up under the transparent
 /// title bar as the house's split has it.
 struct WorkspaceFailureView: View {
 
@@ -28,7 +28,7 @@ struct WorkspaceFailureView: View {
             maxWidth : .infinity,
             maxHeight: .infinity
         )
-        .background { Color("RestylingGround").ignoresSafeArea() }
+        .background { Color("HouseGround").ignoresSafeArea() }
         .background(TransparentTitleBar())
         .preferredColorScheme(.dark)
     }

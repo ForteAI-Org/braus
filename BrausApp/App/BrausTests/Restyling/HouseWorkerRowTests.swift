@@ -57,9 +57,9 @@ struct HouseWorkerRowTests {
 
     @Test("A preparation squashes the whole worker, body and brows together, and nothing under Reduce Motion")
     func preparationMovesTheWholeWorker() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
+        defer { HouseMotion.overrideReducesMotion = nil }
         for reducesMotion in [false, true] {
-            RestylingMotion.overrideReducesMotion = reducesMotion
+            HouseMotion.overrideReducesMotion = reducesMotion
             let host = NSHostingView(rootView: HouseWorkerPortrait(
                 shape      : .triangle,
                 status     : .busy,

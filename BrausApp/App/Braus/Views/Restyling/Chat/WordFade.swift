@@ -9,7 +9,7 @@ import AppKit
 import SwiftUI
 
 /// WordFade shows one line of text whose words fade in: each from transparent, blurred and a little
-/// low to itself, over `wordDuration`, each word `RestylingTiming.wordStagger` after the one before.
+/// low to itself, over `wordDuration`, each word `HouseTiming.wordStagger` after the one before.
 /// SwiftUI animates `elapsed`, as Core Animation cannot reach a text's words. The text takes the
 /// font, colour and line limit around it; `font` is that font, which places the words.
 ///
@@ -32,7 +32,7 @@ struct WordFade: View {
 
     /// How long `text` takes to show entirely.
     static func duration(of text: String) -> Double {
-        Double(max(0, words(in: text).count - 1)) * RestylingTiming.wordStagger + wordDuration
+        Double(max(0, words(in: text).count - 1)) * HouseTiming.wordStagger + wordDuration
     }
 
     var body: some View {
@@ -56,7 +56,7 @@ struct WordFade: View {
                     }
                     .modifier(Step(
                         elapsed: elapsed,
-                        start  : Double(index) * RestylingTiming.wordStagger
+                        start  : Double(index) * HouseTiming.wordStagger
                     ))
                     .transition(.identity)
             }

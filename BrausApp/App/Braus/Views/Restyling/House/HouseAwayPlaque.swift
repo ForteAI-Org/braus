@@ -55,7 +55,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
     ///
     /// - The drop-in: when `isHanging` turns true, after `dropDelay`, a spring on the plate's rotation
     ///   about its pivot that settles in about a second; under Reduce Motion a fade. Taken down, it
-    ///   fades over `RestylingTiming.plaqueLeave`.
+    ///   fades over `HouseTiming.plaqueLeave`.
     /// - The pendulum: while the room moves sideways the plate hangs on the same spring from its
     ///   pivot. A change of the pivot's speed throws it the other way and the speed leans it back, so
     ///   a room setting off to the left leaves the plate's foot to the right, and a room stopping
@@ -355,7 +355,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
                 camera: camera,
                 lean  : lean
             )
-            let animates = showsText != nil && showsText != metrics.showsText && !RestylingMotion.reducesMotion
+            let animates = showsText != nil && showsText != metrics.showsText && !HouseMotion.reducesMotion
             showsText = metrics.showsText
             CATransaction.begin()
             CATransaction.setDisableActions(!animates)
@@ -400,7 +400,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
             for layer in fadingLayers {
                 layer.removeAnimation(forKey: Self.fadeKey)
             }
-            guard !RestylingMotion.reducesMotion else {
+            guard !HouseMotion.reducesMotion else {
                 rest()
                 let fade = CABasicAnimation(keyPath: "opacity")
                 fade.fromValue = 0
@@ -464,7 +464,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
             to x   : CGFloat,
             at time: CFTimeInterval
         ) {
-            guard isHanging, !RestylingMotion.reducesMotion else { return }
+            guard isHanging, !HouseMotion.reducesMotion else { return }
             guard let last = anchor else {
                 anchor = (x, time)
                 return
@@ -497,7 +497,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
         /// The pivot has stopped at `time`: its speed drops to zero at once, which throws the plate
         /// on the way the pivot went, and the plate swings back to rest.
         func nailStopped(at time: CFTimeInterval) {
-            guard isHanging, !RestylingMotion.reducesMotion else { return }
+            guard isHanging, !HouseMotion.reducesMotion else { return }
             stopTask?.cancel()
             stopTask = nil
             anchor   = nil
@@ -592,7 +592,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
             Double(plateWidth) * (0.5 - 0.2 * angle / Self.maximumTilt)
         }
 
-        /// Takes the plaque away: it fades over `RestylingTiming.plaqueLeave` and hides, so its worker
+        /// Takes the plaque away: it fades over `HouseTiming.plaqueLeave` and hides, so its worker
         /// steps back in after it; a plaque still waiting to drop in never shows.
         private func takeDown() {
             dropTask?.cancel()
@@ -616,7 +616,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue             = 1
             fade.toValue               = 0
-            fade.duration              = RestylingTiming.plaqueLeave
+            fade.duration              = HouseTiming.plaqueLeave
             fade.fillMode              = .forwards
             fade.isRemovedOnCompletion = false
             CATransaction.begin()
@@ -650,7 +650,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
         private func setShown(_ isShown: Bool) {
             swingLayer.isHidden  = !isShown
             shadowLayer.isHidden = !isShown
-            frostView.isHidden   = !isShown || RestylingMotion.reducesTransparency
+            frostView.isHidden   = !isShown || HouseMotion.reducesTransparency
         }
 
         /// Swing is one spring of the plate's rotation: from an angle and a turning speed toward a
@@ -788,7 +788,7 @@ struct HouseAwayPlaque: NSViewRepresentable {
         /// Shows the room through the glass, or under Reduce Transparency makes the glass an opaque
         /// frosted tone with nothing behind it showing through.
         private func applyMaterial() {
-            let isOpaque = RestylingMotion.reducesTransparency
+            let isOpaque = HouseMotion.reducesTransparency
             let tone     = isOpaque ? Self.opaqueTone : Self.tone
             withoutActions {
                 frostView.isHidden = isOpaque || !isHanging

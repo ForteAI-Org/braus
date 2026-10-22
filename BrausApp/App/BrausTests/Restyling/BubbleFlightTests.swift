@@ -16,7 +16,7 @@ struct BubbleFlightTests {
 
     @Test("A flight and the transcript making room settle in the send flight's time")
     func settlesInTheSendFlight() {
-        #expect(abs(BubbleFlight.flightDuration - RestylingTiming.sendFlight) < 0.01)
+        #expect(abs(BubbleFlight.flightDuration - HouseTiming.sendFlight) < 0.01)
     }
 
     @Test(

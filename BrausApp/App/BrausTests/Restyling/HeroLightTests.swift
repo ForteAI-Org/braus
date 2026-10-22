@@ -32,8 +32,8 @@ struct HeroLightTests {
 
     @Test("The hosted light takes the status colour, and a change cuts under Reduce Motion")
     func hostedLightFollowsStatus() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
         let view = HeroLight.HostView()
         view.show(
             .busy,
@@ -128,8 +128,8 @@ struct HeroLightTests {
 
     @Test("The hero holds its light, and its name and subtitle sit in an opaque capsule under Reduce Transparency")
     func heroHasLightAndCapsule() throws {
-        defer { RestylingMotion.overrideReducesTransparency = nil }
-        RestylingMotion.overrideReducesTransparency = true
+        defer { HouseMotion.overrideReducesTransparency = nil }
+        HouseMotion.overrideReducesTransparency = true
         let hero = HouseHero(
             worker     : HouseFixture.workers[0],
             status     : .busy,
@@ -164,7 +164,7 @@ struct HeroLightTests {
             to : bitmap
         )
         let tone = try #require(NSColor(
-            named : "RestylingOpaqueGlass",
+            named : "HouseOpaqueGlass",
             bundle: Bundle(for: HeroLight.HostView.self)
         )?.usingColorSpace(.sRGB))
         var matching = 0

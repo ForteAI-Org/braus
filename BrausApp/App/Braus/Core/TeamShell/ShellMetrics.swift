@@ -8,7 +8,7 @@
 import Foundation
 
 /// ShellMetrics holds the team window's width tokens (§3.1), from which
-/// `RestylingWindowLayout` divides a window between the sidebar, the
+/// `HouseWindowLayout` divides a window between the sidebar, the
 /// conversation and the inspector.
 ///
 /// The sidebar is never hidden. It is full at `sidebar.ideal`, or compact at

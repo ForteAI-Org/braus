@@ -94,7 +94,7 @@ nonisolated struct WorkerBehaviour: Sendable {
                 base  : BrowState(status),
                 random: &random
             )
-            let stagger = performance.staggers ? RestylingTiming.browStagger : 0
+            let stagger = performance.staggers ? HouseTiming.browStagger : 0
             guard time + performance.duration + stagger + rests.lowerBound <= length else { break }
 
             for (side, offset) in [(0, leftLeads ? 0 : stagger), (1, leftLeads ? stagger : 0)] {

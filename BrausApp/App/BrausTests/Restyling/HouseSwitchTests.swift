@@ -18,7 +18,7 @@ struct HouseSwitchTests {
     func timingAndPoses() {
         #expect(HouseSwitch.exit <= HouseSwitch.entryDelay)
         #expect(HouseSwitch.entryDelay + HouseSwitch.hop <= 0.45)
-        #expect(HouseSwitch.entryDelay + HouseSwitch.hop == RestylingTiming.roomExit)
+        #expect(HouseSwitch.entryDelay + HouseSwitch.hop == HouseTiming.roomExit)
         #expect(HouseSwitch.sunk.drop > 0 && HouseSwitch.sunk.scaleX < 1)
         let keys = HouseSwitch.hopKeys
         #expect(keys.first?.time == 0 && keys.last?.time == 1)
@@ -53,8 +53,8 @@ struct HouseSwitchTests {
 
     @Test("Under Reduce Motion the hero's worker only fades in and out")
     func portraitOnlyFadesUnderReduceMotion() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
         let view  = try shownPortrait(stage: .present)
         let layer = try #require(view.layer)
         #expect(layer.animation(forKey: HouseWorkerPortrait.HostView.switchKeys.opacity) != nil)

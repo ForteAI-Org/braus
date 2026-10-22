@@ -10,7 +10,7 @@ import SwiftUI
 /// HouseHeroCaption is the text in the hero's glass capsule: the worker's name over its subtitle.
 ///
 /// A change of either writes in as a reply does: the shown words fade out over
-/// `HouseSwitch.captionFade`, then the new ones fade in from blurred, `RestylingTiming.wordStagger`
+/// `HouseSwitch.captionFade`, then the new ones fade in from blurred, `HouseTiming.wordStagger`
 /// apart (`WordFade`), the subtitle's after the name's, while the capsule's width
 /// springs to them. A caption that takes over another worker's capsule starts from that worker's
 /// words, so the capsule itself never changes. Under Reduce Motion the words cross-fade and the
@@ -104,7 +104,7 @@ struct HouseHeroCaption: View {
 
     /// How long the shown name takes to start its last word, after which the subtitle starts.
     private var nameDuration: Double {
-        Double(shown.name.split(separator: " ").count) * RestylingTiming.wordStagger
+        Double(shown.name.split(separator: " ").count) * HouseTiming.wordStagger
     }
 
     /// Fades the shown words out and writes `next` in, unless it is already shown.
@@ -113,7 +113,7 @@ struct HouseHeroCaption: View {
 
         writing?.cancel()
         writing = Task { @MainActor in
-            let reduces = RestylingMotion.reducesMotion
+            let reduces = HouseMotion.reducesMotion
             // The words go through `WordFade` before `elapsed` is reset, so they animate from zero.
             isWriting = !reduces
             withAnimation(.easeOut(duration: HouseSwitch.captionFade)) { opacity = 0 }

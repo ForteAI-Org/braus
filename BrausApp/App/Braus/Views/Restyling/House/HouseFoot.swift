@@ -36,13 +36,13 @@ struct HouseFoot: View {
     private var ground: some View {
         VStack(spacing: 0) {
             LinearGradient(
-                colors    : [Color("RestylingSidebar").opacity(0), Color("RestylingSidebar")],
+                colors    : [Color("HouseSidebar").opacity(0), Color("HouseSidebar")],
                 startPoint: .top,
                 endPoint  : .bottom
             )
             .frame(height: Self.fadeHeight)
             .allowsHitTesting(false)
-            Color("RestylingSidebar")
+            Color("HouseSidebar")
         }
     }
 }

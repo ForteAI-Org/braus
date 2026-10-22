@@ -9,7 +9,7 @@ import AppKit
 import QuartzCore
 
 /// RoomPassage is a worker stepping out of its tilted room toward the camera as it leaves for the
-/// chat, or back in as it returns, over `RestylingTiming.roomExit`: the poses the room bakes into
+/// chat, or back in as it returns, over `HouseTiming.roomExit`: the poses the room bakes into
 /// frames, and keyframes that play them over the empty room.
 ///
 /// Leaving, the body holds still while the brows look toward the camera (`look`), then hops toward
@@ -39,7 +39,7 @@ nonisolated struct RoomPassage: Equatable {
     let faceScales: [Double]
 
     var duration: Double {
-        RestylingTiming.roomExit
+        HouseTiming.roomExit
     }
 
     /// The share of the passage the brows look toward the camera, the body still, before it moves.
@@ -93,7 +93,7 @@ nonisolated struct RoomPassage: Equatable {
                 )
             }
         let steps = isLeaving ? out : out.reversed().map { (1 - $0.share, $0.pose, $0.opacity) }
-        let duration = RestylingTiming.roomExit
+        let duration = HouseTiming.roomExit
         keyframes = steps.map {
             Keyframe(
                 time   : $0.share * duration,

@@ -15,8 +15,8 @@ struct MascotLayerTests {
 
     @Test("A calm change morphs both brows with a stagger")
     func calmMorph() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let mascot = makeMascot()
         mascot.show(.idle, animated: false)
         mascot.show(.listening, animated: true)
@@ -30,8 +30,8 @@ struct MascotLayerTests {
 
     @Test("Looking right morphs both brows together in 0.2 s")
     func pointerLook() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let mascot = makeMascot()
         mascot.look(
             yaw  : 0.5,
@@ -48,8 +48,8 @@ struct MascotLayerTests {
 
     @Test("Reduce Motion cuts instead of morphing")
     func reduceMotionCuts() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
         let mascot = makeMascot()
         mascot.show(.idle, animated: false)
         mascot.show(.working, animated: true)
@@ -64,13 +64,13 @@ struct MascotLayerTests {
 
     @Test("Reduce Motion stops breathing")
     func reduceMotionStopsBreathing() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
         let still = makeMascot()
         still.startBreathing()
         #expect(still.animation(forKey: "breathe") == nil)
 
-        RestylingMotion.overrideReducesMotion = false
+        HouseMotion.overrideReducesMotion = false
         let breathing = makeMascot()
         breathing.startBreathing()
         #expect(breathing.animation(forKey: "breathe") != nil)
@@ -78,8 +78,8 @@ struct MascotLayerTests {
 
     @Test("Caught again with the same light the brows keep their pulse and tint, and a new status lights them anew")
     func roomLightCaughtOnce() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let mascot = makeMascot()
         mascot.status = .busy
         mascot.catchRoomLight(true)
@@ -100,8 +100,8 @@ struct MascotLayerTests {
 
     @Test("In a room the brows' top edge catches its light, white below it, never when off")
     func roomLight() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let srgb   = try #require(CGColorSpace(name: CGColorSpace.sRGB))
         func color(_ tone: (red: Double, green: Double, blue: Double)) -> CGColor {
             CGColor(srgbRed: tone.red, green: tone.green, blue: tone.blue, alpha: 1)
@@ -137,11 +137,11 @@ struct MascotLayerTests {
         #expect(copies.allSatisfy { $0.animation(forKey: "path") != nil })
         #expect(copies[1].path == mascot.leftBrow.path)
 
-        RestylingMotion.overrideReducesMotion = true
+        HouseMotion.overrideReducesMotion = true
         mascot.catchRoomLight(true)
         #expect(mascot.leftBrow.animation(forKey: MascotLayer.roomLightKey) == nil)
 
-        RestylingMotion.overrideReducesMotion = false
+        HouseMotion.overrideReducesMotion = false
         mascot.status = .off
         mascot.catchRoomLight(true)
         #expect(mascot.leftBrow.animation(forKey: MascotLayer.roomLightKey) == nil)

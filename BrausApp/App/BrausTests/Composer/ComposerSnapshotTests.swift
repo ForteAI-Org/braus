@@ -53,8 +53,8 @@ struct ComposerSnapshotTests {
     @Test("Empty, code, grown, during a turn, with no model and with Release, at two widths, its glass drawn opaque")
     func snapshots() async throws {
         // Glass composites only in the window server, so the pill is drawn as Reduce Transparency draws it.
-        RestylingMotion.overrideReducesTransparency = true
-        defer { RestylingMotion.overrideReducesTransparency = nil }
+        HouseMotion.overrideReducesTransparency = true
+        defer { HouseMotion.overrideReducesTransparency = nil }
         for state in Self.states {
             for width in [600, 900] as [CGFloat] {
                 let harness = ComposerHarness(

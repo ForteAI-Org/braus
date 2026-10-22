@@ -101,8 +101,8 @@ struct WorkerBehaviourTests {
 
     @Test("The loop runs forever as keyframe animations, additive shifts and turns")
     func animations() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let loop       = WorkerBehaviour(.free).loop(seed: 3)
         let animations = loop.animations(
             for : .left,
@@ -124,8 +124,8 @@ struct WorkerBehaviourTests {
 
     @Test("Reduce Motion plays no behaviour")
     func reduceMotion() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
         for status in WorkerStatus.allCases {
             #expect(WorkerBehaviour(status).loop(seed: 1).animations(for: .left, face: 100).isEmpty)
         }
@@ -139,8 +139,8 @@ struct WorkerBehaviourTests {
 
     @Test("A change of status blends each brow from where it shows, then starts the new loop")
     func blendFromPresentation() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let mascot = makeMascot()
         mascot.status = .busy
         mascot.show(.working, animated: false)
@@ -197,7 +197,7 @@ struct WorkerBehaviourTests {
         #expect(abs(from.x - 3) < 1e-6 && abs(from.y + 2) < 1e-6)
         let angle = try #require(turn.fromValue as? Double)
         #expect(abs(angle - 0.1) < 1e-6)
-        #expect(shift.duration == RestylingTiming.browsCalm)
+        #expect(shift.duration == HouseTiming.browsCalm)
 
         let loop = try #require(mascot.leftBrow.animation(forKey: WorkerBehaviourLoop.positionKey))
         #expect(loop.beginTime >= shift.beginTime + shift.duration - 1e-9)
@@ -205,8 +205,8 @@ struct WorkerBehaviourTests {
 
     @Test("Stopping the behaviour removes its animations")
     func stops() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let mascot = makeMascot()
         mascot.status = .free
         mascot.show(.idle, animated: false)

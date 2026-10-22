@@ -67,8 +67,9 @@ enum AppPreferences {
     static let sidebarShowsSearchDefault = true
 
     /// How the house's sidebar shows the workers, rooms or rows, a `SidebarMode` raw value.
-    static let restylingSidebarMode        = "restyling.sidebarMode"
-    static let restylingSidebarModeDefault = "rooms"
+    /// The key keeps its old name so a saved choice survives the rename.
+    static let houseSidebarMode        = "restyling.sidebarMode"
+    static let houseSidebarModeDefault = "rooms"
 
     // MARK: Chat
 

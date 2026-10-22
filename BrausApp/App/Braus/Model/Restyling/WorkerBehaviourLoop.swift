@@ -71,7 +71,7 @@ nonisolated struct WorkerBehaviourLoop: Equatable, Sendable {
             height: 1
         )
     ) -> [String: CAKeyframeAnimation] {
-        guard !RestylingMotion.reducesMotion else { return [:] }
+        guard !HouseMotion.reducesMotion else { return [:] }
         let track    = side == .left ? left : right
         let outlines = side == .left ? BrowOutlines.bundled.left : BrowOutlines.bundled.right
         var result = [

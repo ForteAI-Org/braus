@@ -176,7 +176,7 @@ struct RoomLightingTests {
             #expect(layers.count == 6)
             for outline in layers {
                 #expect(outline.path == brow.path)
-                #expect(outline.animation(forKey: "path") != nil || RestylingMotion.reducesMotion)
+                #expect(outline.animation(forKey: "path") != nil || HouseMotion.reducesMotion)
             }
             let siblings = try #require(layer.sublayers)
             let below    = try #require(siblings.firstIndex { $0 === contact })

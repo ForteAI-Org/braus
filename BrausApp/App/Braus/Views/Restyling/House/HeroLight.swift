@@ -111,7 +111,7 @@ struct HeroLight: NSViewRepresentable {
                 blue   : tone.blue,
                 alpha  : tone.alpha
             )
-            let fades = animated && !RestylingMotion.reducesMotion
+            let fades = animated && !HouseMotion.reducesMotion
             CATransaction.begin()
             CATransaction.setDisableActions(!fades)
             CATransaction.setAnimationDuration(HeroLight.fade)

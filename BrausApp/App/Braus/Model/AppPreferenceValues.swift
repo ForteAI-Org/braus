@@ -34,7 +34,7 @@ final class AppPreferenceValues {
     private(set) var chatSendsWithCommandReturn = AppPreferences.chatSendsWithCommandReturnDefault
     private(set) var chatFontFamily             = AppPreferences.chatFontFamilyDefault
     private(set) var bodyPointSize              = Double(TranscriptStyle.actualSize.bodyPointSize)
-    private(set) var restylingSidebarMode       = SidebarMode(preference: AppPreferences.restylingSidebarModeDefault)
+    private(set) var houseSidebarMode       = SidebarMode(preference: AppPreferences.houseSidebarModeDefault)
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -97,8 +97,8 @@ final class AppPreferenceValues {
                 ?? Double(TranscriptStyle.actualSize.bodyPointSize)
         )
         set(
-            \.restylingSidebarMode,
-            to: SidebarMode(preference: defaults.string(forKey: AppPreferences.restylingSidebarMode))
+            \.houseSidebarMode,
+            to: SidebarMode(preference: defaults.string(forKey: AppPreferences.houseSidebarMode))
         )
     }
 

@@ -65,7 +65,7 @@ struct HouseSidebar: View {
     /// The workers as rooms or rows, with the foot and the archive.
     private var list: some View {
         Group {
-            switch AppPreferenceValues.shared.restylingSidebarMode {
+            switch AppPreferenceValues.shared.houseSidebarMode {
             case .rooms:
                 HouseRoomsGrid(
                     workers   : shown,
@@ -160,7 +160,7 @@ struct HouseSidebar: View {
             layoutWidth = width
             return
         }
-        withAnimation(HouseLayout.reshaping(reducesMotion: RestylingMotion.reducesMotion)) {
+        withAnimation(HouseLayout.reshaping(reducesMotion: HouseMotion.reducesMotion)) {
             columns     = next
             layoutWidth = width
         }
@@ -198,7 +198,7 @@ struct HouseSidebar: View {
         ) {
             guard columns != view.columns else { return }
             defer { view.columns = columns }
-            guard view.columns != nil, RestylingMotion.reducesMotion, let column = view.column?.layer else { return }
+            guard view.columns != nil, HouseMotion.reducesMotion, let column = view.column?.layer else { return }
 
             let fade = CATransition()
             fade.type     = .fade

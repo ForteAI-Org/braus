@@ -20,9 +20,9 @@ import QuartzCore
 /// a little shaded at the bottom, with a thread of shadow under them where they meet the body.
 ///
 /// The head never changes colour for an outcome, since the room light tells it; only a worker that
-/// is off dims the body and greys the brows. Every motion asks `RestylingMotion` first: under
+/// is off dims the body and greys the brows. Every motion asks `HouseMotion` first: under
 /// Reduce Motion a morph is a cut, the brows turn without travel and the head does not breathe.
-/// Nonisolated like `CALayer`, whose overrides it needs; the methods that read `RestylingMotion`
+/// Nonisolated like `CALayer`, whose overrides it needs; the methods that read `HouseMotion`
 /// are main-actor isolated, and the layer belongs to the main thread like every tree the app owns.
 nonisolated final class MascotLayer: CALayer {
 
@@ -290,7 +290,7 @@ nonisolated final class MascotLayer: CALayer {
             state,
             leftFirst: leftLeads
         )
-        let animates = animated && !RestylingMotion.reducesMotion
+        let animates = animated && !HouseMotion.reducesMotion
         let now      = convertTime(CACurrentMediaTime(), from: nil)
         self.state = state
         heldBrows  = state
@@ -327,7 +327,7 @@ nonisolated final class MascotLayer: CALayer {
     ) {
         self.yaw   = yaw
         self.pitch = pitch
-        let animates = !RestylingMotion.reducesMotion
+        let animates = !HouseMotion.reducesMotion
         if state == .idle {
             let wanted = yaw > 0.06 ? BrowState.look : (yaw < -0.06 ? BrowState.idle : heldBrows)
             if wanted != heldBrows {
@@ -379,7 +379,7 @@ nonisolated final class MascotLayer: CALayer {
         let previous = behaviour
         behaviour = seed.map { WorkerBehaviour(status).loop(seed: $0) }
 
-        let animates   = !RestylingMotion.reducesMotion
+        let animates   = !HouseMotion.reducesMotion
         let host       = CACurrentMediaTime()
         let now        = convertTime(host, from: nil)
         let scale      = behaviourScale
@@ -462,7 +462,7 @@ nonisolated final class MascotLayer: CALayer {
         yaw  : Double,
         pitch: Double
     ) {
-        guard !RestylingMotion.reducesMotion, !isAway else { return }
+        guard !HouseMotion.reducesMotion, !isAway else { return }
         if !isGazing {
             isGazing = true
             suspendBehaviour()
@@ -491,11 +491,11 @@ nonisolated final class MascotLayer: CALayer {
                     to      : outlines[state],
                     duration: Self.lookSeconds,
                     begin   : now,
-                    animated: !RestylingMotion.reducesMotion
+                    animated: !HouseMotion.reducesMotion
                 )
             }
         }
-        guard let behaviour, !RestylingMotion.reducesMotion else { return }
+        guard let behaviour, !HouseMotion.reducesMotion else { return }
         let host = CACurrentMediaTime()
         let start = convertTime(host, from: nil) + Self.lookSeconds
         behaviourStart      = host + Self.lookSeconds
@@ -636,7 +636,7 @@ nonisolated final class MascotLayer: CALayer {
     @MainActor
     func refreshBehaviourScale() {
         behaviourRefresh = nil
-        guard let behaviour, !RestylingMotion.reducesMotion else { return }
+        guard let behaviour, !HouseMotion.reducesMotion else { return }
         let scale = behaviourScale
         guard Self.differs(scale, behaviourBuiltScale) else { return }
         let built = behaviourBuiltScale
@@ -713,7 +713,7 @@ nonisolated final class MascotLayer: CALayer {
         for key in RoomBodyMotion.browKeys {
             removeAnimation(forKey: key)
         }
-        guard let motion, !RestylingMotion.reducesMotion else { return }
+        guard let motion, !HouseMotion.reducesMotion else { return }
         for (key, animation) in motion {
             animation.beginTime = convertTime(start, from: nil)
             add(
@@ -749,7 +749,7 @@ nonisolated final class MascotLayer: CALayer {
         from offset: RoomBodyMotion.FaceMove,
         over duration: Double
     ) {
-        guard !RestylingMotion.reducesMotion else { return }
+        guard !HouseMotion.reducesMotion else { return }
         let now = bodyOffset
         let parts: [(key: String, keyPath: String, from: Any, to: Any)] = [
             ("body.blend.shift", "position", NSValue(point: CGPoint(
@@ -804,7 +804,7 @@ nonisolated final class MascotLayer: CALayer {
         var parts: [(layer: CALayer, key: String, animation: CAAnimation)] = [
             (self, Self.passageKeys[0], passage.envelope()),
         ]
-        if !RestylingMotion.reducesMotion, passage.poses.count > 1 {
+        if !HouseMotion.reducesMotion, passage.poses.count > 1 {
             parts += [
                 (self, Self.passageKeys[1], passage.browShift()),
                 (self, Self.passageKeys[2], passage.browScale()),
@@ -863,18 +863,18 @@ nonisolated final class MascotLayer: CALayer {
         (layer.value(forKeyPath: "transform.rotation.z") as? NSNumber)?.doubleValue ?? 0
     }
 
-    /// Starts the head's slow rise and fall, one breath every `RestylingTiming.headBreath`.
+    /// Starts the head's slow rise and fall, one breath every `HouseTiming.headBreath`.
     /// Under Reduce Motion the head stays still. Call it once the layer has its size.
     @MainActor
     func startBreathing() {
-        guard !RestylingMotion.reducesMotion else {
+        guard !HouseMotion.reducesMotion else {
             removeAnimation(forKey: Self.breatheKey)
             return
         }
         let breathe = CABasicAnimation(keyPath: "transform.translation.y")
         breathe.fromValue      = 0
         breathe.toValue        = bounds.height * 0.0045
-        breathe.duration       = RestylingTiming.headBreath / 2
+        breathe.duration       = HouseTiming.headBreath / 2
         breathe.autoreverses   = true
         breathe.repeatCount    = .infinity
         breathe.timingFunction = CAMediaTimingFunction(controlPoints: 0.45, 0, 0.4, 1)
@@ -882,11 +882,11 @@ nonisolated final class MascotLayer: CALayer {
     }
 
     /// Squashes and stretches the head once, as a worker setting about a task does: wide and low,
-    /// then tall and a little up, over `RestylingTiming.preparation`. Added to the breath, which
+    /// then tall and a little up, over `HouseTiming.preparation`. Added to the breath, which
     /// goes on. Nothing under Reduce Motion.
     @MainActor
     func prepare() {
-        guard !RestylingMotion.reducesMotion else { return }
+        guard !HouseMotion.reducesMotion else { return }
 
         let lift   = bounds.height * Self.preparationLift
         let keys   = Self.preparationKeys
@@ -904,7 +904,7 @@ nonisolated final class MascotLayer: CALayer {
             animation.isAdditive      = true
             return animation
         }
-        group.duration = RestylingTiming.preparation
+        group.duration = HouseTiming.preparation
         add(group, forKey: Self.prepareKey)
     }
 
@@ -1021,7 +1021,7 @@ nonisolated final class MascotLayer: CALayer {
         let state = RoomLightState(
             catches      : catches,
             status       : status,
-            reducesMotion: RestylingMotion.reducesMotion
+            reducesMotion: HouseMotion.reducesMotion
         )
         guard state != roomLightState else { return }
         roomLightState = state

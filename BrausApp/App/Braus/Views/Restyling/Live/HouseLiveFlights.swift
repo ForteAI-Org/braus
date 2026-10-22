@@ -232,7 +232,7 @@ final class HouseLiveFlights {
         _ quote: MessageQuote,
         in team: TeamModel
     ) {
-        let bubble = RestylingMotion.reducesMotion ? nil : transcript?.bubble(ofMessage: quote.messageID)
+        let bubble = HouseMotion.reducesMotion ? nil : transcript?.bubble(ofMessage: quote.messageID)
         hidesQuoteLine  = bubble != nil
         team.draftQuote = quote
         guard let bubble else { return }

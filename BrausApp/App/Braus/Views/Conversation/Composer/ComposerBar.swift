@@ -416,13 +416,13 @@ extension View {
         .background {
             VStack(spacing: 0) {
                 LinearGradient(
-                    colors    : [Color("RestylingGround").opacity(0), Color("RestylingGround")],
+                    colors    : [Color("HouseGround").opacity(0), Color("HouseGround")],
                     startPoint: .top,
                     endPoint  : .bottom
                 )
                 .frame(height: HouseFoot.fadeHeight)
                 .allowsHitTesting(false)
-                Color("RestylingGround")
+                Color("HouseGround")
             }
         }
     }

@@ -38,8 +38,8 @@ struct HeroActionTests {
 
     @Test("A hero room bakes every action ahead, plays one on its own clock, and cross-fades to the next")
     func roomActs() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let window   = Self.window()
         defer { window.close() }
         let (view, mascot, link) = try Self.hero(in: window)
@@ -84,8 +84,8 @@ struct HeroActionTests {
 
     @Test("Under Reduce Motion the hero takes no action")
     func reduceMotion() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
         let window = Self.window()
         defer { window.close() }
         let (view, mascot, link) = try Self.hero(in: window)

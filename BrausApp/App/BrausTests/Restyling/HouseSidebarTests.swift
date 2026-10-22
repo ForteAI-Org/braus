@@ -25,7 +25,7 @@ struct HouseSidebarTests {
     func defaultMode() {
         #expect(SidebarMode(preference: nil) == .rooms)
         #expect(SidebarMode(preference: "unknown") == .rooms)
-        #expect(SidebarMode(preference: AppPreferences.restylingSidebarModeDefault) == .rooms)
+        #expect(SidebarMode(preference: AppPreferences.houseSidebarModeDefault) == .rooms)
         #expect(SidebarMode(preference: "rows") == .rows)
     }
 
@@ -35,13 +35,13 @@ struct HouseSidebarTests {
         let defaults = try #require(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
 
-        #expect(AppPreferenceValues(defaults: defaults).restylingSidebarMode == .rooms)
+        #expect(AppPreferenceValues(defaults: defaults).houseSidebarMode == .rooms)
 
         defaults.set(
             "rows",
-            forKey: AppPreferences.restylingSidebarMode
+            forKey: AppPreferences.houseSidebarMode
         )
-        #expect(AppPreferenceValues(defaults: defaults).restylingSidebarMode == .rows)
+        #expect(AppPreferenceValues(defaults: defaults).houseSidebarMode == .rows)
     }
 
     @Test("The selected room says its worker is in chat with you")
@@ -79,10 +79,10 @@ struct HouseSidebarTests {
 
     @Test("The plaque swings down when its worker is chosen, only fades in under Reduce Motion, and hangs still when rebuilt")
     func plaqueSwing() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
+        defer { HouseMotion.overrideReducesMotion = nil }
         typealias Plaque = HouseAwayPlaque.PlaqueView
 
-        RestylingMotion.overrideReducesMotion = false
+        HouseMotion.overrideReducesMotion = false
         let swinging = Plaque(
             brows    : .idle,
             status   : .busy,
@@ -112,7 +112,7 @@ struct HouseSidebarTests {
         #expect(!rebuilt.swingLayer.isHidden)
         #expect(rebuilt.swingLayer.animation(forKey: Plaque.swingKey) == nil)
 
-        RestylingMotion.overrideReducesMotion = true
+        HouseMotion.overrideReducesMotion = true
         let still = Plaque(
             brows    : .idle,
             status   : .busy,
@@ -152,10 +152,10 @@ struct HouseSidebarTests {
 
     @Test("A plate whose nail moves left lags, then swings past rest to the left and settles, within its clamp")
     func plaquePendulum() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
+        defer { HouseMotion.overrideReducesMotion = nil }
         typealias Plaque = HouseAwayPlaque.PlaqueView
 
-        RestylingMotion.overrideReducesMotion = false
+        HouseMotion.overrideReducesMotion = false
         for speed in [300.0, 20_000] {
             let plaque = Plaque(
                 brows    : .idle,
@@ -184,7 +184,7 @@ struct HouseSidebarTests {
             #expect(abs(released.state(at: 2.5).angle) < 0.002)
         }
 
-        RestylingMotion.overrideReducesMotion = true
+        HouseMotion.overrideReducesMotion = true
         let still = Plaque(
             brows    : .idle,
             status   : .busy,
@@ -203,10 +203,10 @@ struct HouseSidebarTests {
 
     @Test("Every swing Core Animation plays starts at the speed the plaque's model gives it")
     func plaqueSwingsAgree() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
+        defer { HouseMotion.overrideReducesMotion = nil }
         typealias Plaque = HouseAwayPlaque.PlaqueView
 
-        RestylingMotion.overrideReducesMotion = false
+        HouseMotion.overrideReducesMotion = false
         let plaque = Plaque(
             brows    : .idle,
             status   : .busy,
@@ -241,10 +241,10 @@ struct HouseSidebarTests {
 
     @Test("Only a hanging plaque pulses with its room's light")
     func plaquePulsesOnlyWhenHanging() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
+        defer { HouseMotion.overrideReducesMotion = nil }
         typealias Plaque = HouseAwayPlaque.PlaqueView
 
-        RestylingMotion.overrideReducesMotion = false
+        HouseMotion.overrideReducesMotion = false
         let window = NSWindow(
             contentRect: CGRect(
                 x     : 0,
@@ -370,7 +370,7 @@ struct HouseSidebarTests {
 
     @Test("The etched text keeps a contrast of at least 4.5:1 over the brightest room behind the glass, in every light")
     func plaqueTextContrast() throws {
-        defer { RestylingMotion.overrideReducesTransparency = nil }
+        defer { HouseMotion.overrideReducesTransparency = nil }
         typealias Plaque = HouseAwayPlaque.PlaqueView
 
         let device = try #require(MTLCreateSystemDefaultDevice())
@@ -389,7 +389,7 @@ struct HouseSidebarTests {
         let xs   = face.map { Int($0.x) }
         let ys   = face.map { Int($0.y) }
         for reducesTransparency in [false, true] {
-            RestylingMotion.overrideReducesTransparency = reducesTransparency
+            HouseMotion.overrideReducesTransparency = reducesTransparency
             for status in WorkerStatus.allCases {
                 // The brightest point of the empty room behind the plate on either path; the frost's blur
                 // and the material's dark tint only lower it.
@@ -476,7 +476,7 @@ struct HouseSidebarTests {
 
     @Test("Under Reduce Transparency the plate is opaque and nothing of the room shows through it")
     func plaqueReducesTransparency() throws {
-        defer { RestylingMotion.overrideReducesTransparency = nil }
+        defer { HouseMotion.overrideReducesTransparency = nil }
         let red  = CGColor(
             srgbRed: 1,
             green  : 0,
@@ -490,7 +490,7 @@ struct HouseSidebarTests {
             alpha  : 1
         )
         for reducesTransparency in [true, false] {
-            RestylingMotion.overrideReducesTransparency = reducesTransparency
+            HouseMotion.overrideReducesTransparency = reducesTransparency
             let plaque = HouseAwayPlaque.PlaqueView(
                 brows    : .idle,
                 status   : .busy,
@@ -531,10 +531,10 @@ struct HouseSidebarTests {
 
     @Test("The glass's light, the light through it and its lit top pulse with the room, on the room's cycle and phase")
     func plaquePulsesWithTheRoom() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
+        defer { HouseMotion.overrideReducesMotion = nil }
         typealias Plaque = HouseAwayPlaque.PlaqueView
 
-        RestylingMotion.overrideReducesMotion = false
+        HouseMotion.overrideReducesMotion = false
         let window = NSWindow(
             contentRect: CGRect(
                 x     : 0,
@@ -825,7 +825,7 @@ struct HouseSidebarTests {
 
     @Test("The house window never asks for less than all its columns, and its sidebar does not collapse")
     func sidebarStays() async throws {
-        #expect(RestylingWindowLayout.columnVisibility == .all)
+        #expect(HouseWindowLayout.columnVisibility == .all)
 
         let window = NSWindow(
             contentRect: CGRect(
@@ -841,7 +841,7 @@ struct HouseSidebarTests {
         window.isReleasedWhenClosed = false
         defer { window.close() }
         window.contentView = NSHostingView(rootView: NavigationSplitView(
-            columnVisibility: .constant(RestylingWindowLayout.columnVisibility)
+            columnVisibility: .constant(HouseWindowLayout.columnVisibility)
         ) {
             Color.clear.background(SidebarBridge())
         } detail: {

@@ -43,8 +43,8 @@ struct WorkerGazeTests {
 
     @Test("A pointer to the right makes the brows look right and pauses the loop")
     func looksAtThePointer() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let (gaze, host) = makeFace()
         #expect(host.mascot.leftBrow.animation(forKey: WorkerBehaviourLoop.positionKey) != nil)
         gaze.pointerMoved(toWindow: CGPoint(x: 190, y: 100))
@@ -59,8 +59,8 @@ struct WorkerGazeTests {
 
     @Test("Leaving waits, then the brows go back to their loop")
     func resumes() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let (gaze, host) = makeFace()
         gaze.pointerMoved(toWindow: CGPoint(x: 190, y: 100))
         gaze.pointerLeft()
@@ -74,8 +74,8 @@ struct WorkerGazeTests {
 
     @Test("An empty room, a disabled gaze or a pointer beyond the radius looks at nothing")
     func staysStill() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let (gaze, host) = makeFace()
         host.mascot.isAway = true
         gaze.pointerMoved(toWindow: CGPoint(x: 190, y: 100))
@@ -99,8 +99,8 @@ struct WorkerGazeTests {
 
     @Test("Reduce Motion makes the brows ignore the pointer")
     func reduceMotion() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
         let (gaze, host) = makeFace()
         gaze.pointerMoved(toWindow: CGPoint(x: 190, y: 100))
         #expect(!host.mascot.isGazing)

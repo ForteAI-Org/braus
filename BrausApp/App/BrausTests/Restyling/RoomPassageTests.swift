@@ -29,7 +29,7 @@ struct RoomPassageTests {
             lean         : 0,
             reducesMotion: false
         )
-        let duration = RestylingTiming.roomExit
+        let duration = HouseTiming.roomExit
         #expect(leaving.duration == duration)
         #expect(leaving.poses.first == .rest)
         #expect(leaving.poses.count == RoomPassage.steps + 1)
@@ -66,8 +66,8 @@ struct RoomPassageTests {
 
     @Test("Under Reduce Motion the worker and its brows only fade")
     func reduceMotionFades() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
         let passage = RoomPassage(
             isLeaving    : true,
             shape        : .circle,
@@ -78,7 +78,7 @@ struct RoomPassageTests {
         #expect(passage.poses == [.rest])
         #expect(passage.keyframes == [
             RoomPassage.Keyframe(time: 0, pose: 0, opacity: 1),
-            RoomPassage.Keyframe(time: RestylingTiming.roomExit, pose: 0, opacity: 0),
+            RoomPassage.Keyframe(time: HouseTiming.roomExit, pose: 0, opacity: 0),
         ])
         let mascot = MascotLayer()
         mascot.frame = CGRect(
@@ -97,8 +97,8 @@ struct RoomPassageTests {
 
     @Test("A room at rest bakes its exit ahead, and choosing its worker plays it at once, the full render after it and the plaque")
     func exitBakedAhead() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let window = Self.window()
         defer { window.close() }
         let (view, mascot) = try Self.room(in: window)
@@ -119,7 +119,7 @@ struct RoomPassageTests {
         #expect(!view.passageLayer.isHidden && view.passageEmpty.contents != nil)
         #expect(!view.passageWorkerLit.isHidden)
         let frames = try #require(view.passageWorker.animation(forKey: RoomLightView.passageKey) as? CAKeyframeAnimation)
-        #expect(frames.duration == RestylingTiming.roomExit)
+        #expect(frames.duration == HouseTiming.roomExit)
         #expect(frames.values?.count == passage.keyframes.count)
         #expect(view.passageSnapshot.isHidden)
         #expect(mascot.animation(forKey: "passage.fade") != nil)
@@ -128,15 +128,15 @@ struct RoomPassageTests {
         try await Self.until { view.renderCounts.live == settled.live + 1 }
 
         try await Self.until { view.renderCounts.full == settled.full + 1 }
-        #expect(ContinuousClock.now - chosen >= .seconds(RestylingTiming.roomExit) + .milliseconds(850))
+        #expect(ContinuousClock.now - chosen >= .seconds(HouseTiming.roomExit) + .milliseconds(850))
         #expect(view.passage == nil)
         #expect(view.passageLayer.isHidden)
     }
 
     @Test("Chosen before its exit is baked, the worker's body still steps out, then the fresh frames take over")
     func exitBeforeBaking() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let window = Self.window()
         defer { window.close() }
         let (view, mascot) = try Self.room(in: window)
@@ -160,8 +160,8 @@ struct RoomPassageTests {
 
     @Test("Coming back, the worker steps in once the plaque has faded")
     func entryWaitsForThePlaque() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let device = try #require(MTLCreateSystemDefaultDevice())
         let window = Self.window()
         defer { window.close() }
@@ -183,7 +183,7 @@ struct RoomPassageTests {
         try await Self.until { view.passageWorker.animation(forKey: RoomLightView.passageFadeKey) != nil }
         let fade = try #require(view.passageWorker.animation(forKey: RoomLightView.passageFadeKey))
         let begin = view.passageWorker.convertTime(fade.beginTime, to: nil)
-        #expect(abs(begin - (back + RestylingTiming.plaqueLeave)) < 0.02)
+        #expect(abs(begin - (back + HouseTiming.plaqueLeave)) < 0.02)
         // Until then the worker is not there.
         #expect(fade.fillMode == .backwards)
         #expect((fade as? CAKeyframeAnimation)?.values?.first as? Double == 0)
@@ -191,10 +191,10 @@ struct RoomPassageTests {
 
     @Test("The plaque drops in only once the worker is out, and fades away before it comes back")
     func plaqueAfterTheExit() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         typealias Plaque = HouseAwayPlaque.PlaqueView
-        #expect(HouseRoomCell.plaqueDelay(for: .tilted) == RestylingTiming.roomExit)
+        #expect(HouseRoomCell.plaqueDelay(for: .tilted) == HouseTiming.roomExit)
         #expect(HouseRoomCell.plaqueDelay(for: .top) == 0)
 
         let plaque = Plaque(
@@ -202,7 +202,7 @@ struct RoomPassageTests {
             status   : .busy,
             isHanging: false,
             camera   : .tilted,
-            dropDelay: RestylingTiming.roomExit
+            dropDelay: HouseTiming.roomExit
         )
         let window = Self.window()
         defer { window.close() }
@@ -212,7 +212,7 @@ struct RoomPassageTests {
         #expect(plaque.swingLayer.isHidden)
         #expect(plaque.dropTask != nil)
         try await Self.until { !plaque.swingLayer.isHidden }
-        #expect(ContinuousClock.now - chosen >= .seconds(RestylingTiming.roomExit))
+        #expect(ContinuousClock.now - chosen >= .seconds(HouseTiming.roomExit))
         #expect(plaque.swingLayer.animation(forKey: Plaque.swingKey) != nil)
 
         plaque.isHanging = false
@@ -223,7 +223,7 @@ struct RoomPassageTests {
         // Taken down before it dropped, it never shows.
         plaque.isHanging = true
         plaque.isHanging = false
-        try await Task.sleep(for: .seconds(RestylingTiming.roomExit + 0.1))
+        try await Task.sleep(for: .seconds(HouseTiming.roomExit + 0.1))
         #expect(plaque.swingLayer.isHidden)
     }
 

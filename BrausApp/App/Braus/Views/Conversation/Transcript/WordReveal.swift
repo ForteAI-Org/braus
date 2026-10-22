@@ -10,7 +10,7 @@ import CoreImage
 
 /// WordReveal plays a reply's words arriving over its row: each word fades in
 /// from transparent, blurred and a little low to itself, over `wordDuration`, each one
-/// `RestylingTiming.wordStagger` after the one before, as the hero's `WordFade`
+/// `HouseTiming.wordStagger` after the one before, as the hero's `WordFade`
 /// does. Core Animation plays it, one layer per word cut from a picture of the row's text, so the
 /// main thread draws nothing per frame. It takes no clicks and is no accessibility element: the
 /// row under it speaks for its text. Main actor only.
@@ -47,7 +47,7 @@ final class WordReveal: NSView {
 
     /// The gap between two words' starts for `count` words.
     static func stagger(of count: Int) -> Double {
-        min(RestylingTiming.wordStagger, spread / Double(max(1, count)))
+        min(HouseTiming.wordStagger, spread / Double(max(1, count)))
     }
 
     /// Plays `words`, frames in the row, cut from `picture`, the row's text drawn at the row's size,

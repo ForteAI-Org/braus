@@ -387,10 +387,10 @@ struct RoomLightTests {
 
     @Test("With a change fade the shown image cross-fades into the new render; without one or under Reduce Motion it cuts")
     func changeCrossFades() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
+        defer { HouseMotion.overrideReducesMotion = nil }
         let device = try #require(MTLCreateSystemDefaultDevice())
         for (fade, reducesMotion) in [(0.5, false), (0.5, true), (nil, false)] as [(Double?, Bool)] {
-            RestylingMotion.overrideReducesMotion = reducesMotion
+            HouseMotion.overrideReducesMotion = reducesMotion
             let window = Self.window()
             defer { window.close() }
             let view = RoomLightView(
@@ -428,7 +428,7 @@ struct RoomLightTests {
             for          : .waiting,
             reducesMotion: false
         )
-        let cycle = RestylingTiming.waitingBreath
+        let cycle = HouseTiming.waitingBreath
         let begin = RoomLightView.pulseBeginTime(in: nil)
         for (index, weight) in weights.enumerated() {
             let time = begin + 7 * cycle + Double(index) / Double(weights.count) * cycle
@@ -643,8 +643,8 @@ struct RoomLightTests {
 
     @Test("The spill and the sill pulse on the room's own cycle and phase, and hold still under Reduce Motion")
     func openingSpillPulse() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let device  = try #require(MTLCreateSystemDefaultDevice())
         let window  = Self.window()
         defer { window.close() }
@@ -673,7 +673,7 @@ struct RoomLightTests {
         // A light that holds still, and any light under Reduce Motion, does not pulse.
         opening.uniforms = room(.free)
         #expect(opening.glow.animation(forKey: RoomOpeningView.pulseKey) == nil)
-        RestylingMotion.overrideReducesMotion = true
+        HouseMotion.overrideReducesMotion = true
         opening.uniforms = room(.busy)
         #expect(opening.glow.animation(forKey: RoomOpeningView.pulseKey) == nil)
         #expect(opening.sill.animation(forKey: RoomOpeningView.pulseKey) == nil)

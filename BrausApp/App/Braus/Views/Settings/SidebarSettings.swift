@@ -20,15 +20,15 @@ struct SidebarSettings: View {
     @AppStorage(AppPreferences.sidebarShowsSearch)
     private var showsSearch = AppPreferences.sidebarShowsSearchDefault
 
-    @AppStorage(AppPreferences.restylingSidebarMode)
-    private var restylingSidebarMode = SidebarMode(preference: AppPreferences.restylingSidebarModeDefault)
+    @AppStorage(AppPreferences.houseSidebarMode)
+    private var houseSidebarMode = SidebarMode(preference: AppPreferences.houseSidebarModeDefault)
 
     var body: some View {
         Form {
             Section {
                 Picker(
                     "Workers",
-                    selection: $restylingSidebarMode
+                    selection: $houseSidebarMode
                 ) {
                     Text("Rooms").tag(SidebarMode.rooms)
                     Text("Rows").tag(SidebarMode.rows)

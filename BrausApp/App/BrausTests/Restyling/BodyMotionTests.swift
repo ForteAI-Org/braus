@@ -303,8 +303,8 @@ struct BodyMotionTests {
 
     @Test("A tilted room bakes its worker's poses after its render and plays them on the brows' clock")
     func roomBakesAndPlays() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let device   = try #require(MTLCreateSystemDefaultDevice())
         let window   = Self.window()
         defer { window.close() }
@@ -368,8 +368,8 @@ struct BodyMotionTests {
 
     @Test("Under Reduce Motion a tilted room bakes nothing and its brows stay on the body")
     func reduceMotionBakesNothing() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
         let device = try #require(MTLCreateSystemDefaultDevice())
         let window = Self.window()
         defer { window.close() }
@@ -399,8 +399,8 @@ struct BodyMotionTests {
 
     @Test("A portrait's outline clips the room and moves with the body")
     func outlineMoves() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let device = try #require(MTLCreateSystemDefaultDevice())
         let window = Self.window()
         defer { window.close() }
@@ -458,8 +458,8 @@ struct BodyMotionTests {
 
     @Test("A room in the grid joins its brows to its body, and an empty room, its worker away in chat, moves none")
     func gridRoomMoves() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let id = try #require((1...99).lazy.compactMap {
             UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", $0))
         }.first { !WorkerBehaviour(.busy).loop(seed: WorkerBehaviour.seed(for: $0)).intents.isEmpty })

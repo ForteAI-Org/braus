@@ -126,8 +126,8 @@ struct HouseLiveFlightsTests {
 
     @Test("A send flies from the field onto the real bubble, which shows as the flight lands")
     func sendLandsOnTheBubble() async throws {
-        RestylingMotion.overrideReducesMotion = false
-        defer { RestylingMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
         let fixture = try await TranscriptFixture()
         defer { fixture.discard() }
         let scene = try await Self.scene(fixture)
@@ -165,8 +165,8 @@ struct HouseLiveFlightsTests {
 
     @Test("Under Reduce Motion a send only fades: the text where it was typed, the flight in at the bubble")
     func reduceMotionSendFades() async throws {
-        RestylingMotion.overrideReducesMotion = true
-        defer { RestylingMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
         let fixture = try await TranscriptFixture()
         defer { fixture.discard() }
         let scene = try await Self.scene(fixture)

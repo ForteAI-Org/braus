@@ -80,7 +80,7 @@ enum WindowSnapshots {
             opensModelPopup = true
             try await writeHouseWindow(
                 team,
-                width    : RestylingWindowLayout.minimumWidth,
+                width    : HouseWindowLayout.minimumWidth,
                 inspector: true,
                 to       : output.appending(path: "house-model-popup.png")
             )
@@ -223,8 +223,8 @@ enum WindowSnapshots {
                         team  : team,
                         worker: worker
                     )
-                    .background(Color("RestylingInspector")),
-                    width : RestylingWindowLayout.inspectorWidth.ideal,
+                    .background(Color("HouseInspector")),
+                    width : HouseWindowLayout.inspectorWidth.ideal,
                     height: 900,
                     to    : output.appending(path: "inspector-providers.png")
                 )

@@ -1,5 +1,5 @@
 //
-//  RestylingTiming.swift
+//  HouseTiming.swift
 //  Braus
 //
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 20/10/2026.
@@ -7,8 +7,8 @@
 
 import Foundation
 
-/// RestylingTiming is the design's motion table, in seconds.
-nonisolated enum RestylingTiming {
+/// HouseTiming is the design's motion table, in seconds.
+nonisolated enum HouseTiming {
     static let ringBuildFirst: Double = 2.0
     static let ringBuildLater: Double = 0.45
     static let dotsGlow      : Double = 1.35

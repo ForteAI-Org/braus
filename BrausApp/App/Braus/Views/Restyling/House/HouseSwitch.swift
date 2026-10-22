@@ -26,10 +26,10 @@ enum HouseSwitch {
     static let hop = 0.3
 
     /// How long the next worker waits before it hops: it lands as it finishes stepping out of its
-    /// room (`RestylingTiming.roomExit`), and starts as the leaving worker is gone.
+    /// room (`HouseTiming.roomExit`), and starts as the leaving worker is gone.
     static let entryDelay = max(
         0,
-        RestylingTiming.roomExit - hop
+        HouseTiming.roomExit - hop
     )
 
     /// How long the transcripts cross-fade, which is also how long the leaving conversation stays.

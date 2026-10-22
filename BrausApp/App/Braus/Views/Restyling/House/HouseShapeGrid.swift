@@ -126,6 +126,6 @@ struct HouseShapeGrid: View {
         guard shape != selection else { return }
 
         selection = shape
-        if !RestylingMotion.reducesMotion { reacting = shape }
+        if !HouseMotion.reducesMotion { reacting = shape }
     }
 }

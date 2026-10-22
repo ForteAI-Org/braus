@@ -126,7 +126,7 @@ func timings() {
   - `struct BrowOutlines: Sendable { let left: [BrowState: [CGPoint]]; let right: [BrowState: [CGPoint]]; static func load(from url: URL) throws -> BrowOutlines; static let bundled: BrowOutlines }` in the 240 × 170 artboard.
   - `struct BrowTransition: Equatable, Sendable { let movesLeft: Bool; let movesRight: Bool; let duration: Double; let leftDelay: Double; let rightDelay: Double; static func between(_ from: BrowState, _ to: BrowState, leftFirst: Bool) -> BrowTransition }`.
 
-- [ ] **Step 1: Extract the outlines.** From `Documentation/App/Restyling/prototypes/sopracciglia.html`, take the JSON after `const OUT=` (up to the `;` that closes it) and write it to `Model/Restyling/BrowOutlines.json` unchanged: keys are the state raw values, each `{"L": [[x, y], …], "R": [[x, y], …]}` with 320 points.
+- [ ] **Step 1: Extract the outlines.** From `Documentation/App/House/prototypes/sopracciglia.html`, take the JSON after `const OUT=` (up to the `;` that closes it) and write it to `Model/Restyling/BrowOutlines.json` unchanged: keys are the state raw values, each `{"L": [[x, y], …], "R": [[x, y], …]}` with 320 points.
 - [ ] **Step 2: Write the failing tests.**
 
 ```swift

@@ -316,7 +316,7 @@ struct HouseWorkerPortrait: View {
                 CACurrentMediaTime(),
                 from: nil
             ) + HouseSwitch.entryDelay
-            let reduces = RestylingMotion.reducesMotion
+            let reduces = HouseMotion.reducesMotion
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue      = 0
             fade.toValue        = 1
@@ -355,7 +355,7 @@ struct HouseWorkerPortrait: View {
         private func leave() {
             guard let layer else { return }
             isArrivalPending = false
-            let reduces = RestylingMotion.reducesMotion
+            let reduces = HouseMotion.reducesMotion
             let from    = layer.presentation()?.opacity ?? layer.opacity
             let shown   = layer.presentation()?.transform ?? layer.transform
             layer.removeAnimation(forKey: Self.switchKeys.opacity)
@@ -417,7 +417,7 @@ struct HouseWorkerPortrait: View {
         /// Squashes and stretches the whole worker once with `MascotLayer.prepare()`'s keyframes, about
         /// the foot of its silhouette, so it stays on the ground it stands on. Nothing under Reduce Motion.
         private func prepare() {
-            guard !RestylingMotion.reducesMotion, let layer = figure.layer else { return }
+            guard !HouseMotion.reducesMotion, let layer = figure.layer else { return }
             let bounds = silhouette.boundingRect
             // The layer turns about its anchor, AppKit's bottom-left corner; the pivot is from there, y up.
             let pivot  = CGPoint(
@@ -452,7 +452,7 @@ struct HouseWorkerPortrait: View {
                 repeating: curve,
                 count    : keys.times.count - 1
             )
-            squash.duration        = RestylingTiming.preparation
+            squash.duration        = HouseTiming.preparation
             layer.add(
                 squash,
                 forKey: Self.prepareKey

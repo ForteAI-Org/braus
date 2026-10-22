@@ -310,7 +310,7 @@ final class TranscriptRowView: NSView {
         icon.image = image
         guard let layer = icon.layer, let parent = layer.superlayer, let old else { return }
 
-        let reduces = RestylingMotion.reducesMotion
+        let reduces = HouseMotion.reducesMotion
         let ghost   = CALayer()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -1007,7 +1007,7 @@ final class TranscriptRowView: NSView {
     /// blurred and a little low, one after another (`WordReveal`), as a reply arrives. The words are not drawn by the row until they are all in. Nothing plays under
     /// Reduce Motion, for a row that is not on screen, or past `WordReveal.wordLimit` words.
     func revealWords(from start: Int) {
-        guard !RestylingMotion.reducesMotion, window != nil, let row else { return }
+        guard !HouseMotion.reducesMotion, window != nil, let row else { return }
 
         let words = wordFrames(of: row, from: start)
         guard !words.isEmpty, words.count <= WordReveal.wordLimit, let picture = textPicture(of: row) else { return }

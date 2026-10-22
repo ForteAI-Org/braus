@@ -101,7 +101,7 @@ struct HouseRoomCell: View {
     /// How long the plaque waits before it drops in: in a tilted room, until the worker has stepped
     /// out (`RoomPassage`); from above, not at all.
     static func plaqueDelay(for camera: RoomCamera) -> TimeInterval {
-        camera == .tilted ? RestylingTiming.roomExit : 0
+        camera == .tilted ? HouseTiming.roomExit : 0
     }
 
     /// The seed that makes `worker`'s brows live by its status in its room, or nil while it is away

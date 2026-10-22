@@ -16,7 +16,7 @@ import SwiftUI
 /// title bar, AppKit draws its grey behind the conversation's toolbar once the transcript's scroll
 /// view is in the column.
 ///
-/// RestylingWindowLayout budgets for the columns' ideal widths, including without an inspector: the
+/// HouseWindowLayout budgets for the columns' ideal widths, including without an inspector: the
 /// division is decided from the window's own width, never from a width measured inside the split,
 /// the sidebar turns compact before the inspector closes, and a new division gives room first and
 /// takes it after. The sidebar is never hidden: it has no toggle and no command, and `SidebarBridge`
@@ -26,8 +26,8 @@ import SwiftUI
 /// `isInspectorRequested`; the split follows each change of it and reports what the window shows
 /// in `isInspectorShown`, which a toolbar button names itself by.
 ///
-/// The window, sidebar and inspector backgrounds are the asset catalogue's `RestylingGround`,
-/// `RestylingSidebar` and `RestylingInspector`, darker than the system's greys.
+/// The window, sidebar and inspector backgrounds are the asset catalogue's `HouseGround`,
+/// `HouseSidebar` and `HouseInspector`, darker than the system's greys.
 struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
 
     /// Whether the person asked for the inspector, which a narrow window may not show yet.
@@ -61,12 +61,12 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
     private static var sidebarCompacting: Duration { .milliseconds(50) }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: .constant(RestylingWindowLayout.columnVisibility)) {
+        NavigationSplitView(columnVisibility: .constant(HouseWindowLayout.columnVisibility)) {
             sidebar
                 .background(SidebarBridge(isCompact: windowWidth.map { _ in division.isSidebarCompact }))
                 // The system's sidebar material reads grey; the house's sidebar is darker, from the asset catalogue.
                 .scrollContentBackground(.hidden)
-                .background { Color("RestylingSidebar").ignoresSafeArea() }
+                .background { Color("HouseSidebar").ignoresSafeArea() }
                 .toolbar(removing: .sidebarToggle)
                 .navigationSplitViewColumnWidth(
                     min  : sidebarWidth.minimum,
@@ -81,7 +81,7 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
                     minHeight: 0,
                     maxHeight: .infinity
                 )
-                .background { Color("RestylingGround").ignoresSafeArea() }
+                .background { Color("HouseGround").ignoresSafeArea() }
                 .inspector(isPresented: inspectorPresentation) {
                     inspector
                         .scrollContentBackground(.hidden)
@@ -89,16 +89,16 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
                             maxWidth : .infinity,
                             maxHeight: .infinity
                         )
-                        .background { Color("RestylingInspector").ignoresSafeArea() }
+                        .background { Color("HouseInspector").ignoresSafeArea() }
                         // The system's separator between the conversation and the inspector.
                         .overlay(alignment: .leading) {
                             HStack(spacing: 0) { Divider() }
                                 .ignoresSafeArea()
                         }
                         .inspectorColumnWidth(
-                            min  : RestylingWindowLayout.inspectorWidth.minimum,
-                            ideal: RestylingWindowLayout.inspectorWidth.ideal,
-                            max  : RestylingWindowLayout.inspectorWidth.maximum
+                            min  : HouseWindowLayout.inspectorWidth.minimum,
+                            ideal: HouseWindowLayout.inspectorWidth.ideal,
+                            max  : HouseWindowLayout.inspectorWidth.maximum
                         )
                 }
         }
@@ -109,7 +109,7 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
             for: .windowToolbar
         )
         .frame(
-            minWidth : RestylingWindowLayout.minimumWidth,
+            minWidth : HouseWindowLayout.minimumWidth,
             minHeight: 560
         )
         .background(WindowWidthReader(onWidth: windowResized))
@@ -127,7 +127,7 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
     // MARK: Division
 
     private var sidebarWidth: ColumnWidth {
-        RestylingWindowLayout.sidebarWidth(for: division)
+        HouseWindowLayout.sidebarWidth(for: division)
     }
 
     /// Presents the width rule's result. SwiftUI also writes back an automatic dismissal after its
@@ -143,7 +143,7 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
     private func inspectorRequestChanged() {
         guard let windowWidth else { return }
 
-        divide(into: RestylingWindowLayout.division(
+        divide(into: HouseWindowLayout.division(
             window              : windowWidth,
             isInspectorRequested: isInspectorRequested,
             previous            : nil
@@ -156,7 +156,7 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
         guard width != windowWidth else { return }
 
         windowWidth = width
-        divide(into: RestylingWindowLayout.division(
+        divide(into: HouseWindowLayout.division(
             window              : width,
             isInspectorRequested: isInspectorRequested,
             previous            : isFirst ? nil : target

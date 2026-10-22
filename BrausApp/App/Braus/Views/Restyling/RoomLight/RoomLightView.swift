@@ -493,7 +493,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         prepareDenoiser()
         guard hasPendingRender, settleTask == nil else { return }
         if lastRenderedSize != nil, isShown, Self.pulseCycle(for: uniforms.status) != nil,
-           !RestylingMotion.reducesMotion {
+           !HouseMotion.reducesMotion {
             needsLiveFrame = true
             RoomRenderQueue.shared.live(self)
         }
@@ -634,12 +634,12 @@ final class RoomLightView: MTKView, RoomRenderTarget {
             weight    : SIMD2(
                 Self.pulseWeight(
                     for          : uniforms.status,
-                    reducesMotion: RestylingMotion.reducesMotion,
+                    reducesMotion: HouseMotion.reducesMotion,
                     at           : lastLiveFrame
                 ),
                 uniforms.screenStrength > 0 ? Self.screenWeight(
                     for          : uniforms.status,
-                    reducesMotion: RestylingMotion.reducesMotion,
+                    reducesMotion: HouseMotion.reducesMotion,
                     at           : lastLiveFrame
                 ) : 1
             ),
@@ -836,12 +836,12 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         bodyRevision          = nil
         let lamp    = Self.pulseWeights(
             for          : uniforms.status,
-            reducesMotion: RestylingMotion.reducesMotion
+            reducesMotion: HouseMotion.reducesMotion
         )
         // Only a screen varies; the capsule in its place holds still.
         let screen  = uniforms.screenStrength > 0 ? Self.screenWeights(
             for          : uniforms.status,
-            reducesMotion: RestylingMotion.reducesMotion
+            reducesMotion: HouseMotion.reducesMotion
         ) : []
         let weights = lamp.indices.map { SIMD2(lamp[$0], screen.indices.contains($0) ? screen[$0] : 1) }
         let frames  = weights.compactMap { _ in Self.frameTexture(like: drawable.texture) }
@@ -1020,7 +1020,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     private func holdShownImage() {
         guard
             changeFade != nil,
-            !RestylingMotion.reducesMotion,
+            !HouseMotion.reducesMotion,
             let shownImage,
             lastRenderedSize == renderSize
         else { return }
@@ -1186,7 +1186,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     ) -> CAKeyframeAnimation? {
         let weights = pulseWeights(
             for          : status,
-            reducesMotion: RestylingMotion.reducesMotion
+            reducesMotion: HouseMotion.reducesMotion
         )
         return following(
             keyPath,
@@ -1221,8 +1221,8 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     /// The length of one pulse cycle for `status`, or nil when its light holds still.
     static func pulseCycle(for status: WorkerStatus) -> Double? {
         switch status {
-        case .busy      : RestylingTiming.roomFlicker
-        case .waiting   : RestylingTiming.waitingBreath
+        case .busy      : HouseTiming.roomFlicker
+        case .waiting   : HouseTiming.waitingBreath
         case .free, .off: nil
         }
     }
@@ -1366,7 +1366,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     /// Follows the body's new action, or its return to the loop: the present pose fades out over
     /// `actionFade` as the new motion starts beneath it, and the brows blend from where they show.
     func bodyActionDidChange() {
-        let fades = bodyLayer.animation(forKey: Self.bodyKey) != nil && !RestylingMotion.reducesMotion
+        let fades = bodyLayer.animation(forKey: Self.bodyKey) != nil && !HouseMotion.reducesMotion
         let shown = bodyLit.presentation()?.contents
         let level = bodyLayer.presentation()?.opacity ?? 0
         let brows = bodyLink?.mascot?.bodyOffset
@@ -1434,7 +1434,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
                 takesActions : bodyLink?.takesActions == true,
                 uniforms     : uniforms,
                 size         : size,
-                reducesMotion: RestylingMotion.reducesMotion
+                reducesMotion: HouseMotion.reducesMotion
             )
         } : nil
         if let inputs, bodyPlan?.inputs != inputs {
@@ -1505,7 +1505,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         else { return }
         let blend   = Self.bodyBlend(
             for          : uniforms,
-            reducesMotion: RestylingMotion.reducesMotion
+            reducesMotion: HouseMotion.reducesMotion
         )
         let weights = [SIMD2<Float>(1, 1)] + (blend.map { [$0.low] } ?? [])
         let frames  = weights.compactMap { _ in
@@ -1581,7 +1581,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         }
         if dims, let blend = Self.bodyBlend(
             for          : uniforms,
-            reducesMotion: RestylingMotion.reducesMotion
+            reducesMotion: HouseMotion.reducesMotion
         ), let share = Self.following(
             "opacity",
             values: blend.shares.map { NSNumber(value: $0) },
@@ -1637,7 +1637,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         else { return false }
         let isLeaving = !uniforms.hasOccupant
         let occupied  = isLeaving ? old : uniforms
-        let reduces   = RestylingMotion.reducesMotion
+        let reduces   = HouseMotion.reducesMotion
         let passage   = RoomPassage(
             isLeaving    : isLeaving,
             shape        : occupied.shape,
@@ -1646,7 +1646,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
             reducesMotion: reduces
         )
         let now   = CACurrentMediaTime()
-        let start = now + (isLeaving ? 0 : RestylingTiming.plaqueLeave)
+        let start = now + (isLeaving ? 0 : HouseTiming.plaqueLeave)
         passageID += 1
         let id = passageID
         self.passage = passage
@@ -1998,7 +1998,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         for uniforms: RoomLightUniforms,
         at hostTime : CFTimeInterval
     ) -> Float? {
-        let reduces = RestylingMotion.reducesMotion
+        let reduces = HouseMotion.reducesMotion
         guard let blend = bodyBlend(
             for          : uniforms,
             reducesMotion: reduces

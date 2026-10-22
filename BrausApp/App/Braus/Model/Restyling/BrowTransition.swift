@@ -23,11 +23,11 @@ nonisolated struct BrowTransition: Equatable, Sendable {
         leftFirst: Bool
     ) -> BrowTransition {
         let decisive = to == .working || to == .failed
-        let stagger  = decisive ? 0 : RestylingTiming.browStagger
+        let stagger  = decisive ? 0 : HouseTiming.browStagger
         return BrowTransition(
             movesLeft : leftGroup(from) != leftGroup(to),
             movesRight: rightGroup(from) != rightGroup(to),
-            duration  : decisive ? RestylingTiming.browsDecisive : RestylingTiming.browsCalm,
+            duration  : decisive ? HouseTiming.browsDecisive : HouseTiming.browsCalm,
             leftDelay : leftFirst ? 0 : stagger,
             rightDelay: leftFirst ? stagger : 0
         )

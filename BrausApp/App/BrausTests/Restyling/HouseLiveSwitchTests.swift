@@ -91,8 +91,8 @@ struct HouseLiveSwitchTests {
 
     @Test("Under Reduce Motion a change of worker only fades: nothing travels, the worker does not hop")
     func reduceMotionOnlyFades() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
         let shown = try await Self.shownShell()
         defer { shown.close() }
         let team = shown.team
@@ -294,7 +294,7 @@ struct HouseLiveSwitchTests {
 
     /// Waits past a switch: the hero's hop, the cross-fade and the still's removal.
     private static func settle(_ host: NSView) async throws {
-        try await Task.sleep(for: .milliseconds(Int((RestylingTiming.roomExit + HouseSwitch.crossFade * 2) * 1000) + 300))
+        try await Task.sleep(for: .milliseconds(Int((HouseTiming.roomExit + HouseSwitch.crossFade * 2) * 1000) + 300))
         host.layoutSubtreeIfNeeded()
     }
 

@@ -30,9 +30,9 @@ extension WindowSnapshots {
         to output: URL
     ) async throws {
         guard let appStorage else { throw HouseSnapshotFailure("no defaults of the snapshots' own") }
-        defer { appStorage.removeObject(forKey: AppPreferences.restylingSidebarMode) }
+        defer { appStorage.removeObject(forKey: AppPreferences.houseSidebarMode) }
 
-        let minimum = RestylingWindowLayout.minimumWidth
+        let minimum = HouseWindowLayout.minimumWidth
         let cases: [(name: String, mode: SidebarMode, width: Double, inspector: Bool)] = [
             ("rooms", .rooms, 1200, false),
             ("rows", .rows, 1200, false),
@@ -43,7 +43,7 @@ extension WindowSnapshots {
         for shot in cases {
             appStorage.set(
                 shot.mode.rawValue,
-                forKey: AppPreferences.restylingSidebarMode
+                forKey: AppPreferences.houseSidebarMode
             )
             try await writeHouseWindow(
                 team,
@@ -55,7 +55,7 @@ extension WindowSnapshots {
 
         appStorage.set(
             SidebarMode.rooms.rawValue,
-            forKey: AppPreferences.restylingSidebarMode
+            forKey: AppPreferences.houseSidebarMode
         )
         let empty = TeamModel(
             store      : try WorkspaceStore.opening(in: store.appending(
@@ -263,7 +263,7 @@ extension WindowSnapshots {
                 Color.clear.frame(height: top)
             }
             .scrollContentBackground(.hidden)
-            .background { Color("RestylingSidebar").ignoresSafeArea() }
+            .background { Color("HouseSidebar").ignoresSafeArea() }
         }
     }
 
@@ -288,7 +288,7 @@ extension WindowSnapshots {
                 maxWidth : .infinity,
                 maxHeight: .infinity
             )
-            .background { Color("RestylingInspector").ignoresSafeArea() }
+            .background { Color("HouseInspector").ignoresSafeArea() }
             .overlay(alignment: .leading) {
                 HStack(spacing: 0) { Divider() }
                     .ignoresSafeArea()

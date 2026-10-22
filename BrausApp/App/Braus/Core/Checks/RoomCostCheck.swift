@@ -67,7 +67,7 @@ enum RoomCostCheck {
             let count = Int(ProcessInfo.processInfo.environment["BRAUS_ROOM_COSTS"] ?? "") ?? 9
             UserDefaults.standard.set(
                 mode == "rows" ? SidebarMode.rows.rawValue : SidebarMode.rooms.rawValue,
-                forKey: AppPreferences.restylingSidebarMode
+                forKey: AppPreferences.houseSidebarMode
             )
             let made = try await makeTeam(
                 count: count,
@@ -93,7 +93,7 @@ enum RoomCostCheck {
             status = 1
         }
         for id in busy { team?.stopAnswering(id) }
-        UserDefaults.standard.removeObject(forKey: AppPreferences.restylingSidebarMode)
+        UserDefaults.standard.removeObject(forKey: AppPreferences.houseSidebarMode)
         do { try FileManager.default.removeItem(at: folder) } catch {}
         exit(status)
     }
@@ -112,7 +112,7 @@ enum RoomCostCheck {
             "path"  : ProcessInfo.processInfo.environment["BRAUS_ROOM_LIGHT"] ?? "default",
             "camera": ProcessInfo.processInfo.environment["BRAUS_ROOM_CAMERA"] ?? "tilted",
         ]
-        let width = mode == "compact" ? RestylingWindowLayout.minimumWidth : 1200
+        let width = mode == "compact" ? HouseWindowLayout.minimumWidth : 1200
 
         var window: NSWindow
         let cold  : [String: Any]

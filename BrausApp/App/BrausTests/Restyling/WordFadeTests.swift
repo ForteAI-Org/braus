@@ -70,7 +70,7 @@ struct WordFadeTests {
             of   : WordFade(
                 text   : text,
                 font   : font,
-                elapsed: 2.5 * RestylingTiming.wordStagger
+                elapsed: 2.5 * HouseTiming.wordStagger
             ),
             font : font,
             width: nil

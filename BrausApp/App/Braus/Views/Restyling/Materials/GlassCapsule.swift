@@ -9,7 +9,7 @@ import SwiftUI
 
 /// GlassCapsule sets its content on the system's glass in a capsule: `.glassEffect` on macOS 26,
 /// the regular material before it, and an opaque surface of the same dark tone under Reduce
-/// Transparency (the asset catalogue's `RestylingOpaqueGlass`).
+/// Transparency (the asset catalogue's `HouseOpaqueGlass`).
 ///
 /// Its ends keep `cornerRadius`, half its height on one row, so a capsule that grows taller keeps
 /// its shape's ends instead of rounding into a lozenge.
@@ -17,10 +17,10 @@ struct GlassCapsule: ViewModifier {
     let cornerRadius: CGFloat
 
     func body(content: Content) -> some View {
-        if RestylingMotion.reducesTransparency {
+        if HouseMotion.reducesTransparency {
             content
                 .background(
-                    Color("RestylingOpaqueGlass"),
+                    Color("HouseOpaqueGlass"),
                     in: shape
                 )
                 .overlay { edge }

@@ -403,7 +403,7 @@ struct TranscriptSnapshotTests {
         let backdrop   = Backdrop(frame: NSRect(x: 0, y: 0, width: width, height: height))
         backdrop.appearance = NSAppearance(named: appearance)
         // The conversation stands on its own ground.
-        if let ground = NSColor(named: "RestylingGround") { backdrop.fill = ground }
+        if let ground = NSColor(named: "HouseGround") { backdrop.fill = ground }
         controller.view.frame = backdrop.bounds
         backdrop.addSubview(controller.view)
         backdrop.layoutSubtreeIfNeeded()

@@ -41,8 +41,8 @@ struct BehaviourWiringTests {
 
     @Test("The shifts scale with the face the room shows")
     func shiftsScale() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let mascot = makeMascot()
         mascot.status = .free
         mascot.behave(seed: 4)
@@ -69,8 +69,8 @@ struct BehaviourWiringTests {
 
     @Test("A change of face size rebuilds the loop in step, scaled to it")
     func sizeRebuilds() throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let mascot = makeMascot()
         mascot.status = .busy
         mascot.behave(seed: 6)
@@ -97,8 +97,8 @@ struct BehaviourWiringTests {
 
     @Test("The rebuild fires once the size settles, by itself")
     func debounced() async throws {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
         let mascot = makeMascot()
         mascot.status = .free
         // A window never ordered in commits its layers, as a real one does.
@@ -135,8 +135,8 @@ struct BehaviourWiringTests {
 
     @Test("No rebuild under Reduce Motion or without a loop")
     func quiet() {
-        defer { RestylingMotion.overrideReducesMotion = nil }
-        RestylingMotion.overrideReducesMotion = true
+        defer { HouseMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = true
         let mascot = makeMascot()
         mascot.status = .busy
         mascot.behave(seed: 2)
@@ -149,7 +149,7 @@ struct BehaviourWiringTests {
         mascot.refreshBehaviourScale()
         #expect(mascot.leftBrow.animationKeys() == nil)
 
-        RestylingMotion.overrideReducesMotion = false
+        HouseMotion.overrideReducesMotion = false
         let away = makeMascot()
         away.behave(seed: nil)
         away.frame = CGRect(

@@ -223,7 +223,7 @@ extension WindowSnapshots {
             maxHeight: .infinity,
             alignment: .bottom
         )
-        .background(Color("RestylingGround"))
+        .background(Color("HouseGround"))
     }
 
     /// The whole of `message`, as a reply from its menu quotes it.

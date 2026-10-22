@@ -57,7 +57,7 @@ struct TeamWindowView: View {
         content
             // The shell sets the window's minimum width itself, as it depends on the inspector.
             .frame(
-                minWidth : team == nil ? RestylingWindowLayout.minimumWidth : nil,
+                minWidth : team == nil ? HouseWindowLayout.minimumWidth : nil,
                 minHeight: 560
             )
             .task {

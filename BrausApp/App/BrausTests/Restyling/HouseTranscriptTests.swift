@@ -50,8 +50,8 @@ struct HouseTranscriptTests {
 
     @Test("A new reply's words fade in one after another; history and Reduce Motion show at once")
     func newReplyWordsArrive() async throws {
-        RestylingMotion.overrideReducesMotion = false
-        defer { RestylingMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
         let fixture = try await TranscriptFixture()
         defer { fixture.discard() }
         try await fixture.say("Export the stems.", at: 0)
@@ -71,11 +71,11 @@ struct HouseTranscriptTests {
         let begins = words.compactMap { $0.animation(forKey: "arrival")?.beginTime }
         #expect(begins.count == 6)
         for (earlier, later) in zip(begins, begins.dropFirst()) {
-            #expect(abs(later - earlier - RestylingTiming.wordStagger) < 0.001, "each word 45 ms after the one before")
+            #expect(abs(later - earlier - HouseTiming.wordStagger) < 0.001, "each word 45 ms after the one before")
         }
         try await Self.wait { !row.subviews.contains { $0 is WordReveal } }
 
-        RestylingMotion.overrideReducesMotion = true
+        HouseMotion.overrideReducesMotion = true
         let quiet = try await fixture.say("And the mix too.", at: 30, byWorker: true)
         controller.refresh()
         await controller.settle()
@@ -85,8 +85,8 @@ struct HouseTranscriptTests {
 
     @Test("A reply that grows fades in only its new words")
     func growingReplyRevealsTheNewWords() async throws {
-        RestylingMotion.overrideReducesMotion = false
-        defer { RestylingMotion.overrideReducesMotion = nil }
+        HouseMotion.overrideReducesMotion = false
+        defer { HouseMotion.overrideReducesMotion = nil }
         let fixture = try await TranscriptFixture()
         defer { fixture.discard() }
         try await fixture.say("Show me the build steps.", at: 0)

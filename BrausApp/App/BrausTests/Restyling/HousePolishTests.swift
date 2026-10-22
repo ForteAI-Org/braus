@@ -152,7 +152,7 @@ struct HousePolishTests {
             y: 2
         )?.usingColorSpace(.deviceRGB))
 
-        let ground = try #require(NSColor(named: "RestylingGround")?.usingColorSpace(.deviceRGB))
+        let ground = try #require(NSColor(named: "HouseGround")?.usingColorSpace(.deviceRGB))
         #expect(corner.alphaComponent == 1)
         #expect(abs(corner.redComponent - ground.redComponent) < 0.02)
         #expect(abs(corner.greenComponent - ground.greenComponent) < 0.02)

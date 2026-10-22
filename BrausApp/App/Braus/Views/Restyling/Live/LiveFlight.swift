@@ -134,7 +134,7 @@ final class LiveFlight {
                 DispatchQueue.main.async { self.remove() }
             }
         }
-        if RestylingMotion.reducesMotion {
+        if HouseMotion.reducesMotion {
             crossFade(typedFrom: CGPoint(
                 x: from.root.x + from.typed.x,
                 y: from.root.y + from.typed.y
@@ -160,7 +160,7 @@ final class LiveFlight {
         to line   : CGRect,
         completion: @escaping @MainActor () -> Void
     ) {
-        guard !RestylingMotion.reducesMotion else {
+        guard !HouseMotion.reducesMotion else {
             vanish()
             completion()
             return
