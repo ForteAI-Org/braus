@@ -15,8 +15,8 @@
 		000000000000000200000006 /* BrausWeb in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000017 /* BrausWeb */; };
 		000000000000000200000007 /* BrausMac in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000018 /* BrausMac */; };
 		000000000000000200000008 /* Router in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000019 /* Router */; };
-		04975A2F3064044900FB69FD /* braus-bridge in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000015 /* braus-bridge */; };
 		0000000000000002000000A2 /* braus-chrome-host in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000002000000A1 /* braus-chrome-host */; };
+		04975A2F3064044900FB69FD /* braus-bridge in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000200000015 /* braus-bridge */; };
 		049760CE3065351100FB69FD /* braus_logo.icon in Resources */ = {isa = PBXBuildFile; fileRef = 049760CD3065351100FB69FD /* braus_logo.icon */; };
 /* End PBXBuildFile section */
 
@@ -239,6 +239,22 @@
 				"",
 			);
 		};
+		000000000000000160000000 /* Stamp Commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			inputPaths = (
+				"$(PROJECT_DIR)/Scripts/stamp-commit.sh",
+			);
+			name = "Stamp Commit";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BuildCommit.txt",
+			);
+			shellPath = /bin/sh;
+			shellScript = (
+				"exec \"$PROJECT_DIR/Scripts/stamp-commit.sh\"",
+				"",
+			);
+		};
 		000000000000000170000000 /* Embed Chrome Extension */ = {
 			isa = PBXShellScriptBuildPhase;
 			inputPaths = (
@@ -258,22 +274,6 @@
 			shellPath = /bin/sh;
 			shellScript = (
 				"exec \"$PROJECT_DIR/Scripts/embed-chrome-extension.sh\"",
-				"",
-			);
-		};
-		000000000000000160000000 /* Stamp Commit */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			inputPaths = (
-				"$(PROJECT_DIR)/Scripts/stamp-commit.sh",
-			);
-			name = "Stamp Commit";
-			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BuildCommit.txt",
-			);
-			shellPath = /bin/sh;
-			shellScript = (
-				"exec \"$PROJECT_DIR/Scripts/stamp-commit.sh\"",
 				"",
 			);
 		};
@@ -609,11 +609,6 @@
 			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
 			productName = "braus-bridge";
 		};
-		0000000000000002000000A1 /* braus-chrome-host */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
-			productName = "braus-chrome-host";
-		};
 		000000000000000200000016 /* BrausPerception */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
@@ -633,6 +628,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
 			productName = Router;
+		};
+		0000000000000002000000A1 /* braus-chrome-host */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000300000001 /* XCLocalSwiftPackageReference "../.." */;
+			productName = "braus-chrome-host";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
