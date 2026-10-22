@@ -95,6 +95,76 @@ struct HouseLiveConversationTests {
         print("snapshot: \(file.path)")
     }
 
+    @Test("The reply lands only for a turn that ends in the conversation shown")
+    func landingNeedsTheShownConversation() {
+        func lands(
+            _ wasRunning: Bool,
+            _ isRunning : Bool,
+            reply       : Bool = true,
+            shown       : Bool = true
+        ) -> Bool {
+            HouseLiveConversation.landsReply(
+                wasRunning   : wasRunning,
+                isRunning    : isRunning,
+                endsWithReply: reply,
+                isShown      : shown
+            )
+        }
+        #expect(lands(true, false))
+        #expect(!lands(true, true))
+        #expect(!lands(false, false))
+        #expect(!lands(false, true))
+        #expect(!lands(true, false, reply: false))
+        // Another worker's turn cleared while the leaving conversation is still drawn.
+        #expect(!lands(true, false, shown: false))
+    }
+
+    @Test("Opening another conversation clears the running turn before it is shown")
+    func switchingClearsTheTurnBeforeTheNewConversationIsShown() async throws {
+        let fixture = try await TranscriptFixture()
+        defer { fixture.discard() }
+        try await fixture.say(
+            "Export the stems",
+            at: 0
+        )
+        let other = try await fixture.store.createConversation(participants: [fixture.workerID]).id
+        let controller = TranscriptController(source: fixture.store)
+        controller.view.frame = NSRect(
+            x     : 0,
+            y     : 0,
+            width : 600,
+            height: 500
+        )
+        controller.view.layoutSubtreeIfNeeded()
+        func open(_ conversation: UUID) {
+            controller.open(
+                conversation,
+                workerName   : "Atlas",
+                appearance   : TranscriptFixture.appearance,
+                readingAnchor: nil,
+                readingOffset: 0
+            )
+        }
+        open(fixture.conversation)
+        await controller.settle()
+        try await fixture.record(
+            .executionStarted,
+            subject: UUID(),
+            at     : 1
+        )
+        controller.refresh()
+        await controller.settle()
+        #expect(controller.runningTurn != nil)
+        #expect(controller.shownConversationID == fixture.conversation)
+
+        // The window's `isArrivalOpen` is false here, so the cleared turn lands nothing.
+        open(other)
+        #expect(controller.runningTurn == nil)
+        #expect(controller.shownConversationID == fixture.conversation)
+        await controller.settle()
+        #expect(controller.shownConversationID == other)
+    }
+
     private static func find<View: NSView>(
         _ type : View.Type,
         in view: NSView

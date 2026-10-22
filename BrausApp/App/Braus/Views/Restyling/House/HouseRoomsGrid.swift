@@ -14,8 +14,10 @@ import SwiftUI
 /// `columns`, so a change of columns moves every room from where it was on screen. They are seen
 /// through the camera `BRAUS_ROOM_CAMERA` picks at launch. A room chosen out of sight, as a worker
 /// just created is, scrolls into view; each offers Edit Worker… (`edit`) and the worker's commands
-/// in its context menu (`HouseWorkerMenu`). With the keyboard in the
-/// grid, the arrow keys move the selection from room to room (`neighbour(of:count:columns:direction:)`).
+/// in its context menu (`HouseWorkerMenu`). The grid is one stop in the Tab order, as the rows list
+/// is (`HouseRoomsKeyStop`): the arrow keys move the selection from room to room
+/// (`neighbour(of:count:columns:direction:)`), Return hands the keyboard to the composer, and the
+/// room the keys would move from wears a ring while the grid holds the keyboard.
 struct HouseRoomsGrid: View {
     let workers   : [HouseWorker]
     let columns   : Int
@@ -27,6 +29,9 @@ struct HouseRoomsGrid: View {
     let edit: (HouseWorker.ID) -> Void
 
     @Environment(\.openWorkerScreen) private var openWorkerScreen
+
+    /// Whether the grid holds the keyboard.
+    @State private var isFocused = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -49,9 +54,17 @@ struct HouseRoomsGrid: View {
                     HouseLayout.margin
                 )
             }
-            .focusable(interactions: .edit)
-            .focusEffectDisabled()
-            .onMoveCommand(perform: move)
+            .background(alignment: .topLeading) {
+                HouseRoomsKeyStop(
+                    isFocused: $isFocused,
+                    move     : move,
+                    confirm  : handOver
+                )
+                .frame(
+                    width : 1,
+                    height: 1
+                )
+            }
             .onChange(of: selection) {
                 guard let selection else { return }
                 // A room just added is laid out after this change, so it is found on the next turn.
@@ -61,6 +74,22 @@ struct HouseRoomsGrid: View {
     }
 
     private var isCompact: Bool { columns == 1 }
+
+    /// Puts the keyboard in the conversation's composer, if a room is chosen.
+    private func handOver(from window: NSWindow?) {
+        guard selection != nil, let window, let field = Self.composerField(in: window.contentView) else { return }
+
+        window.makeFirstResponder(field)
+    }
+
+    private static func composerField(in view: NSView?) -> ComposerTextView? {
+        guard let view else { return nil }
+        if let field = view as? ComposerTextView { return field }
+        for subview in view.subviews {
+            if let field = composerField(in: subview) { return field }
+        }
+        return nil
+    }
 
     /// Selects the room `direction` leads to from the selected one.
     private func move(_ direction: MoveCommandDirection) {
@@ -121,6 +150,11 @@ struct HouseRoomsGrid: View {
             selection = worker.id
         }
         .frame(height: isCompact ? HouseLayout.compactRoomHeight : HouseLayout.roomHeight)
+        // The grid is the one stop; a room is reached with the arrow keys.
+        .focusable(false)
+        .overlay {
+            if isFocused && worker.id == (selection ?? workers.first?.id) { focusRing }
+        }
         .contextMenu {
             HouseWorkerMenu(
                 workerID: worker.id,
@@ -136,6 +170,25 @@ struct HouseRoomsGrid: View {
                 }
             }
         }
+    }
+}
+
+extension HouseRoomsGrid {
+
+    /// The ring around the room the keys move from, on the room's own edge.
+    private var focusRing: some View {
+        GeometryReader { proxy in
+            RoundedRectangle(
+                cornerRadius: CGFloat(RoomLightUniforms.Shape(size: proxy.size).cornerRadius),
+                style       : .continuous
+            )
+            .strokeBorder(
+                Color.accentColor,
+                lineWidth: 3
+            )
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
