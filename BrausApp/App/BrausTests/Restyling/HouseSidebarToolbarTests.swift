@@ -64,6 +64,21 @@ struct HouseSidebarToolbarTests {
         }
     }
 
+    @Test("Find… puts the keyboard in the sidebar's search field")
+    func findFocusesTheSearchField() async throws {
+        let (window, _, directory) = try await Self.sidebarWindow(archived: 0)
+        defer {
+            window.close()
+            TemporaryStore.discard(directory)
+        }
+        let searchHasFocus = {
+            (window.firstResponder as? NSText)?.delegate is NSSearchField || window.firstResponder is NSSearchField
+        }
+        #expect(!searchHasFocus())
+        HouseSidebar.find(in: window)
+        #expect(searchHasFocus())
+    }
+
     /// A window with the house's split, its sidebar showing a team of four workers and `archived`
     /// in the archive, once its toolbar has items, and the folder of the team's store.
     private static func sidebarWindow(archived: Int) async throws -> (NSWindow, Choice, URL) {
