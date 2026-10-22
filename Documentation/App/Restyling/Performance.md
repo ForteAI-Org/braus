@@ -294,3 +294,62 @@ ray traced, with the busy workers of section 1.
 Milliseconds. With 30 and 60 workers the selection's "before" is the build with only the loop fixed, since
 the base never reaches it; for rows, its cold appear took 2501 and 2224 ms there. The 60 rows' base was not
 run again.
+
+---
+
+## 8. Follow-up: at rest with a conversation open
+
+Branch `elio/app-restyling-idlecpu`, from `24e870b8`. Same machine and Debug build as section 1, on screen,
+nine workers, with no busy worker unless named.
+
+**The probe.** `BRAUS_ROOM_COST_ONLY=select` selects the worker at `BRAUS_ROOM_COST_SELECT` (1 unless
+set), then, with `BRAUS_ROOM_COST_SWITCH`, changes to another one, and records the rest with that
+conversation open; `BRAUS_ROOM_COST_REST` sets the rest's seconds (75 here). Besides the probe's own
+figure, `ps` (CPU time over 30 s), `top` (one sample a second over 30 s) and `sample` measured the
+process from outside during the rest.
+
+**What it was.** With no worker selected the app rested at 0%, with a conversation open at 0.6–0.8%.
+The main thread was idle; the time went to RenderBox's surface pool (`RB::SurfacePool::notifier_callback`,
+called from an IOKit notification port) and the kernel around it. Taking the hero apart:
+
+| Hero (probe's figure over 75 s) | CPU at rest |
+|---|---|
+| Whole | 0.6% |
+| Without the worker's portrait (body, brows and their loops) | 0.5% |
+| Without the glass | 0.6% |
+| The caption alone: no portrait, glass or capsule light (`HeroLight`) | 0.7% |
+| Without the caption (and so its glass and light) | 0% |
+| No portrait, caption without its text renderer (`WordFade`) | 0% |
+
+The cost was the caption's `.textRenderer`. Any use of RenderBox in the process, a text renderer or an
+`ImageRenderer`, leaves its surface pool notified at every frame the window draws from then on, even after
+the view that used it is gone, as long as anything in the window animates: with every animation of the
+window removed the same process rests at 0%, and a new window in the same process costs the same. The
+portraits', rooms' and openings' loops were not the cost, nor the glass over them.
+
+**What changed.** `WordFade` is no text renderer any more: each word is the whole line masked to that
+word, from the middle of the space before it to the middle of the space after it, faded through its
+view's opacity, blur and offset, which Core Animation draws. The caption shows its lines through it only
+while it writes them; at rest they are plain texts. Tested by `WordFadeTests`: whole, the faded words
+are the plain line pixel for pixel, short, long, truncated and empty. Against the old renderer, rendered side
+by side at ten instants of the fade for a short and a long line, the frames differ by at most 25 of 255 on the blurred edges, and
+not at all once whole. On screen, the resting caption's glyph edges differ from before by antialiasing
+only (at most 90 of 255, on edges, no pixel moved): the old renderer's text went through RenderBox,
+the new one is drawn like every other text in the app.
+
+| At rest, 9 workers, conversation open | Before | After |
+|---|---|---|
+| Rooms, worker selected | 0.58% (top), 0.7% (probe) | 0% (top), 0% (probe) |
+| Rooms, after a change of worker | 0.65%, 0.8% | 0%, 0% |
+| Rows, worker selected | 0.56%, 0.7% | 0%, 0% |
+| Rows, after a change of worker | 0.56%, 0.7% | 0%, 0% |
+| Rooms, a busy worker selected | 0.61%, 0.8% | 0%, 0% |
+
+`ps` agrees: before 0.20–0.23 s of CPU over the 30 s, after 0.00–0.01 s. The window runs the same 174–207
+Core Animation loops before and after; nothing was paused.
+
+**What is left.** RenderBox is still used by `BubbleFlight.image` (an `ImageRenderer`, when a message is
+quoted, taken back from the quote strip or sent from the queue) and, not measured, probably by the
+Brain's `Canvas` in Settings. After one `ImageRenderer` image the process rested at 0.57% with a
+conversation open; the old text renderer's leftover had not faded after 200 s. Drawing those without RenderBox would need a
+ticket of its own.
