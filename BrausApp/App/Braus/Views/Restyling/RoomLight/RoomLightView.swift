@@ -45,6 +45,11 @@ import MetalKit
 /// room, for a worker that is off, or under Reduce Motion. A room clipped to its worker's outline
 /// (`silhouette`) moves the outline with the body.
 ///
+/// A room scrolled more than `releaseReach` out of sight, or out of its window, keeps only its last image:
+/// its pulse, its body's and its passage's frames, its preview and its claim on a denoiser go, and
+/// nothing renders until it comes back within `renderReach`, where it renders again as after a resize,
+/// a room whose light pulses drawing a live frame at the pulse's weight first when it already shows.
+///
 /// In a tilted room with an image of its size, the worker leaving for the chat steps out instead of
 /// vanishing, and steps back in when it returns (`RoomPassage`): the room bakes the passage's poses and
 /// the empty room with the precomputed light at the pulse's present weights, keeping its image until
@@ -257,6 +262,17 @@ final class RoomLightView: MTKView, RoomRenderTarget {
 
     private(set) var hasPendingUniforms = false
 
+    /// Whether the room let its frames go out of sight and renders nothing until it comes back.
+    private(set) var isCulled = false
+
+    /// How far out of sight a room still renders, so one scrolled in shows its light: about a room
+    /// and its gap; and how far it goes before it lets its frames go.
+    static let renderReach : CGFloat = 120
+    static let releaseReach: CGFloat = 360
+
+    /// Follows the scroll of the clip view the room is in, which moves it without a layout.
+    private var clipObservation: (any NSObjectProtocol)?
+
     private static let resizeDelay = Duration.milliseconds(70)
 
     /// How long a change of occupancy shows its live frame before the full render: about the plaque's
@@ -347,6 +363,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     override func layout() {
         super.layout()
         updateRenderSize()
+        updateSight()
         guard let layer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -376,19 +393,114 @@ final class RoomLightView: MTKView, RoomRenderTarget {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        clipObservation.map(NotificationCenter.default.removeObserver)
+        clipObservation = nil
         if window == nil {
-            (renderer as? RayTracedRoomRenderer)?.releaseDenoiser()
-            RoomRenderQueue.shared.remove(self)
+            cull()
             settleTask?.cancel()
             settleTask      = nil
             isResizing      = false
             needsLiveFrame  = false
             renderRevision += 1
-            stopPassage()
             renderSize      = nil
             renderPixelSize = nil
         } else {
+            if let clip = enclosingScrollView?.contentView {
+                clipObservation = NotificationCenter.default.addObserver(
+                    forName: NSView.boundsDidChangeNotification,
+                    object : clip,
+                    queue  : .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.updateSight() }
+                }
+            }
             updateRenderSize()
+            updateSight()
+        }
+    }
+
+    /// Whether any of the room shows. A view no longer clips to its own bounds, so AppKit's visible
+    /// rect also covers what its window shows beyond them, which only the bounds tell apart.
+    var isShown: Bool {
+        window != nil && !isHiddenOrHasHiddenAncestor && !visibleRect.intersection(bounds).isEmpty
+    }
+
+    /// How far the room lies out of sight, in points: zero while any of it shows, infinite out of a
+    /// window, hidden, or clipped by something other than the view it scrolls in.
+    private var distanceFromSight: CGFloat {
+        guard window != nil, !isHiddenOrHasHiddenAncestor else { return .infinity }
+        guard !isShown else { return 0 }
+        guard let clip = enclosingScrollView?.contentView else { return .infinity }
+        let frame = convert(
+            bounds,
+            to: clip
+        )
+        let shown = clip.bounds
+        return max(
+            shown.minX - frame.maxX,
+            frame.minX - shown.maxX,
+            shown.minY - frame.maxY,
+            frame.minY - shown.maxY,
+            0
+        )
+    }
+
+    /// Lets the room's frames go once it is beyond `releaseReach`, and renders it again once it is back
+    /// within `renderReach`.
+    private func updateSight() {
+        let distance = distanceFromSight
+        if isCulled, distance <= Self.renderReach {
+            uncull()
+        } else if !isCulled, distance > Self.releaseReach {
+            cull()
+        } else if distance == 0, lastRenderedSize == nil, canPreview {
+            // Scrolled into sight before its first render landed: the precomputed light shows at once.
+            RoomRenderQueue.shared.preview(self)
+        } else if needsLiveFrame, distance == 0 {
+            // Scrolled into sight with a size it had no frame for while out of it.
+            RoomRenderQueue.shared.live(self)
+        }
+    }
+
+    /// Keeps only the room's last image: its pulse, its body's and its passage's frames, its preview
+    /// and its claim on a denoiser go, and its next full render waits until it comes back.
+    private func cull() {
+        guard !isCulled else { return }
+        isCulled = true
+        // A render still in flight lands as a stale one.
+        renderRevision += 1
+        RoomRenderQueue.shared.remove(self)
+        (renderer as? RayTracedRoomRenderer)?.releaseDenoiser()
+        stopPulse()
+        stopBody()
+        stopPassage()
+        hideRefinement()
+        bodyFrames      = [:]
+        bodyRevision    = nil
+        passageFrames   = nil
+        shownImage      = nil
+        previewImage    = nil
+        needsRefinement = false
+        // The full render brings the pulse and the body's frames back.
+        if lastRenderedSize != nil { hasPendingRender = true }
+        releaseSceneIfIdle()
+    }
+
+    /// Renders the room come back within reach as after a resize: previewed and refined, or rendered
+    /// fully, a light that pulses drawn first at the pulse's weight when the room already shows.
+    private func uncull() {
+        isCulled = false
+        prepareDenoiser()
+        guard hasPendingRender, settleTask == nil else { return }
+        if lastRenderedSize != nil, isShown, Self.pulseCycle(for: uniforms.status) != nil,
+           !RestylingMotion.reducesMotion {
+            needsLiveFrame = true
+            RoomRenderQueue.shared.live(self)
+        }
+        if canPreview, lastRenderedSize != renderSize {
+            RoomRenderQueue.shared.preview(self)
+        } else {
+            enqueueRenderIfReady()
         }
     }
 
@@ -416,7 +528,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
 
     /// Starts background preparation from layout, without waiting for the first full render.
     private func prepareDenoiser() {
-        guard let renderPixelSize else { return }
+        guard let renderPixelSize, !isCulled else { return }
         (renderer as? RayTracedRoomRenderer)?.prepareDenoiser(
             pixelSize: renderPixelSize,
             camera   : uniforms.camera
@@ -456,8 +568,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     /// Whether a settled size can be shown at once with the precomputed light: the room is visible,
     /// idle, and its renderer is the ray tracer.
     var canPreview: Bool {
-        previewRenderer != nil && !isRendering && settleTask == nil && window != nil
-            && !visibleRect.isEmpty && !isHiddenOrHasHiddenAncestor
+        previewRenderer != nil && !isRendering && settleTask == nil && isShown
     }
 
     /// Draws the room at its settled size with the precomputed light and leaves the ray-traced
@@ -472,7 +583,8 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         let render    = renderRevision
         let submitted = presentPrecomputed(
             weight    : SIMD2(1, 1),
-            keepsImage: true
+            keepsImage: true,
+            kind      : .preview
         ) { [weak self] image in
             guard let self else { return }
             if render == self.renderRevision { self.previewImage = image }
@@ -497,8 +609,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
             lastRenderedSize != nil,
             liveRenderer != nil,
             let window,
-            !visibleRect.isEmpty,
-            !isHiddenOrHasHiddenAncestor
+            isShown
         else { return nil }
         // Display frames counted on the host clock, so a jittered step is not mistaken for a second one.
         let frame = window.screen?.minimumRefreshInterval ?? 1.0 / 60
@@ -533,7 +644,8 @@ final class RoomLightView: MTKView, RoomRenderTarget {
                 ) : 1
             ),
             keepsImage: keepsImage,
-            widthStep : isResizing ? Self.liveWidthStep : 1
+            widthStep : isResizing ? Self.liveWidthStep : 1,
+            kind      : .live
         ) { [weak self] image in
             guard let self else { return }
             if keepsImage, render == self.renderRevision { self.previewImage = image }
@@ -556,6 +668,7 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         weight    : SIMD2<Float>,
         keepsImage: Bool,
         widthStep : CGFloat = 1,
+        kind      : RoomCostLedger.Kind,
         completion: @escaping @MainActor @Sendable (CGImage?) -> Void
     ) -> Bool {
         guard
@@ -607,6 +720,10 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         }
         // The new size reaches the screen with the contentsRect that frames it.
         metalLayer.presentsWithTransaction = true
+        RoomCostLedger.track(
+            commandBuffer,
+            as: kind
+        )
         commandBuffer.commit()
         commandBuffer.waitUntilScheduled()
         CATransaction.begin()
@@ -625,22 +742,31 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         return true
     }
 
-    /// Asks for the live frame that arrived while a frame was in flight, then for a full render.
+    /// Asks for the live frame that arrived while a frame was in flight, then for a full render. A room
+    /// left with nothing to trace lets its acceleration structure go.
     private func continueAfterRender() {
         if needsLiveFrame { RoomRenderQueue.shared.live(self) }
         enqueueRenderIfReady()
+        releaseSceneIfIdle()
+    }
+
+    /// Lets the ray tracer's acceleration structure go while nothing is in flight and nothing more will
+    /// be traced until the room changes: every pose rebuilds it, so a room at rest never reuses it.
+    private func releaseSceneIfIdle() {
+        guard !isRendering, isCulled || !(hasPendingRender || needsBodyFrame || needsPassageFrames) else { return }
+        (renderer as? RayTracedRoomRenderer)?.releaseScene()
     }
 
     /// Whether the full render, or a frame of the body's motion, may start: nothing is in flight and
     /// no size or uniforms are settling.
     var canRenderQueuedFrame: Bool {
         (hasPendingRender || needsBodyFrame || needsPassageFrames) && !isRendering && window != nil && renderer != nil
-            && settleTask == nil
+            && settleTask == nil && !isCulled
     }
 
     var renderPriority: (visible: Bool, uniforms: Bool, top: CGFloat) {
         (
-            visible : !visibleRect.isEmpty && !isHiddenOrHasHiddenAncestor,
+            visible : isShown,
             uniforms: hasPendingUniforms,
             top     : convert(
                 bounds,
@@ -785,6 +911,10 @@ final class RoomLightView: MTKView, RoomRenderTarget {
         // the same size is presented as soon as the GPU has drawn it, without waiting here.
         metalLayer.presentsWithTransaction = resizesImage
         if !resizesImage { commandBuffer.present(drawable) }
+        RoomCostLedger.track(
+            commandBuffer,
+            as: .full
+        )
         commandBuffer.commit()
         if resizesImage { commandBuffer.waitUntilScheduled() }
         CATransaction.begin()
@@ -1280,47 +1410,86 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     /// Every action's poses, for a body that takes actions, as the room's image was last prepared.
     private var actionPoses: [RoomLightUniforms.Pose] = []
 
+    /// BodyInputs is what the body's motion and the action poses are built from.
+    private struct BodyInputs: Equatable {
+        let loop         : WorkerBehaviourLoop?
+        let action       : WorkerAction?
+        let takesActions : Bool
+        let uniforms     : RoomLightUniforms
+        let size         : CGSize
+        let reducesMotion: Bool
+    }
+
+    /// The motion and the action poses last built, and what from, reused while that holds: every pose
+    /// that lands asks again, and building them costs more than the bake's own encoding.
+    private var bodyPlan: (inputs: BodyInputs, motion: RoomBodyMotion?, actionPoses: [RoomLightUniforms.Pose])?
+
     /// Plays the body's motion for the room's current image once every pose has its frames, or asks
     /// the queue to bake the next one; stops it when there is none.
     private func prepareBody() {
-        let motion = bodyRevision == renderRevision ? lastRenderedSize.flatMap { size in
-            bodyLink?.action.map {
-                Self.bodyMotion(
-                    for          : $0,
-                    uniforms     : uniforms,
-                    size         : size,
-                    reducesMotion: RestylingMotion.reducesMotion
-                )
-            } ?? Self.bodyMotion(
-                for          : bodyLink?.loop,
+        let inputs = bodyRevision == renderRevision ? lastRenderedSize.map { size in
+            BodyInputs(
+                loop         : bodyLink?.loop,
+                action       : bodyLink?.action,
+                takesActions : bodyLink?.takesActions == true,
                 uniforms     : uniforms,
                 size         : size,
                 reducesMotion: RestylingMotion.reducesMotion
             )
         } : nil
+        if let inputs, bodyPlan?.inputs != inputs {
+            bodyPlan = (
+                inputs     : inputs,
+                motion     : Self.bodyMotion(for: inputs),
+                actionPoses: Self.actionPoses(for: inputs)
+            )
+        }
+        let motion = inputs == nil ? nil : bodyPlan?.motion
         if motion != bodyMotion {
             stopBody()
             bodyMotion = motion
         }
-        actionPoses = []
-        if bodyLink?.takesActions == true, bodyRevision == renderRevision, let size = lastRenderedSize {
-            for action in WorkerAction.allCases {
-                for pose in Self.bodyMotion(
-                    for          : action,
-                    uniforms     : uniforms,
-                    size         : size,
-                    reducesMotion: RestylingMotion.reducesMotion
-                )?.poses ?? [] where !actionPoses.contains(pose) {
-                    actionPoses.append(pose)
-                }
-            }
-        }
+        actionPoses = inputs == nil ? [] : bodyPlan?.actionPoses ?? []
         guard let motion else { return }
         guard motion.poses.allSatisfy({ bodyFrames[$0] != nil }) else {
             enqueueRenderIfReady()
             return
         }
         if bodyLayer.animation(forKey: Self.bodyKey) == nil { playBody(motion) }
+    }
+
+    /// The body's motion for `inputs`: its action's, or its loop's.
+    private static func bodyMotion(for inputs: BodyInputs) -> RoomBodyMotion? {
+        inputs.action.map {
+            bodyMotion(
+                for          : $0,
+                uniforms     : inputs.uniforms,
+                size         : inputs.size,
+                reducesMotion: inputs.reducesMotion
+            )
+        } ?? bodyMotion(
+            for          : inputs.loop,
+            uniforms     : inputs.uniforms,
+            size         : inputs.size,
+            reducesMotion: inputs.reducesMotion
+        )
+    }
+
+    /// Every action's poses for a body that takes actions, none for one that does not.
+    private static func actionPoses(for inputs: BodyInputs) -> [RoomLightUniforms.Pose] {
+        guard inputs.takesActions else { return [] }
+        var poses: [RoomLightUniforms.Pose] = []
+        for action in WorkerAction.allCases {
+            for pose in bodyMotion(
+                for          : action,
+                uniforms     : inputs.uniforms,
+                size         : inputs.size,
+                reducesMotion: inputs.reducesMotion
+            )?.poses ?? [] where !poses.contains(pose) {
+                poses.append(pose)
+            }
+        }
+        return poses
     }
 
     /// Bakes the body's next pose still without frames with the room's own renderer, at the size and
@@ -1379,6 +1548,10 @@ final class RoomLightView: MTKView, RoomRenderTarget {
                 self.continueAfterRender()
             }
         }
+        RoomCostLedger.track(
+            commandBuffer,
+            as: .body
+        )
         commandBuffer.commit()
     }
 
@@ -1564,6 +1737,10 @@ final class RoomLightView: MTKView, RoomRenderTarget {
                 )
             }
         }
+        RoomCostLedger.track(
+            commandBuffer,
+            as: .passage
+        )
         commandBuffer.commit()
         return true
     }
@@ -1808,6 +1985,10 @@ final class RoomLightView: MTKView, RoomRenderTarget {
                 self.continueAfterRender()
             }
         }
+        RoomCostLedger.track(
+            commandBuffer,
+            as: .passage
+        )
         commandBuffer.commit()
     }
 
@@ -1905,18 +2086,19 @@ final class RoomLightView: MTKView, RoomRenderTarget {
     /// The finished sRGB frame in `texture` as an image. Called once the GPU has finished with it.
     nonisolated private static func image(from texture: MTLTexture) -> CGImage? {
         let bytesPerRow = texture.width * 4
-        var bytes = [UInt8](
-            repeating: 0,
-            count    : bytesPerRow * texture.height
-        )
-        texture.getBytes(
-            &bytes,
-            bytesPerRow: bytesPerRow,
-            from       : MTLRegionMake2D(0, 0, texture.width, texture.height),
-            mipmapLevel: 0
-        )
+        // Read straight into the image's own storage: one copy of the frame, not two.
+        var bytes = Data(count: bytesPerRow * texture.height)
+        bytes.withUnsafeMutableBytes { buffer in
+            guard let base = buffer.baseAddress else { return }
+            texture.getBytes(
+                base,
+                bytesPerRow: bytesPerRow,
+                from       : MTLRegionMake2D(0, 0, texture.width, texture.height),
+                mipmapLevel: 0
+            )
+        }
         guard
-            let provider = CGDataProvider(data: Data(bytes) as CFData),
+            let provider = CGDataProvider(data: bytes as CFData),
             let space    = CGColorSpace(name: CGColorSpace.sRGB)
         else { return nil }
         return CGImage(

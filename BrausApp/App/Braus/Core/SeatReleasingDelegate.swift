@@ -47,6 +47,8 @@ final class SeatReleasingDelegate: NSObject, NSApplicationDelegate {
             Task { await TranscriptCopyCheck.runAndQuit() }
         } else if WindowClickCheck.isRequested {
             Task { await WindowClickCheck.runAndQuit() }
+        } else if RoomCostCheck.isRequested {
+            Task { await RoomCostCheck.runAndQuit() }
         }
     }
 
