@@ -59,7 +59,7 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(RestylingWindowLayout.columnVisibility)) {
             sidebar
-                .background(SidebarBridge())
+                .background(SidebarBridge(isCompact: windowWidth.map { _ in division.isSidebarCompact }))
                 // The system's sidebar material reads grey; the house's sidebar is darker, from the asset catalogue.
                 .scrollContentBackground(.hidden)
                 .background { Color("RestylingSidebar").ignoresSafeArea() }
