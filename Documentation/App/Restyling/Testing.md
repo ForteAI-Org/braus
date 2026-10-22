@@ -114,10 +114,16 @@ composer; il punto delle stanze per la tastiera non aveva nome per VoiceOver.
   l'albero di accessibilità), macOS 26 e M1. I test automatici coprono la logica di questi casi.
 - **Sidebar compatta**: il campo di ricerca sparisce (come su `main`); il pulsante Archivio finisce
   nel menu » in fondo a destra del toolbar.
-- **CPU a riposo**: senza worker scelto 0%; con una conversazione aperta 0,6–1% (Debug, M4, 30 s
-  a riposo). Il thread principale è fermo: lavora la coda `RenderBox.SurfacePool` di SwiftUI. Una
-  build di prova senza l'eroe in cima alla conversazione scende a 0%, quindi il costo è l'eroe
-  (sospetto: le animazioni del suo worker accanto al vetro del cartellino). Da correggere a parte.
+- **CPU a riposo**: 0% anche con una conversazione aperta e dopo citazioni, coda, copia del
+  codice e Impostazioni > Brain (corretto dopo la verifica: vedi Performance.md §8). Unica
+  eccezione: lo slider di sistema della timeline del Brain (e probabilmente quello di Ollama) su
+  macOS 27 lascia ~0,7% finché l'app resta aperta; sostituirlo vorrebbe dire disegnare un
+  controllo nostro, quindi è una tua decisione.
+- **Ordine di Tab**: stanze → ricerca → conversazione → composer (macOS costruisce il giro dalla
+  struttura della finestra; nelle righe è lo stesso).
+- **Due scelte di prestazioni in sospeso** (Performance.md): griglia «pigra» per squadre grandi
+  (cambierebbe un po' il movimento della compattazione) e uscita dalla stanza preparata al
+  passaggio del mouse (meno memoria, ma da tastiera parte per un attimo col ripiego).
 - **⌘↓** porta in fondo alla conversazione ma non salva la posizione di lettura (solo lo
   scorrimento la salva), come su `main`.
 - **Citazioni**: mostrano il markdown grezzo (`**`, ```` ``` ````), come già su `main`.
