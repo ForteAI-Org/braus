@@ -34,6 +34,8 @@ nonisolated enum HouseLayout {
     /// The space between the rooms and the sidebar's edges. Wider, the compact rooms would be too
     /// narrow for the plaque's text.
     static let margin: CGFloat = 10
+    
+    static let marginVertical: CGFloat = 10
 
     /// The gap between rooms, across and down: wide enough for each room's spilled light
     /// (`RoomOpeningView`) to show around it without reaching a neighbour.

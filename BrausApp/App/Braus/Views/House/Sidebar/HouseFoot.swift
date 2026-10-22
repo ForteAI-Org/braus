@@ -8,7 +8,8 @@
 import SwiftUI
 
 /// HouseFoot is the sidebar's foot, where the rooms end: the app has no account of its own, so it
-/// holds nothing but its ground. The archive is in the sidebar's toolbar (`HouseArchiveButton`).
+/// holds Settings and nothing else, as the native `gearshape` button at the leading corner. The
+/// archive is in the sidebar's toolbar (`HouseArchiveButton`).
 ///
 /// It floats over the rooms, which scroll under it to the window's edge. It has no box of its own:
 /// its ground is the sidebar's colour, solid at the bottom margin and fading to clear over
@@ -19,13 +20,29 @@ struct HouseFoot: View {
     /// The height over which the foot's ground fades to clear.
     static let fadeHeight: CGFloat = 32
 
+    /// The height of the solid part, which holds the Settings button.
+    static let rowHeight: CGFloat = 36
+
+    @Environment(\.openWindow)
+    private var openWindow
+
     var body: some View {
-        Color.clear
-            .frame(
-                maxWidth : .infinity,
-                minHeight: HouseLayout.margin,
-                maxHeight: HouseLayout.margin
-            )
+        HStack {
+            Button(
+                "Settings",
+                systemImage: "gearshape"
+            ) {
+                openWindow(id: SettingsView.windowID)
+            }
+            .labelStyle(.titleAndIcon)
+            .buttonStyle(.borderless)
+            .help("Settings")
+            
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, HouseLayout.margin)
+        .padding(.vertical, HouseLayout.marginVertical)
+        .frame(height: Self.rowHeight)
             .padding(
                 .top,
                 Self.fadeHeight
