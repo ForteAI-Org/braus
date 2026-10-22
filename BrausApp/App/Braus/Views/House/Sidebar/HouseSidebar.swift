@@ -49,7 +49,7 @@ struct HouseSidebar: View {
             // places laid the window out again, without end while workers answered.
             .focusedSceneValue(
                 \.findInHouse,
-                showsSearchField ? { Self.find(in: NSApp.keyWindow) } : nil
+                FindInHouseAction { Self.find(in: NSApp.keyWindow) }
             )
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width

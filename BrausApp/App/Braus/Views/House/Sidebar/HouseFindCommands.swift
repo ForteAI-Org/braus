@@ -23,8 +23,17 @@ struct HouseFindCommands: Commands {
     }
 }
 
-extension FocusedValues {
+struct FindInHouseAction: Equatable {
+    let action: () -> Void
 
-    /// Focuses the key house window's search field, published by `HouseSidebar`.
-    @Entry var findInHouse: (() -> Void)?
+    func callAsFunction() {
+        action()
+    }
+
+    // Evita il warning di @Entry dicendo a SwiftUI che l'azione in sé non cambia
+    static func == (lhs: Self, rhs: Self) -> Bool { true }
+}
+
+extension FocusedValues {
+    @Entry var findInHouse: FindInHouseAction?
 }
