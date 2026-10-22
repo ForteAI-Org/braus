@@ -14,7 +14,8 @@ import SwiftUI
 /// apart (`WordFade`), the subtitle's after the name's, while the capsule's width
 /// springs to them. A caption that takes over another worker's capsule starts from that worker's
 /// words, so the capsule itself never changes. Under Reduce Motion the words cross-fade and the
-/// width changes while they are hidden.
+/// width changes while they are hidden. Outside a write the words are plain texts, so a caption at
+/// rest is one text a line.
 struct HouseHeroCaption: View {
     let words: Words
 
@@ -28,6 +29,9 @@ struct HouseHeroCaption: View {
     @State private var elapsed = Double.infinity
 
     @State private var opacity = 1.0
+
+    /// Whether words are being written, so each line shows through `WordFade`.
+    @State private var isWriting = false
 
     /// The words being written, cancelled by newer ones.
     @State private var writing: Task<Void, Never>?
@@ -50,25 +54,52 @@ struct HouseHeroCaption: View {
 
     var body: some View {
         VStack(spacing: 1) {
-            WordFade.text(shown.name)
-                .font(.system(
-                    size  : 13,
+            line(
+                shown.name,
+                font   : .systemFont(
+                    ofSize: 13,
                     weight: .semibold
-                ))
-                .lineLimit(1)
-                .contentTransition(.identity)
-                .textRenderer(WordFade(elapsed: elapsed))
-                .help(help)
-            WordFade.text(shown.activity)
-                .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .contentTransition(.identity)
-                .textRenderer(WordFade(elapsed: elapsed - nameDuration))
+                ),
+                elapsed: elapsed
+            )
+            .font(.system(
+                size  : 13,
+                weight: .semibold
+            ))
+            .lineLimit(1)
+            .contentTransition(.identity)
+            .help(help)
+            line(
+                shown.activity,
+                font   : .systemFont(ofSize: 10.5),
+                elapsed: elapsed - nameDuration
+            )
+            .font(.system(size: 10.5))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .contentTransition(.identity)
         }
         .opacity(opacity)
         .onAppear { write(words) }
         .onChange(of: words) { write(words) }
+    }
+
+    /// One line of the caption: its words fading in while they are written, one plain text otherwise.
+    @ViewBuilder
+    private func line(
+        _ text : String,
+        font   : NSFont,
+        elapsed: Double
+    ) -> some View {
+        if isWriting {
+            WordFade(
+                text   : text,
+                font   : font,
+                elapsed: elapsed
+            )
+        } else {
+            Text(verbatim: WordFade.line(text))
+        }
     }
 
     /// How long the shown name takes to start its last word, after which the subtitle starts.
@@ -83,6 +114,8 @@ struct HouseHeroCaption: View {
         writing?.cancel()
         writing = Task { @MainActor in
             let reduces = RestylingMotion.reducesMotion
+            // The words go through `WordFade` before `elapsed` is reset, so they animate from zero.
+            isWriting = !reduces
             withAnimation(.easeOut(duration: HouseSwitch.captionFade)) { opacity = 0 }
             try? await Task.sleep(for: .seconds(HouseSwitch.captionFade))
             guard !Task.isCancelled else { return }
@@ -101,6 +134,11 @@ struct HouseHeroCaption: View {
             } else {
                 let duration = nameDuration + WordFade.duration(of: next.activity)
                 withAnimation(.linear(duration: duration)) { elapsed = duration }
+                try? await Task.sleep(for: .seconds(duration))
+                guard !Task.isCancelled else { return }
+
+                // Every word shows whole by now, so the plain texts look the same.
+                isWriting = false
             }
         }
     }

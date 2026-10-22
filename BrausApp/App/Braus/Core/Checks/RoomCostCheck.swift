@@ -31,7 +31,9 @@ import SwiftUI
 /// longest stretch, the GPU's allocated memory, the process's footprint and the images the rooms keep.
 /// At rest it records the process's CPU over ten seconds, the animations running and, on screen,
 /// WindowServer's CPU with the window shown and ordered out. BRAUS_ROOM_COST_ONLY=appear stops after
-/// the first appearance and the rest.
+/// the first appearance and the rest; `select` selects the worker at BRAUS_ROOM_COST_SELECT (1 unless
+/// set), then the one at BRAUS_ROOM_COST_SWITCH if set, and records the rest with its conversation
+/// open. BRAUS_ROOM_COST_REST sets the rest's seconds.
 ///
 /// BRAUS_ROOM_COSTS=kernel instead times the precomputed light alone, the live frame's cost: every
 /// status, a few shapes, empty and occupied, at the grid's, the wide room's and a row's sizes at two
@@ -116,6 +118,28 @@ enum RoomCostCheck {
         )
         report["appearCold"] = cold
         report["afterAppear"] = memory(in: window)
+        if ProcessInfo.processInfo.environment["BRAUS_ROOM_COST_ONLY"] == "select" {
+            // At rest with a conversation open: the hero and its transcript beside the rooms.
+            let ids   = team.rows.map(\.id)
+            let index = Int(ProcessInfo.processInfo.environment["BRAUS_ROOM_COST_SELECT"] ?? "") ?? 1
+            report["select"] = try await event(
+                busyWatch,
+                window: window
+            ) {
+                team.selection = ids[min(index, ids.count - 1)]
+            }
+            if let other = Int(ProcessInfo.processInfo.environment["BRAUS_ROOM_COST_SWITCH"] ?? "") {
+                report["switch"] = try await event(
+                    busyWatch,
+                    window: window
+                ) {
+                    team.selection = ids[min(other, ids.count - 1)]
+                }
+            }
+            report["restSelected"] = try await rest(in: window)
+            window.close()
+            return report
+        }
         report["rest"] = try await rest(in: window)
         if ProcessInfo.processInfo.environment["BRAUS_ROOM_COST_ONLY"] == "appear" {
             window.close()
@@ -390,7 +414,8 @@ enum RoomCostCheck {
         let server = windowServerSeconds()
         let before = cpuSeconds()
         let start  = CACurrentMediaTime()
-        try await Task.sleep(for: .seconds(10))
+        let seconds = Double(ProcessInfo.processInfo.environment["BRAUS_ROOM_COST_REST"] ?? "") ?? 10
+        try await Task.sleep(for: .seconds(seconds))
         let cpu    = (cpuSeconds() - before) / (CACurrentMediaTime() - start)
         let serverCPU = server.flatMap { before in windowServerSeconds().map { ($0 - before) / (CACurrentMediaTime() - start) } }
         let ledger = RoomCostLedger.take()
