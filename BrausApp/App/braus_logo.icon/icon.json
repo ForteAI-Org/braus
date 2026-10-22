@@ -1,46 +1,47 @@
 {
-  "fill": {
-    "automatic-gradient": "display-p3:0.00000,0.00000,0.00000,1.00000",
-    "orientation": {
-      "start": {
-        "x": 0.5,
-        "y": 0
+  "fill" : {
+    "automatic-gradient" : "display-p3:0.00000,0.00000,0.00000,1.00000",
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
       },
-      "stop": {
-        "x": 0.5,
-        "y": 0.7
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.7
       }
     }
   },
-  "groups": [
+  "groups" : [
     {
-      "layers": [
+      "layers" : [
         {
-          "image-name": "Braus Icon.png",
-          "name": "Braus Icon",
-          "position": {
-            "scale": 1,
-            "translation-in-points": [
+          "glass" : false,
+          "image-name" : "BRAUS App gold.png",
+          "name" : "BRAUS App gold",
+          "position" : {
+            "scale" : 0.5,
+            "translation-in-points" : [
               0,
               0
             ]
           }
         }
       ],
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.5
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
       },
-      "translucency": {
-        "enabled": false,
-        "value": 0
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0
       }
     }
   ],
-  "supported-platforms": {
-    "circles": [
+  "supported-platforms" : {
+    "circles" : [
       "watchOS"
     ],
-    "squares": "shared"
+    "squares" : "shared"
   }
 }
