@@ -11,14 +11,14 @@ import SwiftUI
 /// worker's usage in a capsule of its own (`ToolbarUsageCapsule`, the context ring and the token
 /// counter) once it has recorded a turn, then the Screen toggle, which
 /// moves the screen between the conversation and the inspector and works only while the worker has
-/// one, and the Inspector toggle.
+/// one, and the Inspector toggle, which names itself by whether the window shows the inspector.
 ///
 /// The items keep their identities whichever worker is shown: only choosing no worker, or a worker
 /// with no turn yet, leaves the usage out.
 struct HouseLiveToolbar: ToolbarContent {
-    let team                : TeamModel
-    let isInspectorRequested: Bool
-    let toggleInspector     : () -> Void
+    let team            : TeamModel
+    let isInspectorShown: Bool
+    let toggleInspector : () -> Void
 
     var body: some ToolbarContent {
         if #available(macOS 26, *) {
@@ -59,7 +59,7 @@ struct HouseLiveToolbar: ToolbarContent {
 
         ToolbarItem {
             Button(
-                isInspectorRequested ? "Hide Inspector" : "Show Inspector",
+                Self.inspectorTitle(isShown: isInspectorShown),
                 systemImage: "info.circle",
                 action     : toggleInspector
             )
@@ -69,6 +69,12 @@ struct HouseLiveToolbar: ToolbarContent {
             )
             .help("Show or hide the inspector.")
         }
+    }
+
+    /// The inspector button's name: what pressing it would do to what the window shows, which a narrow
+    /// window may keep from the person's request.
+    static func inspectorTitle(isShown: Bool) -> String {
+        isShown ? "Hide Inspector" : "Show Inspector"
     }
 
     /// True while the selected worker has a screen to watch.

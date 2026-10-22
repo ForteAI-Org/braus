@@ -94,15 +94,7 @@ struct TeamWindowView: View {
             
         } else if let failure = launch.failure {
             
-            ContentUnavailableView {
-                Label(
-                    "Couldn’t Open the Workspace",
-                    systemImage: "externaldrive.badge.xmark"
-                )
-                
-            } description: {
-                Text("Braus couldn’t load your team or conversations.\n\nDetails: \(failure)")
-            }
+            WorkspaceFailureView(failure: failure)
             
         } else {
             Text("Opening workspace…")

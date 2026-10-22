@@ -94,6 +94,16 @@ final class TeamModel {
     /// commands set it to open the inspector on that list.
     var choosingProviderFor: UUID?
 
+    /// The worker whose name the person asked to edit. The window shows the inspector for it, and
+    /// its Worker section puts the keyboard in the Name field and clears this.
+    var editingWorker: UUID?
+
+    /// Chooses `id` and asks for its Name field to take the keyboard, which the inspector's Worker section answers.
+    func editWorker(_ id: UUID) {
+        selection     = id
+        editingWorker = id
+    }
+
     /// The worker the person asked to delete, whose confirmation the team window shows.
     var deletingWorker: UUID?
 

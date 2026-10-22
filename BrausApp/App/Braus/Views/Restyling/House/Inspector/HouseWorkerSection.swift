@@ -15,7 +15,8 @@ import SwiftUI
 /// inspector (`HouseLiveInspector`) saves. The name and the role are taken on Return, when the field
 /// loses the keyboard or when the section goes away, and a name emptied there comes back: a worker
 /// always has one. Its rows are a little taller than the system's (`InspectorRowSpacing`), with the
-/// house's gap after the section.
+/// house's gap after the section. While `takesKeyboard` is true, the Name field takes the keyboard
+/// and `tookKeyboard` is called, which is how Edit Worker… lands the person in it.
 struct HouseWorkerSection: View {
 
     /// The values as stored; a change from outside replaces what is shown.
@@ -28,6 +29,12 @@ struct HouseWorkerSection: View {
     let commitRole : (String) -> Void
     let commitShape: (WorkerShape) -> Void
 
+    /// True while the person has asked to edit this worker's name.
+    let takesKeyboard: Bool
+
+    /// Called once the Name field has the keyboard.
+    let tookKeyboard: () -> Void
+
     @State private var shownName : String
     @State private var shownRole : String
     @State private var shownShape: WorkerShape
@@ -39,19 +46,23 @@ struct HouseWorkerSection: View {
     @FocusState private var isRoleFocused: Bool
 
     init(
-        name       : String,
-        role       : String,
-        shape      : WorkerShape,
-        commitName : @escaping (String) -> Void,
-        commitRole : @escaping (String) -> Void,
-        commitShape: @escaping (WorkerShape) -> Void
+        name         : String,
+        role         : String,
+        shape        : WorkerShape,
+        commitName   : @escaping (String) -> Void,
+        commitRole   : @escaping (String) -> Void,
+        commitShape  : @escaping (WorkerShape) -> Void,
+        takesKeyboard: Bool = false,
+        tookKeyboard : @escaping () -> Void = {}
     ) {
-        self.name        = name
-        self.role        = role
-        self.shape       = shape
-        self.commitName  = commitName
-        self.commitRole  = commitRole
-        self.commitShape = commitShape
+        self.name          = name
+        self.role          = role
+        self.shape         = shape
+        self.commitName    = commitName
+        self.commitRole    = commitRole
+        self.commitShape   = commitShape
+        self.takesKeyboard = takesKeyboard
+        self.tookKeyboard  = tookKeyboard
         _shownName  = State(initialValue: name)
         _shownRole  = State(initialValue: role)
         _shownShape = State(initialValue: shape)
@@ -67,6 +78,7 @@ struct HouseWorkerSection: View {
             .padding(.vertical, rowPadding)
             .focused($isNameFocused)
             .onSubmit(takeName)
+            .accessibilityLabel("Name")
 
             TextField(
                 "Role",
@@ -76,6 +88,7 @@ struct HouseWorkerSection: View {
             .padding(.vertical, rowPadding)
             .focused($isRoleFocused)
             .onSubmit(takeRole)
+            .accessibilityLabel("Role")
 
             Button { isChoosingShape = true } label: {
                 LabeledContent("Shape") {
@@ -124,6 +137,18 @@ struct HouseWorkerSection: View {
             Text("Worker")
         } footer: {
             HouseSectionGap()
+        }
+        .task(id: takesKeyboard) {
+            guard takesKeyboard else { return }
+
+            // Asked for before the inspector is in its window, the focus is dropped and reads false again.
+            for _ in 0..<10 {
+                await Task.yield()
+                isNameFocused = true
+                do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+                if isNameFocused { break }
+            }
+            tookKeyboard()
         }
         .onChange(of: isNameFocused) {
             if !isNameFocused { takeName() }

@@ -13,7 +13,8 @@ import SwiftUI
 /// with events sent through the window: the inspector's shortcut both ways,
 /// Shift-Tab into the house's sidebar, a click on a room, which hands
 /// the keyboard to the composer, a narrower window with the inspector open,
-/// where the sidebar must turn compact, and back, and every way a sidebar is
+/// where the sidebar must turn compact, and back, Edit Worker…, which puts the
+/// keyboard in the inspector's Name field, and every way a sidebar is
 /// hidden (the View menu, Control-Command-S, `toggleSidebar:` and a drag of the
 /// divider to the window's edge), none of which may hide it. It prints what
 /// each step found and quits with 0 when every step held, 1 otherwise.
@@ -139,6 +140,12 @@ enum WindowClickCheck {
         )
         // Compaction first: after the person drags the divider, the split keeps their width over `ideal`.
         try await checkCompaction(
+            probe  : probe,
+            hosting: hosting,
+            window : window
+        )
+        try await checkEditWorker(
+            team   : team,
             probe  : probe,
             hosting: hosting,
             window : window
@@ -404,6 +411,63 @@ enum WindowClickCheck {
         try expect(
             narrowest >= ShellMetrics.compactSidebar - 1 && abs(after - ShellMetrics.compactSidebar) < 1,
             "the drag left the sidebar at \(after), narrowest \(narrowest)"
+        )
+    }
+
+    /// Edit Worker… shows the inspector and puts the keyboard in the Worker section's Name field, not in
+    /// the composer, for the selected worker and for another one chosen while the inspector is open.
+    private static func checkEditWorker(
+        team   : TeamModel,
+        probe  : Probe,
+        hosting: NSView,
+        window : NSWindow
+    ) async throws {
+        let ids = team.rows.map(\.id)
+        try expect(
+            ids.count >= 2 && !probe.isInspectorRequested,
+            "the check needs two workers and the inspector closed"
+        )
+
+        func isNameFieldFocused() -> Bool {
+            guard let editor = window.firstResponder as? NSTextView, !(editor is ComposerTextView),
+                  let field  = editor.delegate as? NSTextField
+            else { return false }
+
+            return field.placeholderString == "Worker name"
+        }
+
+        for (index, id) in [ids[0], ids[1]].enumerated() {
+            window.makeFirstResponder(nil)
+            team.editWorker(id)
+            try await Task.sleep(for: .seconds(1.5))
+            let responder = window.firstResponder.map { "\(type(of: $0))" } ?? "none"
+            print("click check: after Edit Worker… \(index + 1), selected \(team.selectedWorker?.name ?? "none"), "
+                + "inspector requested \(probe.isInspectorRequested), first responder \(responder)")
+            try expect(
+                team.selection == id && probe.isInspectorRequested && showsInspector(hosting),
+                "Edit Worker… did not choose the worker and show the inspector"
+            )
+            try expect(
+                isNameFieldFocused(),
+                "Edit Worker… did not put the keyboard in the Name field, but \(responder)"
+            )
+            try expect(
+                team.editingWorker == nil,
+                "the Name field took the keyboard and left the request standing"
+            )
+        }
+
+        press(
+            "i",
+            keyCode   : 34,
+            modifiers : [.control, .option, .command],
+            in        : window,
+            throughApp: true
+        )
+        try await Task.sleep(for: .seconds(1))
+        try expect(
+            !probe.isInspectorRequested && !showsInspector(hosting),
+            "the inspector did not close again"
         )
     }
 

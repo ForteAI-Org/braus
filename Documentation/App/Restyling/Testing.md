@@ -112,24 +112,16 @@ composer; il punto delle stanze per la tastiera non aveva nome per VoiceOver.
   Computer/schermo del Seat, approvazioni degli adapter, profili di Chrome nell'inspector,
   Riduci movimento/trasparenza dal vivo (sono impostazioni di sistema), VoiceOver dal vivo (solo
   l'albero di accessibilità), macOS 26 e M1. I test automatici coprono la logica di questi casi.
-- **Sidebar compatta**: il pulsante Archivio finisce nel menu » in fondo a destra del toolbar, e il
-  campo di ricerca resta visibile (sul vecchio `main` spariva; il testo in Impostazioni dice che
-  sparisce).
+- **Sidebar compatta**: il campo di ricerca sparisce (come su `main`); il pulsante Archivio finisce
+  nel menu » in fondo a destra del toolbar.
 - **CPU a riposo**: senza worker scelto 0%; con una conversazione aperta 0,6–1% (Debug, M4, 30 s
   a riposo). Il thread principale è fermo: lavora la coda `RenderBox.SurfacePool` di SwiftUI. Una
   build di prova senza l'eroe in cima alla conversazione scende a 0%, quindi il costo è l'eroe
   (sospetto: le animazioni del suo worker accanto al vetro del cartellino). Da correggere a parte.
-- **Workspace che non si apre**: la schermata d'errore usa il grigio di sistema, non il fondo
-  scuro della casa.
 - **⌘↓** porta in fondo alla conversazione ma non salva la posizione di lettura (solo lo
   scorrimento la salva), come su `main`.
-- **Edit Worker…** apre l'inspector ma lascia la tastiera nel composer, non nel campo Nome.
 - **Citazioni**: mostrano il markdown grezzo (`**`, ```` ``` ````), come già su `main`.
 - **⌘N** apre una nuova finestra, non un nuovo worker (come su `main`); il nuovo worker è il +.
-- Con la finestra stretta l'inspector richiesto resta «Hide Inspector» anche quando è nascosto.
-- Menu Team senza «Edit Worker…» (c'è nel menu contestuale).
-- VoiceOver: nell'albero di accessibilità i campi Name/Role del foglio New Worker e della sezione
-  Worker non hanno un nome proprio; da sentire con VoiceOver se li legge dal testo accanto.
 - Prima del primo controllo dei provider il popup dei modelli resta su «Loading models…»: succede
   solo nei lanci isolati (`BRAUS_ISOLATED_RUN=1`), che non controllano i provider all'avvio.
 
