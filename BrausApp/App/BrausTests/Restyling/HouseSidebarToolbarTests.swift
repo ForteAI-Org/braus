@@ -88,7 +88,7 @@ struct HouseSidebarToolbarTests {
         }
         let hasField = { () -> Bool in
             guard let frame = window.contentView?.superview else { return false }
-            return Self.searchField(in: frame) != nil
+            return Self.searchField(in: frame).map { !$0.isHiddenOrHasHiddenAncestor && !$0.visibleRect.isEmpty } ?? false
         }
         #expect(hasField())
 
@@ -121,12 +121,41 @@ struct HouseSidebarToolbarTests {
         }
         let hasField = { () -> Bool in
             guard let frame = window.contentView?.superview else { return false }
-            return Self.searchField(in: frame) != nil
+            return Self.searchField(in: frame).map { !$0.isHiddenOrHasHiddenAncestor && !$0.visibleRect.isEmpty } ?? false
         }
         #expect(!hasField())
         #expect(window.toolbar?.items.contains { $0.label == "Archive" } == true)
         HouseSidebar.find(in: window)
         #expect(!(window.firstResponder is NSSearchField) && !((window.firstResponder as? NSText)?.delegate is NSSearchField))
+    }
+
+    @Test("The rooms keep their views when the sidebar turns compact and wide again")
+    func roomsSurviveCompaction() async throws {
+        let (window, choice, directory) = try await Self.sidebarWindow(
+            archived    : 0,
+            sidebarWidth: 280
+        )
+        defer {
+            window.close()
+            TemporaryStore.discard(directory)
+        }
+        let rooms = { () -> Set<ObjectIdentifier> in
+            var found: Set<ObjectIdentifier> = []
+            func walk(_ view: NSView) {
+                if view is RoomLightView { found.insert(ObjectIdentifier(view)) }
+                view.subviews.forEach(walk)
+            }
+            window.contentView.map(walk)
+            return found
+        }
+        let before = rooms()
+        #expect(!before.isEmpty)
+        for width in [ShellMetrics.compactSidebar, 280] {
+            choice.sidebarWidth = width
+            try await Task.sleep(for: .milliseconds(600))
+            window.contentView?.layoutSubtreeIfNeeded()
+            #expect(rooms() == before)
+        }
     }
 
     private static func searchField(in view: NSView) -> NSSearchField? {

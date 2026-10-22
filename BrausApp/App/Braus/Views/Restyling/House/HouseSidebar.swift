@@ -10,7 +10,8 @@ import SwiftUI
 /// HouseSidebar is the house's sidebar: the team's `workers` as rooms or as rows, as Settings
 /// chooses, with a search field that finds a worker by name or role (`TeamRow.matches`) and that
 /// Edit > Find… (⌘F) focuses, unless Settings leaves it out (`showsSearch`) or the sidebar is compact,
-/// which ends the search.
+/// which ends the search. The field stays attached and only its accessory is hidden, so the rooms are
+/// never rebuilt when it comes and goes.
 /// Each room's context menu holds the worker's commands.
 ///
 /// The room column count follows the sidebar width; rows are cards that put the name under the worker when compact.
@@ -125,25 +126,22 @@ struct HouseSidebar: View {
         setting && columns > 1
     }
 
-    /// `list` under the sidebar's search field, or alone while Settings or a compact sidebar leaves it out.
-    @ViewBuilder
+    /// `list` under the sidebar's search field, which stays attached so the rooms keep their identity
+    /// when the field goes (`SearchFieldWithoutRing.isShown`): Settings or a compact sidebar hides it.
     private func searchField(on list: some View) -> some View {
-        if showsSearchField {
-            list
-                .searchable(
-                    text     : $query,
-                    placement: .sidebar
-                )
-                .background(SearchFieldWithoutRing())
-        } else {
-            list
-        }
+        list
+            .searchable(
+                text     : $query,
+                placement: .sidebar
+            )
+            .background(SearchFieldWithoutRing(isShown: showsSearchField))
     }
 
     /// What Find… (⌘F) does: puts the keyboard in `window`'s sidebar search field, as a click there does.
     static func find(in window: NSWindow?) {
         guard let window, let frame = window.contentView?.superview,
-              let field = SearchFieldWithoutRing.BridgeView.searchField(in: frame)
+              let field = SearchFieldWithoutRing.BridgeView.searchField(in: frame),
+              !field.isHiddenOrHasHiddenAncestor, !field.visibleRect.isEmpty
         else { return }
 
         window.makeFirstResponder(field)
@@ -238,24 +236,54 @@ struct HouseSidebar: View {
     /// nothing. Remove the ring's part when SwiftUI's focus effect reaches the searchable field.
     private struct SearchFieldWithoutRing: NSViewRepresentable {
 
+        /// False hides the sidebar's search field and the room it takes, without removing `.searchable`.
+        let isShown: Bool
+
         func makeNSView(context: Context) -> BridgeView { BridgeView() }
 
         func updateNSView(
             _ view : BridgeView,
             context: Context
-        ) {}
+        ) {
+            view.isFieldShown = isShown
+        }
 
         /// The AppKit end: it finds the field once it is in a window.
         final class BridgeView: NSView {
 
+            var isFieldShown = true {
+                didSet {
+                    guard isFieldShown != oldValue else { return }
+                    showField()
+                }
+            }
+
             override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+            /// Shows or hides the sidebar's top accessories, which hold the search field alone; before
+            /// macOS 26 the field stays.
+            private func showField() {
+                guard #available(macOS 26, *) else { return }
+
+                var view: NSView? = self
+                while let current = view?.superview {
+                    if let split = current as? NSSplitView, let controller = split.delegate as? NSSplitViewController,
+                       let item = controller.splitViewItems.first(where: { isDescendant(of: $0.viewController.view) }) {
+                        for accessory in item.topAlignedAccessoryViewControllers { accessory.isHidden = !isFieldShown }
+                        return
+                    }
+                    view = current
+                }
+            }
 
             override func viewDidMoveToWindow() {
                 super.viewDidMoveToWindow()
                 guard window != nil else { return }
+                showField()
 
                 // The searchable field is placed in the same pass as this view, after it.
                 DispatchQueue.main.async { [weak self] in
+                    self?.showField()
                     guard let frame = self?.window?.contentView?.superview else { return }
                     Self.searchField(in: frame)?.focusRingType = .none
                 }
