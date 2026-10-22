@@ -63,9 +63,14 @@ struct SettingsView: View {
                 ideal: 200,
                 max  : 240
             )
+            .scrollContentBackground(.hidden)
+            .background { Color.houseSidebar.ignoresSafeArea() }
+            
         } detail: {
             page
                 .navigationTitle(pane?.title ?? "Settings")
+                .scrollContentBackground(.hidden)
+                .background { Color.houseGround.ignoresSafeArea() }
         }
         // It can grow, which the Brain's graph uses.
         .frame(

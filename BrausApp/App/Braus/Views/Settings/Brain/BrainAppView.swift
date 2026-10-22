@@ -30,17 +30,24 @@ struct BrainAppView: View {
     var body: some View {
         Group {
             switch mode {
-            case .graph:
-                if let simulation {
-                    BrainGraphView(simulation: simulation)
-                } else {
-                    Color.clear
-                }
-            case .list:
-                BrainListView(brain: app.brain)
+                case .graph:
+                    if let simulation {
+                        BrainGraphView(simulation: simulation)
+                            .scrollContentBackground(.hidden)
+                            .background { Color.houseGround.ignoresSafeArea() }
+                        
+                    } else {
+                        Color.clear
+                    }
+                        
+                case .list:
+                    BrainListView(brain: app.brain)
+                            .scrollContentBackground(.hidden)
+                            .background { Color.houseGround.ignoresSafeArea() }
             }
         }
         .navigationTitle(app.name)
+        .background(TransparentTitleBar())
         .toolbar {
             ToolbarItem {
                 Picker(

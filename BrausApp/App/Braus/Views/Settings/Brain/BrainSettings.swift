@@ -54,6 +54,8 @@ struct BrainSettings: View {
                     .formStyle(.grouped)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background { Color.houseSidebar.ignoresSafeArea() }
             .safeAreaInset(edge: .bottom) {
                 if let memory {
                     Text(Self.summary(of: memory))
