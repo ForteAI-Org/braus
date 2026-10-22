@@ -348,8 +348,47 @@ the new one is drawn like every other text in the app.
 `ps` agrees: before 0.20–0.23 s of CPU over the 30 s, after 0.00–0.01 s. The window runs the same 174–207
 Core Animation loops before and after; nothing was paused.
 
-**What is left.** RenderBox is still used by `BubbleFlight.image` (an `ImageRenderer`, when a message is
-quoted, taken back from the quote strip or sent from the queue) and, not measured, probably by the
-Brain's `Canvas` in Settings. After one `ImageRenderer` image the process rested at 0.57% with a
-conversation open; the old text renderer's leftover had not faded after 200 s. Drawing those without RenderBox would need a
-ticket of its own.
+**What was left, and the follow-up.** Branch `elio/app-restyling-renderbox`, from `a37997d2`. Same probe,
+machine and build, rooms, nine idle workers, worker 1 selected, a 60 s rest. `BRAUS_ROOM_COST_USE` (a list
+split by commas) now draws, before the rest, what the app draws once in a while: `image` a flight's picture of
+a strip's line, `copy` a copy icon turned into a check and back, `brain` a Brain graph in a window of its own
+for five seconds, then closed, `brain-history` one that grew over time, so with its timeline. To find the
+users the rest of the app has, each candidate was hosted alone in that window the same way.
+
+| Drawn once, then the rest (probe's figure) | Before | After |
+|---|---|---|
+| Nothing | 0% | 0% |
+| A strip's line for a flight: quote, unquote, send from the queue (`BubbleFlight.image`) | 0.8% | 0% |
+| A code block's Copy, its icon turned into a check and back (`TranscriptRowView.showCopied`) | 0.8% | 0% |
+| Settings > Brain's graph (`BrainCanvas`: before alone, after the whole graph of a Brain learned in one look) | 0.8% | 0% |
+| All three together | | 0% (`ps`: 0.00 s of CPU over 30 s) |
+| Settings > Brain, a graph that grew, with its timeline (`BrainTimeline`) | 0.8% | 0.7% |
+
+- **The flights' picture of a strip's line** was an `ImageRenderer` of the strip's `Text`. Core Text draws it
+  now, in the strip's font and secondary colour, cut short where SwiftUI's text cuts
+  (`CTLineCreateTruncatedLine`: an attributed string's own drawing kept one glyph more) and on SwiftUI's
+  baseline (the descent rounded up). `BubbleFlightTests`: against the strip's SwiftUI text rendered at two
+  pixels per point, the same size, and over black at most 8 of 255 apart for a short and a cut line (one
+  antialiased pixel), at most 40 on an emoji, whose bitmap is scaled another way.
+- **The copy icon** swapped its symbol with the system's off-up replace (`setSymbolImage(_:contentTransition:)`),
+  which draws through RenderBox. Core Animation swaps it now (`TranscriptRowView.replace`): the old symbol
+  shrinks to half and fades out where it is over 0.18 s, the new one grows from half, 3 points lower, on a
+  spring, as it fades in; a cross-fade under Reduce Motion. At rest it is the same image view and symbol.
+  The swap in between is a likeness of the system's, not a copy: it was not compared frame by frame.
+- **The Brain's graph** was a `Canvas`. It draws in an AppKit view now (`BrainDrawing`), through the same
+  code ported to Core Graphics: the same paths, radial gradients, `plusLighter` blend, dashes and opacities,
+  colours resolved from the view's environment (`Color.resolve(in:)`), names drawn by AppKit with their width
+  rounded up to whole pixels, as SwiftUI sizes a text before it centres it. Against the old `Canvas`, both
+  hosted and drawn at two pixels per point, the frames differ by at most 2 of 255 with the breathing held, at
+  most 6 with it (the two frames are a few milliseconds apart), with no node, one group and one control under
+  the pointer.
+- **Not RenderBox, measured at 0%:** a static SF Symbol in an image view, a spinning `NSProgressIndicator`
+  (a running tool line), the transcript's `WordReveal` (Core Animation layers with a blur filter), the Brain's
+  zoom buttons on their glass.
+
+**What is still left.** On macOS 27 the system's own sliders draw through RenderBox: a SwiftUI `Slider` alone
+in a window leaves 0.8%, an `NSSlider` 0.7%. A SwiftUI symbol effect (`.contentTransition(.symbolEffect)`)
+leaves 0.7%. The Brain's timeline has both (its slider and its play button), so a Brain that grew still leaves
+0.7% once shown; so would the Ollama page's slider (`OllamaGenerationSection`, not measured). Replacing a
+system slider means drawing a control of our own, which the restyling's rules forbid; that is the person's
+call. Not measured either: the other Settings pages, the sheets, a `Toggle` as a switch.

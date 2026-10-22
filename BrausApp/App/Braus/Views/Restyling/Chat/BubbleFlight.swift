@@ -86,10 +86,9 @@ final class BubbleFlight {
         let scale   = stage.window?.backingScaleFactor ?? 2
         let padding = Self.bubblePadding
         guard let end = Self.image(
-            of     : Self.stripLine(lineText),
-            width  : line.width,
-            scale  : scale,
-            isWhite: false
+            of   : lineText,
+            width: line.width,
+            scale: scale
         ) else { return }
 
         let pill    = line.insetBy(
@@ -199,10 +198,9 @@ final class BubbleFlight {
         guard !RestylingMotion.reducesMotion,
               let scale = stage.window?.backingScaleFactor,
               let image = Self.image(
-                  of     : Self.stripLine(lineText),
-                  width  : line.width,
-                  scale  : scale,
-                  isWhite: false
+                  of   : lineText,
+                  width: line.width,
+                  scale: scale
               )
         else { return }
 
@@ -295,15 +293,6 @@ final class BubbleFlight {
     /// How long a quote takes back to its bubble.
     private static let unquoteDuration = 0.42
 
-    /// The strips' line as `QuoteStrip` draws it.
-    static func stripLine(_ text: String) -> some View {
-        Text(text)
-            .font(QueueStrip.font)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .truncationMode(.tail)
-    }
-
     /// Sets `layer` to show `image` unscaled, its top left corner at `origin`.
     private static func show(
         _ image: (image: CGImage, size: CGSize),
@@ -328,38 +317,72 @@ final class BubbleFlight {
         return ceil(font.ascender - font.descender + font.leading)
     }
 
-    /// `text` drawn white, as the field draws it, broken into lines at most `width` wide; in its own
-    /// colours, in the dark appearance, unless `isWhite`.
+    /// `text` as the strips draw their line (`QuoteStrip`, `QueueStrip`): in their font and secondary
+    /// colour, in the dark appearance, on one line at most `width` wide, cut short with an ellipsis.
+    /// Core Text draws it: a SwiftUI renderer would leave RenderBox drawing at every frame from then on.
     static func image(
-        of text: some View,
+        of text: String,
         width  : CGFloat,
-        scale  : CGFloat,
-        isWhite: Bool = true
+        scale  : CGFloat
     ) -> (image: CGImage, size: CGSize)? {
-        let renderer = ImageRenderer(content: Group {
-            if isWhite {
-                text.foregroundStyle(.white)
-            } else {
-                text.environment(
-                    \.colorScheme,
-                    .dark
-                )
-            }
-        })
-        renderer.proposedSize = ProposedViewSize(
-            width : width,
-            height: nil
-        )
-        renderer.scale = scale
-        guard let image = renderer.cgImage else { return nil }
+        let font   = NSFont.systemFont(ofSize: 12.5)
+        let height = ceil(font.ascender - font.descender + font.leading)
+        var color  = NSColor.secondaryLabelColor.cgColor
+        NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
+            color = NSColor.secondaryLabelColor.cgColor
+        }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font                                                            : font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color,
+        ]
+        let whole  = CTLineCreateWithAttributedString(NSAttributedString(
+            string    : text,
+            attributes: attributes
+        ))
+        let token  = CTLineCreateWithAttributedString(NSAttributedString(
+            string    : "\u{2026}",
+            attributes: attributes
+        ))
+        // Cut where SwiftUI's text cuts: an attributed string's own drawing keeps a glyph more.
+        guard let line = CTLineCreateTruncatedLine(
+                  whole,
+                  Double(width),
+                  .end,
+                  token
+              ),
+              case let pixels = ceil(CTLineGetTypographicBounds(line, nil, nil, nil) * scale),
+              pixels > 0,
+              let context = CGContext(
+                  data            : nil,
+                  width           : Int(pixels),
+                  height          : Int(ceil(height * scale)),
+                  bitsPerComponent: 8,
+                  bytesPerRow     : 0,
+                  space           : CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo      : CGImageAlphaInfo.premultipliedFirst.rawValue
+              )
+        else { return nil }
 
-        return (
-            image,
-            CGSize(
-                width : CGFloat(image.width) / scale,
-                height: CGFloat(image.height) / scale
-            )
+        context.scaleBy(
+            x: scale,
+            y: scale
         )
+        // The baseline sits on the descent rounded up, as SwiftUI places it in its line.
+        context.textPosition = CGPoint(
+            x: 0,
+            y: ceil(-font.descender)
+        )
+        CTLineDraw(
+            line,
+            context
+        )
+        return context.makeImage().map { (
+            $0,
+            CGSize(
+                width : pixels / scale,
+                height: height
+            )
+        ) }
     }
 
     // MARK: Stage
