@@ -5,13 +5,14 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 13/10/2026.
 //
 
+import ModelTransports
 import SwiftUI
 
 /// ToolbarUsageCapsule is the toolbar's usage item: the context ring while the
 /// conversation is open and the context's window is known, then the token counter.
 ///
 /// It is a view of its own so the conversation and the turn state it reads are
-/// tracked here and not by `TeamShellView`: a draft saved while typing changes
+/// tracked here and not by `HouseShellView`: a draft saved while typing changes
 /// the conversation, and on macOS 26 every new evaluation of the shell's body
 /// vends the toolbar's items again.
 struct ToolbarUsageCapsule: View {
@@ -43,7 +44,8 @@ struct ToolbarUsageCapsule: View {
             }
 
             TokenCounterButton(
-                worker         : worker,
+                workerName     : worker.name,
+                provider       : worker.configuration?.provider,
                 usage          : usage,
                 isShowingDetail: $team.showsUsage
             )

@@ -16,9 +16,11 @@ import AppKit
 @MainActor
 final class TranscriptLayout: NSCollectionViewLayout {
 
-    static let groupSpacing   : CGFloat = 4
-    static let ordinarySpacing: CGFloat = 12
-    static let verticalInset  : CGFloat = 16
+    /// The room between rows of a group and between groups, and above the first row and below the
+    /// last, the column's.
+    static let groupSpacing   : CGFloat = 6
+    static let ordinarySpacing: CGFloat = 10
+    static let verticalInset  : CGFloat = 22
 
     /// One entry per row, in row order. Set together, then invalidate.
     /// `continuesGroup` is whether a row sits close under the one above.

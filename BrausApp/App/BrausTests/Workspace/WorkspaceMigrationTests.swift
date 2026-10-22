@@ -11,12 +11,174 @@ import SwiftData
 import Testing
 @testable import Braus
 
-/// The real upgrades: stores written in the shapes the app stored before
-/// replies (`StoreShapeV4`) and before the queue (`StoreShapeV5`), opened by
+/// WorkspaceMigrationTests opens stores written before replies (`StoreShapeV4`),
+/// the queue (`StoreShapeV5`) and worker shapes (`StoreShapeV6`) with
 /// the app's one schema through `WorkspaceStore.opening(in:)`, with no
 /// migration plan.
 @Suite("Upgrading older stores")
 struct WorkspaceMigrationTests {
+
+    @Test("An unrecognized stored shape uses the identity default without rewriting the value")
+    func unknownShapeUsesDefault() async throws {
+        let directory = TemporaryStore.directory()
+        defer { TemporaryStore.discard(directory) }
+        let store = try WorkspaceStore.opening(in: directory)
+        let id = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let worker = try await store.createWorker(
+            id        : id,
+            name      : "Atlas",
+            appearance: TemporaryStore.appearance(),
+            shape     : "future-outline"
+        )
+        #expect(worker.shape == .square)
+        let reopened = try WorkspaceStore.opening(in: directory)
+        #expect(try await reopened.worker(id)?.shape == .square)
+        let context = ModelContext(try WorkspaceStoreFile.open(in: directory))
+        #expect(try context.fetch(FetchDescriptor<Worker>()).first?.shape == "future-outline")
+    }
+
+    @Test("A pre-shape store keeps every entity, derives shapes, and persists edits after reopening")
+    func aStoreFromBeforeShapesOpens() async throws {
+        let directory = TemporaryStore.directory()
+        defer { TemporaryStore.discard(directory) }
+        let atlas = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000000"))
+        let nova = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let conversationID = UUID()
+        let messageID = UUID()
+        let executionID = UUID()
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let quote = MessageQuote(
+            messageID     : messageID,
+            authorWorkerID: atlas,
+            text          : "Checked"
+        )
+        let queue = [QueuedMessage(
+            text : "Next release",
+            quote: quote
+        )]
+        try writeStore(
+            in: directory,
+            as: StoreShapeV6.self
+        ) { context in
+            context.insert(StoreShapeV6.Worker(
+                id          : atlas,
+                name        : "Atlas",
+                role        : "Engineer",
+                instructions: "Check releases",
+                createdAt   : createdAt,
+                appearance  : TemporaryStore.appearance()
+            ))
+            context.insert(StoreShapeV6.Worker(
+                id        : nova,
+                name      : "Nova",
+                isArchived: true,
+                appearance: TemporaryStore.appearance(palette: "dawn")
+            ))
+            for version in 1...2 {
+                context.insert(WorkerConfiguration(
+                    workerID : atlas,
+                    version  : version,
+                    selection: version == 1 ? TemporaryStore.firstSelection : TemporaryStore.secondSelection
+                ))
+            }
+            let conversation = Conversation(
+                id            : conversationID,
+                participantIDs: [atlas],
+                draft         : "Half a reply"
+            )
+            conversation.queuedMessages           = try JSONEncoder().encode(queue)
+            conversation.draftQuoteMessageID      = quote.messageID
+            conversation.draftQuoteAuthorWorkerID = quote.authorWorkerID
+            conversation.draftQuoteText           = quote.text
+            context.insert(conversation)
+            context.insert(Message(
+                id            : messageID,
+                conversationID: conversationID,
+                authorWorkerID: atlas,
+                text          : "Checked",
+                sequence      : 1,
+                delivery      : .completed,
+                quote         : quote
+            ))
+            context.insert(Execution(
+                id                  : executionID,
+                workerID            : atlas,
+                conversationID      : conversationID,
+                configurationVersion: 1,
+                selection           : TemporaryStore.firstSelection
+            ))
+            context.insert(WorkspaceEvent(
+                NewEvent(
+                    workspaceID   : UUID(),
+                    subjectID     : executionID,
+                    conversationID: conversationID,
+                    workerID      : atlas,
+                    type          : .executionFailed
+                ),
+                localOrder: 1
+            ))
+        }
+        let file = directory.appending(path: WorkspaceStoreFile.storeName)
+        #expect(WorkspaceStoreFile.isUpgradeDue(file))
+        let existingSuffixes = WorkspaceStoreFile.fileSuffixes.filter { suffix in
+            let source = directory.appending(path: WorkspaceStoreFile.storeName + suffix)
+            return FileManager.default.fileExists(atPath: source.path(percentEncoded: false))
+        }
+        let upgraded = try WorkspaceStore.opening(in: directory)
+        #expect(!WorkspaceStoreFile.isUpgradeDue(file))
+        for suffix in existingSuffixes {
+            let backup = directory.appending(
+                path: WorkspaceStoreFile.storeName + suffix + WorkspaceStoreFile.backupSuffix
+            )
+            #expect(FileManager.default.fileExists(atPath: backup.path(percentEncoded: false)))
+        }
+
+        let workers = try await upgraded.workers(includingArchived: true)
+        #expect(workers.map(\.id) == [atlas, nova])
+        let worker = try #require(workers.first)
+        #expect(worker.name == "Atlas")
+        #expect(worker.role == "Engineer")
+        #expect(worker.instructions == "Check releases")
+        #expect(worker.createdAt == createdAt)
+        #expect(worker.appearance == TemporaryStore.appearance())
+        #expect(worker.configurationVersion == 2)
+        #expect(worker.configuration == TemporaryStore.secondSelection)
+        #expect(worker.shape == .circle)
+        #expect(workers.last?.shape == .square)
+        #expect(workers.last?.isArchived == true)
+        #expect(workers.last?.appearance == TemporaryStore.appearance(palette: "dawn"))
+        let conversation = try #require(try await upgraded.conversation(conversationID))
+        #expect(conversation.draft == "Half a reply")
+        #expect(conversation.participantIDs == [atlas])
+        #expect(conversation.draftQuote == quote)
+        #expect(conversation.queue == queue)
+        let messages = try await upgraded.messages(in: conversationID)
+        #expect(messages.map(\.id) == [messageID])
+        #expect(messages.first?.text == "Checked")
+        #expect(messages.first?.quote == quote)
+        #expect(try await upgraded.execution(executionID)?.selection == TemporaryStore.firstSelection)
+        #expect(try await upgraded.events(matching: EventQuery(scope: .conversation(conversationID))).count == 1)
+
+        do {
+            let context = ModelContext(try WorkspaceStoreFile.open(in: directory))
+            let rows = try context.fetch(FetchDescriptor<Worker>())
+            #expect(rows.allSatisfy { $0.shape == nil })
+            #expect(try context.fetchCount(FetchDescriptor<WorkerConfiguration>()) == 2)
+            #expect(try context.fetchCount(FetchDescriptor<Execution>()) == 1)
+            #expect(try context.fetchCount(FetchDescriptor<Conversation>()) == 1)
+            #expect(try context.fetchCount(FetchDescriptor<Message>()) == 1)
+            #expect(try context.fetchCount(FetchDescriptor<WorkspaceEvent>()) == 1)
+        }
+        try await upgraded.update(
+            worker: atlas,
+            .shape("lens")
+        )
+        let reopened = try WorkspaceStore.opening(in: directory)
+        #expect(try await reopened.worker(atlas)?.shape == .lens)
+        #expect(try await reopened.worker(nova)?.shape == .square)
+        let context = ModelContext(try WorkspaceStoreFile.open(in: directory))
+        #expect(try context.fetch(FetchDescriptor<Worker>()).first { $0.id == atlas }?.shape == "lens")
+    }
 
     @Test("A store from before replies keeps every row, and reads no quote and an empty queue")
     func aStoreFromBeforeRepliesOpens() async throws {
@@ -30,13 +192,13 @@ struct WorkspaceMigrationTests {
             in: directory,
             as: StoreShapeV4.self
         ) { context in
-            context.insert(Worker(
+            context.insert(StoreShapeV6.Worker(
                 id        : atlas,
                 name      : "Atlas",
                 role      : "Release engineer",
                 appearance: TemporaryStore.appearance()
             ))
-            context.insert(Worker(
+            context.insert(StoreShapeV6.Worker(
                 id        : nova,
                 name      : "Nova",
                 appearance: TemporaryStore.appearance(palette: "dawn")
@@ -147,7 +309,7 @@ struct WorkspaceMigrationTests {
             in: directory,
             as: StoreShapeV5.self
         ) { context in
-            context.insert(Worker(
+            context.insert(StoreShapeV6.Worker(
                 id        : atlas,
                 name      : "Atlas",
                 appearance: TemporaryStore.appearance()

@@ -96,6 +96,15 @@ final class TranscriptController: NSObject {
     /// Why the last read did not apply, in a sentence. Nil once one applies.
     private(set) var problem: String?
 
+    /// How far the newest turn has got while it runs, as the rows show it; nil while none runs.
+    private(set) var runningTurn: RunningTurn?
+
+    /// The running turn's latest tool step in its tool line's words; nil before one or with no turn.
+    var runningStep: String? { runningTurn?.step }
+
+    /// The conversation whose rows the view shows, set once an `open` has applied them; nil before.
+    private(set) var shownConversationID: UUID?
+
     /// Called once scrolling rests, with the message the reader is anchored on
     /// and the offset in points from its top to the viewport's top.
     @ObservationIgnored
@@ -142,7 +151,6 @@ final class TranscriptController: NSObject {
     @ObservationIgnored private var workerName    = ""
     @ObservationIgnored private var workerProvider: ModelProvider?
     @ObservationIgnored private var avatar        : NSImage?
-    @ObservationIgnored private var workerTint    : NSColor?
     @ObservationIgnored private(set) var textSelection: TranscriptSelection?
     @ObservationIgnored private(set) var bubbleSelection: Set<UUID> = []
     @ObservationIgnored private var bubbleAnchor  : UUID?
@@ -194,6 +202,7 @@ final class TranscriptController: NSObject {
         readingOffset   : Double
     ) {
         self.conversationID = conversationID
+        runningTurn         = nil
         enqueue {
             do {
                 let window = try await TranscriptWindow.opening(conversationID, around: readingAnchor,
@@ -202,7 +211,6 @@ final class TranscriptController: NSObject {
                 self.workerName  = workerName
                 self.workerProvider = workerProvider
                 self.avatar      = MascotImages.image(for: appearance, size: RowGeometry.avatarSide)
-                self.workerTint  = MascotImages.color(for: appearance)
                 self.expanded    = []
                 self.textSelection = nil
                 self.setBubbles([], anchor: nil)
@@ -213,6 +221,7 @@ final class TranscriptController: NSObject {
                 await self.apply(window, mode: .open(position))
                 guard self.conversationID == conversationID else { return }
                 self.hasShownConversation = true
+                self.shownConversationID  = conversationID
                 if replaces { self.playOpening() }
             } catch {
                 self.problem = "Couldn’t load this conversation.\n\nDetails: \(error.localizedDescription)"
@@ -405,7 +414,9 @@ final class TranscriptController: NSObject {
                     to: result.rows
                 )
             }
+            let replied = latestReply
             rows = result.rows
+            let held = mode == .live ? holdArrivals(update) : []
             viewUpdateCount += 1
             setHeights()
             collectionView.performBatchUpdates({
@@ -423,8 +434,17 @@ final class TranscriptController: NSObject {
                 setVisibleTop(top)
             }
             if mode == .live {
-                noteActivity(update, followed: wasAtBottom)
+                noteActivity(update, followed: wasAtBottom || !held.isEmpty)
                 playEntrances(update)
+                if !held.isEmpty {
+                    showHeld(
+                        held,
+                        wasAtBottom: wasAtBottom,
+                        drawn      : drawnFrames,
+                        drawnTop   : drawnTop
+                    )
+                }
+                revealNewestReply(after: replied)
             }
             if case .expansion(let id) = mode {
                 slideRows(
@@ -439,6 +459,8 @@ final class TranscriptController: NSObject {
         showSelection()
         lastUpdate = update
         isEmpty    = rows.isEmpty
+        let turn   = RunningTurn(rows.map(\.item))
+        if turn != runningTurn { runningTurn = turn }
         scheduleUnsentCheck(window, now: now)
     }
 
@@ -614,12 +636,13 @@ final class TranscriptController: NSObject {
             style     : style,
             workerName: workerName,
             avatar    : row.item.authorWorkerID == nil ? nil : avatar,
-            workerTint: workerTint,
             selection : selectedRange(ofRow: index)
         )
         cell.rowView.focusedAction = focusedAction?.id == id ? focusedAction?.action : nil
         cell.rowView.showsFocusRing = showsFocusRing
         cell.rowView.isBubbleSelected = row.item.messageID.map(bubbleSelection.contains) ?? false
+        cell.rowView.showsReplyButton = showsReplyButtons
+        cell.isHeld = row.item.messageID.map(heldMessages.contains) == true
         cell.rowView.onPointer  = { [weak self] phase, location in self?.pointer(phase, at: location) }
         cell.rowView.onActivate = { [weak self] in self?.toggle(id) }
         cell.rowView.onAction   = { [weak self] action in self?.perform(action, in: id) }
@@ -721,6 +744,8 @@ final class TranscriptController: NSObject {
         let inserted = Set(update.inserted)
         let lastKept = rows.indices.last { !inserted.contains($0) } ?? -1
         let arrivals = update.inserted.filter { index in
+            // A held row shows when its flight lands, with no entrance of its own.
+            if rows[index].item.messageID.map(heldMessages.contains) == true { return false }
             if case .toolRun = rows[index].item.kind { return true }
             return index > lastKept
         }
@@ -729,7 +754,14 @@ final class TranscriptController: NSObject {
         for index in arrivals {
             guard let cell = collectionView.item(at: IndexPath(item: index, section: 0)) as? TranscriptCell
             else { continue }
-            cell.playEntrance(reducesMotion: reduces)
+            if rows[index].item.kind == .thinking {
+                cell.springIn(
+                    at           : rows[index].geometry.surface,
+                    reducesMotion: reduces
+                )
+            } else {
+                cell.playEntrance(reducesMotion: reduces)
+            }
         }
     }
 
@@ -1310,6 +1342,169 @@ final class TranscriptController: NSObject {
     private func put(_ text: String) {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+    }
+
+    // MARK: Flights
+
+    /// Whether a message's bubble offers Reply in a button beside it while the pointer is over it,
+    /// which the conversation's flights turn on (`HouseLiveFlights`).
+    @ObservationIgnored var showsReplyButtons = false {
+        didSet { if showsReplyButtons != oldValue { reconfigureVisible(Set(rows.map(\.item.id))) } }
+    }
+
+    /// Called with a held message once its row is laid out where it rests and the transcript shows
+    /// its end, for its flight to land on it (`holdNextSent()`).
+    @ObservationIgnored var onHeldArrival: ((UUID) -> Void)?
+
+    /// Holds still waiting for their message, one per `holdNextSent()`.
+    @ObservationIgnored private(set) var pendingHolds = 0
+
+    /// The person's messages laid out but not drawn until `release(message:)`.
+    @ObservationIgnored private(set) var heldMessages: Set<UUID> = []
+
+    /// How long a transcript scrolled up takes to reach its end before a held message lands.
+    static let scrollToEnd = 0.3
+
+    /// Whether the window reaches the conversation's newest message, where a sent one arrives.
+    var showsNewest: Bool { window?.isAtNewest ?? true }
+
+    /// Holds the next message of the person's to arrive: its row is laid out hidden, with no entrance,
+    /// the transcript shows its end, and the message goes to `onHeldArrival`.
+    func holdNextSent() {
+        pendingHolds += 1
+    }
+
+    /// Gives up the oldest hold still waiting, for a send that never arrived.
+    func cancelHold() {
+        pendingHolds = max(0, pendingHolds - 1)
+    }
+
+    /// Draws a held message's row, as its flight lands on it.
+    func release(message id: UUID) {
+        guard heldMessages.remove(id) != nil, let index = rows.firstIndex(where: { $0.item.messageID == id }) else { return }
+
+        (collectionView.item(at: IndexPath(item: index, section: 0)) as? TranscriptCell)?.isHeld = false
+    }
+
+    /// Gives up every hold and draws every held row, as another conversation opens.
+    func releaseHolds() {
+        pendingHolds = 0
+        let held = heldMessages
+        held.forEach(release)
+    }
+
+    /// Takes a waiting hold for each message of the person's that `update` brought.
+    private func holdArrivals(_ update: TranscriptUpdate) -> [UUID] {
+        var held: [UUID] = []
+        for index in update.inserted where pendingHolds > 0 {
+            guard case .personMessage = rows[index].item.kind, let id = rows[index].item.messageID else { continue }
+            pendingHolds -= 1
+            heldMessages.insert(id)
+            held.append(id)
+        }
+        return held
+    }
+
+    /// Hands held rows to their flights where they rest: a followed transcript slides the rows above
+    /// up into the room made, and one scrolled up first scrolls to its end.
+    private func showHeld(
+        _ held     : [UUID],
+        wasAtBottom: Bool,
+        drawn      : [TranscriptItem.ID: CGRect],
+        drawnTop   : CGFloat
+    ) {
+        guard !wasAtBottom else {
+            slideRows(
+                toggled : .message(held[0]),
+                from    : drawn,
+                drawnTop: drawnTop,
+                folding : nil
+            )
+            held.forEach { onHeldArrival?($0) }
+            return
+        }
+        let clip = scrollView.contentView
+        let end  = max(0, layout.collectionViewContentSize.height - clip.bounds.height)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration       = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : Self.scrollToEnd
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            clip.animator().setBoundsOrigin(NSPoint(x: 0, y: end))
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.scrollView.reflectScrolledClipView(self.scrollView.contentView)
+                held.forEach { self.onHeldArrival?($0) }
+            }
+        }
+    }
+
+    /// The newest reply among the rows, and the length of its text.
+    private var latestReply: (id: TranscriptItem.ID, length: Int)? {
+        rows.last { if case .workerReply = $0.item.kind { true } else { false } }
+            .map { ($0.item.id, ($0.text.string as NSString).length) }
+    }
+
+    /// Fades in what arrived of the newest reply since `before`: a new reply whole,
+    /// a growing one from where it had got. History never plays.
+    private func revealNewestReply(after before: (id: TranscriptItem.ID, length: Int)?) {
+        guard let reply = latestReply, let index = rows.firstIndex(where: { $0.item.id == reply.id }) else { return }
+
+        let start = before?.id == reply.id ? before?.length ?? 0 : 0
+        guard start < reply.length else { return }
+
+        (collectionView.item(at: IndexPath(item: index, section: 0)) as? TranscriptCell)?.rowView.revealWords(from: start)
+    }
+
+    /// Bubble is a message's bubble as the transcript draws it, in window coordinates: its surface,
+    /// the frame its picture covers, where its text starts, and the picture.
+    struct Bubble {
+        let surface   : CGRect
+        let frame     : CGRect
+        let textOrigin: CGPoint
+        let image     : CGImage
+    }
+
+    /// `messageID`'s bubble as drawn, a held one too; nil when its row is not on screen.
+    func bubble(ofMessage messageID: UUID) -> Bubble? {
+        guard let index = rows.firstIndex(where: { $0.item.messageID == messageID }),
+              let cell  = collectionView.item(at: IndexPath(item: index, section: 0)) as? TranscriptCell
+        else { return nil }
+
+        let view     = cell.rowView
+        let geometry = rows[index].geometry
+        let frame    = geometry.surface.insetBy(dx: -1, dy: -1)
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: frame) else { return nil }
+
+        // A held row is drawn for the picture only: no display runs before it is held again.
+        let isHeld = cell.isHeld
+        cell.isHeld = false
+        view.cacheDisplay(
+            in: frame,
+            to: bitmap
+        )
+        cell.isHeld = isHeld
+        guard let image = bitmap.cgImage else { return nil }
+
+        return Bubble(
+            surface   : view.convert(geometry.surface, to: nil),
+            frame     : view.convert(frame, to: nil),
+            textOrigin: view.convert(geometry.text.origin, to: nil),
+            image     : image
+        )
+    }
+
+    /// The surface of `messageID`'s bubble in window coordinates, on screen or not; nil when its row
+    /// is not loaded.
+    func frame(ofMessage messageID: UUID) -> CGRect? {
+        guard let index = rows.firstIndex(where: { $0.item.messageID == messageID }),
+              layout.frames.indices.contains(index)
+        else { return nil }
+
+        let surface = rows[index].geometry.surface.offsetBy(
+            dx: layout.frames[index].minX,
+            dy: layout.frames[index].minY
+        )
+        return collectionView.convert(surface, to: nil)
     }
 }
 

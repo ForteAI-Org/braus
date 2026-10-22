@@ -49,6 +49,10 @@ nonisolated final class Worker {
     /// The mascot descriptor. Only an explicit regenerate replaces it.
     var appearance: WorkerAppearance
 
+    /// WorkerShape's case name, kept as a string for SwiftData compatibility.
+    /// Nil keeps the deterministic outline derived from the worker's identity.
+    var shape: String?
+
     init(
         id          : UUID    = UUID(),
         name        : String,
@@ -56,7 +60,8 @@ nonisolated final class Worker {
         instructions: String? = nil,
         isArchived  : Bool    = false,
         createdAt   : Date    = Date(),
-        appearance  : WorkerAppearance
+        appearance  : WorkerAppearance,
+        shape       : String? = nil
     ) {
         self.id           = id
         self.name         = name
@@ -65,6 +70,7 @@ nonisolated final class Worker {
         self.isArchived   = isArchived
         self.createdAt    = createdAt
         self.appearance   = appearance
+        self.shape        = shape
     }
 }
 
@@ -75,6 +81,7 @@ nonisolated final class Worker {
 nonisolated enum WorkerChange: Sendable, Equatable {
     case name(String)
     case role(String?)
+    case shape(String?)
     case instructions(String?)
     case appearance(WorkerAppearance)
     case archived(Bool)

@@ -12,11 +12,22 @@ import SwiftUI
 /// how it ended.
 struct InspectorTurnSection: View {
 
-    let worker: WorkerSnapshot
-    let turn  : WorkerInspectorView.TurnReading
+    /// Reading is the turn as last read, which the section shows.
+    enum Reading: Equatable {
+        case reading
+        case nothingYet
+        case read(TurnSummary)
+        case failed(String)
+    }
+
+    let workerName: String
+    let turn      : Reading
+
+    /// Vertical padding added to each row; the app's inspector keeps the system's own.
+    var rowPadding: CGFloat = 0
 
     var body: some View {
-        Section(turnTitle) { turnRows }
+        Section(turnTitle) { turnRows.padding(.vertical, rowPadding) }
     }
 
     private var turnTitle: String {
@@ -49,7 +60,7 @@ struct InspectorTurnSection: View {
             .accessibilityLabel("Loading turn details")
 
         case .nothingYet:
-            Text("Turn details appear after \(worker.name) responds.")
+            Text("Turn details appear after \(workerName) responds.")
                 .foregroundStyle(.secondary)
 
         case .read(let summary):

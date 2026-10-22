@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// TeamMenuCommands is the menu bar's Team menu: the connections, and what can
-/// be done to the selected worker, for the key team window.
+/// be done to the selected worker, Edit Worker… included, for the key team window.
 ///
 /// The toolbar no longer holds either (§3.4), so this is where the keyboard
 /// reaches them: the sidebar's footer and a row's context menu are the same
@@ -26,6 +26,10 @@ struct TeamMenuCommands: Commands {
             Divider()
 
             if let team, let worker = team.selectedWorker {
+                Button("Edit Worker…") { team.editWorker(worker.id) }
+
+                Divider()
+
                 WorkerCommands(
                     worker: worker,
                     team  : team
@@ -40,6 +44,6 @@ struct TeamMenuCommands: Commands {
 
 extension FocusedValues {
 
-    /// The key team window's team, published by `TeamShellView`.
+    /// The key team window's team, published by `HouseShellView`.
     @Entry var team: TeamModel?
 }

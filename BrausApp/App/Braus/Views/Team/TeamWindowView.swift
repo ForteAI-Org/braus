@@ -11,7 +11,7 @@ import SeatBroker
 import SwiftUI
 
 /// TeamWindowView is the app's front door: it opens the workspace and hands
-/// the team to `TeamShellView`, the three areas of the window.
+/// the team to `HouseShellView`, the three areas of the window.
 ///
 /// It is also the window's memory (§3.1). Whether the inspector was asked
 /// for and the selected worker are scene storage, so each window restores its
@@ -57,7 +57,7 @@ struct TeamWindowView: View {
         content
             // The shell sets the window's minimum width itself, as it depends on the inspector.
             .frame(
-                minWidth : team == nil ? ShellMetrics.windowMinimum : nil,
+                minWidth : team == nil ? RestylingWindowLayout.minimumWidth : nil,
                 minHeight: 560
             )
             .task {
@@ -84,7 +84,7 @@ struct TeamWindowView: View {
     private var content: some View {
         if let team {
             
-            TeamShellView(
+            HouseShellView(
                 team                : team,
                 isInspectorRequested: $isInspectorRequested
             )
@@ -94,15 +94,7 @@ struct TeamWindowView: View {
             
         } else if let failure = launch.failure {
             
-            ContentUnavailableView {
-                Label(
-                    "Couldn’t Open the Workspace",
-                    systemImage: "externaldrive.badge.xmark"
-                )
-                
-            } description: {
-                Text("Braus couldn’t load your team or conversations.\n\nDetails: \(failure)")
-            }
+            WorkspaceFailureView(failure: failure)
             
         } else {
             Text("Opening workspace…")

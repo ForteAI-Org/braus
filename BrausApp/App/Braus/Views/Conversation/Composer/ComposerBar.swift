@@ -18,29 +18,43 @@ import SwiftUI
 /// the bar's height as its bottom inset, so the last message scrolls clear of it.
 ///
 /// The caller may put one accessory in the row, before the buttons: the
-/// conversation puts the worker's model and effort there. It may also join
-/// strips to the pill's top, on the pill's own surface, such as the message a
-/// reply quotes; Escape in the field can take it away (`onEscape(_:)`). A strip
-/// comes and goes as a bubble enters (`stripTransition`, `stripAnimation`), and
-/// the pill grows with it.
+/// conversation puts the worker's model and effort there. It may also put
+/// strips over the pill, such as the message a reply quotes; Escape in the
+/// field can take it away (`onEscape(_:)`). A strip comes and goes with
+/// `stripAnimation`, and the bar grows with it.
 /// A composer that queues (`queuesWhileAnswering(_:)`) hands the draft to
 /// `send` during a turn too, while the circle stays Stop. There is no Add
 /// context or microphone: nothing supplies attachments or voice yet, and a
 /// control that does nothing is not shown (§21.2). A recipient that cannot answer says so
 /// only in the placeholder, with Send disabled; the draft stays editable, as
 /// it does during a turn, where only sending waits for the turn to end.
+///
+/// The bar is a 52 point glass capsule in the conversation's centred column, with a `+` menu of the
+/// caller's real items at its leading end and a light Send circle at its trailing end, its field
+/// growing to eight lines; its strips sit above the pill, inset from its ends. `composerDock()`
+/// sets it on the conversation's ground.
 struct ComposerBar: View {
 
-    /// The circle's side, and the pill's height at one line with `padding` around it.
-    static let circleSide: CGFloat = 28
+    /// The Send and Stop circle's side.
+    nonisolated static let circleSide: CGFloat = 36
 
-    static let padding: CGFloat = 5
+    /// The Release button's side.
+    static let releaseSide: CGFloat = 30
 
-    /// A rounded rectangle, a little squarer than a capsule, with the same corners at every height.
-    static let cornerRadius: CGFloat = 12
+    /// The room between the field, the accessory and the buttons.
+    static let spacing: CGFloat = 10
+
+    /// The lines the field shows before it scrolls.
+    static let maximumLines = 8
 
     /// The release button's symbol: a door with an arrow out of it, leaving the seat.
     static let releaseSymbol = "rectangle.portrait.and.arrow.right"
+
+    /// The pill's height around one line, and the height of the row its controls sit in.
+    static let houseRowHeight: CGFloat = 52
+
+    /// The room above and below the field, which centres one line in its row.
+    static let houseFieldInset = (houseRowHeight - ComposerScrollView.oneLineHeight) / 2
 
     @Binding private var draft: String
 
@@ -51,19 +65,14 @@ struct ComposerBar: View {
     private let stop       : () -> Void
     private let release    : (() -> Void)?
 
-    /// The surface a snapshot draws instead of the platform's.
-    var surface: ComposerSurface.Kind?
-
-    /// Whether the round buttons are Liquid Glass; a test measuring the drawn circle turns it off,
-    /// since glass composites only in the window server. Nil is the platform's: glass unless
-    /// Reduce Transparency is on, and never before macOS 26, which has no glass.
-    var buttonGlass: Bool?
-
     /// What sits in the row before the buttons, set with `accessory(_:)`.
     private var accessoryView: AnyView?
 
     /// What sits joined above the pill, on its surface, set with `strip(_:)`.
     private var stripView: AnyView?
+
+    /// What the `+` menu offers, set with `menu(_:)`; nil shows no `+`.
+    private var menuView: AnyView?
 
     /// What Escape in the field does, set with `onEscape(_:)`; nil leaves it to the text view.
     private var escape: (() -> Void)?
@@ -74,17 +83,14 @@ struct ComposerBar: View {
     /// A count that puts the keyboard in the field each time it moves, set with `focusRequest(_:)`.
     private var focusRequest = 0
 
+    /// Given the field's view, set with `fieldLink(_:)`.
+    private var fieldLink: ComposerField.Link?
+
     /// Whether Return sends, or starts a new line with Command-Return sending; see `sendsOnReturn(_:)`.
     private var returnSends = true
 
     /// Whether sending during a turn hands the draft to `send` to queue; see `queuesWhileAnswering(_:)`.
     private var queues = false
-
-    @Namespace
-    private var glass
-
-    @Environment(\.accessibilityReduceTransparency)
-    private var reducesTransparency
 
     @Environment(\.accessibilityReduceMotion)
     private var reducesMotion
@@ -132,41 +138,98 @@ struct ComposerBar: View {
         canAnswer ? "Message \(recipient)" : "Choose a model before messaging \(recipient)."
     }
 
-    private var kind: ComposerSurface.Kind {
-        surface ?? .resolved(reducesTransparency: reducesTransparency)
-    }
-
+    /// The strips above a glass pill one line high at `houseRowHeight`, whose controls stay in a row
+    /// of that height at its foot while the field grows above them.
     var body: some View {
-        // One surface under the strips and the pill, so they share an outline, a material and a shadow.
         VStack(spacing: 0) {
+            // The strips are tabs that inset themselves from the pill's ends (`ComposerTab`).
             stripView
 
-            HStack(alignment: .bottom, spacing: 8) {
-                ComposerField(
-                    text        : $draft,
-                    placeholder : placeholder,
-                    onSubmit    : canSend || canQueue ? send : nil,
-                    returnSends : returnSends,
-                    onEscape    : escape,
-                    onPopupKey  : popupKeyHandler,
-                    focusRequest: focusRequest
-                )
-                .padding(
-                    .vertical,
-                    2
-                )
-                accessoryView
-                actions
+            HStack(
+                alignment: .bottom,
+                spacing  : Self.spacing
+            ) {
+                if let menuView {
+                    menuButton(menuView)
+                        .frame(height: Self.houseRowHeight)
+                }
+                field
+                    .padding(
+                        .vertical,
+                        Self.houseFieldInset
+                    )
+                Group {
+                    accessoryView
+                    actions
+                }
+                .frame(height: Self.houseRowHeight)
             }
-            .padding(.leading, 14)
-            .padding([.vertical, .trailing], Self.padding)
+            .padding(
+                .leading,
+                menuView == nil ? 20 : 10
+            )
+            .padding(
+                .trailing,
+                8
+            )
+            .modifier(GlassCapsule(cornerRadius: Self.houseRowHeight / 2))
+            .shadow(
+                color : .black.opacity(0.5),
+                radius: 20,
+                y     : 20
+            )
         }
-        .modifier(ComposerSurface(
-            shape: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous),
-            kind : kind
-        ))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
+        .frame(maxWidth: RowGeometry.houseColumn)
+        .padding(
+            .horizontal,
+            16
+        )
+        .padding(
+            .bottom,
+            20
+        )
+    }
+
+    private var field: ComposerField {
+        ComposerField(
+            text        : $draft,
+            placeholder : placeholder,
+            onSubmit    : canSend || canQueue ? send : nil,
+            returnSends : returnSends,
+            onEscape    : escape,
+            onPopupKey  : popupKeyHandler,
+            focusRequest: focusRequest,
+            maximumLines: Self.maximumLines,
+            link        : fieldLink
+        )
+    }
+
+    /// The `+`, a quiet circle that opens `content`.
+    private func menuButton(_ content: AnyView) -> some View {
+        Menu {
+            content
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(
+                    size  : 15,
+                    weight: .medium
+                ))
+                .foregroundStyle(.secondary)
+                .frame(
+                    width : 30,
+                    height: 30
+                )
+                .background(
+                    .white.opacity(0.06),
+                    in: Circle()
+                )
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More")
+        .accessibilityLabel("More")
     }
 
     /// The bar with Return sending, or starting a new line with Command-Return sending.
@@ -183,9 +246,16 @@ struct ComposerBar: View {
         return bar
     }
 
-    /// The bar with `content` joined above the pill, on the pill's surface:
-    /// `ComposerStrip`s stacked with no spacing, or nothing. Each strip brings
-    /// `stripTransition`, and the caller animates the change with `stripAnimation`.
+    /// The bar with `content` in the `+` menu, at the pill's leading end: the caller's real items
+    /// only, and a caller with none sets no menu.
+    func menu(@ViewBuilder _ content: () -> some View) -> ComposerBar {
+        var bar = self
+        bar.menuView = AnyView(content())
+        return bar
+    }
+
+    /// The bar with `content` above the pill: strips stacked with no spacing,
+    /// or nothing. The caller animates the change with `stripAnimation`.
     func strip(@ViewBuilder _ content: () -> some View) -> ComposerBar {
         var bar = self
         bar.stripView = AnyView(content())
@@ -198,13 +268,6 @@ struct ComposerBar: View {
         var bar = self
         bar.queues = queues
         return bar
-    }
-
-    /// How a strip comes, as a bubble enters the transcript: it fades in while
-    /// rising from 8 points below, and leaves fading while it sinks. With Reduce
-    /// Motion it only fades.
-    static func stripTransition(reducesMotion: Bool) -> AnyTransition {
-        reducesMotion ? .opacity : .opacity.combined(with: .offset(y: 8))
     }
 
     /// The timing of a strip's coming and going, a bubble's ease-out, which the
@@ -234,34 +297,25 @@ struct ComposerBar: View {
         return bar
     }
 
-    private var isGlass: Bool {
-        guard #available(macOS 26, *) else { return false }
-        return buttonGlass ?? !reducesTransparency
+    /// The bar that hands its field's view to `link`, for the conversation's flights to read.
+    func fieldLink(_ link: ComposerField.Link?) -> ComposerBar {
+        var bar = self
+        bar.fieldLink = link
+        return bar
     }
 
     /// Release, when shown, beside the circle: it comes out of the circle to the left and goes back
-    /// into it, and on glass the two shapes merge as one control.
+    /// into it.
     private var actions: some View {
-        Group {
-            if #available(macOS 26, *) {
-                GlassEffectContainer(spacing: 6) { buttons }
-            } else {
-                buttons
-            }
-        }
-        .animation(reducesMotion ? nil : .spring(duration: 0.35, bounce: 0.15), value: release != nil)
-    }
-
-    private var buttons: some View {
         HStack(spacing: 6) {
             if let release {
                 releaseButton(release)
-                    .transition(isGlass ? .identity : .scale(scale: 0.3, anchor: .trailing)
-                        .combined(with: .opacity))
+                    .transition(.scale(scale: 0.3, anchor: .trailing).combined(with: .opacity))
             }
             circle
                 .background { queueShortcut }
         }
+        .animation(reducesMotion ? nil : .spring(duration: 0.35, bounce: 0.15), value: release != nil)
     }
 
     /// Command-Return while a draft can be queued. The circle is Stop then and
@@ -290,38 +344,86 @@ struct ComposerBar: View {
             Image(systemName: Self.releaseSymbol)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
-                .frame(width: Self.circleSide, height: Self.circleSide)
+                .frame(width: Self.releaseSide, height: Self.releaseSide)
+                // A quiet circle, as the `+` is.
+                .background(
+                    .white.opacity(0.06),
+                    in: Circle()
+                )
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .modifier(RoundGlass(isGlass: isGlass, tint: nil, id: "release", namespace: glass))
         .help("End this worker’s computer session.")
         .accessibilityLabel("Release Computer")
     }
 
-    /// Send, which becomes Stop in the same place while a turn runs. It takes the accent as soon
-    /// as there is something to send, with an animated change, and with nothing to send it is
-    /// plain glass with a secondary arrow rather than a dark disc.
+    /// Send, which becomes Stop in the same place while a turn runs, dimmed while nothing can be sent,
+    /// with an animated change.
     private var circle: some View {
         let isEnabled = isAnswering || canSend
-        // On glass the tint is the glass's own; off glass the circle is filled.
-        let fill = isGlass ? AnyShapeStyle(.clear)
-            : isEnabled ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary.opacity(0.6))
         return Button(action: isAnswering ? stop : send) {
-            Image(systemName: isAnswering ? "stop.fill" : "arrow.up")
-                .font(.system(size: isAnswering ? 11 : 13, weight: .bold))
-                .foregroundStyle(isEnabled ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
-                .frame(width: Self.circleSide, height: Self.circleSide)
-                .background(Circle().fill(fill))
-                .contentShape(Circle())
+            circleFace(isEnabled: isEnabled)
         }
         .buttonStyle(.plain)
-        .modifier(RoundGlass(isGlass: isGlass, tint: isEnabled ? .accentColor : nil, id: "circle", namespace: glass))
         .animation(reducesMotion ? nil : .easeInOut(duration: 0.2), value: isEnabled)
         .disabled(!isEnabled)
         .keyboardShortcut(isAnswering ? KeyboardShortcut(".", modifiers: .command)
                                       : KeyboardShortcut(.return, modifiers: .command))
         .help(isAnswering ? "Stop response." : "Send message.")
         .accessibilityLabel(isAnswering ? "Stop response from \(recipient)" : "Send Message")
+    }
+
+    /// The circle: light, with a dark glyph, and dimmed while nothing can be sent.
+    private func circleFace(isEnabled: Bool) -> some View {
+        Image(systemName: isAnswering ? "stop.fill" : "arrow.up")
+            .font(.system(
+                size  : isAnswering ? 13 : 15,
+                weight: .semibold
+            ))
+            .foregroundStyle(.black)
+            .frame(
+                width : Self.circleSide,
+                height: Self.circleSide
+            )
+            .background(
+                LinearGradient(
+                    colors    : [Color(white: 0.96), Color(white: 0.72)],
+                    startPoint: UnitPoint(x: 0.33, y: 0),
+                    endPoint  : UnitPoint(x: 0.67, y: 1)
+                ),
+                in: Circle()
+            )
+            .opacity(isEnabled ? 1 : 0.4)
+            .contentShape(Circle())
+    }
+}
+
+extension View {
+
+    /// Sets the composer on its ground: in a column centred on the conversation's ground, solid behind
+    /// it and fading to clear over `HouseFoot.fadeHeight` above it, so a message passing under
+    /// dissolves with no edge. Applied outside the composer's popups, which rise from the bar itself.
+    func composerDock() -> some View {
+        padding(
+            .horizontal,
+            8
+        )
+        .padding(
+            .top,
+            HouseFoot.fadeHeight
+        )
+        .frame(maxWidth: .infinity)
+        .background {
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors    : [Color("RestylingGround").opacity(0), Color("RestylingGround")],
+                    startPoint: .top,
+                    endPoint  : .bottom
+                )
+                .frame(height: HouseFoot.fadeHeight)
+                .allowsHitTesting(false)
+                Color("RestylingGround")
+            }
+        }
     }
 }

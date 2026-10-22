@@ -125,7 +125,12 @@ struct UnreadBadgeTests {
         let rows = TeamOutline.rows(of: [atlas.worker], unread: try await atlas.store.unreadByWorker())
         let row  = try #require(rows.first)
         #expect(row.needsAttention)
-        #expect(row.badgeText == nil)
+        #expect(HouseRoster.worker(
+            row,
+            provider   : nil,
+            isAnswering: false,
+            usesScreen : false
+        ).badge == .attention)
         #expect(row.accessibilityLabel.contains("Last response needs attention"))
 
         try await atlas.store.markRead(conversation: atlas.conversation.id)
@@ -163,6 +168,7 @@ struct UnreadBadgeTests {
     }
 
     @Test("The badge caps at 99+ and the label reads the count")
+    @MainActor
     func theBadgeCapsAndReads() async throws {
         let directory = TemporaryStore.directory()
         defer { TemporaryStore.discard(directory) }
@@ -172,11 +178,9 @@ struct UnreadBadgeTests {
             TeamOutline.rows(of: [atlas.worker],
                              unread: [atlas.worker.id: UnreadState(replies: replies, hasUnseenProblem: false)]).first
         }
-        #expect(row(0)?.badgeText == nil)
         #expect(row(1)?.accessibilityLabel == "Atlas, Release engineer, Needs Setup, 1 unread reply")
-        #expect(row(3)?.badgeText == "3")
-        #expect(row(99)?.badgeText == "99")
-        #expect(row(120)?.badgeText == "99+")
+        #expect(HouseBadgeView.countText(99) == "99")
+        #expect(HouseBadgeView.countText(120) == "99+")
         #expect(row(120)?.accessibilityLabel.hasSuffix("120 unread replies") == true)
     }
 
@@ -199,6 +203,6 @@ struct UnreadBadgeTests {
 
         #expect(busy.map(\.id) == quiet.map(\.id))
         #expect(busy.map(\.needsAttention) == quiet.map { $0.id == head.worker.id })
-        #expect(busy.map(\.badgeText) == quiet.map { $0.id == last.worker.id ? "2" : nil })
+        #expect(busy.map(\.unread.replies) == quiet.map { $0.id == last.worker.id ? 2 : 0 })
     }
 }

@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="it"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Braus Restyling</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: a quiet dark review book. Sticky index on the left, one chapter per surface, each chapter = decisions beside a live prototype. */
+:root{
+ --bg:#070708;--panel:#0e0e10;--line:rgba(255,255,255,.08);--fg:#f5f5f7;--mut:#9a9aa1;--dim:#5c5c63;
+ --amber:#ffb048;--green:#30d158;--blue:#78aaff;
+ --sf:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
+ --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+ color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sf);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;letter-spacing:-.011em;
+ padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+a{color:inherit}
+.wrap{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:200px minmax(0,1fr);gap:48px;padding-block:48px 96px}
+nav{position:sticky;top:calc(env(safe-area-inset-top,0px) + 32px);align-self:start;display:flex;flex-direction:column;gap:2px}
+nav .brand{font-weight:600;font-size:15px;margin-bottom:14px}
+nav .brand span{display:block;font:11px var(--mono);color:var(--dim);letter-spacing:.06em;margin-top:2px}
+nav a{text-decoration:none;font-size:13.5px;color:var(--mut);padding:6px 10px;border-radius:8px}
+nav a:hover,nav a:focus-visible{color:var(--fg);background:rgba(255,255,255,.05);outline:none}
+header{max-width:68ch}
+header .eyebrow{font:11px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+h1{font-size:clamp(34px,5vw,52px);font-weight:700;letter-spacing:-.04em;line-height:1.02;margin:10px 0 16px;text-wrap:balance}
+header p{color:var(--mut);margin:0 0 10px}
+.facts{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.fact{font-size:12.5px;color:var(--mut);padding:6px 12px;border-radius:980px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px var(--line)}
+.fact b{color:var(--fg);font-weight:500}
+section{padding-top:72px;scroll-margin-top:24px}
+section h2{font-size:28px;font-weight:650;letter-spacing:-.03em;margin:0 0 6px;text-wrap:balance}
+section .lead{color:var(--mut);margin:0 0 22px;max-width:68ch}
+.ch{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:24px;align-items:start}
+.dec{display:flex;flex-direction:column;gap:10px;margin:0;padding:0;list-style:none}
+.dec li{font-size:14px;line-height:1.5;color:#d6d6db;padding-left:18px;position:relative}
+.dec li::before{content:"";position:absolute;left:0;top:.62em;width:7px;height:7px;border-radius:50%;background:var(--fg)}
+.dec li.mine::before{background:none;box-shadow:inset 0 0 0 1.5px var(--mut)}
+.dec li.later::before{background:none;box-shadow:inset 0 0 0 1.5px var(--dim)}
+.dec li.later{color:var(--mut)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin:26px 0 0}
+.legend span{display:flex;align-items:center;gap:7px}
+.legend i{width:7px;height:7px;border-radius:50%;background:var(--fg)}
+.legend i.m{background:none;box-shadow:inset 0 0 0 1.5px var(--mut)}
+.legend i.l{background:none;box-shadow:inset 0 0 0 1.5px var(--dim)}
+.proto{border-radius:20px;overflow:hidden;background:var(--panel);box-shadow:0 0 0 1px var(--line),0 30px 60px rgba(0,0,0,.45)}
+.proto .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--mut)}
+.proto .bar a{font-size:12.5px;color:var(--fg);text-decoration:none;padding:5px 11px;border-radius:980px;background:rgba(255,255,255,.07);white-space:nowrap}
+.proto .bar a:hover,.proto .bar a:focus-visible{background:rgba(255,255,255,.14);outline:none}
+.proto iframe{display:block;width:100%;aspect-ratio:16/10;max-width:100%;min-height:440px;border:0;background:#050505}
+.try{font-size:12.5px;color:var(--dim);margin:10px 2px 0}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.rule{padding:18px 20px;border-radius:18px;background:var(--panel);box-shadow:inset 0 0 0 1px var(--line);font-size:14px;color:var(--mut)}
+.rule b{display:block;color:var(--fg);font-weight:600;margin-bottom:4px}
+.open{display:flex;flex-direction:column;gap:10px;max-width:68ch}
+.open div{padding:14px 18px;border-radius:14px;box-shadow:inset 0 0 0 1px var(--line);font-size:14px;color:var(--mut)}
+.open div b{color:var(--fg);font-weight:600}
+.open .new{border:1px dashed rgba(255,255,255,.18);box-shadow:none}
+@media (max-width:980px){.ch{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:760px){.wrap{grid-template-columns:minmax(0,1fr);gap:8px;padding-block:28px 64px}
+ nav{position:static;flex-direction:row;flex-wrap:wrap;gap:4px}nav .brand{width:100%;margin-bottom:4px}
+ .proto iframe{min-height:360px}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+html{scroll-behavior:smooth}
+</style>
+
+<div class="wrap">
+ <nav aria-label="Capitoli">
+  <div class="brand">Braus Restyling<span>elio/app-restyling</span></div>
+  <a href="#casa">La casa</a>
+  <a href="#anello">L'anello e i task</a>
+  <a href="#schermo">Lo schermo del worker</a>
+  <a href="#voce">La voce</a>
+  <a href="#chat">La chat</a>
+  <a href="#sopracciglia">Le sopracciglia</a>
+  <a href="#regole">Regole comuni</a>
+  <a href="#aperti">Punti aperti</a>
+ </nav>
+
+ <main>
+  <header>
+   <div class="eyebrow">Riepilogo del brainstorming · 20 ottobre 2026</div>
+   <h1>Braus Restyling</h1>
+   <p>Tutto quello che abbiamo deciso, capitolo per capitolo, con il prototipo da provare accanto. Serve a controllare il quadro intero prima di scrivere il documento di design.</p>
+   <p>I prototipi sono HTML e approssimano quello che nell'app faranno SwiftUI, Core Animation e Metal. Dati, worker e tempi sono finti.</p>
+   <div class="facts"><span class="fact">Branch <b>elio/app-restyling</b> da <b>main</b></span><span class="fact">Solo grafica, si collega dopo</span><span class="fact">HIG Apple per la UX</span></div>
+   <div class="legend"><span><i></i>Deciso da te</span><span><i class="m"></i>Proposta di Claude che hai lasciato passare</span><span><i class="l"></i>Arriva più avanti, la UI c'è già</span></div>
+  </header>
+
+  <section id="casa">
+   <h2>La casa</h2>
+   <p class="lead">L'app aperta. Braus è la casa, i worker sono i maggiordomi e ognuno ha la sua stanza.</p>
+   <div class="ch">
+    <ul class="dec">
+     <li>Al posto della colonna di righe c'è la pianta della casa, con una stanza per worker.</li>
+     <li>Ogni worker tiene il suo colore come tinta della sfera. Braus diventa solo scura. Chiudendo la finestra resta nella barra dei menu e l'icona nel Dock sparisce.</li>
+     <li>La luce della stanza dice lo stato. Niente bordo LED.</li>
+     <li class="mine">Colori della luce: ambra occupato, verde libero, blu ti aspetta, buio spento.</li>
+     <li>Il worker vive nella luce della sua stanza: riflesso netto in alto, rimbalzo del pavimento in basso. Ray tracing Metal sui Mac che lo hanno, luce precalcolata sulla GPU sugli altri.</li>
+     <li>In chat il worker sta in alto al centro, piccolo.</li>
+     <li class="mine">Quando parli con un worker lui esce dalla stanza, che resta vuota con la porta accesa e la scritta «è da te».</li>
+     <li>Nell'inspector restano solo lo schermo e il provider, con la connessione dentro, come lastre metalliche arrotondate.</li>
+     <li>Modello ed effort solo nel composer, mai doppi.</li>
+     <li>La struttura è quella di una normale app macOS, come oggi: barra laterale, contenuto e inspector che si apre dalla toolbar. Il + per un nuovo worker resta accanto ai semafori.</li>
+     <li>I provider escono dalla barra laterale: nell'inspector, sotto il provider del worker, c'è la riga «Tutti i provider». Niente badge sempre acceso.</li>
+     <li>Due modalità per la barra laterale, Stanze e Righe, che si scelgono nelle Impostazioni. In Righe ogni worker ha la sfera con dietro la luce del suo stato, nome, attività e segni a destra.</li>
+     <li class="mine">La pianta riempie la barra laterale: due colonne quando è larga, una quando è compatta. La ricerca (⌘F) sta in cima, l'archivio è una cantina in fondo, e i non letti e l'attenzione sono un segno sulla stanza.</li>
+     <li class="mine">Nella toolbar c'è solo il gruppo Schermo e Inspector. Il nome del worker non si ripete nella barra del titolo, perché c'è già il worker in alto.</li>
+     <li class="mine">Senza un worker scelto, il contenuto mostra una piccola pianta con «Scegli una stanza per parlare con il suo worker».</li>
+     <li class="mine">Lo stato è nella luce e nelle sopracciglia. L'attività va sotto il nome del worker, la compattazione sull'anello del composer, la finestra di Chrome nel menu + del composer. L'ultimo turno sparisce.</li>
+    </ul>
+    <div><div class="proto"><div class="bar">La casa nella struttura macOS <a href="casa.html" target="_blank" rel="noopener">Apri a tutta pagina ↗</a></div><iframe src="casa.html" title="Prototipo della casa" loading="lazy"></iframe></div>
+     <p class="try">Clicca una stanza o una riga per scegliere il worker. I pulsanti in alto simulano la scelta Stanze o Righe delle Impostazioni e mostrano lo stato vuoto, la barra compatta e l'inspector chiuso.</p></div>
+   </div>
+  </section>
+
+  <section id="anello">
+   <h2>L'anello e i task</h2>
+   <p class="lead">L'app chiusa vive nella barra dei menu. Una scorciatoia apre l'anello sopra l'app che hai davanti.</p>
+   <div class="ch">
+    <ul class="dec">
+     <li>Un anello di vetro unico e spesso, nello stile della Spotlight. Ogni elemento ha la sua zona, che si accende.</li>
+     <li>Dentro: al massimo 4 worker, i tre punti e la sfera della voce.</li>
+     <li>L'anello sa su quale app lo apri e consiglia i worker adatti. Sulla Scrivania mostra quelli che usi di più.</li>
+     <li class="mine">La categoria dell'app viene da quella che dichiara a macOS.</li>
+     <li>La categoria del worker la scegli tu quando lo crei, poi Braus la affina con l'uso.</li>
+     <li>Sui tre punti l'anello brilla tre volte e si riforma con tutti i worker.</li>
+     <li>Ti fermi su un worker e lui si prepara. La sua zona trasla, si raddrizza e si allarga fino a diventare la barra.</li>
+     <li class="mine">Il passaggio del mouse conta solo dopo che hai mosso il puntatore.</li>
+     <li>La prima apertura costruisce l'anello in 2 s, le successive in meno di mezzo secondo.</li>
+     <li>La barra è come la Spotlight: mascotte a sinistra, microfono a destra. Sotto c'è una scheda di vetro con gli altri worker, il loro stato e ⌘1–⌘4.</li>
+     <li>Su un worker occupato la scheda mostra «Adesso» con Guarda.</li>
+     <li>Dopo l'invio la barra diventa la finestra del task: passi uniti da un filo, con le sottodescrizioni, e le etichette del contesto allineate a sinistra.</li>
+     <li>Con il worker occupato la finestra mostra «Adesso» e, sotto, «In coda», con più aria.</li>
+     <li class="mine">Sul task in coda c'è il suggerimento di un worker libero, «Dallo a Mixing».</li>
+     <li>Il task in corso finisce nella barra dei menu, da cui lo riapri così com'era. «Apri in Braus» porta alla conversazione.</li>
+     <li class="mine">L'icona nella barra dei menu ha le sopracciglia dello stato e il numero dei task, e arriva una notifica quando un worker finisce.</li>
+    </ul>
+    <div><div class="proto"><div class="bar">Anello, barra, task, barra dei menu <a href="anello.html" target="_blank" rel="noopener">Apri a tutta pagina ↗</a></div><iframe src="anello.html" title="Prototipo dell'anello" loading="lazy"></iframe></div>
+     <p class="try">Clicca dentro il riquadro, poi usa il pulsante «Apri l'anello» o ⌥ Spazio. In basso a sinistra puoi cambiare l'app su cui lo apri.</p></div>
+   </div>
+  </section>
+
+  <section id="schermo">
+   <h2>Lo schermo del worker</h2>
+   <p class="lead">Una finestra staccata in cui guardi il worker lavorare sul suo schermo virtuale.</p>
+   <div class="ch">
+    <ul class="dec">
+     <li>È una finestra macOS normale: semafori, finisce sotto le altre, niente picture-in-picture.</li>
+     <li>Nella barra del titolo ci sono la mascotte, il nome e il titolo del task, senza passi. «Apri in Braus» è solo un'icona.</li>
+     <li class="mine">Il cursore del worker porta la sua mascotte. Un'onda ambra a ogni clic e una didascalia in basso dicono cosa sta facendo.</li>
+     <li class="mine">I comandi compaiono quando passi sopra lo schermo. Ferma funziona già.</li>
+     <li class="later">Prendi il controllo e Dì qualcosa: cliccare al posto del worker e fermarlo.</li>
+    </ul>
+    <div><div class="proto"><div class="bar">Finestra dello schermo <a href="schermo.html" target="_blank" rel="noopener">Apri a tutta pagina ↗</a></div><iframe src="schermo.html" title="Prototipo dello schermo del worker" loading="lazy"></iframe></div>
+     <p class="try">Gira da solo. Passa sopra lo schermo per vedere i comandi.</p></div>
+   </div>
+  </section>
+
+  <section id="voce">
+   <h2>La voce</h2>
+   <p class="lead">Una bolla in alto a destra dello schermo. Parli, e Braus risponde con la voce o con il testo.</p>
+   <div class="ch">
+    <ul class="dec">
+     <li class="later">Parli con Braus in generale, e Braus decide a quale worker passare il lavoro. La UI c'è già: la mascotte del worker esce dalla sfera e si posa nella risposta.</li>
+     <li>È piccola come una mascotte e nasce come sua mutazione: le sopracciglia si sciolgono in un punto di luce e il metallo diventa vetro.</li>
+     <li>Il materiale è grafite satinata e trasparente: né metallo liquido né troppo lucida, e diversa dalla sfera di Apple.</li>
+     <li>Le onde di luce nascono al centro e si espandono, ogni strato con la sua soglia di voce. La luce esce sull'ambiente.</li>
+     <li class="mine">La trascrizione sta accanto alla sfera: le tue parole in chiaro, Braus in vetro scuro.</li>
+     <li class="mine">Sparisce dopo qualche secondo di silenzio, oppure con Esc o un clic, con la mutazione al contrario.</li>
+    </ul>
+    <div><div class="proto"><div class="bar">Bolla vocale <a href="voce.html" target="_blank" rel="noopener">Apri a tutta pagina ↗</a></div><iframe src="voce.html" title="Prototipo della voce" loading="lazy"></iframe></div>
+     <p class="try">Gira in loop. I pulsanti in basso a sinistra saltano a uno stato.</p></div>
+   </div>
+  </section>
+
+  <section id="chat">
+   <h2>La chat</h2>
+   <p class="lead">Quattro momenti: l'invio, la coda, la ripresa di un messaggio e il dialogo con il worker.</p>
+   <div class="ch">
+    <ul class="dec">
+     <li>Invio: il testo si stacca dal composer, gli cresce intorno la bolla e atterra con un piccolo rimbalzo.</li>
+     <li>Coda: mentre il worker lavora, quello che mandi va in una striscia sopra il composer, con ‹ 2/3 ›, «Invia ora» e ✕. A fine turno parte da solo.</li>
+     <li>Ripresa: una copia della bolla scende nella striscia della citazione. Con ✕ torna al suo posto.</li>
+     <li>Dialogo: la mascotte si prepara, nasce la bolla dei tre punti, la riga dei tool si aggiorna in linguaggio umano, poi la bolla si apre nella risposta, parola per parola.</li>
+     <li>Restano le regole di prima: niente stato sui messaggi riusciti, badge solo sugli errori, composer a pillola, anello del contesto.</li>
+    </ul>
+    <div><div class="proto"><div class="bar">Chat <a href="chat.html" target="_blank" rel="noopener">Apri a tutta pagina ↗</a></div><iframe src="chat.html" title="Prototipo della chat" loading="lazy"></iframe></div>
+     <p class="try">Scrivi e premi Invio. Manda di nuovo mentre il worker lavora per vedere la coda. Passa su una bolla e clicca ↩.</p></div>
+   </div>
+  </section>
+
+  <section id="sopracciglia">
+   <h2>Le sopracciglia</h2>
+   <p class="lead">Teniamo il sistema ibrows con i suoi movimenti. Cambia solo il colore della testa.</p>
+   <div class="ch">
+    <ul class="dec">
+     <li>Sette stati: Idle, Listening, Working, Asking, Done, Failed, Offline.</li>
+     <li>Le sagome si trasformano in 360 ms, oppure in 230 ms per Working e Failed. Le due sopracciglia partono a 40 ms di distanza, e una può restare ferma.</li>
+     <li>La testa respira, e le sopracciglia ruotano sulla sfera seguendo il mouse.</li>
+     <li>A Done e Failed la testa resta scura, perché l'esito lo dice la luce della stanza.</li>
+     <li class="mine">Solo Offline ingrigisce testa e sopracciglia.</li>
+    </ul>
+    <div><div class="proto"><div class="bar">Sopracciglia <a href="sopracciglia.html" target="_blank" rel="noopener">Apri a tutta pagina ↗</a></div><iframe src="sopracciglia.html" title="Prototipo delle sopracciglia" loading="lazy"></iframe></div>
+     <p class="try">Clicca uno stato e muovi il mouse sulla faccia.</p></div>
+   </div>
+  </section>
+
+  <section id="regole">
+   <h2>Regole comuni</h2>
+   <div class="rules">
+    <div class="rule"><b>Solo grafica</b>Il restyling è un mockup. Si collega al motore un pezzo alla volta, dopo l'approvazione.</div>
+    <div class="rule"><b>Animare tutto, con misura</b>Core Animation per le animazioni, Metal per luce, vetro e onde. SwiftUI solo dove Core Animation non arriva.</div>
+    <div class="rule"><b>HIG Apple</b>La UI cambia molto, la UX resta quella di macOS: finestre normali, scorciatoie, Esc, VoiceOver, Riduci movimento.</div>
+    <div class="rule"><b>Una materia sola</b>Vetro scuro e metallo satinato, forme rotonde con tagli netti come il logo, luce come linguaggio dello stato.</div>
+   </div>
+  </section>
+
+  <section id="aperti">
+   <h2>Punti aperti</h2>
+   <div class="open">
+    <div><b>Scorciatoia dell'anello.</b> Nel prototipo è ⌥ Spazio, ma va scelta una combinazione che non si scontri con Spotlight e con le app.</div>
+    <div><b>Prova del ray tracing.</b> Va misurato sull'M1 quanto costa la luce delle stanze senza ray tracing hardware.</div>
+    <div class="new"><b>Il tuo punto in più.</b> Dimmelo in chat e lo aggiungo qui prima di scrivere il documento.</div>
+   </div>
+  </section>
+ </main>
+</div>
+
+</html>

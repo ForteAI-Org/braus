@@ -11,6 +11,10 @@ import CoreGraphics
 /// TranscriptStyle is everything besides content and width that changes how
 /// tall a row is. It is part of every `LayoutMeasurementCache` key, so a
 /// larger text size (§3.3) measures again instead of reusing a stale height.
+///
+/// The transcript is a centred column of quiet dark bubbles, each with a tight
+/// corner toward its author and no tail, day labels with no rules, a tool line
+/// with a spinner or a dot, and new words that fade in.
 nonisolated struct TranscriptStyle: Sendable, Hashable {
 
     /// The conversation body, in points. The spec's floor is 14.
@@ -67,8 +71,8 @@ nonisolated struct TranscriptStyle: Sendable, Hashable {
     /// Names, times and delivery states.
     var captionPointSize: CGFloat { max(10, bodyPointSize - 3) }
 
-    /// Tool lines and their steps, a step below the caption: quieter than the replies they open.
-    var toolPointSize: CGFloat { captionPointSize - 1 }
+    /// Tool lines and their steps, two steps below the body: quieter than the replies they open.
+    var toolPointSize: CGFloat { max(10, bodyPointSize - 2) }
 
     /// Failure reasons.
     var monospacedPointSize: CGFloat { max(10, bodyPointSize - 2) }
@@ -78,15 +82,6 @@ nonisolated struct TranscriptStyle: Sendable, Hashable {
 
     /// The height of one caption line, rounded up to whole points.
     var captionLineHeight: CGFloat { (captionPointSize * 1.35).rounded(.up) }
-
-    /// A bubble for a short reply stays this narrow however wide the window.
-    var shortMeasure: CGFloat { (bodyPointSize * 34).rounded() }
-
-    /// A long text gets a wider surface, still a readable line (about 75 characters).
-    var longMeasure: CGFloat { (bodyPointSize * 48).rounded() }
-
-    /// Code and tables may take this much, wider than prose (§11.1).
-    var wideMeasure: CGFloat { (bodyPointSize * 72).rounded() }
 
     /// Code, inline or in a block.
     var codePointSize: CGFloat { max(10, bodyPointSize - 1) }

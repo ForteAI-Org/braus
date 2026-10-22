@@ -8,7 +8,7 @@
 import AppKit
 import SwiftUI
 
-/// WindowResizeCheck puts the team shell in a real window on screen, with a real display cycle,
+/// WindowResizeCheck puts the house window in a real window on screen, with a real display cycle,
 /// and resizes it back and forth across the widths where the sidebar turns compact and where the
 /// inspector stops fitting, when the app is launched with BRAUS_WINDOW_CHECK=1. It prints each
 /// step and quits with 0 once every step has run; an abort in AppKit's layout ends the process

@@ -19,6 +19,9 @@ struct ComposerTests {
 
     private static let notFound = NSRange(location: NSNotFound, length: 0)
 
+    /// The least a strip adds above the pill: a line of text and its tab's padding.
+    private static let stripLine: CGFloat = 28
+
     @Test("Return sends, and the text it sent is the draft")
     func returnSends() async throws {
         let harness = ComposerHarness()
@@ -111,6 +114,7 @@ struct ComposerTests {
         let scrollView = try #require(harness.scrollView)
         let textView   = scrollView.textView
         let empty      = scrollView.frame.height
+        #expect(scrollView.lineLimit == ComposerBar.maximumLines)
 
         harness.draft = "one\ntwo\nthree"
         try await harness.settle()
@@ -161,7 +165,7 @@ struct ComposerTests {
             ),
             "no text wraps beside the scroller and not without it"
         )
-        let full     = (1...ComposerScrollView.maximumLines).map { "line \($0)" }.joined(separator: "\n")
+        let full     = (1...scrollView.lineLimit).map { "line \($0)" }.joined(separator: "\n")
 
         for draft in [straddle, full + "\n" + straddle] {
             harness.draft = draft
@@ -295,7 +299,7 @@ struct ComposerTests {
 
         harness.quote = "Two bundles failed: capture and layout."
         try await harness.settle()
-        #expect(harness.barHeight >= resting + ComposerStrip<EmptyView>.controlHeight)
+        #expect(harness.barHeight >= resting + Self.stripLine)
         #expect(harness.scrollView?.frame.height == field, "the field keeps its height under the strip")
 
         harness.focus()
@@ -320,12 +324,12 @@ struct ComposerTests {
         harness.queued = ["Then check yesterday’s build."]
         try await harness.settle()
         let queue = harness.barHeight - resting
-        #expect(queue >= ComposerStrip<EmptyView>.controlHeight)
+        #expect(queue >= Self.stripLine)
 
         harness.quote = "Two bundles failed: capture and layout."
         try await harness.settle()
         let reply = harness.barHeight - resting - queue
-        #expect(reply >= ComposerStrip<EmptyView>.controlHeight)
+        #expect(reply >= Self.stripLine)
 
         harness.queued = ["one", "two", "three"]
         try await harness.settle()
@@ -373,6 +377,17 @@ struct ComposerTests {
         harness.focusRequest += 1
         try await harness.settle()
         #expect(harness.window?.firstResponder === textView)
+    }
+
+    @Test("The pill is one row high around one line, on its ground")
+    func pillIsOneRow() async throws {
+        let harness = ComposerHarness()
+        defer { harness.close() }
+        try await harness.settle()
+        let field = try #require(harness.scrollView?.frame.height)
+        #expect(field + 2 * ComposerBar.houseFieldInset == ComposerBar.houseRowHeight)
+        // The pill, its 20 point margin below, and the ground's fade above.
+        #expect(harness.barHeight == ComposerBar.houseRowHeight + 20 + HouseFoot.fadeHeight)
     }
 
     private func bar(draft: String, isAnswering: Bool = false, canAnswer: Bool = true) -> ComposerBar {

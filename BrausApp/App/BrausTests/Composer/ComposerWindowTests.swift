@@ -18,9 +18,9 @@ import Testing
 /// text to the field later.
 ///
 /// Every check runs inside one test, each in a window of its own: once the
-/// process has been active, the input method can end it with status zero. For
-/// the same reason the suite's name sorts after every offscreen suite of this
-/// target, so they all run first.
+/// process has been active, the
+/// input method can end it with status zero. For the same reason the suite's
+/// name sorts after every offscreen suite of this target, so they all run first.
 @Suite("Composer in a key window", .serialized)
 @MainActor
 struct ComposerWindowTests {
@@ -35,9 +35,9 @@ struct ComposerWindowTests {
         try await releaseButton()
     }
 
-    /// A key window whose bar is on the material surface, where the circle is measured from what the view draws.
+    /// A key window, where the circle is measured from what the view draws.
     private func keyWindowHarness() async throws -> ComposerHarness {
-        let harness = ComposerHarness(surface: .material, onScreen: true)
+        let harness = ComposerHarness(onScreen: true)
         harness.becomeKey()
         harness.focus()
         try await harness.settle()
@@ -137,12 +137,21 @@ struct ComposerWindowTests {
         #expect(circles.allSatisfy { $0 == circles[0] })
         #expect(fields[0].maxY < fields[1].maxY && fields[1].maxY < fields[2].maxY)
         let circle = circles[0]
-        // The antialiased rim is not the solid accent, so the drawn box is up to a point smaller.
+        // The antialiased rim is not the solid fill, so the drawn box is up to a point smaller.
         #expect(abs(circle.width - ComposerBar.circleSide) <= 1 && abs(circle.height - ComposerBar.circleSide) <= 1)
-        // Inset from the window's trailing and bottom edges by the bar's margins and the pill's padding.
-        #expect(abs(hosting.bounds.maxX - circle.maxX - (16 + ComposerBar.padding)) <= 1)
-        #expect(abs(circle.minY - (12 + ComposerBar.padding)) <= 1)
+        let insets = Self.circleInsets(in: hosting.bounds.width)
+        #expect(abs(hosting.bounds.maxX - circle.maxX - insets.trailing) <= 1)
+        #expect(abs(circle.minY - insets.bottom) <= 1)
         #expect(fields.allSatisfy { $0.maxX < circle.minX && $0.minY < circle.maxY })
+    }
+
+    /// How far the circle stands from the window's trailing and bottom edges: the centred column and
+    /// the circle's room in its row.
+    private static func circleInsets(in window: CGFloat) -> (trailing: CGFloat, bottom: CGFloat) {
+        (
+            trailing: (window - min(window - 48, RowGeometry.houseColumn)) / 2 + 8,
+            bottom  : 20 + (ComposerBar.houseRowHeight - ComposerBar.circleSide) / 2
+        )
     }
 
     /// During a turn the circle becomes Stop in the same place, and Command-Period stops.
@@ -213,7 +222,7 @@ struct ComposerWindowTests {
         let circle = try await harness.waitForCircle().frame
         let alone  = scrollView.convert(scrollView.bounds, to: nil)
         // Only the bar's spacing lies between the field and the circle: nothing else is drawn there.
-        #expect(abs(circle.minX - alone.maxX - 8) <= 1)
+        #expect(abs(circle.minX - alone.maxX - ComposerBar.spacing) <= 1)
         #expect(harness.drawnMark(between: alone.maxX, and: circle.minX, alongside: circle) == nil)
 
         harness.holdsComputer = true
@@ -229,7 +238,7 @@ struct ComposerWindowTests {
             )
             let isStill = mark != nil && mark == lastMark
             lastMark    = mark
-            return isStill && abs(alone.maxX - field.maxX - (ComposerBar.circleSide + 6)) <= 1
+            return isStill && abs(alone.maxX - field.maxX - (ComposerBar.releaseSide + 6)) <= 1
         }
         let field   = scrollView.convert(scrollView.bounds, to: nil)
         let release = try #require(harness.drawnMark(
@@ -239,7 +248,7 @@ struct ComposerWindowTests {
         ))
         print("circle \(circle), release glyph \(release), field \(alone.maxX) -> \(field.maxX)")
         #expect(try #require(harness.drawnCircle()).frame == circle)
-        #expect(abs(alone.maxX - field.maxX - (ComposerBar.circleSide + 6)) <= 1)
+        #expect(abs(alone.maxX - field.maxX - (ComposerBar.releaseSide + 6)) <= 1)
         #expect(release.maxX < circle.minX && release.minX > field.maxX)
         #expect(abs(release.midY - circle.midY) <= 1.5)
 

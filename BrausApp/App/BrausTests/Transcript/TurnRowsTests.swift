@@ -129,49 +129,23 @@ struct TurnRowsTests {
         #expect(!items.contains(where: Self.isThinking))
     }
 
-    @Test("Only the last bubble of each group carries the tail, on its author's side, clear of any mascot")
-    func tailOnGroupEnd() async throws {
-        let fixture = try await TranscriptFixture()
-        defer { fixture.discard() }
-        let turn = UUID()
-        try await fixture.say("One", at: 0)
-        try await fixture.say("Two", at: 10)
-        try await fixture.say("Three", at: 20)
-        try await fixture.record(.executionStarted, subject: turn, at: 21)
-        try await fixture.say("First reply", at: 22, byWorker: true)
-        try await fixture.say("Second reply", at: 23, byWorker: true)
-        try await fixture.record(.toolActivity, subject: turn, at: 24, text: "→ status {}")
-        try await fixture.record(.executionCompleted, subject: turn, at: 25)
-
-        let items    = TranscriptFixture.withoutDays(try await fixture.items())
-        let prepared = await RowPreparation.prepare(items, workerName: "Atlas", width: 600, style: TranscriptStyle(),
-                                                    cache: LayoutMeasurementCache(), pipeline: MarkdownContent())
-        let rows = prepared.rows
-        // The tool line opens the worker's part, so the replies under it are the group that ends last.
-        #expect(rows.map(\.item.endsGroup) == [false, false, true, false, false, true])
-        #expect(rows.map { $0.geometry.tail != nil } == [false, false, true, false, false, true])
-
-        let person = try #require(rows[2].geometry.tail)
-        #expect(person.minX == rows[2].geometry.surface.maxX && person.maxX <= 600 - RowGeometry.gutter / 2)
-        let worker = try #require(rows[5].geometry.tail)
-        #expect(worker.maxX == rows[5].geometry.surface.minX)
-        #expect(worker.minX >= RowGeometry.gutter / 2, "in a direct conversation the tail stays in the gutter")
-        let authored = RowGeometry(item: rows[5].item, rowWidth: 600, style: TranscriptStyle(showsAuthors: true),
-                                   blocks: [.text], sizes: [CGSize(width: 120, height: 17)])
-        #expect(try #require(authored.tail).minX > RowGeometry.gutter + RowGeometry.avatarSide,
-                "with authors shown the tail stays clear of the mascot")
-        #expect(worker.maxY == rows[5].geometry.surface.maxY && rows[5].geometry.height >= worker.maxY)
-
-        // The tail moves no text: the same reply, with and without it. The group's end adds only its time below.
-        var untailed = rows[5].item
-        untailed.endsGroup = false
-        let size = [CGSize(width: 120, height: 17)]
-        let with = RowGeometry(item: rows[5].item, rowWidth: 600, style: TranscriptStyle(), blocks: [.text], sizes: size)
-        let without = RowGeometry(item: untailed, rowWidth: 600, style: TranscriptStyle(), blocks: [.text], sizes: size)
-        #expect(with.tail != nil && without.tail == nil)
-        #expect(with.text == without.text && with.surface == without.surface)
-        let time = try #require(with.footer)
-        #expect(without.footer == nil && time.minY > with.surface.maxY && with.height == time.maxY.rounded(.up))
+    @Test("The group's end adds only its time below, and moves no text")
+    func groupEndAddsItsTime() {
+        let item = TranscriptItem(
+            id            : .message(UUID()),
+            kind          : .workerReply(text: "Done.", isInterrupted: false),
+            date          : TranscriptFixture.at(0),
+            authorWorkerID: UUID(),
+            continuesGroup: false,
+            endsGroup     : true
+        )
+        var inside = item
+        inside.endsGroup = false
+        let size    = [CGSize(width: 120, height: 17)]
+        let ending  = RowGeometry(item: item, rowWidth: 600, style: TranscriptStyle(), blocks: [.text], sizes: size)
+        let within  = RowGeometry(item: inside, rowWidth: 600, style: TranscriptStyle(), blocks: [.text], sizes: size)
+        #expect(ending.text == within.text && ending.surface == within.surface)
+        #expect(within.footer == nil && (ending.footer?.minY ?? 0) > ending.surface.maxY)
     }
 
     @Test("A thinking row has no text, draws a bubble of one line, reads its worker's name and shows it only with authors")
@@ -190,41 +164,23 @@ struct TurnRowsTests {
                                    blocks: [], sizes: [])
         #expect(authored.avatar != nil && authored.header != nil)
         #expect(row.geometry.text.size == RowGeometry.thinkingSize(TranscriptStyle()))
-        #expect(row.geometry.text.width == row.geometry.text.height)
+        #expect(row.geometry.text.width > row.geometry.text.height, "as wide as its bubble of thinking")
         #expect(TranscriptWording.accessibilityLabel(for: row.item, workerName: "Atlas") == "Atlas is preparing a response")
     }
 
-    @Test("The thinking blob takes its worker's colour, and the accent only when a worker has none")
+    @Test("The thinking blob is the bubble's light grey")
     @MainActor
-    func thinkingBlobTakesTheWorkersColour() async throws {
+    func thinkingBlobIsLightGrey() async throws {
         let fixture = try await TranscriptFixture()
         defer { fixture.discard() }
         _ = try await running(fixture)
         let items    = try await fixture.items()
         let prepared = await RowPreparation.prepare(items, workerName: "Atlas", width: 600, style: TranscriptStyle(),
                                                     cache: LayoutMeasurementCache(), pipeline: MarkdownContent())
-        let row    = try #require(prepared.rows.first { $0.item.kind == .thinking })
-        let colour = MascotImages.color(for: TranscriptFixture.appearance)
-
-        func blob(in view: TranscriptRowView) throws -> ThinkingBlobView {
-            try #require(view.subviews.compactMap { $0 as? ThinkingBlobView }.first)
-        }
-        func fill(of blob: ThinkingBlobView) throws -> NSColor {
-            let shape = try #require(blob.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.first)
-            return try #require(shape.fillColor.flatMap { NSColor(cgColor: $0) }?.usingColorSpace(.sRGB))
-        }
-
-        let owned = TranscriptRowView()
-        owned.configure(row, style: TranscriptStyle(), workerName: "Atlas", avatar: nil, workerTint: colour,
-                        selection: nil)
-        let expected = try #require(colour.usingColorSpace(.sRGB))
-        let painted  = try fill(of: try blob(in: owned))
-        #expect(abs(painted.redComponent - expected.redComponent) < 0.001)
-        #expect(abs(painted.greenComponent - expected.greenComponent) < 0.001)
-        #expect(abs(painted.blueComponent - expected.blueComponent) < 0.001)
-
-        let bare = TranscriptRowView()
-        bare.configure(row, style: TranscriptStyle(), workerName: "Atlas", avatar: nil, selection: nil)
-        #expect(try blob(in: bare).tint == NSColor.controlAccentColor)
+        let row  = try #require(prepared.rows.first { $0.item.kind == .thinking })
+        let view = TranscriptRowView()
+        view.configure(row, style: TranscriptStyle(), workerName: "Atlas", avatar: nil, selection: nil)
+        let blob = try #require(view.subviews.compactMap { $0 as? ThinkingBlobView }.first)
+        #expect(blob.tint == NSColor(white: 0.92, alpha: 1))
     }
 }

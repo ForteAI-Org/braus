@@ -9,8 +9,8 @@ import SwiftUI
 
 extension WindowSnapshots {
 
-    /// The window's memory as plain state, standing in for the scene storage
-    /// `TeamWindowView` keeps.
+    /// The house window over `team`, with the window's memory as plain state,
+    /// standing in for the scene storage `TeamWindowView` keeps.
     struct Root: View {
 
         let team: TeamModel
@@ -18,7 +18,7 @@ extension WindowSnapshots {
         @State var isInspectorRequested: Bool
 
         var body: some View {
-            TeamShellView(
+            HouseShellView(
                 team                : team,
                 isInspectorRequested: $isInspectorRequested
             )

@@ -19,11 +19,6 @@ struct BrausApp: App {
     /// click.
     @State private var workspace = WorkspaceLaunch()
 
-    #if DEBUG
-    /// What the Debug menu's Appearance has the app follow.
-    @State private var debugAppearance = DebugAppearance.system
-    #endif
-
     @NSApplicationDelegateAdaptor(SeatReleasingDelegate.self)
     private var delegate
 
@@ -34,6 +29,7 @@ struct BrausApp: App {
             || WindowResizeCheck.isRequested
             || TranscriptCopyCheck.isRequested
             || WindowClickCheck.isRequested
+            || RoomCostCheck.isRequested
             || isTestHost
     }
 
@@ -83,10 +79,8 @@ struct BrausApp: App {
             // The team's sidebar turns compact and is never hidden, so the View menu has no place for it.
             CommandGroup(replacing: .sidebar) {}
             TextSizeCommands()
-            #if DEBUG
-            DebugAppearanceCommands(choice: $debugAppearance)
-            #endif
             TeamMenuCommands()
+            HouseFindCommands()
             SettingsCommands()
             MCPConnectionsCommands()
         }

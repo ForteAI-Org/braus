@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 24/09/2026.
 //
 
+import AppKit
 import SwiftUI
 
 /// BrainCanvas draws the simulation's nodes where they stand, a frame at a
@@ -31,6 +32,10 @@ struct BrainCanvas: View, Animatable {
 
     @Environment(\.colorScheme)
     private var colorScheme
+
+    /// What the colours resolve in: the accent, the scheme.
+    @Environment(\.self)
+    private var environment
 
     @Environment(\.accessibilityReduceMotion)
     private var reducesMotion
@@ -61,9 +66,9 @@ struct BrainCanvas: View, Animatable {
         )) { timeline in
             let _ = simulation.advance(to: timeline.date)
 
-            Canvas { context, size in
+            BrainDrawing { context, size in
                 draw(
-                    in  : &context,
+                    in  : context,
                     size: size,
                     at  : timeline.date
                 )
@@ -77,7 +82,7 @@ struct BrainCanvas: View, Animatable {
     // MARK: Drawing
 
     private func draw(
-        in context: inout GraphicsContext,
+        in context: CGContext,
         size      : CGSize,
         at date   : Date
     ) {
@@ -109,7 +114,7 @@ struct BrainCanvas: View, Animatable {
         let dimming = hovered == nil ? 1 : Self.faded
 
         backdrop(
-            in    : &context,
+            in    : context,
             size  : size,
             isDark: isDark
         )
@@ -133,27 +138,29 @@ struct BrainCanvas: View, Animatable {
             }
         }
 
-        var filaments = context
-        filaments.blendMode = isDark ? .plusLighter : .normal
+        context.saveGState()
+        context.setBlendMode(isDark ? .plusLighter : .normal)
         for (kind, path) in strands {
-            filaments.stroke(
+            stroke(
                 path,
-                with     : .color(BrainPalette.colour(of: kind).opacity((isDark ? 0.34 : 0.42) * dimming)),
-                lineWidth: 1
+                with : BrainPalette.colour(of: kind).opacity((isDark ? 0.34 : 0.42) * dimming),
+                width: 1,
+                in   : context
             )
         }
-        filaments.stroke(
+        stroke(
             lighted,
-            with     : .color(.primary.opacity(0.6)),
-            lineWidth: 1.25
+            with : .primary.opacity(0.6),
+            width: 1.25,
+            in   : context
         )
-        context.stroke(
+        context.restoreGState()
+        stroke(
             effects,
-            with : .color(.accentColor.opacity(0.8 * dimming)),
-            style: StrokeStyle(
-                lineWidth: 1.5,
-                dash     : [4, 3]
-            )
+            with : .accentColor.opacity(0.8 * dimming),
+            width: 1.5,
+            dash : [4, 3],
+            in   : context
         )
 
         // The nodes from the back: controls, then groups, then windows.
@@ -165,7 +172,7 @@ struct BrainCanvas: View, Animatable {
                     fade  : (lit.map { $0.contains(index) ? 1 : Self.faded } ?? 1) * min(1, arrived[index]),
                     breath: breath(of: index, at: date),
                     isDark: isDark,
-                    in    : &context
+                    in    : context
                 )
             }
         }
@@ -173,37 +180,108 @@ struct BrainCanvas: View, Animatable {
         // Windows and groups carry their names under them; a control's shows under the pointer.
         for index in nodes.indices where present[index] && depth(of: nodes[index].kind) > 0 {
             let node  = nodes[index]
-            let title = node.kind == .window
-                ? Text(node.label).font(.callout.weight(.semibold))
-                : Text(node.label).font(.caption2).foregroundStyle(.secondary)
-            var label = context
-            label.opacity = (lit.map { $0.contains(index) ? 1 : Self.faded } ?? 1) * min(1, arrived[index])
-            label.draw(
-                title,
-                at    : CGPoint(
-                    x: points[index].x,
-                    y: points[index].y + camera.radius(node.radius) * Self.coreShare + 6
-                ),
-                anchor: .top
+            let title = NSAttributedString(
+                string    : node.label,
+                attributes: node.kind == .window
+                    ? [
+                        .font           : Self.windowFont,
+                        .foregroundColor: NSColor.labelColor,
+                    ]
+                    : [
+                        .font           : NSFont.preferredFont(forTextStyle: .caption2),
+                        .foregroundColor: NSColor.secondaryLabelColor,
+                    ]
             )
+            // The name's width in whole pixels, as SwiftUI sizes a text before it centres it.
+            let scale = context.userSpaceToDeviceSpaceTransform.a
+            let width = ceil(title.size().width * scale) / scale
+            context.saveGState()
+            context.setAlpha((lit.map { $0.contains(index) ? 1 : Self.faded } ?? 1) * min(1, arrived[index]))
+            title.draw(at: CGPoint(
+                x: points[index].x - width / 2,
+                y: points[index].y + camera.radius(node.radius) * Self.coreShare + 6
+            ))
+            context.restoreGState()
         }
 
         if let hovered, present[hovered] {
-            context.stroke(
+            stroke(
                 Path(ellipseIn: square(
                     around: points[hovered],
                     radius: camera.radius(nodes[hovered].radius) * Self.coreShare + 3
                 )),
-                with     : .color(.primary.opacity(0.8)),
-                lineWidth: 1.5
+                with : .primary.opacity(0.8),
+                width: 1.5,
+                in   : context
             )
         }
+    }
+
+    /// A window's name, in the callout style made semibold.
+    private static let windowFont = NSFont.systemFont(
+        ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize,
+        weight: .semibold
+    )
+
+    /// `color` as the view's environment resolves it.
+    private func resolved(_ color: Color) -> CGColor {
+        color.resolve(in: environment).cgColor
+    }
+
+    private func stroke(
+        _ path    : Path,
+        with color: Color,
+        width     : CGFloat,
+        dash      : [CGFloat] = [],
+        in context: CGContext
+    ) {
+        context.saveGState()
+        context.addPath(path.cgPath)
+        context.setStrokeColor(resolved(color))
+        context.setLineWidth(width)
+        context.setLineDash(
+            phase  : 0,
+            lengths: dash
+        )
+        context.strokePath()
+        context.restoreGState()
+    }
+
+    /// Fills `rect`, or the ellipse in it, with a radial gradient about `centre` from `start` to `end`,
+    /// whose first and last colours reach on before and after them, as a `GraphicsContext`'s does.
+    private func gradient(
+        _ stops   : [(color: Color, location: CGFloat)],
+        center    : CGPoint,
+        start     : CGFloat,
+        end       : CGFloat,
+        in rect   : CGRect,
+        isEllipse : Bool,
+        context   : CGContext
+    ) {
+        guard let gradient = CGGradient(
+            colorsSpace: CGColorSpace(name: CGColorSpace.extendedSRGB),
+            colors     : stops.map { resolved($0.color) } as CFArray,
+            locations  : stops.map(\.location)
+        ) else { return }
+
+        context.saveGState()
+        if isEllipse { context.addEllipse(in: rect) } else { context.addRect(rect) }
+        context.clip()
+        context.drawRadialGradient(
+            gradient,
+            startCenter: center,
+            startRadius: start,
+            endCenter  : center,
+            endRadius  : end,
+            options    : [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+        )
+        context.restoreGState()
     }
 
     /// A light behind the graph that follows a pan at half its pace, so the graph floats over it,
     /// and in the dark a shade towards the edges that deepens the space around it.
     private func backdrop(
-        in context: inout GraphicsContext,
+        in context: CGContext,
         size      : CGSize,
         isDark    : Bool
     ) {
@@ -215,38 +293,38 @@ struct BrainCanvas: View, Animatable {
             x: (size.width / 2 + origin.x) / 2,
             y: (size.height / 2 + origin.y) / 2
         )
-        let whole  = Path(CGRect(
+        let whole  = CGRect(
             origin: .zero,
             size  : size
-        ))
+        )
         let reach  = max(size.width, size.height) * 0.75
-        context.fill(
-            whole,
-            with: .radialGradient(
-                Gradient(colors: [
-                    Color.accentColor.opacity(isDark ? 0.07 : 0.05),
-                    Color.accentColor.opacity(0),
-                ]),
-                center     : centre,
-                startRadius: 0,
-                endRadius  : reach
-            )
+        gradient(
+            [
+                (Color.accentColor.opacity(isDark ? 0.07 : 0.05), 0),
+                (Color.accentColor.opacity(0), 1),
+            ],
+            center   : centre,
+            start    : 0,
+            end      : reach,
+            in       : whole,
+            isEllipse: false,
+            context  : context
         )
         if isDark {
-            context.fill(
-                whole,
-                with: .radialGradient(
-                    Gradient(colors: [
-                        Color.black.opacity(0),
-                        Color.black.opacity(0.22),
-                    ]),
-                    center     : CGPoint(
-                        x: size.width / 2,
-                        y: size.height / 2
-                    ),
-                    startRadius: reach * 0.4,
-                    endRadius  : reach
-                )
+            gradient(
+                [
+                    (Color.black.opacity(0), 0),
+                    (Color.black.opacity(0.22), 1),
+                ],
+                center   : CGPoint(
+                    x: size.width / 2,
+                    y: size.height / 2
+                ),
+                start    : reach * 0.4,
+                end      : reach,
+                in       : whole,
+                isEllipse: false,
+                context  : context
             )
         }
     }
@@ -260,56 +338,44 @@ struct BrainCanvas: View, Animatable {
         fade      : Double,
         breath    : CGFloat,
         isDark    : Bool,
-        in context: inout GraphicsContext
+        in context: CGContext
     ) {
         let colour = BrainPalette.colour(of: node.kind)
         let radius = camera.radius(node.radius)
         let core   = radius * Self.coreShare
         let halo   = radius * 2.4 * (0.95 + 0.05 * breath)
 
-        var glow = context
-        glow.opacity   = fade
-        glow.blendMode = isDark ? .plusLighter : .normal
-        glow.fill(
-            Path(ellipseIn: square(
+        context.saveGState()
+        context.setAlpha(fade)
+        context.setBlendMode(isDark ? .plusLighter : .normal)
+        gradient(
+            [
+                (colour.opacity((isDark ? 0.34 : 0.2) * breath), 0),
+                (colour.opacity((isDark ? 0.12 : 0.07) * breath), 0.45),
+                (colour.opacity(0), 1),
+            ],
+            center   : centre,
+            start    : core,
+            end      : halo,
+            in       : square(
                 around: centre,
                 radius: halo
-            )),
-            with: .radialGradient(
-                Gradient(stops: [
-                    .init(
-                        color   : colour.opacity((isDark ? 0.34 : 0.2) * breath),
-                        location: 0
-                    ),
-                    .init(
-                        color   : colour.opacity((isDark ? 0.12 : 0.07) * breath),
-                        location: 0.45
-                    ),
-                    .init(
-                        color   : colour.opacity(0),
-                        location: 1
-                    ),
-                ]),
-                center     : centre,
-                startRadius: core,
-                endRadius  : halo
+            ),
+            isEllipse: true,
+            context  : context
+        )
+        context.setBlendMode(.normal)
+        context.setFillColor(resolved(isDark
+            ? colour.mix(
+                with: .white,
+                by  : 0.72
             )
-        )
-
-        var light = context
-        light.opacity = fade
-        light.fill(
-            Path(ellipseIn: square(
-                around: centre,
-                radius: core
-            )),
-            with: .color(isDark
-                ? colour.mix(
-                    with: .white,
-                    by  : 0.72
-                )
-                : colour)
-        )
+            : colour))
+        context.fillEllipse(in: square(
+            around: centre,
+            radius: core
+        ))
+        context.restoreGState()
     }
 
     /// A link's fractal strand between its two ends, its twigs included.

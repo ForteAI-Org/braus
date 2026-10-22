@@ -58,11 +58,6 @@ enum MascotImages {
         )
     }
 
-    /// The colour of the worker `appearance` describes.
-    nonisolated static func color(for appearance: WorkerAppearance) -> NSColor {
-        baseColor(of: MascotDrawing(appearance))
-    }
-
     /// Paints the ball: one round silhouette, one soft light, one darker rim.
     ///
     /// When the gradient cannot be made, the flat base colour fills the same

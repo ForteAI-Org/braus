@@ -273,7 +273,7 @@ struct ToolLineTests {
             #expect(row.geometry.blockTexts[0].height == whole.height)
             #expect(row.geometry.blocks[0].width == cut.width + RowGeometry.disclosureSide(style) + 4)
         }
-        #expect(style.toolPointSize == style.captionPointSize - 1)
+        #expect(style.toolPointSize == style.bodyPointSize - 2)
         #expect(TranscriptStyle(bodyPointSize: 20).toolPointSize > style.toolPointSize)
     }
 

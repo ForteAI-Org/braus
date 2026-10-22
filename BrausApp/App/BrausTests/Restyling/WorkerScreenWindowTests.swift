@@ -1,0 +1,106 @@
+import AppKit
+import SeatBroker
+import Testing
+@testable import Braus
+
+@Suite("WorkerScreenWindow", .serialized)
+@MainActor
+struct WorkerScreenWindowTests {
+
+    private var busyWorker: HouseWorker {
+        get throws {
+            try #require(HouseFixture.workers.first { $0.status == .busy })
+        }
+    }
+
+    @Test("The window is an ordinary titled window named after the worker, with its task below")
+    func titleAndSubtitle() throws {
+        let worker     = try busyWorker
+        let directory  = TemporaryStore.directory()
+        defer { TemporaryStore.discard(directory) }
+        let controller = WorkerScreenWindowController(
+            worker: worker,
+            team  : TeamModel(
+                store      : try WorkspaceStore.opening(in: directory),
+                connections: ModelSettingsStore(),
+                broker     : SeatBroker()
+            )
+        )
+        let window     = try #require(controller.window)
+        #expect(window.title == worker.name)
+        #expect(window.subtitle == worker.activity)
+        #expect(window.styleMask.isSuperset(of: [.titled, .closable, .miniaturizable, .resizable]))
+        #expect(window.level == .normal)
+        #expect(window.appearance?.name == .darkAqua)
+
+        let content = try #require(window.contentView).frame.size
+        #expect(abs(content.width - WorkerScreenWindowController.contentWidth) < 1)
+        #expect(abs(content.width / content.height - 1.6) < 0.01)
+
+        let items = try #require(window.toolbar).items
+        let first = try #require(items.first)
+        #expect(first.isNavigational, "the worker leads, before the title")
+        #expect(first.view != nil)
+        let open = try #require(items.last)
+        #expect(open.toolTip == "Open in Braus")
+        #expect(open.image != nil)
+    }
+
+    @Test("Stop works; Take Control and Say Something wait for later")
+    func controls() {
+        let controls = ScreenHoverControls.Control.allCases
+        #expect(controls.map(\.title) == ["Stop", "Take Control", "Say Something"])
+        #expect(controls.map(\.isEnabled) == [true, false, false])
+        #expect(ScreenHoverControls.Control.takeControl.help == "Coming later")
+        #expect(ScreenHoverControls.Control.saySomething.help == "Coming later")
+    }
+
+    @Test("A live window marks its worker windowed, so the small views pause, and unmarks it on close")
+    func liveWindowPausesTheSmallViews() throws {
+        let worker    = try busyWorker
+        let directory = TemporaryStore.directory()
+        defer { TemporaryStore.discard(directory) }
+        let team = TeamModel(
+            store      : try WorkspaceStore.opening(in: directory),
+            connections: ModelSettingsStore(),
+            broker     : SeatBroker()
+        )
+        let present = WorkerScreenWindowController.present
+        var presented: [WorkerScreenWindowController] = []
+        WorkerScreenWindowController.present = { presented.append($0) }
+        defer { WorkerScreenWindowController.present = present }
+
+        let first  = WorkerScreenWindowController.open(
+            worker: worker,
+            team  : team
+        )
+        let second = WorkerScreenWindowController.open(
+            worker: worker,
+            team  : team
+        )
+        #expect(first === second, "one window per worker")
+        #expect(team.windowedScreens == [worker.id])
+
+        first.close()
+        #expect(team.windowedScreens.isEmpty)
+        #expect(WorkerScreenWindowController.openWindows[worker.id] == nil)
+    }
+
+    @Test("Nothing opens for a worker with no screen to watch")
+    func noScreenNoWindow() async throws {
+        let directory = TemporaryStore.directory()
+        defer { TemporaryStore.discard(directory) }
+        let team = TeamModel(
+            store      : try WorkspaceStore.opening(in: directory),
+            connections: ModelSettingsStore(),
+            broker     : SeatBroker()
+        )
+        let id = UUID()
+        WorkerScreenWindowController.open(
+            workerID: id,
+            team    : team
+        )
+        #expect(WorkerScreenWindowController.openWindows[id] == nil)
+        #expect(team.windowedScreens.isEmpty)
+    }
+}

@@ -13,7 +13,7 @@ import SwiftUI
 
 extension WindowSnapshots {
 
-    /// Replies and the queue, in both themes: the window with a reply in
+    /// Replies and the queue: the window with a reply in
     /// progress on the composer, quoting Atlas and then the person, over a
     /// transcript that holds a bubble quoting each; the composer alone with each
     /// strip; then, while Atlas answers, the composer with one queued message,
@@ -30,33 +30,21 @@ extension WindowSnapshots {
 
         for (quoted, quote) in [("worker", quotes.worker), ("person", quotes.person)] {
             team.draftQuote = quote
-            for (name, dark) in [("light", false), ("dark", true)] {
-                try await write(
-                    Root(
-                        team                : team,
-                        isInspectorRequested: false
-                    ),
-                    width: 1200,
-                    dark : dark,
-                    to   : output.appending(path: "window-1200-\(name)-reply-\(quoted).png")
-                )
-                try await write(
-                    ConversationComposer(
-                        team  : team,
-                        worker: worker,
-                        height: .constant(0)
-                    )
-                    .frame(
-                        maxHeight: .infinity,
-                        alignment: .bottom
-                    )
-                    .background(Color(nsColor: .windowBackgroundColor)),
-                    width : 560,
-                    height: 150,
-                    dark  : dark,
-                    to    : output.appending(path: "composer-reply-\(quoted)-\(name).png")
-                )
-            }
+            try await writeHouseWindow(
+                team,
+                width    : 1200,
+                inspector: false,
+                to       : output.appending(path: "house-reply-\(quoted).png")
+            )
+            try await write(
+                composer(
+                    of    : team,
+                    worker: worker
+                ),
+                width : 560,
+                height: 150,
+                to    : output.appending(path: "composer-reply-\(quoted).png")
+            )
         }
         team.draftQuote = nil
 
@@ -83,24 +71,15 @@ extension WindowSnapshots {
         }
 
         func write(_ scene: String) async throws {
-            for (name, dark) in [("light", false), ("dark", true)] {
-                try await WindowSnapshots.write(
-                    ConversationComposer(
-                        team  : team,
-                        worker: worker,
-                        height: .constant(0)
-                    )
-                    .frame(
-                        maxHeight: .infinity,
-                        alignment: .bottom
-                    )
-                    .background(Color(nsColor: .windowBackgroundColor)),
-                    width : 560,
-                    height: 150,
-                    dark  : dark,
-                    to    : output.appending(path: "composer-queue-\(scene)-\(name).png")
-                )
-            }
+            try await WindowSnapshots.write(
+                composer(
+                    of    : team,
+                    worker: worker
+                ),
+                width : 560,
+                height: 150,
+                to    : output.appending(path: "composer-queue-\(scene).png")
+            )
         }
 
         await queue("And the layout suite, can you rerun it?")
@@ -121,17 +100,12 @@ extension WindowSnapshots {
         team.draftQuote = quote
         team.draft      = "Is that the width assertion?"
         try await write("reply")
-        for (name, dark) in [("light", false), ("dark", true)] {
-            try await WindowSnapshots.write(
-                Root(
-                    team                : team,
-                    isInspectorRequested: false
-                ),
-                width: 1200,
-                dark : dark,
-                to   : output.appending(path: "window-1200-\(name)-queue-reply.png")
-            )
-        }
+        try await writeHouseWindow(
+            team,
+            width    : 1200,
+            inspector: false,
+            to       : output.appending(path: "house-queue-reply.png")
+        )
         team.draftQuote = nil
         team.draft      = ""
     }
@@ -233,6 +207,23 @@ extension WindowSnapshots {
         team.selection = atlas.id
         await team.openSelectedConversation()
         return (team, (quote(of: answer), quote(of: question)))
+    }
+
+    /// `worker`'s composer alone at the foot of the conversation's ground, as the window shows it.
+    static func composer(
+        of team: TeamModel,
+        worker : WorkerSnapshot
+    ) -> some View {
+        ConversationComposer(
+            team  : team,
+            worker: worker,
+            height: .constant(0)
+        )
+        .frame(
+            maxHeight: .infinity,
+            alignment: .bottom
+        )
+        .background(Color("RestylingGround"))
     }
 
     /// The whole of `message`, as a reply from its menu quotes it.

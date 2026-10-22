@@ -12,8 +12,7 @@ import Testing
 
 /// Draws the composer floating over a stand-in transcript into PNGs, for a
 /// person to look at, the way the transcript snapshots do: `cacheDisplay` into
-/// a bitmap, no window on screen and no Screen Recording grant. Each state is
-/// drawn on the material and on the solid surface Reduce Transparency uses.
+/// a bitmap, no window on screen and no Screen Recording grant.
 ///
 /// Gated by BRAUS_SNAPSHOTS=1; the files go to BRAUS_SNAPSHOT_DIR, or to a
 /// folder under the temporary directory.
@@ -51,33 +50,45 @@ struct ComposerSnapshotTests {
         }),
     ]
 
-    @Test("Empty, code, grown, during a turn, with no model and with Release, at two widths, in both themes")
+    @Test("Empty, code, grown, during a turn, with no model and with Release, at two widths, its glass drawn opaque")
     func snapshots() async throws {
-        let surfaces: [(name: String, kind: ComposerSurface.Kind?)] = [("material", .material), ("solid", .solid)]
+        // Glass composites only in the window server, so the pill is drawn as Reduce Transparency draws it.
+        RestylingMotion.overrideReducesTransparency = true
+        defer { RestylingMotion.overrideReducesTransparency = nil }
         for state in Self.states {
             for width in [600, 900] as [CGFloat] {
-                for (theme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-                    for surface in surfaces {
-                        let harness = ComposerHarness(width: width, height: 320, appearance: appearance,
-                                                      surface: surface.kind)
-                        defer { harness.close() }
-                        state.set(harness)
-                        try await harness.settle()
-                        if let textView = harness.textView {
-                            let end = (textView.string as NSString).length
-                            textView.setSelectedRange(NSRange(location: end, length: 0))
-                            textView.scrollToEndOfDocument(nil)
-                        }
-                        // Long enough for the release button's entrance to finish before the drawing.
-                        for _ in 0..<8 { try await harness.settle() }
-                        let name = "composer-\(state.name)-\(Int(width))-\(theme)-\(surface.name).png"
-                        let file = try Self.directory.appending(path: name)
-                        try Self.png(of: try #require(harness.hosting)).write(to: file)
-                        print("snapshot: \(file.path)")
-                    }
-                }
+                let harness = ComposerHarness(
+                    width : width,
+                    height: 320
+                )
+                defer { harness.close() }
+                try await Self.draw(
+                    harness,
+                    in   : state.set,
+                    named: "composer-\(state.name)-\(Int(width)).png"
+                )
             }
         }
+    }
+
+    /// Puts `harness` in a state with `set`, scrolled to its end, and writes what it draws to `name`.
+    private static func draw(
+        _ harness: ComposerHarness,
+        in set   : @MainActor (ComposerHarness) -> Void,
+        named name: String
+    ) async throws {
+        set(harness)
+        try await harness.settle()
+        if let textView = harness.textView {
+            let end = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: end, length: 0))
+            textView.scrollToEndOfDocument(nil)
+        }
+        // Long enough for the release button's entrance to finish before the drawing.
+        for _ in 0..<8 { try await harness.settle() }
+        let file = try directory.appending(path: name)
+        try png(of: try #require(harness.hosting)).write(to: file)
+        print("snapshot: \(file.path)")
     }
 
     private static func png(of view: NSView) throws -> Data {

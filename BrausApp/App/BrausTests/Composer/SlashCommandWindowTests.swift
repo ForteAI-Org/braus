@@ -388,8 +388,14 @@ private final class Harness {
 
     // MARK: Drawing
 
-    /// The composer's top, in window coordinates.
-    var composerTop: CGFloat { layout.composerHeight }
+    /// The composer's top, the pill's, in window coordinates: below the ground's fade above it.
+    var composerTop: CGFloat { layout.composerHeight - HouseFoot.fadeHeight }
+
+    /// The composer's leading and trailing edges in the window, 640 points wide: the centred column.
+    static let composerEdges = (
+        leading : (640 - RowGeometry.houseColumn) / 2,
+        trailing: (640 + RowGeometry.houseColumn) / 2
+    )
 
     /// The box, in window coordinates, of what a popup draws above the composer; nil while none is drawn.
     /// A pixel counts when it has more green than the background's corner. It is drawn into a bitmap
@@ -576,7 +582,7 @@ struct SlashCommandWindowTests {
         #expect(harness.titles == ["/compact", "/context"])
         let popup = try #require(try harness.drawnPopup())
         print("/co popup \(popup), composer top \(harness.composerTop)")
-        #expect(abs(popup.minX - 16) <= 1.5)
+        #expect(abs(popup.minX - Harness.composerEdges.leading) <= 1.5)
         #expect(abs(popup.width - SlashCommandPopup.width) <= 1.5)
         #expect(abs(popup.minY - (harness.composerTop + 12)) <= 1.5)
         #expect(abs(popup.height - Harness.commandPopupHeight(rows: 2)) <= 1.5)
@@ -744,7 +750,7 @@ struct SlashCommandWindowTests {
         let popup = try #require(try harness.drawnPopup())
         print("model popup \(popup), composer top \(harness.composerTop)")
         #expect(abs(popup.width - ConversationModelPopup.width) <= 1.5)
-        #expect(abs(popup.maxX - (640 - 16)) <= 1.5, "centred on the button, kept inside the composer")
+        #expect(abs(popup.maxX - Harness.composerEdges.trailing) <= 1.5, "centred on the button, kept inside the composer")
         #expect(abs(popup.minY - (harness.composerTop + 12)) <= 1.5)
 
         try harness.postEscape()

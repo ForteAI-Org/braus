@@ -66,6 +66,10 @@ enum AppPreferences {
     static let sidebarShowsSearch        = "sidebar.showsSearch"
     static let sidebarShowsSearchDefault = true
 
+    /// How the house's sidebar shows the workers, rooms or rows, a `SidebarMode` raw value.
+    static let restylingSidebarMode        = "restyling.sidebarMode"
+    static let restylingSidebarModeDefault = "rooms"
+
     // MARK: Chat
 
     /// Whether the time is written under the messages.
@@ -85,12 +89,13 @@ enum AppPreferences {
     static let workersSearchWeb        = "chat.workersSearchWeb"
     static let workersSearchWebDefault = true
 
-    /// The stored value of a Bool preference in `defaults`, its default when none is stored.
+    /// The stored value of a Bool preference in `defaults`, its default when none is stored. A launch
+    /// argument (`-chat.showsTimes NO`) arrives as a string, which `UserDefaults.bool(forKey:)` reads.
     static func bool(
         _ key           : String,
         default fallback: Bool,
         in defaults     : UserDefaults = .standard
     ) -> Bool {
-        defaults.object(forKey: key) as? Bool ?? fallback
+        defaults.object(forKey: key) == nil ? fallback : defaults.bool(forKey: key)
     }
 }

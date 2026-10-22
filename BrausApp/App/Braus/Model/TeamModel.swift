@@ -73,7 +73,7 @@ nonisolated struct UserFacingIssue: Sendable, Equatable {
 @MainActor
 final class TeamModel {
 
-    private let store: WorkspaceStore
+    let store: WorkspaceStore
 
     let connections: ModelSettingsStore
 
@@ -93,6 +93,16 @@ final class TeamModel {
     /// The worker whose list of providers is open in the inspector, if any. The worker's
     /// commands set it to open the inspector on that list.
     var choosingProviderFor: UUID?
+
+    /// The worker whose name the person asked to edit. The window shows the inspector for it, and
+    /// its Worker section puts the keyboard in the Name field and clears this.
+    var editingWorker: UUID?
+
+    /// Chooses `id` and asks for its Name field to take the keyboard, which the inspector's Worker section answers.
+    func editWorker(_ id: UUID) {
+        selection     = id
+        editingWorker = id
+    }
 
     /// The worker the person asked to delete, whose confirmation the team window shows.
     var deletingWorker: UUID?
@@ -638,6 +648,14 @@ final class TeamModel {
 
     func isAnswering(_ workerID: UUID) -> Bool { answering[workerID] != nil }
 
+    /// The workers an adapter approval waits on the person for: each answering in a conversation that one waits
+    /// in (`AdapterApprovals.waitingScopes`).
+    var awaitingApproval: Set<UUID> {
+        guard let scopes = approvals?.waitingScopes, !scopes.isEmpty else { return [] }
+
+        return Set(answering.filter { scopes.contains($0.value) }.keys)
+    }
+
     /// Starts the worker's turn when it has a provider. The turn runs apart
     /// from `send`, so writing to another worker meanwhile is not held up, and
     /// a failed turn is reported and never retried. A turn through Braus's own
@@ -801,7 +819,8 @@ final class TeamModel {
             barrier         : ActionBarrier(persistingIn: AppModel.refusalFolder,
                                             context: "conversation-" + conversationID.uuidString),
             adapterApprover: approvals.map { AdapterApprover(approvals: $0) },
-            approvals: approvals
+            approvals: approvals,
+            approvalScope: conversationID
         )
         host.callProducer = CallProducer(source: .app, streamID: "worker-" + workerID.uuidString)
         hosts[conversationID] = (host, desktop)
@@ -1345,6 +1364,18 @@ final class TeamModel {
     /// The worker's screen enlarged over the conversation, nil while it is small.
     var enlargedScreen: ScreenEnlargement?
 
+    /// The workers whose screen shows in its own window; their small views stay paused, so the
+    /// stream is drawn once.
+    private(set) var windowedScreens: Set<UUID> = []
+
+    /// Records that the worker's screen window opened or closed.
+    func setScreenWindowed(
+        _ workerID : UUID,
+        _ isWindowed: Bool
+    ) {
+        if isWindowed { windowedScreens.insert(workerID) } else { windowedScreens.remove(workerID) }
+    }
+
     /// The small live views on screen, by place: where the enlarged one grows from and shrinks into.
     @ObservationIgnored
     private var smallScreens: [ScreenPlace: WeakScreenView] = [:]
@@ -1591,52 +1622,6 @@ final class TeamModel {
         }
     }
 
-    // MARK: Writing the team
-
-    /// Creates a worker and, when `selection` is given, writes it as the
-    /// worker's first configuration version. A worker whose model could not be
-    /// written is still created, with no model. Creation is always the person's
-    /// act: nothing else in the app calls this.
-    func createWorker(
-        name        : String,
-        role        : String?,
-        instructions: String?,
-        appearance  : WorkerAppearance,
-        selection   : ModelSelection? = nil
-    ) async {
-        do {
-            let made = try await store.createWorker(
-                name        : name,
-                role        : role,
-                instructions: instructions,
-                appearance  : appearance
-            )
-            if let selection {
-                do {
-                    try await store.configure(
-                        worker   : made.id,
-                        selection: selection
-                    )
-                } catch {
-                    problem = issue(
-                        title  : "Couldn’t Change Model",
-                        message: "\(made.name) was created without a model.",
-                        error  : error
-                    )
-                }
-            }
-            await load()
-            self.selection = made.id
-            await openSelectedConversation()
-        } catch {
-            problem = issue(
-                title  : "Couldn’t Create Worker",
-                message: "Review the worker details and try again.",
-                error  : error
-            )
-        }
-    }
-
     // MARK: The model
 
     /// Writes `selection` as the worker's next configuration version. The
@@ -1828,7 +1813,7 @@ final class TeamModel {
 
     // MARK: Refusals
 
-    private func issue(
+    func issue(
         title  : String,
         message: String,
         error  : any Error

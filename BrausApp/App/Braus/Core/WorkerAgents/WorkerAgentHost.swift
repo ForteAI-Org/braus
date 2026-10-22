@@ -161,7 +161,8 @@ final class WorkerAgentHost {
     /// `agents` finds the command line for a provider; a test passes a stand-in,
     /// and a stand-in transport through `transports`. `adapters` replaces the Mac's app adapters with a test's
     /// (on a temporary root) only where `channels` already composes them: it never turns the channel on, and nil,
-    /// what the app passes, keeps the composition as it is.
+    /// what the app passes, keeps the composition as it is. `approvalScope` names the scope its approvals wait in
+    /// (`AdapterApprovals.waitingScopes`); the team passes the conversation's id.
     init(
         workingDirectory: URL,
         bridgeExecutable: URL,
@@ -175,6 +176,7 @@ final class WorkerAgentHost {
         barrier         : ActionBarrier                                    = ActionBarrier(),
         adapterApprover: (any AdapterApproving)? = nil,
         approvals: AdapterApprovals? = nil,
+        approvalScope: UUID = UUID(),
         offersWeb: Bool = false
     ) {
         self.approvals        = approvals
@@ -184,7 +186,7 @@ final class WorkerAgentHost {
         self.transports       = transports
         self.contextWindows   = contextWindows
         self.seatLine         = seatLine
-        let scope = UUID()
+        let scope = approvalScope
         self.approvalScope = scope
         let tools  = AutomationTools(session: session(), channels: channels,
                                      adapters: channels.contains(.adapters) ? (adapters ?? .standard(approver: adapterApprover)) : nil,

@@ -13,7 +13,7 @@ import SwiftUI
 
 extension WindowSnapshots {
 
-    /// The composer's command popup, in both themes: every command after `/`,
+    /// The composer's command popup: every command after `/`,
     /// those `/co` matches, the models after `/model ` with Atlas's own checked,
     /// a model the provider does not offer, and every command while Atlas
     /// answers, those that wait dimmed with why.
@@ -28,24 +28,15 @@ extension WindowSnapshots {
         guard let worker = team.selectedWorker else { return }
 
         func write(_ scene: String) async throws {
-            for (name, dark) in [("light", false), ("dark", true)] {
-                try await WindowSnapshots.write(
-                    ConversationComposer(
-                        team  : team,
-                        worker: worker,
-                        height: .constant(0)
-                    )
-                    .frame(
-                        maxHeight: .infinity,
-                        alignment: .bottom
-                    )
-                    .background(Color(nsColor: .windowBackgroundColor)),
-                    width : 560,
-                    height: 400,
-                    dark  : dark,
-                    to    : output.appending(path: "composer-commands-\(scene)-\(name).png")
-                )
-            }
+            try await WindowSnapshots.write(
+                composer(
+                    of    : team,
+                    worker: worker
+                ),
+                width : 560,
+                height: 400,
+                to    : output.appending(path: "composer-commands-\(scene).png")
+            )
         }
 
         let scenes = [

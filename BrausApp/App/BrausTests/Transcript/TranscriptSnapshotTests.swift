@@ -274,6 +274,37 @@ struct TranscriptSnapshotTests {
         try await tool(fourth, "→ close_session {\"session\":\"s\"}")
     }
 
+    @Test("The same days, groups, code, tool lines and thinking bubble, and a rich reply, dark, on the ground")
+    func houseSnapshots() async throws {
+        let house = TranscriptStyle()
+        let days  = try await TranscriptFixture()
+        defer { days.discard() }
+        try await twoDays(days)
+        let expanding: @MainActor (TranscriptController) -> Void = { controller in
+            let lines = controller.rows.indices.filter {
+                if case .toolRun = controller.rows[$0].item.kind { true } else { false }
+            }
+            guard lines.count >= 2,
+                  let cell = controller.collectionView.item(at: IndexPath(item: lines[1], section: 0)) as? TranscriptCell
+            else { return }
+            cell.rowView.onActivate?()
+        }
+        for width in [600.0, 900.0] {
+            try await write(days, width: width, appearance: .darkAqua,
+                            to: try directory.appending(path: "house-content-\(Int(width))-dark.png"), style: house)
+        }
+        try await write(days, width: 600, appearance: .darkAqua,
+                        to: try directory.appending(path: "house-content-expanded-600-dark.png"), adjust: expanding,
+                        style: house)
+
+        let rich = try await TranscriptFixture()
+        defer { rich.discard() }
+        try await rich.say("Where are we with the release?", at: 0)
+        try await rich.say(TranscriptFixture.richReply, at: 10, byWorker: true)
+        try await write(rich, width: 900, appearance: .darkAqua,
+                        to: try directory.appending(path: "house-rich-900-dark.png"), style: house)
+    }
+
     @Test("A tool line collapsed and opened: a step that failed then worked, a long label, a turn still running")
     func toolLineSnapshots() async throws {
         let fixture = try await TranscriptFixture()
@@ -371,6 +402,8 @@ struct TranscriptSnapshotTests {
         let controller = TranscriptController(source: fixture.store, style: style)
         let backdrop   = Backdrop(frame: NSRect(x: 0, y: 0, width: width, height: height))
         backdrop.appearance = NSAppearance(named: appearance)
+        // The conversation stands on its own ground.
+        if let ground = NSColor(named: "RestylingGround") { backdrop.fill = ground }
         controller.view.frame = backdrop.bounds
         backdrop.addSubview(controller.view)
         backdrop.layoutSubtreeIfNeeded()
@@ -429,8 +462,10 @@ struct TranscriptSnapshotTests {
 
 /// The window background behind the transcript, so a PNG reads as the app would.
 private final class Backdrop: NSView {
+    var fill = NSColor.windowBackgroundColor
+
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
+        fill.setFill()
         dirtyRect.fill()
     }
 }

@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="it"><head><meta charset="UTF-8"><title>Braus — l'anello di vetro</title>
+<style>
+:root{--txt:#f5f5f7;--mut:#a1a1a6;--sf:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",Helvetica,sans-serif;
+ --glass:linear-gradient(180deg,rgba(14,14,18,.86) 0%,rgba(38,40,48,.72) 55%,rgba(70,72,82,.55) 100%)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--sf);color:var(--txt);-webkit-font-smoothing:antialiased;letter-spacing:-.011em;overflow:hidden;
+ background:linear-gradient(180deg,#6f7ea6 0%,#9aa3c0 40%,#c9cbd6 70%,#e7e6ea 100%)}
+/* wallpaper shapes so the glass has something to bend */
+body::before{content:"";position:fixed;inset:0;background:
+ radial-gradient(40% 30% at 70% 70%,rgba(30,34,52,.85),transparent 70%),
+ radial-gradient(30% 25% at 20% 80%,rgba(255,190,120,.45),transparent 70%),
+ repeating-linear-gradient(100deg,transparent 0 90px,rgba(40,40,60,.18) 90px 92px)}
+.menubar{position:fixed;top:0;left:0;right:0;height:26px;background:rgba(240,240,245,.45);backdrop-filter:blur(20px);display:flex;align-items:center;gap:16px;padding:0 14px;font-size:12.5px;color:#111;z-index:30}
+.menubar b{font-weight:700}.menubar .sp{flex:1}
+.tray{width:16px;height:16px;border-radius:50%;background:radial-gradient(circle at 37% 30%,#555,#111)}
+/* fake frontmost app */
+.app{position:fixed;left:50%;top:60px;translate:-50% 0;width:min(1000px,86vw);height:76vh;border-radius:14px;background:#1d1e22;box-shadow:0 30px 80px rgba(0,0,0,.4);overflow:hidden;transition:.4s;z-index:1}
+.app .t{height:34px;background:#2a2b30;display:flex;align-items:center;padding:0 14px;gap:8px;font-size:12px;color:#bbb}
+.app .t i{width:11px;height:11px;border-radius:50%;background:#555}
+.app .body{position:absolute;inset:34px 0 0;opacity:.55}
+.app.desk{opacity:0;pointer-events:none}
+.panel{position:fixed;left:18px;bottom:18px;width:310px;padding:16px 18px;border-radius:18px;background:rgba(10,10,12,.78);backdrop-filter:blur(20px);box-shadow:0 0 0 1px rgba(255,255,255,.08);font-size:12.5px;color:var(--mut);line-height:1.5;z-index:30}
+.panel b{color:var(--txt);font-weight:600}
+.panel.min>*:not(.hd){display:none}.panel.min{width:auto}.hd{display:flex;justify-content:space-between;gap:14px;cursor:pointer}
+.panel .ctx{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.panel .ctx button,.panel .go{font:500 12px var(--sf);color:var(--mut);background:rgba(255,255,255,.08);border:0;border-radius:980px;padding:6px 12px;cursor:pointer}
+.panel .ctx button.on{background:var(--txt);color:#000}
+.panel .go{margin-top:12px;background:var(--txt);color:#000}
+.panel input{width:100%;accent-color:#f5f5f7}
+.panel .row{display:flex;justify-content:space-between;margin-top:10px}
+kbd{font:600 11px var(--sf);padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.12);color:var(--txt)}
+
+/* sphere */
+.sph{position:relative;border-radius:50%;aspect-ratio:1;flex:none;
+ background:radial-gradient(circle at 36% 24%,rgba(255,255,255,.85) 0,rgba(255,255,255,.3) 3%,transparent 10%),radial-gradient(circle at 37% 30%,#3a3836 0%,#1f1d1c 50%,#0b0a0a 100%);
+ box-shadow:inset 0 -8px 14px rgba(0,0,0,.55),0 8px 18px rgba(0,0,0,.45)}
+.sph .br{position:absolute;left:50%;top:36%;transform:translate(-50%,-50%);width:54%;display:flex;gap:9%}
+.sph .br svg{width:45.5%;height:auto;overflow:visible}
+.sph .br path{fill:#f5f5f7}
+
+.stage{position:fixed;left:50%;top:50%;width:0;height:0;z-index:20}
+
+/* one continuous glass ring */
+.ring{position:absolute;left:0;top:0;translate:-50% -50%;width:var(--d);height:var(--d);border-radius:50%;
+ background:var(--glass);backdrop-filter:blur(26px) saturate(1.5);
+ -webkit-mask:radial-gradient(closest-side,transparent calc(var(--ri) - .5px),#000 var(--ri)),conic-gradient(#000 var(--a),transparent 0);
+ -webkit-mask-composite:source-in;mask-composite:intersect;
+ opacity:0;transition:opacity .3s,scale .5s cubic-bezier(.5,0,.15,1)}
+.ring.on{opacity:1}
+.ring.gone{opacity:0;scale:.85}
+@property --a{syntax:'<angle>';inherits:false;initial-value:0deg}
+.ring.building{animation:build var(--build) cubic-bezier(.6,0,.2,1) forwards}
+.ring.built{--a:360deg}
+@keyframes build{from{--a:0deg}to{--a:360deg}}
+.ring svg{position:absolute;inset:0;width:100%;height:100%}
+.ring .div{stroke:rgba(255,255,255,.13);stroke-width:1}
+.ring .rimo{fill:none;stroke:url(#rimg);stroke-width:1.5}
+.ring .light{opacity:var(--base,0);transition:opacity .35s}
+.ring .light.lit{opacity:1}
+.ring .light.pulse{animation:pulse3 1.35s ease-in-out}
+@keyframes pulse3{0%,33%,66%,100%{opacity:var(--base,0)}16%,49%,83%{opacity:1}}
+
+/* the worker's block that leaves the ring and becomes the bar */
+.block{position:absolute;left:0;top:0;width:760px;height:260px;margin:-130px 0 0 -380px;background:var(--glass);backdrop-filter:blur(30px) saturate(1.5);
+ transition:transform .5s cubic-bezier(.5,0,.15,1),clip-path .55s cubic-bezier(.4,0,.1,1)}
+.block svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.block path{fill:none;stroke:url(#rimg2);stroke-width:1.5;transition:d .55s cubic-bezier(.4,0,.1,1)}
+.block .glow{fill:url(#bglow);stroke:none;transition:d .55s cubic-bezier(.4,0,.1,1),opacity .6s}
+
+/* items */
+.it{position:absolute;left:0;top:0;width:var(--s,52px);translate:calc(-50% + var(--x)) calc(-50% + var(--y));scale:0;pointer-events:none;
+ transition:translate .5s cubic-bezier(.5,0,.15,1),scale .45s cubic-bezier(.3,1.5,.5,1),width .5s cubic-bezier(.5,0,.15,1),opacity .3s}
+.it.in{scale:1}.it.gone{scale:0;opacity:0}
+.it.prep .sph{animation:prep .55s cubic-bezier(.3,1.4,.5,1)}
+@keyframes prep{0%{scale:1}35%{scale:1.16 .84}70%{scale:.92 1.1;translate:0 -6px}100%{scale:1}}
+.dots{width:40px;height:40px;display:flex;align-items:center;justify-content:center;gap:4px}
+.dots i{width:6px;height:6px;border-radius:50%;background:#f5f5f7}
+.voice{width:50px;aspect-ratio:1;animation:blob 7s ease-in-out infinite;border-radius:46% 54% 58% 42% / 52% 44% 56% 48%;
+ background:radial-gradient(circle at 34% 26%,rgba(255,255,255,.95) 0,rgba(255,255,255,.4) 6%,transparent 18%),radial-gradient(circle at 70% 78%,rgba(140,180,255,.55),transparent 40%),
+  conic-gradient(from 200deg,#c9ccd6,#6e7480,#e9ebf1,#8a90a0,#d5d9e4,#5f6470,#c9ccd6);
+ box-shadow:inset 0 -6px 14px rgba(0,0,0,.35),inset 0 2px 6px rgba(255,255,255,.5),0 8px 20px rgba(0,0,0,.4)}
+@keyframes blob{0%,100%{border-radius:46% 54% 58% 42% / 52% 44% 56% 48%}33%{border-radius:55% 45% 44% 56% / 46% 57% 43% 54%}66%{border-radius:42% 58% 52% 48% / 58% 46% 54% 42%;rotate:12deg}}
+.name{position:absolute;left:0;top:0;translate:calc(-50% + var(--x)) calc(-50% + var(--y));font-size:11.5px;font-weight:500;color:var(--txt);white-space:nowrap;opacity:0;transition:.25s;pointer-events:none;text-shadow:0 1px 6px rgba(0,0,0,.6)}
+.name.on{opacity:1}
+.hub{white-space:nowrap;position:absolute;left:0;top:0;translate:-50% -50%;text-align:center;opacity:0;transition:.4s;pointer-events:none}
+.hub.on{opacity:1}
+.hub b{display:block;font-size:13px;font-weight:600;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+.hub span{font-size:11px;color:rgba(255,255,255,.75);text-shadow:0 1px 8px rgba(0,0,0,.6)}
+
+/* the bar and the card under it */
+
+.field{position:absolute;left:0;top:-70px;translate:-50% -50%;width:660px;height:84px;display:flex;align-items:center;padding:0 34px 0 96px;opacity:0;pointer-events:none;transition:opacity .3s .45s}
+.field.on{opacity:1;pointer-events:auto}
+.field input{flex:1;background:none;border:0;outline:0;color:var(--txt);font:400 26px var(--sf);letter-spacing:-.02em}
+.field input::placeholder{color:rgba(255,255,255,.45)}
+.mic{width:22px;height:30px;border:2.5px solid rgba(255,255,255,.7);border-radius:11px;position:relative}
+.card{position:absolute;left:0;top:-14px;translate:-50% 0;width:660px;border-radius:34px;padding:14px;background:linear-gradient(180deg,rgba(60,62,72,.62),rgba(120,122,132,.5));
+ backdrop-filter:blur(30px) saturate(1.5);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),inset 0 0 0 1px rgba(255,255,255,.08),0 24px 60px rgba(0,0,0,.3);
+ opacity:0;transform:translateY(-16px) scale(.97);transition:opacity .4s .35s,transform .55s .35s cubic-bezier(.3,1.3,.5,1);pointer-events:none}
+.card.on{opacity:1;transform:none;pointer-events:auto}
+.card .k{font-size:11px;color:rgba(255,255,255,.55);padding:4px 18px 8px;letter-spacing:.02em}
+.rowi{display:flex;align-items:center;gap:16px;padding:10px 18px;border-radius:20px;cursor:pointer;transition:background .15s}
+.rowi:hover{background:rgba(255,255,255,.1)}
+.rowi .sph{width:34px}
+.rowi .tx{flex:1}
+.rowi .n{font-size:17px;font-weight:500}
+.rowi .s{font-size:12.5px;color:rgba(255,255,255,.62);display:flex;align-items:center;gap:7px;margin-top:1px}
+.rowi .s i{width:7px;height:7px;border-radius:50%}
+.rowi .sc{font-size:15px;color:rgba(255,255,255,.4)}
+.busy{background:rgb(255,176,72);box-shadow:0 0 6px rgb(255,176,72)}.free{background:rgb(48,209,88)}.ask{background:rgb(120,170,255)}
+/* the bar grows into the task window */
+.taskwin{position:absolute;left:0;top:-112px;translate:-50% 0;width:660px;height:84px;border-radius:42px;background:var(--glass);backdrop-filter:blur(30px) saturate(1.5);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 0 0 1px rgba(255,255,255,.08),0 24px 60px rgba(0,0,0,.35);overflow:hidden;
+ transition:height .6s cubic-bezier(.5,0,.15,1),border-radius .6s cubic-bezier(.5,0,.15,1)}
+.taskwin .in{opacity:0;transition:opacity .35s .3s}
+.taskwin.open .in{opacity:1}
+.th{height:84px;display:flex;flex-direction:column;justify-content:center;padding:0 28px 0 96px}
+.th .t{font-size:19px;font-weight:600;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th .m{font-size:12px;color:rgba(255,255,255,.6);margin-top:3px;display:flex;gap:10px;align-items:center}
+.chips{display:flex;gap:6px;padding:0 28px 14px 96px;flex-wrap:wrap}
+.chip{font-size:11.5px;color:rgba(255,255,255,.75);padding:4px 10px;border-radius:980px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.sec{font-size:11px;color:rgba(255,255,255,.5);padding:12px 28px 6px;letter-spacing:.02em;text-transform:uppercase}
+.steps{padding:4px 22px 18px}
+.st{display:flex;gap:14px;align-items:flex-start;padding:8px 6px;opacity:0;transform:translateY(6px);transition:opacity .35s,transform .45s cubic-bezier(.3,1.3,.5,1)}
+.st.show{opacity:1;transform:none}
+.st .ic{width:20px;height:20px;border-radius:50%;flex:none;margin-top:1px;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.3);position:relative}
+.st.done .ic{background:#f5f5f7;box-shadow:none}
+.st.done .ic::after{content:"";position:absolute;left:6px;top:4px;width:5px;height:9px;border:solid #111;border-width:0 2px 2px 0;rotate:45deg}
+.st.now .ic{box-shadow:none;background:conic-gradient(rgb(255,176,72) var(--p,25%),rgba(255,255,255,.15) 0);-webkit-mask:radial-gradient(closest-side,transparent 72%,#000 74%);animation:spinr 1.2s linear infinite}
+@keyframes spinr{to{rotate:360deg}}
+.st .tx{font-size:14.5px;color:rgba(255,255,255,.55);line-height:1.35}
+.st.done .tx{color:rgba(255,255,255,.85)}
+.st.now .tx{color:#fff;font-weight:500}
+.st .dt{display:block;font-size:12px;color:rgba(255,255,255,.5);font-weight:400;margin-top:2px}
+.planning{padding:6px 28px;font-size:13px;color:rgba(255,255,255,.55);background:linear-gradient(90deg,rgba(255,255,255,.35),#fff,rgba(255,255,255,.35));-webkit-background-clip:text;color:transparent;background-size:200% 100%;animation:shim 1.4s linear infinite}
+@keyframes shim{to{background-position:-200% 0}}
+.now-card{margin:0 18px;padding:14px 16px;border-radius:22px;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}
+.now-card .a{font-size:15px;font-weight:500}
+.now-card .b{font-size:12.5px;color:rgba(255,255,255,.6);margin-top:3px}
+.prog{height:4px;border-radius:2px;background:rgba(255,255,255,.12);margin-top:10px;overflow:hidden}
+.prog i{display:block;height:100%;width:60%;border-radius:2px;background:rgb(255,176,72);box-shadow:0 0 8px rgb(255,176,72);transition:width 1s}
+.queued{margin:0 18px 18px;padding:14px 16px;border-radius:22px;background:rgba(0,0,0,.18);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);display:flex;gap:14px;align-items:center}
+.queued .pos{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;background:rgba(255,255,255,.1)}
+.queued .a{font-size:15px;font-weight:500}.queued .b{font-size:12.5px;color:rgba(255,255,255,.55);margin-top:2px}
+.queued .alt{margin-left:auto;font-size:12px;color:#fff;padding:6px 12px;border-radius:980px;background:rgba(48,209,88,.22);box-shadow:inset 0 0 0 1px rgba(48,209,88,.4);white-space:nowrap;cursor:pointer}
+.card.tuck{opacity:0;transform:translateY(-40px) scale(.94);transition:opacity .3s,transform .45s cubic-bezier(.5,0,.15,1)}
+/* v2: more air, leading chips, threaded steps */
+.chips{padding:4px 28px 0 28px;gap:8px}
+.chip{font-size:12px;padding:6px 12px}
+.steps{padding:22px 28px 26px}
+.st{position:relative;padding:0 0 22px 0;gap:16px}
+.st:last-child{padding-bottom:0}
+.st .ic{width:22px;height:22px;margin-top:0}
+.st.done .ic::after{left:7px;top:4px}
+.st:not(:last-child)::before{content:"";position:absolute;left:10.25px;top:28px;bottom:6px;width:1.5px;border-radius:1px;background:rgba(255,255,255,.14);transition:background .4s}
+.st.done:not(:last-child)::before{background:rgba(255,255,255,.75)}
+.st .tx{font-size:15px;line-height:22px}
+.st .dt{font-size:12.5px;line-height:17px;margin-top:2px}
+.st.now .dt{color:rgba(255,255,255,.7)}
+.planning{padding:20px 28px 26px}
+.sec{padding:22px 28px 10px;font-size:11.5px}
+.now-card{margin:0 20px;padding:18px 20px;border-radius:24px}
+.now-card .a{font-size:16px}
+.now-card .b{font-size:13px;margin-top:4px}
+.prog{margin-top:14px}
+.queued{margin:0 20px 22px;padding:18px 20px;border-radius:24px;flex-direction:column;align-items:stretch;gap:14px}
+.queued .top{display:flex;gap:14px;align-items:center}
+.queued .pos{width:28px;height:28px;flex:none}
+.queued .a{font-size:16px}.queued .b{font-size:13px;margin-top:4px}
+.queued .foot{display:flex;justify-content:space-between;align-items:center;padding-top:14px;border-top:1px solid rgba(255,255,255,.08)}
+.queued .foot span{font-size:12.5px;color:rgba(255,255,255,.55)}
+.queued .alt{margin-left:0;font-size:13px;padding:7px 14px}
+.qchips{display:flex;gap:8px;flex-wrap:wrap;padding-left:42px}
+/* v3: header buttons, roomier queue, menu bar */
+.th{position:relative;padding-right:200px}
+.hs{position:absolute;left:25px;top:19px;width:46px}
+.hs .sph{width:46px}
+.tb{position:absolute;right:20px;top:50%;translate:0 -50%;display:flex;gap:8px;align-items:center}
+.pill{font:500 12.5px var(--sf);color:#fff;background:rgba(255,255,255,.1);border:0;border-radius:980px;padding:7px 13px;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+.pill span{opacity:.7;margin-left:3px}
+.circ{width:28px;height:28px;border-radius:50%;border:0;background:rgba(255,255,255,.1);color:#fff;font:600 15px var(--sf);cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+.pill:hover,.circ:hover{background:rgba(255,255,255,.18)}
+.queued{margin:0 20px 32px}
+.now-card{margin-bottom:6px}
+.steps{padding-bottom:32px}
+.watch{font-size:12.5px;font-weight:500;color:#fff;padding:7px 14px;border-radius:980px;background:rgba(255,176,72,.22);box-shadow:inset 0 0 0 1px rgba(255,176,72,.45);cursor:pointer}
+.watch:hover{background:rgba(255,176,72,.32)}
+#nowrow .k{padding-top:4px}
+/* menu bar item */
+.tray{position:relative;width:22px;height:22px;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.tray .sph{width:17px;box-shadow:none}
+.tray .badge{position:absolute;right:-7px;top:-3px;min-width:14px;height:14px;border-radius:7px;background:rgb(255,176,72);color:#000;font:700 9.5px var(--sf);display:flex;align-items:center;justify-content:center;padding:0 3px}
+.tray.done .sph{box-shadow:0 0 0 2px rgb(48,209,88)}
+.tray.bump{animation:bump .5s cubic-bezier(.3,1.6,.5,1)}
+@keyframes bump{40%{scale:1.45}}
+#traymenu{position:fixed;top:30px;right:120px;width:380px;padding:10px;border-radius:22px;z-index:40;background:linear-gradient(180deg,rgba(28,28,32,.82),rgba(50,52,60,.72));backdrop-filter:blur(30px) saturate(1.5);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.16),inset 0 0 0 1px rgba(255,255,255,.08),0 20px 50px rgba(0,0,0,.35);opacity:0;transform:translateY(-6px) scale(.98);transform-origin:top right;pointer-events:none;transition:opacity .2s,transform .25s cubic-bezier(.3,1.3,.5,1)}
+#traymenu.on{opacity:1;transform:none;pointer-events:auto}
+.mh{font-size:11px;color:rgba(255,255,255,.5);padding:8px 12px 6px;text-transform:uppercase;letter-spacing:.02em}
+.tr{display:flex;gap:12px;align-items:center;padding:10px 12px;border-radius:14px;cursor:pointer}
+.tr:hover{background:rgba(255,255,255,.1)}
+.tr .sph{width:30px}
+.tr .tx{flex:1;min-width:0}
+.tr .n{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tr .s{font-size:11.5px;color:rgba(255,255,255,.6);display:flex;gap:6px;align-items:center;margin-top:2px}
+.tr .s i{width:6px;height:6px;border-radius:50%}
+.mini{height:3px;border-radius:2px;background:rgba(255,255,255,.12);margin-top:7px;overflow:hidden}
+.mini i{display:block;height:100%;background:rgb(255,176,72);transition:width .6s}
+.mf{display:flex;justify-content:space-between;font-size:12px;color:rgba(255,255,255,.6);padding:10px 12px 4px;margin-top:6px;border-top:1px solid rgba(255,255,255,.08)}
+.mf span:first-child{cursor:pointer;color:#fff}
+#toast{position:fixed;top:36px;right:16px;max-width:340px;padding:12px 16px;border-radius:16px;font-size:13px;z-index:50;background:rgba(28,28,32,.85);backdrop-filter:blur(20px);color:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 12px 30px rgba(0,0,0,.3);opacity:0;transform:translateX(20px);transition:.3s;pointer-events:none}
+#toast.on{opacity:1;transform:none}
+</style></head><body>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+ <linearGradient id="rimg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity=".06"/><stop offset="1" stop-color="#fff" stop-opacity=".3"/></linearGradient>
+<linearGradient id="rimg2" x1="0" y1="0" x2="0" y2="1"><stop offset=".3" stop-color="#fff" stop-opacity=".45"/><stop offset=".5" stop-color="#fff" stop-opacity=".06"/><stop offset=".7" stop-color="#fff" stop-opacity=".25"/></linearGradient>
+ <radialGradient id="bglow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="rgb(255,176,72)" stop-opacity=".35"/><stop offset="1" stop-color="rgb(255,176,72)" stop-opacity="0"/></radialGradient>
+</defs></svg>
+
+<div class="menubar"><b id="appname">Pro Tools</b><span>File</span><span>Modifica</span><span>Vista</span><span class="sp"></span><div class="tray" id="trayi" title="Braus"></div><span>mar 20 ott 15:42</span></div>
+<div class="app" id="app"><div class="t"><i></i><i></i><i></i><span id="apptitle">Pro Tools — Sessione Spot_30s</span></div><div class="body" id="appbody"></div></div>
+
+<div class="panel">
+ <div class="hd" onclick="this.parentNode.classList.toggle('min')"><b>L'anello di vetro</b><span>riduci / apri</span></div>
+ <div> <kbd>⌥ Spazio</kbd> o il pulsante. Passa su una zona dell'anello per accenderla, fermati su un worker per aprire la barra. Sui tre punti brilla tre volte e mostra tutti. La prima apertura costruisce l'anello in 2 s, le successive in meno di mezzo secondo. Invio manda il task; <kbd>Esc</kbd> o – lo riduce nella barra dei menu, dall'icona di Braus lo riapri. Su un worker occupato la barra mostra «Adesso» con Guarda.</div>
+ <div class="row"><span>Dove lo apri</span></div>
+ <div class="ctx" id="ctx"></div>
+ <button class="go" id="go">Apri l'anello</button>
+</div>
+
+<div id="traymenu"></div><div id="toast"></div>
+<div class="stage" id="stage">
+ <div class="hub" id="hub"><b id="hubt"></b><span id="hubs"></span></div>
+ <div class="card" id="card"><div class="k">Altri worker</div><div id="rows"></div></div>
+ <div class="field" id="field"><input id="inp"><div class="mic"></div></div>
+</div>
+
+<script>
+const P={"IDLE": ["M225.1,165.2 L218.5,165.2 L212.0,165.2 L205.4,165.2 L198.8,165.2 L192.3,165.2 L185.7,165.2 L179.2,165.2 L173.4,163.3 L172.8,157.0 L173.8,150.9 L172.8,144.7 L172.8,138.2 L171.2,132.2 L168.8,126.7 L165.5,121.5 L160.6,117.4 L155.3,114.4 L149.6,112.4 L143.9,110.4 L137.7,109.4 L131.8,107.8 L125.8,106.4 L119.7,105.4 L113.8,103.7 L107.8,102.4 L101.7,101.4 L95.9,99.7 L89.8,98.4 L83.7,97.4 L77.9,95.6 L71.8,94.5 L65.7,93.4 L59.9,91.6 L53.8,90.5 L47.7,89.4 L41.9,87.5 L35.8,86.5 L29.7,85.3 L23.9,83.5 L17.8,82.5 L11.7,81.3 L5.9,79.5 L0.1,77.6 L-0.5,71.3 L-0.5,64.8 L-0.5,58.2 L-0.5,51.7 L-0.5,45.1 L-0.5,38.6 L-0.5,32.0 L-0.5,25.4 L-0.5,18.9 L-0.5,12.3 L-0.1,5.9 L5.6,3.8 L11.5,5.4 L17.4,6.8 L23.6,7.8 L29.7,8.8 L35.9,9.8 L41.7,11.6 L47.7,12.8 L53.9,13.8 L60.0,15.0 L65.8,16.8 L71.9,17.8 L78.0,18.8 L84.0,20.2 L89.9,21.8 L96.1,22.8 L102.2,23.8 L108.4,24.8 L114.2,26.4 L120.2,27.7 L126.4,28.7 L132.5,29.8 L138.3,31.6 L144.4,32.7 L150.5,33.7 L156.3,35.7 L162.1,37.5 L167.7,39.7 L173.4,41.8 L178.8,44.7 L184.1,47.7 L189.3,50.8 L194.3,54.7 L199.2,58.6 L203.8,63.3 L207.8,68.2 L211.7,73.1 L215.6,78.1 L218.6,83.4 L221.4,88.8 L223.6,94.4 L225.6,100.2 L227.5,105.9 L228.5,112.0 L229.5,118.2 L229.5,124.7 L230.5,130.9 L230.5,137.4 L230.4,143.9 L229.5,150.1 L228.9,156.4 L227.7,162.5Z", "M235.0,164.8 L228.5,164.8 L222.0,164.8 L215.5,164.8 L209.0,164.8 L202.5,164.8 L196.0,164.8 L189.4,164.8 L183.7,163.0 L183.0,156.8 L183.0,150.3 L183.0,143.8 L182.0,137.7 L181.0,131.6 L178.5,126.1 L174.6,121.2 L170.4,117.0 L165.0,114.3 L159.3,112.3 L153.6,110.3 L147.5,109.3 L141.8,107.3 L135.7,106.3 L129.6,105.3 L123.9,103.3 L117.8,102.4 L111.7,101.4 L106.0,99.4 L99.9,98.4 L93.8,97.4 L88.1,95.4 L82.0,94.4 L75.9,93.4 L70.2,91.4 L64.1,90.5 L58.0,89.5 L52.3,87.5 L46.2,86.5 L40.1,85.5 L34.4,83.5 L28.3,82.5 L22.2,81.5 L16.5,79.5 L10.8,77.5 L9.4,71.6 L9.4,65.0 L9.4,58.5 L9.4,52.0 L9.4,45.5 L9.4,39.0 L9.4,32.5 L9.4,26.0 L9.4,19.4 L9.4,12.9 L9.6,6.5 L15.2,4.2 L21.3,5.2 L27.2,6.6 L33.1,8.1 L39.2,9.1 L45.3,10.1 L51.1,11.7 L57.1,13.1 L63.2,14.1 L69.3,15.1 L75.1,16.8 L81.1,18.1 L87.2,19.0 L93.3,20.0 L99.3,21.2 L105.1,23.0 L111.2,24.0 L117.3,25.0 L123.3,26.3 L129.1,28.0 L135.2,29.0 L141.3,30.0 L147.4,31.0 L153.1,32.9 L159.2,33.9 L165.1,35.4 L170.9,37.2 L176.6,39.0 L182.0,41.9 L187.3,44.7 L192.8,47.2 L198.0,50.4 L202.9,54.3 L207.8,58.2 L212.4,62.8 L217.0,67.4 L220.9,72.3 L224.6,77.3 L227.6,82.6 L230.5,87.9 L232.6,93.6 L234.5,99.2 L236.5,104.9 L237.5,111.0 L238.5,117.1 L239.5,123.3 L239.5,129.8 L239.5,136.3 L239.5,142.8 L239.5,149.3 L238.5,155.4 L237.5,161.5Z"], "WORKING": ["M230.6,159.3 L228.1,164.8 L222.0,163.8 L215.9,162.9 L209.7,161.9 L203.6,160.9 L197.8,159.3 L191.8,157.9 L185.7,156.9 L179.6,155.9 L173.8,154.1 L167.7,152.9 L161.6,151.9 L155.5,151.0 L149.5,149.7 L143.7,148.0 L137.6,147.0 L131.5,146.0 L125.5,144.6 L119.6,143.0 L113.5,142.0 L107.4,141.0 L101.5,139.4 L95.6,138.1 L89.5,137.1 L83.3,136.1 L77.6,134.1 L71.8,132.5 L66.0,130.7 L60.5,128.2 L54.8,126.2 L49.5,123.2 L44.3,119.9 L39.1,116.7 L34.2,112.8 L29.3,108.9 L25.3,104.0 L20.8,99.3 L16.9,94.4 L13.7,89.2 L10.5,84.0 L8.4,78.4 L6.1,72.8 L4.3,67.0 L2.5,61.2 L1.5,55.1 L0.5,49.0 L0.5,42.5 L-0.5,36.4 L0.5,30.2 L0.5,23.7 L0.5,17.2 L1.5,11.1 L3.7,5.4 L9.7,4.2 L16.2,4.2 L22.7,4.2 L29.3,4.2 L35.8,4.2 L42.3,4.2 L48.9,4.2 L55.0,5.2 L57.0,10.5 L57.0,17.0 L57.0,23.6 L57.0,30.1 L58.6,36.0 L60.4,41.8 L63.6,47.0 L68.5,50.9 L73.4,54.8 L79.1,56.7 L85.0,58.4 L91.0,59.7 L97.1,60.7 L102.9,62.4 L108.9,63.7 L115.0,64.7 L120.8,66.5 L126.8,67.6 L132.9,68.7 L138.7,70.5 L144.8,71.6 L150.9,72.7 L156.6,74.5 L162.7,75.6 L168.8,76.7 L174.5,78.6 L180.7,79.5 L186.7,80.8 L192.5,82.5 L198.6,83.5 L204.6,84.8 L210.4,86.5 L216.5,87.5 L222.5,88.8 L228.3,90.6 L230.6,96.2 L230.6,102.8 L230.6,109.3 L230.6,115.8 L230.6,122.3 L230.6,128.9 L230.6,135.4 L230.6,141.9 L230.6,148.5 L230.6,155.0Z", "M220.9,96.7 L217.0,101.6 L212.4,106.2 L207.7,110.8 L202.8,114.7 L197.7,118.2 L192.7,121.9 L187.2,124.4 L181.9,127.1 L176.3,129.4 L170.8,131.9 L165.0,133.7 L159.0,135.1 L152.9,136.1 L147.1,137.8 L141.1,139.0 L135.0,140.0 L128.9,141.1 L123.1,142.9 L117.0,144.0 L110.9,145.0 L104.9,146.2 L99.1,148.0 L93.0,149.0 L86.9,150.0 L80.7,151.0 L74.8,152.5 L68.9,153.9 L62.8,154.9 L56.7,155.9 L50.9,157.6 L44.9,158.9 L38.7,159.9 L32.6,160.9 L26.9,162.8 L20.8,163.8 L14.7,164.8 L9.4,162.1 L9.4,155.6 L9.4,149.1 L9.4,142.5 L9.4,136.0 L9.4,129.5 L9.4,122.9 L9.4,116.4 L9.4,109.9 L9.4,103.4 L9.4,96.8 L10.6,90.8 L16.4,89.0 L22.3,87.5 L28.4,86.5 L34.3,84.9 L40.2,83.5 L46.3,82.5 L52.2,80.9 L58.1,79.5 L64.3,78.6 L70.1,76.9 L76.1,75.6 L82.2,74.6 L88.0,72.9 L94.0,71.6 L100.1,70.6 L105.9,68.8 L112.0,67.6 L118.1,66.7 L123.8,64.8 L129.9,63.7 L136.0,62.7 L141.8,60.8 L147.9,59.7 L154.0,58.7 L159.7,56.7 L165.4,54.8 L170.6,51.7 L175.3,47.1 L178.5,41.9 L181.0,36.4 L182.0,30.3 L183.0,24.2 L183.0,17.6 L182.0,11.5 L183.2,5.5 L189.1,4.2 L195.7,4.2 L202.2,4.2 L208.7,4.2 L215.3,4.2 L221.8,4.2 L228.3,4.2 L234.6,4.7 L237.5,9.5 L238.5,15.6 L239.5,21.7 L239.5,28.2 L239.5,34.8 L239.5,41.3 L238.5,47.4 L238.5,53.9 L236.9,59.8 L235.5,65.8 L234.0,71.7 L231.6,77.2 L229.6,82.9 L226.5,88.1 L223.3,93.3Z"], "ASKING": ["M226.1,164.8 L219.6,164.8 L213.1,164.8 L206.5,164.8 L200.0,164.8 L193.5,164.8 L186.9,164.8 L180.4,164.8 L174.4,163.7 L173.1,157.7 L173.1,151.2 L173.1,144.6 L172.1,138.5 L171.1,132.4 L169.1,126.7 L165.2,121.8 L160.6,117.2 L155.3,114.3 L149.6,112.3 L143.8,110.3 L137.7,109.3 L131.7,108.1 L125.9,106.3 L119.8,105.3 L113.8,104.1 L108.0,102.4 L101.8,101.4 L95.9,100.0 L90.0,98.4 L83.9,97.4 L78.0,96.0 L72.1,94.4 L66.0,93.4 L60.0,92.0 L54.1,90.5 L48.0,89.5 L42.1,87.9 L36.2,86.5 L30.1,85.5 L24.2,83.9 L18.3,82.5 L12.1,81.5 L6.3,79.9 L0.5,78.1 L-0.5,72.0 L-0.5,65.4 L-0.5,58.9 L-0.5,52.4 L-0.5,45.9 L-0.5,39.3 L-0.5,32.8 L-0.5,26.3 L-0.5,19.7 L-0.5,13.2 L0.5,7.1 L5.0,4.2 L11.0,5.3 L16.8,7.1 L22.9,8.1 L29.0,9.1 L35.0,10.4 L40.9,12.1 L47.0,13.1 L53.1,14.1 L59.0,15.6 L64.9,17.1 L71.0,18.1 L77.1,19.0 L83.3,20.0 L89.1,21.8 L95.1,23.0 L101.2,24.0 L107.3,25.2 L113.0,27.0 L119.1,28.0 L125.3,29.0 L131.4,30.0 L137.1,31.9 L143.2,32.9 L149.3,33.9 L155.0,35.9 L160.7,37.9 L166.5,39.8 L172.1,41.9 L177.5,44.8 L183.0,47.3 L188.0,50.8 L193.1,54.4 L198.0,58.3 L202.6,63.0 L207.2,67.6 L211.1,72.5 L214.7,77.5 L217.7,82.8 L220.7,88.1 L222.6,93.8 L225.1,99.3 L226.6,105.2 L227.6,111.3 L228.6,117.5 L229.6,123.6 L229.6,130.1 L229.6,135.8 L229.6,142.3 L229.6,148.9 L228.6,155.0 L228.5,161.5Z", "M220.9,96.7 L217.0,101.6 L212.4,106.2 L207.7,110.8 L202.8,114.7 L197.7,118.2 L192.7,121.9 L187.2,124.4 L181.9,127.1 L176.3,129.4 L170.8,131.9 L165.0,133.7 L159.0,135.1 L152.9,136.1 L147.1,137.8 L141.1,139.0 L135.0,140.0 L128.9,141.1 L123.1,142.9 L117.0,144.0 L110.9,145.0 L104.9,146.2 L99.1,148.0 L93.0,149.0 L86.9,150.0 L80.7,151.0 L74.8,152.5 L68.9,153.9 L62.8,154.9 L56.7,155.9 L50.9,157.6 L44.9,158.9 L38.7,159.9 L32.6,160.9 L26.9,162.8 L20.8,163.8 L14.7,164.8 L9.4,162.1 L9.4,155.6 L9.4,149.1 L9.4,142.5 L9.4,136.0 L9.4,129.5 L9.4,122.9 L9.4,116.4 L9.4,109.9 L9.4,103.4 L9.4,96.8 L10.6,90.8 L16.4,89.0 L22.3,87.5 L28.4,86.5 L34.3,84.9 L40.2,83.5 L46.3,82.5 L52.2,80.9 L58.1,79.5 L64.3,78.6 L70.1,76.9 L76.1,75.6 L82.2,74.6 L88.0,72.9 L94.0,71.6 L100.1,70.6 L105.9,68.8 L112.0,67.6 L118.1,66.7 L123.8,64.8 L129.9,63.7 L136.0,62.7 L141.8,60.8 L147.9,59.7 L154.0,58.7 L159.7,56.7 L165.4,54.8 L170.6,51.7 L175.3,47.1 L178.5,41.9 L181.0,36.4 L182.0,30.3 L183.0,24.2 L183.0,17.6 L182.0,11.5 L183.2,5.5 L189.1,4.2 L195.7,4.2 L202.2,4.2 L208.7,4.2 L215.3,4.2 L221.8,4.2 L228.3,4.2 L234.6,4.7 L237.5,9.5 L238.5,15.6 L239.5,21.7 L239.5,28.2 L239.5,34.8 L239.5,41.3 L238.5,47.4 L238.5,53.9 L236.9,59.8 L235.5,65.8 L234.0,71.7 L231.6,77.2 L229.6,82.9 L226.5,88.1 L223.3,93.3Z"], "OFFLINE": ["M234.8,168.3 L228.0,168.3 L221.2,168.3 L214.4,168.3 L207.6,168.3 L200.8,168.3 L194.0,168.3 L187.2,168.3 L180.9,167.1 L180.5,161.2 L180.5,154.4 L180.5,147.6 L179.5,141.2 L178.4,134.9 L176.0,129.1 L172.6,123.7 L167.8,118.8 L162.4,115.5 L156.4,113.4 L150.3,111.7 L144.1,110.3 L137.7,109.3 L131.6,107.5 L125.4,106.2 L119.0,105.2 L113.0,103.3 L106.7,102.1 L100.3,101.0 L94.3,99.1 L88.0,97.9 L81.6,96.9 L75.6,94.9 L69.2,93.8 L62.9,92.8 L56.9,90.7 L50.5,89.7 L44.1,88.6 L38.2,86.6 L31.8,85.5 L25.4,84.5 L19.5,82.4 L13.1,81.4 L6.7,80.3 L0.8,78.1 L-0.5,71.8 L-0.5,65.0 L-0.5,58.2 L-0.5,51.4 L-0.5,44.6 L-0.5,37.8 L-0.5,31.0 L-0.5,24.2 L-0.5,17.4 L-0.5,10.5 L-0.5,3.7 L4.8,0.7 L10.9,2.3 L17.1,3.8 L23.5,4.8 L29.9,5.9 L36.2,6.9 L42.3,8.8 L48.6,10.0 L54.9,11.0 L61.2,12.3 L67.3,14.1 L73.7,15.2 L80.0,16.2 L86.4,17.2 L92.4,19.3 L98.8,20.3 L105.1,21.4 L111.5,22.4 L117.6,24.2 L123.9,25.5 L130.2,26.6 L136.6,27.6 L142.6,29.5 L148.9,30.7 L155.3,31.7 L161.3,33.7 L167.3,35.6 L173.4,37.5 L179.1,40.0 L184.8,42.7 L190.2,46.1 L195.7,49.3 L201.1,52.8 L206.2,56.9 L211.0,61.7 L215.8,66.5 L219.9,71.6 L223.3,77.1 L227.1,82.3 L230.0,87.9 L232.2,93.8 L234.3,99.7 L236.4,105.7 L237.4,112.0 L238.4,118.4 L239.5,124.8 L239.5,131.6 L239.5,138.4 L239.5,145.2 L239.5,152.0 L238.4,158.4 L237.4,164.8Z", "M239.5,162.6 L236.9,168.3 L230.5,167.2 L224.2,166.2 L217.8,165.2 L211.4,164.1 L205.3,162.5 L199.1,161.0 L192.8,160.0 L186.4,159.0 L180.3,157.2 L174.1,155.9 L167.7,154.8 L161.4,153.8 L155.3,151.9 L149.0,150.7 L142.7,149.7 L136.3,148.6 L130.1,147.3 L124.0,145.5 L117.6,144.5 L111.3,143.4 L105.1,142.0 L99.0,140.3 L92.6,139.3 L86.2,138.3 L80.3,136.2 L74.1,134.8 L68.1,132.9 L62.4,130.3 L56.5,127.9 L50.9,125.1 L45.5,121.7 L40.1,118.4 L35.0,114.3 L30.2,109.5 L25.4,104.7 L20.6,99.9 L17.1,94.5 L13.2,89.4 L10.5,83.7 L7.8,78.0 L5.3,72.2 L3.6,66.1 L1.6,60.2 L0.5,53.8 L-0.5,47.5 L-0.5,40.7 L-0.5,33.9 L-0.5,27.1 L-0.5,20.3 L0.3,13.8 L0.5,7.1 L3.3,1.5 L9.8,0.7 L16.6,0.7 L23.4,0.7 L30.2,0.7 L37.0,0.7 L43.8,0.7 L50.6,0.7 L56.9,1.8 L58.4,7.9 L58.4,14.7 L58.4,21.5 L59.3,27.9 L60.5,34.3 L62.6,40.2 L65.7,45.7 L70.8,49.8 L76.2,53.1 L82.0,55.5 L88.0,57.6 L94.3,58.6 L100.6,59.9 L106.6,61.7 L113.0,62.8 L119.2,64.1 L125.3,65.9 L131.7,66.9 L137.9,68.2 L144.0,70.0 L150.3,71.0 L156.6,72.4 L162.6,74.1 L169.0,75.2 L175.2,76.6 L181.3,78.3 L187.7,79.3 L193.9,80.8 L200.0,82.4 L206.4,83.4 L212.5,84.9 L218.7,86.6 L225.0,87.6 L231.2,89.1 L237.2,91.0 L239.5,96.9 L239.5,103.7 L239.5,110.5 L239.5,117.2 L239.5,124.0 L239.5,130.8 L239.5,137.6 L239.5,144.4 L239.5,151.2 L239.5,158.0Z"], "LISTENING": ["M224.1,165.3 L217.6,165.3 L211.1,165.3 L204.5,165.3 L198.0,165.3 L191.5,165.3 L185.0,165.3 L178.4,165.3 L173.1,162.7 L173.1,156.2 L173.1,149.7 L173.1,143.1 L172.1,137.0 L170.9,131.0 L168.1,125.6 L164.5,120.6 L159.6,116.7 L154.3,113.8 L148.6,111.8 L142.6,110.5 L136.7,108.8 L130.6,107.8 L124.6,106.5 L118.8,104.8 L112.7,103.8 L106.7,102.5 L100.9,100.9 L94.7,99.9 L88.8,98.4 L82.9,96.9 L76.8,95.9 L70.9,94.4 L65.0,92.9 L58.9,91.9 L53.0,90.4 L47.0,89.0 L40.9,88.0 L35.1,86.3 L29.1,85.0 L23.0,84.0 L17.1,82.3 L11.1,81.0 L5.0,80.0 L0.5,76.6 L-0.5,70.5 L-0.5,64.0 L-0.5,57.4 L-0.5,50.9 L-0.5,44.4 L-0.5,37.8 L-0.5,31.3 L-0.5,24.8 L-0.5,18.3 L-0.5,11.7 L0.9,5.8 L7.0,4.7 L13.0,5.8 L18.8,7.6 L24.9,8.6 L31.0,9.6 L37.1,10.6 L42.8,12.6 L49.0,13.6 L55.1,14.6 L61.2,15.6 L67.1,17.2 L73.0,18.6 L79.1,19.5 L85.2,20.5 L91.0,22.3 L97.1,23.5 L103.2,24.5 L109.3,25.5 L115.3,26.8 L121.1,28.5 L127.2,29.5 L133.4,30.5 L139.3,31.9 L145.2,33.4 L151.3,34.4 L157.0,36.4 L162.7,38.4 L168.4,40.4 L174.0,42.8 L179.4,45.3 L184.6,48.5 L189.8,51.7 L194.7,55.6 L199.7,59.5 L204.3,64.1 L208.2,69.1 L212.1,74.0 L215.7,79.0 L218.7,84.3 L221.7,89.6 L223.6,95.3 L225.6,101.0 L227.2,106.9 L228.6,112.8 L229.4,119.0 L229.6,125.5 L229.6,132.0 L229.6,137.7 L229.6,144.2 L229.6,150.8 L228.6,156.9 L227.5,163.0Z", "M207.1,86.0 L200.9,87.0 L195.2,89.0 L189.1,90.0 L183.0,91.0 L177.3,92.9 L171.2,93.9 L165.1,94.9 L159.4,96.9 L153.2,97.9 L147.1,98.9 L141.4,100.9 L135.3,101.9 L129.2,102.9 L123.5,104.8 L117.4,105.8 L111.2,106.8 L105.5,108.8 L99.4,109.8 L93.6,111.4 L87.6,112.8 L82.0,115.1 L77.0,118.7 L72.9,123.2 L69.7,128.4 L67.9,134.2 L66.9,140.3 L66.0,146.4 L66.0,152.9 L66.9,159.1 L64.2,164.3 L58.1,165.3 L51.6,165.3 L45.1,165.3 L38.5,165.3 L32.0,165.3 L25.5,165.3 L19.0,165.3 L12.9,164.3 L11.4,158.4 L10.4,152.3 L9.4,146.1 L9.4,139.6 L9.4,133.1 L9.4,126.6 L10.4,120.4 L10.7,114.0 L12.4,108.2 L13.4,102.1 L15.4,96.4 L17.4,90.7 L20.3,85.4 L22.9,79.9 L26.3,74.8 L30.2,69.9 L34.7,65.2 L39.3,60.6 L43.9,56.0 L49.1,52.8 L54.0,48.8 L59.2,45.6 L64.7,43.1 L70.2,40.6 L75.8,38.4 L81.5,36.4 L87.2,34.5 L93.3,33.4 L99.4,32.3 L105.1,30.5 L111.3,29.5 L117.4,28.5 L123.5,27.5 L129.4,26.0 L135.3,24.5 L141.4,23.5 L147.6,22.5 L153.4,20.9 L159.4,19.5 L165.5,18.6 L171.6,17.6 L177.4,15.7 L183.4,14.6 L189.6,13.6 L195.7,12.6 L201.6,11.3 L207.5,9.6 L213.6,8.6 L219.7,7.6 L225.6,6.1 L231.5,4.7 L238.1,4.7 L239.5,10.6 L239.5,17.2 L239.5,23.7 L239.5,30.2 L239.5,36.8 L239.5,43.3 L239.5,49.8 L239.5,56.3 L239.5,62.9 L239.5,69.4 L239.5,75.9 L235.1,80.0 L228.9,81.0 L222.9,82.2 L217.1,84.0 L211.0,85.0Z"]};
+const face=(s='IDLE')=>`<div class="sph"><div class="br"><svg viewBox="0 0 240 170"><path d="${P[s][0]}"/></svg><svg viewBox="0 0 240 170"><path d="${P[s][1]}"/></svg></div></div>`;
+let firstOpen=true;
+const WK={
+ Delivery :{st:"busy",a:"esporta l'AAF",cat:["audio"]},
+ Mastering:{st:"free",a:"libero",cat:["audio"]},
+ Mixing   :{st:"free",a:"libero",cat:["audio"]},
+ Render   :{st:"busy",a:"render 42%",cat:["video","design"]},
+ Design   :{st:"free",a:"libero",cat:["design"]},
+ Export   :{st:"ask",a:"ti aspetta",cat:["design","video"]},
+ Research :{st:"free",a:"libero",cat:["web"]},
+ Ingest   :{st:"busy",a:"copia 1.240 file",cat:["files"]},
+ Archive  :{st:"free",a:"libero",cat:["files"]}};
+const CTX={
+ desk:{label:"Scrivania",app:"Finder",title:"",cat:null,hub:["Scrivania","i più usati"],recent:["Delivery","Ingest","Research","Render"]},
+ pt  :{label:"Pro Tools",app:"Pro Tools",title:"Pro Tools — Sessione Spot_30s",cat:"audio",hub:["Pro Tools","consigliati per audio"]},
+ ps  :{label:"Photoshop",app:"Photoshop",title:"Photoshop — Locandina.psd",cat:"design",hub:["Photoshop","consigliati per grafica"]},
+ web :{label:"Chrome",app:"Chrome",title:"Chrome — braus.ai",cat:"web",hub:["Chrome","consigliati per il web"]}};
+const LIGHT={busy:"255,176,72",free:"48,209,88",ask:"120,170,255"};
+const faceOf=n=>face(WK[n].st==='busy'?'WORKING':WK[n].st==='ask'?'ASKING':'IDLE');
+let ctx='pt';
+
+const stage=document.getElementById('stage'),hub=document.getElementById('hub'),card=document.getElementById('card'),field=document.getElementById('field'),inp=document.getElementById('inp');
+let ring=null,block=null,its=[],names=[],slots=[],G=null,state='closed',dwell=null,hover=-1,armed=false,start=null;
+
+/* ---------- geometry ---------- */
+const pt=(O,R,a)=>[O[0]+R*Math.cos(a),O[1]+R*Math.sin(a)];
+const f=p=>p[0].toFixed(2)+','+p[1].toFixed(2);
+function arc(O,R,a0,a1){const k=4/3*Math.tan((a1-a0)/4),p0=pt(O,R,a0),p3=pt(O,R,a1);
+ return `C${f([p0[0]-k*R*Math.sin(a0),p0[1]+k*R*Math.cos(a0)])} ${f([p3[0]+k*R*Math.sin(a1),p3[1]-k*R*Math.cos(a1)])} ${f(p3)}`}
+const lerp=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+const line=(a,b)=>`C${f(lerp(a,b,1/3))} ${f(lerp(a,b,2/3))} ${f(b)}`;
+const line2=(a,b)=>{const m=lerp(a,b,.5);return line(a,m)+' '+line(m,b)};
+// the worker's block, upright, mid-radius point at (380,130) of a 760x260 box
+function sectorD(Ro,Ri,half){const Rm=(Ro+Ri)/2,O=[380,130+Rm],a0=-Math.PI/2-half,a1=-Math.PI/2+half;
+ return `M${f(pt(O,Ro,a0))} ${arc(O,Ro,a0,a1)} ${line2(pt(O,Ro,a1),pt(O,Ri,a1))} ${arc(O,Ri,a1,a0)} ${line2(pt(O,Ri,a0),pt(O,Ro,a0))}Z`}
+function pillD(W,H){const r=H/2,x0=380-W/2,y0=130-H/2,cy=130,cr=[x0+W-r,cy],cl=[x0+r,cy],P=Math.PI;
+ return `M${f([x0+r,y0])} ${line([x0+r,y0],[x0+W-r,y0])} ${arc(cr,r,-P/2,0)} ${arc(cr,r,0,P/2)} ${line([x0+W-r,y0+H],[x0+r,y0+H])} ${arc(cl,r,P/2,P)} ${arc(cl,r,P,3*P/2)}Z`}
+
+/* ---------- ring ---------- */
+function clearAll(){[ring,block,...its,...names].forEach(e=>e&&e.remove());ring=block=null;its=[];names=[]}
+function build(list,Ro,T,dur){
+ clearAll();slots=list;
+ const N=list.length,Ri=Ro-T,Rm=Ro-T/2,d=2*Ro,c=Ro;G={Ro,Ri,Rm,T,N};
+ ring=document.createElement('div');ring.className='ring';
+ ring.style.cssText=`--d:${d}px;--ri:${Ri}px;--build:${dur}ms`;
+ let svg=`<svg viewBox="0 0 ${d} ${d}"><defs>`;
+ list.forEach((s,i)=>{const mid=-Math.PI/2+2*Math.PI*i/N,m=pt([c,c],Rm,mid),rgb=s.w?LIGHT[WK[s.w].st]:"255,255,255";
+  svg+=`<radialGradient id="L${i}" cx="${m[0]}" cy="${m[1]}" r="${T*1.25}" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="rgb(${rgb})" stop-opacity=".6"/><stop offset="1" stop-color="rgb(${rgb})" stop-opacity="0"/></radialGradient>`});
+ svg+='</defs>';
+ list.forEach((s,i)=>{const mid=-Math.PI/2+2*Math.PI*i/N,h=Math.PI/N,a0=mid-h,a1=mid+h,O=[c,c];
+  svg+=`<path class="light" id="l${i}" style="--base:${s.w&&WK[s.w].st==='busy'?.3:0}" fill="url(#L${i})" d="M${f(pt(O,Ro,a0))} A${Ro},${Ro} 0 0 1 ${f(pt(O,Ro,a1))} L${f(pt(O,Ri,a1))} A${Ri},${Ri} 0 0 0 ${f(pt(O,Ri,a0))}Z"/>`;
+  svg+=`<line class="div" x1="${f(pt(O,Ri+1,a1)).split(',')[0]}" y1="${f(pt(O,Ri+1,a1)).split(',')[1]}" x2="${f(pt(O,Ro-1,a1)).split(',')[0]}" y2="${f(pt(O,Ro-1,a1)).split(',')[1]}"/>`});
+ svg+=`<circle class="rimo" cx="${c}" cy="${c}" r="${Ro-1}"/><circle class="rimo" cx="${c}" cy="${c}" r="${Ri+.5}"/></svg>`;
+ ring.innerHTML=svg;stage.insertBefore(ring,stage.firstChild);
+ requestAnimationFrame(()=>{ring.classList.add('on','building');setTimeout(()=>{ring.classList.remove('building');ring.classList.add('built')},dur)});
+ list.forEach((s,i)=>{const mid=-Math.PI/2+2*Math.PI*i/N;
+  const it=document.createElement('div');it.className='it';
+  it.innerHTML=s.w?faceOf(s.w):s.dots?'<div class="dots"><i></i><i></i><i></i></div>':'<div class="voice"></div>';
+  it.style.setProperty('--x',Rm*Math.cos(mid)+'px');it.style.setProperty('--y',Rm*Math.sin(mid)+'px');
+  if(s.w)it.style.setProperty('--s',T*.62+'px');
+  stage.appendChild(it);its.push(it);
+  const nm=document.createElement('div');nm.className='name';nm.textContent=s.w||(s.dots?'Tutti i worker':'Voce');
+  const ro=Ro+16;nm.style.setProperty('--x',ro*Math.cos(mid)+'px');nm.style.setProperty('--y',ro*Math.sin(mid)+(Math.sin(mid)>0?6:-6)+'px');
+  stage.appendChild(nm);names.push(nm);
+  setTimeout(()=>it.classList.add('in'),dur*(i+.5)/N);
+ });
+}
+function light(i,on){const p=ring&&ring.querySelector('#l'+i);if(p)p.classList.toggle('lit',on);names[i]&&names[i].classList.toggle('on',on)}
+
+addEventListener('mousemove',e=>{
+ if(!ring||(state!=='ring'&&state!=='all'))return;
+ if(!armed){if(!start)start=[e.clientX,e.clientY];if(Math.hypot(e.clientX-start[0],e.clientY-start[1])<6)return;armed=true}
+ const r=stage.getBoundingClientRect(),dx=e.clientX-r.left,dy=e.clientY-r.top,dist=Math.hypot(dx,dy);
+ let i=-1;if(dist>G.Ri&&dist<G.Ro){let a=Math.atan2(dy,dx)+Math.PI/2;if(a<0)a+=2*Math.PI;i=Math.round(a/(2*Math.PI/G.N))%G.N}
+ if(i===hover)return;
+ if(hover>=0)light(hover,false);clearTimeout(dwell);hover=i;if(i<0)return;light(i,true);
+ const s=slots[i];
+ if(s.w)dwell=setTimeout(()=>choose(i),420);
+ if(s.dots&&state==='ring')dwell=setTimeout(()=>showAll(i),250);
+});
+
+function open(){
+ if(state!=='closed')return close();
+ const d=firstOpen?2000:450;firstOpen=false;state='ring';armed=false;start=null;hover=-1;
+ build([...pick4().map(n=>({w:n})),{dots:1},{voice:1}],185,82,d);
+ document.getElementById('hubt').textContent=CTX[ctx].hub[0];document.getElementById('hubs').textContent=CTX[ctx].hub[1];
+ setTimeout(()=>hub.classList.add('on'),d*.6);
+}
+function pick4(){const c=CTX[ctx];if(!c.cat)return c.recent;
+ const fit=Object.keys(WK).filter(n=>WK[n].cat.includes(c.cat));
+ return [...fit,...Object.keys(WK).filter(n=>!fit.includes(n))].slice(0,4)}
+function showAll(i){
+ state='pulsing';const p=ring.querySelector('#l'+i);p.classList.remove('lit');void p.getBBox();p.classList.add('pulse');
+ setTimeout(()=>{ring.classList.add('gone');its.forEach(e=>e.classList.add('gone'));names.forEach(n=>n.classList.remove('on'));hub.classList.remove('on');
+  setTimeout(()=>{state='all';hover=-1;build(Object.keys(WK).map(n=>({w:n})),250,78,700)},320)},1350);
+}
+
+/* ---------- ring -> bar ---------- */
+function choose(i){
+ state='prep';const it=its[i],name=slots[i].w;it.classList.add('prep');
+ setTimeout(()=>{
+  const {Ro,Ri,Rm,N}=G,mid=-Math.PI/2+2*Math.PI*i/N,half=Math.PI/N-.002;
+  const sd=sectorD(Ro,Ri,half),pd=pillD(660,84);
+  let rot=(mid+Math.PI/2)*180/Math.PI;rot=((rot+180)%360+360)%360-180;
+  block=document.createElement('div');block.className='block';
+  block.innerHTML=`<svg viewBox="0 0 760 260"><path class="glow" d="${sd}"/><path class="rim" d="${sd}"/></svg>`;
+  Object.assign(block.style,{clipPath:`path('${sd}')`,transform:`translate(${Rm*Math.cos(mid)}px,${Rm*Math.sin(mid)}px) rotate(${rot}deg)`,transition:'none'});
+  stage.insertBefore(block,ring.nextSibling);
+  block.querySelector('.glow').style.opacity=WK[name].st==='busy'?1:.4;
+  ring.classList.add('gone');hub.classList.remove('on');names.forEach(n=>n.classList.remove('on'));
+  its.forEach((e,j)=>{if(j!==i)e.classList.add('gone')});
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+   // 1. the block travels to where the bar opens, standing up
+   block.style.transition='';block.style.transform='translate(0px,-70px) rotate(0deg)';
+   it.style.setProperty('--x','0px');it.style.setProperty('--y','-70px');
+   // 2. then it spreads into the bar
+   setTimeout(()=>{
+    block.style.clipPath=`path('${pd}')`;block.querySelectorAll('path').forEach(p=>p.style.d=`path('${pd}')`);
+    block.querySelector('.glow').style.opacity=0;
+    it.style.setProperty('--x','-282px');it.style.setProperty('--s','46px');
+    setBarWorker(name);field.classList.add('on');card.classList.add('on');setTimeout(()=>inp.focus(),550);state='bar';
+   },520);
+  }));
+ },520);
+}
+function setBarWorker(name){
+ inp.placeholder=`Cosa deve fare ${name}?`;
+ const others=Object.keys(WK).filter(n=>n!==name).sort((a,b)=>(WK[b].cat.includes(CTX[ctx].cat)?1:0)-(WK[a].cat.includes(CTX[ctx].cat)?1:0)).slice(0,4);
+ document.getElementById('rows').innerHTML=others.map((n,k)=>`<div class="rowi" data-n="${n}">${faceOf(n)}<div class="tx"><div class="n">${n}</div><div class="s"><i class="${WK[n].st}"></i>${WK[n].a}</div></div><span class="sc">⌘${k+1}</span></div>`).join('');
+ document.querySelectorAll('.rowi').forEach(r=>r.onclick=()=>swap(r.dataset.n));
+}
+function swap(name){const it=its.find(e=>!e.classList.contains('gone'));if(!it)return;
+ it.classList.remove('prep');void it.offsetWidth;it.innerHTML=faceOf(name);it.classList.add('prep');setBarWorker(name);inp.focus()}
+function close(){
+ clearTimeout(dwell);ring&&ring.classList.add('gone');its.forEach(i=>i.classList.add('gone'));names.forEach(n=>n.classList.remove('on'));hub.classList.remove('on');
+ field.classList.remove('on');card.classList.remove('on');inp.value='';
+ if(block){block.style.transition='opacity .3s,transform .3s';block.style.opacity='0'}
+ setTimeout(()=>{clearAll();state='closed'},360);
+}
+function setCtx(k){ctx=k;const c=CTX[k];
+ document.querySelectorAll('#ctx button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+ document.getElementById('appname').textContent=c.app;document.getElementById('apptitle').textContent=c.title;
+ document.getElementById('app').classList.toggle('desk',k==='desk');
+ document.getElementById('appbody').style.background={pt:'repeating-linear-gradient(90deg,#2b3a2f 0 40px,#1d1e22 40px 44px)',ps:'radial-gradient(circle at 50% 50%,#d65a3a,#1d1e22 60%)',web:'linear-gradient(#fff,#ddd)'}[k]||'';
+ if(state!=='closed'){close();setTimeout(open,420)}}
+document.getElementById('ctx').innerHTML=Object.entries(CTX).map(([k,c])=>`<button data-k="${k}">${c.label}</button>`).join('');
+document.querySelectorAll('#ctx button').forEach(b=>b.onclick=()=>setCtx(b.dataset.k));setCtx('pt');
+document.getElementById('go').onclick=open;
+
+addEventListener('keydown',e=>{if(e.key==='Escape')close();if(e.code==='Space'&&e.altKey){e.preventDefault();open()}
+ if(state==='bar'&&e.metaKey&&/[1-4]/.test(e.key)){e.preventDefault();const r=document.querySelectorAll('.rowi')[+e.key-1];r&&swap(r.dataset.n)}});
+
+/* ---------- tasks: model, window, menu bar ---------- */
+let barName=null;
+const _set=setBarWorker;
+const PLAN={audio:[["Apre la sessione in Pro Tools","Spot_30s.ptx, già aperta sul tuo Mac"],["Apre File › Export › AAF","dal menu, senza portare Pro Tools davanti"],["Sceglie stereo interleaved","come gli hai detto l'ultima volta"],["Esporta nella cartella Delivery","~/Progetti/Spot/Delivery"],["Controlla che il file ci sia","dimensione e durata coerenti con la sessione"]],
+ design:[["Apre il documento in Photoshop","Locandina.psd"],["Trova i livelli da esportare","tre artboard visibili"],["Esporta PNG a 2x","nella cartella Export"],["Controlla le dimensioni","2160 × 3840"]],
+ web:[["Apre una finestra di Chrome","la sua, non la tua"],["Cerca le fonti","tre siti affidabili"],["Legge e riassume","in italiano, una pagina"],["Ti manda il riassunto","qui e nella chat"]],
+ files:[["Legge la scheda SD","1.240 file, 212 GB"],["Copia su Archivio","verifica a blocchi"],["Rinomina per data","AAAA-MM-GG_scena"],["Controlla i checksum","nessun file perso"]],
+ video:[["Apre la timeline","Spot_30s_v4"],["Imposta ProRes 422","1080p, 25 fps"],["Esegue il render","stima 6 minuti"],["Controlla il file","durata 0:30"]]};
+const CTXCHIPS={pt:["Pro Tools","Spot_30s.ptx","Cartella Delivery"],ps:["Photoshop","Locandina.psd"],web:["Chrome","braus.ai"],desk:["Scrivania"]};
+let tasks=[],seq=0;
+function addTask(o){const t=Object.assign({id:++seq,k:-1,t0:Date.now(),done:false,queued:false,chips:[]},o);tasks.push(t);return t}
+// what the busy workers are already doing
+addTask({name:"Delivery",text:"Esporta l'AAF di Spot_30s",plan:PLAN.audio,k:2,t0:Date.now()-74000,chips:CTXCHIPS.pt});
+addTask({name:"Render",text:"Render della timeline Spot_30s_v4",plan:PLAN.video,k:2,t0:Date.now()-190000,chips:["DaVinci Resolve","Spot_30s_v4"]});
+addTask({name:"Ingest",text:"Copia la scheda SD del set",plan:PLAN.files,k:1,t0:Date.now()-40000,chips:["Finder","SD_A001"]});
+const running=n=>tasks.find(t=>t.name===n&&!t.queued&&!t.done);
+const mmss=ms=>{const s=Math.round(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+
+/* the bar: a busy worker shows what it is doing, with Guarda */
+setBarWorker=function(n){barName=n;_set(n);const cur=running(n);
+ document.querySelector('#card .k').style.display=cur?'none':'';
+ document.getElementById('nowrow')?.remove();
+ if(cur){const r=document.createElement('div');r.id='nowrow';r.innerHTML=`<div class="k">Adesso</div><div class="rowi nowi">${faceOf(n)}<div class="tx"><div class="n">${cur.text}</div><div class="s"><i class="busy"></i>passo ${cur.k+1} di ${cur.plan.length} · ${cur.plan[cur.k][0]}</div></div><span class="watch">Guarda</span></div><div class="k">Altri worker</div>`;
+  document.getElementById('rows').before(r);r.querySelector('.watch').onclick=e=>{e.stopPropagation();showTask(cur,'bar')}}
+};
+
+/* ---------- the window ---------- */
+let shown=null;
+function header(t,inline){
+ const st=t.done?`fatto in ${mmss(t.doneAt-t.t0)}`:t.queued?'in coda':t.k<0?'sta pianificando':`passo ${t.k+1} di ${t.plan.length} · ${mmss(Date.now()-t.t0)}`;
+ return `<div class="th">${inline?`<div class="hs">${faceOf(t.name)}</div>`:'<div class="hs"></div>'}<div class="t">${t.queued?t.name+' è occupato':t.text}</div><div class="m" id="tm">${t.queued?'il tuo task parte appena finisce quello attuale':t.name+' · '+st}</div>
+  <div class="tb"><button class="pill" onclick="toast('Qui si apre la conversazione con ${t.name} nella casa')">Apri in Braus <span>↗</span></button><button class="circ" title="Riduci nella barra dei menu" onclick="toTray()">–</button></div></div>`}
+function stepsHTML(t,anim){return `<div class="steps">${t.plan.map(([a,d],j)=>`<div class="st ${anim?'':'show'} ${j<t.k||t.done?'done':j===t.k?'now':''}"><i class="ic"></i><span class="tx">${a}<span class="dt">${d}</span></span></div>`).join('')}</div>`}
+function body(t,anim){
+ const chips=`<div class="chips">${t.chips.map(c=>`<span class="chip">${c}</span>`).join('')}</div>`;
+ if(!t.queued)return chips+(t.k<0&&!t.done?'<div class="planning" id="pl">Divide il task in passi…</div>':'')+stepsHTML(t,anim);
+ const cur=running(t.name);
+ return `<div class="sec">Adesso</div><div class="now-card"><div class="a">${cur.text}</div><div class="b">Passo ${cur.k+1} di ${cur.plan.length} · ${cur.plan[cur.k][0]}</div><div class="prog"><i style="width:${Math.round(100*(cur.k+.5)/cur.plan.length)}%"></i></div></div>
+  <div class="sec">In coda</div><div class="queued"><div class="top"><div class="pos">1</div><div><div class="a">${t.text}</div><div class="b">Parte tra circa 2 minuti</div></div></div><div class="qchips">${t.chips.map(c=>`<span class="chip">${c}</span>`).join('')}</div><div class="foot"><span>Mixing è libero e sa fare questo task</span><span class="alt" title="Mia aggiunta">Dallo a Mixing</span></div></div>`}
+function fit(w){const h=w.firstChild.scrollHeight;w.style.height=h+'px';stage.style.transition='top .6s cubic-bezier(.5,0,.15,1)';stage.style.top=`calc(50% - ${Math.max(0,h/2-112)}px)`}
+// from: 'bar' (grows out of the Spotlight bar), 'tray' (comes down from the menu bar)
+function showTask(t,from){
+ shown=t;state='task';
+ field.classList.remove('on');card.classList.add('tuck');document.getElementById('taskwin')?.remove();
+ const w=document.createElement('div');w.className='taskwin';w.id='taskwin';
+ w.innerHTML=`<div class="in">${header(t,from==='tray')}${body(t,true)}</div>`;
+ if(from==='bar'){stage.insertBefore(w,block);block&&block.remove();block=null;
+  const it=its.find(e=>!e.classList.contains('gone'));if(it&&barName!==t.name){it.innerHTML=faceOf(t.name)}
+  requestAnimationFrame(()=>{fit(w);w.style.borderRadius='34px';w.classList.add('open')});
+  setTimeout(()=>{w.querySelector('.hs').innerHTML=faceOf(t.name);its.forEach(e=>e.classList.add('gone'))},650);
+ }else{stage.appendChild(w);w.classList.add('open','fromtray');w.style.borderRadius='34px';fit(w);
+  const r=document.getElementById('trayi').getBoundingClientRect(),s=stage.getBoundingClientRect();
+  w.style.transformOrigin='top center';w.animate([{transform:`translate(${r.left-s.left}px,${r.top-s.top+112}px) scale(.04)`,opacity:0},{transform:'none',opacity:1}],{duration:520,easing:'cubic-bezier(.3,1.2,.5,1)'});}
+ setTimeout(()=>{if(!t.queued&&t.k<0){t.k=0;t.t0=Date.now();refresh()}},from==='bar'?1100:0);
+ setTimeout(()=>w.querySelectorAll('.st').forEach((r,j)=>setTimeout(()=>r.classList.add('show'),j*110)),from==='bar'?1150:50);
+}
+function refresh(){const w=document.getElementById('taskwin');if(!w||!shown)return;const t=shown;
+ const tm=w.querySelector('#tm');if(tm)tm.outerHTML=header(t).match(/<div class="m" id="tm">.*?<\/div>/)[0];
+ w.querySelector('#pl')?.remove();
+ w.querySelectorAll('.st').forEach((r,j)=>{r.classList.toggle('done',j<t.k||t.done);r.classList.toggle('now',j===t.k&&!t.done)});
+ const g=w.querySelector('.prog i');if(g&&t.queued){const c=running(t.name);if(c)g.style.width=Math.round(100*(c.k+.5)/c.plan.length)+'%'}
+ fit(w)}
+function startTask(){
+ const text=inp.value.trim();if(!text||state!=='bar')return;
+ const busy=!!running(barName);
+ if(!busy){WK[barName].st='busy';WK[barName].a=text.toLowerCase()}
+ const t=addTask({name:barName,text,plan:PLAN[CTX[ctx].cat]||PLAN.audio,queued:busy,chips:CTXCHIPS[ctx]||[]});
+ showTask(t,'bar');tray();
+}
+inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();startTask()}});
+
+/* ---------- to the menu bar and back ---------- */
+function toTray(){
+ const w=document.getElementById('taskwin');if(!w)return close();
+ const r=document.getElementById('trayi').getBoundingClientRect(),s=stage.getBoundingClientRect();
+ w.style.transformOrigin='top center';
+ w.animate([{transform:'none',opacity:1},{transform:`translate(${r.left-s.left}px,${r.top-s.top+112}px) scale(.04)`,opacity:.2}],{duration:480,easing:'cubic-bezier(.5,0,.75,0)'}).onfinish=()=>{w.remove();shown=null;
+  const ti=document.getElementById('trayi');ti.classList.remove('bump');void ti.offsetWidth;ti.classList.add('bump')};
+ card.classList.remove('tuck');its.forEach(e=>e.classList.add('gone'));field.classList.remove('on');card.classList.remove('on');ring&&ring.classList.add('gone');
+ setTimeout(()=>{clearAll();state='closed';stage.style.top=''},500);
+}
+const _close=close;close=function(){if(state==='task')return toTray();stage.style.top='';card.classList.remove('tuck');_close()};
+
+function tray(){const n=tasks.filter(t=>!t.done).length,ti=document.getElementById('trayi'),attention=tasks.some(t=>t.done&&!t.seen);
+ ti.innerHTML=face(attention?'IDLE':n?'WORKING':'IDLE')+(n?`<b class="badge">${n}</b>`:'');ti.classList.toggle('done',attention);
+ const m=document.getElementById('traymenu');if(!m.classList.contains('on'))return;
+ const row=t=>`<div class="tr" data-id="${t.id}">${faceOf(t.name)}<div class="tx"><div class="n">${t.text}</div><div class="s">${t.done?`<i class="free"></i>${t.name} · fatto`:t.queued?`<i class="ask"></i>${t.name} · in coda`:`<i class="busy"></i>${t.name} · passo ${t.k+1} di ${t.plan.length}`}</div>${t.done||t.queued?'':`<div class="mini"><i style="width:${Math.round(100*(t.k+.5)/t.plan.length)}%"></i></div>`}</div></div>`;
+ const live=tasks.filter(t=>!t.done),done=tasks.filter(t=>t.done).slice(-3).reverse();
+ m.innerHTML=`<div class="mh">In corso · ${live.length}</div>${live.map(row).join('')}${done.length?`<div class="mh">Finiti</div>${done.map(row).join('')}`:''}<div class="mf"><span onclick="toast('Qui si apre Braus')">Apri Braus</span><span>⌥ Spazio</span></div>`;
+ m.querySelectorAll('.tr').forEach(r=>r.onclick=()=>{const t=tasks.find(x=>x.id==r.dataset.id);t.seen=true;m.classList.remove('on');if(state!=='closed'){clearAll();state='closed'}showTask(t,'tray');tray()});
+}
+document.getElementById('trayi').onclick=e=>{e.stopPropagation();const m=document.getElementById('traymenu');m.style.right=Math.max(8,innerWidth-e.currentTarget.getBoundingClientRect().right-12)+'px';m.classList.toggle('on');tray()};
+addEventListener('click',e=>{const m=document.getElementById('traymenu');if(m.classList.contains('on')&&!m.contains(e.target))m.classList.remove('on')});
+function toast(s){const t=document.getElementById('toast');t.textContent=s;t.classList.add('on');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('on'),2400)}
+
+/* everything keeps working while nobody looks */
+setInterval(()=>{tasks.forEach(t=>{if(t.done||t.queued||t.k<0)return;
+  if(Math.random()<(shown===t?.45:.03)){t.k++;if(t.k>=t.plan.length){t.done=true;t.doneAt=Date.now();t.k=t.plan.length;WK[t.name].st='free';WK[t.name].a='libero';
+   if(shown!==t)toast(`${t.name} ha finito: ${t.text}`);
+   const q=tasks.find(x=>x.queued&&x.name===t.name);if(q){q.queued=false;q.k=0;q.t0=Date.now();WK[q.name].st='busy';WK[q.name].a=q.text.toLowerCase();if(shown===q){showTask(q,'tray')}}}}});
+ refresh();tray()},1600);
+tray();
+
+</script>
+</body></html>
