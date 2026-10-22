@@ -676,7 +676,7 @@ public actor SQLiteMemoryStore {
             let owned = Unshared(copy)
             let gate = verificationGate
             let pageSize = try await Task.detached {
-                if let gate { try? await gate() }
+                if let gate { await gate() }
                 let pageSize = try Self.verify(copy: owned.value)
                 try Self.settle(copy: owned.value)
                 return pageSize

@@ -610,7 +610,7 @@ nonisolated final class MascotLayer: CALayer {
         behaviourRefresh = nil
         guard behaviour != nil, Self.differs(behaviourScale, behaviourBuiltScale) else { return }
         // The layer belongs to the main thread, where the item runs.
-        nonisolated(unsafe) weak var layer = self
+        nonisolated(unsafe) weak let layer = self
         let work = DispatchWorkItem {
             MainActor.assumeIsolated { layer?.refreshBehaviourScale() }
         }

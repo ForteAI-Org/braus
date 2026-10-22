@@ -90,7 +90,7 @@ public struct MessagesAdapter: AppAdapting {
         guard verb == "send_message" else { throw AdapterFailure("messages has no verb \(verb).") }
         let handle = try arguments.required("to").trimmingCharacters(in: .whitespacesAndNewlines)
         let text   = try arguments.required("text")
-        guard let wanted = Self.normalized(handle) else {
+        guard Self.normalized(handle) != nil else {
             return .refused("\(handle) is not a phone number or an email address. Read it from contacts.find_contacts first.")
         }
         let since  = Date().addingTimeInterval(-2)

@@ -46,8 +46,7 @@ enum SQLiteRecallInspectionRows {
             }
             var choice: ProcedureInspection.Choice?
             if let chosen = try handle.query(
-                "SELECT query_id, recorded_at_ms FROM memory_recall_choices WHERE proposal_id = ?", [.text(header.id)]
-            ) { (query: try $0.text(0) ?? "", at: $0.integer(1) ?? 0) }.first {
+                "SELECT query_id, recorded_at_ms FROM memory_recall_choices WHERE proposal_id = ?", [.text(header.id)], { (query: try $0.text(0) ?? "", at: $0.integer(1) ?? 0) }).first {
                 let declared = try handle.query(
                     """
                     SELECT need_position, declared, uncovered, settled_by FROM memory_recall_choice_needs WHERE query_id = ?

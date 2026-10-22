@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 20/10/2026.
 //
 
+@preconcurrency
 import MetalKit
 
 /// RoomLightView shows one room lit by its worker, seen from above or through the tilted camera its
