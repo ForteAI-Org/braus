@@ -52,7 +52,6 @@ struct HouseShapeGrid: View {
                 option(shape)
             }
         }
-        .focusable()
         .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
             choose(Self.shape(
                 from  : selection,
