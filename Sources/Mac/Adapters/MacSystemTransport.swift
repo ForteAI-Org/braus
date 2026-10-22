@@ -151,28 +151,48 @@ public struct MacSystemTransport: SystemTransporting {
         return AudioObjectHasProperty(device, &address)
     }
 
-    private static func read<Value>(_ device: AudioObjectID, _ selector: AudioObjectPropertySelector,
-                                    into value: inout Value) throws {
+    private static func read<Value>(
+        _ device  : AudioObjectID,
+        _ selector: AudioObjectPropertySelector,
+        into value: inout Value
+    ) throws {
         var address = address(selector)
         var size    = UInt32(MemoryLayout<Value>.size)
-        let status  = AudioObjectGetPropertyData(
-            device,
-            &address,
-            0,
-            nil,
-            &size,
-            &value
-        )
+        
+        let status = withUnsafeMutablePointer(to: &value) { valuePointer in
+            AudioObjectGetPropertyData(
+                device,
+                &address,
+                0,
+                nil,
+                &size,
+                valuePointer
+            )
+        }
         
         guard status == noErr else {
             throw AdapterFailure("The output device did not answer (\(status)).")
         }
     }
 
-    private static func write<Value>(_ device: AudioObjectID, _ selector: AudioObjectPropertySelector,
-                                     _ value: inout Value) throws {
+    private static func write<Value>(
+        _ device  : AudioObjectID,
+        _ selector: AudioObjectPropertySelector,
+        _ value   : inout Value
+    ) throws {
         var address = address(selector)
-        let status  = AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<Value>.size), &value)
+        
+        let status = withUnsafeMutablePointer(to: &value) { valuePointer in
+            AudioObjectSetPropertyData(
+                device,
+                &address,
+                0,
+                nil,
+                UInt32(MemoryLayout<Value>.size),
+                valuePointer
+            )
+        }
+        
         guard status == noErr else { throw AdapterFailure("The output device refused the change (\(status)).") }
     }
 
