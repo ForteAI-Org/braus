@@ -196,10 +196,9 @@ final class HouseLiveFlights {
         guard let transcript, transcript.showsNewest,
               let scale = stage.window?.backingScaleFactor,
               let typed = BubbleFlight.image(
-                  of     : BubbleFlight.stripLine(text),
-                  width  : queueLine.width,
-                  scale  : scale,
-                  isWhite: false
+                  of   : text,
+                  width: queueLine.width,
+                  scale: scale
               ),
               let flight = LiveFlight(
                   typed    : typed,

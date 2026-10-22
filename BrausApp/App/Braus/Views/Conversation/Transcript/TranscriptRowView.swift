@@ -278,16 +278,98 @@ final class TranscriptRowView: NSView {
         }
     }
 
-    /// Turns the block's copy icon into a check, then back, with the system's symbol replace animation.
+    /// Turns the block's copy icon into a check, then back, as the system's off-up symbol replace does.
     func showCopied(block: Int) {
         guard let icon = copyIcons[block] else { return }
-        // Off and up swaps the symbols in place; the default replace slides them down.
-        icon.setSymbolImage(Self.copySymbol(copied: true), contentTransition: .replace.offUp)
+
+        Self.replace(
+            icon,
+            with: Self.copySymbol(copied: true)
+        )
         copiedReset?.cancel()
         copiedReset = Task { [weak icon] in
             do { try await Task.sleep(for: .seconds(1.5)) } catch { return }
-            icon?.setSymbolImage(Self.copySymbol(copied: false), contentTransition: .replace.offUp)
+            guard let icon else { return }
+
+            Self.replace(
+                icon,
+                with: Self.copySymbol(copied: false)
+            )
         }
+    }
+
+    /// Swaps `icon`'s symbol for `image` in Core Animation, as the off-up replace shows it: the old symbol
+    /// shrinks and fades where it is while the new one grows in, rising a little; a cross-fade under
+    /// Reduce Motion. A symbol effect (`setSymbolImage(_:contentTransition:)`) would leave RenderBox
+    /// drawing at every frame any window animates, for the rest of the process.
+    static func replace(
+        _ icon    : NSImageView,
+        with image: NSImage
+    ) {
+        let old = HouseTranscriptStill.image(of: icon)
+        icon.image = image
+        guard let layer = icon.layer, let parent = layer.superlayer, let old else { return }
+
+        let reduces = RestylingMotion.reducesMotion
+        let ghost   = CALayer()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        ghost.frame           = layer.frame
+        ghost.contents        = old
+        ghost.contentsGravity = .resize
+        ghost.opacity         = 0
+        parent.addSublayer(ghost)
+        CATransaction.commit()
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { ghost.removeFromSuperlayer() }
+        let leaving = CABasicAnimation(keyPath: "opacity")
+        leaving.fromValue      = 1
+        leaving.toValue        = 0
+        leaving.duration       = 0.18
+        leaving.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        ghost.add(
+            leaving,
+            forKey: "opacity"
+        )
+        let entering = CABasicAnimation(keyPath: "opacity")
+        entering.fromValue = 0
+        entering.toValue   = 1
+        entering.duration  = 0.2
+        layer.add(
+            entering,
+            forKey: "replaceOpacity"
+        )
+        if !reduces {
+            let shrinking = CABasicAnimation(keyPath: "transform.scale")
+            shrinking.fromValue      = 1
+            shrinking.toValue        = 0.5
+            shrinking.duration       = 0.18
+            shrinking.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            ghost.add(
+                shrinking,
+                forKey: "scale"
+            )
+            // The view's layer turns about its corner: scale about its middle, from a little lower.
+            let middle  = CGPoint(
+                x: layer.bounds.midX,
+                y: layer.bounds.midY
+            )
+            var start   = CATransform3DMakeTranslation(-middle.x, -middle.y, 0)
+            start       = CATransform3DConcat(start, CATransform3DMakeScale(0.5, 0.5, 1))
+            start       = CATransform3DConcat(start, CATransform3DMakeTranslation(middle.x, middle.y + (parent.isGeometryFlipped ? 3 : -3), 0))
+            let growing = CASpringAnimation(keyPath: "transform")
+            growing.fromValue = NSValue(caTransform3D: start)
+            growing.toValue   = NSValue(caTransform3D: CATransform3DIdentity)
+            growing.stiffness = 300
+            growing.damping   = 20
+            growing.duration  = growing.settlingDuration
+            layer.add(
+                growing,
+                forKey: "replaceTransform"
+            )
+        }
+        CATransaction.commit()
     }
 
     private static func copySymbol(copied: Bool) -> NSImage {

@@ -11,6 +11,7 @@ import Darwin
 import Memory
 import Metal
 import ModelTransports
+import PerceptionCore
 import SeatBroker
 import SwiftUI
 
@@ -33,7 +34,11 @@ import SwiftUI
 /// WindowServer's CPU with the window shown and ordered out. BRAUS_ROOM_COST_ONLY=appear stops after
 /// the first appearance and the rest; `select` selects the worker at BRAUS_ROOM_COST_SELECT (1 unless
 /// set), then the one at BRAUS_ROOM_COST_SWITCH if set, and records the rest with its conversation
-/// open. BRAUS_ROOM_COST_REST sets the rest's seconds.
+/// open. BRAUS_ROOM_COST_REST sets the rest's seconds. Before that rest, BRAUS_ROOM_COST_USE, a list
+/// split by commas, draws what the app draws once in a while: `image`, a flight's picture of a strip's
+/// line (`BubbleFlight.image`); `copy`, a copy icon turned into a check and back
+/// (`TranscriptRowView.replace`); `brain`, a Brain graph (`BrainGraphView`) in a window of its own
+/// for five seconds, then closed, and `brain-history` one that grew over time, with its timeline.
 ///
 /// BRAUS_ROOM_COSTS=kernel instead times the precomputed light alone, the live frame's cost: every
 /// status, a few shapes, empty and occupied, at the grid's, the wide room's and a row's sizes at two
@@ -136,6 +141,7 @@ enum RoomCostCheck {
                     team.selection = ids[min(other, ids.count - 1)]
                 }
             }
+            try await use(ProcessInfo.processInfo.environment["BRAUS_ROOM_COST_USE"] ?? "")
             report["restSelected"] = try await rest(in: window)
             window.close()
             return report
@@ -232,6 +238,121 @@ enum RoomCostCheck {
         window.contentView = nil
         window.close()
         return report
+    }
+
+    /// Draws what `list` names, as BRAUS_ROOM_COST_USE gives it.
+    private static func use(_ list: String) async throws {
+        for name in list.split(separator: ",") {
+            switch name {
+            case "image":
+                _ = BubbleFlight.image(
+                    of   : "A message quoted in the next one",
+                    width: 300,
+                    scale: 2
+                )
+            case "copy":
+                // A copy icon turned into a check and back, as a code block's Copy does.
+                let holder = NSView(frame: NSRect(
+                    x     : 0,
+                    y     : 0,
+                    width : 100,
+                    height: 100
+                ))
+                let icon   = NSImageView(frame: NSRect(
+                    x     : 40,
+                    y     : 40,
+                    width : 20,
+                    height: 20
+                ))
+                holder.wantsLayer = true
+                icon.image        = NSImage(
+                    systemSymbolName        : "doc.on.doc",
+                    accessibilityDescription: nil
+                )
+                holder.addSubview(icon)
+                let window = try await shown(holder)
+                for symbol in ["checkmark", "doc.on.doc"] {
+                    TranscriptRowView.replace(
+                        icon,
+                        with: NSImage(
+                            systemSymbolName        : symbol,
+                            accessibilityDescription: nil
+                        ) ?? NSImage()
+                    )
+                    try await Task.sleep(for: .seconds(1.5))
+                }
+                window.contentView = nil
+                window.close()
+            case "brain", "brain-history":
+                let simulation = BrainSimulation(graph: BrainGraph(brain: brain(grows: name == "brain-history")))
+                let window     = try await shown(NSHostingView(rootView: BrainGraphView(simulation: simulation)))
+                try await Task.sleep(for: .seconds(5))
+                window.contentView = nil
+                window.close()
+            default:
+                break
+            }
+        }
+    }
+
+    /// `view` in a window of its own beside the house, on screen for a second.
+    private static func shown(_ view: NSView) async throws -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(
+                x     : 1280,
+                y     : 40,
+                width : 600,
+                height: 500
+            ),
+            styleMask  : [.titled, .closable],
+            backing    : .buffered,
+            defer      : false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance           = NSAppearance(named: .darkAqua)
+        window.contentView          = view
+        window.orderFrontRegardless()
+        try await Task.sleep(for: .seconds(1))
+        return window
+    }
+
+    /// A Brain of a group of six controls, learned one after another when it `grows`, so its graph
+    /// has a timeline, or in one look.
+    private static func brain(grows: Bool) -> UIBrain {
+        let start   = Date(timeIntervalSince1970: 1_800_000_000)
+        let group   = UUID()
+        let anchors = (0..<6).map { index in
+            ObjectAnchor(
+                kind         : .control,
+                label        : "Control \(index)",
+                boundsTypical: NormalizedRect(
+                    x     : 0,
+                    y     : 0,
+                    width : 0.1,
+                    height: 0.1
+                ),
+                groupID      : group,
+                firstSeen    : start.addingTimeInterval(grows ? Double(index) : 0),
+                lastSeen     : start.addingTimeInterval(grows ? Double(index) : 0),
+                window       : "main"
+            )
+        }
+        return UIBrain(
+            objects: anchors,
+            groups : [
+                SiblingGroup(
+                    id           : group,
+                    axis         : .column,
+                    memberAnchors: anchors.map(\.anchorKey),
+                    sharedKind   : .control,
+                    cellSize     : NormalizedSize(
+                        width : 0.1,
+                        height: 0.1
+                    ),
+                    lastSeen     : start
+                ),
+            ]
+        )
     }
 
     /// Hosts the house of `team` and reports what it cost until every room in sight had its full render
@@ -914,3 +1035,4 @@ enum RoomCostCheck {
         }
     }
 }
+
