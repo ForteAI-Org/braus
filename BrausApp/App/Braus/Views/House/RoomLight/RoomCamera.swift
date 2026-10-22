@@ -70,13 +70,18 @@ nonisolated enum RoomCamera: String, Sendable {
     }
 
     /// Where the brows of a worker of `shape` show in a room of `size` whose composition leans `lean`
-    /// to the left, seen by this camera; nil from above, where they keep their place on the face.
+    /// to the left, seen by this camera; nil from above or before the room has valid dimensions.
     func face(
         of shape: WorkerShape,
         in size : CGSize,
         lean    : Float = 0
     ) -> Face? {
-        guard self == .tilted else { return nil }
+        guard
+            self == .tilted,
+            size.width.isFinite, size.height.isFinite,
+            size.width > 0, size.height > 0,
+            lean.isFinite
+        else { return nil }
         let key = FaceKey(
             shape : shape,
             width : size.width,
@@ -88,6 +93,7 @@ nonisolated enum RoomCamera: String, Sendable {
             size: size,
             lean: lean
         ).face(of: shape)
+        guard face.isFinite else { return nil }
         Self.faces.withLock { faces in
             // ponytail: a resize misses at every size it passes; a full reset past 512 keeps it small.
             if faces.count > 512 { faces.removeAll() }
@@ -116,6 +122,11 @@ nonisolated enum RoomCamera: String, Sendable {
         let xScale: Double
         let yScale: Double
         var turn  : Double = 0
+
+        var isFinite: Bool {
+            anchor.dx.isFinite && anchor.dy.isFinite
+                && xScale.isFinite && yScale.isFinite && turn.isFinite
+        }
     }
 
     /// Perspective is the tilted camera for a room of a given size.

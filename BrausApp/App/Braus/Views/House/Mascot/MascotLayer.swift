@@ -36,12 +36,17 @@ nonisolated final class MascotLayer: CALayer {
 
     /// Where a tilted room's camera shows the brows, or nil where they keep their place on the face.
     var projectedFace: RoomCamera.Face? {
-        didSet {
-            guard projectedFace != oldValue else { return }
+        get { faceProjection }
+        set {
+            let face = newValue.flatMap { $0.isFinite ? $0 : nil }
+            guard face != faceProjection else { return }
+            faceProjection = face
             withoutActions { placeBrows() }
             scheduleBehaviourRefresh()
         }
     }
+
+    private var faceProjection: RoomCamera.Face?
 
     /// How far above the face's centre the brows' line sits, as a share of the face's width.
     static let browLift = 0.5 - 0.36
@@ -977,6 +982,10 @@ nonisolated final class MascotLayer: CALayer {
     /// line sits 36% from its top; then turns them by `yaw` and `pitch`. In a tilted room they centre
     /// on `projectedFace` instead, stretched as the camera shows the face there.
     private func placeBrows() {
+        guard
+            bounds.width.isFinite, bounds.height.isFinite,
+            bounds.width > 0, bounds.height > 0
+        else { return }
         let face      = min(bounds.width, bounds.height) * shape.outline.inradius
         let span      = face * 0.54
         let sideWidth = span * 0.455
