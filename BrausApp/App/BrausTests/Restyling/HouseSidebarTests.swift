@@ -861,6 +861,82 @@ struct HouseSidebarTests {
         #expect(sidebar?.isCollapsed == false)
     }
 
+    @Test("A full sidebar left at the compact width, by the compact range or by the saved widths, gets its width back")
+    func sidebarWidensAgain() async throws {
+        let state  = BridgeState()
+        let window = NSWindow(
+            contentRect: CGRect(
+                x     : 0,
+                y     : 0,
+                width : 1100,
+                height: 600
+            ),
+            styleMask  : [.titled, .resizable],
+            backing    : .buffered,
+            defer      : false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = NSHostingView(rootView: BridgeHost(state: state))
+
+        func settle() async throws {
+            for _ in 0..<10 {
+                try await Task.sleep(for: .milliseconds(20))
+                window.contentView?.layoutSubtreeIfNeeded()
+            }
+        }
+        try await settle()
+        let controller = try #require(Self.splitControllers(in: window.contentView).first)
+        let sidebar    = { controller.splitViewItems.first.map { Double($0.viewController.view.frame.width) } }
+        func narrow(to width: Double) async throws {
+            controller.splitView.setPosition(
+                width,
+                ofDividerAt: 0
+            )
+            try await settle()
+        }
+
+        // A relaunch that restores the compact width beside a full division.
+        try await narrow(to: ShellMetrics.compactSidebar)
+        state.isCompact = false
+        try await settle()
+        #expect(sidebar() == ShellMetrics.sidebar.ideal)
+
+        // The person's own width before the window turned the sidebar compact comes back after it.
+        try await narrow(to: 300)
+        state.isCompact = true
+        try await settle()
+        try await narrow(to: ShellMetrics.compactSidebar)
+        state.isCompact = false
+        try await settle()
+        #expect(sidebar() == 300)
+    }
+
+    /// BridgeState is the division a test hands the sidebar's bridge.
+    @Observable
+    final class BridgeState {
+        var isCompact: Bool?
+    }
+
+    /// BridgeHost is a split whose sidebar has the full sidebar's range and the bridge.
+    private struct BridgeHost: View {
+        let state: BridgeState
+
+        var body: some View {
+            NavigationSplitView(columnVisibility: .constant(.all)) {
+                Color.clear
+                    .background(SidebarBridge(isCompact: state.isCompact))
+                    .navigationSplitViewColumnWidth(
+                        min  : ShellMetrics.compactSidebar,
+                        ideal: ShellMetrics.sidebar.ideal,
+                        max  : ShellMetrics.sidebar.maximum
+                    )
+            } detail: {
+                Color.clear
+            }
+        }
+    }
+
     private static func splitControllers(in view: NSView?) -> [NSSplitViewController] {
         guard let view else { return [] }
         let own = ((view as? NSSplitView)?.delegate as? NSSplitViewController).map { [$0] } ?? []

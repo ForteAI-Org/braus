@@ -135,7 +135,9 @@ struct HouseLiveConversation: View {
                 .top,
                 6
             )
-            transcriptArea
+            // In a stack of its own: on the transcript area, a Group, the overlay would go to each branch
+            // and the composer would be made again, dropping the keyboard, when the transcript first opens.
+            ZStack { transcriptArea }
                 .overlay(alignment: .bottom) {
                     ConversationComposer(
                         team        : team,

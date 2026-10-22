@@ -634,6 +634,7 @@ enum WindowClickCheck {
 
     // MARK: Events
 
+    /// A click queued as a real one is, so the app sees it as the current event when a selection moves.
     private static func click(
         at point : NSPoint,
         in window: NSWindow
@@ -651,7 +652,10 @@ enum WindowClickCheck {
                 clickCount   : 1,
                 pressure     : 1
             ) {
-                window.sendEvent(event)
+                NSApp.postEvent(
+                    event,
+                    atStart: false
+                )
             }
         }
     }

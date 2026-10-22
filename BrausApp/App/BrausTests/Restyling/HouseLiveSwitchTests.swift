@@ -160,6 +160,37 @@ struct HouseLiveSwitchTests {
         #expect(Self.opacity(of: transcript) == 1, "the transcript stayed hidden")
     }
 
+    @Test("The first worker chosen in a new window, with no key down as with the pointer, gets the keyboard in the composer")
+    func firstPickFocusesTheComposer() async throws {
+        let folder = URL.temporaryDirectory.appending(
+            path         : "HouseFirstPick-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let team  = try await WindowSnapshots.syntheticTeam(in: folder)
+        let atlas = try #require(team.selection)
+        // As in a window just opened: no worker chosen, no conversation open, so it opens after the pick.
+        team.selection = nil
+        await team.openSelectedConversation()
+        let window = Self.window(hosting: ShellHost(team: team))
+        defer { window.close() }
+        let host = try #require(window.contentView)
+        try await Self.settle(host)
+        #expect(Self.composer(in: host) == nil)
+
+        team.selection = atlas
+        let deadline = ContinuousClock.now + .seconds(3)
+        while ContinuousClock.now < deadline, !(window.firstResponder is ComposerTextView) {
+            try await Task.sleep(for: .milliseconds(20))
+            host.layoutSubtreeIfNeeded()
+        }
+        let field = try #require(Self.composer(in: host))
+        #expect(
+            window.firstResponder === field.textView,
+            "the keyboard stayed with \(String(describing: window.firstResponder))"
+        )
+    }
+
     @Test("A hero chosen again while it leaves hops out of the capsule once more")
     func heroChosenAgainArrives() throws {
         let view = HouseWorkerPortrait.HostView(frame: CGRect(
@@ -221,8 +252,28 @@ struct HouseLiveSwitchTests {
             path         : "HouseLiveSwitch-\(UUID().uuidString)",
             directoryHint: .isDirectory
         )
-        let team    = try await WindowSnapshots.syntheticTeam(in: folder)
-        let hosting = NSHostingView(rootView: ShellHost(team: team))
+        let team     = try await WindowSnapshots.syntheticTeam(in: folder)
+        let window   = Self.window(hosting: ShellHost(team: team))
+        let hosting  = try #require(window.contentView)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while (window.toolbar?.items.count ?? 0) == 0
+            || composer(in: hosting) == nil
+            || (find(TranscriptCollectionView.self, in: hosting)?.numberOfSections ?? 0) == 0 {
+            try #require(ContinuousClock.now < deadline, "no toolbar, composer or transcript appeared")
+            try await Task.sleep(for: .milliseconds(20))
+            hosting.layoutSubtreeIfNeeded()
+        }
+        try await settle(hosting)
+        return Shown(
+            team  : team,
+            window: window,
+            folder: folder
+        )
+    }
+
+    /// A 1200 by 800 window, never ordered in, holding `root` with its toolbar.
+    private static func window(hosting root: some View) -> NSWindow {
+        let hosting = NSHostingView(rootView: root)
         hosting.sceneBridgingOptions = [.toolbars]
         let window = NSWindow(
             contentRect: CGRect(
@@ -238,20 +289,7 @@ struct HouseLiveSwitchTests {
         window.isReleasedWhenClosed = false
         window.appearance           = NSAppearance(named: .darkAqua)
         window.contentView          = hosting
-        let deadline = ContinuousClock.now + .seconds(5)
-        while (window.toolbar?.items.count ?? 0) == 0
-            || composer(in: hosting) == nil
-            || (find(TranscriptCollectionView.self, in: hosting)?.numberOfSections ?? 0) == 0 {
-            try #require(ContinuousClock.now < deadline, "no toolbar, composer or transcript appeared")
-            try await Task.sleep(for: .milliseconds(20))
-            hosting.layoutSubtreeIfNeeded()
-        }
-        try await settle(hosting)
-        return Shown(
-            team  : team,
-            window: window,
-            folder: folder
-        )
+        return window
     }
 
     /// Waits past a switch: the hero's hop, the cross-fade and the still's removal.

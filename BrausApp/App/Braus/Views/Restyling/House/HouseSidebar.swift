@@ -9,7 +9,8 @@ import SwiftUI
 
 /// HouseSidebar is the house's sidebar: the team's `workers` as rooms or as rows, as Settings
 /// chooses, with a search field that finds a worker by name or role (`TeamRow.matches`) and that
-/// Edit > Find… (⌘F) focuses. Each room's context menu holds the worker's commands.
+/// Edit > Find… (⌘F) focuses, unless Settings leaves it out (`showsSearch`), which ends the search.
+/// Each room's context menu holds the worker's commands.
 ///
 /// The room column count follows the sidebar width; rows are cards that put the name under the worker when compact.
 /// Nothing here changes the width the split gives the sidebar. When it turns compact or wide again,
@@ -30,6 +31,9 @@ struct HouseSidebar: View {
 
     var edit: (HouseWorker.ID) -> Void = { _ in }
 
+    /// Whether the search field is shown, as Settings > Sidebar chooses.
+    var showsSearch = AppPreferenceValues.shared.sidebarShowsSearch
+
     @State private var query = ""
 
     @State private var columns = 2
@@ -38,6 +42,26 @@ struct HouseSidebar: View {
     @State private var layoutWidth: CGFloat?
 
     var body: some View {
+        searchField(on: list)
+            // Not `.searchFocused`: its focus state re-ran this body on every layout, and the field this body
+            // places laid the window out again, without end while workers answered.
+            .focusedSceneValue(
+                \.findInHouse,
+                showsSearch ? { Self.find(in: NSApp.keyWindow) } : nil
+            )
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                resize(to: width)
+            }
+            // A search the field no longer shows would hide workers with nothing to say why.
+            .onChange(of: showsSearch) {
+                if !showsSearch { query = "" }
+            }
+    }
+
+    /// The workers as rooms or rows, with the foot and the archive.
+    private var list: some View {
         Group {
             switch AppPreferenceValues.shared.restylingSidebarMode {
             case .rooms:
@@ -81,21 +105,20 @@ struct HouseSidebar: View {
             }
         }
         .background(CrossFade(columns: columns))
-        .searchable(
-            text     : $query,
-            placement: .sidebar
-        )
-        .background(SearchFieldWithoutRing())
-        // Not `.searchFocused`: its focus state re-ran this body on every layout, and the field this body
-        // places laid the window out again, without end while workers answered.
-        .focusedSceneValue(
-            \.findInHouse,
-            { Self.find(in: NSApp.keyWindow) }
-        )
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.width
-        } action: { width in
-            resize(to: width)
+    }
+
+    /// `list` under the sidebar's search field, or alone while Settings leaves the field out.
+    @ViewBuilder
+    private func searchField(on list: some View) -> some View {
+        if showsSearch {
+            list
+                .searchable(
+                    text     : $query,
+                    placement: .sidebar
+                )
+                .background(SearchFieldWithoutRing())
+        } else {
+            list
         }
     }
 

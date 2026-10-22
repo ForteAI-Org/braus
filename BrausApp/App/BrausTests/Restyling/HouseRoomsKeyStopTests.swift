@@ -27,6 +27,8 @@ struct HouseRoomsKeyStopTests {
 
         #expect(stop.acceptsFirstResponder)
         #expect(stop.canBecomeKeyView)
+        #expect(stop.isAccessibilityElement())
+        #expect(stop.accessibilityLabel() == "Workers")
         #expect(stop.hitTest(NSPoint(
             x: 0,
             y: 0

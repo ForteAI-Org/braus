@@ -53,6 +53,15 @@ struct HouseRoomsKeyStop: NSViewRepresentable {
         /// A click never reaches it: the rooms and the pointer keep their own behaviour.
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+        // What VoiceOver says when the keyboard lands here, rather than an unnamed element.
+        override func isAccessibilityElement() -> Bool { true }
+
+        override func accessibilityRole() -> NSAccessibility.Role? { .group }
+
+        override func accessibilityLabel() -> String? { "Workers" }
+
+        override func accessibilityHelp() -> String? { "Arrow keys choose a worker. Return writes to it." }
+
         override func becomeFirstResponder() -> Bool {
             onFocus(true)
             return true
