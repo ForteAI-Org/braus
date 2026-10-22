@@ -152,12 +152,13 @@ enum WindowClickCheck {
 
     // MARK: Steps
 
-    /// The house is the key view before the conversation: Tab from nothing
-    /// focused reaches the conversation, and Shift-Tab from there the house's
-    /// sidebar. A click on the second room selects it and hands the keyboard to
-    /// the composer. The arrow keys move between rooms only once the rooms hold
-    /// the keyboard, which Tab gives them with Full Keyboard Access alone, so
-    /// they are left to `HouseSidebarTests`.
+    /// The house is in the key loop before the conversation, in the order rooms,
+    /// search field, conversation, composer: Tab from nothing focused reaches the
+    /// conversation, Shift-Tab from there the search field and the rooms, and Tab
+    /// from the rooms the search field again. With the rooms holding the
+    /// keyboard, Down and Up move the selection and Return hands the keyboard to
+    /// the composer. A click on the second room then selects it and hands the
+    /// keyboard to the composer.
     private static func checkKeyboardSelection(
         team   : TeamModel,
         hosting: NSView,
@@ -176,28 +177,114 @@ enum WindowClickCheck {
 
         func responder() -> String { window.firstResponder.map { "\(type(of: $0))" } ?? "none" }
 
+        func tab(
+            backwards: Bool = false,
+            _ label  : String
+        ) async throws {
+            press(
+                backwards ? "\u{19}" : "\t",
+                keyCode   : 48,
+                modifiers : backwards ? [.shift] : [],
+                in        : window,
+                throughApp: false
+            )
+            try await Task.sleep(for: .milliseconds(300))
+            print("click check: after \(label), first responder \(responder())")
+        }
+
+        func arrow(
+            _ keyCode: UInt16,
+            _ label  : String
+        ) async throws {
+            // Queued, as a real key is, so the selection sees a key down as the event that moved it.
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                guard let event = NSEvent.keyEvent(
+                    with                       : type,
+                    location                   : .zero,
+                    modifierFlags              : [.function, .numericPad],
+                    timestamp                  : ProcessInfo.processInfo.systemUptime,
+                    windowNumber               : window.windowNumber,
+                    context                    : nil,
+                    characters                 : "",
+                    charactersIgnoringModifiers: "",
+                    isARepeat                  : false,
+                    keyCode                    : keyCode
+                ) else { continue }
+
+                NSApp.postEvent(
+                    event,
+                    atStart: false
+                )
+                if type == .keyDown { try await Task.sleep(for: .milliseconds(300)) }
+            }
+            try await Task.sleep(for: .milliseconds(400))
+            print("click check: after \(label), selected \(team.selectedWorker?.name ?? "none"), first responder \(responder())")
+        }
+
         window.makeFirstResponder(nil)
+        try await tab("Tab")
+        try expect(
+            window.firstResponder is TranscriptCollectionView,
+            "Tab from nothing did not reach the conversation, but \(responder())"
+        )
+        try await tab(
+            backwards: true,
+            "Shift-Tab"
+        )
+        try expect(
+            window.firstResponder is NSTextView && isSidebarFocused(),
+            "Shift-Tab from the conversation did not reach the search field, but \(responder())"
+        )
+        try await tab(
+            backwards: true,
+            "Shift-Tab again"
+        )
+        try expect(
+            window.firstResponder is HouseRoomsKeyStop.StopView,
+            "Shift-Tab from the search field did not reach the rooms, but \(responder())"
+        )
+
+        try await arrow(
+            125,
+            "Down"
+        )
+        try expect(
+            team.selectedWorker?.name == names[1] && window.firstResponder is HouseRoomsKeyStop.StopView,
+            "Down did not select \(names[1]) and keep the keyboard in the rooms"
+        )
+        try await arrow(
+            126,
+            "Up"
+        )
+        try expect(
+            team.selectedWorker?.name == names[0],
+            "Up did not return to \(names[0])"
+        )
+        try await tab("Tab from the rooms")
+        try expect(
+            window.firstResponder is NSTextView && isSidebarFocused(),
+            "Tab from the rooms did not reach the search field, but \(responder())"
+        )
+        try await tab(
+            backwards: true,
+            "Shift-Tab back to the rooms"
+        )
+        try expect(
+            window.firstResponder is HouseRoomsKeyStop.StopView,
+            "Shift-Tab from the search field did not return to the rooms, but \(responder())"
+        )
         press(
-            "\t",
-            keyCode   : 48,
+            "\r",
+            keyCode   : 36,
             modifiers : [],
             in        : window,
             throughApp: false
         )
         try await Task.sleep(for: .milliseconds(300))
-        print("click check: after Tab, first responder \(responder())")
-        press(
-            "\u{19}",
-            keyCode   : 48,
-            modifiers : [.shift],
-            in        : window,
-            throughApp: false
-        )
-        try await Task.sleep(for: .milliseconds(300))
-        print("click check: after Shift-Tab, first responder \(responder()), team focused \(isSidebarFocused())")
+        print("click check: after Return, first responder \(responder())")
         try expect(
-            isSidebarFocused(),
-            "Shift-Tab from the conversation did not reach the team"
+            window.firstResponder is ComposerTextView,
+            "Return in the rooms did not hand the keyboard to the composer, but \(responder())"
         )
 
         // The rooms in reading order: the first across the sidebar's top, then two by two.

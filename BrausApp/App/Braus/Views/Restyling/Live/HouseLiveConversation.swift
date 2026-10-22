@@ -110,8 +110,12 @@ struct HouseLiveConversation: View {
                         }
                     }
                     .onChange(of: transcript?.runningTurn) { was, now in
-                        // The turn ended in this conversation with its answer last: the reply lands.
-                        if was != nil, now == nil, case .workerReply(_, false)? = transcript?.rows.last?.item.kind {
+                        if Self.landsReply(
+                            wasRunning   : was != nil,
+                            isRunning    : now != nil,
+                            endsWithReply: Self.isReply(transcript?.rows.last?.item.kind),
+                            isShown      : isArrivalOpen
+                        ) {
                             isLanding = true
                         }
                     }
@@ -259,6 +263,23 @@ struct HouseLiveConversation: View {
         guard !isAnswering, !draft.allSatisfy(\.isWhitespace) else { return BrowState(status) }
 
         return .listening
+    }
+
+    /// Whether a change of the transcript's running turn is this worker's turn ending with its answer
+    /// last, in the conversation the transcript shows. Opening another worker's conversation clears the
+    /// turn of the one before it while its rows are still on screen; that is not a turn ending here.
+    static func landsReply(
+        wasRunning   : Bool,
+        isRunning    : Bool,
+        endsWithReply: Bool,
+        isShown      : Bool
+    ) -> Bool {
+        isShown && wasRunning && !isRunning && endsWithReply
+    }
+
+    private static func isReply(_ kind: TranscriptItem.Kind?) -> Bool {
+        if case .workerReply(_, false)? = kind { return true }
+        return false
     }
 
     /// What the hero's body does through a turn: the
