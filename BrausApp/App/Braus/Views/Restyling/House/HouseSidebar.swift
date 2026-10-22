@@ -9,7 +9,8 @@ import SwiftUI
 
 /// HouseSidebar is the house's sidebar: the team's `workers` as rooms or as rows, as Settings
 /// chooses, with a search field that finds a worker by name or role (`TeamRow.matches`) and that
-/// Edit > Find… (⌘F) focuses, unless Settings leaves it out (`showsSearch`), which ends the search.
+/// Edit > Find… (⌘F) focuses, unless Settings leaves it out (`showsSearch`) or the sidebar is compact,
+/// which ends the search.
 /// Each room's context menu holds the worker's commands.
 ///
 /// The room column count follows the sidebar width; rows are cards that put the name under the worker when compact.
@@ -47,7 +48,7 @@ struct HouseSidebar: View {
             // places laid the window out again, without end while workers answered.
             .focusedSceneValue(
                 \.findInHouse,
-                showsSearch ? { Self.find(in: NSApp.keyWindow) } : nil
+                showsSearchField ? { Self.find(in: NSApp.keyWindow) } : nil
             )
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width
@@ -55,8 +56,8 @@ struct HouseSidebar: View {
                 resize(to: width)
             }
             // A search the field no longer shows would hide workers with nothing to say why.
-            .onChange(of: showsSearch) {
-                if !showsSearch { query = "" }
+            .onChange(of: showsSearchField) {
+                if !showsSearchField { query = "" }
             }
     }
 
@@ -107,10 +108,27 @@ struct HouseSidebar: View {
         .background(CrossFade(columns: columns))
     }
 
-    /// `list` under the sidebar's search field, or alone while Settings leaves the field out.
+    /// Whether the search field is shown: Settings keeps it and the sidebar is wide enough, which
+    /// it is not once its rooms are in one column.
+    private var showsSearchField: Bool {
+        Self.showsSearchField(
+            setting: showsSearch,
+            columns: columns
+        )
+    }
+
+    /// Whether a sidebar of `columns` columns of rooms shows its search field, given Settings' `setting`.
+    static func showsSearchField(
+        setting: Bool,
+        columns: Int
+    ) -> Bool {
+        setting && columns > 1
+    }
+
+    /// `list` under the sidebar's search field, or alone while Settings or a compact sidebar leaves it out.
     @ViewBuilder
     private func searchField(on list: some View) -> some View {
-        if showsSearch {
+        if showsSearchField {
             list
                 .searchable(
                     text     : $query,

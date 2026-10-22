@@ -27,8 +27,14 @@ struct HouseShellView: View {
     /// the composer.
     @State private var composerFocus = 0
 
+    /// What the window shows of the inspector, which a narrow window may keep from the request.
+    @State private var isInspectorShown = false
+
     var body: some View {
-        HouseSplit(isInspectorRequested: $isInspectorRequested) {
+        HouseSplit(
+            isInspectorRequested: $isInspectorRequested,
+            isInspectorShown    : $isInspectorShown
+        ) {
             HouseSidebar(
                 workers  : workers,
                 selection: $team.selection,
@@ -55,9 +61,9 @@ struct HouseShellView: View {
             detail
                 .toolbar {
                     HouseLiveToolbar(
-                        team                : team,
-                        isInspectorRequested: isInspectorRequested,
-                        toggleInspector     : { isInspectorRequested.toggle() }
+                        team            : team,
+                        isInspectorShown: isInspectorShown,
+                        toggleInspector : { isInspectorRequested.toggle() }
                     )
                 }
         } inspector: {
@@ -77,6 +83,10 @@ struct HouseShellView: View {
             // Another worker takes the enlarged screen away with no shrink to land.
             team.dismissEnlargedScreen()
             Task { await team.openSelectedConversation() }
+            // A name asked for another worker is no longer wanted.
+            if team.editingWorker != team.selection { team.editingWorker = nil }
+            // Edit Worker… hands the keyboard to the Name field, not the composer.
+            guard team.editingWorker == nil else { return }
             // A quick tap's key up may already be the current event when the change is seen.
             guard team.selection != nil, ![.keyDown, .keyUp].contains(NSApp.currentEvent?.type) else { return }
             Task {
@@ -119,6 +129,10 @@ struct HouseShellView: View {
         // The worker's commands open its list of providers, which lives in the inspector.
         .onChange(of: team.choosingProviderFor) {
             if team.choosingProviderFor != nil { isInspectorRequested = true }
+        }
+        // Edit Worker… shows the inspector, where its Worker section takes the keyboard.
+        .onChange(of: team.editingWorker) {
+            if team.editingWorker != nil { isInspectorRequested = true }
         }
         .focusedSceneValue(
             \.team,
@@ -186,10 +200,9 @@ struct HouseShellView: View {
         team.selection.map(team.hasScreen) ?? false
     }
 
-    /// Chooses `worker` and shows the inspector, where it is edited, as Choose Provider… does.
+    /// Chooses `worker` and asks for its name to be edited in the inspector.
     private func edit(_ worker: HouseWorker.ID) {
-        team.selection       = worker
-        isInspectorRequested = true
+        team.editWorker(worker)
     }
 
     // MARK: Areas

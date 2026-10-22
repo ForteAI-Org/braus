@@ -105,12 +105,14 @@ struct HouseNewWorkerSheet: View {
                         prompt: Text("Worker name")
                     )
                     .focused($namesFirst)
+                    .accessibilityLabel("Name")
 
                     TextField(
                         "Role",
                         text  : $role,
                         prompt: Text("Example: Researcher")
                     )
+                    .accessibilityLabel("Role")
 
                     TextField(
                         "Instructions",
@@ -119,6 +121,7 @@ struct HouseNewWorkerSheet: View {
                         axis  : .vertical
                     )
                     .lineLimit(2...5)
+                    .accessibilityLabel("Instructions")
                 }
 
                 Section {
@@ -134,6 +137,7 @@ struct HouseNewWorkerSheet: View {
                             Text(label(of: provider)).tag(Optional(provider))
                         }
                     }
+                    .accessibilityLabel("Provider")
 
                     modelRow
                 } footer: {
@@ -194,6 +198,7 @@ struct HouseNewWorkerSheet: View {
                     Text(entry.title).tag(Optional(entry.id))
                 }
             }
+            .accessibilityLabel("Model")
         } else {
             LabeledContent("Model") {
                 if let provider, models == nil {

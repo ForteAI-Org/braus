@@ -69,4 +69,58 @@ struct HouseLiveToolbarTests {
         team.selection = nil
         #expect(try await identifiers() == withUsage)
     }
+
+    @Test("The inspector button reads Show Inspector while a narrow window keeps the requested inspector hidden")
+    func inspectorTitleFollowsWhatTheWindowShows() async throws {
+        #expect(HouseLiveToolbar.inspectorTitle(isShown: true) == "Hide Inspector")
+        #expect(HouseLiveToolbar.inspectorTitle(isShown: false) == "Show Inspector")
+
+        let directory = URL.temporaryDirectory.appending(
+            path         : "HouseLiveToolbarTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let team      = try await WindowSnapshots.syntheticTeam(in: directory)
+        var requested = true
+        let window    = NSWindow(contentViewController: NSHostingController(
+            rootView: HouseShellView(
+                team                : team,
+                isInspectorRequested: Binding(
+                    get: { requested },
+                    set: { requested = $0 }
+                )
+            )
+        ))
+        window.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]
+        window.setFrame(
+            NSRect(x: -30_000, y: 0, width: 800, height: 760),
+            display: false
+        )
+        window.orderBack(nil)
+        window.isReleasedWhenClosed = false
+        defer {
+            window.contentViewController = nil
+            window.close()
+        }
+
+        func title() async throws -> String? {
+            try await Task.sleep(for: .seconds(1.5))
+            return window.toolbar?.items.first { $0.label.hasSuffix("Inspector") }?.label
+        }
+
+        #expect(try await title() == "Show Inspector", "800 points hold no inspector, though it is requested")
+
+        window.setFrame(
+            NSRect(x: -30_000, y: 0, width: 1400, height: 760),
+            display: true
+        )
+        #expect(try await title() == "Hide Inspector")
+
+        window.setFrame(
+            NSRect(x: -30_000, y: 0, width: 800, height: 760),
+            display: true
+        )
+        #expect(try await title() == "Show Inspector")
+    }
 }

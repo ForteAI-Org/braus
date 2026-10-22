@@ -105,6 +105,30 @@ struct HouseSidebarToolbarTests {
         #expect(hasField())
     }
 
+    @Test("A compact sidebar leaves the search field out, keeps the archive in its toolbar and Find… has nothing to focus")
+    func compactSidebarHasNoSearchField() async throws {
+        #expect(HouseSidebar.showsSearchField(setting: true, columns: 2))
+        #expect(!HouseSidebar.showsSearchField(setting: true, columns: 1))
+        #expect(!HouseSidebar.showsSearchField(setting: false, columns: 2))
+
+        let (window, _, directory) = try await Self.sidebarWindow(
+            archived    : 3,
+            sidebarWidth: ShellMetrics.compactSidebar
+        )
+        defer {
+            window.close()
+            TemporaryStore.discard(directory)
+        }
+        let hasField = { () -> Bool in
+            guard let frame = window.contentView?.superview else { return false }
+            return Self.searchField(in: frame) != nil
+        }
+        #expect(!hasField())
+        #expect(window.toolbar?.items.contains { $0.label == "Archive" } == true)
+        HouseSidebar.find(in: window)
+        #expect(!(window.firstResponder is NSSearchField) && !((window.firstResponder as? NSText)?.delegate is NSSearchField))
+    }
+
     private static func searchField(in view: NSView) -> NSSearchField? {
         if let field = view as? NSSearchField { return field }
         return view.subviews.lazy.compactMap { searchField(in: $0) }.first
@@ -112,7 +136,10 @@ struct HouseSidebarToolbarTests {
 
     /// A window with the house's split, its sidebar showing a team of four workers and `archived`
     /// in the archive, once its toolbar has items, and the folder of the team's store.
-    private static func sidebarWindow(archived: Int) async throws -> (NSWindow, Choice, URL) {
+    private static func sidebarWindow(
+        archived    : Int,
+        sidebarWidth: CGFloat? = nil
+    ) async throws -> (NSWindow, Choice, URL) {
         let directory = TemporaryStore.directory()
         let store     = try WorkspaceStore.opening(in: directory)
         for index in 0..<(4 + archived) {
@@ -134,6 +161,7 @@ struct HouseSidebarToolbarTests {
         )
         await team.load()
         let choice = Choice(team: team)
+        choice.sidebarWidth = sidebarWidth
         let window = NSWindow(
             contentRect: CGRect(
                 x     : 0,
@@ -170,6 +198,9 @@ struct HouseSidebarToolbarTests {
 
         var showsSearch = true
 
+        /// A fixed width for the sidebar, nil for the split's own.
+        var sidebarWidth: CGFloat?
+
         init(team: TeamModel) { self.team = team }
     }
 
@@ -184,6 +215,11 @@ struct HouseSidebarToolbarTests {
                     selection  : $choice.worker,
                     team       : choice.team,
                     showsSearch: choice.showsSearch
+                )
+                .navigationSplitViewColumnWidth(
+                    min  : choice.sidebarWidth ?? 200,
+                    ideal: choice.sidebarWidth ?? 280,
+                    max  : choice.sidebarWidth ?? 340
                 )
                 .toolbar {
                     ToolbarItem {

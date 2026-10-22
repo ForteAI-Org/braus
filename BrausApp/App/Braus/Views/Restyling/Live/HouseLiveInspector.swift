@@ -66,12 +66,14 @@ struct HouseLiveInspector: View {
                 )
 
                 HouseWorkerSection(
-                    name       : worker.name,
-                    role       : worker.role ?? "",
-                    shape      : worker.shape,
-                    commitName : { update(.name($0)) },
-                    commitRole : { update(.role($0.isEmpty ? nil : $0)) },
-                    commitShape: { update(.shape($0.rawValue)) }
+                    name         : worker.name,
+                    role         : worker.role ?? "",
+                    shape        : worker.shape,
+                    commitName   : { update(.name($0)) },
+                    commitRole   : { update(.role($0.isEmpty ? nil : $0)) },
+                    commitShape  : { update(.shape($0.rawValue)) },
+                    takesKeyboard: team.editingWorker == worker.id,
+                    tookKeyboard : { team.editingWorker = nil }
                 )
                 .id(worker.id)
 

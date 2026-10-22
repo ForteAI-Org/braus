@@ -23,7 +23,8 @@ import SwiftUI
 /// stops a drag of its divider at the compact width instead of collapsing it, so nothing has to
 /// reopen it. The root minimum always leaves out the inspector's width, which AppKit adds itself,
 /// so automatically closing it cannot raise the root minimum. Only the person changes
-/// `isInspectorRequested`; the split follows each change of it.
+/// `isInspectorRequested`; the split follows each change of it and reports what the window shows
+/// in `isInspectorShown`, which a toolbar button names itself by.
 ///
 /// The window, sidebar and inspector backgrounds are the asset catalogue's `RestylingGround`,
 /// `RestylingSidebar` and `RestylingInspector`, darker than the system's greys.
@@ -31,6 +32,9 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
 
     /// Whether the person asked for the inspector, which a narrow window may not show yet.
     @Binding var isInspectorRequested: Bool
+
+    /// Whether the window shows the inspector now, written by the split as its division changes.
+    @Binding var isInspectorShown: Bool
 
     @ViewBuilder var sidebar: Sidebar
 
@@ -111,6 +115,12 @@ struct HouseSplit<Sidebar: View, Detail: View, Inspector: View>: View {
         .background(WindowWidthReader(onWidth: windowResized))
         .background(TransparentTitleBar())
         .onChange(of: isInspectorRequested) { inspectorRequestChanged() }
+        .onChange(
+            of     : division.isInspectorShown,
+            initial: true
+        ) {
+            isInspectorShown = division.isInspectorShown
+        }
         .preferredColorScheme(.dark)
     }
 
