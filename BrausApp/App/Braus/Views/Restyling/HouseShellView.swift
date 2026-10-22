@@ -77,7 +77,8 @@ struct HouseShellView: View {
             // Another worker takes the enlarged screen away with no shrink to land.
             team.dismissEnlargedScreen()
             Task { await team.openSelectedConversation() }
-            guard team.selection != nil, NSApp.currentEvent?.type != .keyDown else { return }
+            // A quick tap's key up may already be the current event when the change is seen.
+            guard team.selection != nil, ![.keyDown, .keyUp].contains(NSApp.currentEvent?.type) else { return }
             Task {
                 // Asked for before the new composer is in its window, the focus would be dropped.
                 await Task.yield()
