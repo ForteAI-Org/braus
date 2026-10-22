@@ -1,7 +1,7 @@
 # Braus restyling: come provarlo
 
-Data: 22 ottobre 2026. Worktree `../mecum-app-restyling-final`, branch `elio/app-restyling-final`
-(base `811a43da`, tutto il restyling integrato, più le correzioni della verifica finale).
+Data: 22 ottobre 2026. Worktree `../mecum-app-restyling`, branch `elio/app-restyling`
+(tutto il restyling integrato, più le correzioni della verifica finale, l'ottimizzazione e la CPU a riposo a zero).
 
 Questa è la guida per provare la nuova interfaccia prima di decidere su `main`. Si prova su una
 **copia** del workspace, mai su quello vero: vedi «Perché una copia» in fondo.
@@ -18,7 +18,7 @@ incoerente, e due Braus insieme si contendono il Mac (display virtuale, Seat).
 ditto ~/Library/Application\ Support/Braus ~/Braus-copia
 
 # 2. La build, dal worktree
-cd ~/Forte_Projects/mecum-app-restyling-final
+cd ~/Forte_Projects/mecum-app-restyling
 xcodebuild -workspace BrausApp/AgentEnvironment.xcworkspace -scheme Braus \
   -configuration Debug -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath .scratch/dd build
