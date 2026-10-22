@@ -79,6 +79,37 @@ struct HouseSidebarToolbarTests {
         #expect(searchHasFocus())
     }
 
+    @Test("Settings can leave the search field out, and Find… then has nothing to focus")
+    func searchFieldFollowsTheSetting() async throws {
+        let (window, choice, directory) = try await Self.sidebarWindow(archived: 0)
+        defer {
+            window.close()
+            TemporaryStore.discard(directory)
+        }
+        let hasField = { () -> Bool in
+            guard let frame = window.contentView?.superview else { return false }
+            return Self.searchField(in: frame) != nil
+        }
+        #expect(hasField())
+
+        choice.showsSearch = false
+        try await Task.sleep(for: .milliseconds(150))
+        window.contentView?.layoutSubtreeIfNeeded()
+        #expect(!hasField())
+        HouseSidebar.find(in: window)
+        #expect(!(window.firstResponder is NSSearchField) && !((window.firstResponder as? NSText)?.delegate is NSSearchField))
+
+        choice.showsSearch = true
+        try await Task.sleep(for: .milliseconds(150))
+        window.contentView?.layoutSubtreeIfNeeded()
+        #expect(hasField())
+    }
+
+    private static func searchField(in view: NSView) -> NSSearchField? {
+        if let field = view as? NSSearchField { return field }
+        return view.subviews.lazy.compactMap { searchField(in: $0) }.first
+    }
+
     /// A window with the house's split, its sidebar showing a team of four workers and `archived`
     /// in the archive, once its toolbar has items, and the folder of the team's store.
     private static func sidebarWindow(archived: Int) async throws -> (NSWindow, Choice, URL) {
@@ -137,6 +168,8 @@ struct HouseSidebarToolbarTests {
 
         var worker: HouseWorker.ID?
 
+        var showsSearch = true
+
         init(team: TeamModel) { self.team = team }
     }
 
@@ -147,9 +180,10 @@ struct HouseSidebarToolbarTests {
         var body: some View {
             NavigationSplitView {
                 HouseSidebar(
-                    workers  : HouseRoster.workers(of: choice.team),
-                    selection: $choice.worker,
-                    team     : choice.team
+                    workers    : HouseRoster.workers(of: choice.team),
+                    selection  : $choice.worker,
+                    team       : choice.team,
+                    showsSearch: choice.showsSearch
                 )
                 .toolbar {
                     ToolbarItem {
