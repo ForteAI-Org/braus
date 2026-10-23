@@ -397,6 +397,11 @@ Driver offers is not yet turned on here.
 - A toggle state flip belongs to the resolved control's scope: kind, native role, label,
   container and collection path must identify one control before and after in the same window.
   Repeated IDs, such as Mute on several tracks, do not select the first matching control.
+- `set_toggle` requires an initial state of `on` or `off` from the scoped control. An absent,
+  `unknown` or `mixed` state refuses before any click or menu substitute, including in a dry run;
+  the action record says `notAttempted` and no effect is attributed. An already-desired state is
+  `acted_noop`; a different definite state permits one gesture followed by read-back. An unverified
+  gesture is not evidence for another toggle: the next request needs its own definite initial state.
 - A text format toggle (`bold`, `italic`, `underline`, and the Italian `grassetto`, `corsivo`,
   `sottolineato`) is never `found_acted` from its own state:
   a click or `set_toggle` that only flips it is `acted_unverified` with `commandEffectUnchecked`,
@@ -406,9 +411,10 @@ Driver offers is not yet turned on here.
   command), a click or `set_toggle` on such a toggle, a control that shows a state, is decided
   before anything is sent: the engine presses its menu item (`ActVerification.formatMenuPath`)
   and never also clicks, since the menu item toggles the format too. A button, a text or a row
-  with that label shows no state and is only clicked. The reply says so ("'bold' applied through
-  Format > Font > Bold, not by clicking the control: ..."), its verdict and check are the menu
-  command's own, with `performed` `substitute` (`menu_command`) and the toggle as target. When
+  with that label and no state can still be explicitly clicked; `set_toggle` refuses it. The reply
+  says so ("'bold' applied through Format > Font > Bold, not by clicking the control: ..."); its
+  verdict and check are the menu command's own, with `performed` `substitute` (`menu_command`)
+  and the toggle as target. When
   the session presses that application's menus during a brief activation (the seat's
   `preparesMenuInFront`), a clean press adds that the application was brought forward for a
   moment. A menu item missing, disabled or refused dispatched nothing, so the toggle is clicked
