@@ -9,6 +9,16 @@ import Testing
 
 @Suite("Automation MCP application boundary")
 struct AutomationToolsTests {
+
+    @Test("a chat's begin always searches what was learned: the agent's recall false is dropped, nothing else")
+    func declinedRecallIsDropped() {
+        let begin: JSONValue = .object(["operation": .string("begin"), "goal": .string("g"), "recall": .bool(false)])
+        let kept = AutomationTools.withoutDeclinedRecall(begin)
+        #expect(kept["recall"] == .null || kept.object?["recall"] == nil)
+        #expect(kept["goal"].string == "g" && kept["operation"].string == "begin")
+        let end: JSONValue = .object(["operation": .string("end"), "recall": .bool(false)])
+        #expect(AutomationTools.withoutDeclinedRecall(end) == end, "only a beginning loses it")
+    }
     @Test("shortcut guidance preserves target-specific support and observed file-panel state")
     func shortcutGuidanceMatchesQualifiedTargets() {
         let instructions = AutomationTools.instructions

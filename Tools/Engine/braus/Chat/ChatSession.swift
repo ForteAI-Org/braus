@@ -128,6 +128,8 @@ final class ChatSession {
         working = history.appendingPathComponent("ProviderWorkspace", isDirectory: true)
         try FileManager.default.createDirectory(at: working, withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
+        // A chat's tasks always search what was learned; a run that must not use it turns the Recall off itself.
+        tools.recallAlwaysOn = true
         tools.record = { [weak self] text in
             print("  \(text.prefix(240))")
             try self?.current?.append(.tool, text)

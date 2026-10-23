@@ -52,6 +52,9 @@ public final class AutomationTools {
     /// Who makes the calls, as the living memory records them: the app's worker, an external client,
     /// the command line's chat. Each call is recorded under it, with the trace it names at that moment.
     public var producer = CallProducer(source: .app, streamID: "tools-\(UUID().uuidString)")
+    /// When true, a task's beginning always searches what was learned: an agent's `recall: false` is ignored, so whether
+    /// the Recall runs is the run's configuration and never the agent's choice of the moment. Off by default.
+    public var recallAlwaysOn = false
     /// The task the agent declared through `memory_task` and has not ended: its calls are attributed to it.
     public private(set) var openTask: OpenTask?
     /// The candidate the last checkpoint or end answered that no interpretation has taken yet: until one does,
@@ -657,6 +660,13 @@ public final class AutomationTools {
         return found
     }
 
+    /// A `memory_task` begin without the agent's `recall` choice, so the beginning searches what was learned.
+    package static func withoutDeclinedRecall(_ arguments: JSONValue) -> JSONValue {
+        guard arguments["operation"].string == "begin", var fields = arguments.object, fields["recall"] != nil else { return arguments }
+        fields["recall"] = nil
+        return .object(fields)
+    }
+
     /// What an `app_call` withholds (P12): the values of the verb's content parameters (`AdapterParameter.isContent`, a
     /// text written, appended, found or put in place), for this call only, as a text typed where no target was
     /// attested. A call whose verb cannot be resolved, or made without the adapters, is refused after its transcript
@@ -1059,6 +1069,7 @@ public final class AutomationTools {
     /// recorded as a call. A refusal is answered as a tool error with a code and the facts the agent
     /// needs (the current revision, the open task), never thrown as a failure of an action.
     private func task(_ arguments: JSONValue) async throws -> JSONValue {
+        let arguments = recallAlwaysOn ? Self.withoutDeclinedRecall(arguments) : arguments
         // The request's secrets are the producer's before any line of it is written, the transcript's first.
         for text in MemoryTaskTool.declaredSecrets(in: arguments) where !secrets.contains(text) { secrets.append(text) }
         try transcribe("→ \(MemoryTaskTool.name)", Self.masked(arguments))
