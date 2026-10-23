@@ -282,9 +282,7 @@ public struct TaskResultCheck: Sendable, Equatable {
             case .element(_, let label, let expect):
                 guard let scene else { return verdict(.unknown, "no session of the application to read the scene") }
                 let wanted = LabelText.normalize(label)
-                let matching = scene.elements.filter { element in
-                    !wanted.isEmpty && (LabelText.normalize(element.label) == wanted || element.id == label)
-                }
+                let matching = scene.elements.filter { names($0, wanted: wanted, label: label) }
                 switch expect {
                     case .present:
                         return matching.isEmpty ? verdict(.failed, "no element with that label in the scene")
@@ -332,12 +330,24 @@ public struct TaskResultCheck: Sendable, Equatable {
         guard let opening else {
             return verdict(.unknown, "the element's value when the task began was not read, so no change can be told")
         }
-        let before = opening.elements.filter { LabelText.normalize($0.label) == label || $0.id == label }
+        let before = opening.elements.filter { names($0, wanted: label, label: label) }
         guard before.count == 1, let was = nativeValue(before[0]) else {
             return verdict(.unknown, "the element's native value when the task began was not read, so no change can be told")
         }
         return was == expected ? verdict(.unknown, "the element already showed that value when the task began")
             : verdict(.passed, "the element's native value is the one expected, and it was another when the task began")
+    }
+
+    /// True when a check names this element: by its label, its ID, or exactly as the scene prints its line,
+    /// «label = value» (an agent copies that line whole: Pro Tools' «Track name "Kick" = Kick», 23 October 2026).
+    static func names(_ element: SceneElement, wanted: String, label: String) -> Bool {
+        guard !wanted.isEmpty else { return false }
+        if LabelText.normalize(element.label) == wanted || element.id == label { return true }
+        return [element.value, nativeValue(element)].compactMap { $0 }.filter { !$0.isEmpty }.contains { value in
+            let shown = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return [element.label + " = " + shown, element.label + " = \"" + shown + "\""]
+                .contains { LabelText.normalize($0) == wanted }
+        }
     }
 
     /// The raw native string value of an element read in an attested observation, empty included; nil for any other

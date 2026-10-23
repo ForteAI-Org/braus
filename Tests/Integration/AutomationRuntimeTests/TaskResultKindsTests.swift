@@ -385,6 +385,23 @@ struct TaskResultJudgmentTests {
                 && C.combined([.passed, .unknown]) == .unknown && C.combined([]) == nil)
     }
 
+    @Test("an element named as the scene prints its line, «label = value», is that element; another value is not")
+    func namedAsPrinted() {
+        let label = "Track name\n\"Lead Vocal\""
+        let scene = SceneSnapshot(bundleID: "b", appName: "B", windowTitle: "Edit",
+                                  viewportPixelSize: ViewportPixelSize(width: 100, height: 100), elements: [
+            SceneElement(id: "t1", kind: .control, label: label, bounds: NormalizedRect(x: 0, y: 0, width: 0.1, height: 0.1),
+                         role: "AXTextField", value: "Lead Vocal"),
+        ])
+        func judge(_ name: String, _ value: String) -> VerificationVerdict {
+            C.judge(.element(app: nil, label: name, expect: .value(value)), attemptID: "a", windows: nil, scene: scene).verdict
+        }
+        #expect(judge(label + " = Lead Vocal", "Lead Vocal") == .passed)
+        #expect(judge(label + " = \"Lead Vocal\"", "Lead Vocal") == .passed)
+        #expect(judge(label, "Lead Vocal") == .passed, "the label alone still names it")
+        #expect(judge(label + " = Kick", "Kick") == .failed, "a line with another value names no element")
+    }
+
     @Test("a value only the native reading carries: exact, one element, and changed since the task began")
     func nativeValue() {
         let observation = NativeControlObservation(observationID: UUID(), processID: 42, windowNumber: 7,
