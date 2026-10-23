@@ -79,6 +79,17 @@ struct ActionEngineTests {
         }
     }
 
+    /// The window listing that changes with the first gesture: `before` until something went out, `after` once it did.
+    final class WindowsChangedByGesture: WindowListing, @unchecked Sendable {
+        let before: [WindowRow]
+        let after : [WindowRow]
+        let actuator: RecordingActuator
+        init(before: [WindowRow], after: [WindowRow], actuator: RecordingActuator) {
+            self.before = before; self.after = after; self.actuator = actuator
+        }
+        func windows(ownedBy processID: pid_t) throws -> [WindowRow] { actuator.gestures.isEmpty ? before : after }
+    }
+
     final class FakeControls: ControlPressing, @unchecked Sendable {
         var pressed: [String] = []
         var pressSucceeds = false
@@ -193,12 +204,13 @@ struct ActionEngineTests {
     private func engine(scenes: ScriptedScenes, actuator: RecordingActuator = RecordingActuator(),
                         windows: ScriptedWindows? = nil, controls: FakeControls? = nil, activation: FakeActivation? = nil,
                         expectations: FixedExpectation? = nil, observer: RecordingObserver? = nil,
-                        permissions: ActionPermissions = ActionPermissions(), menus: FakeMenus? = nil) -> ActionEngine {
+                        permissions: ActionPermissions = ActionPermissions(), menus: FakeMenus? = nil,
+                        settling: (any Settling)? = nil) -> ActionEngine {
         ActionEngine(
             ActionEngine.Dependencies(
                 scenes: scenes, actuator: actuator, windows: windows ?? ScriptedWindows([[mainWindow]]),
                 controls: controls, activation: activation, expectations: expectations, observer: observer,
-                menus: menus
+                settling: settling, menus: menus
             ),
             permissions: permissions, pause: { _ in }
         )
@@ -342,6 +354,7 @@ struct ActionEngineTests {
         let refused = await engine(scenes: ScriptedScenes([scene([trash])]), actuator: unconsented)
             .act(request("Delete"))
         #expect(refused.kind == .refused && refused.message.contains("person must allow destructive actions"))
+        #expect(refused.message.contains("not authorized in this session"), "the model must not read it as allowed but blocked")
         // The person's consent is necessary, never sufficient: the scene read again is no verifier of a delete.
         let blind = RecordingActuator()
         let unconfirmed = await engine(scenes: ScriptedScenes([scene([trash]), scene([trash], title: "Gone")]),
@@ -471,6 +484,44 @@ struct ActionEngineTests {
         #expect(actuator.gestures.count == 1, "the click is sent once and never again")
         #expect(actuator.confirmations == [.unknown])
         #expect(scenes.readsAfter >= 1, "the engine tried to read the window after the click")
+    }
+
+    /// A dialog whose frame is the scene's, over the application's main window: the window a click lands in.
+    private var dialogWindow: WindowRow { WindowRow(layer: 0, frame: frame, title: "Save", number: 7) }
+    private var backWindow: WindowRow {
+        WindowRow(layer: 0, frame: CGRect(x: 0, y: 0, width: 900, height: 700), title: "Document", number: 1)
+    }
+
+    /// Clicks Don't Save in a dialog: afterwards the dialog is no longer listed and no scene can be read.
+    private func clickThatClosesItsWindow(alive: Bool) async -> (ActOutcome, RecordingActuator) {
+        let actuator = RecordingActuator()
+        let outcome = await ActionEngine(
+            ActionEngine.Dependencies(
+                scenes: ScenesLostAfterGesture(scene([export], token: "before"), after: actuator), actuator: actuator,
+                windows: WindowsChangedByGesture(before: [dialogWindow, backWindow], after: [backWindow], actuator: actuator),
+                isRunning: { _ in alive }
+            ),
+            permissions: ActionPermissions(), pause: { _ in }
+        ).act(request("Export"))
+        return (outcome, actuator)
+    }
+
+    @Test("a click whose window closed while its process lives passes as a window set change")
+    func clickThatClosesItsWindowPasses() async {
+        let (outcome, actuator) = await clickThatClosesItsWindow(alive: true)
+        #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
+        #expect(outcome.check?.condition == .windowSetChanged && outcome.check?.verdict == .passed)
+        #expect(outcome.check?.limits.contains(.commandEffectUnchecked) == true)
+        #expect(outcome.message.contains("closed") && outcome.message.contains("still running"))
+        #expect(actuator.gestures.count == 1 && actuator.confirmations == [.observed])
+    }
+
+    @Test("a click after which the process is gone stays unverified: the window did not close, the application did")
+    func clickThatEndsItsProcessStaysUnknown() async {
+        let (outcome, actuator) = await clickThatClosesItsWindow(alive: false)
+        #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
+        #expect(outcome.check?.verdict == .unknown && outcome.check?.limits.contains(.noAfterScene) == true)
+        #expect(actuator.confirmations == [.unknown])
     }
 
     @Test("an unclassified display update does not invite replay", arguments: ["7+", "78"])
@@ -720,7 +771,7 @@ struct ActionEngineTests {
         #expect(outcome.message == "clicked 'Facebook': toggles")
     }
 
-    @Test("an element named Bold that shows no state is clicked and never sent through a menu")
+    @Test("stateless Bold permits an explicit click but refuses set_toggle, without a menu substitute")
     func statelessBoldSkipsMenu() async {
         let button = SceneElement(id: "control|bold", kind: .control, label: "Bold", bounds: rect(0.3, 0.3),
                                   role: "AXButton")
@@ -736,7 +787,9 @@ struct ActionEngineTests {
                                             menus: menus)
                     .act(request("Bold", verb: verb, desired: verb == .setToggle ? .on : nil))
                 #expect(menus.pressed.isEmpty, Comment(rawValue: "\(element.role ?? "") \(verb): \(outcome.message)"))
-                #expect(actuator.gestures.count == 1, Comment(rawValue: "\(element.role ?? "") \(verb)"))
+                #expect(actuator.gestures.count == (verb == .click ? 1 : 0),
+                        Comment(rawValue: "\(element.role ?? "") \(verb)"))
+                if verb == .setToggle { #expect(outcome.kind == .refused) }
             }
         }
     }
@@ -807,7 +860,7 @@ struct ActionEngineTests {
         #expect(panel.message.contains("this window did NOT change"), "\(panel.message)")
         #expect(panel.message.contains("Press it at most once more") && panel.message.contains("that way is closed"))
         let window = await engine(scenes: ScriptedScenes([scene([export]), scene([export])])).deliver(goTo)
-        #expect(window.message.contains("click the control that should receive it first"))
+        #expect(window.message.contains("observe the window") && !window.message.contains("click the control"))
         #expect(!window.message.contains("name field"))
     }
 
@@ -894,6 +947,147 @@ struct ActionEngineTests {
     }
 
     // MARK: set_toggle
+
+    @Test("set_toggle refuses indefinite initial states before clicks, menu substitutes or dry-run plans",
+          arguments: [nil, .unknown, .mixed] as [ControlState?])
+    func setToggleNeedsKnownInitialState(state: ControlState?) async {
+        for fixture in [toggleOff, boldOff] {
+            var element = fixture
+            element.state = state
+            for desired in [ControlState.on, .off] {
+                for dryRun in [false, true] {
+                    let before = scene([element])
+                    let actuator = RecordingActuator()
+                    let observer = RecordingObserver()
+                    let menus = FakeMenus(answer: menuPressed("Format > Font > Bold"))
+                    let settling = SettlingTests.RecordingSettling()
+                    let subject = engine(
+                        scenes: ScriptedScenes([before]),
+                        actuator: actuator,
+                        observer: observer,
+                        menus: menus,
+                        settling: settling
+                    )
+                    for _ in 0..<2 {
+                        let outcome = await subject.act(request(
+                            element.label,
+                            verb: .setToggle,
+                            desired: desired,
+                            dryRun: dryRun
+                        ))
+                        #expect(outcome.kind == .refused)
+                        #expect(outcome.message.contains("Nothing was sent"))
+                        #expect(outcome.check?.performed == OperationCheck.Performed.none)
+                        #expect(outcome.check?.verdict == .unknown)
+                    }
+                    #expect(actuator.gestures.isEmpty)
+                    #expect(actuator.confirmations.isEmpty)
+                    #expect(menus.pressed.isEmpty)
+                    #expect(settling.prepares.isEmpty && settling.waits.isEmpty)
+                    #expect(observer.records.count == 2)
+                    #expect(observer.records.allSatisfy {
+                        $0.attempt == .notAttempted(reason: "initial_toggle_state_not_definite")
+                            && $0.effect == nil && $0.before == before && $0.after == nil
+                    })
+                }
+            }
+        }
+    }
+
+    @Test("an indefinite native toggle state overrides a stale definite scene",
+          arguments: [ControlState.unknown, .mixed])
+    func setToggleRefusesIndefiniteNativeState(state: ControlState) async {
+        for element in [toggleOff, toggleOn, boldOff, boldOn] {
+            for desired in [ControlState.on, .off] {
+                let actuator = RecordingActuator()
+                let controls = FakeControls()
+                controls.labelledToggle = state
+                let menus = FakeMenus(answer: menuPressed("Format > Font > Bold"))
+                let outcome = await engine(
+                    scenes: ScriptedScenes([scene([element])]),
+                    actuator: actuator,
+                    controls: controls,
+                    menus: menus
+                ).act(request(element.label, verb: .setToggle, desired: desired))
+                #expect(outcome.kind == .refused)
+                #expect(controls.labelledReads == [element.label])
+                #expect(actuator.gestures.isEmpty && menus.pressed.isEmpty)
+            }
+        }
+    }
+
+    @Test("known toggle states preserve no-op, one-click read-back and dry-run behavior")
+    func setToggleKeepsKnownTransitions() async {
+        for initial in [ControlState.on, .off] {
+            for desired in [ControlState.on, .off] {
+                for dryRun in [false, true] {
+                    var before = toggleOff
+                    before.state = initial
+                    var after = before
+                    after.state = desired
+                    let actuator = RecordingActuator()
+                    let outcome = await engine(
+                        scenes: ScriptedScenes([scene([before]), scene([after])]),
+                        actuator: actuator
+                    ).act(request(before.label, verb: .setToggle, desired: desired, dryRun: dryRun))
+                    let needsClick = initial != desired
+                    #expect(outcome.kind == (!needsClick ? .actedNoop : dryRun ? .dryRun : .foundActed))
+                    #expect(actuator.gestures.count == (needsClick && !dryRun ? 1 : 0))
+                    if !dryRun || !needsClick {
+                        #expect(outcome.check?.verdict == .passed)
+                        #expect(outcome.check?.observed == desired.rawValue)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test("an indefinite scoped toggle cannot borrow another container's state")
+    func setToggleUnknownKeepsContainer() async {
+        var target = boldOff
+        target.state = nil
+        target.container = "Target"
+        var other = boldOn
+        other.container = "Other"
+        let actuator = RecordingActuator()
+        let controls = FakeControls()
+        controls.labelledToggle = .on
+        let menus = FakeMenus(answer: menuPressed("Format > Font > Bold"))
+        let outcome = await engine(
+            scenes: ScriptedScenes([scene([target, other])]),
+            actuator: actuator,
+            controls: controls,
+            menus: menus
+        ).act(request(target.label, verb: .setToggle, section: "Target", desired: .on))
+        #expect(outcome.kind == .refused)
+        #expect(controls.labelledReads.isEmpty)
+        #expect(actuator.gestures.isEmpty && menus.pressed.isEmpty)
+    }
+
+    @Test("an unverified toggle is not repeated when the next initial state is unavailable",
+          arguments: [false, true])
+    func setToggleDoesNotRepeatUnverifiedGesture(deliveryFailed: Bool) async {
+        var unreadable = toggleOff
+        unreadable.state = nil
+        let actuator = RecordingActuator()
+        if deliveryFailed { actuator.failure = Unavailable() }
+        let observer = RecordingObserver()
+        let subject = engine(
+            scenes: ScriptedScenes([scene([toggleOff]), scene([unreadable])]),
+            actuator: actuator,
+            observer: observer
+        )
+        let first = await subject.act(request(toggleOff.label, verb: .setToggle, desired: .on))
+        #expect(first.kind == .actedUnverified)
+        #expect(first.check?.verdict == .unknown)
+        let gestures = actuator.gestures.count
+        let confirmations = actuator.confirmations.count
+        let second = await subject.act(request(toggleOff.label, verb: .setToggle, desired: .on))
+        #expect(second.kind == .refused)
+        #expect(actuator.gestures.count == gestures)
+        #expect(actuator.confirmations.count == confirmations)
+        #expect(observer.records.last?.attempt == .notAttempted(reason: "initial_toggle_state_not_definite"))
+    }
 
     @Test("set_toggle is idempotent, needs a state, and verifies the read-back")
     func setToggle() async {
@@ -1218,6 +1412,7 @@ struct ActionEngineTests {
                                    permissions: ActionPermissions(contextMenusOnTextFieldsOnly: true))
             .act(request("Export", verb: .rightClick))
         #expect(outcome.kind == .refused)
+        #expect(outcome.message.contains("use context_menu on the same element"), Comment(rawValue: outcome.message))
         #expect(actuator.gestures.isEmpty)
     }
 }

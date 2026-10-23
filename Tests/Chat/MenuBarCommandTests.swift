@@ -220,6 +220,15 @@ struct MenuBarCommandTests {
         }
     }
 
+    @Test("A disabled item is not blamed on stale menus: the refusal names the state to check")
+    func disabledRefusalNamesNoUnobservedCause() {
+        let message = MenuBarCommand.disabledRefusal("File > Save").message
+        #expect(message.contains("File > Save is disabled"), Comment(rawValue: message))
+        #expect(message.contains("state of the document or session, or the selection"), Comment(rawValue: message))
+        #expect(!message.contains("background"), Comment(rawValue: message))
+        #expect(!message.contains("stale"), Comment(rawValue: message))
+    }
+
     @Test("A command disabled after preparation refuses without a second preparation or press")
     func aChangedMenuCannotAuthorizeASecondPreparation() async {
         var preparations = 0

@@ -377,6 +377,11 @@ public enum BrainRelationPolicy {
         var effectKind: String?
         switch verification.condition {
             case .structuralEffect:
+                // A change anywhere in the window, found for an input that acted on no element (a key, a scroll over the
+                // window), is not that input's effect: a counter returning to zero or a window opening while Escape or
+                // Space was pressed taught escape valueChanged and space elementsAppeared (Pro Tools, 22
+                // October 2026). A click is judged within its control's scope, so it still teaches.
+                if verification.limits.contains(.windowWide), !needsElement(facts.request) { return .excluded(.notLearnable) }
                 outcome = .effect
                 // The family the call's record observed, else the one its own verification names as observed.
                 effectKind = verification.verdict == .passed

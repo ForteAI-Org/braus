@@ -57,7 +57,7 @@ public enum MenuBarCommand {
     public enum Resolution<Element> {
         case press(Element, path: String)
         case list(path: String, items: [String])
-        /// The item reads disabled, which may be the application's menus gone stale.
+        /// The item reads disabled.
         case disabled(path: String)
         case outcome(ActOutcome)
     }
@@ -138,7 +138,7 @@ public enum MenuBarCommand {
                     break
                 case .needsConsent:
                     return .outcome(ActOutcome(.refused, "\(path) reads as destructive, and the person has not "
-                        + "allowed it."))
+                        + "allowed it: not authorized in this session."))
                 case .cannotReadBack:
                     return .outcome(ActOutcome(.refused, IrreversiblePolicy.readBackRefusal(path)))
             }
@@ -239,13 +239,14 @@ public enum MenuBarCommand {
 
     // MARK: The live menu bar
 
-    /// The refusal for an item that reads disabled. Measured on 30/09/2026: Photoshop left
-    /// its whole File menu disabled after a dialog closed, re-enabled it only when it became
-    /// active, and ignored a press on the disabled item.
+    /// The refusal for an item that reads disabled. It names no cause that was not observed: Pro Tools
+    /// showed such menus disabled for want of a session or a selection, so the message
+    /// sends the agent to check that state. (Photoshop on 30/09/2026 did leave a menu disabled in the
+    /// background; the moment in front given before this refusal covers that case.)
     static func disabledRefusal(_ path: String) -> ActOutcome {
-        ActOutcome(.refused, "\(path) is disabled right now. An application in the background can leave its "
-            + "menus disabled after a dialog until it is brought forward; say so rather than concluding the "
-            + "command is unavailable, and use a control in the window if there is one.")
+        ActOutcome(.refused, "\(path) is disabled right now: the menu item reads disabled, not out of date. Check the "
+            + "state of the document or session, or the selection, that it needs before choosing it, and use a "
+            + "control in the window if there is one.")
     }
 
     /// The refusal for an item disabled because a dialog of the application is open, which is

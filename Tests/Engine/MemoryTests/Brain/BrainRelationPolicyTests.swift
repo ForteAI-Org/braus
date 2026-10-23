@@ -79,6 +79,26 @@ struct BrainRelationPolicyTests {
         #expect(BrainMemory.effect(ofFamily: "valueChanged")?.family == "valueChanged")
     }
 
+    @Test("a whole-window verdict of a key or a scroll over the window teaches no relation, and a click still does")
+    func windowWideVerdictOfAKeyTeachesNothing() {
+        // Escape and Return learned valueChanged, Space learned elementsAppeared: a counter or a light changed alone.
+        let wide = Self.verified(.structuralEffect, limits: [.windowWide, .noExpectation])
+        for request in [AgentCallRequest.pressKey(key: KeyChord.Name("escape")!, modifiers: [], count: 1),
+                        .pressKey(key: KeyChord.Name("space")!, modifiers: [], count: 1),
+                        .scroll(direction: .down, lines: 3, target: nil, section: nil)] {
+            #expect(BrainRelationPolicy.decide(Self.facts(request, wide, effect: "valueChanged")) == .excluded(.notLearnable))
+            #expect(BrainRelationPolicy.decide(Self.facts(request, Self.verified(.structuralEffect, .failed, limits: [.windowWide]),
+                                                          expected: "valueChanged")) == .excluded(.notLearnable),
+                    "a window that did not change contradicts nothing either")
+        }
+        guard case .supports = BrainRelationPolicy.decide(Self.facts(Self.click(), wide)) else {
+            Issue.record("a click judged in its control's scope taught nothing"); return
+        }
+        let scoped = AgentCallRequest.pressKey(key: KeyChord.Name("return")!, modifiers: [], count: 1)
+        guard case .supports = BrainRelationPolicy.decide(Self.facts(scoped, Self.verified(.structuralEffect), effect: "valueChanged"))
+        else { Issue.record("a key verdict with no window-wide limit taught nothing"); return }
+    }
+
     @Test("every operation tool has its verb and the arguments that change it; parameters are no part of a relation")
     func everyTool() throws {
         let cases: [(AgentCallRequest, QualificationPolicy.VerificationFact, String, String, String?, String?)] = [

@@ -37,7 +37,7 @@ public enum IrreversiblePolicy {
 
     /// The refusal of `what` on a route that cannot read its effect back, in the same words wherever it is said.
     public static func readBackRefusal(_ what: String) -> String {
-        "\(what) looks destructive or irreversible, and this route cannot read its effect back: refused, whatever "
-            + "the person allows. Send, delete or pay through an adapter verb that reads its effect back (app_call)."
+        "\(what) looks destructive or irreversible, and this route cannot read its effect back: refused, not "
+            + "authorized in this session on this route, whatever the person allows. Send, delete or pay through an adapter verb that reads its effect back (app_call)."
     }
 }

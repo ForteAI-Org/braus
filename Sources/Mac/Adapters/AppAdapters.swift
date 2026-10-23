@@ -150,8 +150,8 @@ public struct AppAdapters: Sendable {
                 case .allowed:
                     break
                 case .needsConsent:
-                    return .refused("\(qualified) cannot be undone and destructive actions are off here. Ask the "
-                                    + "person, who can allow it.")
+                    return .refused("\(qualified) cannot be undone and destructive actions are off here: not authorized in this "
+                                    + "session. Ask the person, who can allow it.")
                 case .cannotReadBack:
                     return .refused(IrreversiblePolicy.readBackRefusal(qualified))
             }

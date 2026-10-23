@@ -22,6 +22,7 @@ struct InputDeliveryTests {
     typealias ScriptedWindows   = ActionEngineTests.ScriptedWindows
     typealias FakeControls      = ActionEngineTests.FakeControls
     typealias FakeActivation    = ActionEngineTests.FakeActivation
+    typealias WindowsChangedByGesture = ActionEngineTests.WindowsChangedByGesture
 
     // MARK: Fixtures
 
@@ -76,7 +77,7 @@ struct InputDeliveryTests {
     private func engine(
         scenes     : ScriptedScenes,
         actuator   : RecordingActuator = RecordingActuator(),
-        windows    : ScriptedWindows? = nil,
+        windows    : (any WindowListing)? = nil,
         controls   : FakeControls? = nil,
         activation : FakeActivation? = nil,
         permissions: ActionPermissions = ActionPermissions()
@@ -419,6 +420,7 @@ struct InputDeliveryTests {
         let refused = await engine(scenes: ScriptedScenes([scene([export])]))
             .deliver(request(.pressKey(chord, times: 1)))
         #expect(refused.kind == .refused && refused.message.contains("person must allow destructive actions"))
+        #expect(refused.message.contains("not authorized in this session"), "the model must not read it as allowed but blocked")
         let blind = RecordingActuator()
         let unconfirmed = await engine(scenes: ScriptedScenes([scene([export])]), actuator: blind,
                                        permissions: ActionPermissions(allowsDestructive: true))
@@ -666,6 +668,68 @@ struct InputDeliveryTests {
             .deliver(request(.pressKey(undo, times: 1)))
         #expect(appeared.kind == .foundActed, Comment(rawValue: appeared.message))
         #expect(appeared.message == "pressed cmd+z: reveals elements")
+    }
+
+    @Test("a key that opens a window passes through the window list although the scene did not change")
+    func aKeyThatOpensAWindowPasses() async {
+        // Pro Tools, Option-I opened a Workspace window and Command-E split a clip: the first window's scene stayed.
+        let actuator = RecordingActuator()
+        let workspace = WindowRow(layer: 0, frame: CGRect(x: 400, y: 300, width: 500, height: 400),
+                                  title: "Workspace", number: 5)
+        let windows = WindowsChangedByGesture(before: [mainWindow], after: [workspace, mainWindow], actuator: actuator)
+        let outcome = await engine(scenes: ScriptedScenes([scene([export]), scene([export])]), actuator: actuator,
+                                   windows: windows)
+            .deliver(request(.pressKey(KeyChord(.character("i"), modifiers: .option), times: 1)))
+        #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
+        #expect(outcome.check?.condition == .windowSetChanged && outcome.check?.verdict == .passed)
+        #expect(!outcome.message.contains("did NOT change"))
+        #expect(actuator.confirmations == [.observed])
+
+        let same = await engine(scenes: ScriptedScenes([scene([export]), scene([export])]))
+            .deliver(request(.pressKey(KeyChord(.character("i"), modifiers: .option), times: 1)))
+        #expect(same.check?.condition == .structuralEffect && same.check?.verdict == .failed)
+    }
+
+    @Test("a counter, a time display and a transport light changing alone are no effect of a key")
+    func selfChangingFieldsAreNoKeyEffect() async {
+        // Pro Tools, Space: the counter went back to zero and the play lights changed, and the key "revealed elements".
+        func counter(_ value: String) -> SceneElement {
+            SceneElement(id: "control|counter", kind: .control, label: "Counter",
+                         bounds: NormalizedRect(x: 0.4, y: 0.05, width: 0.2, height: 0.03), role: "AXTextField", value: value)
+        }
+        func light(_ label: String) -> SceneElement {
+            SceneElement(id: "control|\(label.lowercased())", kind: .control, label: label,
+                         bounds: NormalizedRect(x: 0.1, y: 0.05, width: 0.05, height: 0.03), role: "AXButton")
+        }
+        let space = KeyChord(.space)
+        let actuator = RecordingActuator()
+        let alone = await engine(
+            scenes: ScriptedScenes([scene([export, counter("00:00:12:05"), light("Stopped")]),
+                                    scene([export, counter("00:00:00:00"), light("Playing")])]),
+            actuator: actuator
+        ).deliver(request(.pressKey(space, times: 1)))
+        #expect(alone.kind == .actedUnverified, Comment(rawValue: alone.message))
+        #expect(!alone.message.contains("reveals") && !alone.message.contains("reads"), Comment(rawValue: alone.message))
+        #expect(actuator.confirmations == [.unknown])
+
+        let saved = text("Saved", x: 0.6, y: 0.9, width: 0.1)
+        let withNew = await engine(
+            scenes: ScriptedScenes([scene([export, counter("1"), light("Stopped")]),
+                                    scene([export, counter("2"), light("Playing"), saved])])
+        ).deliver(request(.pressKey(space, times: 1)))
+        #expect(withNew.kind == .foundActed && withNew.message == "pressed space: reveals elements",
+                Comment(rawValue: withNew.message))
+    }
+
+    @Test("a key that did nothing never tells the model to click first, which the seat cannot do")
+    func keyMessagesSuggestNoClick() async {
+        let ghost = await engine(scenes: ScriptedScenes([scene([export]), scene([export])]))
+            .deliver(request(.pressKey(KeyChord(.character("e"), modifiers: .command), times: 1)))
+        let repaint = await engine(scenes: ScriptedScenes([scene([export], token: "a"), scene([export], token: "b")]))
+            .deliver(request(.pressKey(KeyChord(.character("e")), times: 1)))
+        for outcome in [ghost, repaint] {
+            #expect(!outcome.message.localizedCaseInsensitiveContains("click"), Comment(rawValue: outcome.message))
+        }
     }
 
     @Test("a line re-read in place is no key effect although its fragments repeat on other lines")

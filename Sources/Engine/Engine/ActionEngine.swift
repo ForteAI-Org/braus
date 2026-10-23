@@ -42,6 +42,9 @@ public struct ActionEngine: Sendable {
         /// (`SceneDifference.effect`): true only for scenes whose texts show the app's state, as the
         /// MacDriver's do; false for the Seat's, whose texts include clocks and timecodes.
         public var countsNativeTextChange: Bool
+        /// Whether a process is still alive: what tells a window closed by a click from an application that went
+        /// away with it. The default asks the system; a test states it.
+        public var isRunning: @Sendable (pid_t) -> Bool
 
         public init(
             scenes      : any SceneProviding,
@@ -53,7 +56,8 @@ public struct ActionEngine: Sendable {
             observer    : (any ActionObserving)? = nil,
             settling    : (any Settling)? = nil,
             menus       : (any MenuCommanding)? = nil,
-            countsNativeTextChange: Bool = false
+            countsNativeTextChange: Bool = false,
+            isRunning   : @escaping @Sendable (pid_t) -> Bool = { kill($0, 0) == 0 || errno == EPERM }
         ) {
             self.scenes       = scenes
             self.actuator     = actuator
@@ -65,6 +69,7 @@ public struct ActionEngine: Sendable {
             self.settling     = settling
             self.menus        = menus
             self.countsNativeTextChange = countsNativeTextChange
+            self.isRunning    = isRunning
         }
     }
 
@@ -213,13 +218,15 @@ public struct ActionEngine: Sendable {
             }
             if !audioRemoval,
                let refused = refusal(destructive: "'\(element.label)'", scene: scene, needsConsent: "'\(element.label)' "
-                   + "looks destructive/irreversible: refused. If you want the agent to do this, the person must allow "
+                   + "looks destructive/irreversible: refused, not authorized in this session. If you want the agent to do this, the person must allow "
                    + "destructive actions.") {
                 return refused
             }
         }
         if request.verb == .rightClick,
-           let refusal = menuOutsideTheSeat(on: element, appName: request.appName, scene: scene) {
+           let refusal = menuOutsideTheSeat(
+               on: element, appName: request.appName, scene: scene, suggestsContextMenu: true
+           ) {
             return refusal
         }
         if request.verb != .rightClick, permissions.refusesMenuOpeningClicks,
@@ -422,7 +429,8 @@ public struct ActionEngine: Sendable {
         }
         await raiseIfNeeded(pid, isPopupOpen: surfacesBefore.hasOpenPopup)
         // The census after activation on purpose: raising an application floats its own palettes.
-        let censusBefore = await surfaces(pid).verdicts
+        let windowsBefore = await windowRows(pid)
+        let censusBefore = WindowSurfaceClassifier.classify(windowsBefore ?? []).verdicts
         var openedByPress = false
         await dependencies.settling?.prepare(in: pid)
         // In a remote file panel the seat's own route acts on the control instead.
@@ -467,11 +475,21 @@ public struct ActionEngine: Sendable {
             ? " through accessibility, no click posted" : ""
         await settle(pid)
         guard let afterWindow = await perceive(pid) else {
-            await dependencies.actuator.confirm(.unknown, in: pid)
+            let closed = await clickedWindowClosed(perceived, before: windowsBefore, in: pid)
+            await dependencies.actuator.confirm(closed ? .observed : .unknown, in: pid)
             await dependencies.observer?.record(ActionRecord(
                 bundleID: request.bundleID, element: element, verb: request.verb, effect: nil, windowTitleAfter: nil,
                 before: perceived
             ))
+            // A button that closes its window (Don't Save, Cancel, OK) leaves nothing to read: the window list shows it.
+            if closed {
+                return ActOutcome(
+                    .foundActed,
+                    "\(request.verb.performed) '\(element.label)'\(through): the window it was clicked in closed and "
+                    + "the application is still running; what the click did there is not read, observe the "
+                    + "application before deciding on further input",
+                    check: Self.windowSetCheck(target: OperationCheck.Target(element)))
+            }
             return ActOutcome(
                 .actedUnverified,
                 "\(request.verb.performed) '\(element.label)'\(through): no scene could be read "
@@ -619,6 +637,17 @@ public struct ActionEngine: Sendable {
         let nativeCurrent = mayReadLabel
             ? await dependencies.controls?.toggleState(labelled: element.label, in: pid) : nil
         let current = nativeCurrent ?? element.state
+        // A click or its menu substitute only toggles: an indefinite state cannot choose a direction.
+        guard current == .on || current == .off else {
+            await dependencies.observer?.record(ActionRecord(
+                bundleID: request.bundleID, element: element, verb: .setToggle, effect: nil,
+                windowTitleAfter: nil, before: perceived,
+                attempt: .notAttempted(reason: "initial_toggle_state_not_definite")
+            ))
+            return ActOutcome(.refused, "cannot set '\(element.label)' \(desired.rawValue): its initial state is "
+                + "\(current?.rawValue ?? "unavailable"). Nothing was sent. set_toggle needs an initial on or off state.",
+                scene: perceived.scene)
+        }
         if current == desired {
             // Already in the requested state: the reading is the check, and no gesture is attributed.
             await dependencies.observer?.record(ActionRecord(
@@ -1343,11 +1372,11 @@ public struct ActionEngine: Sendable {
         }
         if ActionPolicy.isDestructive(chord),
            let refused = refusal(destructive: "\(chord)", scene: perceived.scene, needsConsent: "\(chord) deletes in "
-               + "most applications: refused. If you want the agent to do this, the person must allow destructive "
+               + "most applications: refused, not authorized in this session. If you want the agent to do this, the person must allow destructive "
                + "actions.") {
             return refused
         }
-        if chord.key == .escape, permissions.windowClosure.mayEndTheApplication, !permissions.allowsDestructive {
+        if ActionPolicy.dismissesLikeEscape(chord), permissions.windowClosure.mayEndTheApplication, !permissions.allowsDestructive {
             let hasOpenPopup = (await surfaces(pid)).hasOpenPopup
             if let refusal = windowClosureRefusal(
                 "\(chord)", appName: request.appName, scene: perceived.scene, hasOpenPopup: hasOpenPopup
@@ -1363,7 +1392,8 @@ public struct ActionEngine: Sendable {
             return ActOutcome(.dryRun, "would press \(chord)" + (times > 1 ? " \(times) times" : "")
                 + " into \(request.appName)'s window")
         }
-        await raiseIfNeeded(pid, isPopupOpen: (await surfaces(pid)).hasOpenPopup)
+        let windowsBefore = await windowRows(pid)
+        await raiseIfNeeded(pid, isPopupOpen: WindowSurfaceClassifier.classify(windowsBefore ?? []).hasOpenPopup)
         if let error = await send(Array(repeating: chord.gesture, count: times), to: pid) {
             if let refused = Self.notSent(error, pressed, scene: perceived.scene) { return refused }
             return ActOutcome(.actedUnverified, "\(pressed): delivery failed: \(error)",
@@ -1375,14 +1405,17 @@ public struct ActionEngine: Sendable {
             pressed, in: request, before: perceived, targetID: nil,
             // `selectsFieldsByTripleClick` is set exactly while the seat holds a file panel drawn out of process.
             ghost: permissions.selectsFieldsByTripleClick ? Self.filePanelKeyGhost + note
-                : "If you expected an effect, the key likely reached a control that ignores it: click the "
-                + "control that should receive it first.\(note)",
+                : "If you expected an effect, the key may have reached a control that ignores it, or the application "
+                + "does not take this shortcut in the background: observe the window, and use the menu tool or the "
+                + "control's own action instead.\(note)",
             repaint: "A key's effect is often only a moved focus or caret, which the scene cannot attribute: "
                 + "observe before pressing again.\(note)",
             // A typed key has no target; the field's new value is its effect.
             countsValueChange: true,
             ignoresTextRereads: true,
-            movesFocus: chord.key == .tab && chord.modifiers.subtracting(.shift).isEmpty
+            movesFocus: chord.key == .tab && chord.modifiers.subtracting(.shift).isEmpty,
+            windowsBefore: windowsBefore,
+            ignoresSelfChanges: true
         )
         // A character typed key by key costs two scene reads each: the text goes in one type_text.
         guard Self.isTypedCharacter(chord), await dependencies.controls?.focusedFieldValue(in: pid) != nil else {
@@ -1395,13 +1428,14 @@ public struct ActionEngine: Sendable {
     static let typeTextNote = "press_key is one keystroke, not for text: enter text with one type_text call "
         + "on the field, which clicks it and types it all at once."
 
-    /// A letter, a digit, `/`, `~` or space, alone or with Shift: what a person types, not a shortcut.
+    /// A letter, a digit, a punctuation mark, `/`, `~` or space, alone or with Shift: what a person types, not a
+    /// shortcut. A position (a function key, the keypad, Page Down) is a command key even alone.
     private static func isTypedCharacter(_ chord: KeyChord) -> Bool {
         guard chord.modifiers.subtracting(.shift).isEmpty else { return false }
         return switch chord.key {
             case .character, .space                        : true
             case .return, .tab, .escape, .delete,
-                 .left, .right, .up, .down                 : false
+                 .left, .right, .up, .down, .position      : false
         }
     }
 
@@ -1503,7 +1537,7 @@ public struct ActionEngine: Sendable {
                 if ActionPolicy.isDestructive(label: other.label),
                    let refused = refusal(destructive: "Dropping on '\(other.label)'", scene: scene,
                                          needsConsent: "dropping on '\(other.label)' looks destructive/irreversible: "
-                       + "refused. If you want the agent to do this, the person must allow destructive actions.") {
+                       + "refused, not authorized in this session. If you want the agent to do this, the person must allow destructive actions.") {
                     return refused
                 }
                 finish = perceived.globalPoint(of: other)
@@ -1558,7 +1592,7 @@ public struct ActionEngine: Sendable {
             role: element.role, container: element.container
         ),
            let refused = refusal(destructive: "'\(item)'", scene: perceived.scene, needsConsent: "'\(item)' looks "
-               + "destructive/irreversible: refused. If you want the agent to do this, the person must allow "
+               + "destructive/irreversible: refused, not authorized in this session. If you want the agent to do this, the person must allow "
                + "destructive actions.") {
             return refused
         }
@@ -1624,12 +1658,21 @@ public struct ActionEngine: Sendable {
     static let secureFieldRole = "AXSecureTextField"
 
     /// The refusal of a right click whose menu would open outside the seat, nil when it may go ahead.
-    private func menuOutsideTheSeat(on element: SceneElement, appName: String, scene: SceneSnapshot) -> ActOutcome? {
+    /// `suggestsContextMenu` is set for a bare right click, whose refusal names `context_menu` on the same element.
+    private func menuOutsideTheSeat(
+        on element          : SceneElement,
+        appName             : String,
+        scene               : SceneSnapshot,
+        suggestsContextMenu : Bool = false
+    ) -> ActOutcome? {
         guard permissions.contextMenusOnTextFieldsOnly, !Self.textFieldRoles.contains(element.role ?? "") else {
             return nil
         }
         return ActOutcome(.refused, "\(appName) opens the contextual menu of '\(element.label)' on the person's own "
-            + "screen, outside the seat, so it was not right-clicked: use a visible button or control instead. "
+            + "screen, outside the seat, so it was not right-clicked: "
+            + (suggestsContextMenu ? "to choose an item from its contextual menu, use context_menu on the same element; "
+                                   : "")
+            + "otherwise use a visible button or control instead. "
             + "A text field's contextual menu still works here.", scene: scene)
     }
 
@@ -1819,12 +1862,24 @@ public struct ActionEngine: Sendable {
         repaint           : String,
         countsValueChange : Bool = false,
         ignoresTextRereads: Bool = false,
-        movesFocus        : Bool = false
+        movesFocus        : Bool = false,
+        windowsBefore     : [WindowRow]? = nil,
+        ignoresSelfChanges: Bool = false
     ) async -> ActOutcome {
         let pid = request.processID
         await settle(pid)
         let target = Self.inputTrail?.target.map(OperationCheck.Target.init)
         let before = beforeWindow.scene
+        let afterWindows = await windowRows(pid)
+        // A window that opened is the input's effect, found in the window list whatever the scene shows (Option-I
+        // opened a Workspace window and the scene of the first one did not change).
+        if windowsBefore != nil, Self.windowAppeared(before: windowsBefore, after: afterWindows) {
+            let afterWindow = await perceive(pid)
+            await confirm(.observed, in: pid)
+            return ActOutcome(.foundActed, "\(performed): a window of the application opened; the key's effect in it "
+                + "is not read here, observe the application before deciding on further input",
+                scene: afterWindow?.scene, check: Self.windowSetCheck(target: target))
+        }
         guard let afterWindow = await perceive(pid) else {
             await dependencies.actuator.confirm(.unknown, in: pid)
             return ActOutcome(.actedUnverified, "\(performed): no scene could be read afterwards; observe when "
@@ -1836,9 +1891,10 @@ public struct ActionEngine: Sendable {
         // A capture that says it is not whole compares to nothing (M2), the focus included.
         let comparable = ActVerification.comparable(before: beforeWindow.capture, after: afterWindow.capture)
         let effect = comparable ? Self.gatedEffect(
-            before: before, after: after, targetID: targetID ?? "", popupIsOpen: (await surfaces(pid)).hasOpenPopup,
+            before: before, after: after, targetID: targetID ?? "",
+            popupIsOpen: WindowSurfaceClassifier.classify(afterWindows ?? []).hasOpenPopup,
             countsValueChange: countsValueChange, ignoresTextRereads: ignoresTextRereads,
-            countsNativeTextChange: dependencies.countsNativeTextChange
+            ignoresSelfChanges: ignoresSelfChanges, countsNativeTextChange: dependencies.countsNativeTextChange
         ) : nil
         let verdict = ActVerification.verdict(before: beforeWindow, after: afterWindow, effect: effect)
         if movesFocus, comparable, verdict != .ghost, Self.showsFocus(before: before, after: after, effect: effect) {
@@ -1958,6 +2014,55 @@ public struct ActionEngine: Sendable {
         return (was, now)
     }
 
+    /// The scenes of a key without the parts of a window that change by themselves. The scene does not mark them,
+    /// so this is a conservative reading of what it holds: a readout (a counter, a timecode, a position, a level in
+    /// dB: digits and no words) whose value moved, an indicator (a level meter, a progress bar), and an element
+    /// that stands where another stood, of the same kind, role and size, under another label (an LED or a state word
+    /// redrawn in place). A pro-audio window repainted these on Space with nothing pressed (a counter back to zero,
+    /// transport LEDs) and the key was credited with revealing elements. Its limit is an under-claim: a field that
+    /// really takes a number from a key, or a control relabeled in place by it, reads as unchanged, which stays
+    /// unknown and never becomes a false effect. What appears or vanishes elsewhere still counts.
+    static func withoutSelfChanges(before: SceneSnapshot, after: SceneSnapshot) -> (SceneSnapshot, SceneSnapshot) {
+        let indicatorRoles: Set<String> = ["AXLevelIndicator", "AXProgressIndicator", "AXRelevanceIndicator"]
+        func isLive(_ element: SceneElement) -> Bool {
+            if indicatorRoles.contains(element.role ?? "") { return true }
+            guard element.kind != .icon else { return false }
+            return isReadout(element.value ?? element.label)
+        }
+        func isReadout(_ text: String) -> Bool {
+            let normalized = LabelText.normalize(text)
+            guard text.contains(where: \.isNumber) else { return false }
+            if text.contains(where: \.isLetter) {
+                return normalized.hasSuffix("db") && normalized.dropLast(2).allSatisfy { $0.isNumber }
+            }
+            return true
+        }
+        func sameSpot(_ first: SceneElement, _ second: SceneElement) -> Bool {
+            let (one, two) = (first.bounds.cgRect, second.bounds.cgRect)
+            let overlap = one.intersection(two)
+            guard !overlap.isNull, one.width * one.height > 0, two.width * two.height > 0 else { return false }
+            let shared = overlap.width * overlap.height
+            return shared / (one.width * one.height) >= 0.7 && shared / (two.width * two.height) >= 0.7
+        }
+        func relabeledPairs(_ scene: SceneSnapshot, in other: SceneSnapshot) -> [SceneElement] {
+            let labels = Set(other.elements.map { LabelText.normalize($0.label) })
+            return scene.elements.filter { element in
+                guard element.role != nil, !element.isUnlabeled,
+                      !labels.contains(LabelText.normalize(element.label)) else { return false }
+                return other.elements.contains {
+                    $0.kind == element.kind && $0.role == element.role && sameSpot($0, element)
+                        && LabelText.normalize($0.label) != LabelText.normalize(element.label)
+                }
+            }
+        }
+        let gone  = relabeledPairs(before, in: after)
+        let fresh = relabeledPairs(after, in: before)
+        var was = before, now = after
+        was.elements.removeAll { isLive($0) || gone.contains($0) }
+        now.elements.removeAll { isLive($0) || fresh.contains($0) }
+        return (was, now)
+    }
+
     /// The check of a gesture whose delivery failed part way: what went out is unknown, the condition
     /// it was to be judged on stays unknown.
     static func undelivered(
@@ -2000,9 +2105,11 @@ public struct ActionEngine: Sendable {
         target                : SceneElement? = nil,
         countsValueChange     : Bool = false,
         ignoresTextRereads    : Bool = false,
+        ignoresSelfChanges    : Bool = false,
         countsNativeTextChange: Bool = false
     ) -> SceneEffect? {
-        let (was, now) = ignoresTextRereads ? withoutTextRereads(before: before, after: after) : (before, after)
+        var (was, now) = ignoresTextRereads ? withoutTextRereads(before: before, after: after) : (before, after)
+        if ignoresSelfChanges { (was, now) = withoutSelfChanges(before: was, after: now) }
         var effect = SceneDifference.effect(
             before: was, after: now, targetID: targetID, target: target, countsValueChange: countsValueChange,
             countsNativeTextChange: countsNativeTextChange
@@ -2072,6 +2179,45 @@ public struct ActionEngine: Sendable {
     private func surfaces(_ processID: pid_t) async -> WindowSurfaces {
         let rows = (try? await dependencies.windows.windows(ownedBy: processID)) ?? []
         return WindowSurfaceClassifier.classify(rows)
+    }
+
+    /// The application's windows as the window server lists them, nil when the list could not be read: an unread
+    /// list says nothing about the windows, where an empty one says there are none.
+    private func windowRows(_ processID: pid_t) async -> [WindowRow]? {
+        try? await dependencies.windows.windows(ownedBy: processID)
+    }
+
+    /// What names an ordinary window across two listings: the server's number, else its title, as a listing
+    /// that numbers nothing still tells one window from another. Pop-ups, palettes and slivers are no window here.
+    private static func windowKeys(_ rows: [WindowRow]) -> Set<String> {
+        Set(rows.filter { $0.layer == 0 && $0.frame.width >= 60 }.map { $0.number != 0 ? "n\($0.number)" : "t\($0.title ?? "")" })
+    }
+
+    /// Whether the window a click landed in is gone while its process is alive: a closed window, never an
+    /// application that quit. The window is the one listed at the scene's frame, else any that was listed before.
+    /// False when either listing could not be read or the process is gone, so the verdict stays unknown.
+    private func clickedWindowClosed(_ perceived: PerceivedWindow, before: [WindowRow]?, in pid: pid_t) async -> Bool {
+        guard let before, let after = await windowRows(pid), dependencies.isRunning(pid) else { return false }
+        let remaining = Self.windowKeys(after)
+        let key = { (row: WindowRow) in Self.windowKeys([row]) }
+        if let clicked = before.first(where: { $0.layer == 0 && $0.frame == perceived.frame }) {
+            return !key(clicked).isEmpty && key(clicked).isDisjoint(with: remaining)
+        }
+        return !Self.windowKeys(before).subtracting(remaining).isEmpty
+    }
+
+    /// Whether a window is listed now that was not before: an ordinary one, whatever the scene shows.
+    private static func windowAppeared(before: [WindowRow]?, after: [WindowRow]?) -> Bool {
+        guard let before, let after else { return false }
+        return !windowKeys(after).subtracting(windowKeys(before)).isEmpty
+    }
+
+    /// The check of a click or a key that changed the application's windows: the windows compared before and
+    /// after, which shows one opening or closing and never what the gesture did in it.
+    private static func windowSetCheck(target: OperationCheck.Target?) -> OperationCheck {
+        OperationCheck(condition: .windowSetChanged, method: .windowSignature, verdict: .passed,
+                       expected: "windows changed", observed: "windows changed", limits: [.commandEffectUnchecked],
+                       performed: .requested, target: target)
     }
 
     private func noSceneReason(appName: String, processID: pid_t) async -> String {

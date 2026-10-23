@@ -123,7 +123,7 @@ public enum DialogButtonPress {
                     break
                 case .needsConsent:
                     return .outcome(ActOutcome(.refused, "'\(only.title)' reads as destructive, and the person has not "
-                        + "allowed it."))
+                        + "allowed it: not authorized in this session."))
                 case .cannotReadBack:
                     return .outcome(ActOutcome(.refused, IrreversiblePolicy.readBackRefusal("'\(only.title)'")))
             }

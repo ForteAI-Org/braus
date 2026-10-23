@@ -120,7 +120,11 @@ struct ReviewCorrectionTests {
     @Test("a shortcut learned on the window reaches the scene the model reads; an unreadable memory is said there with the live scene, and gone once the memory reads again")
     func windowKnowledgeAndDegradation() async throws {
         let session = Learning.photoSession(try W.directory())
-        session.script["press_key|s"] = LearningSession.Outcome(effect: .windowTitleChanged(title: "Saved"))
+        // A key's whole-window verdict teaches nothing (`window_wide`): this one is attributed to the key itself.
+        session.script["press_key|s"] = LearningSession.Outcome(
+            check: LearningSession.check(.structuralEffect, method: .sceneDifference, observed: "windowTitleChanged",
+                                         limits: [.noExpectation]),
+            effect: .windowTitleChanged(title: "Saved"))
         let tools = Learning.tools(session)
         let id = session.id!.uuidString
         _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.preview)"}"#)
