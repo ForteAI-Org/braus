@@ -1,3 +1,4 @@
+import AutomationRuntime
 import Foundation
 
 public struct SeatBrokerConfiguration: Sendable {
@@ -19,9 +20,11 @@ public struct SeatBrokerConfiguration: Sendable {
     public var seatCapacity: Int
 
     public init(allowUnvalidatedBuild: Bool = false, perceptionStoreDirectory: URL? = nil,
-                recordingDirectory: URL? = nil, seatCapacity: Int = 1) {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Braus", isDirectory: true)
+                recordingDirectory: URL? = nil, seatCapacity: Int = 1,
+                environment: [String: String] = ProcessInfo.processInfo.environment) {
+        // The same support folder the Knowledge lives in, so a run that moves one (`BRAUS_APP_SUPPORT_DIR`) moves
+        // the other, for an isolated or temporary support directory.
+        let support = KnowledgeLocation.support(environment: environment)
         self.allowUnvalidatedBuild = allowUnvalidatedBuild
         self.perceptionStoreDirectory = perceptionStoreDirectory
             ?? support.appendingPathComponent("Perception", isDirectory: true)
