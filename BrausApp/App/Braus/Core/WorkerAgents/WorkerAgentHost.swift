@@ -52,6 +52,17 @@ import TaskRouting
 @MainActor
 final class WorkerAgentHost {
 
+    /// Ends the old provider turn for a retained human episode. The composer consumes this before
+    /// recording a terminal turn; it reconstructs the episode and starts a fresh reviewed route.
+    struct HumanInterventionSuspended: Error {
+        let token: UUID
+    }
+
+    private var humanIntervention: UUID?
+    /// An idle suspended host still owns a session. Stop drains it asynchronously and blocks admission
+    /// until cleanup completes; the task retains this host only for that cleanup.
+    private var humanInterventionCleanup: Task<Void, Never>?
+
     private let workingDirectory: URL
     private let bridgeExecutable: URL
     private let tools           : AutomationTools
@@ -283,6 +294,9 @@ final class WorkerAgentHost {
         inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         onEvent             : @escaping @MainActor (WorkerAgentEvent) -> Void
     ) async throws {
+        guard humanIntervention == nil, humanInterventionCleanup == nil else {
+            throw AutomationFailure("The person is controlling this session. Wait for the intervention review.")
+        }
         guard self.onEvent == nil else {
             throw AutomationFailure("This worker is still responding. Wait for it to finish or stop the response.")
         }
@@ -322,8 +336,14 @@ final class WorkerAgentHost {
                         rollout  : nil
                     )))
                 } }
+                if isStopRequested { throw CancellationError() }
             } catch {
                 // The loop ends only after a tool call in flight has finished, so no action is cut short.
+                if let token = humanIntervention, error is CancellationError {
+                    tools.forgetScene()
+                    throw HumanInterventionSuspended(token: token)
+                }
+                humanIntervention = nil
                 await tools.session.close()
                 throw error
             }
@@ -377,6 +397,7 @@ final class WorkerAgentHost {
                 default:                onEvent(.provider(event))
                 }
             }
+            if isStopRequested { throw CancellationError() }
             // A learning candidate the agent left uninterpreted is never learned: it is asked for once, in the
             // same session, as `braus chat` does.
             if let asked = tools.takeInterpretationReminder(), let session = reportedSession ?? sessionID {
@@ -407,6 +428,7 @@ final class WorkerAgentHost {
             }
             // The turn's children are done: nothing more is admitted, a call still in flight finishes, and the
             // turn's host and connection file go.
+            if isStopRequested { throw CancellationError() }
             router.pause()
             await router.drain()
             await endTurnHost()
@@ -421,10 +443,14 @@ final class WorkerAgentHost {
                 environment: inheritedEnvironment,
                 onEvent    : onEvent
             )
+            if isStopRequested { throw CancellationError() }
         } catch {
-            router.pause()
+            if humanIntervention != nil, error is CancellationError {
+                router.suspendForHumanIntervention()
+            } else {
+                router.pause()
+            }
             await router.drain()
-            await tools.session.close()
             await provider.waitUntilStopped()
             await endTurnHost()
             await reportUsage(
@@ -435,6 +461,13 @@ final class WorkerAgentHost {
                 environment: inheritedEnvironment,
                 onEvent    : onEvent
             )
+            // Recheck after cleanup awaits: explicit stop or close may have superseded the pause.
+            if let token = humanIntervention, error is CancellationError {
+                tools.forgetScene()
+                throw HumanInterventionSuspended(token: token)
+            }
+            humanIntervention = nil
+            await tools.session.close()
             throw error
         }
     }
@@ -478,6 +511,9 @@ final class WorkerAgentHost {
         lastUsage           : TurnUsage? = nil,
         inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws -> (compaction: ContextCompaction, usage: TurnUsage?) {
+        guard humanIntervention == nil, humanInterventionCleanup == nil else {
+            throw AutomationFailure("Context compaction waits until the human intervention is reviewed.")
+        }
         guard onEvent == nil else {
             throw AutomationFailure("This worker is still responding. Wait for it to finish or stop the response.")
         }
@@ -736,10 +772,54 @@ final class WorkerAgentHost {
         tools.withheld(text)
     }
 
+    /// Blocks new calls immediately and interrupts generation, preserving the admitted tool and
+    /// the session on intentional cancellation. The composer must retain its broker lease first.
+    /// Repeated input belongs to the same token; the Engine revision still guards review freshness.
+    @discardableResult
+    func suspendForHumanIntervention() throws -> UUID {
+        guard humanInterventionCleanup == nil else {
+            throw AutomationFailure("The previous human intervention is still releasing its session.")
+        }
+        if let humanIntervention { return humanIntervention }
+        guard !isRunning || !isStopRequested else {
+            throw AutomationFailure("The previous turn is stopping. Wait for its session cleanup.")
+        }
+        let token = UUID()
+        humanIntervention = token
+        isStopRequested = true
+        tools.forgetScene()
+        approvals?.refuse(scope: approvalScope)
+        router.suspendForHumanIntervention()
+        loop?.suspendForHumanIntervention()
+        provider.cancel(preservingFailure: true)
+        return token
+    }
+
+    /// Releases the matching suspension only after its provider and admitted call have drained.
+    /// No work is replayed: the composer must supply a reviewed handoff to a new run. The router
+    /// remains closed until that run creates its own endpoint; old connections authorize nothing.
+    func endHumanIntervention(_ token: UUID) throws {
+        guard humanIntervention == token, !isRunning else {
+            throw AutomationFailure("This human intervention is stale or its previous turn is still draining.")
+        }
+        tools.forgetScene()
+        humanIntervention = nil
+    }
+
     /// Stops the running turn: no further tool call is accepted and the
     /// provider is interrupted. `run` then finishes the cleanup and throws.
     func stop() {
-        guard onEvent != nil else { return }
+        let wasSuspended = humanIntervention != nil
+        humanIntervention = nil
+        guard onEvent != nil else {
+            if wasSuspended {
+                humanInterventionCleanup = Task {
+                    await tools.session.close()
+                    humanInterventionCleanup = nil
+                }
+            }
+            return
+        }
         isStopRequested = true
         // A call waiting for the person's approval is refused now, so the turn never waits for it.
         approvals?.refuse(scope: approvalScope)
@@ -753,11 +833,19 @@ final class WorkerAgentHost {
         provider.cancel()
     }
 
+    /// Waits for cleanup started by stop after a suspended provider turn had already drained.
+    /// The owner uses this before releasing its intervention UI or starting another session.
+    func waitForHumanInterventionCleanup() async {
+        await humanInterventionCleanup?.value
+    }
+
     /// Retires the host's context when its worker starts a turn in another conversation (I02): no call is admitted
     /// from any connection, one in flight finishes, and the session closes, so no session ID it gave is valid again.
     /// The host stays for the conversation's next turn, which opens what it needs again. Never during a turn: the
     /// worker runs one at a time.
     func retire() async {
+        await waitForHumanInterventionCleanup()
+        humanIntervention = nil
         router.pause()
         await router.drain()
         await endTurnHost()
@@ -769,6 +857,9 @@ final class WorkerAgentHost {
     /// is not used again afterwards. Throws when that directory could not be
     /// removed, after everything else has been released.
     func close() async throws {
+        await waitForHumanInterventionCleanup()
+        humanIntervention = nil
+        isStopRequested = true
         loop?.stop()
         approvals?.refuse(scope: approvalScope)
         router.pause()

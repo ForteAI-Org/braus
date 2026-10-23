@@ -58,13 +58,16 @@ private final class ScriptedTransport: ModelTransport {
         var wasCancelled = false
     }
 
+    private let failure: (any Error)?
     private let supportsTools: Bool
     private let state        : Mutex<State>
 
     init(
         supportsTools: Bool,
-        rounds       : [[TurnEvent]]
+        rounds       : [[TurnEvent]],
+        failure      : (any Error)? = nil
     ) {
+        self.failure = failure
         self.supportsTools = supportsTools
         self.state         = Mutex(State(rounds: rounds))
     }
@@ -106,7 +109,7 @@ private final class ScriptedTransport: ModelTransport {
                 return
             }
             for event in events { continuation.yield(event) }
-            continuation.finish()
+            continuation.finish(throwing: failure)
         }
     }
 }
@@ -121,6 +124,14 @@ private final class RecordingSession: AutomationSessionOperating {
     private(set) var log: [String] = []
 
     private var opening: CheckedContinuation<Void, Never>?
+    private var closing: CheckedContinuation<Void, Never>?
+    var holdsClose = false
+    var isClosing: Bool { closing != nil }
+
+    func finishClosing() {
+        closing?.resume()
+        closing = nil
+    }
 
     var isOpening: Bool { opening != nil }
 
@@ -168,6 +179,7 @@ private final class RecordingSession: AutomationSessionOperating {
 
     func close() async {
         log.append("close")
+        if holdsClose { await withCheckedContinuation { closing = $0 } }
     }
 }
 
@@ -609,6 +621,331 @@ struct ModelToolLoopTests {
         #expect(session.log == ["open", "opened", "close"])
         #expect(!events.contains(.tool("→ status {}")))
         #expect(transport.sent.count == 1)
+    }
+
+    @Test
+    func humanSuspensionCancelsGenerationWithoutClosingAndRequiresItsToken() async throws {
+        let transport = ScriptedTransport(
+            supportsTools: true,
+            rounds       : []
+        )
+        let session = RecordingSession()
+        let host = WorkerAgentHost(
+            workingDirectory: URL.temporaryDirectory.appending(path: "braus-human-\(UUID().uuidString)"),
+            bridgeExecutable: URL(fileURLWithPath: "/nonexistent"),
+            session: { session },
+            agents: { _ in throw AutomationFailure("No CLI expected.") },
+            transports: { _ in transport }
+        )
+        let turn = Task {
+            try await host.run(
+                prompt   : "Wait.",
+                selection: ollama,
+                sessionID: nil,
+                role     : nil
+            ) { _ in }
+        }
+        try await Self.wait { transport.sent.count == 1 }
+        let token = try host.suspendForHumanIntervention()
+        #expect(try host.suspendForHumanIntervention() == token)
+        await #expect(throws: WorkerAgentHost.HumanInterventionSuspended.self) { try await turn.value }
+        #expect(transport.wasCancelled)
+        #expect(session.log.isEmpty)
+        #expect(!host.isRunning)
+        await #expect(throws: AutomationFailure.self) {
+            try await host.run(
+                prompt   : "Too early.",
+                selection: ollama,
+                sessionID: nil,
+                role     : nil
+            ) { _ in }
+        }
+        await #expect(throws: AutomationFailure.self) {
+            _ = try await host.compact(
+                selection: ollama,
+                sessionID: nil,
+                role     : nil,
+                trigger  : .manual
+            )
+        }
+        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(UUID()) }
+        #expect(transport.sent.count == 1)
+        try host.endHumanIntervention(token)
+        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+        #expect(transport.sent.count == 1, "ending suspension starts no provider and replays no tools")
+        try await host.close()
+        #expect(session.log == ["close"])
+    }
+
+    @Test
+    func humanSuspensionFinishesTheAdmittedToolAndDiscardsTheRest() async throws {
+        let transport = ScriptedTransport(
+            supportsTools: true,
+            rounds: [[.toolCall(openTextEdit), .toolCall(statusCall), .completed(usage)]]
+        )
+        let session = RecordingSession()
+        let host = WorkerAgentHost(
+            workingDirectory: URL.temporaryDirectory.appending(path: "braus-human-\(UUID().uuidString)"),
+            bridgeExecutable: URL(fileURLWithPath: "/nonexistent"),
+            session: { session },
+            agents: { _ in throw AutomationFailure("No CLI expected.") },
+            transports: { _ in transport }
+        )
+        var events: [WorkerAgentEvent] = []
+        let turn = Task {
+            try await host.run(
+                prompt   : "Open.",
+                selection: ollama,
+                sessionID: nil,
+                role     : nil
+            ) { events.append($0) }
+        }
+        try await Self.wait { session.isOpening }
+        let token = try host.suspendForHumanIntervention()
+        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+        #expect(session.log == ["open"])
+        session.finishOpening()
+        await #expect(throws: WorkerAgentHost.HumanInterventionSuspended.self) { try await turn.value }
+        #expect(session.log == ["open", "opened"])
+        #expect(!events.contains(.tool("→ status {}")))
+        #expect(transport.sent.count == 1)
+        try host.endHumanIntervention(token)
+        try await host.close()
+    }
+
+    @Test
+    func humanInputAtTheCompletionBoundaryStillSuspendsTheHost() async throws {
+        let transport = ScriptedTransport(
+            supportsTools: true,
+            rounds: [[.delta("Done."), .completed(usage)]]
+        )
+        let session = RecordingSession()
+        let host = WorkerAgentHost(
+            workingDirectory: URL.temporaryDirectory.appending(path: "braus-human-\(UUID().uuidString)"),
+            bridgeExecutable: URL(fileURLWithPath: "/nonexistent"),
+            session: { session },
+            agents: { _ in throw AutomationFailure("No CLI expected.") },
+            transports: { _ in transport }
+        )
+        await #expect(throws: WorkerAgentHost.HumanInterventionSuspended.self) {
+            try await host.run(
+                prompt   : "Wait.",
+                selection: ollama,
+                sessionID: nil,
+                role     : nil
+            ) { event in
+                if event == .provider(.completed) {
+                    do { try host.suspendForHumanIntervention() }
+                    catch { Issue.record(error) }
+                }
+            }
+        }
+        #expect(session.log.isEmpty)
+        try await host.close()
+    }
+
+    @Test
+    func aHumanInterventionStopsTheCLIChildAndKeepsTheSession() async throws {
+        let root = URL.temporaryDirectory.appending(path: "braus-human-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at                       : root,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let agent = root.appending(path: "agent")
+        try Data("""
+        #!/bin/sh
+        cat >/dev/null
+        echo '{"type":"thread.started","thread_id":"human-test"}'
+        exec /bin/sleep 600
+
+        """.utf8).write(to: agent)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: agent.path
+        )
+        let session = RecordingSession()
+        let host = WorkerAgentHost(
+            workingDirectory: root.appending(path: "work"),
+            bridgeExecutable: agent,
+            session: { session },
+            agents: { _ in (.codex, agent) }
+        )
+        var token: UUID?
+        await #expect(throws: WorkerAgentHost.HumanInterventionSuspended.self) {
+            try await host.run(
+                prompt: "Wait.",
+                selection: ModelSelection(
+                    provider: .codex,
+                    model   : "test",
+                    effort  : .low
+                ),
+                sessionID: nil,
+                role: nil
+            ) { event in
+                if case .provider(.session) = event {
+                    do { token = try host.suspendForHumanIntervention() }
+                    catch { Issue.record(error) }
+                }
+            }
+        }
+        #expect(!host.isRunning)
+        #expect(session.log.isEmpty)
+        try host.endHumanIntervention(try #require(token))
+        try await host.close()
+        #expect(session.log == ["close"])
+    }
+
+    @Test(arguments: [false, true])
+    func anExplicitStopOverridesHumanSuspension(closing: Bool) async throws {
+        let transport = ScriptedTransport(
+            supportsTools: true,
+            rounds       : []
+        )
+        let session = RecordingSession()
+        let host = WorkerAgentHost(
+            workingDirectory: URL.temporaryDirectory.appending(path: "braus-human-\(UUID().uuidString)"),
+            bridgeExecutable: URL(fileURLWithPath: "/nonexistent"),
+            session: { session },
+            agents: { _ in throw AutomationFailure("No CLI expected.") },
+            transports: { _ in transport }
+        )
+        let turn = Task {
+            try await host.run(
+                prompt   : "Wait.",
+                selection: ollama,
+                sessionID: nil,
+                role     : nil
+            ) { _ in }
+        }
+        try await Self.wait { transport.sent.count == 1 }
+        let token = try host.suspendForHumanIntervention()
+        if closing {
+            try await host.close()
+        } else {
+            host.stop()
+            #expect(throws: AutomationFailure.self) { try host.suspendForHumanIntervention() }
+        }
+        await #expect(throws: CancellationError.self) { try await turn.value }
+        #expect(session.log.contains("close"))
+        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+    }
+
+    @Test
+    func stoppingAnAlreadySuspendedHostClosesBeforeAdmittingAnotherTurn() async throws {
+        let transport = ScriptedTransport(
+            supportsTools: true,
+            rounds       : []
+        )
+        let session = RecordingSession()
+        let host = WorkerAgentHost(
+            workingDirectory: URL.temporaryDirectory.appending(path: "braus-human-\(UUID().uuidString)"),
+            bridgeExecutable: URL(fileURLWithPath: "/nonexistent"),
+            session         : { session },
+            agents          : { _ in throw AutomationFailure("No CLI expected.") },
+            transports      : { _ in transport }
+        )
+        let turn = Task {
+            try await host.run(
+                prompt   : "Wait.",
+                selection: ollama,
+                sessionID: nil,
+                role     : nil
+            ) { _ in }
+        }
+        try await Self.wait { transport.sent.count == 1 }
+        let token = try host.suspendForHumanIntervention()
+        await #expect(throws: WorkerAgentHost.HumanInterventionSuspended.self) { try await turn.value }
+        session.holdsClose = true
+        host.stop()
+        try await Self.wait { session.isClosing }
+        #expect(throws: AutomationFailure.self) { try host.suspendForHumanIntervention() }
+        await #expect(throws: AutomationFailure.self) {
+            try await host.run(
+                prompt   : "Too early.",
+                selection: ollama,
+                sessionID: nil,
+                role     : nil
+            ) { _ in }
+        }
+        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+        session.holdsClose = false
+        session.finishClosing()
+        await host.waitForHumanInterventionCleanup()
+        #expect(session.log == ["close"])
+        let next = try host.suspendForHumanIntervention()
+        #expect(next != token)
+        try host.endHumanIntervention(next)
+    }
+
+    @Test
+    func aRealStreamFailureIsNotReclassifiedAsHumanSuspension() async throws {
+        let transport = ScriptedTransport(
+            supportsTools: true,
+            rounds       : [[.delta("Partial answer.")]],
+            failure      : AutomationFailure("Transport failed.")
+        )
+        let session = RecordingSession()
+        let host = WorkerAgentHost(
+            workingDirectory: URL.temporaryDirectory.appending(path: "braus-human-\(UUID().uuidString)"),
+            bridgeExecutable: URL(fileURLWithPath: "/nonexistent"),
+            session         : { session },
+            agents          : { _ in throw AutomationFailure("No CLI expected.") },
+            transports      : { _ in transport }
+        )
+        let failure = await #expect(throws: AutomationFailure.self) {
+            try await host.run(
+                prompt   : "Wait.",
+                selection: ollama,
+                sessionID: nil,
+                role     : nil
+            ) { event in
+                if case .provider(.assistant) = event {
+                    do { try host.suspendForHumanIntervention() }
+                    catch { Issue.record(error) }
+                }
+            }
+        }
+        #expect(failure?.description == "Transport failed.")
+        #expect(session.log == ["close"])
+    }
+
+    @Test
+    func aReportedCLIFailureIsNotReclassifiedAsHumanSuspension() async throws {
+        let root = URL.temporaryDirectory.appending(path: "braus-human-failure-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let agent = root.appending(path: "agent")
+        try Data("""
+        #!/bin/sh
+        cat >/dev/null
+        echo '{"type":"turn.failed","error":{"message":"Provider failed."}}'
+        exec /bin/sleep 600
+
+        """.utf8).write(to: agent)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: agent.path)
+        let session = RecordingSession()
+        let host = WorkerAgentHost(
+            workingDirectory: root.appending(path: "work"),
+            bridgeExecutable: agent,
+            session         : { session },
+            agents          : { _ in (.codex, agent) }
+        )
+        await #expect(throws: ProviderFailure.self) {
+            try await host.run(
+                prompt   : "Wait.",
+                selection: ModelSelection(provider: .codex, model: "test", effort: .low),
+                sessionID: nil,
+                role     : nil
+            ) { event in
+                if case .provider(.failure) = event {
+                    do { try host.suspendForHumanIntervention() }
+                    catch { Issue.record(error) }
+                }
+            }
+        }
+        #expect(session.log == ["close"])
+        try await host.close()
     }
 
     /// Quitting closes the host while a tool call runs. The closing task is cancelled

@@ -8,6 +8,7 @@ import Foundation
 public final class CLIProvider {
     private var process: Process?
     private var cancelled = false
+    private var preservesObservedFailure = false
 
     public init() {}
 
@@ -16,7 +17,10 @@ public final class CLIProvider {
         while process != nil { try? await Task.sleep(for: .milliseconds(25)) }
     }
 
-    public func cancel() {
+    /// Interrupts the child. Human takeover can preserve an already reported provider failure so
+    /// callers do not mistake that failure for intentional suspension and retain a failed session.
+    public func cancel(preservingFailure: Bool = false) {
+        preservesObservedFailure = preservingFailure
         cancelled = true
         guard let process, process.isRunning else { return }
         process.interrupt()
@@ -57,6 +61,7 @@ public final class CLIProvider {
         environment.removeValue(forKey: "CLAUDE_CODE_ENTRYPOINT")
         child.environment = environment
         cancelled = false
+        preservesObservedFailure = false
         try child.run()
         process = child
         defer { process = nil }
@@ -109,7 +114,7 @@ public final class CLIProvider {
             try await inputTask.value
             while child.isRunning { try await Task.sleep(for: .milliseconds(25)) }
             let diagnostics = try await errorTask.value
-            if cancelled { throw CancellationError() }
+            if cancelled, !(preservesObservedFailure && providerFailure != nil) { throw CancellationError() }
             if let providerFailure {
                 let stated = decoder.failure ?? ProviderFailure(kind: .turnError, message: providerFailure)
                 throw ProviderFailure(kind: stated.kind, message: stated.message, apiStatus: stated.apiStatus,

@@ -994,6 +994,62 @@ struct BrokeredAutomationSessionTests {
         #expect(broker.queue.entries.isEmpty)
     }
 
+    @Test("human control retains a lease across the turn boundary and a queued worker")
+    func humanControlKeepsTheLeaseUntilExplicitlyEnded() async throws {
+        let broker = SeatBroker()
+        let desktop = try Self.seated(broker)
+        var hold: UUID?
+        try await desktop.turn {
+            _ = try await desktop.open(application: "Test", window: nil)
+            hold = try desktop.retainForHumanIntervention()
+        }
+        let id = desktop.id
+        let waiter = Task { try await broker.queue.acquire("next worker") }
+        await Self.letTheWaitBegin()
+        #expect(broker.queue.entries.map(\.state) == [.acting, .waiting])
+        #expect(desktop.id == id)
+        try await desktop.endHumanIntervention(try #require(hold))
+        let next = try await waiter.value
+        #expect(desktop.id == nil)
+        next.giveBack()
+    }
+
+    @Test("a cancelled idle timer cannot release human control; ending restores idle release")
+    func humanControlOutlivesAnOldIdleTimer() async throws {
+        let broker = SeatBroker()
+        let idle = IdleClock()
+        let desktop = try Self.seated(broker, idle: idle)
+        try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
+        await Self.until { idle.pendingCount == 1 }
+        let hold = try desktop.retainForHumanIntervention()
+        #expect(try desktop.retainForHumanIntervention() == hold)
+        await idle.elapseOldest()
+        await Self.letTheWaitBegin()
+        #expect(desktop.holdsComputer)
+        try await desktop.endHumanIntervention(hold)
+        await idle.elapseOldest()
+        await Self.until { !desktop.holdsComputer }
+        #expect(desktop.id == nil)
+    }
+
+    @Test("close overrides human retention and an old token cannot end a later intervention")
+    func closingInvalidatesHumanRetention() async throws {
+        let broker = SeatBroker()
+        let desktop = try Self.seated(broker)
+        #expect(throws: AutomationFailure.self) { try desktop.retainForHumanIntervention() }
+        try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
+        let old = try desktop.retainForHumanIntervention()
+        await desktop.close()
+        #expect(!desktop.holdsComputer)
+        try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
+        let current = try desktop.retainForHumanIntervention()
+        #expect(current != old)
+        await #expect(throws: AutomationFailure.self) { try await desktop.endHumanIntervention(old) }
+        #expect(desktop.holdsComputer)
+        try await desktop.endHumanIntervention(current)
+        await desktop.close()
+    }
+
     @Test("the idle release quits an application the agent launched and leaves one already running",
           .timeLimit(.minutes(1)))
     func theIdleReleaseFinishesWithTheApplicationAsItsProvenanceSays() async throws {

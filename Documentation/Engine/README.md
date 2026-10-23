@@ -38,8 +38,9 @@ and is never a reason to send the gesture again.
 The [interactive background control design](InteractiveBackground.md) separates temporary event
 reconstruction from the agent's later evaluation of the task. `Engine.HumanIntervention` now provides
 an in-memory, bounded producer/consumer lifecycle with versioned handoff and explicit clarification.
-It has no Brain, Memory or provider dependency. Preview input, Driver admission, session retention,
-historical-frame Perception and model handoff are still to be connected; this does not yet make the
+It has no Brain, Memory or provider dependency. The worker host now has an explicit human suspension
+path and the broker can retain its lease across turn endings. Preview input, Driver admission,
+historical-frame Perception and model handoff still need composition; this does not yet make the
 preview interactive. Pure lifecycle tests do not qualify live input or application compatibility.
 
 ## Shape

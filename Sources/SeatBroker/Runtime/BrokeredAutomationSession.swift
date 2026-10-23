@@ -120,6 +120,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     public private(set) var closeWarning: String?
     @ObservationIgnored private var isInTurn = false
     @ObservationIgnored private var idleRelease: Task<Void, Never>?
+    /// Pins the current lease across turn endings while the person controls its preview.
+    @ObservationIgnored
+    private var humanIntervention: UUID?
 
     /// The application the last successful `open` seated, with its window's title in the first scene,
     /// empty when the scene had none. Kept across `close`, so a later turn can name it.
@@ -939,6 +942,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// second call waits for the first. What finishing leaves the person to do (an application the
     /// seat could not confirm home, so left running) has no channel in this role, so it is logged.
     public func close() async {
+        humanIntervention = nil
         idleRelease?.cancel()
         idleRelease = nil
         if let closing { await closing.value; return }
@@ -989,6 +993,32 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         await endTurn()
     }
 
+    /// Retains the existing session for one human episode, without granting input authority. The
+    /// composer calls this before suspending the agent, on MainActor without an intervening await.
+    /// Repeated calls return the same token. Explicit close always overrides this retention.
+    public func retainForHumanIntervention() throws -> UUID {
+        guard lease != nil, id != nil, closing == nil else {
+            throw AutomationFailure("Human control requires an open application session.")
+        }
+        if let humanIntervention { return humanIntervention }
+        let token = UUID()
+        humanIntervention = token
+        idleRelease?.cancel()
+        idleRelease = nil
+        return token
+    }
+
+    /// Ends only the matching episode and restores normal idle/queue release. To keep the lease
+    /// for a reviewed continuation, call inside its new turn. Ending alone never starts an agent.
+    public func endHumanIntervention(_ token: UUID) async throws {
+        guard humanIntervention == token else {
+            throw AutomationFailure("This human intervention no longer owns the session.")
+        }
+        humanIntervention = nil
+        await releaseIfSomeoneWaits()
+        releaseWhenIdle()
+    }
+
     private func endTurn() async {
         isInTurn = false
         await releaseIfSomeoneWaits()
@@ -998,7 +1028,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// Closes once an open session has gone `idleWindow` without a turn. The wait is tied to the
     /// lease held now, so one that outlives a close, or returns under a later lease, closes nothing.
     private func releaseWhenIdle() {
-        guard let lease, id != nil, closing == nil else { return }
+        guard let lease, id != nil, closing == nil, !isInTurn, humanIntervention == nil else { return }
         idleRelease?.cancel()
         idleRelease = Task { [weak self, waitIdle, idleWindow] in
             do {
@@ -1007,14 +1037,15 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 // The wait ends early only when cancelled: a turn started or the session closed.
                 return
             }
-            guard let self, !Task.isCancelled, self.lease === lease, !isInTurn, closing == nil else { return }
+            guard let self, !Task.isCancelled, self.lease === lease,
+                  !isInTurn, humanIntervention == nil, closing == nil else { return }
             await close()
         }
     }
 
     /// Closes when an open session is idle between turns and an entry is waiting for the seat.
     private func releaseIfSomeoneWaits() async {
-        guard !isInTurn, id != nil, closing == nil,
+        guard !isInTurn, humanIntervention == nil, id != nil, closing == nil,
               broker.queue.entries.contains(where: { $0.state == .waiting })
         else { return }
         await close()

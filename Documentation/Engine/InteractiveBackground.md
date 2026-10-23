@@ -1,7 +1,8 @@
 # Interactive background control
 
 Status: agreed product direction, implementation in increments. The queue described below is the
-first increment; the preview does not yet accept human input through it.
+first increment. The second adds explicit host suspension and lease retention; neither is yet
+triggered by the preview. The preview does not yet accept human input through them.
 
 ## Product contract
 
@@ -74,12 +75,56 @@ silent coalescing. Shared-frame accounting and early pixel release belong to the
 replace the gate, target checks or lease. The UI and Driver must eventually coordinate the first
 record with stopping agent admission. This actor alone does not stop a provider or an in-flight tool.
 
+## Second increment: suspend execution and retain the lease
+
+`BrokeredAutomationSession.retainForHumanIntervention()` pins the current native lease, cancelling
+idle release and preventing queue pressure from releasing it when the old provider turn ends.
+Repeated calls return the same episode token. Explicit `close` invalidates the token and still
+performs normal cleanup. `endHumanIntervention` accepts only the current token and restores idle
+release. Call it inside the new desktop turn when that continuation must retain the same lease.
+
+`WorkerAgentHost.suspendForHumanIntervention()` closes agent admission, cancels generation and
+lets the admitted tool finish. The old run then throws `HumanInterventionSuspended` rather than
+closing its session on intentional cancellation. Pending tool calls are discarded. New turns and
+compaction refuse while suspended. Only the matching token, after the old turn drains, can end
+suspension; ending never starts a provider. Normal stop, close and actual failures retain cleanup.
+Stopping after the suspended run has already ended starts tracked session cleanup; new runs, compaction and suspension refuse until it completes.
+The owner can await `waitForHumanInterventionCleanup()` before ending its control UI.
+
+`MCPRouter.suspendForHumanIntervention()` differs from `pause()`: it preserves the admitted call,
+including against cancellation notifications from the departing provider. An ordinary stop overrides
+it. The native model loop checks cancellation between its tool calls and stops its stream. Human-specific
+interruption preserves a real failure already reported by either the native transport or CLI provider,
+so an error is not incorrectly translated into a retained human suspension.
+
+The future coordinator must retain the broker lease and suspend the host on MainActor without an
+intervening await. If the host refuses because it is stopping, the coordinator must unwind its
+new retention and must not forward the input. It must consume the suspension before `WorkerTurnRecorder` records a terminal
+turn, retain the Engine episode, and allow a new route only after a current review. This composition,
+Driver admission, and the live preview trigger remain unimplemented. A tool already admitted to the
+host can still contain multiple Driver actions; stopping those is the next round's responsibility.
+An existing compaction interrupted by human input keeps its normal cancellation result; no new
+compaction can start during the intervention. The later coordinator must handle this separately
+from the typed suspension of `run`.
+These tests prove local lifecycle behavior, not a live human takeover or background focus behavior.
+
+## Alpha delivery rounds
+
+1. Engine event queue and temporary history, complete.
+2. Host suspension and session retention, implemented with controlled tests.
+3. Driver human/agent admission, progressive gestures and deliberate activation.
+4. Window/display preview input and keyboard ownership.
+5. Historical Perception, inactivity and compact handoff for goal evaluation and replanning.
+6. Integrated review, regression checks and a compiled application for the user's alpha trial.
+
+The alpha is delivered after all six rounds. Round 4 alone is not the complete feature.
+
 ## Integration seams still to implement
 
 - `InputCommandGate`, `InputEngine` and `AgentSeat`: distinguish authority and deliberate activation;
   keep common fault causes, geometry validation and atomic-command cleanup.
-- `WorkerAgentHost`, `ModelToolLoop`, `MCPRouter` and `BrokeredAutomationSession`: pause without
-  teardown, retain lease, invalidate pending agent actions, and resume evaluation separately from input.
+- Compose the new host suspension and broker retention with `HumanIntervention`, intercept the typed
+  suspension before terminal recording, and resume evaluation separately from input.
 - Preview: window/display view, immutable presented-frame binding, coordinate conversion, keyboard
   ownership and complete down/up, repeat, modifier, drag and composition behavior.
 - Perception: analyze historical frames, bind targets and effects, handle unknowns and obtain the

@@ -89,3 +89,79 @@ These integrations require concrete adapter contracts from their owning source; 
 
 - `git diff --check` and `git diff --cached --check` passed. The local commit contains only this
   increment and its documentation; the original checkout's unrelated changes remain excluded.
+
+
+## Six implementation rounds to an alpha
+
+1. Temporary Engine history and ordered reconstruction lifecycle: complete, `112b0811`.
+2. Human suspension of worker execution and explicit retention of the native session: complete.
+3. Driver admission for human input, gesture delivery and deliberate activation with containment intact.
+4. Interactive window/display preview, coordinates and keyboard ownership, composed with rounds 2–3.
+5. Historical Perception, inactivity, compact handoff, goal evaluation and a fresh route for the agent.
+6. Integrated review, regression/alpha checks and an application build for the user's manual trial.
+
+The alpha requires all six rounds. This is a work breakdown, not a compatibility or calendar promise.
+Round 6 produces an app, not just the command-line product; unqualified app/input combinations are listed.
+
+### Round 2 contract
+
+- A host can suspend for a human episode: block admission synchronously, cancel model generation,
+  let an admitted tool finish, discard pending tool calls and keep its session on intentional cancellation.
+- Suspension has an opaque token. Another turn or compaction is refused until the old turn drains and
+  the matching token is ended. Ending does not replay old calls or automatically start a provider.
+- Ordinary stop, retirement, close and actual provider failures retain their cleanup behavior.
+- The broker pins the existing lease during human intervention, including between turns and when other
+  workers wait. Explicit close always wins; stale hold tokens cannot release a newer lease.
+- MCP distinguishes human suspension from stop, including late client cancellation notifications.
+- The future preview coordinator must retain the broker lease before suspending the host, on MainActor
+  without an intervening await. Driver event admission and the episode-to-handoff adapter remain rounds 3–5.
+- Ruling: do not wire a partial pause to the current TeamModel recorder yet. Its stopped-turn semantics
+  would expose an intervention as a completed cancellation; the complete handoff belongs to round 5.
+  Cost: these APIs are exercised by integration tests but have no user-visible trigger in this round.
+
+Tests: broker idle/waiter retention, stale tokens and explicit close; router draining without cancellation;
+worker model-stream cancellation, admitted-call completion with no later call, refusal during suspension,
+matching-token release and ordinary stop/close precedence. Run focused tests, build and required checks.
+
+
+### Round 2 verification and review ledger
+
+- RED: package tests rejected the missing router and broker methods; native app tests rejected the
+  missing host API. GREEN: 43 broker tests and 5 router tests passed; initial host/loop/bridge run passed.
+- A completion-boundary test then demonstrated that human input in the final event callback could
+  return success; a post-await stop check corrected it and the app suites passed again.
+- Fresh whole-branch review found two P2 issues: stopping after the suspended run drained did not
+  release its session, and lower-layer cancellation could erase an already-observed provider error.
+  Both were reproduced by three failing app tests, then corrected. The app suites passed 34 tests
+  after these fixes, with the real-provider test gated off.
+- Ruling: a human interruption of an already-running compaction retains its existing cancellation
+  outcome; only `run` promises the typed suspension. No new compaction is admitted while suspended.
+  The future coordinator must distinguish that case. No persistent recorder schema is changed here.
+- Ruling on review exclusions: live input, Driver action boundaries, preview ownership and recorder
+  composition remain rounds 3–5. Their absence prevents an alpha claim, but does not block committing
+  the tested round 2 endpoints.
+- `make test SWIFT=swift` still fails the same preexisting product-name check in the two unchanged
+  House documents. This is not treated as a passing required check. Separate unit verification follows.
+
+- The stop-precedence regression also failed when another human input followed an explicit stop
+  before the old turn drained. Suspension now refuses in that interval; the final app suite passed.
+- Final `swift build --product braus`: passed. Final `make test SWIFT=swift`: same document-gate failure.
+- Full separate unit tier: 4,592 executed, 197 skipped, 4,789 reported in 39 runs, `status: passed`,
+  `problems: []`. This run began before the final provider-failure fixes. After those fixes,
+  `swift test --filter 'ChatTests|BrokeredAutomationSessionTests|HumanInterventionTests'` passed
+  158 Chat tests, 43 broker tests and 17 Engine tests. The unaffected native Seat tier was not repeated.
+- Final app verification passed 34 tests in three suites; the real-provider test was skipped:
+
+  ```sh
+  xcodebuild -workspace BrausApp/AgentEnvironment.xcworkspace -scheme Braus \
+    -configuration Debug -destination 'platform=macOS,arch=arm64' \
+    -derivedDataPath .scratch/interactive-bg-dd \
+    -only-testing:BrausTests/ModelToolLoopTests \
+    -only-testing:BrausTests/WorkerAgentHostTests \
+    -only-testing:BrausTests/ToolBridgeTests test
+  ```
+
+- Both review findings are fixed with failing-then-passing regression tests. No minor findings were
+  deferred. Compaction and the live composition exclusions are recorded above as explicit rulings.
+- No live target input, provider account, perception-quality or performance qualification was run.
+  The compiled test app is not an alpha of the interactive feature. Round 6 delivers that build.
