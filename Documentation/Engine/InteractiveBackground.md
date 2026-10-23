@@ -1,8 +1,9 @@
 # Interactive background control
 
 Status: agreed product direction, implementation in increments. The queue described below is the
-first increment. The second adds explicit host suspension and lease retention; neither is yet
-triggered by the preview. The preview does not yet accept human input through them.
+first increment. The second adds explicit host suspension and lease retention. Round 3A adds
+Driver authority for complete Commands. These endpoints are not yet composed or triggered by the
+preview, which does not yet accept human input through them.
 
 ## Product contract
 
@@ -101,12 +102,32 @@ The future coordinator must retain the broker lease and suspend the host on Main
 intervening await. If the host refuses because it is stopping, the coordinator must unwind its
 new retention and must not forward the input. It must consume the suspension before `WorkerTurnRecorder` records a terminal
 turn, retain the Engine episode, and allow a new route only after a current review. This composition,
-Driver admission, and the live preview trigger remain unimplemented. A tool already admitted to the
-host can still contain multiple Driver actions; stopping those is the next round's responsibility.
+the live preview trigger, and progressive Driver input remain unimplemented. The new Driver gate
+can block subsequent Commands inside an admitted tool; the coordinator must connect that gate to
+this host suspension before any preview input is forwarded.
 An existing compaction interrupted by human input keeps its normal cancellation result; no new
 compaction can start during the intervention. The later coordinator must handle this separately
 from the typed suspension of `run`.
 These tests prove local lifecycle behavior, not a live human takeover or background focus behavior.
+
+## Round 3A: Driver authority for complete Commands
+
+The Driver now provides gate-bound human episodes and versioned admission. AgentSeat exposes
+`beginHumanInput`, `sendHumanInput` and `endHumanInput`; complete human Commands retain ordinary
+observation and containment checks. Pending requests retain their original admission generation,
+so an intervention that starts and ends while a request waits still invalidates that request.
+The gate's common causes continue to block both sources. Ending invalidates the last observation.
+
+The first-input coordinator must close Driver admission as well as retain the broker and suspend
+the host, then wait for the old command/Turn and cleanup before sending human input. Opening a
+preview must not call `beginHumanInput`. None of these endpoints automatically calls another.
+A token does not authorize a window or replace the Turn's correlation marker.
+
+Round 3 remains incomplete: progressive mouse events and deliberate activation need their own
+held-input and focus lifecycle. The current adapter refuses split human key Commands and refuses
+takeover during native composition, held agent keys, or a split key Command in flight. Those cases
+must not forward the input or suspend the host after the Driver refuses. The existing focus checks
+remain active, so intentional target activation is not yet permitted by this adapter.
 
 ## Alpha delivery rounds
 
@@ -121,8 +142,8 @@ The alpha is delivered after all six rounds. Round 4 alone is not the complete f
 
 ## Integration seams still to implement
 
-- `InputCommandGate`, `InputEngine` and `AgentSeat`: distinguish authority and deliberate activation;
-  keep common fault causes, geometry validation and atomic-command cleanup.
+- Driver: complete progressive gestures, held-input cleanup and deliberate activation on top of
+  versioned admission; keep common fault causes, geometry validation and atomic-command cleanup.
 - Compose the new host suspension and broker retention with `HumanIntervention`, intercept the typed
   suspension before terminal recording, and resume evaluation separately from input.
 - Preview: window/display view, immutable presented-frame binding, coordinate conversion, keyboard

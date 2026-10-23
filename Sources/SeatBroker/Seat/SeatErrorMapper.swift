@@ -278,6 +278,10 @@ enum SeatErrorMapper {
             "focus recovery stopped, and nothing reopens input after that"
         case .deliberateStop:
             "you stopped the seat, and nothing reopens input after that"
+        case .humanIntervention:
+            "you are controlling the application"
+        case .inputAuthorityExpired:
+            "this command belongs to an earlier control state"
         case .holdEnded:
             "the hold that admitted input is over"
         case .activationUnverified:
@@ -759,6 +763,8 @@ enum SeatErrorMapper {
         case .windowTransfer:         "the seat is staging or moving a window"
         case .focusRecoveryStopped:   "focus recovery stopped, which nothing resolves"
         case .deliberateStop:         "the seat was stopped by you, which nothing resolves"
+        case .humanIntervention:      "the person is controlling the application"
+        case .inputAuthorityExpired:  "the command belongs to an earlier control state"
         case .holdEnded:              "the hold that admitted input is over"
         case .activationUnverified:   "an activation of the target is not verified yet"
         case .fenceInactive:          "the cursor fence is not active"

@@ -11,6 +11,26 @@ never falls back onto the person's desktop, it never repeats an action whose
 effect it could not confirm, and on a macOS build it has not been validated
 against it declines to act rather than guessing.
 
+## Human input admission (incremental)
+
+`AgentSeat.beginHumanInput()` synchronously blocks agent Commands and returns an opaque episode
+bound to that seat's input gate. `sendHumanInput` currently accepts complete Commands, using the
+same Turn, observation, identity, geometry, preparation and final posting checks as ordinary sends.
+`endHumanInput` requires a matching token, no command in flight and no unconfirmed receipt, and
+invalidates the last observation. It does not run a model or resume a task.
+
+InputDriver captures admission before its actor/exclusion wait. The generation is retained through
+preparation and each command of a sequence; a request waiting across an intervention cannot revive
+after handback. Human authority exempts only the agent pause, never a common gate cause. The final
+InputEngine gate check remains before atomic posting; an already admitted Command finishes intact.
+
+This is round 3A of [interactive background control](../Engine/InteractiveBackground.md), not an
+interactive preview. Progressive pointer events, release-only transfer of held keys, intentional
+activation and composition with broker/host suspension remain outstanding. Native composition and
+split agent key gestures refuse takeover; split human key Commands refuse before posting. SeatGuard,
+SeatObserver, focus recovery, window containment and CursorFence retain their existing behavior.
+Qualification on real apps is still required; controlled tests establish admission only.
+
 ## Shape
 
 | Module | What it owns |

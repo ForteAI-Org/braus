@@ -34,6 +34,12 @@ nonisolated public enum InputPauseReason: String, Sendable, Equatable, CaseItera
     /// The person stopped the seat. Terminal: nothing resolves it.
     case deliberateStop
 
+    /// The person owns the current input episode; agent commands cannot start.
+    case humanIntervention
+
+    /// The request predates an intervention, or carries another gate's authority.
+    case inputAuthorityExpired
+
     // MARK: The recovery's pre-action preparation
 
     /// The hold that admitted input is over, so there is no action to prepare.

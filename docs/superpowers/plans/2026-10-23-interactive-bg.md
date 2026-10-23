@@ -165,3 +165,74 @@ matching-token release and ordinary stop/close precedence. Run focused tests, bu
   deferred. Compaction and the live composition exclusions are recorded above as explicit rulings.
 - No live target input, provider account, perception-quality or performance qualification was run.
   The compiled test app is not an alpha of the interactive feature. Round 6 delivers that build.
+
+### Round 3A: authority at existing command boundaries
+
+Round 3 is in progress, not complete. This substep wires synchronous human/agent admission into
+AgentSeat and InputDriver's existing complete-command paths. A gate-scoped opaque episode token
+exempts human input only from the agent pause; all common causes and target/geometry checks remain.
+A request captures its gate generation before waiting, and a completed intervention cannot revive it.
+Ending an episode invalidates its last observation and does not start a provider.
+
+- Ruling: qualify the existing complete-command admission first, before progressive mouse events
+  and intentional activation. The Driver consumes an observation per Command and its current drag
+  carries the whole path; silently reusing it for mouse-down/move/up would change cleanup semantics.
+  Cost: round 3 remains open and these APIs must not be presented as interactive preview support.
+- Ruling: refuse takeover during native composition or a split key gesture, and refuse split human
+  key Commands in this adapter. There is no release-only ownership transfer yet. Cost: those cases
+  cannot be controlled until round 3B supplies explicit held-input cleanup; no input is forwarded.
+- RED: new InputCommandGateTests failed to compile for missing episode/admission APIs. The first
+  implementation exposed exhaustive InputPauseReason consumers; their wording is updated explicitly.
+- RED: HumanInputAdmissionTests failed to compile for missing AgentSeat entry points. They exercise
+  the real observation/command path with controlled native collaborators, not just a separate gate.
+
+Tests: agent requests waiting across begin/end, foreign/stale tokens, common faults and terminal stop,
+preparation revalidation, complete human command and consumed observation, handback invalidation.
+Round 3A complete: focused tests, final product build, required-gate attempt and fresh review recorded below.
+The complete round 3 still requires progressive input and activation.
+
+### Round 3A verification and review ledger
+
+- GREEN: 9 InputCommandGate tests and the initial 3 AgentSeat integration tests passed. Expanded
+  AgentSeat coverage initially failed before the intended boundary because its fixture supplied no
+  keyboard recipient. After supplying controlled identity/geometry/focus evidence, all 5 passed.
+- The focused run also passed all 29 ObservationAdmission tests and 23 SeatErrorMapper tests.
+- `swift build --product braus` passed. `make test SWIFT=swift` still fails the preexisting product-name
+  check in the two unchanged House documents; it is not counted as passing.
+- Fresh read-only review found no P1/P2 issues. Final: minor (deferred): InputDriver's new outer
+  admission can refuse before its existing TraceHandler paths, omitting diagnostic traces for those
+  refused submissions. The error still reaches the caller and nothing is posted. Restore exactly-once
+  refusal traces in a subsequent increment; this is not claimed as complete trace coverage.
+- Final: Ruling: progressive gestures, held-input transfer and intentional activation remain 3B,
+  because they require explicit release/focus lifecycle rather than an exemption in this gate.
+  Cost: this increment cannot expose natural-speed live preview control.
+- Final: Ruling: native popup callbacks and broader tool admission remain coordinator work. The
+  present adapter controls complete Driver Commands, not every side effect a tool can perform.
+  Cost: do not expose takeover until the host and these boundaries are composed and verified.
+- Final: Ruling: preview, keyboard ownership, Perception and handoff remain rounds 4–5; synthetic
+  event attribution still uses the Turn marker until the coordinator associates it with the episode.
+  Cost: this increment alone cannot reconstruct or attribute a live intervention.
+- Final: Ruling: live focus/containment, app compatibility and latency were not qualified. Pure
+  tests do not prove native behavior; the app alpha remains round 6.
+- The broad `swift test --filter 'SeatInputTests|SeatSessionTests|SeatErrorMapperTests'` invocation
+  was incorrect for this repository: concurrent AppKit tests exhausted observation/follow deadlines
+  (for example, frame ages of 266–288 seconds against a 120-second bound). It failed and its remaining
+  process was terminated. No source or deadline was changed in response. The prescribed native
+  SeatSession runner with `--no-parallel`, plus serial Input/mapper tests, is the corrective check.
+
+- Final serial Input and mapper verification passed 155 and 23 tests respectively:
+  `swift test --no-parallel --filter 'SeatInputTests|SeatErrorMapperTests'`.
+- Final native SeatSession verification passed all 1,023 tests in 73 suites; `TIER_RESULT` reported
+  `status: passed`, `problems: []`, 1,023 executed and none skipped. Exact command, with host/live
+  opt-ins unset:
+
+  ```sh
+  TIER_BUNDLES=1 bash Tools/Driver/Scripts/run-tier.sh unit - \
+    .build/native-driver-test-main \
+    .build/out/Products/Debug/SeatSessionTests.xctest/Contents/MacOS/SeatSessionTests \
+    --no-parallel
+  ```
+
+- Final `swift build --product braus`, `git diff --check` and `git diff --cached --check` passed.
+  No app alpha, host/live target input or performance qualification was produced. The original
+  checkout's eight unrelated modified paths were verified and are excluded from this commit.

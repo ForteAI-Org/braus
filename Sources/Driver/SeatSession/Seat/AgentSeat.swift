@@ -157,6 +157,8 @@ public final class AgentSeat {
     @TaskLocal
     private nonisolated static var nativeTextInputID: UUID?
 
+    private var splitInputsInFlight = 0
+
     private var nativeTextInputContext: (window: WindowReference, turn: Turn, id: UUID)?
 
     /// True for the length of one coordinated assignment release, so nothing
@@ -2349,7 +2351,60 @@ public final class AgentSeat {
     /// and reads only `state` tells the person input is going out when nothing
     /// is, which is the one reading a status indicator must never get wrong.
     public var inputPauseReasons: [InputPauseReason] {
-        (commandGate?.pauseCauses ?? []).map(\.reason).sorted()
+        commandGate?.pauseReasons ?? []
+    }
+
+    /// Blocks agent Commands before the host drains its current tool call.
+    /// This first adapter accepts complete Commands only. A native composition or
+    /// split key gesture must finish before its held input can change owners.
+    public func beginHumanInput() throws -> InputCommandGate.HumanInput {
+        guard !isTearingDown, state != .failed else { throw SessionFailure.seatNotReady(state) }
+        guard nativeTextInputContext == nil, splitInputsInFlight == 0 else {
+            throw InputFailure.nativeTextInputRefused(.contextActive)
+        }
+        if let turn = turns.current {
+            let held = heldKeyCount(of: turn)
+            guard held == 0 else { throw SessionFailure.keysStillHeld(count: held) }
+        }
+        guard let commandGate else { throw InputFailure.inputPaused([.recoveryUnavailable]) }
+        let token = try commandGate.beginHumanInput()
+        observationIssuer.invalidate(.suspensionRaised)
+        outstandingGeometry = nil
+        publishCoherentState()
+        return token
+    }
+
+    /// Ends only the matching episode at a safe boundary. The caller must have
+    /// completed reconstruction and authorized continuation; this starts no work.
+    public func endHumanInput(_ token: InputCommandGate.HumanInput) throws {
+        guard !actionInFlight else { throw SessionFailure.assignmentStillInUse(.commandInFlight) }
+        let unconfirmed = posted.filter { $0.confirmation == nil }.count
+        guard unconfirmed == 0 else { throw SessionFailure.unconfirmedCommands(count: unconfirmed) }
+        guard let commandGate else { throw InputFailure.inputPaused([.recoveryUnavailable]) }
+        try commandGate.endHumanInput(token)
+        observationIssuer.invalidate(.requestedByConsumer)
+        outstandingGeometry = nil
+        publishCoherentState()
+    }
+
+    /// Sends one complete human Command through ordinary observation, target,
+    /// recipe and Driver checks. The episode exempts only the agent-input pause;
+    /// it does not permit target activation or a progressive held gesture yet.
+    @discardableResult
+    public func sendHumanInput(
+        _ command: InputCommand,
+        observation: SeatObservationReference,
+        turn: Turn,
+        token: InputCommandGate.HumanInput
+    ) async throws -> InputReceipt {
+        guard !actionInFlight else { throw SessionFailure.assignmentStillInUse(.commandInFlight) }
+        if case .key(_, _, _, let phase, _) = command, phase != .press {
+            throw InputFailure.nativeTextInputRefused(.commandUnsupported)
+        }
+        guard let commandGate else { throw InputFailure.inputPaused([.recoveryUnavailable]) }
+        return try await commandGate.withHumanInput(token) {
+            try await send(command, observation: observation, turn: turn)
+        }
     }
 
     /// One cause for however many transfers are open.
@@ -2487,6 +2542,39 @@ public final class AgentSeat {
         layoutGeneration: UInt64?,
         expecting       label: String? = nil
     ) async throws -> InputReceipt {
+        if let commandGate {
+            return try await commandGate.withAdmission {
+                try await sendAdmitted(
+                    command,
+                    observation: observation,
+                    turn: turn,
+                    platform: platform,
+                    layoutGeneration: layoutGeneration,
+                    expecting: label
+                )
+            }
+        }
+        return try await sendAdmitted(
+            command,
+            observation: observation,
+            turn: turn,
+            platform: platform,
+            layoutGeneration: layoutGeneration,
+            expecting: label
+        )
+    }
+
+    private func sendAdmitted(
+        _ command       : InputCommand,
+        observation     : SeatObservationReference,
+        turn            : Turn,
+        platform        : (any InputPlatform)?,
+        layoutGeneration: UInt64?,
+        expecting       label: String? = nil
+    ) async throws -> InputReceipt {
+        let isSplitInput = if case .key(_, _, _, let phase, _) = command { phase != .press } else { false }
+        if isSplitInput { splitInputsInFlight += 1 }
+        defer { if isSplitInput { splitInputsInFlight -= 1 } }
 
         // While a menu interaction is current, only the menu and its closing may
         // be acted on, and those go through the interaction. An ordinary Command
