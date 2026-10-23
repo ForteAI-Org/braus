@@ -58,6 +58,8 @@ final class ChatSession {
     let provider = CLIProvider()
     let executable: URL
     let working: URL
+    /// The reasoning effort every turn asks of the provider, nil for its default.
+    private let effort: String?
     private let temporary: URL
     private var signals: ChatSignals?
     /// The transcript the tool lines and a stop are written to now.
@@ -88,6 +90,7 @@ final class ChatSession {
         session   : ((BrokeredAutomationSession) -> any AutomationSessionOperating)? = nil
     ) throws {
         self.executable = executable
+        effort = options.effort
         knowledge = options.knowledgeDirectory.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             ?? EngineRuntime.sharedKnowledge()
         if options.allowUnvalidated {
@@ -282,7 +285,7 @@ final class ChatSession {
             provider: transcript.conversation.provider, model: transcript.conversation.model,
             sessionID: transcript.conversation.providerSessionID, prompt: message,
             instructions: instructions, bridgeExecutable: Self.executablePath,
-            connectionFile: connectionFile.path, workingDirectory: working.path
+            connectionFile: connectionFile.path, workingDirectory: working.path, effort: effort
         )
         try await desktop.turn {
             try await provider.run(turn, executable: executable) { event in try transcript.event(event) }
@@ -295,7 +298,7 @@ final class ChatSession {
                 provider: transcript.conversation.provider, model: transcript.conversation.model,
                 sessionID: transcript.conversation.providerSessionID, prompt: reminder,
                 instructions: instructions, bridgeExecutable: Self.executablePath,
-                connectionFile: connectionFile.path, workingDirectory: working.path
+                connectionFile: connectionFile.path, workingDirectory: working.path, effort: effort
             )
             try await provider.run(follow, executable: executable) { event in try transcript.event(event) }
         }

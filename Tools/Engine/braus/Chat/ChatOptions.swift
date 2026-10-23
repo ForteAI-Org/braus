@@ -7,6 +7,8 @@ struct ChatOptions {
     var provider: ChatProvider?
     var model: String?
     var hasModelOption = false
+    /// The provider's reasoning effort for every turn (`--effort`); nil leaves the provider's default.
+    var effort: String?
     var resume: String?
     var prompt: String?
     var historyDirectory: String?
@@ -54,8 +56,8 @@ struct ChatOptions {
             case "--allow-unvalidated-build": allowUnvalidated = true
             case "--allow-destructive": allowDestructive = true
             case "--continue": continueOnError = true
-            case "--provider", "--model", "--resume", "--history-dir", "--knowledge", "--script", "--evidence", "--preflight",
-                 "--channels", "--chrome":
+            case "--provider", "--model", "--effort", "--resume", "--history-dir", "--knowledge", "--script", "--evidence",
+                 "--preflight", "--channels", "--chrome":
                 index += 1
                 guard index < arguments.count, !arguments[index].hasPrefix("--"), !arguments[index].isEmpty else {
                     throw invalid("Missing value for \(word).")
@@ -70,6 +72,11 @@ struct ChatOptions {
                 case "--model":
                     model = value == "default" ? nil : value
                     hasModelOption = true
+                case "--effort":
+                    guard ["low", "medium", "high", "xhigh", "max", "default"].contains(value) else {
+                        throw invalid("--effort must be low, medium, high, xhigh, max or default.")
+                    }
+                    effort = value == "default" ? nil : value
                 case "--resume": resume = value
                 case "--history-dir": historyDirectory = value
                 case "--script": script = value
@@ -108,6 +115,7 @@ struct ChatOptions {
 
       --provider claude|codex       use the installed, signed-in provider CLI
       --model <name>                provider model ID/alias; default uses the provider default
+      --effort <level>              low, medium, high, xhigh or max; default uses the provider default
       --resume <UUID|last>          resume a saved Braus conversation
       --list                       list saved conversations
       --once                       send the quoted prompt and exit

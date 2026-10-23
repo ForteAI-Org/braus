@@ -31,6 +31,15 @@ struct ChatOptionsTests {
     }
 
     @Test
+    func effortIsALevelOrTheProviderDefault() throws {
+        #expect(try ChatOptions(arguments: ["--provider", "claude", "--effort", "high", "hi"]).effort == "high")
+        #expect(try ChatOptions(arguments: ["--provider", "claude", "--effort", "default", "hi"]).effort == nil)
+        #expect(try ChatOptions(arguments: ["--provider", "claude", "hi"]).effort == nil)
+        #expect(throws: (any Error).self) { _ = try ChatOptions(arguments: ["--provider", "claude", "--effort", "extreme", "hi"]) }
+        #expect(throws: (any Error).self) { _ = try ChatOptions(arguments: ["--provider", "claude", "--effort"]) }
+    }
+
+    @Test
     func aScriptRunsWithItsProviderEvidenceAndPreflight() throws {
         let options = try ChatOptions(arguments: [
             "--script", "~/tasks.txt", "--provider", "claude", "--model", "haiku", "--evidence", "/tmp/run", "--preflight", "expected.json",
