@@ -33,6 +33,15 @@ all, `ActVerification.interrupted` still asks the surface's identity: a Cancel t
 stays closed while the focus is coming back, and anything else is uncertain, which is not a failure
 and is never a reason to send the gesture again.
 
+## Human intervention in a background session
+
+The [interactive background control design](InteractiveBackground.md) separates temporary event
+reconstruction from the agent's later evaluation of the task. `Engine.HumanIntervention` now provides
+an in-memory, bounded producer/consumer lifecycle with versioned handoff and explicit clarification.
+It has no Brain, Memory or provider dependency. Preview input, Driver admission, session retention,
+historical-frame Perception and model handoff are still to be connected; this does not yet make the
+preview interactive. Pure lifecycle tests do not qualify live input or application compatibility.
+
 ## Shape
 
 | Module | What it owns |
