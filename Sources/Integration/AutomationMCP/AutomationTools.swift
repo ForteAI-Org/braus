@@ -80,6 +80,8 @@ public final class AutomationTools {
     /// The first scene a call perceived after the open task began, nil before any: a value check passes only on a
     /// native value the control did not already show then.
     private var openingScene: SceneSnapshot?
+    /// The open task's beginning is settled: read, or lost to an action whose before was not perceived.
+    private var openingSettled = false
     /// The check the last operation's path reported, for its record.
     private var lastCheck: OperationCheck?
     private var revision = 0
@@ -799,7 +801,14 @@ public final class AutomationTools {
                 try await self.answer(name, arguments, recorder: recorder)
             }
             // The open task's first perceived scene is its beginning for a value check; no observation is added for it.
-            if openTask != nil, openingScene == nil { openingScene = await recorder.firstPerceived?.scene }
+            if openTask != nil, !openingSettled {
+                if let first = await recorder.firstPerceived {
+                    openingScene = first.scene
+                    openingSettled = true
+                } else if await recorder.actedUnseen {
+                    openingSettled = true
+                }
+            }
             // The notice is read after the end, which may itself be saved only in part.
             let notice: String?
             do {
@@ -1108,6 +1117,7 @@ public final class AutomationTools {
                 fingerprints = Self.fingerprints(of: arguments["inputs"])
                 ordinaryInputs = Self.ordinaryInputs(in: arguments, secrets: secrets)
                 openingScene = nil
+                openingSettled = false
                 let opened = try await TaskChannel.begin(
                     content,
                     producer: producer,
