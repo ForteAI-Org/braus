@@ -80,17 +80,80 @@ public struct InputRequest: Sendable, Equatable {
 }
 
 /// KeyChord is one key the engine presses by name and the modifiers held around it. A named key is a
-/// position, the same on every layout; a letter or a digit is a meaning, pressed wherever the
-/// installed layout puts it; a slash or a tilde on its own is typed, like text.
+/// position, the same on every layout; a letter, a digit or a punctuation mark is a meaning, pressed
+/// wherever the installed layout puts it; a slash or a tilde on its own is typed, like text.
 public struct KeyChord: Sendable, Equatable, CustomStringConvertible {
 
-    /// The keys a chord can name: the ones that navigate and submit, the letters and digits a
-    /// shortcut is written with, and the slash and tilde that open a file panel's Go to Folder.
+    /// The keys a chord can name: the ones that navigate and submit, the positions of the function
+    /// row, the keypad and the navigation block, the letters, digits and punctuation a shortcut is
+    /// written with, and the slash and tilde that open a file panel's Go to Folder.
     public enum Name: Sendable, Equatable {
         case `return`, tab, escape, space, delete
         case left, right, up, down
-        /// A letter a to z, a digit 0 to 9, lowercase, or `/` or `~`.
+        /// A key that has no character of its own, or whose character another key also types: F5,
+        /// the keypad's plus beside the main block's equal, Page Down. Pressed by its position.
+        case position(Position)
+        /// A letter a to z, a digit 0 to 9, lowercase, a punctuation mark of the main block, or `/` or `~`.
         case character(Character)
+
+        /// The positions a chord names by their own word. The keypad digits are positions, never the
+        /// main block's digits: an application tells them apart (Pro Tools nudges with the keypad's
+        /// plus and minus), so a shortcut written for one is never pressed on the other.
+        public enum Position: String, Sendable, Equatable, CaseIterable {
+            case home, end, pageup, pagedown, forwarddelete
+            case f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19
+            case keypad0, keypad1, keypad2, keypad3, keypad4, keypad5, keypad6, keypad7, keypad8, keypad9
+            case keypadplus, keypadminus, keypadmultiply, keypaddivide, keypaddecimal, keypadequals
+            case keypadenter, keypadclear
+
+            /// The macOS virtual key of the position, the same on every layout.
+            public var code: UInt16 {
+                switch self {
+                    case .home          : 115
+                    case .end           : 119
+                    case .pageup        : 116
+                    case .pagedown      : 121
+                    case .forwarddelete : 117
+                    case .f1            : 122
+                    case .f2            : 120
+                    case .f3            : 99
+                    case .f4            : 118
+                    case .f5            : 96
+                    case .f6            : 97
+                    case .f7            : 98
+                    case .f8            : 100
+                    case .f9            : 101
+                    case .f10           : 109
+                    case .f11           : 103
+                    case .f12           : 111
+                    case .f13           : 105
+                    case .f14           : 107
+                    case .f15           : 113
+                    case .f16           : 106
+                    case .f17           : 64
+                    case .f18           : 79
+                    case .f19           : 80
+                    case .keypad0       : 82
+                    case .keypad1       : 83
+                    case .keypad2       : 84
+                    case .keypad3       : 85
+                    case .keypad4       : 86
+                    case .keypad5       : 87
+                    case .keypad6       : 88
+                    case .keypad7       : 89
+                    case .keypad8       : 91
+                    case .keypad9       : 92
+                    case .keypadplus    : 69
+                    case .keypadminus   : 78
+                    case .keypadmultiply: 67
+                    case .keypaddivide  : 75
+                    case .keypaddecimal : 65
+                    case .keypadequals  : 81
+                    case .keypadenter   : 76
+                    case .keypadclear   : 71
+                }
+            }
+        }
 
         /// The key a tool names: `return`, `left`, `a`, `7`. Nil for anything else.
         public init?(_ name: String) {
@@ -105,9 +168,13 @@ public struct KeyChord: Sendable, Equatable, CustomStringConvertible {
                 case "up"    : self = .up
                 case "down"  : self = .down
                 case let word:
+                    if let position = Position(rawValue: word) {
+                        self = .position(position)
+                        return
+                    }
                     guard word.count == 1, let character = word.first,
                           ("a"..."z").contains(character) || ("0"..."9").contains(character)
-                              || Self.typed.contains(character)
+                              || Self.typed.contains(character) || Self.punctuation.contains(character)
                     else { return nil }
                     self = .character(character)
             }
@@ -116,9 +183,15 @@ public struct KeyChord: Sendable, Equatable, CustomStringConvertible {
         /// Every name a tool may use, in the order a person reads them.
         public static var all: [String] {
             ["return", "tab", "escape", "space", "delete", "left", "right", "up", "down"]
+                + Position.allCases.map(\.rawValue)
                 + "abcdefghijklmnopqrstuvwxyz0123456789".map(String.init)
+                + Self.punctuation.map(String.init)
                 + Self.typed.map(String.init)
         }
+
+        /// The punctuation of the main block, pressed wherever the installed layout puts it, as a
+        /// letter is: `=` with Shift and Option is the key that types `=`, with those modifiers held.
+        static let punctuation: [Character] = ["=", "-", "[", "]", "\\", ";", "'", ",", ".", "`"]
 
         /// The characters pressed by typing them rather than by finding their key. A file panel
         /// out of process takes a plain key and drops every shortcut, so `/` is how its Go to
@@ -137,6 +210,7 @@ public struct KeyChord: Sendable, Equatable, CustomStringConvertible {
                 case .right               : "right"
                 case .up                  : "up"
                 case .down                : "down"
+                case .position(let position): position.rawValue
                 case .character(let value): String(value)
             }
         }
@@ -172,6 +246,7 @@ public struct KeyChord: Sendable, Equatable, CustomStringConvertible {
             case .right               : .key(code: Key.rightArrow, modifiers: modifiers)
             case .up                  : .key(code: Key.upArrow, modifiers: modifiers)
             case .down                : .key(code: Key.downArrow, modifiers: modifiers)
+            case .position(let position): .key(code: position.code, modifiers: modifiers)
             case .character(let value) where modifiers.isEmpty && Name.typed.contains(value):
                 .type(String(value))
             case .character(let value): .character(value, modifiers: modifiers)

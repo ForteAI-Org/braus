@@ -7,29 +7,38 @@
 
 import Foundation
 
-/// ActionPolicy is the safety rule a model cannot argue with: a target whose label reads as
-/// destructive or irreversible is refused unless the person opted in. Over-matching is the safe
-/// direction, so the terms are stems and the match is a substring, in every language a driven app
-/// has spoken so far. An English-only list once let "Elimina", "Invia" and "Esci" through.
+/// ActionPolicy classifies destructive commands from complete words, phrases and language-specific
+/// morphology. Native context can qualify navigation or opening a configuration selector; every
+/// final menu choice is still classified independently. Consent and effect verification belong to
+/// IrreversiblePolicy and cannot be replaced by these contextual classifications.
 public enum ActionPolicy {
 
-    static let destructiveTerms: [String] = [
-        // English
+    private static let englishTerms: Set<String> = [
         "delete", "remove", "trash", "discard", "erase", "reset", "format", "uninstall", "purge", "wipe",
-        "destroy", "overwrite", "replace all", "quit", "sign out", "log out", "logout", "deactivate",
-        "revoke", "send", "publish", "submit", "buy", "purchase", "pay", "confirm order",
-        // Italian, as stems
-        "elimin", "cancell", "rimuov", "cestin", "ripristin", "azzera", "svuot", "sovrascriv",
-        "esci", "disconnett", "invia", "pubblic", "acquist", "compra", "paga",
+        "destroy", "overwrite", "quit", "logout", "deactivate", "revoke", "send", "publish", "submit",
+        "buy", "purchase", "pay",
     ]
 
-    /// True when the label names something destructive or irreversible. Native audio send selectors
-    /// in Pro Tools open routing controls; the same words elsewhere keep the conservative rule.
-    /// A pane selector is no action either: a radio button or a tab only selects one of its siblings, and
-    /// one named exactly by a pane's name picks the pane and runs nothing. Numbers' inspector selector
-    /// "Format", an `AXRadioButton` beside "Organise", was refused for its substring (B2 trial, 17/10/2026).
-    /// A button, a menu item, an element with no role, and every other label, "Format Disk" included,
-    /// keep the label's rule.
+    private static let englishVariants: Set<String> = [
+        "deletion", "deletions", "removal", "removals", "trashes", "erasure", "erasures", "resetting",
+        "formatted", "formatting", "uninstallation", "uninstallations", "destruction", "destructions",
+        "overwritten", "quitting", "deactivation", "deactivations", "revocation", "revocations", "sent",
+        "publication", "publications", "submitted", "submitting", "submission", "submissions", "bought",
+        "paid", "payment", "payments",
+    ]
+
+    private static let italianStems = [
+        "elimin", "cancell", "rimuov", "cestin", "ripristin", "azzera", "svuot", "sovrascriv",
+        "esci", "disconnett", "invia", "pubblic", "acquist", "compra", "paga", "format",
+    ]
+
+    private static let destructivePhrases = [
+        ["replace", "all"], ["sign", "out"], ["log", "out"], ["confirm", "order"],
+    ]
+
+    /// Classifies an invocation. A whole history label on a native link or tab identifies navigation;
+    /// the same label on a button, menu item or unknown role keeps the command classification.
+    /// Existing qualified audio routing and inspector-pane contracts retain their own evidence.
     public static func isDestructive(
         label    : String?,
         bundleID : String? = nil,
@@ -37,14 +46,71 @@ public enum ActionPolicy {
         container: String? = nil
     ) -> Bool {
         guard let label else { return false }
-        let lowered = label.lowercased()
-        if isAudioSendSelector(label: lowered, bundleID: bundleID, role: role, container: container) {
+        let words = policyWords(label)
+        if isAudioSendSelector(label: label, bundleID: bundleID, role: role, container: container) {
             return false
         }
-        if let role, paneSelectorRoles.contains(role), paneNames.contains(normalizedLabel(lowered)) {
+        if let role, paneSelectorRoles.contains(role), paneNames.contains(normalizedLabel(label)) {
             return false
         }
-        return destructiveTerms.contains { lowered.contains($0) }
+        if let role, ["AXLink", "AXTab"].contains(role), isHistoryNavigation(words) {
+            return false
+        }
+        return words.contains(where: isDestructiveWord) || destructivePhrases.contains { phrase in
+            guard words.count >= phrase.count else { return false }
+            return (0...(words.count - phrase.count)).contains { start in
+                Array(words[start..<(start + phrase.count)]) == phrase
+            }
+        }
+    }
+
+    /// Classifies opening a selector for `select`, before its item is classified independently.
+    /// A native popup and a whole format-configuration label provide the limited capability:
+    /// an ordinary click or a menu command gains no exemption from this operation's context.
+    public static func isDestructiveSelectionControl(
+        label    : String,
+        bundleID : String? = nil,
+        role     : String?,
+        container: String? = nil
+    ) -> Bool {
+        let words = policyWords(label)
+        if role == "AXPopUpButton", formatConfigurationLabels.contains(withoutTrailingOrdinal(words).joined(separator: " ")) {
+            return false
+        }
+        return isDestructive(label: label, bundleID: bundleID, role: role, container: container)
+    }
+
+    private static let formatConfigurationLabels: Set<String> = [
+        "format", "file format", "output format", "export format", "track format",
+        "formato", "formato file", "formato di output", "formato esportazione", "formato traccia",
+    ]
+
+    /// The words without a trailing ordinal marker such as "#2": a dialog that repeats one selector
+    /// per row numbers its titles ("Track format #2"), and the number changes nothing about the control.
+    private static func withoutTrailingOrdinal(_ words: [String]) -> [String] {
+        guard words.count > 1, let last = words.last, last.allSatisfy(\.isNumber) else { return words }
+        return Array(words.dropLast())
+    }
+
+    private static func isHistoryNavigation(_ words: [String]) -> Bool {
+        words.count == 2 && words[1] == "history"
+            && ["payment", "payments", "purchase", "purchases", "order", "orders"].contains(words[0])
+    }
+
+    private static func policyWords(_ text: String) -> [String] {
+        text.replacingOccurrences(of: "([\\p{Ll}\\p{N}])(\\p{Lu})", with: "$1 $2", options: .regularExpression)
+            .replacingOccurrences(of: "(\\p{Lu})(\\p{Lu}\\p{Ll})", with: "$1 $2", options: .regularExpression)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+            .lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+
+    private static func isDestructiveWord(_ word: String) -> Bool {
+        if englishVariants.contains(word) || italianStems.contains(where: word.hasPrefix) { return true }
+        return englishTerms.contains { term in
+            // "Sends" is the noun of a mix window's view (Sends A-E), not the verb: only "send" is one.
+            if word == term || (word == term + "s" && term != "send") || word == term + "ed" || word == term + "ing" { return true }
+            return term.hasSuffix("e") && (word == term + "d" || word == String(term.dropLast()) + "ing")
+        }
     }
 
     /// The roles of a control that selects one of its siblings and runs nothing.
@@ -157,10 +223,16 @@ public enum ActionPolicy {
             + "Use select with this control and the item, or context_menu."
     }
 
-    /// True for Command with Delete, whatever else is held: it moves to the Trash, deletes a message
-    /// or empties the Trash in the applications that bind it.
+    /// True for Command with Delete or with forward Delete, whatever else is held: it moves to the
+    /// Trash, deletes a message or empties the Trash in the applications that bind it.
     public static func isDestructive(_ chord: KeyChord) -> Bool {
-        chord.modifiers.contains(.command) && chord.key == .delete
+        chord.modifiers.contains(.command) && (chord.key == .delete || chord.key == .position(.forwarddelete))
+    }
+
+    /// True for Escape and for Command with a period, which Cocoa sends as the same cancel: both
+    /// dismiss a sheet or a dialog, and can close an application's only window.
+    public static func dismissesLikeEscape(_ chord: KeyChord) -> Bool {
+        chord.key == .escape || (chord.modifiers.contains(.command) && chord.key == .character("."))
     }
 }
 

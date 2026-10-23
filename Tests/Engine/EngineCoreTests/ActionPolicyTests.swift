@@ -23,6 +23,33 @@ struct ActionPolicyTests {
         #expect(!ActionPolicy.isDestructive(label: nil))
     }
 
+    @Test("a plural noun Sends is a view, the verb Send stays destructive")
+    func sendsNounIsNotTheVerb() {
+        for label in ["Sends A-E", "Sends F-J", "Show Sends"] {
+            #expect(!ActionPolicy.isDestructive(label: label, role: "AXMenuItem"), Comment(rawValue: label))
+            #expect(!ActionPolicy.isDestructiveMenuItem(
+                label, openedBy: "Mix Window Views", bundleID: "com.avid.ProTools", role: "AXMenuItem", container: nil
+            ), Comment(rawValue: label))
+        }
+        for label in ["Send", "Send Message", "Sending", "Invia messaggio"] {
+            #expect(ActionPolicy.isDestructive(label: label, role: "AXButton"), Comment(rawValue: label))
+        }
+    }
+
+    @Test("a format popup numbered by its row is still a selector, a real format action is not")
+    func numberedFormatSelector() {
+        for label in ["Track format", "Track format #2", "Track Format #3", "Formato traccia #2"] {
+            #expect(!ActionPolicy.isDestructiveSelectionControl(label: label, role: "AXPopUpButton"), Comment(rawValue: label))
+        }
+        for (label, role) in [
+            ("Format Disk", "AXPopUpButton"), ("Format Disk #2", "AXPopUpButton"), ("Format...", "AXMenuItem"),
+            ("Track format #2", "AXButton"), ("Delete #2", "AXPopUpButton"), ("Format #2 Disk", "AXPopUpButton"),
+        ] {
+            #expect(ActionPolicy.isDestructiveSelectionControl(label: label, role: role), Comment(rawValue: label))
+        }
+        #expect(!ActionPolicy.isDestructiveSelectionControl(label: "Track name #2", role: "AXPopUpButton"))
+    }
+
     @Test("no send clears an audio route only when its native selector supplies the context")
     func audioSendMenu() {
         for (item, bundle, container, destructive) in [
