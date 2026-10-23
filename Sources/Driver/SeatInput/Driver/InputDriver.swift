@@ -27,7 +27,7 @@ import SeatCore
 /// process-scoped exclusion coordinates every driver aimed at the same PID, so
 /// one Preparation cannot be restored while another driver is still posting.
 /// The posting work itself is synchronous, in `InputEngine`.
-public actor InputDriver: NativeTextInputPreparing {
+public actor InputDriver: NativeTextInputPreparing, HumanPointerSending {
 
     @TaskLocal
     private static var nativeTextInputID: UUID?
@@ -347,13 +347,96 @@ public actor InputDriver: NativeTextInputPreparing {
         }
     }
 
+    public nonisolated func sendHumanPointer(
+        _ gesture: HumanPointerGesture,
+        to window: WindowReference,
+        correlationID: Int64,
+        platform: any InputPlatform,
+        token: InputCommandGate.HumanInput,
+        beforeFirstPost: @escaping @Sendable () async throws -> Void,
+        beforeContinuation: @escaping @Sendable () async throws -> Void
+    ) async throws -> InputReceipt {
+        try await commandGate.withHumanInput(token) {
+            try await performSend(gesture.command, to: window, correlationID: correlationID,
+                platform: platform,
+                traceContext: InputTraceIdentity.submitted(command: gesture.command,
+                    window: window, correlationID: correlationID),
+                beforeFirstPost: beforeFirstPost,
+                gesture: gesture, beforeContinuation: beforeContinuation)
+        }
+    }
+
+    /// The ordinary send scope owns Preparation and exclusion across all awaits.
+    /// Every fragment rechecks identity and geometry in the synchronous engine.
+    private func postDelivery(
+        _ command: InputCommand,
+        to window: WindowReference,
+        correlationID: Int64,
+        platform: any InputPlatform,
+        trace: inout InputTraceContext,
+        gesture: HumanPointerGesture?,
+        beforeContinuation: @escaping @Sendable () async throws -> Void
+    ) async throws -> InputReceipt {
+        guard let gesture else {
+            return try engine.post(command, to: window, correlationID: correlationID,
+                platform: platform, trace: &trace)
+        }
+        guard engine.keyHold.held(processID: window.processID).isEmpty else {
+            throw HumanPointerGesture.Refusal.unsupported
+        }
+        // A stopped host must release even if the person supplies no next event.
+        let monitor = Task { [commandGate] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .milliseconds(20))
+                    try commandGate.check()
+                } catch {
+                    if !Task.isCancelled { gesture.cancel() }
+                    return
+                }
+            }
+        }
+        defer { monitor.cancel() }
+        var count = 0
+        var posting: UInt64 = 0
+        var last: InputReceipt?
+        try await gesture.consume { phase, location, modifiers, cleanup in
+            if !cleanup {
+                try Task.checkCancellation()
+                if phase != .down { try await beforeContinuation() }
+                try commandGate.check()
+            }
+            do {
+                let receipt = try engine.post(
+                    .drag(points: [location, location, location], modifiers: modifiers),
+                    to: window, correlationID: correlationID, platform: platform,
+                    trace: &trace, humanPointer: phase, releaseOnly: cleanup, clickCount: gesture.clickCount)
+                last = receipt
+                count += receipt.eventCount
+                posting += receipt.timing.postingNanoseconds
+            } catch {
+                // A release we cannot attest must never reopen ordinary input.
+                if cleanup { commandGate.pause(.deliberateStop) }
+                throw error
+            }
+        }
+        guard let last else { throw InputFailure.noCommands }
+        return InputReceipt(eventCount: count, route: InputRoute(poster: .publicProcess,
+                routedEventCount: count, windowNumber: window.windowNumber,
+                ownerConnectionID: last.route.ownerConnectionID),
+            timing: InputTiming(postingNanoseconds: posting),
+            unvalidatedBuild: unvalidatedBuild, heldAfter: last.heldAfter)
+    }
+
     private func performSend(
         _ command    : InputCommand,
         to window    : WindowReference,
         correlationID: Int64,
         platform     : any InputPlatform,
         traceContext suppliedTraceContext: InputTraceContext,
-        beforeFirstPost: @escaping @Sendable () async throws -> Void
+        beforeFirstPost: @escaping @Sendable () async throws -> Void,
+        gesture: HumanPointerGesture? = nil,
+        beforeContinuation: @escaping @Sendable () async throws -> Void = {}
     ) async throws -> InputReceipt {
 
         var traceContext = suppliedTraceContext
@@ -379,6 +462,7 @@ public actor InputDriver: NativeTextInputPreparing {
             throw InputFailure.nativeTextInputRefused(isClosed ? .contextClosed : .contextMismatch)
         }
 
+        if gesture != nil, Self.nativeTextInputID != nil { throw HumanPointerGesture.Refusal.unsupported }
         if let id = Self.nativeTextInputID {
             do {
                 let receipt = try await sendInNativeTextInput(
@@ -432,12 +516,13 @@ public actor InputDriver: NativeTextInputPreparing {
 
             guard platform.preparation(for: command) == .internalAppKitState else {
                 try await beforeFirstPost()
-                let receipt = try engine.post(
+                let receipt = try await postDelivery(
                     command,
                     to           : window,
                     correlationID: correlationID,
                     platform     : platform,
-                    trace        : &traceContext
+                    trace        : &traceContext,
+                    gesture: gesture, beforeContinuation: beforeContinuation
                 )
                 let timed = recordingExclusionWait(
                     on         : receipt,
@@ -525,12 +610,14 @@ public actor InputDriver: NativeTextInputPreparing {
             // relation and selection generation. Once it returns, construction
             // and the first post remain synchronous on this driver actor.
             try await beforeFirstPost()
-            let receipt = try engine.post(
+            let receipt = try await postDelivery(
                 command,
                 to           : window,
                 correlationID: correlationID,
                 platform     : platform,
-                trace        : &traceContext
+                trace        : &traceContext,
+                gesture      : gesture,
+                beforeContinuation: beforeContinuation
             )
 
             let restoreStart = DispatchTime.now().uptimeNanoseconds

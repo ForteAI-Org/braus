@@ -195,7 +195,10 @@ nonisolated package final class InputEngine {
         to window    : WindowReference,
         correlationID: Int64,
         platform     : any InputPlatform,
-        trace        : inout InputTraceContext
+        trace        : inout InputTraceContext,
+        humanPointer : HumanPointerGesture.Phase? = nil,
+        releaseOnly  : Bool = false,
+        clickCount   : Int = 1
     ) throws -> InputReceipt {
 
         pending.removeAll(keepingCapacity: true)
@@ -263,16 +266,27 @@ nonisolated package final class InputEngine {
 
         let constructionStart = DispatchTime.now().uptimeNanoseconds
         do {
-            try InputEvents.append(
-                validatedCommand,
-                source         : source,
-                pacing         : platform.dragPacing,
-                keyRepeatPacing: platform.keyRepeatPacing,
-                held           : heldModifiers,
-                policy         : modifierPolicy,
-                correlationID  : correlationID,
-                into           : &pending
-            )
+            if let humanPointer {
+                guard case .drag(let points, let modifiers) = validatedCommand,
+                      let location = points.first, !releaseOnly || humanPointer == .up else {
+                    throw HumanPointerGesture.Refusal.unsupported
+                }
+                try InputEvents.appendHumanPointer(humanPointer, at: location,
+                    modifiers: modifiers, source: source, correlationID: correlationID,
+                    clickCount: clickCount, into: &pending)
+            } else {
+                guard !releaseOnly else { throw HumanPointerGesture.Refusal.unsupported }
+                try InputEvents.append(
+                    validatedCommand,
+                    source         : source,
+                    pacing         : platform.dragPacing,
+                    keyRepeatPacing: platform.keyRepeatPacing,
+                    held           : heldModifiers,
+                    policy         : modifierPolicy,
+                    correlationID  : correlationID,
+                    into           : &pending
+                )
+            }
         } catch {
             trace.recordEventConstruction(
                 from   : constructionStart,
@@ -326,7 +340,7 @@ nonisolated package final class InputEngine {
             routedEventCount += 1
         }
 
-        try commandGate?.check()
+        if !releaseOnly { try commandGate?.check() }
         let reverificationStart = DispatchTime.now().uptimeNanoseconds
         do {
             _ = try identity(of: window)

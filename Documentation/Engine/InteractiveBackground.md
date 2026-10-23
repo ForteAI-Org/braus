@@ -123,11 +123,11 @@ the host, then wait for the old command/Turn and cleanup before sending human in
 preview must not call `beginHumanInput`. None of these endpoints automatically calls another.
 A token does not authorize a window or replace the Turn's correlation marker.
 
-Round 3 remains incomplete: progressive mouse events and deliberate activation need their own
-held-input and focus lifecycle. The current adapter refuses split human key Commands and refuses
+Round 3A initially excluded progressive mouse events and deliberate activation; the round 3B
+contract below adds their first supported path. The current adapter refuses split human key Commands and refuses
 takeover during native composition, held agent keys, or a split key Command in flight. Those cases
-must not forward the input or suspend the host after the Driver refuses. The existing focus checks
-remain active, so intentional target activation is not yet permitted by this adapter.
+must not forward the input or suspend the host after the Driver refuses. Intentional activation
+is subject to the scoped round 3B contract below.
 
 ## Alpha delivery rounds
 
@@ -142,8 +142,8 @@ The alpha is delivered after all six rounds. Round 4 alone is not the complete f
 
 ## Integration seams still to implement
 
-- Driver: complete progressive gestures, held-input cleanup and deliberate activation on top of
-  versioned admission; keep common fault causes, geometry validation and atomic-command cleanup.
+- Driver: qualify progressive delivery on real apps and extend the explicitly refused input
+  modes (remote/modal surfaces, split keys, composition and inherited holds).
 - Compose the new host suspension and broker retention with `HumanIntervention`, intercept the typed
   suspension before terminal recording, and resume evaluation separately from input.
 - Preview: window/display view, immutable presented-frame binding, coordinate conversion, keyboard
@@ -153,8 +153,9 @@ The alpha is delivered after all six rounds. Round 4 alone is not the complete f
 - Handoff: compact evidence for model evaluation, inactivity policy, reconstruction/clarification UI,
   explicit cleanup and measurement of memory, latency and token costs.
 
-The current Driver consumes an observation per complete command and accepts complete drag paths.
-A streaming human gesture cannot simply call the existing complete-action loop for each event.
+The ordinary Driver path consumes an observation per complete command and accepts complete drag
+paths. Round 3B adds a separate stream inside one admitted gesture scope; it does not run the
+complete-action loop separately for each event.
 Likewise the existing passive Watcher does not provide the whole preview-and-keyboard history.
 
 Activation and background forwarding remain two approaches to qualify. A synthetic event is not
@@ -174,3 +175,39 @@ Pure lifecycle tests exercise admission, consumer ordering, stale and foreign re
 during reconstruction/review, clarification, explicit failure, capacity limits and cleanup. They do
 not establish live input, window containment, perception quality, application compatibility or
 latency. Those require reviewed, coordinated host/live checks after their adapters exist.
+
+
+## Round 3B: progressive pointer delivery and intentional activation
+
+`HumanPointerGesture` carries one left-button down, subsequent movements and the release,
+preserving the native click count supplied by the preview for double/triple clicks.
+`AgentSeat.sendHumanPointer` uses the existing observation, endpoint, recipe and preflight
+admission before handing it to `InputDriver`. The Driver retains one process exclusion and
+Preparation across the entire gesture. It consumes each event as it arrives, without waiting
+for a complete path or calling Perception. Each native fragment revalidates identity and
+observed coordinates and uses the existing process-directed route; there is no global fallback.
+
+The queue defaults to 256 samples, with a maximum configurable capacity of 1,024. Overflow
+fails explicitly. A gesture has one consumer, cannot replay, and expires after 30 seconds;
+this is a held-button safety bound, not the episode's inactivity policy. Cancellation, stream
+failure or a common gate fault attempts exactly one cleanup release after a successful down.
+Cleanup bypasses admission only for that release, retaining identity/coordinate validation.
+A refused release permanently closes this seat's command gate. `HumanPointerFailure` reports
+partial delivery and release failure; it may be the cause of `InputPreparationFailure` when
+restoration also had to run. A failed gesture consumes the old observation and is never retried.
+
+Human activation is expected only for the episode's pinned process lifetime and a currently
+contained adopted surface, with the fence and display alive. Focus recovery and SeatObserver
+use that scoped exception; the ordinary guard still reports every other fault. Ending the
+intervention while the target is active first refreshes evidence for the previously attested
+user destination, then starts ordinary focus recovery before removing human authority.
+`endHumanInput` is asynchronous for that fresh reading; intervening human input invalidates
+its revision and leaves authority with the person. Delayed handback callbacks from earlier
+Commands cannot restore focus while human activation is expected. A host without a qualified restorer refuses handback until focus has returned.
+
+Supported initially: left-button progressive gestures on ordinary directly routed windows;
+complete right clicks, scroll and complete key Commands retain their existing path. Remote
+panels, modal recipients, accessibility-only content, split keys, keyboard composition and
+inherited held agent input are not enabled by this increment. They fail closed. The preview
+must compose host suspension/lease retention and keyboard ownership before exposing control.
+No real app or focus compatibility is claimed from controlled-collaborator tests.

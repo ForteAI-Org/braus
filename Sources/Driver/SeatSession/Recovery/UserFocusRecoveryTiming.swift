@@ -14,7 +14,7 @@ nonisolated public struct UserFocusRecoveryTiming: Sendable, Equatable, Codable 
     /// `briefActivationHandback` is a brief activation whose handback was not
     /// verified, handed to the ordinary recovery (ADR 0013).
     public enum ActivationSource: String, Sendable, Codable {
-        case workspaceNotification, contextMenuPoll, briefActivationHandback, unspecified
+        case workspaceNotification, contextMenuPoll, briefActivationHandback, humanInterventionHandback, unspecified
     }
     public internal(set) var activationSource: ActivationSource?
     public internal(set) var notificationReceivedAtUptimeNanoseconds: UInt64?

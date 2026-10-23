@@ -38,6 +38,49 @@ struct UserFocusRecoveryTests {
         frame       : CGRect(x: 110, y: 110, width: 600, height: 500)
     )
 
+    @Test("human handback refreshes expired evidence without changing the user destination",
+          arguments: [false, true])
+    func freshHumanHandback(invalidated: Bool) async throws {
+        let fixture = Harness()
+        fixture.recovery.beginHold()
+        try await fixture.recovery.prepareBeforeAction()
+        fixture.humanPID = FakeGeometry.targetPID
+        fixture.activateTarget()
+        fixture.time += 20_000_000_000
+        if invalidated { fixture.sensing.additionalWindows.removeValue(forKey: Self.user.windowNumber) }
+        let prepared = await fixture.recovery.prepareHumanHandback(processID: FakeGeometry.targetPID)
+        #expect(prepared == !invalidated)
+        if prepared {
+            fixture.humanPID = nil
+            fixture.recovery.activationChanged(to: FakeGeometry.targetPID)
+            #expect(fixture.requested == [Self.user])
+            #expect(fixture.gate.isPaused)
+            fixture.returnUser()
+            #expect(!fixture.gate.isPaused)
+        } else { #expect(fixture.requested.isEmpty) }
+        fixture.recovery.stop()
+    }
+
+    @Test("human activation spends no focus recovery request and does not disable other faults")
+    func humanActivation() async throws {
+        let fixture = Harness()
+        fixture.recovery.beginHold()
+        fixture.humanPID = FakeGeometry.targetPID
+        fixture.activateTarget()
+        #expect(fixture.requested.isEmpty)
+        #expect(!fixture.recovery.isPaused)
+        try await fixture.recovery.prepareBeforeAction()
+        fixture.sensing.fenceIsActive = false
+        await #expect(throws: InputFailure.inputPaused([.fenceInactive])) {
+            try await fixture.recovery.prepareBeforeAction()
+        }
+        fixture.sensing.fenceIsActive = true
+        fixture.humanPID = nil
+        fixture.activateTarget()
+        #expect(fixture.recovery.isPaused)
+        fixture.recovery.stop()
+    }
+
     @Test("notification provenance survives verification without changing the recovery gate")
     func notificationProvenance() async throws {
         let fixture = Harness()
@@ -1431,6 +1474,7 @@ struct UserFocusRecoveryTests {
         var targets = [FakeGeometry.adoptedWindow]
         var preparedDestinations: [WindowReference] = []
         var frontOverride: Bool?
+        var humanPID: Int32?
         var identityUnavailable = false
         var requested: [WindowReference] = []
         var restoreFailure: InputFailure?
@@ -1463,6 +1507,7 @@ struct UserFocusRecoveryTests {
                 preparedDestinations.append(destination)
             },
             isFrontmost: { [unowned self] in frontOverride ?? (sensing.frontmostProcessID == $0) },
+            allowsHumanActivation: { [unowned self] in $0 == humanPID },
             changed: { [unowned self] in reports.append($0) })
 
         init() {

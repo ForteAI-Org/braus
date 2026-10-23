@@ -134,8 +134,9 @@ final class FakeSensing: SeatSensing, @unchecked Sendable {
     /// pair of accessibility round trips into their application, so a test that
     /// cares about the cost of a beat counts this the way it counts snapshots.
     var userWindowReadCount = 0
+    var onUserWindowRead: (() -> Void)?
     var focusedUserWindow: WindowReference? {
-        get { userWindowReadCount += 1; return preparedUserWindow }
+        get { userWindowReadCount += 1; onUserWindowRead?(); return preparedUserWindow }
         set { preparedUserWindow = newValue }
     }
     var preparedSnapshot: FocusRecoverySnapshot?

@@ -236,3 +236,100 @@ The complete round 3 still requires progressive input and activation.
 - Final `swift build --product braus`, `git diff --check` and `git diff --cached --check` passed.
   No app alpha, host/live target input or performance qualification was produced. The original
   checkout's eight unrelated modified paths were verified and are excluded from this commit.
+
+
+### Round 3B execution and rulings
+
+- Ruling: use the preview's actual input as the producer of immediately forwarded native
+  fragments. Do not accumulate and replay a completed path, and do not run Perception before
+  delivery. The target still receives process-directed reconstructed events, not the original
+  Braus-window event unchanged; coordinate and identity attestation remain necessary.
+- Ruling: reuse the complete Command admission and Preparation scope for one progressive
+  left-button gesture, with a separate stream vocabulary. Keep per-process exclusion until up
+  or cleanup. The cost is a distinct optional sender capability; unsupported senders refuse.
+- Ruling: initially qualify only ordinary directly routed windows. Modal/remote/accessibility-only
+  surfaces and split keys/composition remain refused, including takeover with an inherited held
+  agent key. This is a deliberate alpha limitation, not completion of every input mode in round 3.
+- Ruling: use a 30-second maximum held gesture and a bounded 256-sample default queue. A 20-ms
+  gate monitor requests cleanup even without a new event. These are proposed safety bounds, not
+  measured latency or the future human-inactivity policy. Overflow never silently loses events.
+- Ruling: release-only cleanup retains identity/coordinate checks; if it cannot attest the
+  recipient, stop the seat instead of sending elsewhere. Cost: a native button may remain held
+  in an app whose identity/geometry became unavailable, requiring explicit recovery.
+- Ruling: intentional activation is allowed only for the episode's pinned contained process.
+  A host without a qualified restorer cannot hand back while that target remains active.
+  Focus activation is permitted, not forced; no global event posting or cursor warp is added.
+- RED: pointer tests failed to compile for the missing stream and event builder. GREEN: the
+  initial six lifecycle/event-construction tests passed after implementation. Expanded coverage
+  adds expiry, cleanup refusal and composed AgentSeat boundaries.
+- RED: focus recovery tests failed to compile for the missing scoped activation callback.
+  GREEN: 70 focused native SeatSession tests passed before adding the two gesture integration
+  tests. An integration build then exposed an optional identity in the test fixture; that was
+  corrected. A native run accidentally used the previously built bundle after this failed build;
+  it is excluded from final validation and must be rerun after successful compilation.
+- The existing round 3A minor about early admission refusal traces remains deferred.
+- No live/host input, GUI trial, Perception quality, token-cost or latency qualification yet.
+  Round 4 connects this input path to the preview; round 5 supplies reconstruction and handoff.
+
+
+### Round 3B final review and verification ledger
+
+- Initial full serial SeatSession regression passed 1,028 tests in 73 suites, none skipped.
+- Fresh read-only whole-branch review found three P2 issues. The fix pass preserved native
+  multi-click counts, refreshed expired user-destination evidence before handback, and guarded
+  delayed command handback against human ownership. No second reviewer was dispatched.
+- RED: native multi-click regression failed to compile for the missing count; after adding it,
+  it failed six assertions because the common marker reset the field to one. Setting the native
+  click count after marking corrected the actual defect. GREEN: 164 Input tests and 23 mapper
+  tests passed, including parameterized single/double/triple click event inspection (no posting).
+- RED: the delayed command-window regression observed a third restore request and target focus
+  lost during human ownership. GREEN: the scoped guard prevents that restore; the same callback
+  still restores after human ownership ends.
+- RED: the fresh-handback regression required the missing preparation endpoint. GREEN: the
+  injected clock can advance 20 seconds, the previously attested destination is freshly prepared,
+  and the gate stays closed until two matching focus readings. An invalidated destination refuses.
+- Added composed Seat coverage for new human input arriving during handback preparation: the
+  stale end request refuses with inputAuthorityExpired and does not restore or release authority.
+- Final focused native verification: 12 tests in 3 suites passed, no skips, TIER_RESULT passed
+  with problems: []. Filter: HumanInputAdmissionTests|freshHumanHandback|delayedHandbackDuringHumanInput.
+- Ruling: endHumanInput now awaits fresh evidence while retaining human authority. A local input
+  revision rejects intervening events. It never extends the lifetime of stale focus evidence.
+  Cost: callers must await handback and handle refusal; the UI coordinator is still round 4.
+- Final: Ruling on review exclusions: preview/host composition remains round 4; Perception,
+  inactivity and agent handoff remain round 5. No user-visible interactivity is claimed yet.
+- Final: Ruling on review exclusions: remote/modal/accessibility-only recipients, split keys,
+  composition and inherited holds stay explicitly refused. The future preview must communicate
+  those limits and must not bypass admission. Geometry-invalid release remains fail-closed as
+  documented; the cost is explicit recovery rather than sending an up to an unverified target.
+- Final: Ruling on review recommendations: controlled stream/Seat tests and native event building
+  do not qualify actual Driver preparation/exclusion timing or live input compatibility. Add
+  that controlled orchestration coverage and reviewed live qualification with the preview; no
+  latency, containment-on-real-app or focus-restoration-on-real-app claim is made in this commit.
+- Final: minor (deferred): early admission refusal can still omit a TraceHandler callback, inherited
+  from 3A. Documentation contradictions were corrected during the implementation documentation
+  pass; they are not a remaining behavioral finding. No other minors remain open from this review.
+
+
+- Final full native SeatSession regression after the three review fixes: 1,031 tests in 73 suites,
+  no skips, TIER_RESULT status passed, problems []. Exact command (live/host opt-ins unset):
+
+  ```sh
+  env -u BRAUS_LIVE_TESTS -u AGENTSEAT_HOST_TESTS -u AGENTSEAT_LIVE_TESTS \
+    -u AGENTSEAT_TYPING_SWEEP -u AGENTSEAT_TEXT_DELIVERY TIER_BUNDLES=1 \
+    bash Tools/Driver/Scripts/run-tier.sh unit - .build/native-driver-test-main \
+    .build/out/Products/Debug/SeatSessionTests.xctest/Contents/MacOS/SeatSessionTests --no-parallel
+  ```
+
+- The handback fix had added a focus read before closing the first-input gate. A regression
+  observed an empty gate during that read (RED); moving the read after synchronous human admission
+  made it GREEN. This was the final behavior change after the full run. The final affected native
+  suites were rerun with the same command plus
+  `--filter 'HumanInputAdmissionTests|UserFocusRecoveryTests|CommandBornWindowTests'`: all 88 tests
+  passed, none skipped, TIER_RESULT passed and problems []. The unaffected full tier was not repeated.
+- Final `swift test --no-parallel --filter 'SeatInputTests|SeatErrorMapperTests'`: 164 Input and 23
+  mapper tests passed. Final `swift build --product braus`: passed. Final `make test SWIFT=swift`:
+  still failed only at the existing product-name gate for the unchanged House Integration/Testing
+  documents; this is not counted as passing or disabled.
+- Final diff checks passed. The original checkout retains its eight unrelated modified paths.
+  This commit completes the round 3B base path with the explicit unsupported-input limits above.
+  No app alpha, preview UI, live target input, benchmark or persistent-learning change is included.

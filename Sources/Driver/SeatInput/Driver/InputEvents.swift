@@ -72,6 +72,34 @@ nonisolated package enum InputEvents {
         }
     }
 
+    /// One fragment of a progressive gesture, with no invented pacing or primer.
+    package static func appendHumanPointer(
+        _ phase: HumanPointerGesture.Phase,
+        at location: InputLocation,
+        modifiers: Modifiers,
+        source: CGEventSource,
+        correlationID: Int64,
+        clickCount: Int = 1,
+        into events: inout [PreparedEvent]
+    ) throws {
+        guard (1...InputCommand.maximumClickCount).contains(clickCount) else {
+            throw InputFailure.invalidClickCount(requested: clickCount, maximum: InputCommand.maximumClickCount)
+        }
+        guard location.isFinite else { throw InputFailure.invalidLocation }
+        let type: CGEventType = switch phase {
+            case .down: .leftMouseDown
+            case .dragged: .leftMouseDragged
+            case .up: .leftMouseUp
+        }
+        guard let event = mouseEvent(type, at: location.screenPoint, source: source) else {
+            throw InputFailure.eventCreationFailed
+        }
+        event.flags = modifiers.cgFlags
+        mark(event, correlationID: correlationID, isMouse: true)
+        event.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
+        events.append(PreparedEvent(event: event, windowPointFromTop: location.windowPointFromTop))
+    }
+
     /// Builds `command` into `events`. Nothing is posted here and no field of
     /// the record is written: what comes out is a list of CoreGraphics events
     /// with the marker already on them.

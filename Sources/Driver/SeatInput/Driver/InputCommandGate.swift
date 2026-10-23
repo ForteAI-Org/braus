@@ -115,6 +115,10 @@ nonisolated public final class InputCommandGate: Sendable {
         }
     }
 
+    package func isCurrentHumanInput(_ token: HumanInput) -> Bool {
+        state.withLock { $0.human == token }
+    }
+
     package func endHumanInput(_ token: HumanInput) throws {
         try state.withLock {
             guard $0.human == token else {

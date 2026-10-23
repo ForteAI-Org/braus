@@ -2354,9 +2354,28 @@ public final class AgentSeat {
         commandGate?.pauseReasons ?? []
     }
 
+    private var humanInputRevision: UInt64 = 0
+    private var humanInput: (token: InputCommandGate.HumanInput, process: ProcessIdentity?)?
+
+    /// Expected activation is scoped to the episode's process lifetime and an
+    /// adopted surface still inside the virtual display. Other faults remain.
+    private func allowsHumanActivation(of target: WindowReference) -> Bool {
+        guard let humanInput, commandGate?.isCurrentHumanInput(humanInput.token) == true,
+              target.identity?.process == humanInput.process, humanInput.process != nil,
+              sensing.fenceIsActive, sensing.virtualDisplayIsOnline,
+              let current = sensing.windowGeometry(of: target.windowNumber),
+              current.identity == target.identity,
+              sensing.virtualDisplayBounds.contains(current.frame) else { return false }
+        return true
+    }
+
+    func allowsHumanActivation(processID: Int32) -> Bool {
+        adoptedWindows.contains { $0.reference.processID == processID && allowsHumanActivation(of: $0.reference) }
+    }
+
     /// Blocks agent Commands before the host drains its current tool call.
-    /// This first adapter accepts complete Commands only. A native composition or
-    /// split key gesture must finish before its held input can change owners.
+    /// A native composition or split key gesture must finish before its held
+    /// input can change owners. Progressive pointer input owns its own release.
     public func beginHumanInput() throws -> InputCommandGate.HumanInput {
         guard !isTearingDown, state != .failed else { throw SessionFailure.seatNotReady(state) }
         guard nativeTextInputContext == nil, splitInputsInFlight == 0 else {
@@ -2368,6 +2387,9 @@ public final class AgentSeat {
         }
         guard let commandGate else { throw InputFailure.inputPaused([.recoveryUnavailable]) }
         let token = try commandGate.beginHumanInput()
+        humanInputRevision &+= 1
+        if humanInput == nil { humanInput = (token, currentTarget?.reference.identity?.process) }
+        focusRecovery?.rememberUserWindow()
         observationIssuer.invalidate(.suspensionRaised)
         outstandingGeometry = nil
         publishCoherentState()
@@ -2376,11 +2398,46 @@ public final class AgentSeat {
 
     /// Ends only the matching episode at a safe boundary. The caller must have
     /// completed reconstruction and authorized continuation; this starts no work.
-    public func endHumanInput(_ token: InputCommandGate.HumanInput) throws {
+    public func endHumanInput(_ token: InputCommandGate.HumanInput) async throws {
+        try Task.checkCancellation()
         guard !actionInFlight else { throw SessionFailure.assignmentStillInUse(.commandInFlight) }
         let unconfirmed = posted.filter { $0.confirmation == nil }.count
         guard unconfirmed == 0 else { throw SessionFailure.unconfirmedCommands(count: unconfirmed) }
         guard let commandGate else { throw InputFailure.inputPaused([.recoveryUnavailable]) }
+        guard commandGate.isCurrentHumanInput(token) else {
+            throw InputFailure.inputPaused([.inputAuthorityExpired])
+        }
+        let previousHuman = humanInput
+        let activeTarget = adoptedWindows.first {
+            $0.reference.identity?.process == previousHuman?.process
+                && (sensing.frontmostProcessID == $0.reference.processID
+                    || sensing.isActive(processID: $0.reference.processID) == true)
+        }
+        if let activeTarget {
+            guard let focusRecovery else { throw InputFailure.inputPaused([.recoveryUnavailable]) }
+            let revision = humanInputRevision
+            let refreshed = await focusRecovery.prepareHumanHandback(processID: activeTarget.reference.processID)
+            try Task.checkCancellation()
+            guard commandGate.isCurrentHumanInput(token), humanInputRevision == revision,
+                  !actionInFlight, posted.allSatisfy({ $0.confirmation != nil }) else {
+                throw InputFailure.inputPaused([.inputAuthorityExpired])
+            }
+            let stillActive = sensing.frontmostProcessID == activeTarget.reference.processID
+                || sensing.isActive(processID: activeTarget.reference.processID) == true
+            if stillActive {
+                guard refreshed else { throw InputFailure.inputPaused([.activationUnverified]) }
+                humanInput = nil
+                // Recovery closes its common gate before human authority ends.
+                // Prior command provenance cannot absorb an explicit handback.
+                focusRecovery.activationChanged(to: activeTarget.reference.processID,
+                    source: .humanInterventionHandback)
+                guard focusRecovery.isPaused else {
+                    humanInput = previousHuman
+                    throw InputFailure.inputPaused([.activationUnverified])
+                }
+            }
+        }
+        humanInput = nil
         try commandGate.endHumanInput(token)
         observationIssuer.invalidate(.requestedByConsumer)
         outstandingGeometry = nil
@@ -2389,7 +2446,7 @@ public final class AgentSeat {
 
     /// Sends one complete human Command through ordinary observation, target,
     /// recipe and Driver checks. The episode exempts only the agent-input pause;
-    /// it does not permit target activation or a progressive held gesture yet.
+    /// intentional activation is limited to the episode's contained target.
     @discardableResult
     public func sendHumanInput(
         _ command: InputCommand,
@@ -2403,7 +2460,33 @@ public final class AgentSeat {
         }
         guard let commandGate else { throw InputFailure.inputPaused([.recoveryUnavailable]) }
         return try await commandGate.withHumanInput(token) {
-            try await send(command, observation: observation, turn: turn)
+            humanInputRevision &+= 1
+            return try await send(command, observation: observation, turn: turn)
+        }
+    }
+
+    /// One progressive left-button gesture. The episode already blocks the
+    /// agent; the gesture keeps its recipient and preparation until release.
+    public func sendHumanPointer(
+        _ gesture: HumanPointerGesture,
+        observation: SeatObservationReference,
+        turn: Turn,
+        token: InputCommandGate.HumanInput
+    ) async throws -> InputReceipt {
+        guard !actionInFlight else { throw SessionFailure.assignmentStillInUse(.commandInFlight) }
+        guard let commandGate else { throw InputFailure.inputPaused([.recoveryUnavailable]) }
+        return try await commandGate.withHumanInput(token) {
+            humanInputRevision &+= 1
+            do {
+                return try await sendAdmitted(gesture.command, observation: observation,
+                    turn: turn, platform: nil, layoutGeneration: nil,
+                    humanPointer: (gesture, token))
+            } catch {
+                // A failed progressive action may already have changed the view.
+                // Its failure carries delivery facts; the old picture cannot be reused.
+                noteObservationConsumed()
+                throw error
+            }
         }
     }
 
@@ -2570,7 +2653,8 @@ public final class AgentSeat {
         turn            : Turn,
         platform        : (any InputPlatform)?,
         layoutGeneration: UInt64?,
-        expecting       label: String? = nil
+        expecting       label: String? = nil,
+        humanPointer: (HumanPointerGesture, InputCommandGate.HumanInput)? = nil
     ) async throws -> InputReceipt {
         let isSplitInput = if case .key(_, _, _, let phase, _) = command { phase != .press } else { false }
         if isSplitInput { splitInputsInFlight += 1 }
@@ -2723,6 +2807,13 @@ public final class AgentSeat {
                 helpers: endpoint.map { [$0.geometry.window] } ?? []
             )
         }
+        if humanPointer != nil {
+            guard sender is any HumanPointerSending,
+                  recipient.identity == admitted.reference.identity,
+                  !isModalSurface, ownContent == nil, textField == nil,
+                  classification != .remotePanelContent, classification != .appleExtensionContent,
+                  nativeTextInputContext == nil else { throw HumanPointerGesture.Refusal.unsupported }
+        }
         let previous = state
         var commandPosted = false
         actionInFlight = true
@@ -2791,8 +2882,37 @@ public final class AgentSeat {
                 expecting   : label,
                 hostRecipe  : classification == .appleExtensionContent ? (window.reference, resolved) : nil
             ) : nil
-            let receipt = if let actuated { actuated } else {
-                try await sender.send(
+            let receipt: InputReceipt
+            if let humanPointer, let pointerSender = sender as? any HumanPointerSending {
+                receipt = try await pointerSender.sendHumanPointer(humanPointer.0,
+                    to: recipient, correlationID: turn.correlationID, platform: resolved,
+                    token: humanPointer.1,
+                    beforeFirstPost: { [weak self] in
+                        try await MainActor.run {
+                            guard let self else { throw CancellationError() }
+                            if let refusal = self.admissionRefusal(for: observation, expecting: .ordinaryTarget) {
+                                throw refusal
+                            }
+                            if let endpoint, let retired = self.endpointInvalidation(of: endpoint,
+                                allowing: Self.preparationWait(of: resolved, for: routed)) { throw retired }
+                        }
+                    },
+                    beforeContinuation: { [weak self] in
+                        try await MainActor.run {
+                            guard let self, !self.isTearingDown, self.turns.current == turn,
+                                  let current = self.session[window.id],
+                                  current.window.reference.identity == recipient.identity else {
+                                throw HumanPointerGesture.Refusal.closed
+                            }
+                            let issues = self.currentIssues(for: current)
+                            guard issues.isEmpty else {
+                                self.report(issues)
+                                throw SessionFailure.seatNotReady(self.state)
+                            }
+                        }
+                    })
+            } else if let actuated { receipt = actuated } else {
+                receipt = try await sender.send(
                     routed,
                     to           : recipient,
                     correlationID: turn.correlationID,
@@ -4854,7 +4974,7 @@ public final class AgentSeat {
             displayID    : seatGuard.displayID,
             displayBounds: seatGuard.displayBounds
         )
-        return windowGuard.issues(
+        let issues = windowGuard.issues(
             server              : sensing.windowGeometry(of: record.window.id),
             currentDisplayID    : displayID,
             currentDisplayBounds: sensing.virtualDisplayBounds,
@@ -4863,6 +4983,8 @@ public final class AgentSeat {
             targetIsActive      : sensing.isActive(processID: record.window.reference.processID),
             frontmostProcessID  : sensing.frontmostProcessID
         )
+        return allowsHumanActivation(of: record.window.reference)
+            ? issues.filter { $0 != .targetActivated } : issues
     }
 
     /// The Receipt with the observation attached, the Command remembered as
@@ -5108,6 +5230,7 @@ public final class AgentSeat {
             prepareDestination: { try restorer.prepare($0, targets: $1) },
             renewDestination: { try restorer.renewDestination($0) },
             isFrontmost: { restorer.isFrontmost(processID: $0) },
+            allowsHumanActivation: { [weak self] in self?.allowsHumanActivation(processID: $0) == true },
             changed: { [weak self] report in self?.focusRecoveryChanged(report) })
         focusRecovery = recovery
         driver.commandGate.setPreparation { [weak self, weak recovery] correlationID in
@@ -5255,6 +5378,7 @@ public final class AgentSeat {
             sensing                   : sensing,
             audit                     : audit,
             recordsUserContext        : true,
+            allowsTargetActivation    : { [weak self] in self?.allowsHumanActivation(of: record.window.reference) == true },
             issueCheck                : { [weak self] in
                 guard let self, let record = self.session[record.window.id] else {
                     return [.processUnavailable]

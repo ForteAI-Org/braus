@@ -16,7 +16,8 @@ against it declines to act rather than guessing.
 `AgentSeat.beginHumanInput()` synchronously blocks agent Commands and returns an opaque episode
 bound to that seat's input gate. `sendHumanInput` currently accepts complete Commands, using the
 same Turn, observation, identity, geometry, preparation and final posting checks as ordinary sends.
-`endHumanInput` requires a matching token, no command in flight and no unconfirmed receipt, and
+`endHumanInput` requires a matching token, no command in flight and no unconfirmed receipt. It
+asynchronously refreshes handback evidence when needed, rejects intervening human input, and
 invalidates the last observation. It does not run a model or resume a task.
 
 InputDriver captures admission before its actor/exclusion wait. The generation is retained through
@@ -24,12 +25,17 @@ preparation and each command of a sequence; a request waiting across an interven
 after handback. Human authority exempts only the agent pause, never a common gate cause. The final
 InputEngine gate check remains before atomic posting; an already admitted Command finishes intact.
 
-This is round 3A of [interactive background control](../Engine/InteractiveBackground.md), not an
-interactive preview. Progressive pointer events, release-only transfer of held keys, intentional
-activation and composition with broker/host suspension remain outstanding. Native composition and
-split agent key gestures refuse takeover; split human key Commands refuse before posting. SeatGuard,
-SeatObserver, focus recovery, window containment and CursorFence retain their existing behavior.
-Qualification on real apps is still required; controlled tests establish admission only.
+The round 3A boundary remains the basis of [interactive background control](../Engine/InteractiveBackground.md).
+Composition with broker/host suspension and the preview is still outstanding. Native composition and
+split agent key gestures refuse takeover; split human key Commands refuse before posting.
+Qualification on real apps is still required; controlled tests establish lifecycle behavior only.
+
+The round 3B extension adds `HumanPointerGesture` and `AgentSeat.sendHumanPointer`: an
+ordered, bounded left-button stream consumed inside one Preparation/exclusion scope, with
+identity checks on every fragment and release-only cleanup on cancellation. Expected target
+activation is scoped to the current human episode and attested contained process. Handback
+keeps ordinary focus recovery closed until verified. See the [round 3B contract](../Engine/InteractiveBackground.md#round-3b-progressive-pointer-delivery-and-intentional-activation)
+for supported surfaces, failure semantics and the remaining keyboard/preview work.
 
 ## Shape
 
