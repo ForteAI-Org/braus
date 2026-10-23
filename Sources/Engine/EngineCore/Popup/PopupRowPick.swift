@@ -64,13 +64,18 @@ public enum PopupRowPick {
     /// Plans the keys from the control's current value and the wanted element, or nil when either row
     /// cannot be found among the pop-up's rows or the list has a single row.
     /// Set `wraps` to false for a scrolling menu: unseen rows make a wrap through the visible subset invalid.
-    public static func plan(rows: [[SceneElement]], currentValue: String, target: SceneElement, wraps: Bool = true) -> Plan? {
+    public static func plan(
+        rows: [[SceneElement]], currentValue: String, target: SceneElement,
+        wraps: Bool = true, exactTitleOnly: Bool = false
+    ) -> Plan? {
         guard rows.count >= 2 else { return nil }
-        let want = LabelText.normalize(currentValue)
-        guard !want.isEmpty,
-              let currentIndex = rows.firstIndex(where: { $0.contains { LabelText.normalize($0.label) == want } }),
-              let targetIndex = rows.firstIndex(where: { $0.contains { $0.id == target.id } })
-        else { return nil }
+        if exactTitleOnly, rows.joined().contains(where: { $0.isEnabled == false }) { return nil }
+        let key = exactTitleOnly ? LabelText.menuTitleKey : LabelText.normalize
+        let want = key(currentValue)
+        let currentRows = rows.indices.filter { rows[$0].contains { key($0.label) == want } }
+        let targetRows = rows.indices.filter { rows[$0].contains { $0.id == target.id } }
+        guard !want.isEmpty, currentRows.count == 1, targetRows.count == 1,
+              let currentIndex = currentRows.first, let targetIndex = targetRows.first else { return nil }
         var delta = targetIndex - currentIndex
         if wraps, abs(delta) > rows.count / 2 { delta += delta > 0 ? -rows.count : rows.count }
         return Plan(
@@ -88,13 +93,16 @@ public enum PopupRowPick {
     /// painted, so a wrap through them would count past rows nobody saw, while a list that named
     /// every row, scrolled-out ones included, knows how far apart two items really are.
     public static func plan(rows: [PopupRow], currentValue: String, target: String,
-                            wraps: Bool = true) -> Plan? {
+                            wraps: Bool = true, exactTitleOnly: Bool = false) -> Plan? {
         guard rows.count >= 2 else { return nil }
-        let current = LabelText.normalize(currentValue), wanted = LabelText.normalize(target)
-        guard !current.isEmpty, !wanted.isEmpty,
-              let currentIndex = rows.firstIndex(where: { LabelText.normalize($0.title) == current }),
-              let targetIndex = rows.firstIndex(where: { LabelText.normalize($0.title) == wanted })
-        else { return nil }
+        // Unqualified disabled-row skipping cannot supply a reliable arrow count.
+        if exactTitleOnly, rows.contains(where: { !$0.isEnabled }) { return nil }
+        let key = exactTitleOnly ? LabelText.menuTitleKey : LabelText.normalize
+        let current = key(currentValue), wanted = key(target)
+        let currentRows = rows.indices.filter { key(rows[$0].title) == current }
+        let targetRows = rows.indices.filter { key(rows[$0].title) == wanted }
+        guard !current.isEmpty, !wanted.isEmpty, currentRows.count == 1, targetRows.count == 1,
+              let currentIndex = currentRows.first, let targetIndex = targetRows.first else { return nil }
         var delta = targetIndex - currentIndex
         if wraps, abs(delta) > rows.count / 2 { delta += delta > 0 ? -rows.count : rows.count }
         return Plan(

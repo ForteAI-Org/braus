@@ -41,11 +41,16 @@ struct RemoteMenuChoice<Node> {
     /// Presses the item titled `item` in the menu painted at `menuFrame`, read from the first of
     /// `roots` that shows the menu: the host's tree before the panel service's. A refused press
     /// throws, since the menu may still be open.
-    func choose(_ item: String, in menuFrame: CGRect, under roots: [Node]) throws -> Outcome {
+    func choose(
+        _ item: String, in menuFrame: CGRect, under roots: [Node], exactTitleOnly: Bool = false
+    ) throws -> Outcome {
         guard let reading = roots.lazy.map({ self.read(menuFrame, under: $0) }).first(where: { $0.menu != nil })
         else { return .missing(listing: nil) }
         let enabled = reading.items.filter(\.isEnabled)
-        if let index = LabelText.menuItemMatch(item, in: enabled.map(\.title)) {
+        let titles = enabled.map(\.title)
+        let index = exactTitleOnly ? LabelText.exactMenuItemMatch(item, in: titles)
+            : LabelText.menuItemMatch(item, in: titles)
+        if let index {
             let code = perform(enabled[index].node, kAXPressAction)
             guard code == .success || code == .cannotComplete else {
                 throw RemoteMenuFailure.pressRefused(code: code.rawValue)

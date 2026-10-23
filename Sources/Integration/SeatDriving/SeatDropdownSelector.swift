@@ -141,8 +141,9 @@ public struct SeatDropdownSelector {
         }
         // The opener and the item are classified with their context first. The seat's dropdowns are chosen
         // through the scene, which cannot read an irreversible effect back.
-        if ActionPolicy.isDestructive(
-               label: opener.label, bundleID: identity.bundleID, role: opener.role, container: opener.container
+        if ActionPolicy.isDestructiveSelectionControl(
+               label: opener.label, bundleID: identity.bundleID,
+               role: scopedBounds == nil ? opener.role : nil, container: opener.container
            ) || ActionPolicy.isDestructiveMenuItem(
                item, openedBy: opener.label, bundleID: identity.bundleID,
                role: opener.role, container: opener.container
@@ -151,7 +152,7 @@ public struct SeatDropdownSelector {
                 case .allowed:
                     break
                 case .needsConsent:
-                    return (ActOutcome(.refused, "selection requires --allow-destructive", scene: before.scene), nil)
+                    return (ActOutcome(.refused, "selection refused, not authorized in this session: the person must allow destructive actions (--allow-destructive)", scene: before.scene), nil)
                 case .cannotReadBack:
                     return (ActOutcome(.refused, IrreversiblePolicy.readBackRefusal("Selecting '\(item)'"),
                                        scene: before.scene), nil)
@@ -159,6 +160,16 @@ public struct SeatDropdownSelector {
         }
         if dryRun {
             return (ActOutcome(.dryRun, "would open '\(opener.label)' and select '\(item)' in its own menu window", scene: before.scene), nil)
+        }
+        // A popup that natively reads the item already holds it: its menu shows that row checked, and the checkmark
+        // painted into the row's label kept `select` from naming it (Pro Tools' New Tracks, 22 October 2026).
+        if !seat.holdsRemoteFilePanel, scopedBounds == nil,
+           let current = try? DropdownOpening.value(control: opener.label, in: nativeWindow),
+           LabelText.exactMenuItemMatch(item, in: [current]) == 0 {
+            return (ActOutcome(.actedNoop, "'\(opener.label)' already reads '\(item)': nothing was sent", scene: before.scene,
+                               check: OperationCheck(condition: .requestedStateAlreadyPresent, method: .controlValue,
+                                                     verdict: .passed, expected: item, observed: current, performed: .none,
+                                                     target: OperationCheck.Target(opener))), nil)
         }
         perception.target = opener
         let checked = OperationCheck.Target(opener)
@@ -198,17 +209,19 @@ public struct SeatDropdownSelector {
             menuScene = observed.scene
             menuWindow = observed
             guard observed.frame == menu.frame else { throw SeatDrivingFailure.frameUnusable }
-            guard case .found(let element) = observed.scene.resolve(target: item) else { return nil }
-            return element
+            guard let index = LabelText.exactMenuItemMatch(item, in: observed.scene.elements.map(\.label)) else { return nil }
+            let element = observed.scene.elements[index]
+            return element.isEnabled == false ? nil : element
         }
         let receipt: PopupMenuReceipt
         // A remote file panel's popup is opened and chosen through accessibility alone,
         // and its pixel opener is refused by the seat (ADR 0031).
         let remotePanel = seat.holdsRemoteFilePanel
         var remoteListing: String?
+        var nativeListing: String?
         @MainActor @Sendable func chooseRemotely(_ menu: ContextMenu) async throws -> Bool {
             let roots = RemoteMenuChoice.roots(host: window.reference.processID, menuOwner: menu.window.processID)
-            let outcome = try RemoteMenuChoice.accessibility.choose(item, in: menu.frame, under: roots)
+            let outcome = try RemoteMenuChoice.accessibility.choose(item, in: menu.frame, under: roots, exactTitleOnly: true)
             guard case .missing(let listing) = outcome else { return true }
             remoteListing = listing
             return false
@@ -221,9 +234,19 @@ public struct SeatDropdownSelector {
                 }
             ) { menu in
                 if remotePanel { return try await chooseRemotely(menu) }
-                guard try await readItem(menu, fromDisplay: false) != nil else { return false }
+                // The accessibility titles decide, exactly and on one enabled item: they carry no checkmark and no
+                // glyph, while the painted labels read "v J 1/4 note" with symbols that change at each reading
+                // (Nudge, Grid, 22 October 2026). The painted menu is still read and attested as evidence.
+                _ = try await readItem(menu, fromDisplay: false)
                 try Task.checkCancellation()
-                try DropdownOpening.select(item: item, in: menu.frame, processID: window.reference.processID)
+                do {
+                    try DropdownOpening.select(item: item, in: menu.frame, processID: window.reference.processID,
+                                               exactTitleOnly: true)
+                } catch DropdownOpening.Failure.controlNotUnique {
+                    nativeListing = DropdownOpening.menuItemTitles(in: menu.frame, processID: window.reference.processID)
+                        .joined(separator: ", ")
+                    return false
+                }
                 return true
             }
         } else {
@@ -245,13 +268,17 @@ public struct SeatDropdownSelector {
                     popupFrame: menu.frame
                 ) ?? []
                 let currentValue = opener.value ?? opener.label
-                let route = PopupRowPick.plan(rows: named, currentValue: currentValue, target: element.label)
-                    ?? PopupRowPick.plan(
-                        rows        : PopupRowPick.rows(in: scene, windowFrame: menu.frame, popupFrame: menu.frame),
-                        currentValue: currentValue,
-                        target      : element,
-                        wraps       : false
+                let route: PopupRowPick.Plan?
+                if named.isEmpty {
+                    route = PopupRowPick.plan(
+                        rows: PopupRowPick.rows(in: scene, windowFrame: menu.frame, popupFrame: menu.frame),
+                        currentValue: currentValue, target: element, wraps: false, exactTitleOnly: true
                     )
+                } else {
+                    route = PopupRowPick.plan(
+                        rows: named, currentValue: currentValue, target: element.label, exactTitleOnly: true
+                    )
+                }
                 guard let plan = route else { return nil }
                 let arrow = plan.delta > 0 ? Key.downArrow : Key.upArrow
                 return Array(repeating: arrow, count: abs(plan.delta)) + [Key.return]
@@ -269,7 +296,7 @@ public struct SeatDropdownSelector {
         perception.menu  = menuWindow
         perception.after = after
         guard receipt.selectionRequested else {
-            let labels = remoteListing
+            let labels = remoteListing ?? nativeListing
                 ?? menuScene?.elements.map(\.label).joined(separator: ", ")
                 ?? "unreadable"
             // The menu opened and closed with no row chosen: the requested selection was not performed.
@@ -303,14 +330,15 @@ public struct SeatDropdownSelector {
             // The popup's own value, by its label or, once changed, by the value it now holds.
             let value = (try? DropdownOpening.value(control: opener.label, in: nativeWindow))
                 ?? (try? DropdownOpening.value(control: item, in: nativeWindow))
-            verified = value.map { LabelText.normalize($0) == LabelText.normalize(item) } ?? false
+            verified = value.map { LabelText.menuTitleKey($0) == LabelText.menuTitleKey(item) } ?? false
             method   = .controlValue
             read     = value
             readable = value != nil
         } else if let scopedBounds {
             let scoped = try await controlScene(afterStill, bounds: scopedBounds, identity: identity, title: afterTitle)
-            if let scoped, case .found(let value) = scoped.resolve(target: item) {
-                verified = LabelText.normalize(value.label) == LabelText.normalize(item)
+            if let scoped, let index = LabelText.exactMenuItemMatch(item, in: scoped.elements.map(\.label)) {
+                let value = scoped.elements[index]
+                verified = LabelText.menuTitleKey(value.label) == LabelText.menuTitleKey(item)
                     && after.frame.size == before.frame.size
                 read = value.label
             } else {
@@ -320,7 +348,7 @@ public struct SeatDropdownSelector {
             method = .sceneText
         } else {
             verified = DropdownValueVerification.verifies(
-                item: item, control: opener, after: after.scene.elements
+                item: item, control: opener, after: after.scene.elements, exactTitleOnly: true
             )
             method   = .controlValue
             read     = verified ? item : nil

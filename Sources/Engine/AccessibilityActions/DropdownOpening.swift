@@ -88,12 +88,14 @@ public enum DropdownOpening {
                                   isAudioSendMenu: audioSendMenu)
     }
 
-    public static func select(item: String, in menuFrame: CGRect, processID: pid_t) throws {
+    public static func select(
+        item: String, in menuFrame: CGRect, processID: pid_t, exactTitleOnly: Bool = false
+    ) throws {
         let root = AXUIElementCreateApplication(processID)
         AXUIElementSetMessagingTimeout(root, 0.2)
         let selected = nativeMenuItem(named: item, in: menuFrame, under: root,
                                       drawnMenu: { drawnMenu(in: menuFrame, processID: processID) },
-                                      reader: LiveAccessibilityReader())
+                                      reader: LiveAccessibilityReader(), exactTitleOnly: exactTitleOnly)
         guard let selected else {
             throw Failure.controlNotUnique
         }
@@ -117,10 +119,13 @@ public enum DropdownOpening {
     /// Compress was chosen with keys, and nothing happened, on 06/10/2026.
     static func nativeMenuItem<Reader: AccessibilityTreeReading>(
         named item: String, in menuFrame: CGRect, under root: Reader.Node,
-        drawnMenu: () -> Reader.Node? = { nil }, reader: Reader
+        drawnMenu: () -> Reader.Node? = { nil }, reader: Reader, exactTitleOnly: Bool = false
     ) -> Reader.Node? {
         let painted = paintedMenuItems(in: menuFrame, under: root, drawnMenu: drawnMenu, reader: reader)
-        guard let index = LabelText.menuItemMatch(item, in: painted.map { reader.title($0) ?? "" }),
+        let titles = painted.map { reader.title($0) ?? "" }
+        let index = exactTitleOnly ? LabelText.exactMenuItemMatch(item, in: titles)
+            : LabelText.menuItemMatch(item, in: titles)
+        guard let index,
               reader.isEnabled(painted[index]) == true
         else { return nil }
         return painted[index]

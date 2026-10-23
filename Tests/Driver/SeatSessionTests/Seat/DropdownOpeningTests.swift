@@ -55,6 +55,21 @@ struct DropdownOpeningTests {
                                              reader: MenuReader()) == nil)
     }
 
+    @Test("BI08: a duration menu's accessibility titles choose one exact, enabled duration")
+    func durationTitlesDecide() {
+        let quarter = row("1/4 note")
+        let root = MenuNode("AXApplication", children: [
+            MenuNode("AXMenu", children: [row("1/8 note"), quarter, row("1/2 note"), row("1/4 note triplet", enabled: false)]),
+        ])
+        func chosen(_ item: String) -> MenuNode? {
+            DropdownOpening.nativeMenuItem(named: item, in: popup, under: root, reader: MenuReader(), exactTitleOnly: true)
+        }
+        #expect(chosen("1/4 note") === quarter)
+        #expect(chosen("1/4") == nil, "a prefix never stands for a longer duration")
+        #expect(chosen("J 1/4 note") == nil, "a glyph read from the pixels is not part of the title")
+        #expect(chosen("1/4 note triplet") == nil, "a disabled item is refused")
+    }
+
     @Test("a web option mirror does not make the real native menu item ambiguous")
     func webMirrorAndNativeMenu() {
         let mirror = row("Beta")
@@ -246,6 +261,20 @@ struct DropdownOpeningTests {
         }
     }
 
+    @Test("exact dropdown selection does not substitute a longer or decorated duration")
+    func exactDropdownTitle() {
+        let triplet = row("1/8 note triplet")
+        let dotted = row("1/8 note.")
+        let decorated = row("J 1/8 note")
+        let root = MenuNode("AXApplication", children: [MenuNode("AXMenu", children: [triplet, dotted, decorated])])
+        #expect(DropdownOpening.nativeMenuItem(named: "1/8 note", in: popup, under: root,
+                                             reader: MenuReader(), exactTitleOnly: true) == nil)
+        #expect(DropdownOpening.nativeMenuItem(named: "1/4 note", in: popup, under: root,
+                                             reader: MenuReader(), exactTitleOnly: true) == nil)
+        #expect(DropdownOpening.nativeMenuItem(named: "1/8 note.", in: popup, under: root,
+                                             reader: MenuReader(), exactTitleOnly: true) === dotted)
+    }
+
     private func row(_ title: String, enabled: Bool = true) -> MenuNode {
         MenuNode("AXMenuItem", title: title,
                  frame: CGRect(x: 204, y: 310, width: 150, height: 20), enabled: enabled)
@@ -282,4 +311,6 @@ private struct MenuReader: AccessibilityTreeReading {
     func actions(_ node: MenuNode) -> [String] { [kAXPressAction] }
     func frame(_ node: MenuNode) -> CGRect? { node.frame }
     func children(_ node: MenuNode) -> [MenuNode] { node.children }
+
+
 }

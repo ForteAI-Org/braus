@@ -385,8 +385,8 @@ struct RemoteContentActuationTests {
     }
 
     @Test("a click on a popup or a menu button refuses and tells the agent to use select",
-          arguments: [kAXPopUpButtonRole, kAXMenuButtonRole])
-    func aMenuOpenerRefuses(role: String) async throws {
+          arguments: [kAXPopUpButtonRole, kAXMenuButtonRole], [1, 2, 3])
+    func aMenuOpenerRefuses(role: String, count: Int) async throws {
         let hit   = Hit()
         let panel = try await Self.panel(hit)
         let named = DialogEndpointResolver<Element>.WindowReading.window(panel.remote.windowNumber)
@@ -396,7 +396,7 @@ struct RemoteContentActuationTests {
 
         let turn = try await panel.routing.seat.acquire()
         await #expect(throws: RemoteContentActuationRefusal.opensMenu(role)) {
-            try await panel.routing.seat.send(Self.click(panel), observation: panel.observation, turn: turn)
+            try await panel.routing.seat.send(Self.click(panel, count: count), observation: panel.observation, turn: turn)
         }
         #expect(popup.performed.isEmpty)
         #expect(RemoteContentActuationRefusal.opensMenu(role).description.contains("Use select"))

@@ -653,7 +653,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         let request = Self.request(input, section: section, application: application, withholdsText: withholdsText)
         // Of these inputs only Escape closes a window: the engine refuses text that carries one.
         var closesTheWindow = false
-        if case .pressKey(let chord, _) = input { closesTheWindow = chord.key == .escape }
+        if case .pressKey(let chord, _) = input { closesTheWindow = ActionPolicy.dismissesLikeEscape(chord) }
         let recorder = Self.recorder(runtime, sessionID: id)
         let outcome  = await runtime.engine(
             recorder                    : recorder,

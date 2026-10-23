@@ -139,4 +139,16 @@ struct RemoteMenuChoiceTests {
             try Self.choice.choose("Desktop \u{2014} iCloud", in: Self.menuFrame, under: [root])
         }
     }
+    @Test("exact dropdown selection refuses a prefix duration and presses no item")
+    func exactDropdownDuration() throws {
+        let triplet = Self.item("1/8 note triplet", row: 0)
+        let menu = Node(kAXMenuRole, children: [triplet])
+        let root = Node("AXApplication", children: [menu])
+        guard case .missing = try Self.choice.choose("1/8 note", in: Self.menuFrame, under: [root], exactTitleOnly: true) else {
+            Issue.record("a duration prefix was selected"); return
+        }
+        #expect(triplet.performed.isEmpty)
+        #expect(menu.performed == [kAXCancelAction])
+    }
+
 }

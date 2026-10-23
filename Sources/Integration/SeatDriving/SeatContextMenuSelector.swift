@@ -115,7 +115,7 @@ public struct SeatContextMenuSelector {
                 case .allowed:
                     break
                 case .needsConsent:
-                    return ActOutcome(.refused, "'\(item)' requires --allow-destructive", scene: before.scene)
+                    return ActOutcome(.refused, "'\(item)' is not authorized in this session: it requires --allow-destructive", scene: before.scene)
                 case .cannotReadBack:
                     return ActOutcome(.refused, IrreversiblePolicy.readBackRefusal("'\(item)'"), scene: before.scene)
             }

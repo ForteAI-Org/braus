@@ -38,6 +38,15 @@ public enum LabelText {
         return text.trimmingCharacters(in: .whitespaces).lowercased()
     }
 
+    /// Finds one complete semantic menu title, preserving digits, punctuation and musical symbols.
+    /// Ambiguity and missing titles both answer nil; no prefix or coarse core can select another item.
+    public static func exactMenuItemMatch(_ wanted: String, in titles: [String]) -> Int? {
+        let key = menuTitleKey(wanted)
+        guard !key.isEmpty else { return nil }
+        let matches = titles.indices.filter { menuTitleKey(titles[$0]) == key }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
     /// Which of `titles` a menu item named `wanted` is: the one whose `menuTitleKey` equals it, else
     /// the one whose key begins with it and a space or a quote, as "Compress" names Finder's
     /// `Compress “carla_video_bianco_nero.mov”`. Nil for none or several: an exact title wins over a
