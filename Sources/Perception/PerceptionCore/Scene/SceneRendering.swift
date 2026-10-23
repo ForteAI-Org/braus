@@ -274,6 +274,7 @@ extension SceneSnapshot {
             selection = ""
         }
         return value + selection + (element.isEnabled == false ? " [disabled]" : "")
+            + (element.nativeFacts?.diagnosticText ?? "")
     }
 
     private static func liveDetails(_ element: SceneElement) -> String {
@@ -286,7 +287,7 @@ extension SceneSnapshot {
         }
         let availability = element.isEnabled == false ? " [disabled]" : ""
         let owner = element.container.map { " {\($0)}" } ?? ""
-        return value + selection + availability + owner
+        return value + selection + availability + owner + (element.nativeFacts?.diagnosticText ?? "")
     }
 
     /// Escapes whitespace without turning one native value into additional scene rows.

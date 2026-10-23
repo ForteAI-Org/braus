@@ -149,12 +149,7 @@ public struct AccessibilityController: ControlPressing {
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success,
               let element else { return nil }
         reader.setMessagingTimeout(element, seconds: budget.elementTimeout)
-        switch reader.numericValue(element) {
-            case 0 : return .off
-            case 1 : return .on
-            case 2 : return .mixed
-            default: return nil
-        }
+        return toggleState(of: element, reader: reader)
     }
 
     @concurrent
@@ -218,6 +213,21 @@ public struct AccessibilityController: ControlPressing {
         return complete && matches.count == 1 ? matches[0] : nil
     }
 
+    /// Reads state only from a checkbox or radio button, including a switch exposed as a checkbox.
+    /// Hit-tested buttons, sliders and other numeric controls do not establish toggle state.
+    static func toggleState<Reader: AccessibilityTreeReading>(
+        of node: Reader.Node,
+        reader : Reader
+    ) -> ControlState? {
+        guard toggleRoles.contains(reader.role(node) ?? "") else { return nil }
+        return switch reader.numericValue(node) {
+            case 0 : .off
+            case 1 : .on
+            case 2 : .mixed
+            default: nil
+        }
+    }
+
     /// The state of the one checkbox or radio button titled or described `want` (normalized); nil for
     /// none, for several, for one whose value is no state, and for a walk the budget cut short or a list
     /// that did not answer.
@@ -234,13 +244,7 @@ public struct AccessibilityController: ControlPressing {
                   LabelText.normalize(reader.title(node) ?? "") == want
                     || LabelText.normalize(reader.descriptionText(node) ?? "") == want
             else { return false }
-            let state: ControlState? = switch reader.numericValue(node) {
-                case 0 : .off
-                case 1 : .on
-                case 2 : .mixed
-                default: nil
-            }
-            states.append(state)
+            states.append(toggleState(of: node, reader: reader))
             return false
         }
         return complete && states.count == 1 ? states[0] : nil

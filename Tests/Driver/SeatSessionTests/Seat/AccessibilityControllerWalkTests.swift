@@ -158,6 +158,41 @@ struct AccessibilityControllerWalkTests {
         #expect(AccessibilityController.controlValue(matchingAny: ["medio"], in: [window], reader: Reader(), budget: .standard) == nil)
     }
 
+    @Test("Point readback qualifies checkbox and radio roles before interpreting their numeric value")
+    func toggleStateRequiresRole() {
+        let states: [(Int?, ControlState?)] = [(0, .off), (1, .on), (2, .mixed), (nil, nil), (-1, nil), (3, nil)]
+        for role in ["AXCheckBox", "AXRadioButton"] {
+            for (number, expected) in states {
+                let node = Node(role, title: "State", number: number)
+                #expect(AccessibilityController.toggleState(of: node, reader: Reader()) == expected)
+                #expect(AccessibilityController.toggleState(labelled: "state", in: [node], reader: Reader(),
+                                                            budget: .standard) == expected)
+            }
+        }
+        for role in ["AXButton", "AXSlider", "AXPopUpButton", "AXTextField", "AXGroup"] {
+            for number in 0...2 {
+                let node = Node(role, title: "State", number: number)
+                #expect(AccessibilityController.toggleState(of: node, reader: Reader()) == nil)
+                #expect(AccessibilityController.toggleState(labelled: "state", in: [node], reader: Reader(),
+                                                            budget: .standard) == nil)
+            }
+        }
+    }
+
+    @Test("Finder radio values qualify, while a Play button's boolean value does not")
+    func finderRoleFacts() {
+        // Sanitized role/value facts from braus-g02-native-facts-2026-10-22.json (Finder, read-only).
+        // CFBoolean false is decoded as 0, but the observed AXButton under AXImage is not a toggle.
+        let play = Node("AXButton", title: "Riproduci", number: 0)
+        let radios = (0..<8).map { Node("AXRadioButton", title: "View \($0)", number: $0 == 0 ? 1 : 0) }
+        let group = Node("AXRadioGroup", children: radios)
+        #expect(AccessibilityController.toggleState(of: play, reader: Reader()) == nil)
+        #expect(AccessibilityController.toggleState(of: group, reader: Reader()) == nil)
+        for (index, radio) in radios.enumerated() {
+            #expect(AccessibilityController.toggleState(of: radio, reader: Reader()) == (index == 0 ? .on : .off))
+        }
+    }
+
     @Test("A toggle's state by its title, only for one toggle so named in a walk that covered the tree")
     func toggleStateByLabel() {
         let window = Node("AXWindow", children: [

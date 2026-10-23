@@ -25,7 +25,8 @@ public struct SceneToken: Sendable, Equatable, Hashable, Codable, CustomStringCo
     public init(bundleID: String, windowTitle: String, elements: [SceneElement]) {
         let body = elements
             .map {
-                let body = "\($0.id)|\($0.state?.rawValue ?? "")|\($0.value ?? "")|\($0.isEnabled.map(String.init) ?? "")|\($0.container ?? "")"
+                var body = "\($0.id)|\($0.state?.rawValue ?? "")|\($0.value ?? "")|\($0.isEnabled.map(String.init) ?? "")|\($0.container ?? "")"
+                if let facts = $0.nativeFacts { body += "|native:" + facts.semanticKey }
                 guard let range = SceneElement.validRange($0.selectedRange, value: $0.value) else {
                     return body
                 }

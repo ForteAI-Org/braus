@@ -103,7 +103,8 @@ public enum AccessibilityAugmentation {
         under window: Reader.Node,
         windowFrame : CGRect,
         reader      : Reader,
-        limits      : Limits = Limits()
+        limits      : Limits = Limits(),
+        observation : NativeControlObservation? = nil
     ) -> AccessibilityHarvest {
         let windowRole    = reader.role(window)
         let windowSubrole = reader.subrole(window)
@@ -140,7 +141,8 @@ public enum AccessibilityAugmentation {
 
         func emit(_ frame: CGRect, role: String, label: String, origin: LabelOrigin?, state: ControlState?,
                   clip: CGRect, container: String?, collectionPath: String?, value: String? = nil,
-                  isEnabled: Bool? = nil, selectedRange: NSRange? = nil, kind: ElementKind = .control) {
+                  isEnabled: Bool? = nil, selectedRange: NSRange? = nil, kind: ElementKind = .control,
+                  nativeFacts: NativeControlFacts? = nil) {
             guard (kind == .text ? staticText.count : out.count) < limits.maxElements else {
                 return stop(.elementLimit)
             }
@@ -162,7 +164,8 @@ public enum AccessibilityAugmentation {
                 isEnabled     : isEnabled,
                 container     : container,
                 labelOrigin   : origin,
-                collectionPath: collectionPath
+                collectionPath: collectionPath,
+                nativeFacts   : nativeFacts
             )
             if kind == .text { staticText.append(element) } else { out.append(element) }
         }
@@ -288,12 +291,15 @@ public enum AccessibilityAugmentation {
                 let handle: (String, LabelOrigin?)? = read.map { ($0.0, $0.1) }
                     ?? (textEntryRoles.contains(role) ? (anonymousHandle, nil) : nil)
                 if let (handle, origin) = handle, handle.count <= 48, column != nil || rowName != cleanLabel(handle) {
+                    var facts = role == "AXPopUpButton" ? reader.nativeControlFacts(node, isPastDeadline: limits.isPastDeadline) : nil
+                    facts?.observation = observation
                     emit(frame, role: role, label: handle, origin: origin, state: nil, clip: clip,
                          container: container, collectionPath: collectionPath,
                          value: role == "AXPopUpButton" ? firstText([rawValue, reader.title(node)]) : rawValue,
                          isEnabled: reader.isEnabled(node),
                          selectedRange: textEntryRoles.contains(role)
-                            && (!webContent || reader.isFocused(node) == true) ? reader.selectedRange(node) : nil)
+                            && (!webContent || reader.isFocused(node) == true) ? reader.selectedRange(node) : nil,
+                         nativeFacts: facts)
                 }
             }
             if statefulRoles.contains(role), let frame = reader.frame(node) {
@@ -322,12 +328,15 @@ public enum AccessibilityAugmentation {
                     labeled = caption(of: node, after: preceding)
                 }
                 if let (label, origin) = labeled, label.count <= 48, column != nil || rowName != cleanLabel(label) {
+                    var facts = role == "AXComboBox" ? nil : reader.nativeControlFacts(node, isPastDeadline: limits.isPastDeadline)
+                    facts?.observation = observation
                     emit(frame, role: role, label: label, origin: origin, state: state, clip: clip,
                          container: container, collectionPath: collectionPath,
                          value: role == "AXComboBox" ? rawValue : (role == "AXMenuButton" ? value : nil),
                          isEnabled: reader.isEnabled(node),
                          selectedRange: role == "AXComboBox"
-                            && (!webContent || reader.isFocused(node) == true) ? reader.selectedRange(node) : nil)
+                            && (!webContent || reader.isFocused(node) == true) ? reader.selectedRange(node) : nil,
+                         nativeFacts: facts)
                 }
             }
             var previous: Reader.Node?
@@ -498,6 +507,7 @@ public enum AccessibilityAugmentation {
                 result[index].id = element.id
                 result[index].role = element.role
                 result[index].state = element.state
+                result[index].nativeFacts = element.nativeFacts
                 result[index].value = element.value
                 result[index].selectedRange = element.selectedRange
                 result[index].isEnabled = element.isEnabled

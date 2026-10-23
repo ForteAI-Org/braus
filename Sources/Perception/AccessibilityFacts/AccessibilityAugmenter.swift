@@ -89,7 +89,11 @@ public struct AccessibilityAugmenter: SceneAugmenting {
                 under      : window,
                 windowFrame: windowFrame,
                 reader     : reader,
-                limits     : AccessibilityAugmentation.Limits(isPastDeadline: { clock.now >= deadline })
+                limits     : AccessibilityAugmentation.Limits(isPastDeadline: { clock.now >= deadline }),
+                observation: NativeControlObservation(
+                    observationID: UUID(), processID: processID,
+                    windowNumber: windowNumber, windowFrame: windowFrame
+                )
             )
             harvest.quality.isGrantAvailable = trusted
             return harvest

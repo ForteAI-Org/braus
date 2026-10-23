@@ -59,6 +59,10 @@ public struct SceneElement: Sendable, Equatable, Hashable {
     /// stops here, so a row's name, which is content, never enters one; `container` keeps the full
     /// path a model addresses the element by.
     public var collectionPath: String?
+    /// Raw native diagnostics, scoped to their own observation, never an interpreted state.
+    /// Retaining or decoding them does not prove freshness. Semantic changes affect equality and token;
+    /// an observation UUID alone does not.
+    public var nativeFacts: NativeControlFacts?
 
     public init(
         id         : String,
@@ -77,7 +81,8 @@ public struct SceneElement: Sendable, Equatable, Hashable {
         does       : String? = nil,
         section    : String? = nil,
         labelOrigin   : LabelOrigin? = nil,
-        collectionPath: String? = nil
+        collectionPath: String? = nil,
+        nativeFacts: NativeControlFacts? = nil
     ) {
         self.id             = id
         self.kind           = kind
@@ -96,18 +101,19 @@ public struct SceneElement: Sendable, Equatable, Hashable {
         self.section        = section
         self.labelOrigin    = labelOrigin
         self.collectionPath = collectionPath
+        self.nativeFacts    = nativeFacts
     }
 }
 
 extension SceneElement {
 
-    /// Equality over the scene's own facts, the native selection among them; the memory-side
-    /// `labelOrigin` and `collectionPath` are left out, so a scene decodes equal to the one that
-    /// was encoded.
+    /// Equality includes semantic native facts, excluding only their per-read UUID and the
+    /// memory-side labelOrigin and collectionPath.
     public static func == (lhs: SceneElement, rhs: SceneElement) -> Bool {
         lhs.id == rhs.id && lhs.kind == rhs.kind && lhs.label == rhs.label && lhs.bounds == rhs.bounds
             && lhs.role == rhs.role && lhs.state == rhs.state && lhs.value == rhs.value
             && lhs.selectedRange == rhs.selectedRange
+            && lhs.nativeFacts?.semanticIdentity == rhs.nativeFacts?.semanticIdentity
             && lhs.isEnabled == rhs.isEnabled && lhs.container == rhs.container
             && lhs.isUnlabeled == rhs.isUnlabeled && lhs.group == rhs.group && lhs.isRecalled == rhs.isRecalled
             && lhs.does == rhs.does && lhs.section == rhs.section
@@ -122,6 +128,7 @@ extension SceneElement {
         hasher.combine(state)
         hasher.combine(value)
         hasher.combine(selectedRange)
+        hasher.combine(nativeFacts?.semanticIdentity)
         hasher.combine(isEnabled)
         hasher.combine(container)
         hasher.combine(isUnlabeled)
@@ -145,7 +152,7 @@ extension SceneElement: Codable {
     /// The wire keys are the ones scenes have always used, so a stored scene still decodes. The
     /// memory-only facts (`labelOrigin`, `collectionPath`) have no key: they are never encoded.
     private enum CodingKeys: String, CodingKey {
-        case id, kind, label, role, state, value, selectedRange, isEnabled, container, group, does, section
+        case id, kind, label, role, state, value, selectedRange, isEnabled, container, group, does, section, nativeFacts
         case bounds      = "pos"
         case isUnlabeled = "unlabeled"
         case isRecalled  = "recalled"
@@ -168,7 +175,8 @@ extension SceneElement: Codable {
             group      : try c.decodeIfPresent(String.self, forKey: .group),
             isRecalled : try c.decodeIfPresent(Bool.self, forKey: .isRecalled) ?? false,
             does       : try c.decodeIfPresent(String.self, forKey: .does),
-            section    : try c.decodeIfPresent(String.self, forKey: .section)
+            section    : try c.decodeIfPresent(String.self, forKey: .section),
+            nativeFacts: try c.decodeIfPresent(NativeControlFacts.self, forKey: .nativeFacts)
         )
     }
 
@@ -189,5 +197,6 @@ extension SceneElement: Codable {
         if isRecalled { try c.encode(true, forKey: .isRecalled) }
         try c.encodeIfPresent(does, forKey: .does)
         try c.encodeIfPresent(section, forKey: .section)
+        try c.encodeIfPresent(nativeFacts, forKey: .nativeFacts)
     }
 }

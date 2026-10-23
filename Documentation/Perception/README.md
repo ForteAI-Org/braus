@@ -172,6 +172,13 @@ scene.resolve(target: "Export")               // .found, .ambiguous(n) or .none
   `identifier`); else by its role ("Switch", "Checkbox", "Radio button", no origin). An `AXButton`
   whose `AXSelected` is true carries state `on`, the segmented buttons of the Appearance pane; one
   that does not answer it has no state (`AccessibilityAugmentationTests`).
+- Checkbox and radio state uses only an exact native boolean or numeric `AXValue`: 0 is off, 1
+  is on and 2 is mixed. Text, fractions, nonfinite and other numeric values are unavailable, never
+  truncated or parsed. Point and labelled native readback both require `AXCheckBox` or
+  `AXRadioButton`; a numeric value on an ordinary button or slider does not qualify it as a toggle.
+  The labelled readback still requires one match in a complete bounded walk. An unavailable native
+  state remains nil; the existing scene pipeline may independently fill nil from pixel evidence.
+  This does not add state decoding for nonstandard toolbar buttons.
 - Button state interpretation belongs to the accessibility reader. The core passes the exact
   string value, preserving empty versus unavailable, and carries the result into scene text,
   tokens and changes. The default reader contract recognizes only `AXSelected == true`.

@@ -189,6 +189,20 @@ struct AccessibilityAugmentationTests {
         #expect(out[6].role == "AXComboBox")
     }
 
+    @Test("checkbox and radio augmentation preserves mixed and unavailable numeric states")
+    func numericStatePropagation() {
+        let states: [(Int?, ControlState?)] = [(0, .off), (1, .on), (2, .mixed), (nil, nil), (-1, nil), (3, nil)]
+        for role in ["AXCheckBox", "AXRadioButton"] {
+            for (number, expected) in states {
+                let node = FakeNode(role, title: "State", numericValue: number, frame: box(300, 420, 160, 20))
+                let root = FakeNode("AXWindow", frame: window).adding(node)
+                let out = AccessibilityAugmentation.elements(under: root, windowFrame: window, reader: reader)
+                #expect(out.count == 1)
+                #expect(out.first?.state == expected)
+            }
+        }
+    }
+
     // System Settings' Dock pane: a switch has no title or description, only the static text before it.
     private func settingsSwitch(_ identifier: String, on: Bool, y: CGFloat) -> FakeNode {
         let node = FakeNode("AXCheckBox", subrole: "AXSwitch", numericValue: on ? 1 : 0, frame: box(700, y, 40, 20))

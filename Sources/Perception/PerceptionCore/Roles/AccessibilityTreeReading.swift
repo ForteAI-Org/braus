@@ -34,13 +34,16 @@ public protocol AccessibilityTreeReading: Sendable {
     /// Whether the node owns keyboard focus within its application; nil when unreadable.
     /// This does not establish that its application is in the foreground.
     func isFocused(_ node: Node) -> Bool?
-    /// The value as a number, for checkboxes and radios: 0 off, 1 on, 2 mixed.
+    /// The exact native boolean or numeric state, for checkboxes and radios: 0 off, 1 on, 2 mixed.
+    /// Unavailable, textual, fractional and other numeric values answer nil, never a truncated integer.
     func numericValue(_ node: Node) -> Int?
     /// The node's own `AXSelected`, for a segmented button; nil when it does not answer.
     func isSelected(_ node: Node) -> Bool?
     /// Reads a button's state using its exact text value, including an empty string.
     /// Nil means unknown. The default recognizes only a positive native selection.
     func buttonState(_ node: Node, value: String?) -> ControlState?
+    /// Reads typed raw facts without interpreting state. Nil means this reader supplies no such facts.
+    func nativeControlFacts(_ node: Node, isPastDeadline: @Sendable () -> Bool) -> NativeControlFacts?
     func isEnabled(_ node: Node) -> Bool?
     func actions(_ node: Node) -> [String]
     func frame(_ node: Node) -> CGRect?
@@ -57,6 +60,7 @@ extension AccessibilityTreeReading {
     public func selectedRange(_ node: Node) -> NSRange? { nil }
     public func isFocused(_ node: Node) -> Bool? { nil }
     public func isSelected(_ node: Node) -> Bool? { nil }
+    public func nativeControlFacts(_ node: Node, isPastDeadline: @Sendable () -> Bool) -> NativeControlFacts? { nil }
     public func buttonState(_ node: Node, value: String?) -> ControlState? {
         isSelected(node) == true ? .on : nil
     }

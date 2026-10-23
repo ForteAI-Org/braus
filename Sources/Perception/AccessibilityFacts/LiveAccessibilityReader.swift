@@ -16,7 +16,8 @@ import PerceptionCore
 /// actor: the caller picks the thread, and the C API blocks it until the application answers, so a
 /// caller that must stay responsive reads off the main actor. The handles are not Sendable: keep each
 /// in the task that read it. A `.cannotComplete` answer (a messaging timeout) is transient and retried
-/// once; anything else is a genuine absence and reads as nil. The per-app
+/// once. Optional accessors answer nil for other unavailable results; nativeControlFacts retains
+/// each result's status and type instead. The per-app
 /// messaging timeout bounds a pathological tree so one slow app cannot hang the caller.
 public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
@@ -69,8 +70,71 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
         )
     }
 
+    public nonisolated func nativeControlFacts(
+        _ node: AXUIElement, isPastDeadline: @Sendable () -> Bool
+    ) -> NativeControlFacts? {
+        var owner: pid_t = 0
+        let ownerProcessID = !isPastDeadline() && AXUIElementGetPid(node, &owner) == .success ? owner : nil
+        return NativeControlFacts(
+            role: nativeAttribute(node, kAXRoleAttribute, isPastDeadline: isPastDeadline),
+            subrole: nativeAttribute(node, kAXSubroleAttribute, isPastDeadline: isPastDeadline),
+            value: nativeAttribute(node, kAXValueAttribute, isPastDeadline: isPastDeadline),
+            selected: nativeAttribute(node, kAXSelectedAttribute, isPastDeadline: isPastDeadline),
+            ownerProcessID: ownerProcessID
+        )
+    }
+
+    private nonisolated func nativeAttribute(
+        _ node: AXUIElement, _ name: String, isPastDeadline: @Sendable () -> Bool
+    ) -> NativeAttributeReading {
+        for attempt in 0..<2 {
+            guard !isPastDeadline() else { return attempt == 0 ? .notRead : .timedOut }
+            var reference: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(node, name as CFString, &reference)
+            if result == .cannotComplete, attempt == 0 { continue }
+            return Self.nativeReading(result, reference: reference)
+        }
+        return .timedOut
+    }
+
+    /// Preserves the native result and scalar type, including successful empty text.
+    nonisolated static func nativeReading(_ result: AXError, reference: CFTypeRef?) -> NativeAttributeReading {
+        switch result {
+            case .noValue: return .noValue
+            case .attributeUnsupported: return .unsupported
+            case .cannotComplete: return .timedOut
+            case .success: break
+            default: return .failed(code: Int(result.rawValue))
+        }
+        guard let reference else { return .emptyReply }
+        let type = CFGetTypeID(reference)
+        if type == CFBooleanGetTypeID(), let boolean = reference as? Bool {
+            return .value(.boolean(boolean))
+        }
+        if type == CFNumberGetTypeID(), let number = reference as? NSNumber {
+            return .value(.number(representation: number.stringValue))
+        }
+        if type == CFStringGetTypeID(), let string = reference as? String {
+            return .value(.string(string))
+        }
+        return .value(.other(typeID: UInt64(type)))
+    }
+
     public nonisolated func numericValue(_ node: AXUIElement) -> Int? {
-        (attribute(node, kAXValueAttribute) as? NSNumber)?.intValue
+        Self.numericStateValue(attribute(node, kAXValueAttribute))
+    }
+
+    /// Decodes only native boolean or numeric state values, without parsing text or truncating fractions.
+    /// Role qualification belongs to the caller: a numeric value alone does not make a node a toggle.
+    nonisolated static func numericStateValue(_ reference: CFTypeRef?) -> Int? {
+        guard let reference else { return nil }
+        let typeID = CFGetTypeID(reference)
+        guard typeID == CFBooleanGetTypeID() || typeID == CFNumberGetTypeID(),
+              let number = reference as? NSNumber, number.doubleValue.isFinite else { return nil }
+        for value in 0...2 where number.compare(NSNumber(value: value)) == .orderedSame {
+            return value
+        }
+        return nil
     }
 
     public nonisolated func isEnabled(_ node: AXUIElement) -> Bool? { attribute(node, kAXEnabledAttribute) as? Bool }
