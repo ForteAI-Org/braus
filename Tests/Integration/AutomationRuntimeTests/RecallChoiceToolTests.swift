@@ -543,6 +543,30 @@ struct RecallChoiceToolTests {
         await corpus.close()
     }
 
+    @Test("an explicit role paraphrase remains unresolved even with an exact name and never supplies a historical value")
+    func roleParaphraseRemainsUnresolved() async throws {
+        let corpus = try await CorpusArchive(["pages-export-pdf", "pages-export-word"])
+        let (tools, proposal, keys) = try await corpus.propose(
+            "Export the open Pages document to PDF with the filename Word",
+            inputs: #"[{"name":"output_name","value":"Word","role":"filename of the exported document"}]"#,
+            stream: "role-paraphrase")
+        let answer = try await Self.choose(tools, Self.plan(
+            proposal, covered: "all", tracts: [(try #require(keys["pages-export-pdf"]), 1, 4)]
+        ))
+        #expect(answer["isError"] != .bool(true), "\(answer.payload)")
+        let need = try #require(answer.payload["recall"]["needs"].array?.first)
+        #expect(need["coverage"].string == "ambiguous" && need["reason"].string == "unresolved_input", "\(need)")
+        let tract = try #require(need["tracts"].array?.first)
+        let parameter = try #require(tract["parameters"].array?.first { $0["name"].string == "output_name" })
+        #expect(parameter["role"].string == "name of the exported file")
+        #expect(parameter["status"].string == "missing" && parameter["value"] == .null, "\(parameter)")
+        #expect(parameter["from"] == .null && parameter["producedBy"] == .null, "\(parameter)")
+        let nameStep = try #require(tract["steps"].array?.first { RecallCycleTests.int($0["step"]) == 3 })
+        let text = try #require(nameStep["arguments"].array?.first { $0["name"].string == "text" })
+        #expect(text["kind"].string == "parameter" && text["value"].string == "{output_name}", "\(nameStep)")
+        await corpus.close()
+    }
+
     @Test("F14 paired: a choice is settled by the request's words or a value named for it, never by data; a refused plan records and delivers nothing")
     func choiceEvidenceFollowsTheRole() async throws {
         let corpus = try await CorpusArchive(["pages-export-pdf", "pages-export-word", "print-all-pages", "print-current-page"])
@@ -556,7 +580,7 @@ struct RecallChoiceToolTests {
         // PDF asked, the file named Word: PDF is settled, Word is not.
         let (pdfTools, pdfID, pdfKeys) = try await corpus.propose(
             "Export the open Pages document to PDF with the filename Word",
-            inputs: #"[{"name":"output_name","value":"Word","role":"filename of the exported document"}]"#, stream: "f14-pdf")
+            inputs: #"[{"name":"output_name","value":"Word","role":"name of the exported file"}]"#, stream: "f14-pdf")
         let before = try queries()
         let wrongWord = try await Self.choose(pdfTools, Self.plan(pdfID, covered: "all", tracts: [(try #require(pdfKeys["pages-export-word"]), 1, 4)]))
         #expect(wrongWord["isError"] == .bool(true) && "\(wrongWord.payload)".contains("different fixed choice"), "\(wrongWord.payload)")

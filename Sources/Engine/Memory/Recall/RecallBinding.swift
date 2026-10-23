@@ -7,15 +7,12 @@
 
 import Foundation
 
-/// RecallBinding assigns the current task's values to the parameters a selection reads, never a value of the
-/// episode it was learned from. A parameter takes the task's value of the same name; else the one of the same
-/// role; else a value derived from a file of the same role; else the one whose name and role share most of the
-/// parameter's content words, when it is the only good one; a value the task names as a file also offers its name,
-/// extension and folder as derived values, so a
-/// method that types `<name>.<extension>` binds to a file the task names whole. Types must agree. Nothing else is
-/// guessed: no value is a `missing` parameter the agent resolves (from the request, an observation of the
-/// application, or the person); two equally good values are `ambiguous`. A binding says which task value it took,
-/// by name, and how: the value itself stays in the task.
+/// RecallBinding assigns current task values only when their complete normalized names or roles
+/// identify a unique, type-compatible input. Explicit roles must agree with a name match. Lexical
+/// similarity never supplies a value, and learned examples never constrain a new task value.
+/// File components can bind by their derived role. Required units remain unresolved until task
+/// values carry unit evidence; this binder performs no conversion. Missing or ambiguous inputs
+/// are requirements for the caller to resolve before using the method.
 public enum RecallBinding {
 
     /// Value is one candidate of the task: a value of its revision, or one derived from a file it names.
@@ -25,7 +22,7 @@ public enum RecallBinding {
         public let kind: TaskValueKind
         public let text: String?
         public let isDerived: Bool
-        /// The content words of the name and of the role, as `bind` compares them: computed once.
+        /// Complete identity keys; lexical words remain available for choice compatibility checks.
         let nameKey: String
         let roleKey: String?
         let words: Set<String>
@@ -36,8 +33,8 @@ public enum RecallBinding {
             self.kind      = kind
             self.text      = text
             self.isDerived = isDerived
-            self.nameKey   = RecallText.tokens(name).joined(separator: " ")
-            self.roleKey   = role.map { RecallText.tokens($0).joined(separator: " ") }
+            self.nameKey   = RecallBinding.identityKey(name)
+            self.roleKey   = role.map(RecallBinding.identityKey)
             self.words     = Set(RecallText.tokens(name + " " + (role ?? "")))
         }
     }
@@ -79,35 +76,71 @@ public enum RecallBinding {
         return candidates
     }
 
-    /// The binding of one parameter among the candidates.
+    /// Binds one parameter only when identity, type and unit evidence permit assignment.
     public static func bind(_ parameter: RecallSource.Parameter, among candidates: [Value]) -> Outcome {
-        let compatible = candidates.filter { accepts(parameter.kind, $0.kind) }
-        if !parameter.nameKey.isEmpty, let same = compatible.first(where: { !$0.isDerived && $0.nameKey == parameter.nameKey }) {
-            return .bound(same, match: .name)
+        // TaskValue has no unit field. A number or free-form role cannot prove its unit.
+        if let unit = parameter.unit, !unit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .missing
         }
-        let roleKey = parameter.roleKey
-        if !roleKey.isEmpty {
-            let sameRole = compatible.filter { !$0.isDerived && $0.roleKey == roleKey }
-            if sameRole.count == 1 { return .bound(sameRole[0], match: .role) }
-            if sameRole.count > 1 { return .ambiguous(sameRole.map(\.name)) }
-            // A value derived from a file the task names, whose role says exactly the parameter's.
-            let derivedRole = compatible.filter { $0.isDerived && $0.roleKey == roleKey }
-            if derivedRole.count == 1 { return .bound(derivedRole[0], match: .derived) }
+        let nameKey = identityKey(parameter.name)
+        let roleKey = identityKey(parameter.role)
+        let direct = candidates.filter { !$0.isDerived }
+        let named = direct.filter { !nameKey.isEmpty && $0.nameKey == nameKey }
+        if named.count > 1 { return ambiguity(named) }
+        if let value = named.first {
+            guard accepts(parameter.kind, value.kind),
+                  roleKey.isEmpty || value.roleKey == nil || value.roleKey == "" || value.roleKey == roleKey
+            else { return .missing }
+            return .bound(value, match: .name)
         }
-        let wanted = parameter.words
-        guard !wanted.isEmpty else { return .missing }
-        let scored = compatible.map { value -> (Value, Double) in
-            (value, Double(wanted.intersection(value.words).count) / Double(wanted.count))
-        }.filter { $0.1 >= 0.5 }.sorted { $0.1 > $1.1 }
-        guard let best = scored.first else { return .missing }
-        if scored.count > 1, best.1 - scored[1].1 < 0.25 { return .ambiguous(scored.prefix(4).map(\.0.name)) }
-        return .bound(best.0, match: best.0.isDerived ? .derived : .role)
+        guard !roleKey.isEmpty else { return .missing }
+        let sameRole = direct.filter { $0.roleKey == roleKey }
+        if sameRole.count > 1 { return ambiguity(sameRole) }
+        if let value = sameRole.first {
+            let sameName = direct.filter { $0.nameKey == value.nameKey }
+            if sameName.count > 1 { return ambiguity(sameName) }
+            guard accepts(parameter.kind, value.kind) else { return .missing }
+            return .bound(value, match: .role)
+        }
+        let derived = candidates.filter { $0.isDerived && $0.roleKey == roleKey }
+        if derived.count > 1 { return ambiguity(derived) }
+        if let value = derived.first, accepts(parameter.kind, value.kind) {
+            if let component = value.name.lastIndex(of: ".") {
+                let sourceKey = identityKey(String(value.name[..<component]))
+                let sources = direct.filter { $0.nameKey == sourceKey }
+                if sources.count > 1 { return ambiguity(sources) }
+            }
+            return .bound(value, match: .derived)
+        }
+        return .missing
+    }
+
+    /// Whether this task explicitly supplies the parameter's identity, even with incompatible facts.
+    /// Historical producer feeds must not overwrite an input rejected for its role or kind.
+    package static func hasIdentityCandidate(_ parameter: RecallSource.Parameter, among candidates: [Value]) -> Bool {
+        let name = identityKey(parameter.name)
+        let role = identityKey(parameter.role)
+        return candidates.contains {
+            !$0.isDerived && ((!name.isEmpty && $0.nameKey == name) || (!role.isEmpty && $0.roleKey == role))
+        }
+    }
+
+    /// Normalizes identity without the truncation or stop-word removal used for search relevance.
+    private static func identityKey(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+            .lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .joined(separator: " ")
+    }
+
+    private static func ambiguity(_ candidates: [Value]) -> Outcome {
+        .ambiguous(candidates.map(\.name).sorted())
     }
 
     /// Whether a parameter of one kind can take a value of another.
     static func accepts(_ parameter: TaskValueKind, _ value: TaskValueKind) -> Bool {
         switch parameter {
-            case .text     : [.text, .reference, .number].contains(value)
+            case .text     : value == .text
             case .file     : [.file, .reference].contains(value)
             case .folder   : value == .folder
             case .number   : value == .number

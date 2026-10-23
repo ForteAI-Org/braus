@@ -383,6 +383,9 @@ public enum RecallSelector {
             }
             var feeds: [String: RecallSource.Feed] = [:]
             for input in source.parameters where input.direction != .output {
+                // An untyped task output cannot supply the unit evidence this input requires.
+                guard input.unit?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+                      !RecallBinding.hasIdentityCandidate(input, among: context.candidates) else { continue }
                 guard let read = source.steps.first(where: { $0.parameterIDs.contains(input.parameterID) })?.position,
                       let feed = source.feed(of: input), let part = producers[feed.output.parameterID], part.lastPosition < read else { continue }
                 feeds[input.parameterID] = feed

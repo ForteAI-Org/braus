@@ -1118,7 +1118,19 @@ public actor RecallService {
                                                         status: status, value: secret ? "[withheld]" : value?.text,
                                                         from: requirement.taskValueName, match: requirement.bindingMatch?.rawValue,
                                                         candidates: requirement.candidates.isEmpty ? nil : requirement.candidates)
-                    if requirement.kind == .parameterMissing { item.producedBy = Self.dependency(of: parameter, in: source, candidates: candidates) }
+                    item.unit = parameter.unit
+                    if requirement.kind == .parameterMissing {
+                        if (parameter.unit?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                           !RecallBinding.hasIdentityCandidate(parameter, among: candidates) {
+                            item.producedBy = Self.dependency(of: parameter, in: source, candidates: candidates)
+                        } else if !(parameter.unit?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+                            conditions.append(RecallDelivery.Condition(
+                                kind: "unit_unresolved", step: step,
+                                detail: "{\(parameter.name)} requires unit '\(parameter.unit ?? "")'; task values have no unit evidence. "
+                                    + "Resolve the quantity explicitly; no conversion or automatic binding was performed."
+                            ))
+                        }
+                    }
                     rendered.append(item)
                 case .entryState:
                     let app = requirement.bundleID.map(RecallDocument.deliveredName) ?? "the application"

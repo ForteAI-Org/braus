@@ -71,6 +71,8 @@ nonisolated public struct RecallDelivery: Encodable, Sendable {
         public let from: String?
         public let match: String?
         public let candidates: [String]?
+        /// The method's required unit, not evidence that the task value has that unit.
+        public var unit: String? = nil
         /// For a missing input the source's attempts state an earlier part produced: that part, which the selection does
         /// not include, as the dependency to prepare first.
         public var producedBy: String? = nil
