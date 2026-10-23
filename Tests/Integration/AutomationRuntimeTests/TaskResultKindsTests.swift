@@ -6,6 +6,7 @@
 //
 
 import AutomationMCP
+import CoreGraphics
 @testable import AutomationRuntime
 import EngineCore
 import Foundation
@@ -382,6 +383,44 @@ struct TaskResultJudgmentTests {
         #expect(judge(.nothing(reason: "r")) == .unknown)
         #expect(C.combined([.passed, .passed]) == .passed && C.combined([.passed, .failed]) == .failed
                 && C.combined([.passed, .unknown]) == .unknown && C.combined([]) == nil)
+    }
+
+    @Test("a value only the native reading carries: exact, one element, and changed since the task began")
+    func nativeValue() {
+        let observation = NativeControlObservation(observationID: UUID(), processID: 42, windowNumber: 7,
+                                                   windowFrame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        func button(_ label: String, _ native: NativeAttributeReading, attested: Bool = true, x: Double = 0) -> SceneElement {
+            var facts = NativeControlFacts(role: .value(.string("AXButton")), subrole: .noValue, value: native, selected: .noValue,
+                                           ownerProcessID: 42)
+            if attested { facts.observation = observation }
+            return SceneElement(id: label + "\(x)", kind: .control, label: label,
+                                bounds: NormalizedRect(x: x, y: 0, width: 0.1, height: 0.1), role: "AXButton", nativeFacts: facts)
+        }
+        func scene(_ elements: [SceneElement]) -> SceneSnapshot {
+            SceneSnapshot(bundleID: "b", appName: "B", windowTitle: "Edit",
+                          viewportPixelSize: ViewportPixelSize(width: 100, height: 100), elements: elements)
+        }
+        let selected = scene([button("Shuffle", .value(.string("Selected")))])
+        let plain = scene([button("Shuffle", .value(.string("")))])
+        func judge(_ now: SceneSnapshot, opening: SceneSnapshot?, value: String = "Selected") -> VerificationVerdict {
+            C.judge(.element(app: nil, label: "Shuffle", expect: .value(value)), attemptID: "a", windows: nil, scene: now,
+                    opening: opening).verdict
+        }
+        #expect(judge(selected, opening: plain) == .passed, "the steps changed the native value to the one expected")
+        #expect(judge(selected, opening: selected) == .unknown, "it already read Selected when the task began")
+        #expect(judge(selected, opening: nil) == .unknown, "no beginning to compare with")
+        #expect(judge(selected, opening: plain, value: "selected") == .failed, "exact equality only")
+        #expect(judge(scene([button("Shuffle", .value(.string("Slip")))]), opening: plain) == .failed, "another native value now")
+        #expect(judge(plain, opening: selected) == .unknown, "an empty native value now proves nothing")
+        #expect(judge(scene([button("Shuffle", .value(.string("Selected")), attested: false)]), opening: plain) == .unknown,
+                "a raw fact of no attested observation is not read")
+        #expect(judge(scene([button("Shuffle", .value(.boolean(true)))]), opening: plain) == .unknown,
+                "a boolean is never turned into a value or a state")
+        #expect(judge(scene([button("Shuffle", .value(.string("Selected"))), button("Shuffle", .value(.string("")), x: 0.5)]),
+                      opening: plain) == .unknown, "two elements with that label")
+        let reading = C.judge(.element(app: nil, label: "Shuffle", expect: .value("Selected")), attemptID: "a", openedAtMS: 0,
+                              reading: .screen(windows: nil, scene: selected, opening: plain))
+        #expect(reading.verdict == .passed)
     }
 
     @Test("every kind is kept as text and read back the same; the first version's plain path is a file written")

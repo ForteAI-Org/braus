@@ -274,6 +274,41 @@ struct TypedSecretTests {
         #expect(try Self.gaps(harness).contains("text:unclassified_target"))
     }
 
+    // MARK: BK01: a declared ordinary input typed where the target cannot be attested
+
+    static func begin(_ harness: Harness, inputs: [[String: LocalMCP.JSONValue]]) async throws {
+        _ = try await harness.tools.call("memory_task", .object([
+            "operation": .string("begin"), "goal": .string("Name the track"),
+            "inputs": .array(inputs.map { .object($0) }),
+        ]))
+    }
+
+    @Test("BK01: a text the open task declared as an ordinary input is kept at a focus the page cannot attest")
+    func declaredOrdinaryInputIsKept() async throws {
+        let harness = try await Self.harness()
+        defer { Self.remove(harness) }
+        try await Self.begin(harness, inputs: [["name": .string("track_name"), "value": .string("Kick Bus 2")]])
+        harness.session.page.run("document.activeElement = { tagName: 'IFRAME', contentDocument: null };")
+        _ = try await Self.call(harness, "insert_text", ["text": .string("Kick Bus 2")])
+        await Self.finish(harness)
+        #expect(try !Self.gaps(harness).contains("text:unclassified_target"), "the task already stores it as given")
+        #expect(harness.transcript.lines.contains { $0.contains("Kick Bus 2") })
+    }
+
+    @Test("BK01: a secret input, a credential's shape or another text stay withheld at a focus the page cannot attest",
+          arguments: [("secret", true), ("sk-ant-api03-\(fragment)abcdefghijklmnop", false), ("other", false)])
+    func otherTextsStayWithheld(declared: String, secret: Bool) async throws {
+        let harness = try await Self.harness()
+        defer { Self.remove(harness) }
+        let value = declared == "secret" ? "hidden-\(Self.fragment)" : declared == "other" ? "kept-name" : declared
+        let typed = declared == "other" ? "typed-\(Self.fragment)" : value
+        try await Self.begin(harness, inputs: [["name": .string("value"), "value": .string(value), "secret": .bool(secret)]])
+        harness.session.page.run("document.activeElement = { tagName: 'IFRAME', contentDocument: null };")
+        let answer = try await Self.call(harness, "insert_text", ["text": .string(typed)])
+        await Self.finish(harness)
+        try Self.expectWithheld(typed, in: harness, answers: [answer])
+    }
+
     // MARK: T10, T11, T13: no memory, errors, cancellation, the last output
 
     @Test("T10: with no memory, nothing is recorded and the transcript still withholds", arguments: variants)

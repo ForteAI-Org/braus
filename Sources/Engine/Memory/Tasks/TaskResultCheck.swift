@@ -260,8 +260,10 @@ public struct TaskResultCheck: Sendable, Equatable {
 
     /// The verdict on a check of the screen. `windows` are the titles of the application's windows the window server
     /// lists, nil when the application is not running or could not be listed; `scene` is the scene the session read
-    /// at the check, nil when no session of the application was open.
-    public static func judge(_ expectation: Expectation, attemptID: String, windows: [String]?, scene: SceneSnapshot?) -> TaskResultCheck {
+    /// at the check, nil when no session of the application was open; `opening` is the scene it read when the task
+    /// began, nil when it read none.
+    public static func judge(_ expectation: Expectation, attemptID: String, windows: [String]?, scene: SceneSnapshot?,
+                             opening: SceneSnapshot? = nil) -> TaskResultCheck {
         func verdict(_ verdict: VerificationVerdict, _ observed: String) -> TaskResultCheck {
             TaskResultCheck(attemptID: attemptID, expectation: expectation, verdict: verdict, observed: observed)
         }
@@ -293,8 +295,8 @@ public struct TaskResultCheck: Sendable, Equatable {
                     case .value(let value):
                         guard !matching.isEmpty else { return verdict(.failed, "no element with that label in the scene") }
                         let read = matching.compactMap(\.value)
-                        guard !read.isEmpty else { return verdict(.unknown, "the element shows no value Braus can read") }
                         let expected = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !read.isEmpty else { return nativeVerdict(matching, expected: expected, opening: opening, label: wanted, verdict) }
                         let same = read.contains { shown in
                             let shown = shown.trimmingCharacters(in: .whitespacesAndNewlines)
                             return shown == expected || (!LabelText.normalize(expected).isEmpty
@@ -316,11 +318,41 @@ public struct TaskResultCheck: Sendable, Equatable {
         }
     }
 
+    /// The verdict on a value only a control's raw native value carries: a tool or a mode button has no accessible
+    /// value, yet reads "Selected" natively, and 31 checks in 30 attempts stayed unknown (Pro Tools,
+    /// 22 October 2026). Only one element, an exact string, and a change from the task's beginning pass: a value the
+    /// control already showed then proves nothing the steps did, and a raw fact is never read as a state.
+    private static func nativeVerdict(_ matching: [SceneElement], expected: String, opening: SceneSnapshot?, label: String,
+                                      _ verdict: (VerificationVerdict, String) -> TaskResultCheck) -> TaskResultCheck {
+        // An empty native value now proves nothing either way; at the beginning it is a value the control showed.
+        let native = matching.compactMap(nativeValue).filter { !$0.isEmpty }
+        guard !native.isEmpty else { return verdict(.unknown, "the element shows no value Braus can read") }
+        guard matching.count == 1 else { return verdict(.unknown, "several elements carry that label, so the value is not told apart") }
+        guard native[0] == expected else { return verdict(.failed, "the element's native value is another") }
+        guard let opening else {
+            return verdict(.unknown, "the element's value when the task began was not read, so no change can be told")
+        }
+        let before = opening.elements.filter { LabelText.normalize($0.label) == label || $0.id == label }
+        guard before.count == 1, let was = nativeValue(before[0]) else {
+            return verdict(.unknown, "the element's native value when the task began was not read, so no change can be told")
+        }
+        return was == expected ? verdict(.unknown, "the element already showed that value when the task began")
+            : verdict(.passed, "the element's native value is the one expected, and it was another when the task began")
+    }
+
+    /// The raw native string value of an element read in an attested observation, empty included; nil for any other
+    /// reading, a boolean or a number among them.
+    static func nativeValue(_ element: SceneElement) -> String? {
+        guard let facts = element.nativeFacts, facts.observation != nil,
+              case .value(.string(let text)) = facts.value else { return nil }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Reading is what Braus read for one check: the disk, now and when the task began, or the screen, the titles of
-    /// the application's windows and the scene its session showed.
+    /// the application's windows, the scene its session showed and the one it showed when the task began.
     public enum Reading: Sendable {
         case disk(before: FileFacts?, now: FileFacts, other: FileFacts? = nil)
-        case screen(windows: [String]?, scene: SceneSnapshot?)
+        case screen(windows: [String]?, scene: SceneSnapshot?, opening: SceneSnapshot? = nil)
         /// Braus could not read what the check is about, and why: an application named ambiguously, windows that could
         /// not be listed. Judged unknown, never as an absence (review A5-2, 14 October 2026).
         case unread(String)
@@ -332,7 +364,8 @@ public struct TaskResultCheck: Sendable, Equatable {
         switch reading {
             case .disk(let before, let now, let other):
                 judge(expectation, attemptID: attemptID, openedAtMS: openedAtMS, before: before, now: now, other: other)
-            case .screen(let windows, let scene): judge(expectation, attemptID: attemptID, windows: windows, scene: scene)
+            case .screen(let windows, let scene, let opening):
+                judge(expectation, attemptID: attemptID, windows: windows, scene: scene, opening: opening)
             case .unread(let why): TaskResultCheck(attemptID: attemptID, expectation: expectation, verdict: .unknown, observed: why)
             case .nothing: judge(expectation, attemptID: attemptID, windows: nil, scene: nil)
         }

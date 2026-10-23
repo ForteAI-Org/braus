@@ -19,6 +19,14 @@ struct AutomationToolsTests {
         #expect(!instructions.contains("Go to Folder opens with / in its field"))
     }
 
+    @Test("the interpretation says Braus judges the result check: an unread one never makes carried-out steps not_completed")
+    func interpretationLeavesTheResultCheckToBraus() {
+        let instructions = AutomationTools.instructions
+        #expect(instructions.contains("Braus judges the result check, not you"))
+        #expect(instructions.contains("declare the outcome of the steps you actually"))
+        #expect(instructions.contains("does not make them not_completed"))
+    }
+
     @Test("the instructions say that document apps save an edit by themselves, and how a panel's Go to Folder takes a path")
     func autosaveAndPanelPathGuidance() {
         let instructions = AutomationTools.instructions
@@ -496,7 +504,7 @@ struct AutomationToolsTests {
             ("insert_text", ["text": .string("x"), "target": .string("Name")]),
             ("insert_text", ["text": .string("x"), "expected_value": .bool(true)]),
             ("insert_text", ["text": .string("x"), "expected_value": .string("")]),
-            ("press_key", ["key": .string("f13")]),
+            ("press_key", ["key": .string("f20")]),
             ("press_key", ["key": .string("a"), "modifiers": .array([.string("hyper")])]),
             ("press_key", ["key": .string("a"), "count": .number(21)]),
             ("press_key", ["key": .string("a"), "count": .number(1.5)]),

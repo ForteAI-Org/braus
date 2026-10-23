@@ -83,6 +83,9 @@ public actor CallRecorder: ActionObserving {
     /// The window the call last perceived (an observation, or an action's or a selector's capture after
     /// acting), so a scene the call returns is placed in that window's state.
     private var lastPerceived: PerceivedWindow?
+    /// The first window this call perceived: an action's `before`, or an observation. What the open task's
+    /// application showed before the call acted, for a value check to compare with.
+    public private(set) var firstPerceived: PerceivedWindow?
     /// The observation events this call made for an application its own event does not name.
     private var observationEvents: [String: String] = [:]
     /// The route a routing session dispatched the call on, the last it reported, or the route of the session the call
@@ -451,6 +454,7 @@ public actor CallRecorder: ActionObserving {
         if contentTarget { withholdConfidential(wholes: [record.element.label]) }
         keep(effect: record.effect, controls: controls)
         attempt = record.attempt
+        if firstPerceived == nil { firstPerceived = record.before ?? record.after }
         if let after = record.after { lastPerceived = after }
         target  = OperationCheck.Target(record.element)
         await keep([(record.before, .before), (record.after, .after)], bundleID: record.bundleID)
@@ -542,6 +546,7 @@ public actor CallRecorder: ActionObserving {
             eventID = await observationEvent(for: identity)
         }
         lastPerceived = window
+        if firstPerceived == nil { firstPerceived = window }
         let surface = noteConfidential(scene)
         guard let eventID else { return await shown(scene, window: window) }
         let key = CaptureSampleKey(eventID: eventID, phase: .current)

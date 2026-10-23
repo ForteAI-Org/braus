@@ -65,6 +65,9 @@ public final class AutomationTools {
     /// Values withheld from the record so far (the task's secrets, typed secrets), in memory only, so
     /// every later record withholds them too. Never stored, never shown.
     private var secrets: [String] = []
+    /// The ordinary input values the open task declared in clear: a text typed into a field the seat cannot attest is
+    /// kept when it is one of them, since the task already stores it as given (BK01, 23 October 2026).
+    private var ordinaryInputs: Set<String> = []
     /// The confidential content the calls so far saw or read (P1-06): withheld from every later record and transcript
     /// line, on any surface, never from an answer, which the model needs to work with. In memory only, the most recent
     /// kept up to `confidentialLimit` of each kind.
@@ -74,6 +77,9 @@ public final class AutomationTools {
     /// The disk as the open task's file inputs stood when it declared them, by path: what a check of a file changed,
     /// kept or removed compares with. In memory only; kept until the next task begins, for the interpretation.
     private var fingerprints: [String: TaskResultCheck.FileFacts] = [:]
+    /// The first scene a call perceived after the open task began, nil before any: a value check passes only on a
+    /// native value the control did not already show then.
+    private var openingScene: SceneSnapshot?
     /// The check the last operation's path reported, for its record.
     private var lastCheck: OperationCheck?
     private var revision = 0
@@ -304,7 +310,10 @@ public final class AutomationTools {
     click the intended field and independently verify the desired selection before inserting. It does not
     select all or append by itself. expected_value is the complete resulting value, not just the inserted text.
     An opaque field remains acted_unverified: never replay; verify its committed effect separately.
-    press_key presses return, tab, escape, space, delete, an arrow, a letter, a digit, / or ~, with optional modifiers.
+    press_key presses return, tab, escape, space, delete, an arrow, a letter, a digit, a punctuation mark (= - [ ] \\ ; ' , . `),
+    / or ~, or a key named by its position: home, end, pageup, pagedown, forwarddelete, f1 to f19, keypad0 to keypad9,
+    keypadplus, keypadminus, keypadmultiply, keypaddivide, keypaddecimal, keypadequals, keypadenter, keypadclear,
+    with optional modifiers. A keypad key is not the main block's key: write keypadplus for the keypad's plus.
     scroll turns the wheel up or down over a target or the window; there is no horizontal scroll.
     For a control outside the viewport or covered by another panel, inspect the app's menus for a find,
     reveal or scroll-to command, or scroll over the relevant content, then observe again. One unchanged
@@ -609,7 +618,7 @@ public final class AutomationTools {
             let texts = step.texts
             guard case .input(let input, let section) = step, !texts.isEmpty else { continue }
             guard position == 0, current else {
-                for text in texts { scope.withhold(text, .unclassifiedTarget) }
+                for text in texts where !(current && isOrdinaryInput(text)) { scope.withhold(text, .unclassifiedTarget) }
                 continue
             }
             switch await session.classify(input, section: section) {
@@ -621,10 +630,29 @@ public final class AutomationTools {
                         for form in CallScope.forms(of: text) where !secrets.contains(form) { secrets.append(form) }
                     }
                 case .unclassified:
-                    for text in texts { scope.withhold(text, .unclassifiedTarget) }
+                    for text in texts where !isOrdinaryInput(text) { scope.withhold(text, .unclassifiedTarget) }
             }
         }
         return scope
+    }
+
+    /// True for a text the open task declared as an ordinary input value, which no secret or credential shape holds.
+    private func isOrdinaryInput(_ text: String) -> Bool {
+        ordinaryInputs.contains(text) && !secrets.contains(where: text.contains) && !ValueMinimization.hasCredentialShape(text)
+    }
+
+    /// The input and parameter values a `memory_task` declares in clear: neither marked secret, nor a credential's
+    /// shape, nor one of the producer's secrets.
+    static func ordinaryInputs(in arguments: JSONValue, secrets: [String]) -> Set<String> {
+        var found: Set<String> = []
+        for key in ["inputs", "parameters"] {
+            for item in arguments[key].array ?? [] {
+                guard let text = item["value"].string, !text.isEmpty, item["secret"].bool != true,
+                      !ValueMinimization.hasCredentialShape(text), !secrets.contains(where: text.contains) else { continue }
+                found.insert(text)
+            }
+        }
+        return found
     }
 
     /// What an `app_call` withholds (P12): the values of the verb's content parameters (`AdapterParameter.isContent`, a
@@ -770,6 +798,8 @@ public final class AutomationTools {
             let value = try await CallRecorder.$current.withValue(recorder) {
                 try await self.answer(name, arguments, recorder: recorder)
             }
+            // The open task's first perceived scene is its beginning for a value check; no observation is added for it.
+            if openTask != nil, openingScene == nil { openingScene = await recorder.firstPerceived?.scene }
             // The notice is read after the end, which may itself be saved only in part.
             let notice: String?
             do {
@@ -1076,6 +1106,8 @@ public final class AutomationTools {
                 }
                 keep(declared)
                 fingerprints = Self.fingerprints(of: arguments["inputs"])
+                ordinaryInputs = Self.ordinaryInputs(in: arguments, secrets: secrets)
+                openingScene = nil
                 let opened = try await TaskChannel.begin(
                     content,
                     producer: producer,
@@ -1114,6 +1146,7 @@ public final class AutomationTools {
                 )
                 openTask = revised
                 for (path, facts) in Self.fingerprints(of: arguments["inputs"]) where fingerprints[path] == nil { fingerprints[path] = facts }
+                ordinaryInputs.formUnion(Self.ordinaryInputs(in: arguments, secrets: secrets))
                 return open(revised, "revised")
             case .checkpoint(let draft, let declared, let uses, let checks), .end(let draft, let declared, let uses, let checks):
                 guard let current = openTask else { throw Self.noOpenTask }
@@ -1633,7 +1666,8 @@ public final class AutomationTools {
             var screen: TaskResultCheck.Reading?
             switch named.read {
                 case .window(let app, _, _): screen = await windowReading(of: app)
-                case .element(let app, _, _): screen = .screen(windows: nil, scene: await currentScene(of: app))
+                case .element(let app, _, _):
+                    screen = .screen(windows: nil, scene: await currentScene(of: app), opening: openingScene)
                 default: break
             }
             do {
@@ -2684,7 +2718,10 @@ public final class AutomationTools {
                 self = .input(.insertText(text, expecting: try optionalString(args, "expected_value")), section: nil)
             case "press_key":
                 guard let key = KeyChord.Name(try requiredString(args, "key")) else {
-                    throw AutomationFailure("key must be return, tab, escape, space, delete, an arrow, a letter, a digit, / or ~.")
+                    throw AutomationFailure("key must be return, tab, escape, space, delete, an arrow, a letter, a digit, "
+                        + "a punctuation mark, / or ~, or a position: home, end, pageup, pagedown, forwarddelete, f1 to f19, "
+                        + "keypad0 to keypad9, keypadplus, keypadminus, keypadmultiply, keypaddivide, keypaddecimal, "
+                        + "keypadequals, keypadenter or keypadclear.")
                 }
                 var modifiers: KeyModifiers = []
                 if object["modifiers"] != nil {

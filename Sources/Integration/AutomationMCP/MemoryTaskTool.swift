@@ -396,7 +396,8 @@ nonisolated enum MemoryTaskTool {
     name, so the method works on any file. Leave fixed controls, commands and menu items as they are;
     a text equal to a value is not a use unless you state it. Braus checks every reference and use against the
     recorded actions and qualifies each part from its verified operations and the result checks that follow it; it
-    does not change the steps. When the end named no result_check, give it in the same interpret call. The candidate's
+    does not change the steps. Braus judges the result check, not you: declare the outcome of the steps you actually
+    carried out, and a result check Braus cannot read (unknown) does not make them not_completed. When the end named no result_check, give it in the same interpret call. The candidate's
     known_phases are runs of its steps that do what a phase learned in other procedures does, with the label most of them
     were given: make each a phase with that label unless it is wrong for this task, so procedures share their phases.
     """
