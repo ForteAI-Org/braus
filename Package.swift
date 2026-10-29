@@ -233,7 +233,7 @@ let package = Package(
     products : [
         .library(name: "BrausChat",
                  targets: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
-                           "AutomationRuntime", "AutomationMCP"]),
+                           "AutomationRuntime", "AutomationMCP", "Telemetry"]),
         .library(
             name: "BrausDriver",
             targets: ["SeatCore", "PrivateSymbols", "VirtualScreens", "WindowPlacement",
@@ -300,6 +300,11 @@ let package = Package(
         // The `os_signpost` intervals of a phase measurement build. Empty unless `BRAUS_PHASES` is set,
         // which no default build does; see Documentation/Driver/README.md, "Measuring the phases".
         broker("PhaseSignposts", []),
+
+        // MARK: Telemetry
+        // Braus's anonymous usage metrics and their OTLP/HTTP export: nothing is sent until the app starts it,
+        // with the person's and the environment's leave; see Documentation/Telemetry.md.
+        broker("Telemetry", []),
 
         // MARK: ModelTransports
         // How a model is talked to: one structured request, one streamed
@@ -519,7 +524,7 @@ let package = Package(
                     "MacDriver"]),
         integration("AutomationMCP", ["AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts",
-                                     "AppAdapters", "TaskRouting"]),
+                                     "AppAdapters", "TaskRouting", "Telemetry"]),
         // The task router's rules and its catalogue of default routes: pure, and consulted before a session opens.
         integration("TaskRouting", settings: pure),
         // The session before the drivers: it sends each open to the web, the native driver or the desktop
@@ -636,6 +641,7 @@ let package = Package(
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
                                                     "TestScratch", "AppAdapters", "TaskRouting"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
+        .testTarget(name: "TelemetryTests", dependencies: ["Telemetry"], path: "Tests/Telemetry", swiftSettings: pure),
         .testTarget(
             name: "BrausCLITests",
             dependencies: ["braus", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",

@@ -13,6 +13,7 @@ import PhaseSignposts
 import PrivateSymbols
 import SeatCore
 import TaskRouting
+import Telemetry
 
 /// CallProducer is who makes a set of tool calls, as the living memory records them: the source (the
 /// app's worker, an external client, the command line), the stream that tells two producers of one
@@ -568,11 +569,23 @@ public final class AutomationTools {
         defer { tool.end() }
         #endif
         let scope = await scope(of: name, arguments)
+        // Counted once the call ends: its name, the outcome word its answer carries and its duration, nothing else.
+        let started = ContinuousClock.now
+        var counted = "error"
+        defer {
+            let elapsed = ContinuousClock.now - started
+            Telemetry.toolCall(name, outcome: counted, seconds: Double(elapsed.components.seconds)
+                + Double(elapsed.components.attoseconds) / 1e18)
+        }
         do {
-            return try await CallScope.$current.withValue(scope) {
+            let answer = try await CallScope.$current.withValue(scope) {
                 try await MemoryService.labelled("tool \(name)") { try await toolCall(name, arguments) }
             }
+            counted = Telemetry.outcome(inAnswerText: answer["content"].array?.first?["text"].string,
+                                        isError: answer["isError"].bool ?? false)
+            return answer
         } catch {
+            if error is CancellationError { counted = "cancelled" }
             // The error reaches the model and its log: the producer's secrets and what the call withholds are
             // withheld from it too.
             let shown = ValueMinimization(secrets: secrets, classified: scope.withheld, scrubsCredentials: false)

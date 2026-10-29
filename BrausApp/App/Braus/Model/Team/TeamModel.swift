@@ -19,6 +19,7 @@ import PerceptionCore
 import Router
 import os
 import SeatBroker
+import Telemetry
 import WebSession
 
 /// A problem in the language an alert needs: a specific title, an actionable
@@ -703,8 +704,9 @@ final class TeamModel {
             // no longer connected, closes first, so this turn opens its page where the person now chose.
             await webs[conversationID]?.session.closeIfSuperseded()
             var ending: WorkerTurnRecorder.Ending?
+            var provider: ModelProvider?
+            let started = ContinuousClock.now
             do {
-                var provider: ModelProvider?
                 let ended = try await recorder.run { frozen, session, emit in
                     provider = frozen.provider
                     if pendingStops.remove(workerID) != nil { throw CancellationError() }
@@ -752,6 +754,13 @@ final class TeamModel {
                     error  : error
                 )
             }
+            // Counted with its provider, how it ended and how long it took; nothing of the conversation is.
+            let elapsed = ContinuousClock.now - started
+            Telemetry.turn(
+                provider: provider?.rawValue ?? "other",
+                ending  : Self.telemetryEnding(ending),
+                seconds : Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+            )
 
             // The limits are the account's, so the worker on screen may share them.
             await refreshUsage(of: workerID)
@@ -777,6 +786,15 @@ final class TeamModel {
             } else {
                 answering[workerID] = nil
             }
+        }
+    }
+
+    /// The word a turn's ending is counted under; a turn that ended without one, its record unsaved, failed.
+    nonisolated static func telemetryEnding(_ ending: WorkerTurnRecorder.Ending?) -> String {
+        switch ending {
+        case .completed: "completed"
+        case .cancelled: "cancelled"
+        case .failed, nil: "failed"
         }
     }
 

@@ -49,6 +49,8 @@ Grant access for the features you use:
 | Chrome profile connection | Explicit pairing with the Braus extension when using a chosen Chrome profile. |
 | Input Monitoring | Separate passive diagnostics when explicitly started; not a Watcher capability of the local MCP grant. |
 
+The app sends anonymous usage metrics (tool names, outcomes and durations, with a random installation ID) unless you turn them off; [Telemetry](Telemetry.md) lists everything sent and how to stop it.
+
 When adapters are enabled, **Settings → Apps** shows availability and permission requests. Granting an app permission does not enable its automation channel. Some irreversible adapter actions also require approval for that individual call. The app can ask for this approval; CLI chat has no approver and refuses those actions.
 
 The desktop window-to-text pipeline runs on your Mac. A remote model can receive window text, task context and relevant app knowledge. Other tools, including browser tools, can return screenshots; the data sent depends on the tools and model connection used.

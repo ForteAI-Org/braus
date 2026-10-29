@@ -23,6 +23,13 @@ enum AppPreferences {
     static let chatFontFamily        = "chat.fontFamily"
     static let chatFontFamilyDefault = ""
 
+    /// Whether Braus sends its anonymous usage metrics (`AppTelemetry`). On for a new installation.
+    static let sharesTelemetry        = "telemetry.enabled"
+    static let sharesTelemetryDefault = true
+
+    /// Whether the person was told, once, that Braus sends anonymous usage metrics.
+    static let toldOfTelemetry = "telemetry.noticeShown"
+
     // MARK: Computer
 
     /// The virtual display a worker's seat is made with, as `SeatDisplay`'s width by height in pixels.

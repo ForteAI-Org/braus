@@ -11,8 +11,9 @@ import UniformTypeIdentifiers
 
 /// GeneralSettings is how the conversation reads, its text size and font
 /// with an example reply set in them, and whether the connections are checked
-/// as the app starts. The size is the one View > Bigger and Smaller change.
-/// Troubleshooting exports the log for a bug report.
+/// as the app starts, and whether Braus shares its anonymous usage metrics.
+/// The size is the one View > Bigger and Smaller change. Troubleshooting
+/// exports the log for a bug report.
 struct GeneralSettings: View {
 
     @AppStorage(TextSizeCommands.storageKey)
@@ -23,6 +24,9 @@ struct GeneralSettings: View {
 
     @AppStorage(AppPreferences.checksConnectionsAtLaunch)
     private var checksConnectionsAtLaunch = AppPreferences.checksConnectionsAtLaunchDefault
+
+    @AppStorage(AppPreferences.sharesTelemetry)
+    private var sharesTelemetry = AppPreferences.sharesTelemetryDefault
 
     /// The families installed on this Mac, read once for the menu.
     @State private var families = NSFontManager.shared.availableFontFamilies
@@ -71,6 +75,24 @@ struct GeneralSettings: View {
                 )
             } footer: {
                 Text("Braus checks each provider, including the Codex and Claude command-line tools.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle(
+                    "Share anonymous usage metrics",
+                    isOn: $sharesTelemetry
+                )
+                .disabled(AppTelemetry.isDisabledByEnvironment)
+                .onChange(of: sharesTelemetry) { AppTelemetry.apply() }
+            } header: {
+                Text("Privacy")
+            } footer: {
+                Text(AppTelemetry.isDisabledByEnvironment
+                     ? "Off for this launch: DO_NOT_TRACK or BRAUS_TELEMETRY is set."
+                     : "Which tools ran, how they ended and how long they took, with a random installation ID. "
+                       + "Never your messages, files, pages, apps or account.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

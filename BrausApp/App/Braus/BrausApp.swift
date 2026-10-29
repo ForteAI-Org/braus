@@ -8,6 +8,7 @@
 import AutomationRuntime
 import SeatBroker
 import SwiftUI
+import Telemetry
 
 /// Started by `BrausEntry`, which refuses an isolated run that is not valid first.
 struct BrausApp: App {
@@ -21,6 +22,12 @@ struct BrausApp: App {
 
     @NSApplicationDelegateAdaptor(SeatReleasingDelegate.self)
     private var delegate
+
+    /// Whether the person was told that Braus sends anonymous usage metrics, which the first launch does once.
+    @AppStorage(AppPreferences.toldOfTelemetry)
+    private var toldOfTelemetry = false
+
+    @State private var showsTelemetryNotice = false
 
     /// A snapshot or window check run, which draws its own windows and quits,
     /// or the host of the unit tests, which must not open the person's workspace either.
@@ -47,6 +54,7 @@ struct BrausApp: App {
         if Self.isCheckRun || LaunchIsolation.current.isIsolated {
             UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true])
         }
+        AppTelemetry.apply()
     }
 
     var body: some Scene {
@@ -71,6 +79,20 @@ struct BrausApp: App {
                     delegate.teams.allObjects.contains { !$0.answering.isEmpty } || model.mcp.isBusy
                 }
                 if !Self.isCheckRun { await model.mcp.prepare() }
+                showsTelemetryNotice = !toldOfTelemetry && Telemetry.isRunning
+            }
+            // Said once, on the first launch that sends: what is sent, and where to turn it off.
+            .alert("Braus Shares Anonymous Usage Metrics", isPresented: $showsTelemetryNotice) {
+                Button("OK") { toldOfTelemetry = true }
+                Button("Turn Off") {
+                    toldOfTelemetry = true
+                    UserDefaults.standard.set(false, forKey: AppPreferences.sharesTelemetry)
+                    AppTelemetry.apply()
+                }
+            } message: {
+                Text("To improve Braus, it sends Forte which tools ran, how they ended and how long they took, "
+                     + "with a random installation ID. Never your messages, files, pages, apps or account. "
+                     + "You can turn this off any time in Settings > General.")
             }
         }
         // A snapshot run draws offscreen and quits; it opens no window and no workspace.

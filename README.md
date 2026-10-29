@@ -165,6 +165,13 @@ Test hardware: Apple M4, 16 GB RAM, macOS 27.0.1 (26A434). Estimated context is 
 
 [Read the method, results and per-operation data →](Documentation/Driver/reports/CUADriverBenchmark20261013.md) · [6 October benchmark](Documentation/Driver/reports/CUADriverBenchmark20261006.md)
 
+## Telemetry
+
+The Braus app sends anonymous usage metrics to Forte: which tools ran, how they ended and how long they took,
+and how worker turns ended, with a random installation ID. Never your messages, files, pages, apps or
+account. Turn it off in **Settings → General → Privacy**, or with `DO_NOT_TRACK=1` or `BRAUS_TELEMETRY=0`.
+The command line and the tests never send. [Everything that is sent →](Documentation/Telemetry.md)
+
 ## Contribute
 
 We welcome help with Qt driver coverage, UXP and Flutter support, missing Perception controls, and feedback on Brain and Memory as you use apps. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and [GitHub Issues](https://github.com/ForteAI-Org/braus/issues).
