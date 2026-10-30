@@ -82,12 +82,18 @@ struct ScenePipelineControlStateTests {
         let pill = CGRect(x: 40, y: 40, width: 40, height: 20)
         let asked = FixedControlState.Recorder()
         let reader = FixedControlState(toggle: .on, mark: nil, asked: asked)
+        let fact = OutOfViewField(label: "Tempo", value: "97", role: "AXTextField")
+        let augmentation = ScenePipelineTests.FixedAugmentation(elements: [], seen: .init(), outOfViewFields: [fact])
+        var captured = window
+        captured.processID = 42
+        captured.frame = CGRect(x: 100, y: 100, width: 1000, height: 500)
         let scene = try await ScenePipeline(
-            text: FixedText(), regions: FixedRegions(boxes: [pill]), controlState: reader
-        ).perceive(try blank(1000, 500), of: window)
+            text: FixedText(), regions: FixedRegions(boxes: [pill]), augmentation: augmentation, controlState: reader
+        ).perceive(try blank(1000, 500), of: captured)
         #expect(asked.candidates.map(\.shape) == [.toggle])
         #expect(scene.elements.count == 1)
         #expect(scene.elements.first?.state == .on)
+        #expect(scene.outOfViewFields == [fact])
     }
 
     @Test("a reader that will not commit leaves the control silent")

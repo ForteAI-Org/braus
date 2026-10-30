@@ -63,6 +63,7 @@ public enum AccessibilityAugmentation {
     private static let statefulRoles: Set<String> = [
         "AXCheckBox", "AXRadioButton", "AXComboBox", "AXButton", "AXMenuButton",
     ]
+    private static let maxOutOfViewFields = 16
     private static let placeholder = "missing value"
 
     // MARK: Harvest
@@ -118,6 +119,7 @@ public enum AccessibilityAugmentation {
             ))
         }
         var out: [SceneElement] = []
+        var outOfViewFields: [OutOfViewField] = []
         var staticText: [SceneElement] = []
         var tables       = 0
         var nodesVisited = 0
@@ -171,7 +173,10 @@ public enum AccessibilityAugmentation {
         // in its parent (System Settings), else by its identifier, else by its role: never dropped.
         func caption(of node: Reader.Node, after preceding: Reader.Node?) -> (String, LabelOrigin?) {
             if let preceding, reader.role(preceding) == "AXStaticText",
-               let (text, _) = firstLabel([(reader.value(preceding), .value), (reader.title(preceding), .title)]),
+               let (text, _) = firstLabel([
+                   (reader.value(preceding, role: "AXStaticText", subrole: nil), .value),
+                   (reader.title(preceding), .title)
+               ]),
                text.count <= 48 {
                 return (text, .value)
             }
@@ -188,7 +193,10 @@ public enum AccessibilityAugmentation {
         // colon. Any other text there is content, not the field's name.
         func formCaption(before preceding: Reader.Node?) -> String? {
             guard let preceding, reader.role(preceding) == "AXStaticText",
-                  let (text, _) = firstLabel([(reader.value(preceding), .value), (reader.title(preceding), .title)]),
+                  let (text, _) = firstLabel([
+                   (reader.value(preceding, role: "AXStaticText", subrole: nil), .value),
+                   (reader.title(preceding), .title)
+               ]),
                   text.hasSuffix(":"), text.count <= 48
             else { return nil }
             return text
@@ -196,13 +204,23 @@ public enum AccessibilityAugmentation {
 
         func walk(_ node: Reader.Node, _ depth: Int, _ clip: CGRect, _ container: String?,
                   collectionPath: String?, column: String? = nil, rowName: String? = nil,
-                  insideControl: Bool = false, insideWebContent: Bool = false, preceding: Reader.Node? = nil) {
+                  insideControl: Bool = false, insideWebContent: Bool = false,
+                  insideScrollingContent: Bool = false, preceding: Reader.Node? = nil) {
             guard depth < limits.maxDepth else { return stop(.depthLimit) }
             guard out.count < limits.maxElements else { return stop(.elementLimit) }
             guard !limits.isPastDeadline() else { return stop(.deadline) }
             nodesVisited += 1
-            let role = reader.role(node) ?? ""
+            let role = (depth == 0 ? windowRole : reader.role(node)) ?? ""
+            let subrole: String?
+            if depth == 0 {
+                subrole = windowSubrole
+            } else if reader.requiresValueClassification && textEntryRoles.contains(role) {
+                subrole = reader.subrole(node)
+            } else {
+                subrole = nil
+            }
             let webContent = insideWebContent || role == "AXWebArea"
+            let scrollingContent = insideScrollingContent || clippingRoles.contains(role)
             var childContainer = container
             var isNamed = false
             if role == "AXGroup" || tableRoles.contains(role),
@@ -258,21 +276,33 @@ public enum AccessibilityAugmentation {
                     for (index, cell) in cells.enumerated() {
                         walk(cell, depth + 2, childClip, owner, collectionPath: collection,
                              column: aligned ? columns[index] : nil, rowName: label,
-                             insideControl: insideControl, insideWebContent: webContent)
+                             insideControl: insideControl, insideWebContent: webContent,
+                             insideScrollingContent: scrollingContent)
                     }
                 }
                 return
             }
             if role == "AXStaticText", !insideControl, let frame = reader.frame(node) {
-                let value = reader.value(node)
+                let value = reader.value(node, role: role, subrole: subrole)
                 if let (label, origin) = firstLabel([(value, .value), (reader.title(node), .title)]),
                    label.count <= 48, rowName != cleanLabel(label) {
                     emit(frame, role: role, label: label, origin: origin, state: nil, clip: clip,
                          container: container, collectionPath: collectionPath, value: value, kind: .text)
                 }
             }
+            if textEntryRoles.contains(role), outOfViewFields.count < maxOutOfViewFields,
+               clip == windowFrame, !scrollingContent, let frame = reader.frame(node),
+               [frame.minX, frame.minY, frame.width, frame.height].allSatisfy(\.isFinite),
+               frame.width > 0, frame.height > 0, !windowFrame.intersects(frame),
+               let label = firstText([reader.descriptionText(node), reader.title(node), reader.identifier(node)]),
+               label.count <= 48, let value = reader.value(node, role: role, subrole: subrole), firstText([value]) != nil {
+                outOfViewFields.append(OutOfViewField(
+                    label: label, value: value, role: role,
+                    isEnabled: reader.isEnabled(node), container: container
+                ))
+            }
             if role == "AXTextField" || role == "AXTextArea" || role == "AXPopUpButton", let frame = reader.frame(node) {
-                let rawValue = reader.value(node)
+                let rawValue = reader.value(node, role: role, subrole: subrole)
                 // An unnamed empty native editor still has a measured role and frame.
                 let anonymousHandle = role == "AXTextArea" ? "Text area" : "Text field"
                 // A form names an unnamed field by the "Name:" text just before it, and its value is only
@@ -301,11 +331,11 @@ public enum AccessibilityAugmentation {
                     (reader.title(node), .title),
                     (reader.descriptionText(node), .description),
                 ])
-                let rawValue = reader.value(node)
+                let rawValue = reader.value(node, role: role, subrole: subrole)
                 let value = firstText([rawValue])
                 var state: ControlState?
                 if role == "AXCheckBox" || role == "AXRadioButton" {
-                    switch reader.numericValue(node) {
+                    switch reader.numericValue(node, role: role, subrole: subrole) {
                         case 1 : state = .on
                         case 0 : state = .off
                         case 2 : state = .mixed
@@ -335,7 +365,7 @@ public enum AccessibilityAugmentation {
                 walk(child, depth + 1, childClip, childContainer, collectionPath: collectionPath,
                      column: column, rowName: rowName,
                      insideControl: insideControl || interactiveRoles.contains(role) || role == "AXTextArea",
-                     insideWebContent: webContent, preceding: previous)
+                     insideWebContent: webContent, insideScrollingContent: scrollingContent, preceding: previous)
                 previous = child
             }
         }
@@ -359,7 +389,7 @@ public enum AccessibilityAugmentation {
             windowSubrole  : windowSubrole,
             nodesVisited   : nodesVisited,
             elementsEmitted: out.count
-        ))
+        ), outOfViewFields: outOfViewFields)
     }
 
     // MARK: Merge

@@ -74,6 +74,7 @@ struct ScenePipelineTests {
         var elements: [SceneElement]
         var seen: Recorder
         var quality = CaptureQuality.unknown
+        var outOfViewFields: [OutOfViewField] = []
 
         final class Recorder: @unchecked Sendable {
             var calls: [(pid_t, CGRect)] = []
@@ -82,15 +83,34 @@ struct ScenePipelineTests {
 
         func augmentation(for processID: pid_t, windowFrame: CGRect) async throws -> AccessibilityHarvest {
             seen.calls.append((processID, windowFrame))
-            return AccessibilityHarvest(elements: elements, quality: quality)
+            return AccessibilityHarvest(elements: elements, quality: quality, outOfViewFields: outOfViewFields)
         }
 
         func augmentation(
             for processID: pid_t, windowNumber: Int, windowFrame: CGRect
         ) async throws -> AccessibilityHarvest {
             seen.identifiedCalls.append((processID, windowNumber, windowFrame))
-            return AccessibilityHarvest(elements: elements, quality: quality)
+            return AccessibilityHarvest(elements: elements, quality: quality, outOfViewFields: outOfViewFields)
         }
+    }
+
+    @Test("a fresh harvest carries read-only values through reused visual recognition")
+    func outOfViewCapture() async throws {
+        let fact = OutOfViewField(label: "Tempo value", value: "97.0000", role: "AXTextField")
+        let augmentation = FixedAugmentation(elements: [], seen: .init(), outOfViewFields: [fact])
+        let pipeline = ScenePipeline(text: FixedText(runs: []), augmentation: augmentation)
+        var captured = window
+        captured.processID = 42
+        captured.frame = CGRect(x: 2070, y: -303, width: 1261, height: 827)
+        let image = try blank(1261, 827)
+        let first = try await pipeline.capture(image, of: captured, reusing: nil)
+        let second = try await pipeline.capture(image, of: captured, reusing: first.visual)
+        #expect(first.capture.scene.outOfViewFields == [fact])
+        #expect(second.capture.scene.text().contains("Tempo value = \"97.0000\""))
+        #expect(second.capture.scene.elements.isEmpty)
+        let cleared = ScenePipeline.augmented(second.capture.scene, with: AccessibilityHarvest.none)
+        #expect(cleared.scene.outOfViewFields.isEmpty)
+        #expect(cleared.scene.token != second.capture.scene.token)
     }
 
     private func blank(_ width: Int, _ height: Int) throws -> CGImage {

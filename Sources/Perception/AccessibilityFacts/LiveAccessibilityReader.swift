@@ -24,11 +24,35 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
     private let applicationBundleID  : String?
     private let elementTimeoutSeconds: Float?
+    private let valueGuard: (@Sendable (String) -> Bool)?
+    private let copyAttributeValue: @Sendable (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError
 
     /// Creates a reader. An absent bundle ID uses only standard accessibility state attributes.
     /// `elementTimeoutSeconds`, when given, is set on every window and child the reader lists, so a walk
     /// bounds each message to the application and not only those sent through the application element.
-    public init(applicationBundleID: String? = nil, elementTimeoutSeconds: Float? = nil) {
+    /// `valueGuard` opts into secure-field checks and rejects labels for which it returns true.
+    /// When nil, values use only AXValue, without role, subrole or label reads.
+    public init(
+        applicationBundleID: String? = nil,
+        elementTimeoutSeconds: Float? = nil,
+        valueGuard: (@Sendable (String) -> Bool)? = nil
+    ) {
+        self.init(
+            applicationBundleID: applicationBundleID,
+            elementTimeoutSeconds: elementTimeoutSeconds,
+            valueGuard: valueGuard,
+            copyAttributeValue: AXUIElementCopyAttributeValue
+        )
+    }
+
+    init(
+        applicationBundleID: String? = nil,
+        elementTimeoutSeconds: Float? = nil,
+        valueGuard: (@Sendable (String) -> Bool)? = nil,
+        copyAttributeValue: @escaping @Sendable (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError
+    ) {
+        self.copyAttributeValue = copyAttributeValue
+        self.valueGuard = valueGuard
         self.applicationBundleID   = applicationBundleID
         self.elementTimeoutSeconds = elementTimeoutSeconds
     }
@@ -38,11 +62,52 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
     }
 
     public nonisolated func role(_ node: AXUIElement) -> String? { string(node, kAXRoleAttribute) }
-    public nonisolated func subrole(_ node: AXUIElement) -> String? { string(node, kAXSubroleAttribute) }
+    public nonisolated func subrole(_ node: AXUIElement) -> String? {
+        valueGuard == nil ? string(node, kAXSubroleAttribute) : valueClassification(node, kAXSubroleAttribute)
+    }
+
+    public nonisolated var requiresValueClassification: Bool { valueGuard != nil }
     public nonisolated func title(_ node: AXUIElement) -> String? { string(node, kAXTitleAttribute) }
     public nonisolated func descriptionText(_ node: AXUIElement) -> String? { string(node, kAXDescriptionAttribute) }
     public nonisolated func identifier(_ node: AXUIElement) -> String? { string(node, kAXIdentifierAttribute) }
-    public nonisolated func value(_ node: AXUIElement) -> String? { string(node, kAXValueAttribute) }
+    public nonisolated func value(_ node: AXUIElement) -> String? {
+        guard let valueGuard else { return string(node, kAXValueAttribute) }
+        return AccessibilityValueReading.read(
+            isReservedLabel: valueGuard,
+            attribute: { valueClassification(node, $0) },
+            value: { string(node, kAXValueAttribute) }
+        )
+    }
+
+    public nonisolated func value(_ node: AXUIElement, role: String?, subrole: String?) -> String? {
+        guard let valueGuard else { return string(node, kAXValueAttribute) }
+        return AccessibilityValueReading.read(
+            isReservedLabel: valueGuard,
+            attribute: { name in
+                switch name {
+                    case kAXRoleAttribute: role
+                    case kAXSubroleAttribute: subrole
+                    default: string(node, name)
+                }
+            },
+            value: { string(node, kAXValueAttribute) }
+        )
+    }
+
+    public nonisolated func numericValue(_ node: AXUIElement, role: String?, subrole: String?) -> Int? {
+        guard let valueGuard else { return (attribute(node, kAXValueAttribute) as? NSNumber)?.intValue }
+        return AccessibilityValueReading.read(
+            isReservedLabel: valueGuard,
+            attribute: { name in
+                switch name {
+                    case kAXRoleAttribute: role
+                    case kAXSubroleAttribute: subrole
+                    default: string(node, name)
+                }
+            },
+            value: { (attribute(node, kAXValueAttribute) as? NSNumber)?.intValue }
+        )
+    }
 
     public nonisolated func selectedRange(_ node: AXUIElement) -> NSRange? {
         guard let value = axValue(attribute(node, kAXSelectedTextRangeAttribute)),
@@ -70,7 +135,12 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
     }
 
     public nonisolated func numericValue(_ node: AXUIElement) -> Int? {
-        (attribute(node, kAXValueAttribute) as? NSNumber)?.intValue
+        guard let valueGuard else { return (attribute(node, kAXValueAttribute) as? NSNumber)?.intValue }
+        return AccessibilityValueReading.read(
+            isReservedLabel: valueGuard,
+            attribute: { valueClassification(node, $0) },
+            value: { (attribute(node, kAXValueAttribute) as? NSNumber)?.intValue }
+        )
     }
 
     public nonisolated func isEnabled(_ node: AXUIElement) -> Bool? { attribute(node, kAXEnabledAttribute) as? Bool }
@@ -100,7 +170,7 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
         var answer = ChildrenAnswer.retry
         for _ in 0..<2 {
             var reference: CFTypeRef?
-            answer = ChildrenAnswer(AXUIElementCopyAttributeValue(node, kAXChildrenAttribute as CFString, &reference),
+            answer = ChildrenAnswer(copyAttributeValue(node, kAXChildrenAttribute as CFString, &reference),
                                     reference)
             guard answer == .retry else { break }
         }
@@ -181,12 +251,24 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
     // MARK: Attribute reads
 
+    /// Unsupported subroles attest an ordinary field; a messaging failure does not. Preserve that
+    /// distinction for value admission without changing the general attribute reader's nil contract.
+    private nonisolated func valueClassification(_ node: AXUIElement, _ name: String) -> String? {
+        guard name == "AXSubrole" else { return string(node, name) }
+        var reference: CFTypeRef?
+        switch copyAttributeValue(node, kAXSubroleAttribute as CFString, &reference) {
+            case .success: return reference as? String
+            case .attributeUnsupported, .noValue: return ""
+            default: return nil
+        }
+    }
+
     private nonisolated func string(_ node: AXUIElement, _ name: String) -> String? { attribute(node, name) as? String }
 
     private nonisolated func attribute(_ node: AXUIElement, _ name: String) -> CFTypeRef? {
         for _ in 0..<2 {
             var reference: CFTypeRef?
-            switch AXUIElementCopyAttributeValue(node, name as CFString, &reference) {
+            switch copyAttributeValue(node, name as CFString, &reference) {
                 case .success       : return reference
                 case .cannotComplete: continue
                 default             : return nil

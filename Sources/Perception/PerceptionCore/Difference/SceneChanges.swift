@@ -25,6 +25,31 @@ import Foundation
 /// this is the reader's update, and it lives beside the renderer whose lines it repeats.
 public enum SceneChanges {
 
+    /// ElementChange exposes the same identity matching and visible-change rules as the text diff.
+    public struct ElementChange: Sendable {
+        public let before: SceneElement?
+        public let after: SceneElement?
+    }
+
+    /// Returns changed pairs, additions and removals without unchanged scene context.
+    public static func elements(from before: SceneSnapshot, to after: SceneSnapshot) -> [ElementChange] {
+        let matches = pairs(before.elements, after.elements)
+        let oldIndexes = Set(matches.map(\.0))
+        let newIndexes = Set(matches.map(\.1))
+        let sections = Set(after.sections.map(\.name))
+        var changes = matches.compactMap { old, new -> ElementChange? in
+            guard !earlier(before.elements[old], after.elements[new], sections: sections).isEmpty else { return nil }
+            return ElementChange(before: before.elements[old], after: after.elements[new])
+        }
+        changes += after.elements.enumerated().compactMap { index, element in
+            newIndexes.contains(index) ? nil : ElementChange(before: nil, after: element)
+        }
+        changes += before.elements.enumerated().compactMap { index, element in
+            oldIndexes.contains(index) ? nil : ElementChange(before: element, after: nil)
+        }
+        return changes
+    }
+
     /// How far an element or a panel edge may move, in window-normalized units on either axis, and
     /// still be where it was: twice the hundredth a position is printed to, so it barely shows.
     static let nearby = 0.02
@@ -105,8 +130,50 @@ public enum SceneChanges {
         if before.commands != after.commands {
             body.append(after.commands.isEmpty ? "commands: none\n" : after.commandsLine())
         }
+        let fields = outOfViewChanges(from: before.outOfViewFields, to: after.outOfViewFields)
+        if !fields.isEmpty { body.append(SceneSnapshot.outOfViewHeading + fields.joined(separator: "\n") + "\n") }
         guard !header.isEmpty || !body.isEmpty else { return "Unchanged since revision \(revision)." }
         return (header.joined() + body.joined()).trimmingCharacters(in: .newlines)
+    }
+
+    /// Read-only fields pair by their own label, role and container, with equal duplicates first.
+    private static func outOfViewChanges(from before: [OutOfViewField], to after: [OutOfViewField]) -> [String] {
+        var remaining = Set(after.indices)
+        var unchanged = Set<Int>()
+        for (index, old) in before.enumerated() {
+            if let match = after.indices.first(where: { remaining.contains($0) && after[$0] == old }) {
+                remaining.remove(match)
+                unchanged.insert(index)
+            }
+        }
+        var lines: [String] = []
+        for (index, old) in before.enumerated() where !unchanged.contains(index) {
+            let candidates = after.indices.filter {
+                remaining.contains($0) && after[$0].role == old.role && after[$0].container == old.container
+                    && LabelText.normalize(after[$0].label) == LabelText.normalize(old.label)
+            }
+            guard let index = candidates.first else {
+                lines.append("- " + SceneSnapshot.outOfViewLine(old))
+                continue
+            }
+            remaining.remove(index)
+            let new = after[index]
+            var was: [String] = []
+            if old.value != new.value {
+                was.append(String(reflecting: old.value.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+            if old.label != new.label { was.append("label " + String(reflecting: old.label)) }
+            if (old.isEnabled == false) != (new.isEnabled == false) {
+                was.append(old.isEnabled == false ? "[disabled]" : "enabled")
+            }
+            if !was.isEmpty {
+                lines.append("~ " + SceneSnapshot.outOfViewLine(new) + "  (was " + was.joined(separator: ", ") + ")")
+            }
+        }
+        for index in after.indices where remaining.contains(index) {
+            lines.append("+ " + SceneSnapshot.outOfViewLine(after[index]))
+        }
+        return lines
     }
 
     /// One reported element: the section it is listed under, nil for none, and where it is.

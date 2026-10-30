@@ -20,6 +20,8 @@ public struct SceneSnapshot: Sendable, Equatable, Hashable {
     /// The captured viewport in pixels: what every `NormalizedRect` in this scene is relative to.
     public var viewportPixelSize: ViewportPixelSize
     public var elements: [SceneElement]
+    /// Read-only native fields past the window edge, with no action targets.
+    public var outOfViewFields: [OutOfViewField]
     /// Named window panels; empty when composition found no structure.
     public var sections: [SceneSection]
     /// Known menu paths, such as "File > Export...".
@@ -36,6 +38,7 @@ public struct SceneSnapshot: Sendable, Equatable, Hashable {
         windowTitle      : String,
         viewportPixelSize: ViewportPixelSize,
         elements         : [SceneElement],
+        outOfViewFields  : [OutOfViewField] = [],
         sections         : [SceneSection] = [],
         commands         : [String] = [],
         token            : SceneToken? = nil,
@@ -46,9 +49,12 @@ public struct SceneSnapshot: Sendable, Equatable, Hashable {
         self.windowTitle       = windowTitle
         self.viewportPixelSize = viewportPixelSize
         self.elements          = elements
+        self.outOfViewFields    = outOfViewFields
         self.sections          = sections
         self.commands          = commands
-        self.token             = token ?? SceneToken(bundleID: bundleID, windowTitle: windowTitle, elements: elements)
+        self.token             = token ?? SceneToken(
+            bundleID: bundleID, windowTitle: windowTitle, elements: elements, outOfViewFields: outOfViewFields
+        )
         self.knowledge         = knowledge
     }
 
@@ -101,9 +107,25 @@ extension ViewportPixelSize: Codable {
 extension SceneSnapshot: Codable {
 
     private enum CodingKeys: String, CodingKey {
-        case bundleID, windowTitle, elements, sections, commands, token
+        case bundleID, windowTitle, elements, outOfViewFields, sections, commands, token
         case knowledge         = "memory"
         case appName           = "app"
         case viewportPixelSize = "viewportPx"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            bundleID: try values.decode(String.self, forKey: .bundleID),
+            appName: try values.decode(String.self, forKey: .appName),
+            windowTitle: try values.decode(String.self, forKey: .windowTitle),
+            viewportPixelSize: try values.decode(ViewportPixelSize.self, forKey: .viewportPixelSize),
+            elements: try values.decode([SceneElement].self, forKey: .elements),
+            outOfViewFields: try values.decodeIfPresent([OutOfViewField].self, forKey: .outOfViewFields) ?? [],
+            sections: try values.decode([SceneSection].self, forKey: .sections),
+            commands: try values.decode([String].self, forKey: .commands),
+            token: try values.decode(SceneToken.self, forKey: .token),
+            knowledge: try values.decodeIfPresent(SceneKnowledge.self, forKey: .knowledge)
+        )
     }
 }

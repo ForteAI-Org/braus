@@ -26,10 +26,14 @@ public struct StillCapturer: Sendable {
     }
 
     /// A still of one window, cursor hidden, sized to the window's frame in points times the display's
-    /// pixel scale.
-    public func captureWindow(number: Int, frame: CGRect) async throws -> CGImage {
+    /// pixel scale. When supplied, the expected process must own the window in the shareable snapshot;
+    /// a reused window number or missing owner refuses instead of capturing another application.
+    public func captureWindow(number: Int, frame: CGRect, expectedProcessID: Int32? = nil) async throws -> CGImage {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        guard let window = content.windows.first(where: { Int($0.windowID) == number }) else {
+        guard let window = content.windows.first(where: {
+            Int($0.windowID) == number
+                && (expectedProcessID == nil || $0.owningApplication?.processID == expectedProcessID)
+        }) else {
             throw CaptureFailure.windowNotShared(number: number)
         }
         let filter = SCContentFilter(desktopIndependentWindow: window)
