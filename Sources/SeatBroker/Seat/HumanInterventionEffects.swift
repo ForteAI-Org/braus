@@ -686,10 +686,14 @@ nonisolated struct HumanInterventionEffects: Sendable {
                 gone.remove(at: index)
                 added.removeAll { $0.key == member.key }
             }
-            if !after.contains(where: { $0.name == nil }) {
+            // A member read without a name may be one whose name went unread, hiding what left or came. As many
+            // nameless members in both reads (a section's empty header and footer, as Finder's icon view has) are
+            // the same ones: a member that lost its name would add one.
+            let steady = before.filter { $0.name == nil }.count == after.filter { $0.name == nil }.count
+            if steady || !after.contains(where: { $0.name == nil }) {
                 result += gone.map { Effect(window: 0, kind: .deleted, label: $0.name ?? "", collection: label) }
             }
-            if !before.contains(where: { $0.name == nil }) {
+            if steady || !before.contains(where: { $0.name == nil }) {
                 result += added.map { Effect(window: 0, kind: .created, label: $0.name ?? "", collection: label) }
             }
             // The same member spelled otherwise ("A B" → "A_B") keeps its key: a rename.

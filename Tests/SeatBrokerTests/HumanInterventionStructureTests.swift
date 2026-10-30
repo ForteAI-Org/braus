@@ -120,6 +120,18 @@ struct HumanInterventionStructureTests {
         #expect(!unread.text.contains("groups"))
     }
 
+    /// A section whose empty header and footer read as nameless members (Finder's icon view, grouped or not) still
+    /// states what came and went; a member whose name went unread adds a nameless one, and then nothing is claimed.
+    @Test func aSectionsEmptyHeaderAndFooterHideNothing() throws {
+        let before = lists([("AXList", "icon view", [nil], ["AXList"]), ("AXList", nil, [nil, "alpha.txt", "beta.pdf", "gamma.md", nil], nil)])
+        let after = lists([("AXList", "icon view", [nil], ["AXList"]), ("AXList", nil, [nil, "beta.pdf", "gamma.md", "Archive", nil], nil)])
+        let digest = try digest(before, after, action: key("⌘⌫"))
+        #expect(digest.stated.contains("− alpha.txt") && digest.stated.contains("+ Archive"))
+        digest.checkInvariants("section with an empty header and footer")
+        let unread = lists([("AXList", "icon view", [nil], ["AXList"]), ("AXList", nil, [nil, nil, "beta.pdf", "gamma.md", nil], nil)])
+        #expect(try self.digest(before, unread, action: key("⌘⌫")).stated.isEmpty)
+    }
+
     /// A read of window 7 holding level controls, each (name, value).
     private func levels(_ controls: [(name: String, value: String?)]) -> Read {
         var window = Read.Window(number: 7, title: "Displays")
