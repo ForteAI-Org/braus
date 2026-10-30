@@ -82,6 +82,37 @@ struct MonitorLayerTests {
         #expect(abs(rect.minY - 50 / 600.0) < 0.000_001)
     }
 
+    @Test("a window stream without its rectangle is drawn as far as the window filled the buffer")
+    func aCappedWindowStreamIsCroppedToTheWindow() throws {
+        // A 1148 by 751 point window on the 1x seat display, streamed for a 2x screen and capped
+        // to 1080 lines: ScreenCaptureKit leaves it at its own size in the corner of the buffer.
+        func rect(_ scales: (factor: Double?, content: Double?), pixels: CGSize) throws -> CGRect {
+            let geometry = try #require(SeatFrame.fallbackGeometry(
+                source            : .unverifiedWindow(windowNumber: 7),
+                pixelSize         : pixels,
+                scales            : scales,
+                version           : GeometryObservationVersion(observerGeneration: 1, sequence: 1),
+                capturesFullWindow: true,
+                framing           : nil,
+                sourceRect        : { CGRect(x: 0, y: 0, width: 1148, height: 751) }
+            ))
+            return MonitorLayer.contentsRect(of: geometry)
+        }
+        let capped = try rect((1, 1), pixels: CGSize(width: 1651, height: 1080))
+        #expect(abs(capped.width  - 1148 / 1651.0) < 0.000_001)
+        #expect(abs(capped.height - 751 / 1080.0)  < 0.000_001)
+        #expect(capped.origin == .zero)
+
+        // The same window on a 2x display, scaled down into the capped buffer, fills it.
+        let scaledDown = try rect((2, 1651.0 / 2296), pixels: CGSize(width: 1651, height: 1080))
+        #expect(abs(scaledDown.width - 1) < 0.001 && abs(scaledDown.height - 1) < 0.001)
+
+        // No scales at all, or scales that claim more than the buffer: the whole surface, as before.
+        let whole = CGRect(x: 0, y: 0, width: 1, height: 1)
+        #expect(try rect((nil, nil), pixels: CGSize(width: 1651, height: 1080)) == whole)
+        #expect(try rect((2, 1), pixels: CGSize(width: 1651, height: 1080)) == whole)
+    }
+
     @Test("a geometry the transform rules refuse is drawn whole rather than guessed at")
     func anInvalidGeometryFallsBack() {
         let whole = CGRect(x: 0, y: 0, width: 1, height: 1)

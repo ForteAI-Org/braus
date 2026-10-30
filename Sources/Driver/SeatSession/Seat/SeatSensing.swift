@@ -131,6 +131,14 @@ nonisolated public protocol SeatSensing: Sendable {
     /// The window's index in the global window order, or nil.
     func windowOrderIndex(of windowNumber: Int) -> Int?
 
+    /// The two readings above taken together, `isBehind` only when a process
+    /// is named. It exists so a sample that needs both reads one window list
+    /// instead of two; the default asks the two readings separately.
+    func windowOrder(
+        of windowNumber                  : Int,
+        behindFrontmostWindowOf processID: Int32?
+    ) -> (orderIndex: Int?, isBehind: Bool?)
+
     /// Every on-screen window owned by one of these processes, attested, with
     /// the level and the visibility of the same reading.
     ///
@@ -141,6 +149,10 @@ nonisolated public protocol SeatSensing: Sendable {
     /// once, which is why the default below answers `nil`: a witness that does
     /// not implement this has no reading to offer rather than an empty desktop.
     func windowSurfaces(ownedBy processIDs: Set<Int32>) -> [WindowSurface]?
+
+    /// True only for an on-screen layer-0 window with no other application's layer-0
+    /// window ahead of it on `screen`. Nil means the server could not establish the order.
+    func windowIsFrontmost(_ window: WindowReference, on screen: CGRect) -> Bool?
 
     /// Every visible window of another process listed in front of `surface` and
     /// intersecting its frame, attested, the window server's own rows left out:
@@ -203,10 +215,25 @@ extension SeatSensing {
     ) async -> FocusRecoverySnapshot? {
         await prepareFocusRecoverySnapshot()
     }
+    public func windowOrder(
+        of windowNumber                  : Int,
+        behindFrontmostWindowOf processID: Int32?
+    ) -> (orderIndex: Int?, isBehind: Bool?) {
+        (
+            windowOrderIndex(of: windowNumber),
+            processID.flatMap {
+                isBehindFrontmostWindow(
+                    windowNumber: windowNumber,
+                    ownedBy     : $0
+                )
+            }
+        )
+    }
     public var userMayBeSwitchingApplications: Bool { false }
     public func windowIsVisibleOnPhysicalDisplay(_ window: WindowReference) -> Bool { false }
     public func visibleWindowsAreVirtual(ownedBy processID: Int32) -> Bool { false }
     public func windowSurfaces(ownedBy processIDs: Set<Int32>) -> [WindowSurface]? { nil }
+    nonisolated public func windowIsFrontmost(_ window: WindowReference, on screen: CGRect) -> Bool? { nil }
     public func windowSurfaces(inFrontOf surface: WindowIdentity) -> [WindowSurface]? { nil }
     public func windowIsOrderedOut(_ window: WindowReference) -> Bool { false }
     public func windowIsDestroyed(_ window: WindowReference) -> Bool { false }

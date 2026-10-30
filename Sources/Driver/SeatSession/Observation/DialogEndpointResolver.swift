@@ -1573,7 +1573,7 @@ nonisolated package struct DialogEndpointResolver<Node> {
 
 // MARK: - The shipping readers
 
-extension DialogEndpointResolver where Node == AXUIElement {
+nonisolated extension DialogEndpointResolver where Node == AXUIElement {
 
     /// The discovery the seat runs, over one application's accessibility tree
     /// and the kit's own window server readings.

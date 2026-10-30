@@ -1,4 +1,6 @@
+import Foundation
 import Synchronization
+import SeatCore
 
 /// A synchronous stop at command boundaries. A command already posting stays
 /// atomic (a down is never abandoned without its up); the next command cannot
@@ -50,39 +52,138 @@ nonisolated public final class InputCommandGate: Sendable {
         }
     }
 
-    private let causes = Mutex<Set<PauseCause>>([])
+    /// HumanInput identifies one intervention on one gate. It conveys no window,
+    /// coordinate or containment authority and cannot be constructed by a consumer.
+    public struct HumanInput: Sendable, Equatable {
+        fileprivate let gate: UUID
+        fileprivate let episode: UUID
+    }
+
+    private struct State {
+        var causes: Set<PauseCause> = []
+        var generation = UUID()
+        var human: HumanInput?
+    }
+
+    private struct Admission: Sendable {
+        let gate: UUID
+        let generation: UUID
+    }
+
+    @TaskLocal
+    private static var admission: Admission?
+
+    private let id = UUID()
+    private let state = Mutex(State())
     private let preparation = Mutex<(@MainActor @Sendable (Int64) async throws -> Void)?>(nil)
 
     package init() {}
 
-    package var isPaused: Bool { causes.withLock { !$0.isEmpty } }
+    package var hasHumanInput: Bool { state.withLock { $0.human != nil } }
+
+    package var isPaused: Bool {
+        state.withLock { !$0.causes.isEmpty || $0.human != nil }
+    }
 
     /// The causes holding the gate closed right now, for a report or a test.
-    package var pauseCauses: Set<PauseCause> { causes.withLock { $0 } }
+    package var pauseCauses: Set<PauseCause> { state.withLock { $0.causes } }
 
-    package func pause(_ cause: PauseCause) { causes.withLock { _ = $0.insert(cause) } }
+    /// Reports the causes currently pausing agent Commands.
+    package var pauseReasons: [InputPauseReason] {
+        state.withLock {
+            ($0.causes.map(\.reason)
+                + ($0.human == nil ? [] : [.humanIntervention])).sorted()
+        }
+    }
 
-    package func resume(_ cause: PauseCause) { causes.withLock { _ = $0.remove(cause) } }
+    package func pause(_ cause: PauseCause) {
+        state.withLock { _ = $0.causes.insert(cause) }
+    }
+
+    package func resume(_ cause: PauseCause) { state.withLock { _ = $0.causes.remove(cause) } }
 
     package func setPreparation(_ prepare: @escaping @MainActor @Sendable (Int64) async throws -> Void) {
         preparation.withLock { $0 = prepare }
     }
 
-    package func prepare(correlationID: Int64) async throws {
-        try check()
-        if let prepare = preparation.withLock({ $0 }) {
-            try await prepare(correlationID)
+    /// Closes agent admission synchronously before the caller suspends its worker.
+    /// Repeated requests retain the same episode; the token grants no command admission.
+    package func beginHumanInput() throws -> HumanInput {
+        try state.withLock {
+            let terminal = $0.causes.intersection([.deliberateStop, .focusRecoveryStopped])
+            guard terminal.isEmpty else {
+                throw InputFailure.inputPaused(terminal.map(\.reason).sorted())
+            }
+            if let human = $0.human { return human }
+            let human = HumanInput(gate: id, episode: UUID())
+            $0.generation = UUID()
+            $0.human = human
+            return human
         }
-        try Task.checkCancellation()
-        try check()
+    }
+
+    package func isCurrentHumanInput(_ token: HumanInput) -> Bool {
+        state.withLock { $0.human == token }
+    }
+
+    /// Clears an ending lease's episode without acknowledging Commands or handback.
+    /// Other pause causes remain owned by their callers.
+    package func abandonHumanInput() {
+        state.withLock {
+            guard $0.human != nil else { return }
+            $0.human = nil
+            $0.generation = UUID()
+        }
+    }
+
+    /// Ends only the matching episode and revokes agent requests that waited through it.
+    package func endHumanInput(_ token: HumanInput) async throws {
+        try state.withLock {
+            guard $0.human == token else {
+                throw InputFailure.inputPaused([.inputAuthorityExpired])
+            }
+            $0.human = nil
+            $0.generation = UUID()
+        }
+    }
+
+    /// Captures authority before a request waits for the driver or preparation.
+    /// Nested boundaries retain that authority, so an old request cannot acquire a
+    /// fresh generation after a complete intervention passed while it was waiting.
+    package func withAdmission<Result: Sendable>(
+        isolation: isolated (any Actor)? = #isolation,
+        operation: () async throws -> Result
+    ) async throws -> Result {
+        let admission = Self.admission ?? state.withLock {
+            Admission(gate: id, generation: $0.generation)
+        }
+        return try await Self.$admission.withValue(admission) {
+            try check()
+            return try await operation()
+        }
+    }
+
+    package func prepare(correlationID: Int64) async throws {
+        try await withAdmission {
+            if let prepare = preparation.withLock({ $0 }) {
+                try await prepare(correlationID)
+            }
+            try Task.checkCancellation()
+            try check()
+        }
     }
 
     package func check() throws {
-        // One read of the set, so the reported reasons are the ones that
-        // refused and not a second reading taken to explain the first.
-        let closed = pauseCauses
-        guard closed.isEmpty else {
-            throw InputFailure.inputPaused(closed.map(\.reason).sorted())
+        let admission = Self.admission
+        let reasons = state.withLock { current -> [InputPauseReason] in
+            var reasons = current.causes.map(\.reason)
+            if let admission, admission.gate != id || admission.generation != current.generation {
+                reasons.append(.inputAuthorityExpired)
+            } else if current.human != nil {
+                reasons.append(.humanIntervention)
+            }
+            return reasons.sorted()
         }
+        guard reasons.isEmpty else { throw InputFailure.inputPaused(reasons) }
     }
 }

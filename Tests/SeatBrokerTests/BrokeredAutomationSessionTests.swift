@@ -32,7 +32,32 @@ struct BrokeredAutomationSessionTests {
     private static let workerID = UUID()
     private static let label    = workerID.uuidString
 
+    private final class RunningFixture: NSRunningApplication {
+        override var isTerminated: Bool { false }
+        override var processIdentifier: pid_t { ProcessInfo.processInfo.processIdentifier }
+    }
+
     private struct Opened: Error {}
+
+    @Test func a5KeepsLegacyScreenViewAvailableAcrossWindowInventoryChanges() async throws {
+        let scene = SceneSnapshot(bundleID: "test.process", appName: "Test", windowTitle: "Test",
+                                  viewportPixelSize: ViewportPixelSize(width: 10, height: 10), elements: [])
+        let desktop = Self.session(SeatBroker(), perceiving: { _, _ in scene },
+                                   running: { _ in RunningFixture() }) { _, _, _ in
+            (TargetApp(pid: ProcessInfo.processInfo.processIdentifier, bundleID: "test.process",
+                       name: "Test", bundleURL: nil, windows: []), SeatTarget())
+        }
+        #expect(desktop.makeScreenView(contentsScale: 2) == nil)
+        _ = try await desktop.open(application: "Test", window: nil)
+        #expect(desktop.makeScreenView(contentsScale: 2) is LivePreviewView)
+        desktop.updateHeldWindows([], metadata: [:])
+        #expect(desktop.hasScreen)
+        #expect(desktop.makeScreenView(contentsScale: 2) is LivePreviewView)
+        await desktop.close()
+        #expect(desktop.heldWindows.isEmpty)
+        #expect(desktop.makeScreenView(contentsScale: 2) == nil)
+        #expect(desktop.makeWindowView(windowNumber: 7, contentsScale: 2) == nil)
+    }
 
     /// Stands in for the idle window's clock: each wait is recorded and returns only when the test
     /// lets the oldest one elapse, so no test sleeps for the window. A cancelled wait is not woken,
@@ -72,6 +97,7 @@ struct BrokeredAutomationSessionTests {
         requests  : @escaping @MainActor () -> Void = {},
         perceiving: @escaping BrokeredAutomationSession.Perceiving = BrokeredAutomationSession
             .perceivedThroughTheEngine,
+        running: @escaping @MainActor (pid_t) -> NSRunningApplication? = { NSRunningApplication(processIdentifier: $0) },
         idleWindow: Duration = BrokeredAutomationSession.idleWindow,
         waitIdle  : @escaping BrokeredAutomationSession.IdleWaiting = { try await Task.sleep(for: $0) },
         dialog    : DialogButtonPress.OpenDialog? = nil,
@@ -88,6 +114,7 @@ struct BrokeredAutomationSessionTests {
             requestGrants     : requests,
             seating           : seating,
             perceiving        : perceiving,
+            runningApplication: running,
             idleWindow        : idleWindow,
             waitIdle          : waitIdle,
             readDialog        : { _ in dialog }
@@ -134,6 +161,62 @@ struct BrokeredAutomationSessionTests {
     /// Long enough for a task about to suspend on the queue to get there.
     private static func letTheWaitBegin() async {
         try? await Task.sleep(for: .milliseconds(60))
+    }
+
+    @Test("human cancellation preserves the opened session and a later observation", arguments: [false, true])
+    func interruptibleSceneKeepsSession(opening: Bool) async throws {
+        let broker = SeatBroker()
+        let scene = SceneSnapshot(bundleID: "test.process", appName: "Test", windowTitle: "Test",
+                                  viewportPixelSize: ViewportPixelSize(width: 10, height: 10), elements: [])
+        var block = opening
+        var reading = false
+        var cancelled = false
+        let desktop = Self.session(broker, perceiving: { _, _ in
+            if block {
+                reading = true
+                do { try await Task.sleep(for: .seconds(10)) }
+                catch is CancellationError { cancelled = true; throw CancellationError() }
+            }
+            return scene
+        }, running: { _ in RunningFixture() }) { _, _, _ in
+            (TargetApp(pid: ProcessInfo.processInfo.processIdentifier, bundleID: "test.process",
+                       name: "Test", bundleURL: nil, windows: []), SeatTarget())
+        }
+        if !opening { _ = try await desktop.open(application: "Test", window: nil) }
+        block = true
+        let interruption = AutomationCallInterruption()
+        let tools = AutomationTools(session: desktop)
+        let call = Task {
+            try await AutomationCallInterruption.$current.withValue(interruption) {
+                if opening { return try await tools.call("open_session", .object(["app": .string("Test")])) }
+                return try await tools.call("observe", .object([
+                    "session": .string(try #require(desktop.id).uuidString)
+                ]))
+            }
+        }
+        await Self.until { reading }
+        #expect(reading)
+        #expect(interruption.isReadingOpeningScene == opening)
+        let id = try #require(desktop.id)
+        interruption.interruptForHumanControl()
+        call.cancel()
+        if opening {
+            let answer = try await call.value
+            let text = try #require(answer["content"].array?.first?["text"].string)
+            #expect(text.contains(id.uuidString))
+            #expect(text.contains("The person took control"))
+            #expect(!text.contains("\"scene\":"))
+        } else {
+            await #expect(throws: CancellationError.self) { try await call.value }
+        }
+        #expect(cancelled)
+        #expect(desktop.id == id)
+        #expect(desktop.holdsComputer)
+        #expect(broker.queue.entries.count == 1)
+        block = false
+        #expect(try await desktop.observe().windowTitle == "Test")
+        await desktop.close()
+        #expect(broker.queue.entries.isEmpty)
     }
 
     @Test("the open holds the seat while it runs, a failed open gives it back, and a double close is nothing")
@@ -992,6 +1075,62 @@ struct BrokeredAutomationSessionTests {
         await idle.elapseOldest()
         await Self.until { !desktop.holdsComputer }
         #expect(broker.queue.entries.isEmpty)
+    }
+
+    @Test("human control retains a lease across the turn boundary and a queued worker")
+    func humanControlKeepsTheLeaseUntilExplicitlyEnded() async throws {
+        let broker = SeatBroker()
+        let desktop = try Self.seated(broker)
+        var hold: UUID?
+        try await desktop.turn {
+            _ = try await desktop.open(application: "Test", window: nil)
+            hold = try desktop.retainForHumanIntervention()
+        }
+        let id = desktop.id
+        let waiter = Task { try await broker.queue.acquire("next worker") }
+        await Self.letTheWaitBegin()
+        #expect(broker.queue.entries.map(\.state) == [.acting, .waiting])
+        #expect(desktop.id == id)
+        try await desktop.endHumanIntervention(try #require(hold))
+        let next = try await waiter.value
+        #expect(desktop.id == nil)
+        next.giveBack()
+    }
+
+    @Test("a cancelled idle timer cannot release human control; ending restores idle release")
+    func humanControlOutlivesAnOldIdleTimer() async throws {
+        let broker = SeatBroker()
+        let idle = IdleClock()
+        let desktop = try Self.seated(broker, idle: idle)
+        try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
+        await Self.until { idle.pendingCount == 1 }
+        let hold = try desktop.retainForHumanIntervention()
+        #expect(try desktop.retainForHumanIntervention() == hold)
+        await idle.elapseOldest()
+        await Self.letTheWaitBegin()
+        #expect(desktop.holdsComputer)
+        try await desktop.endHumanIntervention(hold)
+        await idle.elapseOldest()
+        await Self.until { !desktop.holdsComputer }
+        #expect(desktop.id == nil)
+    }
+
+    @Test("close overrides human retention and an old token cannot end a later intervention")
+    func closingInvalidatesHumanRetention() async throws {
+        let broker = SeatBroker()
+        let desktop = try Self.seated(broker)
+        #expect(throws: AutomationFailure.self) { try desktop.retainForHumanIntervention() }
+        try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
+        let old = try desktop.retainForHumanIntervention()
+        await desktop.close()
+        #expect(!desktop.holdsComputer)
+        try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
+        let current = try desktop.retainForHumanIntervention()
+        #expect(current != old)
+        await #expect(throws: AutomationFailure.self) { try await desktop.endHumanIntervention(old) }
+        #expect(desktop.holdsComputer)
+        try await desktop.endHumanIntervention(current)
+        await desktop.close()
     }
 
     @Test("the idle release quits an application the agent launched and leaves one already running",

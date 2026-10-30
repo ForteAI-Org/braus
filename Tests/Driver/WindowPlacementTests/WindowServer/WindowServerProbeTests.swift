@@ -57,6 +57,86 @@ struct WindowServerProbeTests {
         #expect(WindowServerProbe.frontWindowNumber(ownedBy: 1) == nil)
     }
 
+    // MARK: One list, both order readings
+
+    private static func row(_ number: Int, owner: Int32, layer: Int = 0) -> [String: Any] {
+        [
+            kCGWindowNumber as String  : NSNumber(value: number),
+            kCGWindowOwnerPID as String: NSNumber(value: owner),
+            kCGWindowLayer as String   : NSNumber(value: layer),
+        ]
+    }
+
+    @Test("a target listed after the person's window is behind it")
+    func targetBehindUserWindow() {
+        let reading = WindowServerProbe.orderReading(
+            of                     : 20,
+            behindFrontmostWindowOf: 7,
+            in                     : [Self.row(10, owner: 7), Self.row(20, owner: 3)]
+        )
+        #expect(reading.orderIndex == 1)
+        #expect(reading.isBehind == true)
+    }
+
+    @Test("a target listed before the person's window is not behind it")
+    func targetAheadOfUserWindow() {
+        let reading = WindowServerProbe.orderReading(
+            of                     : 20,
+            behindFrontmostWindowOf: 7,
+            in                     : [Self.row(20, owner: 3), Self.row(10, owner: 7)]
+        )
+        #expect(reading.orderIndex == 0)
+        #expect(reading.isBehind == false)
+    }
+
+    @Test("a target not in the list has no index and no relation")
+    func targetMissing() {
+        let reading = WindowServerProbe.orderReading(
+            of                     : 99,
+            behindFrontmostWindowOf: 7,
+            in                     : [Self.row(10, owner: 7), Self.row(20, owner: 3)]
+        )
+        #expect(reading.orderIndex == nil)
+        #expect(reading.isBehind == nil)
+    }
+
+    @Test("a process with no normal-layer row has no relation, the index stays")
+    func processWithoutNormalRow() {
+        let reading = WindowServerProbe.orderReading(
+            of                     : 20,
+            behindFrontmostWindowOf: 7,
+            in                     : [Self.row(10, owner: 7, layer: 25), Self.row(20, owner: 3)]
+        )
+        #expect(reading.orderIndex == 1)
+        #expect(reading.isBehind == nil)
+    }
+
+    @Test("a non-zero-layer row of the process is skipped for its normal one")
+    func nonNormalLayerRowIgnored() {
+        let reading = WindowServerProbe.orderReading(
+            of                     : 20,
+            behindFrontmostWindowOf: 7,
+            in                     : [
+                Self.row(30, owner: 7, layer: 101),
+                Self.row(20, owner: 3),
+                Self.row(10, owner: 7),
+            ]
+        )
+        #expect(reading.orderIndex == 1)
+        #expect(reading.isBehind == false)
+    }
+
+    @Test("without a process only the index is read")
+    func noProcessNoRelation() {
+        let reading = WindowServerProbe.orderReading(
+            of                     : 20,
+            behindFrontmostWindowOf: nil,
+            in                     : [Self.row(10, owner: 7), Self.row(20, owner: 3)]
+        )
+        #expect(reading.orderIndex == 1)
+        #expect(reading.isBehind == nil)
+    }
+
     @Test("the main display's own origin converts to itself")
     @MainActor
     func quartzPointOnTheMainScreen() throws {

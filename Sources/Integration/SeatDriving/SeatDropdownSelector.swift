@@ -119,7 +119,9 @@ public struct SeatDropdownSelector {
             opener = element
         } else if case .none = resolution,
                   beforeStill.geometry.windowObservation != nil,
-                  let frame = try? DropdownOpening.frame(control: control, in: nativeWindow),
+                  let frame = try? await DropdownOpening.awayFromCaller({
+                      try DropdownOpening.frame(control: control, in: nativeWindow)
+                  }),
                   before.frame.contains(frame),
                   let bounds = AccessibilityFrameTrust.normalized(frame, in: before.frame),
                   let scoped = try await controlScene(beforeStill, bounds: bounds, identity: identity, title: beforeTitle),
@@ -208,12 +210,14 @@ public struct SeatDropdownSelector {
         var remoteListing: String?
         @MainActor @Sendable func chooseRemotely(_ menu: ContextMenu) async throws -> Bool {
             let roots = RemoteMenuChoice.roots(host: window.reference.processID, menuOwner: menu.window.processID)
+            try seat.checkInputAdmission()
             let outcome = try RemoteMenuChoice.accessibility.choose(item, in: menu.frame, under: roots)
             guard case .missing(let listing) = outcome else { return true }
             remoteListing = listing
             return false
         }
-        if try DropdownOpening.canShow(control: opener.label, in: nativeWindow) {
+        let openerLabel = opener.label
+        if try await DropdownOpening.awayFromCaller({ try DropdownOpening.canShow(control: openerLabel, in: nativeWindow) }) {
             receipt = try await seat.useNativePopupMenu(
                 of: window, turn: turn,
                 opening: {
@@ -223,7 +227,11 @@ public struct SeatDropdownSelector {
                 if remotePanel { return try await chooseRemotely(menu) }
                 guard try await readItem(menu, fromDisplay: false) != nil else { return false }
                 try Task.checkCancellation()
-                try DropdownOpening.select(item: item, in: menu.frame, processID: window.reference.processID)
+                let processID = window.reference.processID
+                try seat.checkInputAdmission()
+                try await DropdownOpening.awayFromCaller {
+                    try DropdownOpening.select(item: item, in: menu.frame, processID: processID)
+                }
                 return true
             }
         } else {
@@ -301,8 +309,11 @@ public struct SeatDropdownSelector {
             readable = false
         } else if remotePanel {
             // The popup's own value, by its label or, once changed, by the value it now holds.
-            let value = (try? DropdownOpening.value(control: opener.label, in: nativeWindow))
-                ?? (try? DropdownOpening.value(control: item, in: nativeWindow))
+            let label = opener.label
+            var value = try? await DropdownOpening.awayFromCaller { try DropdownOpening.value(control: label, in: nativeWindow) }
+            if value == nil {
+                value = try? await DropdownOpening.awayFromCaller { try DropdownOpening.value(control: item, in: nativeWindow) }
+            }
             verified = value.map { LabelText.normalize($0) == LabelText.normalize(item) } ?? false
             method   = .controlValue
             read     = value

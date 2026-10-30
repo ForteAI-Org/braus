@@ -15,6 +15,24 @@ import WindowPlacement
 @Suite("The cross-checked assigned-surface reader")
 struct CrossCheckedSurfaceReaderTests {
 
+    @Test func presentationKeepsAXSheetTitleAndParentThroughTransitionFilter() throws {
+        let labels = WindowPresentationMetadata(role: "AXSheet", title: "Save")
+        let snapshot = CrossCheckedSurfaceReader.assemble(
+            windowServer: [surface(2, visible: true), surface(1, visible: true)],
+            accessibility: [
+                record(1, role: .document, minimised: false, modal: false),
+                AccessibilitySurfaceRecord(processID: 77, windowNumber: 2, role: .dialog,
+                    isMinimised: false, isModal: true, parentWindowNumber: 1, appIsHidden: false,
+                    presentation: labels)
+            ]
+        )
+        let filtered = ApplicationTargetTransitionFilter().filter(snapshot, at: 1)
+        let sheet = try #require(filtered.presentation[identity(2)])
+        #expect(sheet.role == "AXSheet")
+        #expect(sheet.title == "Save")
+        #expect(sheet.parentWindowNumber == 1)
+    }
+
     @Test("a transient AX timeout gets one bounded recovery attempt")
     func transientAccessibilityFailureGetsOneRecovery() throws {
         var timeouts: [Float] = []

@@ -686,9 +686,9 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
 
 // MARK: - The shipping actuator
 
-private let remoteContentLog = Logger(subsystem: "dev.forte.AgentSeatKit", category: "RemoteContentActuator")
+nonisolated private let remoteContentLog = Logger(subsystem: "dev.forte.AgentSeatKit", category: "RemoteContentActuator")
 
-extension RemoteContentActuator where Node == AXUIElement {
+nonisolated extension RemoteContentActuator where Node == AXUIElement {
 
     /// How long one action or write may wait for its answer. Longer than a
     /// read's, because the host forwards it to the panel service.

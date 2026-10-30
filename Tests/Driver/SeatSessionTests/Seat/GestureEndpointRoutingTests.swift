@@ -99,15 +99,19 @@ struct GestureEndpointRoutingTests {
         /// replaced between the discovery and the boundary is expressed.
         var afterResolving: (() -> Void)?
 
-        /// What an accessibility actuation of remote content answers, and every
-        /// Command it was asked to act on.
-        var actuation: (InputCommand, ResolvedInputEndpoint)
+        /// What an accessibility actuation of remote content answers, every Command it was asked
+        /// to act on, and whether it ran on the main thread.
+        ///
+        /// The seat runs it on its actuation queue. The test writes these before the Command and
+        /// reads them after: the queue hop and the continuation's resume order every access.
+        nonisolated(unsafe) var actuation: (InputCommand, ResolvedInputEndpoint)
             -> Result<RemoteContentActuation, RemoteContentActuationRefusal> = { _, _ in
                 .success(RemoteContentActuation(action: "AXPress", role: "AXButton", textField: nil))
             }
-        var actuated: [(command: InputCommand, endpoint: ResolvedInputEndpoint)] = []
-        var prefersHost: [Bool] = []
-        var labels: [String?] = []
+        nonisolated(unsafe) var actuated: [(command: InputCommand, endpoint: ResolvedInputEndpoint)] = []
+        nonisolated(unsafe) var prefersHost: [Bool] = []
+        nonisolated(unsafe) var labels: [String?] = []
+        nonisolated(unsafe) var actuatedOnMainThread: [Bool] = []
 
         /// Whether the window's application takes its clicks through accessibility, as Finder does.
         var clicksThroughAccessibility = false
@@ -165,6 +169,7 @@ struct GestureEndpointRoutingTests {
                 },
                 postsDeclinedClicks: { [self] _ in postsDeclinedClicks },
                 remoteActuation: { [self] _, command, endpoint, prefersHost, label in
+                    actuatedOnMainThread.append(pthread_main_np() != 0)
                     actuated.append((command, endpoint))
                     self.prefersHost.append(prefersHost)
                     self.labels.append(label)

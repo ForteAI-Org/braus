@@ -119,6 +119,12 @@ public final class AgentSeat {
     /// host's stream.
     public let events: AsyncStream<SeatEvent>
 
+    /// Presentation subscribers share the follow pass, never the single-consumer event stream.
+    package var heldWindowsChanged: (@MainActor () -> Void)?
+    var heldWindowOrder: [WindowIdentity] = []
+    package var heldWindowSurfaces: [WindowSurface] = []
+    package var heldWindowMetadata: [WindowIdentity: WindowPresentationMetadata] = [:]
+
     /// The identity and geometry the seat was fixed to, once a window is
     /// adopted. It is the guard of Core, and it performs no system call: the
     /// seat supplies the readings.
@@ -131,7 +137,7 @@ public final class AgentSeat {
     let eventChannel: AsyncStream<SeatEvent>.Continuation
 
     let sensing  : any SeatSensing
-    private let placing  : any WindowPlacing
+    let placing  : any WindowPlacing
     private let sender   : any CommandSending
     private let fence    : CursorFence?
     /// The display whose virtual-seat bounds qualified this assignment. Capture
@@ -156,6 +162,8 @@ public final class AgentSeat {
 
     @TaskLocal
     private nonisolated static var nativeTextInputID: UUID?
+
+    private var splitInputsInFlight = 0
 
     private var nativeTextInputContext: (window: WindowReference, turn: Turn, id: UUID)?
 
@@ -359,6 +367,8 @@ public final class AgentSeat {
     private var windowFollowAgain = false
     private var windowFollowUntil: ContinuousClock.Instant?
     private var windowFollowPassInFlight = false
+    private var windowFollowSleep: CheckedContinuation<Void, Never>?
+    private var windowFollowSleepGeneration: UInt64 = 0
 
     /// Most recent focus episode, including a failed verification. Readiness
     /// describes the private facility separately from the normal input gate.
@@ -1786,6 +1796,8 @@ public final class AgentSeat {
         within deadline: Duration = .seconds(10)
     ) async -> AssignmentReleaseReport {
 
+        await abandonHumanInput(reason: .leaseEnded)
+
         // A zero or negative budget is already expired. Keep that fact as the
         // common absolute deadline so the normal obligation accounting still
         // names every untouched surface without converting a signed duration to
@@ -1887,7 +1899,8 @@ public final class AgentSeat {
 
         if !stopped {
             for member in assignmentKit.inventory.heldMembers
-            where member.identity.process == instance && session[member.windowNumber] == nil {
+            where member.identity.process == instance && session[member.windowNumber] == nil
+                && !lentWindowsLeftWithPerson.contains(member.identity) {
                 guard Self.mayContinue(until: limit) else { stopped = true; break }
                 // A surface born on the Virtual Display has no place of its own
                 // in the User Seat, and this kit does not invent one.
@@ -1922,6 +1935,7 @@ public final class AgentSeat {
             }
             for member in assignmentKit.inventory.heldMembers
             where member.identity.process == instance && session[member.windowNumber] == nil
+                    && !lentWindowsLeftWithPerson.contains(member.identity)
                     && windows[member.windowNumber] == nil && owed[member.windowNumber] == nil {
                 let owedItsFrame = member.origin == .preexisting
                 note(member.reference, owedItsFrame ? member.originalFrame : nil, .notAttempted)
@@ -2349,7 +2363,167 @@ public final class AgentSeat {
     /// and reads only `state` tells the person input is going out when nothing
     /// is, which is the one reading a status indicator must never get wrong.
     public var inputPauseReasons: [InputPauseReason] {
-        (commandGate?.pauseCauses ?? []).map(\.reason).sorted()
+        commandGate?.pauseReasons ?? []
+    }
+
+    package var didAbandonApplicationLending = false
+    var lentWindowsLeftWithPerson: Set<WindowIdentity> = []
+    var lendingHasStableBoundary: Bool {
+        !actionInFlight && !adoptionInFlight && transfersInFlight == 0
+            && !windowFollowPassInFlight && pendingAdoptions.isEmpty && recoveryTask == nil
+    }
+    var applicationLending: ApplicationLendingState?
+    var lendingOperationInFlight = false
+    var lendingEnding = false
+    var requestsLendingHandback = false
+
+    private var humanInputRevision: UInt64 = 0
+    private var humanInput: (token: InputCommandGate.HumanInput, process: ProcessIdentity?)?
+    private var humanInputAbandonment: Task<Void, Never>?
+
+    package enum HumanInputAbandonmentReason: String {
+        case leaseEnded
+        case sessionClosed
+        case staleLease
+    }
+
+    package var hasHumanInput: Bool {
+        humanInput != nil || commandGate?.hasHumanInput == true || humanInputAbandonment != nil
+    }
+
+    /// Abandons an ending lease's episode even when ordinary handback would refuse.
+    /// Closure clears the pause even after cancellation; it does not confirm Commands.
+    package func abandonHumanInput(reason: HumanInputAbandonmentReason) async {
+        await abandonApplicationLending()
+        focusRecovery?.endApplicationLending()
+        if let humanInputAbandonment {
+            await humanInputAbandonment.value
+            return
+        }
+        guard hasHumanInput else { return }
+        humanInputRevision &+= 1
+        humanInput = nil
+        observationIssuer.invalidate(.requestedByConsumer)
+        outstandingGeometry = nil
+        let cleanup = Task { [self] in
+            commandGate?.abandonHumanInput()
+            observationIssuer.invalidate(.requestedByConsumer)
+            outstandingGeometry = nil
+            publishCoherentState()
+            Self.log.notice("""
+                human episode abandoned: reason \(reason.rawValue, privacy: .public)
+                """)
+            humanInputAbandonment = nil
+        }
+        humanInputAbandonment = cleanup
+        await cleanup.value
+    }
+
+    /// Expected activation is scoped to the episode's process lifetime and an
+    /// adopted surface still inside the virtual display. Other faults remain.
+    private func allowsHumanActivation(of target: WindowReference) -> Bool {
+        if isLent(target) { return true }
+        if let process = target.identity?.process,
+           focusRecovery?.isHandingBackApplication(process) == true { return true }
+        guard let humanInput, commandGate?.isCurrentHumanInput(humanInput.token) == true,
+              target.identity?.process == humanInput.process, humanInput.process != nil,
+              sensing.fenceIsActive, sensing.virtualDisplayIsOnline,
+              let current = sensing.windowGeometry(of: target.windowNumber),
+              current.identity == target.identity,
+              sensing.virtualDisplayBounds.contains(current.frame) else { return false }
+        return true
+    }
+
+    func allowsHumanActivation(processID: Int32) -> Bool {
+        if requestsLendingHandback, let humanInput,
+           humanInput.process?.processID == processID,
+           commandGate?.isCurrentHumanInput(humanInput.token) == true { return true }
+        return adoptedWindows.contains { $0.reference.processID == processID && allowsHumanActivation(of: $0.reference) }
+    }
+
+    /// Blocks agent Commands before the host drains its current tool call.
+    /// A native composition or split key gesture must finish before its held
+    /// input can change owners.
+    public func beginHumanInput() throws -> InputCommandGate.HumanInput {
+        guard humanInputAbandonment == nil else {
+            throw InputFailure.inputPaused([.humanIntervention])
+        }
+        guard !isTearingDown, state != .failed else { throw SessionFailure.seatNotReady(state) }
+        guard nativeTextInputContext == nil, splitInputsInFlight == 0 else {
+            throw InputFailure.nativeTextInputRefused(.contextActive)
+        }
+        if let turn = turns.current {
+            let held = heldKeyCount(of: turn)
+            guard held == 0 else { throw SessionFailure.keysStillHeld(count: held) }
+        }
+        guard let commandGate else { throw InputFailure.inputPaused([.recoveryUnavailable]) }
+        let token = try commandGate.beginHumanInput()
+        humanInputRevision &+= 1
+        if humanInput == nil { humanInput = (token, currentTarget?.reference.identity?.process) }
+        focusRecovery?.rememberUserWindow()
+        observationIssuer.invalidate(.suspensionRaised)
+        outstandingGeometry = nil
+        publishCoherentState()
+        return token
+    }
+
+    /// Ends only the matching episode at a safe boundary. The caller must have
+    /// completed reconstruction and authorized continuation; this starts no work.
+    public func endHumanInput(_ token: InputCommandGate.HumanInput) async throws {
+        guard !isApplicationLent else { throw InputFailure.inputPaused([.humanIntervention]) }
+        try Task.checkCancellation()
+        guard !actionInFlight else { throw SessionFailure.assignmentStillInUse(.commandInFlight) }
+        let unconfirmed = posted.filter { $0.confirmation == nil }.count
+        guard unconfirmed == 0 else { throw SessionFailure.unconfirmedCommands(count: unconfirmed) }
+        guard let commandGate else { throw InputFailure.inputPaused([.recoveryUnavailable]) }
+        guard commandGate.isCurrentHumanInput(token) else {
+            throw InputFailure.inputPaused([.inputAuthorityExpired])
+        }
+        let previousHuman = humanInput
+        let activeTarget = adoptedWindows.first {
+            $0.reference.identity?.process == previousHuman?.process
+                && (requestsLendingHandback || sensing.frontmostProcessID == $0.reference.processID
+                    || sensing.isActive(processID: $0.reference.processID) == true)
+        }
+        let handbackProcessID = activeTarget?.reference.processID
+            ?? (requestsLendingHandback ? previousHuman?.process?.processID : nil)
+        if let handbackProcessID {
+            guard let focusRecovery else { throw InputFailure.inputPaused([.recoveryUnavailable]) }
+            let revision = humanInputRevision
+            let refreshed = await focusRecovery.prepareHumanHandback(processID: handbackProcessID)
+            try Task.checkCancellation()
+            guard commandGate.isCurrentHumanInput(token), humanInputRevision == revision,
+                  !actionInFlight, posted.allSatisfy({ $0.confirmation != nil }) else {
+                throw InputFailure.inputPaused([.inputAuthorityExpired])
+            }
+            let stillActive = requestsLendingHandback || sensing.frontmostProcessID == handbackProcessID
+                || sensing.isActive(processID: handbackProcessID) == true
+            if stillActive {
+                guard refreshed else { throw InputFailure.inputPaused([.activationUnverified]) }
+                humanInput = nil
+                // Recovery closes its common gate before human authority ends.
+                // Prior command provenance cannot absorb an explicit handback.
+                focusRecovery.activationChanged(to: handbackProcessID,
+                    source: requestsLendingHandback ? .applicationLendingHandback : .humanInterventionHandback)
+                guard focusRecovery.isPaused else {
+                    humanInput = previousHuman
+                    throw InputFailure.inputPaused([.activationUnverified])
+                }
+            }
+        }
+        humanInput = nil
+        try await commandGate.endHumanInput(token)
+        observationIssuer.invalidate(.requestedByConsumer)
+        outstandingGeometry = nil
+        publishCoherentState()
+    }
+
+    /// Checks the current operation's admission immediately before a native accessibility action.
+    package func checkInputAdmission() throws {
+        guard !isTearingDown, !isReleasingAssignment, state != .failed else {
+            throw SessionFailure.seatNotReady(state)
+        }
+        try commandGate?.check()
     }
 
     /// One cause for however many transfers are open.
@@ -2368,7 +2542,7 @@ public final class AgentSeat {
     /// episode itself and this finds it already open; what the bracket owns in
     /// every case is its end. Inside a Turn both calls stand down: the Turn's
     /// episode is the one that counts.
-    private func beginTransfer() {
+    func beginTransfer() {
         transfersInFlight += 1
         if transfersInFlight == 1 {
             commandGate?.pause(.windowTransfer)
@@ -2376,7 +2550,7 @@ public final class AgentSeat {
         }
     }
 
-    private func endTransfer() {
+    func endTransfer() {
         transfersInFlight -= 1
         if transfersInFlight == 0 {
             commandGate?.resume(.windowTransfer)
@@ -2487,6 +2661,39 @@ public final class AgentSeat {
         layoutGeneration: UInt64?,
         expecting       label: String? = nil
     ) async throws -> InputReceipt {
+        if let commandGate {
+            return try await commandGate.withAdmission {
+                try await sendAdmitted(
+                    command,
+                    observation: observation,
+                    turn: turn,
+                    platform: platform,
+                    layoutGeneration: layoutGeneration,
+                    expecting: label
+                )
+            }
+        }
+        return try await sendAdmitted(
+            command,
+            observation: observation,
+            turn: turn,
+            platform: platform,
+            layoutGeneration: layoutGeneration,
+            expecting: label
+        )
+    }
+
+    private func sendAdmitted(
+        _ command       : InputCommand,
+        observation     : SeatObservationReference,
+        turn            : Turn,
+        platform        : (any InputPlatform)?,
+        layoutGeneration: UInt64?,
+        expecting       label: String? = nil
+    ) async throws -> InputReceipt {
+        let isSplitInput = if case .key(_, _, _, let phase, _) = command { phase != .press } else { false }
+        if isSplitInput { splitInputsInFlight += 1 }
+        defer { if isSplitInput { splitInputsInFlight -= 1 } }
 
         // While a menu interaction is current, only the menu and its closing may
         // be acted on, and those go through the interaction. An ordinary Command
@@ -2703,8 +2910,9 @@ public final class AgentSeat {
                 expecting   : label,
                 hostRecipe  : classification == .appleExtensionContent ? (window.reference, resolved) : nil
             ) : nil
-            let receipt = if let actuated { actuated } else {
-                try await sender.send(
+            let receipt: InputReceipt
+            if let actuated { receipt = actuated } else {
+                receipt = try await sender.send(
                     routed,
                     to           : recipient,
                     correlationID: turn.correlationID,
@@ -2780,6 +2988,10 @@ public final class AgentSeat {
     /// that proved ignored, `hostRecipe` is the host window and recipe one click is posted with,
     /// never into the extension's own window. `mayEnterField` permits only a qualified own-window
     /// dialog field's click when text is not writable yet and no AX write has been attempted.
+    ///
+    /// The accessibility calls wait on the application's answers, 330 to 430 ms for a Pro Tools
+    /// dialog button, so they run on `actuationQueue` while this actor awaits them, as a posted
+    /// click awaits the driver; the checks before them and everything after stay on this actor.
     private func actuateRemoteContent(
         _ command    : InputCommand,
         textField    : RemoteContentActuation.TextField?,
@@ -2810,15 +3022,18 @@ public final class AgentSeat {
 
             started = DispatchTime.now().uptimeNanoseconds
             if let textField, let text = Self.text(of: command) {
-                let shows = try textField.replaceSelection(text).get()?.contains(text) == true
+                let shows = try await Self.onActuationQueue { textField.replaceSelection(text) }
+                    .get()?.contains(text) == true
                 done = "AXSelectedText, the value read back \(shows ? "holds" : "does not show") it"
             } else {
                 guard let endpoint, let instance = assignmentKit.lifecycle.current?.instance else {
                     throw RemoteContentActuationRefusal.unreadable
                 }
-                let actuation = try endpoints.remoteActuation(
-                    instance.processID, command, endpoint, prefersHost, label
-                ).get()
+                let actuate   = endpoints.remoteActuation
+                let processID = instance.processID
+                let actuation = try await Self.onActuationQueue {
+                    actuate(processID, command, endpoint, prefersHost, label)
+                }.get()
                 remoteTextField = actuation.textField.map {
                     ($0, recipient, endpoint.logicalSurface, endpoint.selectionGeneration)
                 }
@@ -2922,6 +3137,23 @@ public final class AgentSeat {
             resolvedAtNanoseconds : now,
             expiresAtNanoseconds  : now &+ DialogEndpointResolver<AXUIElement>.lifetimeNanoseconds
         )
+    }
+
+    /// One per process and serial, so no two actuations reach an application at once. Not a
+    /// `@concurrent` function: the work blocks its thread for the timeouts and the settles.
+    private nonisolated static let actuationQueue = DispatchQueue(
+        label: "dev.forte.seat.accessibility-actuation",
+        qos  : .userInitiated
+    )
+
+    /// Runs one blocking accessibility actuation on `actuationQueue` and resumes the caller with
+    /// its Sendable answer.
+    private nonisolated static func onActuationQueue<Value: Sendable>(
+        _ body: @escaping @Sendable () -> Value
+    ) async -> Value {
+        await withCheckedContinuation { continuation in
+            actuationQueue.async { continuation.resume(returning: body()) }
+        }
     }
 
     /// The field the last accessibility click remembered, when `observation`
@@ -3067,6 +3299,7 @@ public final class AgentSeat {
         var failure: (any Error)?
         do {
             try Task.checkCancellation()
+            try checkInputAdmission()
             try await opening(target, record.platform)
             _ = await EventLoopWait.until({
                 !menuWindows().isEmpty
@@ -3082,6 +3315,7 @@ public final class AgentSeat {
                 throw InputFailure.currentCoordinateGeometryUnavailable
             }
             try Task.checkCancellation()
+            try checkInputAdmission()
             requested = try await choose(observed)
         } catch { failure = error }
 
@@ -3768,7 +4002,7 @@ public final class AgentSeat {
 
         if focusRecovery?.isPaused == true { return }
 
-        guard state == .waiting, let target = seatGuard?.target else { return }
+        guard state == .waiting, let target = seatGuard?.target, !isLent(target) else { return }
 
         switch sensing.isActive(processID: target.processID) {
 
@@ -3813,6 +4047,10 @@ public final class AgentSeat {
         desktopSettleRemaining = Self.desktopSettleBudget
         reportStrandedKeys()
         isTearingDown = true
+        if hasHumanInput, let commandGate {
+            commandGate.pause(.deliberateStop)
+        }
+        await abandonHumanInput(reason: .sessionClosed)
         if let context = nativeTextInputContext,
            let preparing = sender as? any NativeTextInputPreparing {
             let cleanup = await preparing.cancelNativeTextInput(correlationID: context.turn.correlationID)
@@ -3864,6 +4102,11 @@ public final class AgentSeat {
     private static let maximumWindowFollowPasses = 10
     private static let maximumAnticipatedWindowFollowPasses = 20
 
+    /// How long a creation notification keeps the faster cadence: the window
+    /// server row was measured 1 to 16 ms either side of it on Pro Tools, so
+    /// 300 ms covers the row and the confirmation that may follow it.
+    private static let announcedWindowFollowHorizon = Duration.milliseconds(300)
+
     /// Starts following the windows of the applications this seat drives.
     /// Installed only through a host configured for it; a seat that was never
     /// asked takes no reading of anybody's windows.
@@ -3871,8 +4114,15 @@ public final class AgentSeat {
 
         guard windowWatch == nil, !isTearingDown else { return }
         windowWatch = AppWindowWatch(created: { [weak self] element in
+            if let announced = WindowRelocator.windowNumber(of: element) {
+                self?.windowInventory.announce(announced)
+            }
             self?.windowElements?.remember(element)
-            self?.requestWindowFollow()
+            // The window server publishes the row a few ms either side of the
+            // notification: the faster cadence and an immediate wake find it on
+            // the next pass instead of up to 120 ms later.
+            self?.requestWindowFollow(through: Self.announcedWindowFollowHorizon)
+            self?.wakeWindowFollow()
             self?.refreshFocusPreparation()
         })
         refreshWindowFollowing()
@@ -3886,6 +4136,7 @@ public final class AgentSeat {
 
         windowFollowTask?.cancel()
         windowFollowTask  = nil
+        wakeWindowFollow()
         windowFollowAgain = false
         windowFollowUntil = nil
         windowWatch?.stop()
@@ -3958,7 +4209,7 @@ public final class AgentSeat {
                           || anticipating
                 else { break }
 
-                await EventLoopWait.sleep(
+                await self.sleepUntilWoken(
                     anticipating ? Self.anticipatedWindowFollowInterval
                                  : Self.windowFollowInterval
                 )
@@ -3967,6 +4218,33 @@ public final class AgentSeat {
             self.windowFollowTask = nil
             self.windowFollowUntil = nil
         }
+    }
+
+    /// Waits like `EventLoopWait.sleep`, on a main queue timer, and returns
+    /// early when `wakeWindowFollow` is called: a creation notification that
+    /// lands while the burst sleeps runs its pass now instead of at the end of
+    /// the interval. The burst stays bounded by its pass count.
+    private func sleepUntilWoken(_ interval: Duration) async {
+        windowFollowSleepGeneration &+= 1
+        let generation = windowFollowSleepGeneration
+        await withCheckedContinuation { continuation in
+            windowFollowSleep = continuation
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Double(interval.wholeNanoseconds) / 1_000_000_000
+            ) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.windowFollowSleepGeneration == generation else { return }
+                    self.wakeWindowFollow()
+                }
+            }
+        }
+    }
+
+    /// Ends the burst's current wait, if it is waiting.
+    private func wakeWindowFollow() {
+        guard let sleep = windowFollowSleep else { return }
+        windowFollowSleep = nil
+        sleep.resume()
     }
 
     /// One pass: read the window server for the driven processes, fold it into
@@ -4005,6 +4283,7 @@ public final class AgentSeat {
                     """)
             }
             if scope.isStandDown {
+                if isApplicationLent { pruneClosedLentWindowPreviews() }
                 sightWindowsDuringAdoption()
                 return
             }
@@ -4014,8 +4293,7 @@ public final class AgentSeat {
             // the registers for as long as the person keeps the focus, and the
             // recovery that is waiting for those registers waits on the pass
             // that is waiting for the recovery.
-            foldCurrentReading()
-            publishCoherentState()
+            if await foldCurrentReadingInBackground() { publishCoherentState() }
             return
         }
         lastWindowFollowStandDown = nil
@@ -4036,6 +4314,7 @@ public final class AgentSeat {
         windowFollowScanCount += 1
         let surfaces = sensing.windowSurfaces(ownedBy: Set(processes.map(\.processID)))
         focusRecovery?.noteCommandWindows(surfaces)
+        if let surfaces { publishHeldWindows(surfaces) }
         // The level is the reading's and is kept for the evidence line: it is
         // not carried by a change, and re-reading it per candidate would cost.
         let levels = Dictionary(
@@ -4108,8 +4387,7 @@ public final class AgentSeat {
         // A pass that ran only for the Command's windows still settles the
         // registers, as the reconciliation a waiting seat always gets.
         if commandEpisodeFollowMayProceed {
-            foldCurrentReading()
-            publishCoherentState()
+            if await foldCurrentReadingInBackground() { publishCoherentState() }
         }
     }
 
@@ -4375,6 +4653,26 @@ public final class AgentSeat {
             // the reason a window is waiting is thinner than the others.
             guard !placing.spaceIsOnScreen(for: fresh) else {
                 windowInventory.offerAgain(candidate.windowNumber)
+                return
+            }
+        }
+
+        // A candidate reported on its creation notification alone, before a
+        // second reading agreed, is held to its own body first. A body that does
+        // not confirm it stands outside the Virtual Display, or that cannot be
+        // read, sends it back to the ordinary two-reading rule with nothing
+        // spent: the fast path can only be faster, never decide differently.
+        if windowInventory.takeProvisional(candidate.windowNumber) {
+            let bounds = sensing.virtualDisplayBounds
+            guard let body = try? placing.frame(of: fresh),
+                  body.width > 0, body.height > 0,
+                  !bounds.intersects(body)
+            else {
+                windowInventory.awaitSecondReading(candidate.windowNumber)
+                Self.log.notice("""
+                    window \(fresh.windowNumber, privacy: .public) was announced outside the virtual \
+                    display and its body did not confirm it: it waits for a second agreeing reading
+                    """)
                 return
             }
         }
@@ -4649,6 +4947,51 @@ public final class AgentSeat {
         return current
     }
 
+    /// Gives a held window the size the person gave its picture on their screen, kept inside the
+    /// Virtual Display from where the window stands, and answers the size the window took, read
+    /// back from it: an application with a minimum or a maximum size keeps its own. Nil, with
+    /// nothing written, while a Command, an adoption, a transfer or a recovery is under way, while
+    /// the application is lent, or when the window is not held and staged here.
+    ///
+    /// A reading the window server already agrees with becomes the operating geometry at once; a
+    /// later one is what the guard's recovery accepts as a settled resize inside the display.
+    public func resizeHeldWindow(
+        _ windowNumber: Int,
+        to size       : CGSize
+    ) -> CGSize? {
+
+        guard !isTearingDown, state.acceptsCommands, lendingHasStableBoundary, applicationLending == nil,
+              let record = session[windowNumber], record.isStaged,
+              size.width > 0, size.height > 0
+        else { return nil }
+
+        let bounds = sensing.virtualDisplayBounds
+        let origin = record.window.reference.frame.origin
+        let wanted = CGSize(
+            width : min(size.width, bounds.maxX - origin.x).rounded(),
+            height: min(size.height, bounds.maxY - origin.y).rounded()
+        )
+        do { try placing.resize(record.window.reference, to: wanted) }
+        catch {
+            Self.log.notice("""
+                window \(windowNumber, privacy: .public) would not take the person's size \
+                \(Int(wanted.width), privacy: .public)x\(Int(wanted.height), privacy: .public): \
+                \(String(describing: error), privacy: .public)
+                """)
+            return nil
+        }
+        guard let body = ((try? placing.frame(of: record.window.reference)) ?? nil),
+              body.width > 0, body.height > 0
+        else { return nil }
+        if let reading = sensing.windowGeometry(of: windowNumber),
+           reading.hasSameIdentity(as: record.window.reference),
+           bounds.contains(reading.frame),
+           VirtualWindowPlacementCheck.sizesMatchAcrossSources(body.size, reading.frame.size) {
+            acceptOperationalGeometry(reading)
+        }
+        return body.size
+    }
+
     private func refuseTransfer(_ window: WindowReference, _ reason: WindowTransferRefusal) {
         Self.log.notice("""
             window \(window.windowNumber, privacy: .public) was not brought in: \
@@ -4757,7 +5100,7 @@ public final class AgentSeat {
 
     /// The Issues the current readings show, using the guard of Core: one
     /// comparison, no system call inside it, the same one a test runs.
-    private func currentIssues(for record: WindowRecord) -> [SeatIssue] {
+    func currentIssues(for record: WindowRecord) -> [SeatIssue] {
 
         guard let seatGuard else { return [.windowUnavailable] }
 
@@ -4766,7 +5109,7 @@ public final class AgentSeat {
             displayID    : seatGuard.displayID,
             displayBounds: seatGuard.displayBounds
         )
-        return windowGuard.issues(
+        let issues = windowGuard.issues(
             server              : sensing.windowGeometry(of: record.window.id),
             currentDisplayID    : displayID,
             currentDisplayBounds: sensing.virtualDisplayBounds,
@@ -4775,6 +5118,11 @@ public final class AgentSeat {
             targetIsActive      : sensing.isActive(processID: record.window.reference.processID),
             frontmostProcessID  : sensing.frontmostProcessID
         )
+        if isLent(record.window.reference) {
+            return issues.filter { $0 != .targetActivated && $0 != .geometryChanged && $0 != .windowUnavailable }
+        }
+        return allowsHumanActivation(of: record.window.reference)
+            ? issues.filter { $0 != .targetActivated } : issues
     }
 
     /// The Receipt with the observation attached, the Command remembered as
@@ -5020,6 +5368,8 @@ public final class AgentSeat {
             prepareDestination: { try restorer.prepare($0, targets: $1) },
             renewDestination: { try restorer.renewDestination($0) },
             isFrontmost: { restorer.isFrontmost(processID: $0) },
+            isLendingProcessFrontmost: { restorer.isFrontmost(process: $0) },
+            allowsHumanActivation: { [weak self] in self?.allowsHumanActivation(processID: $0) == true },
             changed: { [weak self] report in self?.focusRecoveryChanged(report) })
         focusRecovery = recovery
         driver.commandGate.setPreparation { [weak self, weak recovery] correlationID in
@@ -5125,7 +5475,11 @@ public final class AgentSeat {
             """)
         guard state != .failed else { return }
         switch report.outcome {
-        case .restoring:
+        case .restoring where report.timing.activationSource == .applicationLendingHandback:
+            break
+        case .waitingForUser where report.timing.activationSource != .applicationLendingHandback || state == .waiting:
+            break
+        case .restoring, .waitingForUser:
             focusRecoveryWasDegraded = state == .degraded
             eventChannel.yield(.issueDetected(.targetActivated, cause: nil))
             turns.recordIssue()
@@ -5135,9 +5489,9 @@ public final class AgentSeat {
                 transition(to: actionInFlight ? .acting : (focusRecoveryWasDegraded ? .degraded : .ready),
                            reason: .recovered)
             }
-        // The seat stays where it is on all three: `unrecoverable` says nothing
+        // The seat stays where it is on both: `unrecoverable` says nothing
         // automatic asks again, not that the seat stopped.
-        case .waitingForUser, .cancelled, .unrecoverable:
+        case .cancelled, .unrecoverable:
             break
         }
     }
@@ -5167,6 +5521,7 @@ public final class AgentSeat {
             sensing                   : sensing,
             audit                     : audit,
             recordsUserContext        : true,
+            allowsTargetActivation    : { [weak self] in self?.allowsHumanActivation(of: record.window.reference) == true },
             issueCheck                : { [weak self] in
                 guard let self, let record = self.session[record.window.id] else {
                     return [.processUnavailable]
@@ -5195,6 +5550,8 @@ public final class AgentSeat {
     /// refused raise keeps waiting, and is what is thrown only when nothing
     /// confirms the window by the deadline. A thumbnail cannot be confirmed in
     /// its place: the strip is on the physical display, outside `bounds`.
+    /// Not always: Safari windows taken back have sat in a strip at the
+    /// virtual display's own left edge, and AXRaise left them there.
     ///
     /// A window born inside the display may settle at a different body size.
     /// Only this in-place path accepts the new size: AX and two bracketed
@@ -5207,7 +5564,7 @@ public final class AgentSeat {
     /// spending 200 ms in fixed waits after its AX move. A slower window then
     /// uses the original 100 ms cadence until the same deadline; the shorter
     /// opening does not weaken the identity, geometry or stability checks.
-    private func confirmPlacement(
+    func confirmPlacement(
         of window     : WindowReference,
         expectedOrigin: CGPoint,
         within bounds : CGRect,
@@ -5886,6 +6243,8 @@ public final class AgentSeat {
     /// whose members the assignment reader found whether or not the seat
     /// follows: every other stand-down still holds it back.
     private func windowFollowScope(requiringWatch: Bool = true) -> WindowFollowScope {
+        if didAbandonApplicationLending { return .standDown(reason: "the lent lease is ending") }
+        if isApplicationLent { return .standDown(reason: "the application is lent to the person") }
         if requiringWatch, windowWatch == nil     { return .standDown(reason: "there is no window watch") }
         if isTearingDown                          { return .standDown(reason: "the seat is tearing down") }
         if actionInFlight                         { return .standDown(reason: "a Command is in flight") }

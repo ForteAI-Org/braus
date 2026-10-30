@@ -83,6 +83,29 @@ struct ObservationAdmissionTests {
         return (seat, window, builtSource, builtClock, sender)
     }
 
+    @Test("a background inventory returning after teardown cannot issue a new observation")
+    func delayedInventoryCannotCrossTeardown() async throws {
+        let sensing = FakeSensing()
+        let reader = ControlledSurfaceReader(sensing: sensing)
+        let source = ControlledObservationSource(sensing: sensing)
+        let seat = makeSeat(sensing: sensing, reader: reader, source: source)
+        _ = try await seat.adopt(
+            FakeGeometry.reference(frame: FakeGeometry.userSeatWindow.frame),
+            platform: AppKitPlatform()
+        )
+        reader.beforeBackgroundDelivery = { @MainActor in
+            _ = await seat.releaseAllWindows(.returnToUserSeat)
+        }
+        let before = source.requested.count
+        let result = await seat.observe()
+        guard case .failure = result else {
+            Issue.record("A reading from before teardown authorized a capture")
+            return
+        }
+        #expect(source.requested.count == before)
+        #expect(!seat.coherentState.hasCurrentObservation)
+    }
+
     // MARK: The reference the kit issues
 
     @Test("an observation binds identity, selection, geometry and a measured age")

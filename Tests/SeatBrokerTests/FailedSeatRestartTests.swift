@@ -10,6 +10,7 @@ import Foundation
 import SeatCore
 import SeatDriving
 import SeatSession
+import SeatInput
 import Testing
 @testable import SeatBroker
 
@@ -35,6 +36,83 @@ import Testing
     )
 )
 struct FailedSeatRestartTests {
+
+    @Test("End Control abandons the episode")
+    func controlAbandonsEpisode() async throws {
+        let appName = ProcessInfo.processInfo.environment["BRAUS_RESTART_APP"] ?? "TextEdit"
+        NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.finishLaunching()
+        let broker = SeatBroker(configuration: SeatBrokerConfiguration(allowUnvalidatedBuild: true))
+        try #require(!broker.runningTargets().contains {
+            $0.pid != nil && $0.name.caseInsensitiveCompare(appName) == .orderedSame
+        }, "The test must open its own application")
+        let session = BrokeredAutomationSession(broker: broker, workerID: UUID(),
+            knowledgeDirectory: FileManager.default.temporaryDirectory)
+        var failure: (any Error)?
+        do {
+            _ = try await session.open(application: appName, window: nil)
+            let seat = try #require(session.heldSeat)
+            let control = session.makeHumanPreviewControl(suspend: {}, waitForAgent: {}, endAgent: {})
+            try control.begin()
+            #expect(seat.hasHumanInput)
+            await control.finish()
+            #expect(control.isFinished)
+            #expect(!seat.hasHumanInput)
+            #expect(!seat.inputPauseReasons.contains(.humanIntervention))
+        } catch { failure = error }
+        await session.close()
+        await broker.queue.shutdown()
+        if let failure { throw failure }
+    }
+
+    @Test("a parked host's next lease admits agent Commands after human abandonment",
+          arguments: [false, true])
+    func nextLeaseClearsHumanEpisode(seedStaleEpisode: Bool) async throws {
+        let appName = ProcessInfo.processInfo.environment["BRAUS_RESTART_APP"] ?? "TextEdit"
+        NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.finishLaunching()
+        let broker = SeatBroker(configuration: SeatBrokerConfiguration(allowUnvalidatedBuild: true))
+        try #require(!broker.runningTargets().contains {
+            $0.pid != nil && $0.name.caseInsensitiveCompare(appName) == .orderedSame
+        }, "The test must open its own application")
+        let first = try await broker.queue.acquire("human episode")
+        let session = first.session
+        var failure: (any Error)?
+        var previousSeat: AgentSeat?
+        var pid: pid_t?
+        do {
+            pid = try await session.open(applicationNamed: appName).pid
+            let seat = try session.borrowedSeatTarget().agentSeat()
+            previousSeat = seat
+            _ = try seat.beginHumanInput()
+            _ = await session.finishUsingApp()
+            #expect(!seat.hasHumanInput)
+            if seedStaleEpisode { _ = try seat.beginHumanInput() }
+        } catch { failure = error }
+        first.giveBack()
+        if let pid { await Self.waitForExit(of: pid, within: .seconds(5)) }
+        if failure == nil {
+            let second = try await broker.queue.acquire("next lease")
+            do {
+                #expect(second.session === session)
+                #expect(previousSeat?.hasHumanInput == false)
+                try await second.session.open(applicationNamed: appName)
+                let seat = try second.session.borrowedSeatTarget().agentSeat()
+                #expect(seat === previousSeat)
+                #expect(!seat.inputPauseReasons.contains(.humanIntervention))
+                let turn = try await seat.acquire()
+                let observation = try await seat.observe().get()
+                let receipt = try await seat.send(.key(virtualKey: 123, text: ""),
+                    observation: observation.reference, turn: turn)
+                try seat.confirm(receipt, .unknown)
+                try seat.release(turn)
+            } catch { failure = error }
+            _ = await second.session.close()
+            second.giveBack()
+        }
+        await broker.queue.shutdown()
+        if let failure { throw failure }
+    }
 
     @Test("a failed seat is replaced by a ready one on the next open of a warm session")
     func aFailedSeatIsReplacedOnTheNextOpen() async throws {
@@ -100,8 +178,8 @@ struct FailedSeatRestartTests {
         #expect(closing == nil, "the session closed with something left behind")
     }
 
-    @Test("clean worker leases reuse the queue session with a new ready seat each time")
-    func cleanLeasesRetireTheirSeat() async throws {
+    @Test("clean worker leases within the idle delay reuse the queue session and its ready seat")
+    func cleanLeasesKeepTheirSeat() async throws {
         let appName = ProcessInfo.processInfo.environment["BRAUS_RESTART_APP"] ?? "TextEdit"
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("braus-clean-lease-\(UUID().uuidString)", isDirectory: true)
@@ -135,7 +213,7 @@ struct FailedSeatRestartTests {
                     let current = try session.borrowedSeatTarget().agentSeat()
                     #expect(current.state == .ready, "the new lease is not ready")
                     if let previousSeat {
-                        #expect(current !== previousSeat, "a clean lease reused the previous seat")
+                        #expect(current === previousSeat, "a clean lease within the idle delay made a new seat")
                     }
                     previousSeat = current
                 } catch {

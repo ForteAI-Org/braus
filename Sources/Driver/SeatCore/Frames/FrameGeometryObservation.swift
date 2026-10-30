@@ -129,9 +129,10 @@ nonisolated public struct FrameGeometryObservation: Sendable, Equatable {
     /// Nil for a geometry the transform rules already refuse, which is the
     /// answer `screenPoint(fromPixelPoint:)` gives such a frame too.
     ///
-    /// The ceiling on every reader of this: a frame that arrived without
-    /// ScreenCaptureKit attachments is certified from `fallbackGeometry`, which
-    /// declares the content rectangle to be the whole surface by construction.
+    /// The ceiling on every reader of this: a frame that arrived without any
+    /// ScreenCaptureKit attachment, scales included, is certified from
+    /// `fallbackGeometry`, which then declares the content rectangle to be the
+    /// whole surface by construction.
     /// Such a frame reports a full buffer whatever is in it, so black it
     /// carries is invisible here and in `MonitorLayer.contentsRect(of:)` alike.
     public var contentPixelSize: CGSize? {

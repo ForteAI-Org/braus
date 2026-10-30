@@ -73,6 +73,15 @@ nonisolated enum AppWindowChange: Equatable {
 /// frame, which is the same rule `confirmPlacement` uses at the other end of
 /// the transaction.
 ///
+/// One exception is faster and never different: a window the application's own
+/// creation notification named (`announce`) and that is born outside the Virtual
+/// Display is reported at its first reading, as provisional. Pro Tools animates
+/// a new dialog's frame for 116 to 273 ms, so waiting for two equal frames kept
+/// every dialog 150 to 460 ms on the person's display. The transfer takes the
+/// size from the window's body anyway, and it holds a provisional candidate to
+/// that body before it spends anything: a body that does not confirm the window
+/// stands outside sends it back to this rule (`awaitSecondReading`).
+///
 /// The rule holds for every change this type emits, a window the seat already
 /// holds included. A stale frame is not only a new window's problem: a Qt
 /// target was measured publishing (4032, 2390, 1345, 949) for a window whose
@@ -122,6 +131,20 @@ nonisolated struct AppWindowInventory {
 
     private var known    : [Int: KnownSurface] = [:]
     private var attempts : [Int: Int]          = [:]
+
+    /// Window IDs the application's own creation notification named. A window
+    /// born outside the Virtual Display with this proof is a candidate at its
+    /// first reading: the person's display is where it must not stay, and the
+    /// transfer takes its size from the accessibility body, not from a frame
+    /// that is still animating.
+    // ponytail: an announcement never seen stays until its process is forgotten; a few Ints per session.
+    private var announced: Set<Int> = []
+
+    /// Candidates reported on the announcement alone, before a second reading
+    /// agreed. The transfer checks the window's own body first and, when the
+    /// body does not confirm it is outside, offers it again under the ordinary
+    /// two-reading rule (`confirmProvisional`).
+    private var provisional: Set<Int> = []
 
     /// The processes whose "already there" has been taken, for as long as the
     /// seat keeps driving them.
@@ -272,14 +295,22 @@ nonisolated struct AppWindowInventory {
                 // server handed out again. The baseline agrees with itself, and
                 // so does the first reading of a process whose baseline failed.
                 let isCandidate = baselined.contains(identity.process)
+                let takenNow    = isCandidate && isPrimed
+                    && announced.remove(windowNumber) != nil
+                    && Self.isTransferable(surface, menuLevel: menuLevel)
+                    && !virtualBounds.contains(surface.reference.frame)
                 known[windowNumber] = KnownSurface(
                     identity   : identity,
                     frame      : surface.reference.frame,
-                    agreed     : !isCandidate,
+                    agreed     : !isCandidate || takenNow,
                     isMissing  : false,
                     hasReturned: false
                 )
-                if isCandidate { pending = true }
+                if takenNow {
+                    provisional.insert(windowNumber)
+                    changes.append(.appeared(surface.reference))
+                }
+                else if isCandidate { pending = true }
                 continue
             }
 
@@ -324,16 +355,20 @@ nonisolated struct AppWindowInventory {
                 continue
             }
 
-            guard sameFrame, !wasMissing else {
+            let announcedOutside = !wasMissing && announced.contains(windowNumber)
+                && !virtualBounds.contains(surface.reference.frame)
+            guard (sameFrame || announcedOutside), !wasMissing else {
                 known[windowNumber] = record
                 pending = true
                 continue
             }
+            announced.remove(windowNumber)
+            if !sameFrame { provisional.insert(windowNumber) }
 
-            record.agreed       = isTransferable(surface, menuLevel: menuLevel)
+            record.agreed       = Self.isTransferable(surface, menuLevel: menuLevel)
             known[windowNumber] = record
 
-            guard isPrimed, isTransferable(surface, menuLevel: menuLevel) else { continue }
+            guard isPrimed, Self.isTransferable(surface, menuLevel: menuLevel) else { continue }
 
             guard !virtualBounds.contains(surface.reference.frame) else {
                 // Inside already, so nothing to move and still something to
@@ -365,6 +400,26 @@ nonisolated struct AppWindowInventory {
         return changes
     }
 
+    /// Records that the creation notification named this Window ID.
+    mutating func announce(_ windowNumber: Int) {
+        announced.insert(windowNumber)
+    }
+
+    /// Sends a provisional candidate back to the ordinary rule: its last
+    /// reading is a sighting again, and a pass soon is worth its cost.
+    mutating func awaitSecondReading(_ windowNumber: Int) {
+        guard known[windowNumber] != nil else { return }
+        known[windowNumber]?.agreed = false
+        hasPendingCandidate = true
+    }
+
+    /// Whether this candidate was reported on its announcement alone, which
+    /// the caller has to confirm against the window's body before it acts.
+    /// Answered once: the confirmation belongs to this report only.
+    mutating func takeProvisional(_ windowNumber: Int) -> Bool {
+        provisional.remove(windowNumber) != nil
+    }
+
     /// Forgets the baseline, the surfaces and the attempts of every process not
     /// in `processes`, so driving one of them again starts a new episode.
     private mutating func forgetProcesses(otherThan processes: Set<ProcessIdentity>) {
@@ -372,6 +427,12 @@ nonisolated struct AppWindowInventory {
         for (windowNumber, record) in known where !processes.contains(record.identity.process) {
             known[windowNumber]    = nil
             attempts[windowNumber] = nil
+            announced.remove(windowNumber)
+            provisional.remove(windowNumber)
+        }
+        if processes.isEmpty {
+            announced.removeAll()
+            provisional.removeAll()
         }
     }
 
@@ -414,7 +475,7 @@ nonisolated struct AppWindowInventory {
     /// What is drawn above menus is as transient: help tags, drag images and
     /// screen-saver level surfaces. Qt draws its drag image at level 1000 at the
     /// real cursor, on the person's screen, and moving it failed a seat.
-    private func isTransferable(_ surface: WindowSurface, menuLevel: Int) -> Bool {
+    static func isTransferable(_ surface: WindowSurface, menuLevel: Int) -> Bool {
         (surface.isVisible || surface.isOnInactiveSpace) && surface.level < menuLevel
             && surface.reference.frame.width > 0 && surface.reference.frame.height > 0
     }

@@ -79,10 +79,6 @@ public enum LiveFrameFallback: Error, Equatable, Sendable {
     /// came within the bound; the Still is taken, and a later request finds the stream awake.
     case resting
 
-    /// The person pinned the live picture to the whole display, and a display frame is never
-    /// cropped into a window observation.
-    case pinnedToDisplay
-
     /// The running stream shows another window or another capture family.
     case otherWindow
 

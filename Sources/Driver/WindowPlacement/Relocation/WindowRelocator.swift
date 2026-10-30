@@ -98,6 +98,22 @@ nonisolated public enum WindowRelocator {
         return frame(of: element)
     }
 
+    /// Requests AXRaise for an attested window. The caller verifies its size and frontmost order.
+    package static func raise(_ window: WindowReference) throws {
+        guard let identity = window.identity,
+              WindowServerProbe.identity(of: window.windowNumber) == identity else {
+            throw SeatInterruption(issues: [.identityChanged])
+        }
+        let element = try windowElement(for: window, cache: nil)
+        guard WindowServerProbe.identity(of: window.windowNumber) == identity else {
+            throw SeatInterruption(issues: [.identityChanged])
+        }
+        let result = AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        guard result == .success else {
+            throw DisplayFailure.raiseFailed(windowNumber: window.windowNumber, code: result)
+        }
+    }
+
     /// Puts a window that Stage Manager stashed back on stage, at full size, on
     /// the Virtual Display.
     ///
@@ -489,7 +505,7 @@ nonisolated public enum WindowRelocator {
         guard let cache, let identity = window.identity else {
             return try resolveWindowElement(for: window)
         }
-        return try cache.element(
+        let element = try cache.element(
             for        : identity,
             confirmedBy: { windowNumber(of: $0) },
             otherwise  : {
@@ -507,6 +523,10 @@ nonisolated public enum WindowRelocator {
                 return try resolveWindowElement(for: window)
             }
         )
+        // Probes of retained handles leave a 50 ms timeout on them, which a move must not inherit:
+        // an application still busy with an activation would read as one refusing the write.
+        AXUIElementSetMessagingTimeout(element, 0)
+        return element
     }
 
     private static func resolveWindowElement(for window: WindowReference) throws -> AXUIElement {
@@ -577,7 +597,11 @@ nonisolated public enum WindowRelocator {
             kAXPositionAttribute as CFString,
             &isSettable
         )
-        guard settableResult == .success, isSettable.boolValue else {
+        // A question the application left unanswered is not a refusal: its code says which it was.
+        guard settableResult == .success else {
+            throw DisplayFailure.attributeWriteFailed(attribute: "AXPosition", code: settableResult)
+        }
+        guard isSettable.boolValue else {
             throw DisplayFailure.attributeNotSettable("AXPosition")
         }
 

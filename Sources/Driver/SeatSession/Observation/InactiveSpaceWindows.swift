@@ -17,7 +17,9 @@ nonisolated enum InactiveSpaceWindows {
     }
 
     static func read(ownedBy processIDs: Set<Int32>, cache: WindowElementCache) -> [Candidate] {
-        guard let layout = WindowSpaceProbe.layout() else { return [] }
+        // Every window it would keep needs a desktop no display shows; with none
+        // there is nothing to find, and the per-window reads below are skipped.
+        guard let layout = WindowSpaceProbe.layout(), layout.hasInactiveSpace else { return [] }
         let deadline = DispatchTime.now().uptimeNanoseconds + 250_000_000
         var candidates: [Candidate] = []
         var seen: Set<WindowIdentity> = []

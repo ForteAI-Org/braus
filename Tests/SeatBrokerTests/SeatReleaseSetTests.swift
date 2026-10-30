@@ -49,20 +49,16 @@ import Testing
     #expect(!driver.canRetireHost())
 }
 
-@Test @MainActor func aFinishWarningAloneDoesNotKeepTheHost() async {
-    var stops = 0
-    let stop: () async -> String? = { stops += 1; return nil }
+@Test @MainActor func aFinishWarningAloneDoesNotKeepTheHost() {
+    var retirements = 0
+    let retire = { retirements += 1 }
 
-    let warned = await AgentSession.endingLease(finish: "still running", canRetire: true, stop: stop)
-    #expect(warned == "still running")
-    #expect(stops == 1, "an app left running is not a window left out")
+    #expect(AgentSession.endingLease(finish: "still running", canRetire: true, retire: retire) == "still running")
+    #expect(retirements == 1, "an app left running is not a window left out")
 
-    let owed = await AgentSession.endingLease(finish: "still running", canRetire: false, stop: stop)
-    #expect(owed == "still running")
-    #expect(stops == 1, "a return the host still owes keeps it")
+    #expect(AgentSession.endingLease(finish: "still running", canRetire: false, retire: retire) == "still running")
+    #expect(retirements == 1, "a return the host still owes keeps it")
 
-    let both = await AgentSession.endingLease(finish: "still running", canRetire: true) { "display left" }
-    #expect(both == "still running display left")
-    #expect(await AgentSession.endingLease(finish: nil, canRetire: true, stop: stop) == nil)
-    #expect(stops == 2)
+    #expect(AgentSession.endingLease(finish: nil, canRetire: true, retire: retire) == nil)
+    #expect(retirements == 2)
 }

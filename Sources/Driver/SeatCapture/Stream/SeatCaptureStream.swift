@@ -70,9 +70,30 @@ nonisolated final class FrameReceiver:
         var stale     = 0
         var nextObservedRevision: UInt64 = 0
         var sourceWasInvalidated = false
+        var reportedFirstFrame = false
     }
 
     private let slot: Mutex<Slot>
+
+    nonisolated private static let log = Logger(subsystem: "dev.forte.AgentSeatKit", category: "capture")
+
+    /// One line per stream: whether its first complete buffer became a frame, so a
+    /// preview that stays black says which side dropped it.
+    private func reportFirstFrame(_ built: Bool, _ sampleBuffer: CMSampleBuffer) {
+        guard slot.withLock({ state in
+            defer { state.reportedFirstFrame = true }
+            return !state.reportedFirstFrame
+        }) else { return }
+        let size = sampleBuffer.imageBuffer.map {
+            "\(CVPixelBufferGetWidth($0))x\(CVPixelBufferGetHeight($0))"
+        } ?? "no image"
+        let outcome = built ? "presented" : "refused, no geometry"
+        Self.log.notice("""
+            capture first frame \(outcome, privacy: .public): \
+            \(String(describing: self.source), privacy: .public) \(size, privacy: .public), \
+            generation \(self.captureGeneration, privacy: .public)
+            """)
+    }
 
     /// The identity and geometry answers reused between frames; see `WindowServerReadingCache`.
     let readings = WindowServerReadingCache()
@@ -269,8 +290,10 @@ nonisolated final class FrameReceiver:
             #if BRAUS_PHASES
             statistics.noteInitFailure()
             #endif
+            reportFirstFrame(false, sampleBuffer)
             return
         }
+        reportFirstFrame(true, sampleBuffer)
         #if BRAUS_PHASES
         let frameBuilt = mach_absolute_time()
         #endif
@@ -359,6 +382,9 @@ public final class SeatCaptureStream {
     /// consumer driving a stream of its own compares it with
     /// `configuration?.pixelSize` on a heartbeat of its own.
     public private(set) var lastContentPixelSize: CGSize?
+
+    /// Frames handed to consumers since this stream was made, for a rate read on a heartbeat.
+    public private(set) var presentedFrameCount = 0
 
     private let continuation: AsyncStream<SeatFrame>.Continuation
 
@@ -1719,6 +1745,7 @@ public final class SeatCaptureStream {
         // Two multiplications, after the person's preview and before the yield:
         // the reading is taken here because only a frame carries the geometry.
         lastContentPixelSize = frame.geometry.contentPixelSize
+        presentedFrameCount &+= 1
         continuation.yield(frame)
         frameWaiters.offer(frame)
     }

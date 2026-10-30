@@ -136,9 +136,9 @@ struct LiveFrameHandoverTests {
         #expect(live.askedAfterRest == [.milliseconds(40)], "the after-rest wait is held to the deadline too")
     }
 
-    @Test("a source that is pinned, recovering or not live is a fallback with its reason")
+    @Test("a source that is recovering or not live is a fallback with its reason")
     func decliningSourceFallsBack() async {
-        for reason in [LiveFrameFallback.pinnedToDisplay, .recovering, .notLive, .otherWindow] {
+        for reason in [LiveFrameFallback.recovering, .notLive, .otherWindow] {
             let result = await handOver(.failure(reason), after: 0, readings: readings())
             #expect(result.failureReason == reason)
         }

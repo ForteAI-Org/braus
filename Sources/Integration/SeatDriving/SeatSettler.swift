@@ -37,9 +37,9 @@ import SeatSession
 ///
 /// ## When it cannot tell
 ///
-/// With no running stream (a target nobody streams, as on the command line), a stream pinned to
-/// the display, recovering or on another window, or a frame it cannot place in time, it waits out
-/// the rest of the cap: the fixed pause exactly when the source declines at once.
+/// With no running stream (a target nobody streams, as on the command line), a stream
+/// recovering or on another window, or a frame it cannot place in time, it waits out the
+/// rest of the cap: the fixed pause exactly when the source declines at once.
 ///
 /// ## What it does not see
 ///

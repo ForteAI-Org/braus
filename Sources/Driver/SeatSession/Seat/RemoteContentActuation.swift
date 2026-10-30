@@ -13,9 +13,9 @@ import Foundation
 /// events instead: a routed pointer event into that content activates the
 /// host application (ADR 0031).
 ///
-/// Every case but `actionRefused` and `selectedNotOpened` is decided before any
-/// action or write. Each case carries the one sentence a worker acts on, as
-/// `description`, because the consumers print a thrown error as it comes.
+/// `actionRefused`, `selectionNotVerified` and `selectedNotOpened` can follow an
+/// action or write. Other cases are decided before either. Each case carries the one sentence a
+/// worker acts on, as `description`, because the consumers print a thrown error as it comes.
 nonisolated public enum RemoteContentActuationRefusal: Error, Sendable, Equatable {
 
     /// A drag or a scroll. No accessibility counterpart was measured, and
@@ -79,7 +79,7 @@ nonisolated public enum RemoteContentActuationRefusal: Error, Sendable, Equatabl
     public var mayHaveTakenEffect: Bool {
         switch self {
             case .actionRefused(_, let code): code != AXError.actionUnsupported.rawValue
-            case .selectedNotOpened         : true
+            case .selectionNotVerified, .selectedNotOpened: true
             default                         : false
         }
     }
@@ -134,13 +134,13 @@ nonisolated extension RemoteContentActuationRefusal: CustomStringConvertible, Lo
                 "That \(role) opens a menu a click here cannot follow, so it was not pressed. "
                     + "Use select with this control and the item, or context_menu."
             case .selectionNotVerified(let role) where role == kAXRowRole:
-                "The row at that point could not be selected: neither its list's selected rows nor its "
+                "The row's selection may have taken effect, but neither its list's selected rows nor its "
                     + "own selection read back. Observe again before retrying; to reach a folder, use "
                     + "Go to Folder."
             case .selectionNotVerified(let role):
-                "The item at that point (\(role)) could not be selected: no selection of its list "
-                    + "read back. Switch the view to list view (select on its view button, \"List\"), "
-                    + "then click the file's row."
+                "The selection of the item at that point (\(role)) may have taken effect, but no selection "
+                    + "of its list read back. Observe before retrying. Switch the view to list view "
+                    + "(select on its view button, \"List\"), then click the file's row."
             case .columnView:
                 "That point is in a column view, where a click cannot select yet, so nothing was sent. "
                     + "Switch the view to list view (select on its view button, \"List\"), then click the row."
@@ -151,10 +151,11 @@ nonisolated extension RemoteContentActuationRefusal: CustomStringConvertible, Lo
                 "That point is web content, which is not acted on through accessibility, so nothing "
                     + "was done there."
             case .selectedNotOpened(let code?) where code != AXError.actionUnsupported.rawValue:
-                "The row was selected, and the application answered AXOpen with error \(code), so it may "
-                    + "or may not have opened. Observe before retrying; do not repeat it blindly."
+                "The action may have taken effect. The row was selected, and the application answered "
+                    + "AXOpen with error \(code), so it may or may not have opened. Observe before retrying; "
+                    + "do not repeat it blindly."
             case .selectedNotOpened(let code):
-                "The row was selected, but "
+                "The action may have taken effect. The row was selected, but "
                     + (code == nil ? "nothing in it offers to open it" : "opening it is not supported there "
                         + "(AXOpen answered error \(AXError.actionUnsupported.rawValue))")
                     + ", so it was not opened. A sidebar row opens its folder when selected: observe before "
@@ -174,11 +175,14 @@ nonisolated extension RemoteContentActuationRefusal: CustomStringConvertible, Lo
 /// RemoteContentActuation is what one accessibility actuation of a remote
 /// panel's content did: the action or attribute it used and the role it acted
 /// on, for the trace, and the text field it left a caret or a selection in.
-nonisolated struct RemoteContentActuation {
+nonisolated struct RemoteContentActuation: Sendable {
 
     /// A text field an actuation left a caret or a selection in. The seat keeps
     /// it so the next text reaches the field through accessibility as well.
-    struct TextField {
+    ///
+    /// Unchecked: the closures hold the actuator's immutable readings and one element, which the
+    /// seat uses one Command at a time, `replaceSelection` on its actuation queue.
+    struct TextField: @unchecked Sendable {
 
         /// True while the element still answers accessibility.
         let isAnswering: () -> Bool

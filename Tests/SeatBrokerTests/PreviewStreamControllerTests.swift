@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import CoreMedia
 import CoreVideo
@@ -22,6 +23,9 @@ private final class FakePreviewStream: PreviewCaptureStreaming {
     var startFails = false
     var startPauses = false
     var stopKeepsResource = false
+    var stopPauses = false
+    private(set) var stopIsWaiting = false
+    private var stopContinuation: CheckedContinuation<Void, Never>?
     var updateFails = false
     var updatePauses = false
     private(set) var configuredPixelSize: CGSize = .zero
@@ -60,8 +64,19 @@ private final class FakePreviewStream: PreviewCaptureStreaming {
 
     func stop(timeout: Duration) async {
         events.values.append("stop \(name)")
+        if stopPauses {
+            stopIsWaiting = true
+            await withCheckedContinuation { stopContinuation = $0 }
+            stopIsWaiting = false
+        }
         isRunning = false
         if !stopKeepsResource { hasUnconfirmedResource = false }
+    }
+
+    func resumeStop() {
+        stopPauses = false
+        stopContinuation?.resume()
+        stopContinuation = nil
     }
 
     func attach(_ layer: MonitorLayer) {
@@ -385,174 +400,6 @@ func previewFollowsASizeChangeOnTheSameWindow() async throws {
     #expect(events.values.isEmpty)
 }
 
-/// A window on the Virtual Display captures its first frame and then breaks:
-/// content in part of the frame, black in the rest, in more than one
-/// application. Watching the whole display instead of the one window is what
-/// says whether the capture is broken or the window is drawn that way, and
-/// the pin is what makes that possible without disturbing the agent.
-@Test @MainActor
-func pinningToTheDisplayReplacesTheWindowStreamAndCarriesTheLayer() async throws {
-    let events = EventLog()
-    var streams: [FakePreviewStream] = []
-    let controller = PreviewStreamController { target in
-        let stream = FakePreviewStream(target: target, name: "s\(streams.count + 1)", events: events)
-        streams.append(stream)
-        return stream
-    }
-    let layer = MonitorLayer(contentsScale: 2)
-    controller.attach(layer)
-
-    try await controller.start(
-        identity: identity(70),
-        frame: CGRect(x: 0, y: 0, width: 300, height: 200),
-        pixelSize: CGSize(width: 300, height: 200)
-    )
-    events.values.removeAll()
-
-    controller.pin(to: .display(7), pixelSize: CGSize(width: 1_920, height: 1_080))
-    await controller.waitForPendingTransition()
-
-    #expect(events.values == ["detach s1", "stop s1", "make s2", "attach s2", "start s2"])
-    #expect(controller.target == .display(7))
-    #expect(controller.isPinnedToDisplay)
-}
-
-/// The assertion the feature stands on. `follow` runs on every observation
-/// and would drag the picture straight back to the window, which is the one
-/// thing a person watching the display cannot have happen.
-@Test @MainActor
-func anObservationWhilePinnedDoesNotReplaceTheDisplayStream() async throws {
-    let events = EventLog()
-    var streams: [FakePreviewStream] = []
-    let controller = PreviewStreamController { target in
-        let stream = FakePreviewStream(target: target, name: "s\(streams.count + 1)", events: events)
-        streams.append(stream)
-        return stream
-    }
-    try await controller.start(
-        identity: identity(80),
-        frame: CGRect(x: 0, y: 0, width: 300, height: 200),
-        pixelSize: CGSize(width: 300, height: 200)
-    )
-    controller.pin(to: .display(9), pixelSize: CGSize(width: 1_920, height: 1_080))
-    await controller.waitForPendingTransition()
-    events.values.removeAll()
-
-    let observed = CGRect(x: 40, y: 50, width: 180, height: 120)
-    controller.follow(identity: identity(81), frame: observed,
-                      pixelSize: CGSize(width: 180, height: 120))
-    await controller.waitForPendingTransition()
-
-    #expect(events.values.isEmpty)
-    #expect(controller.target == .display(9))
-    // The geometry is still recorded: the monitor shapes itself by it the
-    // moment the pin comes off.
-    #expect(controller.windowFrame == observed)
-}
-
-@Test @MainActor
-func unpinningReturnsToTheLastObservedRecipient() async throws {
-    let events = EventLog()
-    var streams: [FakePreviewStream] = []
-    let controller = PreviewStreamController { target in
-        let stream = FakePreviewStream(target: target, name: "s\(streams.count + 1)", events: events)
-        streams.append(stream)
-        return stream
-    }
-    try await controller.start(
-        identity: identity(90),
-        frame: CGRect(x: 0, y: 0, width: 300, height: 200),
-        pixelSize: CGSize(width: 300, height: 200)
-    )
-    controller.pin(to: .display(11), pixelSize: CGSize(width: 1_920, height: 1_080))
-    await controller.waitForPendingTransition()
-    controller.follow(identity: identity(91), frame: CGRect(x: 1, y: 1, width: 180, height: 120),
-                      pixelSize: CGSize(width: 180, height: 120))
-    await controller.waitForPendingTransition()
-    events.values.removeAll()
-
-    controller.pin(to: nil, pixelSize: .zero)
-    await controller.waitForPendingTransition()
-
-    #expect(events.values == ["stop s2", "make s3", "start s3"])
-    #expect(controller.target == .attestedWindow(identity(91)))
-    #expect(!controller.isPinnedToDisplay)
-}
-
-/// Watching the display before and during the move onto it is the case the
-/// whole feature exists for, so the pin cannot require an adopted window.
-@Test @MainActor
-func pinningWithNothingAdoptedStartsADisplayStream() async throws {
-    let events = EventLog()
-    var streams: [FakePreviewStream] = []
-    let controller = PreviewStreamController { target in
-        let stream = FakePreviewStream(target: target, name: "s\(streams.count + 1)", events: events)
-        streams.append(stream)
-        return stream
-    }
-    controller.pin(to: .display(13), pixelSize: CGSize(width: 1_920, height: 1_080))
-    await controller.waitForPendingTransition()
-
-    #expect(events.values == ["make s1", "start s1"])
-    #expect(controller.target == .display(13))
-
-    // And unpinning with nothing ever adopted leaves no stream rather than a
-    // display the person asked to stop watching.
-    events.values.removeAll()
-    controller.pin(to: nil, pixelSize: .zero)
-    await controller.waitForPendingTransition()
-
-    #expect(events.values == ["stop s1"])
-    #expect(controller.stream == nil)
-}
-
-/// A release runs at the start of every handover, a moment before the next
-/// window is moved onto the display. A pin that did not survive it blanked the
-/// monitor exactly when the move it was pinned to watch was about to happen.
-@Test @MainActor
-func aDisplayPinSurvivesAnApplicationHandover() async throws {
-    let events = EventLog()
-    var streams: [FakePreviewStream] = []
-    let controller = PreviewStreamController { target in
-        let stream = FakePreviewStream(target: target, name: "s\(streams.count + 1)", events: events)
-        streams.append(stream)
-        return stream
-    }
-    let layer = MonitorLayer(contentsScale: 2)
-    controller.attach(layer)
-
-    try await controller.start(
-        identity: identity(50),
-        frame: CGRect(x: 0, y: 0, width: 300, height: 200),
-        pixelSize: CGSize(width: 300, height: 200)
-    )
-    controller.pin(to: .display(9), pixelSize: CGSize(width: 2560, height: 1440))
-    await controller.waitForPendingTransition()
-    #expect(controller.target == .display(9))
-    events.values.removeAll()
-
-    // What a handover does to the preview, in order: the application is given
-    // back, then the next one is adopted.
-    await controller.stop()
-    #expect(controller.target == .display(9))
-    #expect(controller.isPinnedToDisplay)
-    #expect(events.values.isEmpty)
-
-    try await controller.start(
-        identity: identity(51),
-        frame: CGRect(x: 0, y: 0, width: 400, height: 300),
-        pixelSize: CGSize(width: 400, height: 300)
-    )
-    #expect(controller.target == .display(9))
-    #expect(events.values.isEmpty)
-
-    // And the host taking the display away takes the pin with it.
-    await controller.tearDown()
-    #expect(controller.target == nil)
-    #expect(!controller.isPinnedToDisplay)
-    #expect(events.values == ["detach s2", "stop s2"])
-}
-
 // MARK: Recoverable preview, stable size
 
 /// A controller whose recovery pause costs nothing, so a bounded recovery is
@@ -856,24 +703,6 @@ func theLivePreviewOffersAFrameOfItsOwnWindowOnly() async throws {
     stream.offeredFrame = nil
     #expect(await controller.liveFrame(of: identity(20), displayedAfter: 0, within: .milliseconds(100))
             .failureReason == .noFrameInBound)
-}
-
-/// A pin to the display outranks observation here as everywhere: no display frame is cropped.
-@Test @MainActor
-func aPinnedPreviewOffersNoWindowFrame() async throws {
-    let events = EventLog()
-    let controller = PreviewStreamController { target in
-        FakePreviewStream(target: target, name: "s", events: events)
-    }
-    try await controller.start(
-        identity : identity(30),
-        frame    : CGRect(x: 0, y: 0, width: 4, height: 4),
-        pixelSize: CGSize(width: 4, height: 4)
-    )
-    controller.pin(to: .display(7), pixelSize: CGSize(width: 1_920, height: 1_080))
-    await controller.waitForPendingTransition()
-    #expect(await controller.liveFrame(of: identity(30), displayedAfter: 0, within: .milliseconds(100))
-            .failureReason == .pinnedToDisplay)
 }
 
 /// A preview in its bounded recovery is not a picture to observe from.
@@ -1234,34 +1063,6 @@ func aShownStreamDoesNotRest() async throws {
     await controller.tearDown()
 }
 
-/// A stream pinned to the display is shown to the person, so it keeps its rate whatever the
-/// delay; unpinning starts the delay.
-@Test @MainActor
-func aPinnedStreamDoesNotRest() async throws {
-    let events = EventLog()
-    var streams: [FakePreviewStream] = []
-    let controller = restingController(delay: .milliseconds(20), events: events) { streams.append($0) }
-    let size = CGSize(width: 4, height: 4)
-    try await controller.start(identity: identity(64), frame: CGRect(origin: .zero, size: size),
-                               pixelSize: size)
-
-    controller.pin(to: .display(13), pixelSize: size)
-    await controller.waitForPendingTransition()
-    let pinned = try #require(streams.last)
-    await controller.waitForRestTimer()
-    try await Task.sleep(for: .milliseconds(60))
-    #expect(!controller.isResting)
-    #expect(pinned.configuredFramesPerSecond == 30)
-
-    controller.pin(to: nil, pixelSize: size)
-    await controller.waitForPendingTransition()
-    let window = try #require(streams.last)
-    await controller.waitForRestTimer()
-    #expect(controller.isResting)
-    #expect(window.configuredFramesPerSecond == 1)
-    await controller.tearDown()
-}
-
 /// A stream whose frames ended is not live: the answer is `notLive`, never a frame wait that ran
 /// out, the preview stops reading as live, and the next observation it follows replaces the stream.
 @Test @MainActor
@@ -1345,5 +1146,190 @@ private extension Result where Failure == LiveFrameFallback {
     var failureReason: LiveFrameFallback? {
         if case .failure(let reason) = self { return reason }
         return nil
+    }
+}
+
+@MainActor
+@Suite("Window preview budget")
+struct WindowPreviewBudgetTests {
+
+    @Test func queuedViewsKeepTheirReservationsDuringMultipleStops() async throws {
+        let events = EventLog()
+        var streams: [FakePreviewStream] = []
+        let pool = WindowPreviewStreams { rate in
+            PreviewStreamController(activeFramesPerSecond: rate) { target in
+                let stream = FakePreviewStream(target: target, name: "s\(streams.count)", events: events)
+                streams.append(stream)
+                return stream
+            }
+        }
+        let limit = WindowStreamTiers.streamLimit
+        let surfaces = (1...limit + 3).map {
+            WindowSurface(reference: WindowReference(identity: identity($0),
+                frame: CGRect(x: 2000, y: 100, width: 800, height: 600)), level: 0, isVisible: true)
+        }
+        pool.update(Array(surfaces.prefix(limit)), mainWindowNumber: 1)
+        let views = (1...limit).compactMap { pool.makeView(windowNumber: $0, contentsScale: 2) }
+        await pool.waitForPendingTransitions()
+        let closing = streams.filter { $0.target == .attestedWindow(identity(1)) || $0.target == .attestedWindow(identity(2)) }
+        #expect(closing.count == 2)
+        for stream in closing { stream.stopPauses = true }
+        pool.update(Array(surfaces.dropFirst(2)), mainWindowNumber: 3)
+        let waiting = (limit + 1...limit + 2).compactMap { pool.makeView(windowNumber: $0, contentsScale: 2) }
+        #expect(waiting.count == 2)
+        for _ in 0..<100 where !closing.contains(where: { $0.stopIsWaiting }) { await Task.yield() }
+        let first = try #require(closing.first { $0.stopIsWaiting })
+        first.resumeStop()
+        for _ in 0..<100 where !closing.contains(where: { $0 !== first && $0.stopIsWaiting }) { await Task.yield() }
+        #expect(closing.contains { $0 !== first && $0.stopIsWaiting })
+        #expect(pool.makeView(windowNumber: limit + 3, contentsScale: 2) == nil)
+        for stream in closing { stream.resumeStop() }
+        await pool.waitForPendingTransitions()
+        #expect(streams.filter(\.isRunning).count == limit)
+        for number in limit + 1...limit + 2 {
+            #expect(streams.contains { $0.target == .attestedWindow(identity(number)) && $0.isRunning })
+        }
+        await pool.stop()
+        _ = (views, waiting)
+    }
+
+    @Test func aViewAskedAtAnotherScaleRescalesTheSameStreamInItsSlot() async throws {
+        let events = EventLog()
+        var streams: [FakePreviewStream] = []
+        let pool = WindowPreviewStreams { rate in
+            PreviewStreamController(activeFramesPerSecond: rate) { target in
+                let stream = FakePreviewStream(target: target, name: "s\(streams.count)", events: events)
+                streams.append(stream)
+                return stream
+            }
+        }
+        let panel = WindowSurface(reference: WindowReference(identity: identity(1),
+            frame: CGRect(x: 2000, y: 100, width: 89, height: 533)), level: 3, isVisible: true)
+        pool.update([panel], mainWindowNumber: nil)
+        let first = try #require(pool.makeView(windowNumber: 1, contentsScale: 1))
+        await pool.waitForPendingTransitions()
+        #expect(streams.count == 1)
+        #expect(streams.first?.configuredPixelSize == CGSize(width: 89, height: 533))
+
+        let sharper = try #require(pool.makeView(windowNumber: 1, contentsScale: 2))
+        await pool.waitForPendingTransitions()
+        #expect(streams.count == 1, "the same stream, in the same slot")
+        #expect(streams.first?.configuredPixelSize == CGSize(width: 178, height: 1066))
+        await pool.stop()
+        _ = (first, sharper)
+    }
+
+    @Test func reappearanceCannotBorrowAStoppingController() async throws {
+        let events = EventLog()
+        var streams: [FakePreviewStream] = []
+        let pool = WindowPreviewStreams { rate in
+            PreviewStreamController(activeFramesPerSecond: rate) { target in
+                let stream = FakePreviewStream(target: target, name: "s\(streams.count)", events: events)
+                streams.append(stream)
+                return stream
+            }
+        }
+        let surface = WindowSurface(reference: WindowReference(identity: identity(1),
+            frame: CGRect(x: 2000, y: 100, width: 800, height: 600)), level: 0, isVisible: true)
+        pool.update([surface], mainWindowNumber: 1)
+        let first = try #require(pool.makeView(windowNumber: 1, contentsScale: 2))
+        await pool.waitForPendingTransitions()
+        let stream = try #require(streams.first)
+        stream.stopPauses = true
+        pool.update([], mainWindowNumber: nil)
+        for _ in 0..<100 where !stream.stopIsWaiting { await Task.yield() }
+        #expect(stream.stopIsWaiting)
+        pool.update([surface], mainWindowNumber: 1)
+        let second = try #require(pool.makeView(windowNumber: 1, contentsScale: 2))
+        #expect(streams.count == 1)
+        stream.resumeStop()
+        await pool.waitForPendingTransitions()
+        #expect(streams.count == 2)
+        #expect(streams[1].isRunning)
+        await pool.stop()
+        _ = (first, second)
+    }
+
+    @Test func unconfirmedStopsKeepTheirBudgetSlots() async throws {
+        let events = EventLog()
+        var streams: [FakePreviewStream] = []
+        let pool = WindowPreviewStreams { rate in
+            PreviewStreamController(activeFramesPerSecond: rate) { target in
+                let stream = FakePreviewStream(target: target, name: "s\(streams.count)", events: events)
+                stream.stopKeepsResource = true
+                streams.append(stream)
+                return stream
+            }
+        }
+        let frame = CGRect(x: 2000, y: 100, width: 800, height: 600)
+        func surfaces(_ numbers: ClosedRange<Int>) -> [WindowSurface] {
+            numbers.map {
+                WindowSurface(reference: WindowReference(identity: identity($0), frame: frame), level: 0, isVisible: true)
+            }
+        }
+        let limit = WindowStreamTiers.streamLimit
+        pool.update(surfaces(1...limit), mainWindowNumber: 1)
+        let views = (1...limit).compactMap { pool.makeView(windowNumber: $0, contentsScale: 2) }
+        #expect(views.count == limit)
+        await pool.waitForPendingTransitions()
+        pool.update(surfaces(limit + 1...2 * limit), mainWindowNumber: limit + 1)
+        await pool.waitForPendingTransitions()
+        #expect(pool.makeView(windowNumber: limit + 1, contentsScale: 2) != nil)
+        #expect(streams.count == limit)
+        await pool.stop()
+        pool.begin()
+        pool.update(surfaces(limit + 1...2 * limit), mainWindowNumber: limit + 1)
+        await pool.waitForPendingTransitions()
+        #expect(pool.makeView(windowNumber: limit + 1, contentsScale: 2) != nil)
+        #expect(streams.count == limit)
+        for stream in streams { stream.stopKeepsResource = false }
+        await pool.stop()
+    }
+    @Test func reservesLegacyStreamAndStopsClosedWindows() async throws {
+        let events = EventLog()
+        var streams: [FakePreviewStream] = []
+        let pool = WindowPreviewStreams { rate in
+            PreviewStreamController(activeFramesPerSecond: rate) { target in
+                let stream = FakePreviewStream(target: target, name: "s\(streams.count)", events: events)
+                streams.append(stream)
+                return stream
+            }
+        }
+        let limit = WindowStreamTiers.streamLimit
+        let frame = CGRect(x: 2000, y: 100, width: 1600, height: 1000)
+        let surfaces = (1...limit + 2).map {
+            WindowSurface(reference: WindowReference(identity: identity($0), frame: frame), level: 0, isVisible: true)
+        }
+        pool.update(surfaces, mainWindowNumber: 1)
+        var views: [NSView] = []
+        for number in 1...limit {
+            views.append(try #require(pool.makeView(windowNumber: number, contentsScale: 2)))
+        }
+        #expect(pool.makeView(windowNumber: limit + 1, contentsScale: 2) == nil)
+        #expect(pool.makeView(windowNumber: 1, contentsScale: 2) != nil)
+        await pool.waitForPendingTransitions()
+        #expect(streams.count == limit)
+        let main = try #require(streams.first { $0.target == .attestedWindow(identity(1)) })
+        let panel = try #require(streams.first { $0.target == .attestedWindow(identity(2)) })
+        let back = try #require(streams.first { $0.target == .attestedWindow(identity(limit - 1)) })
+        let newest = try #require(streams.first { $0.target == .attestedWindow(identity(limit)) })
+        // The main window is capped to 1080p; the newest keeps the top tier; the one behind it,
+        // as large and further back, has stepped down but not below 1 pixel per point.
+        #expect(main.configuredFramesPerSecond == 30)
+        #expect(main.configuredPixelSize == CGSize(width: 1728, height: 1080))
+        #expect(newest.configuredFramesPerSecond == 10)
+        #expect(newest.configuredPixelSize == CGSize(width: 3200, height: 2000))
+        #expect(back.configuredFramesPerSecond < 10)
+        #expect(back.configuredPixelSize.width >= 1600 && back.configuredPixelSize.width < 3200)
+        pool.update(Array(surfaces.dropFirst()), mainWindowNumber: 2)
+        await pool.waitForPendingTransitions()
+        #expect(!main.isRunning)
+        #expect(panel.configuredFramesPerSecond == 30)
+        #expect(panel.configuredPixelSize == CGSize(width: 1728, height: 1080))
+        #expect(pool.makeView(windowNumber: limit + 1, contentsScale: 2) != nil)
+        await pool.stop()
+        #expect(streams.allSatisfy { !$0.isRunning })
+        #expect(pool.makeView(windowNumber: 2, contentsScale: 2) == nil)
+        _ = views
     }
 }

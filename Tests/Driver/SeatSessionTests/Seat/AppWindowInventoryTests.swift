@@ -428,6 +428,47 @@ struct AppWindowInventoryTests {
         #expect(Self.fold(&inventory, [reading, reading]) == [.appeared(outside.reference)])
     }
 
+    @Test("an announced window born outside the virtual display is a transfer at its first reading")
+    func anAnnouncedWindowOutsideIsTakenAtOnce() {
+        var inventory = AppWindowInventory()
+        Self.fold(&inventory, [[Self.surface(700)]])
+
+        inventory.announce(701)
+        let animating = Self.surface(701, frame: Self.physical.insetBy(dx: 4, dy: 1))
+        #expect(Self.fold(&inventory, [[Self.surface(700), animating]]) == [.appeared(animating.reference)])
+        #expect(!inventory.hasPendingCandidate)
+        #expect(Self.fold(&inventory, [[Self.surface(700), Self.surface(701)]]).isEmpty,
+                "the announcement is spent: the settled frame is not offered a second time")
+    }
+
+    @Test("an announcement changes nothing inside the virtual display, nor for a window never announced")
+    func anAnnouncementKeepsTheOtherRules() {
+        var inventory = AppWindowInventory()
+        Self.fold(&inventory, [[Self.surface(700)]])
+
+        inventory.announce(701)
+        let inside = Self.surface(701, frame: FakeGeometry.adoptedWindow.frame)
+        let silent = Self.surface(702, frame: Self.physical.offsetBy(dx: 20, dy: 20))
+        let reading = [Self.surface(700), inside, silent]
+        #expect(Self.fold(&inventory, [reading]).isEmpty)
+        #expect(Self.fold(&inventory, [reading]) == [
+            .appearedInVirtualDisplay(inside.reference),
+            .appeared(silent.reference),
+        ])
+    }
+
+    @Test("an announced window first sighted during an adoption is taken by the next pass even if it moved")
+    func anAnnouncedSightingIsTakenWhileStillAnimating() {
+        var inventory = AppWindowInventory()
+        Self.fold(&inventory, [[Self.surface(700)]])
+
+        inventory.announce(701)
+        let first  = Self.surface(701, frame: Self.physical.insetBy(dx: 4, dy: 1))
+        let second = Self.surface(701, frame: Self.physical)
+        inventory.sight(surfaces: [Self.surface(700), first], processes: Self.driven, adopted: [])
+        #expect(Self.fold(&inventory, [[Self.surface(700), second]]) == [.appeared(second.reference)])
+    }
+
     @Test("a window the seat already holds is judged by where it is, never offered again")
     func aHeldWindowInsideIsNotOfferedAgain() {
         var inventory = AppWindowInventory()

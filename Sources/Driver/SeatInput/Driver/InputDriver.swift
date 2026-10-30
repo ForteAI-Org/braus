@@ -335,14 +335,16 @@ public actor InputDriver: NativeTextInputPreparing {
         traceContext : InputTraceContext,
         beforeFirstPost: @escaping @Sendable () async throws -> Void = {}
     ) async throws -> InputReceipt {
-        try await performSend(
-            command,
-            to           : window,
-            correlationID: correlationID,
-            platform     : platform,
-            traceContext : traceContext,
-            beforeFirstPost: beforeFirstPost
-        )
+        try await commandGate.withAdmission {
+            try await performSend(
+                command,
+                to           : window,
+                correlationID: correlationID,
+                platform     : platform,
+                traceContext : traceContext,
+                beforeFirstPost: beforeFirstPost
+            )
+        }
     }
 
     private func performSend(
@@ -430,6 +432,7 @@ public actor InputDriver: NativeTextInputPreparing {
 
             guard platform.preparation(for: command) == .internalAppKitState else {
                 try await beforeFirstPost()
+                try commandGate.check()
                 let receipt = try engine.post(
                     command,
                     to           : window,
@@ -523,6 +526,7 @@ public actor InputDriver: NativeTextInputPreparing {
             // relation and selection generation. Once it returns, construction
             // and the first post remain synchronous on this driver actor.
             try await beforeFirstPost()
+            try commandGate.check()
             let receipt = try engine.post(
                 command,
                 to           : window,
@@ -700,13 +704,15 @@ public actor InputDriver: NativeTextInputPreparing {
         platform     : any InputPlatform,
         traceContexts: [InputTraceContext]
     ) async throws -> [InputReceipt] {
-        try await performSendSequence(
-            commands,
-            to           : window,
-            correlationID: correlationID,
-            platform     : platform,
-            traceContexts: traceContexts
-        )
+        try await commandGate.withAdmission {
+            try await performSendSequence(
+                commands,
+                to           : window,
+                correlationID: correlationID,
+                platform     : platform,
+                traceContexts: traceContexts
+            )
+        }
     }
 
     private func performSendSequence(

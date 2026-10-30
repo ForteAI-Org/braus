@@ -254,6 +254,16 @@ nonisolated final class SystemSeatSensing: SeatSensing, @unchecked Sendable {
         WindowServerProbe.orderIndex(of: windowNumber)
     }
 
+    func windowOrder(
+        of windowNumber                  : Int,
+        behindFrontmostWindowOf processID: Int32?
+    ) -> (orderIndex: Int?, isBehind: Bool?) {
+        WindowServerProbe.orderReading(
+            of                     : windowNumber,
+            behindFrontmostWindowOf: processID
+        )
+    }
+
     func menuWindows(ownedBy processID: Int32) -> [WindowReference] {
         WindowServerProbe.menuWindows(ownedBy: processID)
     }
@@ -264,6 +274,11 @@ nonisolated final class SystemSeatSensing: SeatSensing, @unchecked Sendable {
         let inactive = InactiveSpaceWindows.read(ownedBy: processIDs, cache: windowElements)
             .map(\.surface).filter { $0.reference.identity.map { !identities.contains($0) } == true }
         return visible + inactive
+    }
+
+    func windowIsFrontmost(_ window: WindowReference, on screen: CGRect) -> Bool? {
+        guard let identity = window.identity else { return nil }
+        return WindowServerProbe.surfaces(inFrontOf: identity, within: screen)?.isEmpty
     }
 
     func windowSurfaces(inFrontOf surface: WindowIdentity) -> [WindowSurface]? {

@@ -13,7 +13,7 @@ import Foundation
 ///
 /// Both halves go through `isOpenable`, so what the model is offered and what
 /// it is allowed to open cannot drift apart.
-enum ApplicationOpening {
+nonisolated enum ApplicationOpening {
 
     /// Which installed applications the planner may open: every one but a password manager.
     ///
@@ -129,18 +129,29 @@ enum ApplicationOpening {
     /// name for both (`Match.appleOwn`).
     static func ranked(_ query: String?, in apps: [TargetApp],
                        languages: [String] = Locale.preferredLanguages) -> [TargetApp] {
-        let wanted   = query.map(requested) ?? ""
-        let openable = apps.filter(isOpenable)
-        guard !wanted.isEmpty else { return openable.sorted(by: precedes) }
-        return ranking(wanted, among: openable, languages: languages).map(\.app)
+        let wanted = query.map(requested) ?? ""
+        guard !wanted.isEmpty else { return apps.filter(isOpenable).sorted(by: precedes) }
+        return ranking(wanted, among: apps, languages: languages).map(\.app)
     }
 
-    /// The openable applications `wanted` matches with how each matched, best first: each application's names
-    /// are read once here, for this call, and nowhere kept.
-    private static func ranking(_ wanted: String, among openable: [TargetApp],
+    /// `ranked` on the concurrent pool: reading every application's names from its bundle is file work the main
+    /// thread need not wait on.
+    @concurrent
+    static func rankedOffMain(_ query: String?, in apps: [TargetApp]) async -> [TargetApp] {
+        ranked(query, in: apps)
+    }
+
+    /// The openable applications among `apps` that `wanted` matches, with how each matched, best first: each
+    /// application's names are read once here, for this call, and nowhere kept. The same names decide whether it
+    /// is openable (`isPasswordManager`) and how it matched.
+    private static func ranking(_ wanted: String, among apps: [TargetApp],
                                 languages: [String]) -> [(app: TargetApp, match: Match)] {
-        openable
-            .compactMap { app in match(wanted, app, names: names(of: app, languages: languages)).map { (app: app, match: $0) } }
+        apps
+            .compactMap { app in
+                let names = names(of: app, languages: languages)
+                guard !isPasswordManager(bundleID: app.bundleID, names: names) else { return nil }
+                return match(wanted, app, names: names).map { (app: app, match: $0) }
+            }
             .sorted { $0.match == $1.match ? precedes($0.app, $1.app) : $0.match < $1.match }
     }
 
@@ -173,7 +184,7 @@ enum ApplicationOpening {
             || apps.contains(where: { same($0.bundleID, wanted) && isPasswordManager($0) }) {
             throw passwordManagerRefusal(wanted)
         }
-        let candidates = ranking(wanted, among: apps.filter(isOpenable), languages: languages)
+        let candidates = ranking(wanted, among: apps, languages: languages)
         guard let best = candidates.first?.match else { throw notNamed(wanted, in: apps, languages: languages) }
         let tier    = candidates.prefix { $0.match == best }.map(\.app)
         let running = tier.filter(\.isRunning)
@@ -181,6 +192,12 @@ enum ApplicationOpening {
         // Two Apple applications of one name are not told apart by which one runs.
         if best != .appleOwn, running.count == 1, let only = running.first { return only }
         throw ambiguity(wanted, Array(tier))
+    }
+
+    /// `resolve` on the concurrent pool, for the reason `rankedOffMain` gives.
+    @concurrent
+    static func resolvedOffMain(_ name: String, in apps: [TargetApp]) async throws -> TargetApp {
+        try resolve(name, in: apps)
     }
 
     /// The installed application whose bundle is at `path`, once "~" is expanded to the home folder

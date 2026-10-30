@@ -150,10 +150,15 @@ public struct SeatContextMenuSelector {
             // The menu is chosen through its own accessibility items: no pixels, no pointer.
             @MainActor @Sendable func choose(_ menu: ContextMenu) async throws -> Bool {
                 try Task.checkCancellation()
+                let (frame, processID) = (menu.frame, menu.window.processID)
                 do {
-                    try DropdownOpening.select(item: item, in: menu.frame, processID: menu.window.processID)
+                    try await DropdownOpening.awayFromCaller {
+                        try DropdownOpening.select(item: item, in: frame, processID: processID)
+                    }
                 } catch DropdownOpening.Failure.controlNotUnique {
-                    let titles = DropdownOpening.menuItemTitles(in: menu.frame, processID: menu.window.processID)
+                    let titles = try await DropdownOpening.awayFromCaller {
+                        DropdownOpening.menuItemTitles(in: frame, processID: processID)
+                    }
                     missing = "no unique enabled '\(item)' in the native menu. It holds: "
                         + (titles.isEmpty ? "nothing readable" : titles.joined(separator: ", "))
                     return false

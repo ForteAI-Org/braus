@@ -6,6 +6,9 @@
 //
 
 import CoreGraphics
+import Foundation
+import Dispatch
+import Synchronization
 import SeatCore
 @testable import SeatSession
 import Testing
@@ -80,6 +83,46 @@ private func surface(_ number: Int) -> WindowSurface {
 
 @Suite("The shipped surface reader's window server fallback")
 struct SensingSurfaceReaderTests {
+
+    @Test("a native inventory requested by the main actor does not run IPC on the main thread")
+    @MainActor
+    func backgroundInventoryLeavesTheMainThread() async {
+        let reader = SensingSurfaceReader(sensing: FakeSensing(), nativePass: { _, _, _ in
+            #expect(!Thread.isMainThread)
+            return .success(AssignedSurfaceSnapshot(inventory: .unavailable(reason: "offline fixture")))
+        })
+        _ = await reader.snapshotInBackground(ownedBy: [77])
+    }
+
+    @Test("a delayed native pass cannot overwrite a newer synchronous gate")
+    @MainActor
+    func aSupersededBackgroundPassIsDiscarded() async {
+        let calls = Mutex(0)
+        let release = DispatchSemaphore(value: 0)
+        let (started, signal) = AsyncStream<Void>.makeStream()
+        let reader = SensingSurfaceReader(sensing: FakeSensing(), nativePass: { _, _, _ in
+            let first = calls.withLock { count in
+                count += 1
+                return count == 1
+            }
+            if first {
+                signal.yield(())
+                #expect(release.wait(timeout: .now() + 5) == .success)
+            }
+            return .success(AssignedSurfaceSnapshot(
+                inventory: .unavailable(reason: first ? "old" : "new"),
+                retained: first ? [identity(41): .destroyed] : [:]
+            ))
+        })
+        let pending = Task { await reader.snapshotInBackground(ownedBy: [77]) }
+        for await _ in started { break }
+        // This main-actor call can run while the older IPC is blocked.
+        let latest = reader.snapshot(ownedBy: [77])
+        #expect(latest.destroyedByWindowServer.isEmpty)
+        release.signal()
+        #expect(await pending.value == nil)
+        signal.finish()
+    }
 
     // MARK: The auxiliary window adopted while the cross-check was unreadable
 

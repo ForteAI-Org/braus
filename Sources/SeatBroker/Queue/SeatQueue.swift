@@ -34,7 +34,8 @@ import Observation
 /// those measurements ask for. Whatever the previous holder left on the seat is
 /// replaced the moment the next one calls `open(applicationNamed:)`, which is
 /// the same path the planner already takes when it changes application
-/// mid-run.
+/// mid-run. A clean lease's display stays for `AgentSession.idleRetirementDelay`
+/// with no lease and is taken down then (ADR 0030).
 ///
 /// ## Order
 ///
@@ -162,7 +163,10 @@ public final class SeatQueue {
     /// parked before the display was changed or given back after, is closed rather than handed on.
     private func takeWarm() async -> AgentSession? {
         while let session = warm.popLast() {
-            if session.display == broker.display { return session }
+            if session.display == broker.display {
+                await session.beginLease()
+                return session
+            }
             _ = await session.close()
         }
         return nil
