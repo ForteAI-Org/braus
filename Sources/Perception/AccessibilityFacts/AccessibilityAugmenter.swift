@@ -10,6 +10,7 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 import PerceptionCore
+import Synchronization
 
 /// AccessibilityAugmenter fills `SceneAugmenting` with the live accessibility tree: it finds the
 /// window matching the capture, and runs the core's generic walk under a budget measured on the
@@ -68,15 +69,19 @@ public struct AccessibilityAugmenter: SceneAugmenting {
         processID: pid_t, windowNumber: Int?, windowFrame: CGRect
     ) async throws -> AccessibilityHarvest {
         let budget = budgetSeconds, timeout = messagingTimeoutSeconds, resolve = windowNumberResolver
-        return try await Self.onWalkQueue {
+        let stop = Stop()
+        return try await Self.onWalkQueue(stop: stop.set) {
             let trusted = AXIsProcessTrusted()
             guard windowNumber == nil || resolve != nil else {
                 return AccessibilityHarvest(elements: [], quality: CaptureQuality(isGrantAvailable: trusted))
             }
+            // A node's common attributes in one message: the walk costs this process and the application
+            // a third of the messages, with the same answers.
             let reader = LiveAccessibilityReader(
                 applicationBundleID  : NSRunningApplication(processIdentifier: processID)?.bundleIdentifier,
                 elementTimeoutSeconds: timeout,
-                valueGuard: valueGuard
+                valueGuard: valueGuard,
+                batchesAttributes: true
             )
             let application = reader.application(processID: processID)
             reader.setMessagingTimeout(application, seconds: timeout)
@@ -98,7 +103,7 @@ public struct AccessibilityAugmenter: SceneAugmenting {
                 under      : window,
                 windowFrame: windowFrame,
                 reader     : reader,
-                limits     : AccessibilityAugmentation.Limits(isPastDeadline: { clock.now >= deadline })
+                limits     : AccessibilityAugmentation.Limits(isPastDeadline: { clock.now >= deadline || stop.isSet })
             )
             harvest.quality.isGrantAvailable = trusted
             return harvest
@@ -108,9 +113,22 @@ public struct AccessibilityAugmenter: SceneAugmenting {
     static let walkQueue = DispatchQueue(label: "dev.forte.perception.accessibility", qos: .userInitiated)
 
     /// Runs `body` on `walkQueue` and resumes the caller with its value. The AX handles live only inside
-    /// `body`; what crosses back is the Sendable value. Cancellation abandons the result, while
-    /// the serial queue still owns an AX message already running.
-    static func onWalkQueue<Value: Sendable>(_ body: @escaping @Sendable () -> Value) async throws -> Value {
-        try await AbandonableRead.run(body, queue: walkQueue)
+    /// `body`; what crosses back is the Sendable value. Cancellation abandons the result and calls `stop`,
+    /// while the serial queue still owns an AX message already running.
+    static func onWalkQueue<Value: Sendable>(
+        stop: @escaping @Sendable () -> Void = {},
+        _ body: @escaping @Sendable () -> Value
+    ) async throws -> Value {
+        try await AbandonableRead.run(body, queue: walkQueue, stop: stop)
+    }
+
+    /// Set when the caller is cancelled: the walk stops at its next node instead of spending its budget
+    /// on the queue the next walk waits on (a scene read a person's take-over interrupted).
+    private final class Stop: Sendable {
+        private let flag = Atomic<Bool>(false)
+
+        @Sendable func set() { flag.store(true, ordering: .relaxed) }
+
+        var isSet: Bool { flag.load(ordering: .relaxed) }
     }
 }

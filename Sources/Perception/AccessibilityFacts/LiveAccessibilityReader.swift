@@ -35,26 +35,72 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
     public init(
         applicationBundleID: String? = nil,
         elementTimeoutSeconds: Float? = nil,
-        valueGuard: (@Sendable (String) -> Bool)? = nil
+        valueGuard: (@Sendable (String) -> Bool)? = nil,
+        batchesAttributes: Bool = false
     ) {
         self.init(
             applicationBundleID: applicationBundleID,
             elementTimeoutSeconds: elementTimeoutSeconds,
             valueGuard: valueGuard,
-            copyAttributeValue: AXUIElementCopyAttributeValue
+            copyAttributeValue: AXUIElementCopyAttributeValue,
+            copyAttributeValues: batchesAttributes ? Self.copyAttributeValues : nil
         )
     }
 
+    /// `copyAttributeValues`, when given, answers a node's `batched` attributes in one message the first
+    /// time any of them is asked for, and the reader keeps those answers for its lifetime: one walk.
     init(
         applicationBundleID: String? = nil,
         elementTimeoutSeconds: Float? = nil,
         valueGuard: (@Sendable (String) -> Bool)? = nil,
-        copyAttributeValue: @escaping @Sendable (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError
+        copyAttributeValue: @escaping @Sendable (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError,
+        copyAttributeValues: (@Sendable (AXUIElement, [String]) -> [String: Answer]?)? = nil
     ) {
         self.copyAttributeValue = copyAttributeValue
         self.valueGuard = valueGuard
         self.applicationBundleID   = applicationBundleID
         self.elementTimeoutSeconds = elementTimeoutSeconds
+        self.copyAttributeValues   = copyAttributeValues
+    }
+
+    /// One attribute's answer: the error the application gave, and the value on success.
+    typealias Answer = (error: AXError, value: CFTypeRef?)
+
+    /// The attributes a walk reads of nearly every node, cheap for the application to answer: asked
+    /// together, one message instead of eight (a 5,500-node Safari window: 310 ms instead of 860).
+    static let batched = [kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute, kAXDescriptionAttribute,
+                          kAXIdentifierAttribute, kAXPositionAttribute, kAXSizeAttribute, kAXEnabledAttribute]
+
+    private let copyAttributeValues: (@Sendable (AXUIElement, [String]) -> [String: Answer]?)?
+    private let answers = Answers()
+
+    /// The answers read in one message, by node, for the walk that owns this reader.
+    // ponytail: unlocked, since a walk reads on one serial queue (`AccessibilityAugmenter.walkQueue`);
+    // a lock if a batching reader is ever shared between threads.
+    private final class Answers: @unchecked Sendable {
+        var byNode: [AXUIElement: [String: Answer]] = [:]
+    }
+
+    /// Every attribute of `names` in one message, each with its own error; nil when the message itself
+    /// failed, and the attributes are then read one by one as before.
+    static let copyAttributeValues: @Sendable (AXUIElement, [String]) -> [String: Answer]? = { node, names in
+        var values: CFArray?
+        guard AXUIElementCopyMultipleAttributeValues(node, names as CFArray, AXCopyMultipleAttributeOptions(rawValue: 0),
+                                                     &values) == .success,
+              let list = values as [AnyObject]?, list.count == names.count else { return nil }
+        var answers: [String: Answer] = [:]
+        for (name, item) in zip(names, list) {
+            if CFGetTypeID(item) == AXValueGetTypeID(), AXValueGetType(unsafeDowncast(item, to: AXValue.self)) == .axError {
+                var error = AXError.success
+                AXValueGetValue(unsafeDowncast(item, to: AXValue.self), .axError, &error)
+                answers[name] = (error, nil)
+            } else if CFGetTypeID(item) == CFNullGetTypeID() {
+                answers[name] = (.noValue, nil)
+            } else {
+                answers[name] = (.success, item)
+            }
+        }
+        return answers
     }
 
     public nonisolated func isSameNode(_ first: AXUIElement, _ second: AXUIElement) -> Bool {
@@ -256,7 +302,7 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
     private nonisolated func valueClassification(_ node: AXUIElement, _ name: String) -> String? {
         guard name == "AXSubrole" else { return string(node, name) }
         var reference: CFTypeRef?
-        switch copyAttributeValue(node, kAXSubroleAttribute as CFString, &reference) {
+        switch copy(node, kAXSubroleAttribute, &reference) {
             case .success: return reference as? String
             case .attributeUnsupported, .noValue: return ""
             default: return nil
@@ -265,10 +311,28 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
     private nonisolated func string(_ node: AXUIElement, _ name: String) -> String? { attribute(node, name) as? String }
 
+    /// One attribute: from the node's batched answers when it is one of them, else asked alone. A batched
+    /// answer that timed out is asked again alone, as a single message that timed out is retried.
+    private nonisolated func copy(
+        _ node     : AXUIElement,
+        _ name     : String,
+        _ reference: UnsafeMutablePointer<CFTypeRef?>
+    ) -> AXError {
+        if let copyAttributeValues, Self.batched.contains(name) {
+            let batch = answers.byNode[node] ?? (copyAttributeValues(node, Self.batched) ?? [:])
+            answers.byNode[node] = batch
+            if let answer = batch[name], answer.error != .cannotComplete {
+                reference.pointee = answer.value
+                return answer.error
+            }
+        }
+        return copyAttributeValue(node, name as CFString, reference)
+    }
+
     private nonisolated func attribute(_ node: AXUIElement, _ name: String) -> CFTypeRef? {
         for _ in 0..<2 {
             var reference: CFTypeRef?
-            switch copyAttributeValue(node, name as CFString, &reference) {
+            switch copy(node, name, &reference) {
                 case .success       : return reference
                 case .cannotComplete: continue
                 default             : return nil

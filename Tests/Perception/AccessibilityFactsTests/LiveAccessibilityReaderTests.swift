@@ -175,4 +175,57 @@ struct LiveAccessibilityReaderTests {
         }
         #expect(requests.withLock { $0 } == [kAXValueAttribute, kAXValueAttribute])
     }
+
+    @Test("A walk's reader asks a node's common attributes in one message and keeps each one's own answer")
+    func batchedAttributes() {
+        let single  = Mutex<[String]>([])
+        let batches = Mutex(0)
+        let reader  = LiveAccessibilityReader(
+            valueGuard         : { _ in false },
+            copyAttributeValue : { _, name, result in
+                single.withLock { $0.append(name as String) }
+                result.pointee = "asked alone" as CFString
+                return .success
+            },
+            copyAttributeValues: { _, names in
+                batches.withLock { $0 += 1 }
+                var answers: [String: LiveAccessibilityReader.Answer] = [:]
+                for name in names { answers[name] = (.attributeUnsupported, nil) }
+                answers[kAXRoleAttribute]  = (.success, "AXButton" as CFString)
+                answers[kAXTitleAttribute] = (.cannotComplete, nil)
+                return answers
+            }
+        )
+        let node = AXUIElementCreateApplication(0)
+        #expect(reader.role(node) == "AXButton")
+        #expect(reader.descriptionText(node) == nil)
+        // An unsupported subrole still attests an ordinary field (""), as one asked alone does.
+        #expect(reader.subrole(node) == "")
+        // The title timed out in the batch: asked again alone.
+        #expect(reader.title(node) == "asked alone")
+        #expect(batches.withLock { $0 } == 1)
+        #expect(single.withLock { $0 }.filter { LiveAccessibilityReader.batched.contains($0) } == [kAXTitleAttribute])
+    }
+
+    @Test("A batch that fails as a message leaves every attribute to be asked alone, once")
+    func failedBatch() {
+        let single  = Mutex<[String]>([])
+        let batches = Mutex(0)
+        let reader  = LiveAccessibilityReader(
+            copyAttributeValue : { _, name, result in
+                single.withLock { $0.append(name as String) }
+                result.pointee = "AXGroup" as CFString
+                return .success
+            },
+            copyAttributeValues: { _, _ in
+                batches.withLock { $0 += 1 }
+                return nil
+            }
+        )
+        let node = AXUIElementCreateApplication(0)
+        #expect(reader.role(node) == "AXGroup")
+        #expect(reader.subrole(node) == "AXGroup")
+        #expect(batches.withLock { $0 } == 1)
+        #expect(single.withLock { $0 } == [kAXRoleAttribute, kAXSubroleAttribute])
+    }
 }
