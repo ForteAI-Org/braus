@@ -33,6 +33,40 @@ all, `ActVerification.interrupted` still asks the surface's identity: a Cancel t
 stays closed while the focus is coming back, and anything else is uncertain, which is not a failure
 and is never a reason to send the gesture again.
 
+## Human intervention in a background session
+
+The [interactive background control design](InteractiveBackground.md) separates temporary event
+reconstruction from the agent's later evaluation of the task. `Engine.HumanIntervention` now provides
+an in-memory, bounded producer/consumer lifecycle with versioned handoff and explicit clarification.
+It has no Brain, Memory or provider dependency. The worker host now has an explicit human suspension
+path and the broker can retain its lease across turn endings. Preview input, Driver admission,
+historical-frame Perception and model handoff still need composition; this does not yet make the
+preview interactive. Pure lifecycle tests do not qualify live input or application compatibility.
+
+Take Control drains through `WorkerAgentHost`: read-only tool tasks are cancelled immediately;
+mutations finish before lending. `open_session` stays protected through launch, adoption and window
+movement, then `AutomationCallInterruption` marks its first scene read. Human cancellation of that
+read preserves the opened session and returns its ID without a scene, with an instruction to observe
+when control returns. Ordinary opening failures still close the session. AX and segmentation reads
+can abandon their results on cancellation; an AX message already running remains on its serial queue.
+The host logs the interrupted tool and reason, and opening, perception stages and memory observation
+log elapsed time. These checks use controlled collaborators and do not qualify live Pro Tools behavior.
+
+SeatBroker's human digest reconstructs scoped observation correspondence, classified delta
+occurrences and a complete action-thread partition before selecting prose. A supported net
+outcome, an evidenced terminal operation whose effect is not AX-represented, or an evidenced
+cancellation that is last or targets a net-outcome object can qualify a thread. Visibility loss
+is not deletion. Embeddings group eligible compatible threads only; they cannot supply facts,
+identity or inclusion. Typed operands are interned before rendering within 1,000 UTF-8 bytes.
+`human_step` retains omitted threads and provenance for the resumed turn; retained pixels remain
+withheld. Replay v1 has no timing, row index or collection completeness contract, so those facts
+remain unknown. Synthetic callers can supply per-read complete membership explicitly; viewport
+presence never supplies it. Creation needs that membership evidence or a compatible named dialog
+request and a new native entity subtree. Row/editor aliases additionally require unique
+correspondence, so duplicate names across collections stay unresolved. Save persistence and the narrowly recognized Pro Tools named palette choice are
+reported as performed, not verified. An unreadable surface is mentioned only on an included
+thread that touched it.
+
 ## Shape
 
 | Module | What it owns |

@@ -498,8 +498,13 @@ never the agent's word. The kinds, as the evening's revision of 14 October 2026 
 | `file_copied {to}` | at `to` the content the path still has | `file_check` |
 | `file {contains}` | a text file written during the attempt holding the text | `file_check` |
 | `window {app, open}` | a window of the application whose title contains the text is open (or none is) | `window_census` |
-| `element {value / state / present}` | the session's scene, read at the check, shows the element by its label with the value, the state, or at all (or not) | `control_value`, `control_state`, `scene_text` |
+| `element {value / state / present}` | the session's scene, read at the check, matches the normalized label in visible elements or read-only fields past the window's edge; checks the value, the state, or presence (or absence) | `control_value`, `control_state`, `scene_text` |
 | `none` | never: the task says it leaves nothing to read, and why; it proves nothing and takes nothing from the other checks | `none` |
+
+An `element` check can read `outOfViewFields` without making them action targets. A match there
+says the element is past the window's edge. Values use the same trimmed, normalized comparison
+as visible elements. Native text fields carry availability, not an on/off control state; a state
+check with no readable state stays `unknown`, even when the field is present.
 
 At a completed end Braus completes what the task named with what it reads on disk itself (`AutomationTools.completed`;
 in test runs of 14 October 2026 agents checked «Salvato: <path>» on screen, or gave `none`, for files Braus

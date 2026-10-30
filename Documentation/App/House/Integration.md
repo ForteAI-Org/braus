@@ -1,6 +1,6 @@
 # Braus restyling: integration into the real app
 
-Date: 22 October 2026. Branch `elio/app-restyling` (worktree `../mecum-app-restyling`), researched at `1408b917`.
+Date: 22 October 2026. Branch `elio/app-restyling`, researched at `1408b917`.
 Spec: [Design.md](Design.md), [Plan.md](Plan.md), `.superpowers/sdd/Plan/round-2-direction.md`.
 
 Goal (the person): merge the restyling into the real app to test it properly, make sure it works with everything that

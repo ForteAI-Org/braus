@@ -11,6 +11,118 @@ never falls back onto the person's desktop, it never repeats an action whose
 effect it could not confirm, and on a macOS build it has not been validated
 against it declines to act rather than guessing.
 
+## Human episodes
+
+`AgentSeat.beginHumanInput()` synchronously pauses agent Commands with `.humanIntervention`
+and returns an opaque episode token. The token identifies the pause and grants no command
+admission. Native composition, held agent keys and split key gestures in flight refuse takeover.
+The preview is for watching only; it sends no clicks, scroll events or keys.
+
+`endHumanInput` requires the matching token, no Command in flight and no unconfirmed receipt.
+It refreshes handback evidence when needed, rejects a renewed takeover during that reading,
+and invalidates the last observation. Expected activation remains scoped to the current episode's
+attested contained process. Ordinary focus recovery stays closed until verified. Ending an episode
+does not run a model or resume a task.
+
+Lease release and session closure abandon any remaining episode, including a failed handback.
+Abandonment clears the gate and Seat episode state and invalidates observation without confirming
+or replaying Commands. Other pause causes remain. A reused host clears a stale episode before its
+next lease starts, preventing `.humanIntervention` from leaking into the next worker's Commands.
+
+InputDriver captures agent admission before its actor/exclusion wait and retains that generation
+through preparation and each Command of a sequence. A request waiting across an intervention
+cannot revive after handback. Preparation is applied and restored per agent Command; qualified
+Native Text Input retains its existing bounded scope. The final InputEngine gate check precedes
+atomic posting, so an already posting Command finishes intact.
+
+See [human control](../Engine/InteractiveBackground.md) for the preview lifecycle and pending
+window lending. Controlled tests establish lifecycle behavior, not live application compatibility.
+
+## Lending and Seat guards
+
+`AgentSeat.lendApplication(visibleFrame:activate:)` temporarily places the held
+application on the person's physical display. The broker receives an explicit
+`NSScreen` chosen by shared `PersonScreen` from the pointer captured at Take Control,
+then Braus' key window, then the menu-bar screen; Seat-created displays are excluded.
+The caller must already have opened human admission and drained the worker. A stable transfer boundary is required.
+The Seat retains the lease's window records and their virtual frames; the group is
+translated without resizing, with an explicit oversized-group clamp in the report.
+
+Lending exempts only the attested application's window geometry and activation.
+Its assignment observation/containment and window follower stand down, so a new
+dialog stays with the person. Host display/fence invariants remain active. No
+synthetic input is needed. `takeBackApplication()` uses adoption's confirmation and
+staging to restore the recorded frames and adopt eligible new windows. The caller
+then uses `endLendingHumanInput` to arm the existing focus handback outside a Turn.
+Failures report Window IDs and re-arm the guards while input remains paused.
+
+Lease abandonment waits for any lending transfer, forgets windows already on the
+person's screen and preserves ordinary restitution for windows still on the virtual
+display. It retains the leave-open decision until the next lease, including when
+preview shutdown abandons the episode before broker cleanup. See
+[the engine contract](../Engine/InteractiveBackground.md#lending-the-application-to-the-person)
+for the lifecycle and Stage Manager qualification limits.
+
+## Held-window presentation
+
+`BrokeredAutomationSession.heldWindows` projects the Seat's existing inventory and
+front-to-back follow reading. AX role, subrole, title and parent labels ride the
+same native pass; they do not grant input authority. Updates coalesce for 100 ms
+and unchanged arrays do not notify observers. Frames remain in WindowServer space
+on the virtual display; while lent, confirmed closures still remove previews.
+
+`makeWindowView(windowNumber:contentsScale:)` returns a fixed-window
+`LivePreviewView` using `PreviewStreamController` and `MonitorLayer`. The Driver
+owns `WindowStreamTiers.streamLimit` window capture slots
+(`BrokeredAutomationSession.windowStreamLimit`, the app's `TwinLayout.liveLimit`) and
+keeps one more apart for its existing observation/`makeScreenView` stream. The
+largest standard window (or largest window when no standard one is known) runs at
+30 fps, at the requested scale capped to 1920 by 1080 pixels. The others start at
+10 fps and the requested scale; once all window streams together pass
+`pixelRateBudget` pixels or `frameRateBudget` frames a second, the costliest
+secondary (pixel area by fps, weighted by how far back it sits) steps down one of
+`WindowStreamTiers.tiers`, until the totals fit or every one is at the floor: never
+under 1 pixel per point (half a point per pixel left a panel's preview black) nor
+5 fps. Measured in-process, CPU here and in replayd follows delivered frames rather
+than pixels, and ScreenCaptureKit ran 24 window streams at once; the limit stays at
+twelve so two workers fit under the ~28 where new streams went silent. The window in front and
+the one opened last keep the top tier. Tiers are recomputed on every inventory
+update (open, close, order, frame) and on a rescale, never per frame. While windows
+stream, the `Preview` category logs each one's pixels, configured and delivered fps,
+and the process CPU every 5 s. A full budget returns nil. If a slot is retiring, the returned view waits for its
+confirmed release and starts automatically, without consumer polling. Confirmed closures release slots;
+unconfirmed capture shutdowns retain their reservations across leases.
+
+`HumanPreviewControl.lendingFrames` maps window numbers to independent destinations
+in WindowServer space. It is read when lending starts, after the worker drains.
+`ApplicationLendingLayout` first computes the existing relative layout using
+`lendingAnchor`, then overrides each supplied origin and clamps it to the person's
+visible frame without resizing the window. Oversized windows align to the visible
+frame's origin. Destination sizes are ignored; missing or nonfinite origins keep
+the original layout. Unknown window numbers have no effect.
+
+`HumanPreviewControl.willLendAll` receives the final `ApplicationLendingLayout`
+before activation or movement. It shares the existing 2.5-second presentation
+budget with `willLend`; `lentWindows` contains confirmed moves. `willTakeBack`
+receives current identity-verified frames, including eligible windows created
+while lent, before take-back starts moving windows and waits at most 0.5 seconds.
+Windows created after that snapshot are discovered by the existing take-back
+reconciliation. A presentation timeout never grants input or bypasses placement
+and identity checks.
+
+## Inventory execution
+
+Observation and watcher reconciliation ask `AssignedSurfaceReading.snapshotInBackground` for a
+fresh inventory. The shipped `SensingSurfaceReader` performs native IPC on a serial queue and folds
+transition history after returning to the caller. A revision rejects an older background result
+when a synchronous input gate took a newer reading. The Seat rechecks assignment, selection and
+observation barriers before using the result; no cached inventory authorizes input.
+
+Input gates, adoption and restitution retain their synchronous fresh reads. This change removes
+the observation and reconciliation passes from the UI thread, not every native read in the Driver.
+The [interactive trial notes](../Engine/InteractiveBackground.md#trial-follow-up-observation-latency-and-stopped-tasks)
+record the consumer lifecycle and the remaining live qualification.
+
 ## Shape
 
 | Module | What it owns |
@@ -267,13 +379,17 @@ It does not reselect an old window after the selection changes. A staging
 failure refuses the observation; all existing endpoint identity and modal
 checks still apply. See [stabilization evidence](reports/StabilizationRounds.md).
 
-The consumer's worker lease completion retires its display while keeping
-the queue's AgentSession reusable. Only a window return not yet proven
-settled retains the host, including refused returns from earlier assignments
-on that host; a finish warning alone does not. A return settles on a window
-server row off the display or a proven destruction, never on a missing row
-or a refused reading. Handover within a lease keeps its existing lifecycle.
-See [ADR0030](adr/Adr0030RetireCleanWorkerDisplays.md) for the cost and limits.
+The consumer's worker lease completion keeps its display for
+`AgentSession.idleRetirementDelay` (two minutes) with no new lease, then
+retires it, while keeping the queue's AgentSession reusable; a new lease
+cancels the pending retirement, and close or quit retires at once. Only a
+window return not yet proven settled retains the host past that, including
+refused returns from earlier assignments on that host; a finish warning alone
+does not. A return settles on a window server row off the display or a proven
+destruction, never on a missing row or a refused reading. Handover within a
+lease keeps its existing lifecycle. See
+[ADR0030](adr/Adr0030RetireCleanWorkerDisplays.md), amended 2026-10-26, for
+the cost and limits.
 
 ## Testing it
 
