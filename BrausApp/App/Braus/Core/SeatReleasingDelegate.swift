@@ -49,6 +49,10 @@ final class SeatReleasingDelegate: NSObject, NSApplicationDelegate {
             Task { await WindowClickCheck.runAndQuit() }
         } else if RoomCostCheck.isRequested {
             Task { await RoomCostCheck.runAndQuit() }
+        } else if HumanControlCheck.isRequested {
+            Task { await HumanControlCheck.runAndQuit() }
+        } else if ScreenWindowCheck.isRequested {
+            Task { await ScreenWindowCheck.runAndQuit() }
         }
     }
 

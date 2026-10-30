@@ -152,6 +152,11 @@ final class TeamModel {
     /// One turn at a time per worker; the others are unaffected.
     private(set) var answering: [UUID: UUID] = [:]
 
+    /// What each worker's latest turn or compaction reported as it ran, which its screen window says
+    /// over its mascot (`WorkerSpeech`). Each starts a report of its own; a turn that did not complete
+    /// leaves no last words.
+    private(set) var turnReports: [UUID: WorkerSpeech.Report] = [:]
+
     /// Workers whose context is being compacted. Each is in `answering` too, so
     /// the composer waits as it does behind a turn, and Stop ends the compaction.
     private(set) var compacting: Set<UUID> = []
@@ -182,6 +187,18 @@ final class TeamModel {
 
     /// The conversation each worker last started a turn or a compaction in, the one context it acts in (I02).
     private var activeContexts: [UUID: UUID] = [:]
+
+    /// RAM-only preview episodes. The worker remains reserved until handoff or explicit closure.
+    private(set) var humanControls: [UUID: HumanPreviewControl] = [:]
+    /// The stage, border and worker the person sees while a control lends them the app, by worker.
+    @ObservationIgnored private var lendingCompanions: [UUID: LendingCompanion] = [:]
+    private var humanHosts: [UUID: (host: WorkerAgentHost, token: UUID, conversation: UUID)] = [:]
+    @ObservationIgnored private var answerTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var answerTaskIDs: [UUID: UUID] = [:]
+    @ObservationIgnored private var resumingHumanWorkers: Set<UUID> = []
+    /// Workers whose running turn the person took over; the turn ends handed over even when End Control stops it.
+    @ObservationIgnored private var handedOverWorkers: Set<UUID> = []
+
 
     /// The command line that answers for a provider, and the bridge it launches for Braus's tools.
     private let agents          : (ModelProvider) throws -> (ChatProvider, URL)
@@ -671,15 +688,20 @@ final class TeamModel {
         to message       : MessageSnapshot,
         in conversationID: UUID,
         by workerID      : UUID,
-        holding          : Bool = false
+        holding          : Bool = false,
+        beforeRun        : (@MainActor () async throws -> Void)? = nil,
+        onTurnEnd        : (@MainActor () -> Void)? = nil
     ) {
-        guard let worker = worker(workerID), worker.configuration != nil, holding || answering[workerID] == nil
+        guard beforeRun != nil || (humanControls[workerID].map({ !$0.hasStarted || $0.isFinished }) ?? true),
+              let worker = worker(workerID), worker.configuration != nil, holding || answering[workerID] == nil
         else {
             if holding { answering[workerID] = nil }
+            onTurnEnd?()
             return
         }
 
-        answering[workerID] = conversationID
+        answering[workerID]   = conversationID
+        turnReports[workerID] = WorkerSpeech.Report()
 
         let (host, desktop) = agentHost(
             of : conversationID,
@@ -697,7 +719,16 @@ final class TeamModel {
             await self?.reloadTranscript(of: conversationID)
         }
 
-        Task {
+        let answerID = UUID()
+        answerTaskIDs[workerID] = answerID
+        answerTasks[workerID] = Task {
+            defer {
+                onTurnEnd?()
+                if answerTaskIDs[workerID] == answerID {
+                    answerTasks[workerID] = nil
+                    answerTaskIDs[workerID] = nil
+                }
+            }
             await activate(conversationID, for: workerID)
             // A page held from an earlier turn under a choice of Chrome profile since changed, or in a paired profile
             // no longer connected, closes first, so this turn opens its page where the person now chose.
@@ -705,7 +736,10 @@ final class TeamModel {
             var ending: WorkerTurnRecorder.Ending?
             do {
                 var provider: ModelProvider?
-                let ended = try await recorder.run { frozen, session, emit in
+                let ended = try await recorder.run(
+                    onHumanSuspension: { await host.waitForHumanInterventionCleanup() },
+                    isHandedOver     : { self.handedOverWorkers.contains(workerID) }
+                ) { frozen, session, emit in
                     provider = frozen.provider
                     if pendingStops.remove(workerID) != nil { throw CancellationError() }
                     var history: [TurnMessage] = []
@@ -731,15 +765,24 @@ final class TeamModel {
                     host.callProducer.messageRef = message.id.uuidString
                     // The turn gives the seat back as it ends when another entry is waiting for it.
                     try await desktop.turn {
+                        try await beforeRun?()
                         try await host.run(
-                            prompt         : Self.agentText(of: message),
-                            selection      : frozen,
-                            sessionID      : session,
-                            role           : worker.instructions,
-                            history        : history,
-                            lastUsage      : lastUsage,
-                            allowsWebSearch: searchesWeb,
-                            onEvent        : emit
+                            prompt                    : Self.agentText(of: message),
+                            selection                 : frozen,
+                            sessionID                 : session,
+                            role                      : worker.instructions,
+                            history                   : history,
+                            lastUsage                 : lastUsage,
+                            allowsWebSearch           : searchesWeb,
+                            reviewingHumanIntervention: beforeRun != nil,
+                            onEvent                   : { event in
+                                self.report(
+                                    event,
+                                    of         : workerID,
+                                    withholding: host.withheld
+                                )
+                                emit(event)
+                            }
                         )
                     }
                 }
@@ -752,13 +795,21 @@ final class TeamModel {
                     error  : error
                 )
             }
+            if ending != .completed { turnReports[workerID]?.lastWords = nil }
 
             // The limits are the account's, so the worker on screen may share them.
             await refreshUsage(of: workerID)
             if let selection, selection != workerID { await refreshUsage(of: selection) }
 
             pendingStops.remove(workerID)
-            let sendsNow = sendsQueuedOnEnd.remove(workerID) != nil
+            handedOverWorkers.remove(workerID)
+            // The old execution is terminal, but the worker remains reserved for this human episode.
+            if humanHosts[workerID] != nil {
+                if humanControls[workerID]?.isFinished == true { humanHosts[workerID] = nil }
+                else { return }
+            }
+            let wasHumanControlled = humanControls[workerID]?.hasStarted == true
+            let sendsNow = sendsQueuedOnEnd.remove(workerID) != nil && !wasHumanControlled
             // Each next step starts with no suspension after the turn ends, so no message can start a turn first.
             if ending == .completed,
                let fraction = usage[workerID]?.context?.fraction,
@@ -777,6 +828,23 @@ final class TeamModel {
             } else {
                 answering[workerID] = nil
             }
+        }
+    }
+
+    /// Keeps what `event` adds to the worker's turn report, through `withholding` as the recorder
+    /// writes it: a tool record, or a block it wrote. Nothing else changes the report.
+    private func report(
+        _ event    : WorkerAgentEvent,
+        of workerID: UUID,
+        withholding: (String) -> String
+    ) {
+        switch event {
+        case .tool(let record):
+            turnReports[workerID]?.add(tool: withholding(record))
+        case .provider(.assistant(let text)):
+            turnReports[workerID]?.lastWords = withholding(text)
+        default:
+            break
         }
     }
 
@@ -946,7 +1014,7 @@ final class TeamModel {
             problem = expired
         case .completed:
             if connections.states[provider]?.isReady == false { connections.refresh([provider]) }
-        case .cancelled:
+        case .cancelled, .handedToPerson:
             return
         }
     }
@@ -1034,10 +1102,12 @@ final class TeamModel {
         in conversationID: UUID,
         trigger          : ContextCompaction.Trigger
     ) {
-        guard let worker = worker(workerID), let selection = worker.configuration, answering[workerID] == nil
+        guard humanControls[workerID].map({ !$0.hasStarted || $0.isFinished }) ?? true,
+              let worker = worker(workerID), let selection = worker.configuration, answering[workerID] == nil
         else { return }
 
-        answering[workerID] = conversationID
+        answering[workerID]   = conversationID
+        turnReports[workerID] = WorkerSpeech.Report()
         compacting.insert(workerID)
         let host = agentHost(
             of : conversationID,
@@ -1175,6 +1245,10 @@ final class TeamModel {
     /// the menus asks. What already arrived stays, and the turn ends with the
     /// interruption note. A compaction stops the same way and leaves the context as it was.
     func stopAnswering(_ workerID: UUID) {
+        if let control = humanControls[workerID], control.hasStarted, !control.isFinished {
+            Task { await control.finish() }
+            return
+        }
         guard let conversationID = answering[workerID] else { return }
 
         if let host = hosts[conversationID]?.host, host.isRunning {
@@ -1335,7 +1409,53 @@ final class TeamModel {
             )
         )
         desktops[workerID] = desktop
+        followScreen(of: workerID, desktop)
         return desktop
+    }
+
+    /// Opens a worker's screen window as its seat starts holding an application, without the keyboard
+    /// and without activating Braus. Off in check and test runs, so no window comes over the person's work.
+    @ObservationIgnored
+    var opensHeldScreens = !BrausApp.isCheckRun
+
+    /// The workers whose seat holds an application, as last seen: each hold opens the window once,
+    /// and a window the person closed stays closed until the next hold.
+    @ObservationIgnored
+    private var heldScreens: Set<UUID> = []
+
+    /// Follows whether `desktop` has a screen to watch, for as long as it is the worker's desktop.
+    private func followScreen(
+        of workerID: UUID,
+        _ desktop  : BrokeredAutomationSession
+    ) {
+        let hasScreen = withObservationTracking {
+            desktop.hasScreen
+        } onChange: { [weak self, weak desktop] in
+            Task { @MainActor in
+                guard let self, let desktop, self.desktops[workerID] === desktop else { return }
+                self.followScreen(of: workerID, desktop)
+            }
+        }
+        if screenHeld(workerID, hasScreen) {
+            WorkerScreenWindowController.open(
+                workerID: workerID,
+                team    : self,
+                makesKey: false
+            )
+        }
+    }
+
+    /// Records whether the worker's seat holds an application: true as a hold begins, when its screen
+    /// window should open.
+    func screenHeld(
+        _ workerID: UUID,
+        _ isHeld  : Bool
+    ) -> Bool {
+        guard isHeld else {
+            heldScreens.remove(workerID)
+            return false
+        }
+        return heldScreens.insert(workerID).inserted && opensHeldScreens
     }
 
     /// What the worker is doing with the computer, in the words its row shows; nil while nothing.
@@ -1348,18 +1468,304 @@ final class TeamModel {
     func hasScreen(_ workerID: UUID) -> Bool { desktops[workerID]?.hasScreen ?? false }
 
     /// A live view of the worker's window, nil while there is none; see `hasScreen`.
+    /// The window whose own stream each worker's screen window shows, when it shows one.
+    @ObservationIgnored
+    private var mainWindowStreams: [UUID: Int] = [:]
+
+    /// Asks for the stream the worker's screen window shows at `scale`, as the window settled on a
+    /// display of that scale; true when there was one of the window's own to ask, the driven window's
+    /// being the seat's.
+    @discardableResult
+    func restreamMainWindow(
+        of workerID: UUID,
+        at scale   : CGFloat
+    ) -> Bool {
+        guard let number = mainWindowStreams[workerID], let desktop = desktops[workerID] else { return false }
+        return desktop.makeWindowView(
+            windowNumber : number,
+            contentsScale: scale
+        ) != nil
+    }
+
+    /// The held application's main window (`TwinLayout.main`), which its screen window shows; another
+    /// once that one closes. Nil while the seat names none.
+    func mainWindow(of workerID: UUID) -> TwinWindow? {
+        desktops[workerID].flatMap {
+            TwinLayout.main(
+                of     : $0.heldWindows.map(TwinWindow.init),
+                keeping: mainWindowStreams[workerID]
+            )
+        }
+    }
+
+    /// A live view of the held application's main window for its screen window, as the seat streams
+    /// each window it holds; the view of the window the worker drives while the seat names none yet.
+    func makeMainWindowView(
+        of workerID  : UUID,
+        contentsScale: CGFloat
+    ) -> NSView? {
+        if let desktop = desktops[workerID],
+           let main = mainWindow(of: workerID),
+           let view = desktop.makeWindowView(
+               windowNumber : main.windowNumber,
+               contentsScale: contentsScale
+           ) {
+            _ = humanControl(of: workerID, desktop: desktop)
+            mainWindowStreams[workerID] = main.windowNumber
+            return view
+        }
+        mainWindowStreams[workerID] = nil
+        return makeScreenView(
+            of           : workerID,
+            contentsScale: contentsScale
+        )
+    }
+
     func makeScreenView(
         of workerID  : UUID,
         contentsScale: CGFloat
     ) -> NSView? {
-        desktops[workerID]?.makeScreenView(contentsScale: contentsScale)
+        guard let desktop = desktops[workerID],
+              let view = desktop.makeScreenView(contentsScale: contentsScale) else { return nil }
+        _ = humanControl(of: workerID, desktop: desktop)
+        return view
+    }
+
+    private func humanControl(
+        of workerID: UUID,
+        desktop    : BrokeredAutomationSession
+    ) -> HumanPreviewControl {
+        if let existing = humanControls[workerID], !existing.isFinished { return existing }
+        var interventionHost: WorkerAgentHost?
+        let control = desktop.makeHumanPreviewControl(
+            suspend: { [weak self] in
+                guard let self else { throw CancellationError() }
+                try self.suspendHumanIntervention(of: workerID)
+                interventionHost = self.humanHosts[workerID]?.host
+            },
+            waitForAgent: { [weak self] in
+                guard let self, let host = self.humanHosts[workerID]?.host else { throw CancellationError() }
+                // Only the action under way: the rest of the turn stops behind the person.
+                guard await host.waitForCallsToDrain(within: .seconds(30)) else {
+                    throw AutomationFailure("The current action has not finished. End control to stop it.")
+                }
+            },
+            endAgent: { [weak self] in
+                if self?.humanHosts[workerID] != nil {
+                    self?.stopHumanIntervention(of: workerID)
+                } else { interventionHost?.stop() }
+            },
+            waitForWorker: { [weak self] in
+                await self?.humanHosts[workerID]?.host.waitForHumanInterventionCleanup()
+                await self?.answerTasks[workerID]?.value
+            },
+            withholding: { [weak self] text in
+                self?.humanHosts[workerID]?.host.withheld(text) ?? "Human intervention evidence unavailable."
+            },
+            resumeAgent: { [weak self] summary, beginTurn in
+                guard let self else { throw CancellationError() }
+                try await self.resumeHumanIntervention(
+                    of       : workerID,
+                    summary  : summary,
+                    beginTurn: beginTurn
+                )
+            }
+        )
+        humanControls[workerID] = control
+        lendingCompanions[workerID] = LendingCompanion(
+            control: control,
+            picture  : { [weak self] in self.flatMap { $0.screenView(in: $0.screenPlace(of: workerID)) } },
+            stepAside: { WorkerScreenWindowController.openWindows[workerID]?.stepAside() },
+            handBack : { frame in WorkerScreenWindowController.openWindows[workerID]?.handBack(at: frame) },
+            leavesFrom: { frame in WorkerScreenWindowController.openWindows[workerID]?.handBack(leavingFrom: frame) },
+            handedBack: { WorkerScreenWindowController.openWindows[workerID]?.handedBack() },
+            twins     : { WorkerScreenWindowController.openWindows[workerID]?.twins },
+            lendBegins: { [weak self] in
+                self?.setLendingBegun(
+                    workerID,
+                    true
+                )
+            }
+        ) { [weak self] in
+            self.flatMap { HouseRoster.workers(of: $0).first { $0.id == workerID } }
+        }
+        return control
+    }
+
+    /// Pins the conversation and matching host token before cancellation starts draining the old run.
+    func suspendHumanIntervention(of workerID: UUID) throws {
+        guard !compacting.contains(workerID),
+              let context = activeContexts[workerID],
+              let host = hosts[context]?.host else {
+            throw AutomationFailure("Wait for the worker's active application turn before taking control.")
+        }
+        let token = try host.suspendForHumanIntervention()
+        humanHosts[workerID] = (host, token, context)
+        if answerTasks[workerID] != nil { handedOverWorkers.insert(workerID) }
+    }
+
+    /// Ends the episode without a hand-back, as End Control does, and records where the task stopped.
+    func stopHumanIntervention(of workerID: UUID) {
+        guard let episode = humanHosts.removeValue(forKey: workerID) else { return }
+        episode.host.stop()
+        if answerTasks[workerID] == nil { answering[workerID] = nil }
+        let stoppedAt = Date()
+        Task { await recordHumanControlStopped(of: workerID, in: episode.conversation, at: stoppedAt) }
+    }
+
+    /// The transcript's "Task Stopped" row, an event the worker is never sent.
+    private func recordHumanControlStopped(
+        of workerID      : UUID,
+        in conversationID: UUID,
+        at date          : Date
+    ) async {
+        do {
+            try await store.append(NewEvent(
+                workspaceID   : Self.workspaceID,
+                subjectID     : conversationID,
+                conversationID: conversationID,
+                workerID      : workerID,
+                timestamp     : date,
+                type          : .humanControlStopped
+            ))
+            if conversation?.id == conversationID { transcriptRevision += 1 }
+        } catch {
+            Self.log.error("Couldn’t record the stopped task: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Posts exactly one handoff in the interrupted conversation after its execution and writer drain.
+    /// The supplied release runs inside the new desktop turn, so idle/queue release cannot steal its lease.
+    func resumeHumanIntervention(
+        of workerID: UUID,
+        summary    : String,
+        beginTurn  : @escaping @MainActor () async throws -> Void
+    ) async throws {
+        guard let episode = humanHosts[workerID], resumingHumanWorkers.insert(workerID).inserted else {
+            throw CancellationError()
+        }
+        defer { resumingHumanWorkers.remove(workerID) }
+        await episode.host.waitForHumanInterventionCleanup()
+        await answerTasks[workerID]?.value
+        guard humanHosts[workerID]?.token == episode.token,
+              activeContexts[workerID] == episode.conversation,
+              worker(workerID)?.configuration != nil else { throw CancellationError() }
+        // The summary is the turn's input; the transcript shows it as one row, not as the person's bubble.
+        let message = try await store.appendMessage(
+            to              : episode.conversation,
+            text            : episode.host.withheld(summary),
+            quote           : nil,
+            endsHumanControl: true
+        )
+        guard humanHosts[workerID]?.token == episode.token else { throw CancellationError() }
+        try episode.host.endHumanIntervention(episode.token)
+        humanHosts[workerID] = nil
+        if conversation?.id == episode.conversation { transcriptRevision += 1 }
+        let prepared = AsyncThrowingStream<Void, any Error>.makeStream()
+        startAnswer(
+            to       : message,
+            in       : episode.conversation,
+            by       : workerID,
+            holding  : true,
+            beforeRun: {
+                try await beginTurn()
+                Self.log.notice("human handoff: broker episode ended inside the new desktop turn")
+                prepared.continuation.yield(())
+                prepared.continuation.finish()
+            },
+            onTurnEnd: {
+                prepared.continuation.finish(throwing: AutomationFailure("The handoff turn ended before it could start."))
+            }
+        )
+        for try await _ in prepared.stream { return }
+    }
+
+    /// True while the person uses the application of a worker whose turn was in `conversationID`.
+    func isHumanControlled(in conversationID: UUID) -> Bool {
+        humanControls.contains { workerID, control in
+            control.hasStarted && !control.isFinished && activeContexts[workerID] == conversationID
+        }
+    }
+
+    /// The workers whose screen window plays the hand-back after Yes, until it has: their worker stays
+    /// away from the window's corner meanwhile.
+    private(set) var handingBack: Set<UUID> = []
+
+    func setHandingBack(
+        _ workerID: UUID,
+        _ isHandingBack: Bool
+    ) {
+        if isHandingBack { handingBack.insert(workerID) } else { handingBack.remove(workerID) }
+    }
+
+    /// The workers whose application has started on its way to the person since Take Control: until
+    /// then the worker is finishing its step, and the screen window's curtain says so and stays.
+    private(set) var lendingBegun: Set<UUID> = []
+
+    func setLendingBegun(
+        _ workerID: UUID,
+        _ isBegun : Bool
+    ) {
+        if isBegun { lendingBegun.insert(workerID) } else { lendingBegun.remove(workerID) }
+    }
+
+    func finishHumanControl(_ workerID: UUID) async {
+        await humanControls[workerID]?.finish()
+    }
+
+    /// The companion of the worker's lent application, nil before its screen was first shown.
+    func lendingCompanion(of workerID: UUID) -> LendingCompanion? { lendingCompanions[workerID] }
+
+    /// The workers whose seat holds an application with a screen to watch.
+    var screenHolders: [UUID] { desktops.keys.filter(hasScreen) }
+
+    /// ⌃⌥Tab while the team's window is open; nil in tests, which register no system key.
+    @ObservationIgnored var controlShortcut: ControlShortcut?
+
+    /// What ⌃⌥Tab last asked of a screen window: take control as its button does.
+    private(set) var takeControlAsked: ControlShortcut.Request?
+
+    func askTakeControl(_ workerID: UUID) {
+        takeControlAsked = ControlShortcut.Request(
+            workerID: workerID,
+            number  : (takeControlAsked?.number ?? 0) + 1
+        )
+    }
+
+    /// Takes control of the worker's application for the person. `anchor`, the screen window's frame in
+    /// AppKit's screen space, is where the application lands, centred: the screen window is its
+    /// window at its real size, so it lands exactly there.
+    func beginHumanControl(
+        _ workerID : UUID,
+        from anchor: CGRect? = nil
+    ) {
+        guard let desktop = desktops[workerID] else { return }
+        let control = humanControl(of: workerID, desktop: desktop)
+        if let anchor, !control.hasStarted {
+            // The flip between the two spaces is its own inverse.
+            control.lendingAnchor = LendingCompanion.appKitFrame(
+                anchor,
+                menuBarScreen: NSScreen.screens.first?.frame ?? .zero
+            )
+            setLendingBegun(
+                workerID,
+                false
+            )
+            // Each window lands on its own twin, where the person sees it now.
+            control.lendingFrames = WorkerScreenWindowController.openWindows[workerID]?.lendingFrames() ?? [:]
+            lendingCompanions[workerID]?.controlTaken()
+        }
+        control.takeControl(on: PersonScreen.current(pointer: NSEvent.mouseLocation))
     }
 
     /// The worker's window frame, for the live view's proportions.
     func screenFrame(of workerID: UUID) -> CGRect { desktops[workerID]?.screenFrame ?? .zero }
 
     /// Whether the worker's live screen floats over the conversation instead of sitting in the inspector.
-    var showsScreenInConversation = false
+    /// Choosing either brings the selected worker's screen back from its own window.
+    var showsScreenInConversation = false {
+        didSet { if let selection { windowedScreens.remove(selection) } }
+    }
 
     /// The worker's screen enlarged over the conversation, nil while it is small.
     var enlargedScreen: ScreenEnlargement?
@@ -1368,12 +1774,20 @@ final class TeamModel {
     /// stream is drawn once.
     private(set) var windowedScreens: Set<UUID> = []
 
-    /// Records that the worker's screen window opened or closed.
+    /// Records that the worker's screen window opened or closed. Opened, it takes the screen from the
+    /// inspector, the conversation and the enlarged view; closed, the screen goes back where the
+    /// toggle puts it.
     func setScreenWindowed(
         _ workerID : UUID,
         _ isWindowed: Bool
     ) {
         if isWindowed { windowedScreens.insert(workerID) } else { windowedScreens.remove(workerID) }
+        if isWindowed, enlargedScreen?.workerID == workerID { dismissEnlargedScreen() }
+    }
+
+    /// The one place the worker's screen shows: its own window, the conversation or the inspector.
+    func screenPlace(of workerID: UUID) -> ScreenPlace {
+        windowedScreens.contains(workerID) ? .window : .resting(showsInConversation: showsScreenInConversation)
     }
 
     /// The small live views on screen, by place: where the enlarged one grows from and shrinks into.
@@ -1476,6 +1890,9 @@ final class TeamModel {
     /// Gives the worker's seat back (§3.4). The conversation, a running turn and the worker stay
     /// as they are; the next tool call that needs the computer waits in the queue for it again.
     func releaseComputer(_ workerID: UUID) async {
+        if let control = humanControls[workerID], control.hasStarted, !control.isFinished {
+            await control.finish()
+        }
         await desktops[workerID]?.close()
         for web in webs.values where web.workerID == workerID { await web.session.close() }
     }
@@ -1515,6 +1932,7 @@ final class TeamModel {
     /// loopback hosts close and their temporary directories go. A directory
     /// that could not be removed is reported rather than forgotten.
     func closeAgentHosts() async {
+        for control in humanControls.values where !control.isFinished { await control.finish() }
         let closing = hosts
         let pages   = webs.values.map(\.session)
         hosts.removeAll()

@@ -8,6 +8,7 @@
 import ChatCore
 import CLIProviders
 import Foundation
+import AutomationRuntime
 import ModelTransports
 
 /// WorkerTurnRecorder writes one agent turn into the workspace (§11.5).
@@ -26,9 +27,11 @@ import ModelTransports
 /// provider is handed it to resume, across relaunches.
 ///
 /// The turn ends with exactly one terminal event: `executionCompleted`,
-/// `executionFailed` carrying the reason, or `executionCancelled` carrying the
-/// interruption note. A failed or stopped message is marked interrupted, and
-/// what arrived before stays. Nothing here runs the agent a second time.
+/// `executionFailed` carrying the reason, `executionCancelled` carrying the
+/// interruption note, or `executionHandedToPerson` when the person took control
+/// of the application. A failed or stopped message is marked interrupted, a
+/// handed over one completed, and what arrived before stays. Nothing here runs
+/// the agent a second time.
 ///
 /// The agent child's identity is recorded as `agentProcessStarted`, so that a
 /// turn a crash cut short can be ended, and its child stopped, at the next
@@ -42,6 +45,9 @@ final class WorkerTurnRecorder {
         case completed
         case failed(reason: String)
         case cancelled
+
+        /// The person took control of the application; nothing went wrong.
+        case handedToPerson
     }
 
     /// The note a stopped turn leaves, word for word what `braus chat` writes.
@@ -133,7 +139,11 @@ final class WorkerTurnRecorder {
     /// Throws before `agent` runs when the execution cannot be started, which
     /// leaves the message as it was. After that it always attempts the
     /// terminal event, and throws the first write that failed, if any.
+    /// `isHandedOver` says a cancelled turn was stopped while the person held its application,
+    /// which ends it handed over rather than stopped.
     func run(
+        onHumanSuspension: (() async -> Void)? = nil,
+        isHandedOver     : (() -> Bool)?       = nil,
         _ agent: (ModelSelection, String?, @escaping @MainActor (WorkerAgentEvent) -> Void) async throws -> Void
     ) async throws -> Ending {
         let stored    = try await store.conversation(conversationID)
@@ -158,9 +168,18 @@ final class WorkerTurnRecorder {
         }
 
         let thrown: (any Error)?
+        var handedOver = false
         do {
             try await agent(execution.selection, resumed) { continuation.yield($0) }
             thrown = nil
+        } catch is WorkerAgentHost.HumanInterventionSuspended {
+            if let onHumanSuspension {
+                await onHumanSuspension()
+                thrown     = nil
+                handedOver = true
+            } else {
+                thrown = AutomationFailure("Human suspension has no preview owner.")
+            }
         } catch {
             thrown = error
         }
@@ -169,9 +188,10 @@ final class WorkerTurnRecorder {
 
         let ending: Ending
         switch thrown {
-        case is CancellationError:  ending = .cancelled
-        case .some(let error):      ending = .failed(reason: state.reportedFailure ?? error.localizedDescription)
-        case .none:                 ending = state.reportedFailure.map { .failed(reason: $0) } ?? .completed
+        case .none where handedOver: ending = .handedToPerson
+        case is CancellationError:   ending = isHandedOver?() == true ? .handedToPerson : .cancelled
+        case .some(let error):       ending = .failed(reason: state.reportedFailure ?? error.localizedDescription)
+        case .none:                  ending = state.reportedFailure.map { .failed(reason: $0) } ?? .completed
         }
         try await finish(ending, execution: execution.id)
         if let failure = state.firstFailure { throw failure }
@@ -282,6 +302,9 @@ final class WorkerTurnRecorder {
         case .cancelled:
             try await append(.executionCancelled, subject: execution, text: Self.interruptedNote)
             try await store.update(message: messageID, delivery: .interrupted)
+        case .handedToPerson:
+            try await append(.executionHandedToPerson, subject: execution)
+            try await store.update(message: messageID, delivery: .completed)
         }
         await onRecorded()
     }

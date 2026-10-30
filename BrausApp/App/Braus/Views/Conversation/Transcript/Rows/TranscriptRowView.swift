@@ -86,6 +86,7 @@ final class TranscriptRowView: NSView {
     private(set) var stacks: [TextStack?] = []
     private var ranges     : [NSRange] = []
     private var thinkingBlob: ThinkingBlobView?
+    private var humanWave   : HumanControlWaveView?
 
     /// The quote's name and excerpt, laid out as `RowPreparation` measured them.
     private var quoteStacks: (name: TextStack?, text: TextStack?) = (nil, nil)
@@ -157,6 +158,7 @@ final class TranscriptRowView: NSView {
             style     : style
         )
         showThinking(row)
+        showHumanWave(row)
         showSpinner(row)
         showCopyIcons(row, keepsCopied: previous != nil)
         showChevron(row, wasExpanded: Self.isExpanded(previousRow))
@@ -185,13 +187,34 @@ final class TranscriptRowView: NSView {
         blob.isHidden = false
     }
 
-    /// Whether `row` is an open tool line, or nil when it is no tool line at all.
-    private static func isExpanded(_ row: PreparedRow?) -> Bool? {
-        guard case .toolRun(_, let isExpanded, _)? = row?.item.kind else { return nil }
-        return isExpanded
+    /// The wave before the words of the row shown while the person uses the app; hidden for any other row.
+    private func showHumanWave(_ row: PreparedRow) {
+        guard row.item.kind == .humanControl else {
+            humanWave?.isHidden = true
+            return
+        }
+        let wave = humanWave ?? HumanControlWaveView()
+        if humanWave == nil {
+            humanWave = wave
+            addSubview(wave)
+        }
+        let text = row.geometry.text
+        let size = RowGeometry.humanControlWave
+        wave.frame    = CGRect(
+            x     : text.minX - RowGeometry.humanControlWaveGap - size.width,
+            y     : (text.midY - size.height / 2).rounded(),
+            width : size.width,
+            height: size.height
+        )
+        wave.isHidden = false
     }
 
-    /// The chevron over a tool line's disclosure slot. The same line opening or
+    /// Whether `row` is open, or nil when it is no row that opens.
+    private static func isExpanded(_ row: PreparedRow?) -> Bool? {
+        row?.item.disclosure
+    }
+
+    /// The chevron over a tool line's or a hand-back row's disclosure slot. The same line opening or
     /// closing turns it with a short rotation; Reduce Motion turns it at once.
     private func showChevron(_ row: PreparedRow, wasExpanded: Bool?) {
         guard let isExpanded = Self.isExpanded(row), let frame = disclosureSlot(in: row) else {
@@ -232,7 +255,7 @@ final class TranscriptRowView: NSView {
         return icon
     }
 
-    /// A square at the end of the room the tool line's summary keeps after its text, on its one line,
+    /// A square at the end of the room the summary or label keeps after its text, on its one line,
     /// so a summary cut short still ends with the chevron.
     private func disclosureSlot(in row: PreparedRow) -> CGRect? {
         guard let summary = row.geometry.blocks.first else { return nil }
@@ -440,7 +463,8 @@ final class TranscriptRowView: NSView {
         switch row.item.kind {
         case .personMessage:
             return (now.start + now.width - placed.start - placed.width).rounded()
-        case .daySeparator, .contextSeparator, .activityNotShown:
+        case .daySeparator, .contextSeparator, .humanControlFinished, .humanControlStopped, .humanControl,
+             .activityNotShown:
             return (now.start + now.width / 2 - placed.start - placed.width / 2).rounded()
         default:
             return now.start - placed.start
@@ -506,7 +530,7 @@ final class TranscriptRowView: NSView {
         case .rule:
             NSColor.separatorColor.setFill()
             NSRect(x: frame.minX, y: frame.midY.rounded(), width: frame.width, height: 1).fill()
-        case .toolSteps:
+        case .toolSteps, .report:
             // The steps lift off the background as a card, so they read apart from the replies.
             let path   = NSBezierPath(roundedRect: frame, xRadius: 8, yRadius: 8)
             let shadow = NSShadow()
@@ -597,12 +621,35 @@ final class TranscriptRowView: NSView {
         case .line, .divider:
             // A quiet caption with no surface of its own; focus still outlines it.
             let frame = geometry.text.insetBy(dx: -6, dy: -2)
+            drawHumanControlRules(row, geometry: geometry)
             if isHoveringLine, let line = Self.lineFrame(of: row) {
                 NSColor.labelColor.withAlphaComponent(0.07).setFill()
                 NSBezierPath(roundedRect: line, xRadius: 6, yRadius: 6).fill()
             }
             drawToolDot(row)
             if isOutlined { strokeFocus(NSBezierPath(roundedRect: frame, xRadius: 4, yRadius: 4)) }
+        }
+    }
+
+    /// A hairline on each side of the human control rows' content, from the column's edge to a gap short of it.
+    private func drawHumanControlRules(_ row: PreparedRow, geometry: RowGeometry) {
+        switch row.item.kind {
+        case .humanControl, .humanControlFinished, .humanControlStopped: break
+        default:                                                         return
+        }
+        let lead = row.item.kind == .humanControl ? RowGeometry.humanControlWave.width + RowGeometry.humanControlWaveGap : 0
+        let gap  = RowGeometry.humanControlRuleGap
+        let y    = geometry.text.midY.rounded(.down)
+        NSColor.separatorColor.setFill()
+        for (start, end) in [(geometry.surface.minX, geometry.text.minX - lead - gap),
+                             (geometry.text.maxX + gap, geometry.surface.maxX)]
+        where end > start {
+            NSRect(
+                x     : start,
+                y     : y,
+                width : end - start,
+                height: 1
+            ).fill()
         }
     }
 
@@ -803,7 +850,7 @@ final class TranscriptRowView: NSView {
     }
 
     override func accessibilityPerformPress() -> Bool {
-        guard let row, Self.isToolRun(row) else { return false }
+        guard row?.item.disclosure != nil else { return false }
         onActivate?()
         return true
     }
@@ -869,9 +916,9 @@ final class TranscriptRowView: NSView {
         if case .toolRun = row.item.kind { true } else { false }
     }
 
-    /// A tool line's summary, where it opens and folds, and what the hover lights.
+    /// A tool line's summary or a hand-back row's label, where it opens and folds, and what the hover lights.
     private static func lineFrame(of row: PreparedRow) -> CGRect? {
-        guard isToolRun(row), let summary = row.geometry.blocks.first else { return nil }
+        guard row.item.disclosure != nil, let summary = row.geometry.blocks.first else { return nil }
         return summary.insetBy(dx: -6, dy: -2)
     }
 
@@ -1199,7 +1246,7 @@ final class TranscriptRowView: NSView {
     private func configureAccessibility(_ row: PreparedRow) {
         let isMessage = row.item.messageID != nil
         setAccessibilityElement(true)
-        setAccessibilityRole(Self.isToolRun(row) ? .button : .staticText)
+        setAccessibilityRole(row.item.disclosure != nil ? .button : .staticText)
 
         let isStructured = isMessage && row.text.blocks.contains { $0.kind != .text }
         setAccessibilityChildren(isStructured ? blockElements(row) : nil)
@@ -1242,7 +1289,7 @@ final class TranscriptRowView: NSView {
                 element.setAccessibilityRole(.staticText)
                 element.setAccessibilityRoleDescription("table")
                 element.setAccessibilityValue(block.string.replacingOccurrences(of: "\n", with: ", "))
-            case .text, .quote, .toolSummary, .toolSteps:
+            case .text, .quote, .toolSummary, .toolSteps, .report:
                 element.setAccessibilityRole(.staticText)
                 element.setAccessibilityValue(block.string)
             }

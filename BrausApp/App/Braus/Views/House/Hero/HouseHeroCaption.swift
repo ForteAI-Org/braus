@@ -7,15 +7,16 @@
 
 import SwiftUI
 
-/// HouseHeroCaption is the text in the hero's glass capsule: the worker's name over its subtitle.
+/// HouseHeroCaption is the text in the hero's glass capsule: the worker's name over its subtitle, or
+/// the name alone while the subtitle is empty. Each line is one line, cut with an ellipsis, whole on hover.
 ///
 /// A change of either writes in as a reply does: the shown words fade out over
 /// `HouseSwitch.captionFade`, then the new ones fade in from blurred, `HouseTiming.wordStagger`
-/// apart (`WordFade`), the subtitle's after the name's, while the capsule's width
-/// springs to them. A caption that takes over another worker's capsule starts from that worker's
-/// words, so the capsule itself never changes. Under Reduce Motion the words cross-fade and the
-/// width changes while they are hidden. Outside a write the words are plain texts, so a caption at
-/// rest is one text a line.
+/// apart (`WordFade`), the subtitle's after the name's, while the capsule's size springs to them,
+/// so a subtitle coming or going grows or shrinks the capsule. A caption that takes over another
+/// worker's capsule starts from that worker's words, so the capsule itself never changes. Under
+/// Reduce Motion the words cross-fade and the size changes while they are hidden. Outside a write
+/// the words are plain texts, so a caption at rest is one text a line.
 struct HouseHeroCaption: View {
     let words: Words
 
@@ -67,17 +68,23 @@ struct HouseHeroCaption: View {
                 weight: .semibold
             ))
             .lineLimit(1)
+            .truncationMode(.tail)
             .contentTransition(.identity)
             .help(help)
-            line(
-                shown.activity,
-                font   : .systemFont(ofSize: 10.5),
-                elapsed: elapsed - nameDuration
-            )
-            .font(.system(size: 10.5))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .contentTransition(.identity)
+            if hasSubtitle {
+                line(
+                    shown.activity,
+                    font   : .systemFont(ofSize: 10.5),
+                    elapsed: elapsed - nameDuration
+                )
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .contentTransition(.identity)
+                .help(shown.activity)
+                .transition(.opacity)
+            }
         }
         .opacity(opacity)
         .onAppear { write(words) }
@@ -101,6 +108,9 @@ struct HouseHeroCaption: View {
             Text(verbatim: WordFade.line(text))
         }
     }
+
+    /// Whether the shown words have a subtitle; without one the capsule holds the name alone.
+    private var hasSubtitle: Bool { !WordFade.line(shown.activity).isEmpty }
 
     /// How long the shown name takes to start its last word, after which the subtitle starts.
     private var nameDuration: Double {

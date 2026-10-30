@@ -98,6 +98,15 @@ nonisolated enum TranscriptWording {
         return "\(words) · \(time(date))"
     }
 
+    /// The row where the person handed an application back to the worker.
+    static let humanControlFinished = "Finished Human Interaction"
+
+    /// The row where the person ended control without handing the application back.
+    static let humanControlStopped = "Task Stopped"
+
+    /// The row while the person uses the worker's application, after its wave.
+    static let humanControl = "Human Interaction"
+
     // MARK: Tools
 
     /// A tool line's summary: what the turn did or is doing, repeats collapsed, at
@@ -149,6 +158,7 @@ nonisolated enum TranscriptWording {
             switch ending {
             case nil:                   return phrase.progressive + times + "…"
             case .stopped?:             return phrase.progressive + times + ", stopped"
+            case .handedToPerson?:      return phrase.progressive + times + ", paused"
             case .failed?, .completed?: return phrase.progressive + times + ", did not finish"
             }
         }
@@ -351,6 +361,14 @@ nonisolated enum TranscriptWording {
                 change,
                 at: item.date
             )
+        case .humanControlFinished(let report?, true):
+            return humanControlFinished + ": " + report.components(separatedBy: .newlines).joined(separator: "; ")
+        case .humanControlFinished:
+            return humanControlFinished
+        case .humanControlStopped:
+            return humanControlStopped
+        case .humanControl:
+            return humanControl
         case .executionFailed(let reason):
             return "\(failed(by: workerName)) \(reason), \(when)"
         case .executionInterrupted(let note):

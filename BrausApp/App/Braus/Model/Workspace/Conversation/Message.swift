@@ -71,15 +71,20 @@ nonisolated final class Message {
     var quotedAuthorWorkerID: UUID?
     var quotedText          : String?
 
+    /// True for the summary Braus sends when the person hands an application
+    /// back: the worker's turn input, drawn as one quiet row and never as a bubble.
+    var endsHumanControl: Bool = false
+
     init(
-        id            : UUID            = UUID(),
-        conversationID: UUID,
-        authorWorkerID: UUID?           = nil,
-        text          : String,
-        createdAt     : Date            = Date(),
-        sequence      : Int,
-        delivery      : MessageDelivery = .savedLocally,
-        quote         : MessageQuote?   = nil
+        id              : UUID            = UUID(),
+        conversationID  : UUID,
+        authorWorkerID  : UUID?           = nil,
+        text            : String,
+        createdAt       : Date            = Date(),
+        sequence        : Int,
+        delivery        : MessageDelivery = .savedLocally,
+        quote           : MessageQuote?   = nil,
+        endsHumanControl: Bool            = false
     ) {
         self.id                   = id
         self.conversationID       = conversationID
@@ -91,5 +96,6 @@ nonisolated final class Message {
         self.quotedMessageID      = quote?.messageID
         self.quotedAuthorWorkerID = quote?.authorWorkerID
         self.quotedText           = quote?.text
+        self.endsHumanControl     = endsHumanControl
     }
 }

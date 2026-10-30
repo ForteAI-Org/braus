@@ -25,17 +25,24 @@ struct ConversationEnlargedScreen: NSViewRepresentable {
     private var reducesMotion
 
     func makeNSView(context: Context) -> EnlargedScreenHostView {
+        Self.makeHost(team: team, workerID: worker.id, origin: enlargement.origin,
+                      reducesMotion: reducesMotion, label: "\(worker.name)’s screen")
+    }
+
+    static func makeHost(team: TeamModel, workerID: UUID, origin: ScreenPlace,
+                         reducesMotion: Bool, label: String) -> EnlargedScreenHostView {
+        let screen = NSHostingView(rootView: LiveScreenView(team: team, workerID: workerID))
+        screen.sizingOptions = []
         let host = EnlargedScreenHostView(
-            screen        : team.makeScreenView(
-                of           : worker.id,
-                contentsScale: NSScreen.main?.backingScaleFactor ?? 2
-            ) ?? NSView(),
-            nativeSize    : team.screenFrame(of: worker.id).size,
-            opener        : team.screenView(in: enlargement.origin),
+            screen        : screen,
+            nativeSize    : team.screenFrame(of: workerID).size,
+            opener        : team.screenView(in: origin),
             reducesMotion : reducesMotion,
-            label         : "\(worker.name)’s screen",
+            label         : label,
             onRequestClose: { [team] in team.closeEnlargedScreen() }
         )
+        screen.rootView = LiveScreenView(team: team, workerID: workerID,
+                                        onPictureSize: { [weak host] in host?.nativeSize = $0 })
         return host
     }
 
@@ -43,7 +50,6 @@ struct ConversationEnlargedScreen: NSViewRepresentable {
         _ host : EnlargedScreenHostView,
         context: Context
     ) {
-        host.nativeSize    = team.screenFrame(of: worker.id).size
         host.reducesMotion = reducesMotion
         guard enlargement.isClosing else { return }
 

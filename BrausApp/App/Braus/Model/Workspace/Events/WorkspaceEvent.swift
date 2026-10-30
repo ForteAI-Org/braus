@@ -27,7 +27,7 @@ import SwiftData
 nonisolated final class WorkspaceEvent {
 
     #Unique<WorkspaceEvent>([\.deduplicationKey])
-    #Index<WorkspaceEvent>([\.workerID, \.localOrder], [\.conversationID, \.localOrder])
+    #Index<WorkspaceEvent>([\.workerID, \.localOrder], [\.conversationID, \.localOrder], [\.workspaceID, \.localOrder])
 
     var id: UUID
 

@@ -108,7 +108,8 @@ extension WorkspaceStore {
             guard let ending = try first(WorkspaceEvent.self, where: #Predicate { $0.deduplicationKey == key }) else {
                 continue
             }
-            message.delivery = ending.type == .executionCompleted ? .completed : .interrupted
+            let isQuiet      = ending.type == .executionCompleted || ending.type == .executionHandedToPerson
+            message.delivery = isQuiet ? .completed : .interrupted
             try saveOrRollBack()
         }
     }

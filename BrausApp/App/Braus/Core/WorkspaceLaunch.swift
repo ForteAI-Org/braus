@@ -59,17 +59,31 @@ final class WorkspaceLaunch {
         )
     }
 
+    /// The opening under way, which a second window awaits instead of
+    /// opening the directory again. Nil once it has finished.
+    private var opening: Task<Void, Never>?
+
     /// Opens the store, or records why it could not be opened. Calling it
     /// again once the store is open does nothing.
-    func open(in directory: URL = WorkspaceLaunch.directory) {
+    ///
+    /// The file is opened, copied and migrated off the main thread
+    /// (`WorkspaceStore.openingOffMain`). Two windows calling at once get the
+    /// same store: one store per directory.
+    func open(in directory: URL = WorkspaceLaunch.directory) async {
         guard store == nil else { return }
 
-        do {
-            store   = try WorkspaceStore.opening(in: directory)
-            failure = nil
-        } catch {
-            store   = nil
-            failure = String(describing: error)
+        if opening == nil {
+            opening = Task {
+                do {
+                    store   = try await WorkspaceStore.openingOffMain(in: directory)
+                    failure = nil
+                } catch {
+                    store   = nil
+                    failure = String(describing: error)
+                }
+                opening = nil
+            }
         }
+        await opening?.value
     }
 }

@@ -362,8 +362,20 @@ struct HouseLiveConversation: View {
         }
         .task(id: team.conversation?.id) { openTranscript() }
         .onChange(of: team.transcriptRevision) { transcript?.refresh() }
+        .onChange(
+            of     : isHumanControlled,
+            initial: true
+        ) { transcript?.isHumanControlled = isHumanControlled }
     }
 
+    /// True while the person uses the application of the conversation's worker.
+    private var isHumanControlled: Bool {
+        if WindowSnapshots.showsHumanControl { return true }
+        return team.conversation.map { team.isHumanControlled(in: $0.id) } ?? false
+    }
+
+    /// The empty state, centred in the transcript's visible height above the composer, which floats
+    /// over the transcript's foot; its description is a secondary callout, as small text elsewhere.
     private var noMessages: some View {
         ContentUnavailableView(
             "No Messages Yet",
@@ -371,6 +383,12 @@ struct HouseLiveConversation: View {
             description: Text(
                 "Messages are saved in this conversation and remain available after you reopen Braus."
             )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        )
+        .padding(
+            .bottom,
+            composerHeight
         )
     }
 
@@ -381,6 +399,7 @@ struct HouseLiveConversation: View {
 
         let controller = transcript ?? TranscriptController(source: team.transcriptSource)
         transcript = controller
+        controller.isHumanControlled = isHumanControlled
 
         let conversationID = conversation.id
         controller.onReadingPositionChange = { [team] anchor, offset in

@@ -61,7 +61,7 @@ struct TeamWindowView: View {
                 minHeight: 560
             )
             .task {
-                launch.open()
+                await launch.open()
                 guard team == nil, let store = launch.store else { return }
 
                 let model = TeamModel(
@@ -73,6 +73,7 @@ struct TeamWindowView: View {
                     approvals  : approvals
                 )
                 didOpenTeam(model)
+                model.controlShortcut = ControlShortcut(team: model)
                 await model.load()
                 restore(into: model)
                 team = model

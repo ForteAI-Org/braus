@@ -17,6 +17,32 @@ import Testing
 @Suite("A worker's turn in the workspace")
 struct WorkerTurnRecorderTests {
 
+    @Test func humanSuspensionKeepsExecutionOpenWithoutRunningTheAgentAgain() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.discard() }
+        var release: CheckedContinuation<Void, Never>?
+        var runs = 0
+        let task = Task {
+            try await fixture.recorder.run(onHumanSuspension: {
+                await withCheckedContinuation { release = $0 }
+            }) { _, _, emit in
+                runs += 1
+                emit(.provider(.assistant("Waiting for your help.")))
+                throw WorkerAgentHost.HumanInterventionSuspended(token: UUID())
+            }
+        }
+        while release == nil { await Task.yield() }
+        #expect(try await fixture.events().filter(\.type.isTerminal).isEmpty)
+        #expect(runs == 1)
+        release?.resume()
+        #expect(try await task.value == .handedToPerson)
+        #expect(try await fixture.events().filter(\.type.isTerminal).map(\.type) == [.executionHandedToPerson])
+        #expect(runs == 1)
+        // Neither an error badge on the message nor a stopped card: the person took over.
+        let asked = try await fixture.store.messages(in: fixture.conversation).first { $0.isFromPerson }
+        #expect(asked?.delivery == .completed)
+    }
+
     @Test func repliesBecomeWorkerMessagesAndToolRecordsBecomeToolRows() async throws {
         let fixture = try await Fixture()
         defer { fixture.discard() }

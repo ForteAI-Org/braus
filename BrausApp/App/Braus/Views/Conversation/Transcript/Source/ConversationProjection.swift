@@ -33,8 +33,10 @@ import Foundation
 ///
 /// Days. Every day with a message gets a separator above its first message,
 /// the day changing at 00:00 in `calendar`'s time zone. A compaction or a fresh
-/// context is a separator where it happened. Grouping is decided in the final
-/// order, so a separator or a tool line starts a new group.
+/// context is a separator where it happened, and so is the summary sent when
+/// the person handed an application back, whose text shows only once its row
+/// is opened, and the place they ended control without handing it back. Grouping
+/// is decided in the final order, so a separator or a tool line starts a new group.
 nonisolated enum ConversationProjection {
 
     /// Rows closer together than this, by one author, share a header.
@@ -51,15 +53,18 @@ nonisolated enum ConversationProjection {
     /// says; `calendar` decides where a day starts and how it is written.
     /// `isAtNewest` is false for a window that stops short of the newest
     /// message, whose last turn may have ended past it: no bubble is shown there.
+    /// `isHumanControlled` says the person is using the worker's application now,
+    /// which ends the newest rows with the `humanControl` row while no turn runs.
     static func items(
-        messages      : [MessageSnapshot],
-        events        : [RecordedEvent],
-        expanded      : Set<TranscriptItem.ID>,
-        opensToolSteps: Bool = false,
-        elidedBefore  : Set<UUID> = [],
-        now           : Date,
-        calendar      : Calendar = .autoupdatingCurrent,
-        isAtNewest    : Bool = true
+        messages         : [MessageSnapshot],
+        events           : [RecordedEvent],
+        expanded         : Set<TranscriptItem.ID>,
+        opensToolSteps   : Bool = false,
+        elidedBefore     : Set<UUID> = [],
+        now              : Date,
+        calendar         : Calendar = .autoupdatingCurrent,
+        isAtNewest       : Bool = true,
+        isHumanControlled: Bool = false
     ) -> [TranscriptItem] {
 
         var merge = Merge()
@@ -79,7 +84,11 @@ nonisolated enum ConversationProjection {
             }
 
             if takesMessage {
-                merge.add(messages[messageIndex], now: now)
+                merge.add(
+                    messages[messageIndex],
+                    now     : now,
+                    expanded: expanded
+                )
                 messageIndex += 1
             } else {
                 let event = shown[eventIndex]
@@ -92,7 +101,12 @@ nonisolated enum ConversationProjection {
                 merge.add(event)
             }
         }
-        let ordered = merge.finish(expanded: expanded, opensToolSteps: opensToolSteps, showsThinking: isAtNewest)
+        let ordered = merge.finish(
+            expanded         : expanded,
+            opensToolSteps   : opensToolSteps,
+            showsThinking    : isAtNewest,
+            showsHumanControl: isAtNewest && isHumanControlled
+        )
         return grouped(dated(ordered, now: now, calendar: calendar))
     }
 
@@ -100,7 +114,7 @@ nonisolated enum ConversationProjection {
     static func isShown(_ event: RecordedEvent) -> Bool {
         switch event.type {
         case .toolActivity, .executionStarted, .executionCompleted, .executionFailed, .executionCancelled,
-             .contextCompacted, .contextReset:
+             .executionHandedToPerson, .contextCompacted, .contextReset, .humanControlStopped:
             true
         default:
             false
@@ -178,6 +192,15 @@ nonisolated enum ConversationProjection {
         }
     }
 
+    /// The report a hand-back's summary carries for the person to read, or nil when it carries
+    /// none: an empty summary, or the one sent when the person's actions went unrecorded.
+    static func report(in summary: String) -> String? {
+        let report = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        // ponytail: matches the broker's fixed wording; a flag on the message if that wording moves.
+        guard !report.isEmpty, !report.hasPrefix("Human control ended. Recording is incomplete") else { return nil }
+        return report
+    }
+
     // MARK: Merging
 
     /// Merge is the state of one pass over the merged order: the rows so far,
@@ -209,7 +232,26 @@ nonisolated enum ConversationProjection {
         private var lastReplyIndex : Int?
         private var isLastReplyStreaming = false
 
-        mutating func add(_ message: MessageSnapshot, now: Date) {
+        mutating func add(
+            _ message: MessageSnapshot,
+            now      : Date,
+            expanded : Set<TranscriptItem.ID>
+        ) {
+            // Not a message row: it cannot be selected, quoted or copied as the person's words.
+            if message.endsHumanControl {
+                let id = TranscriptItem.ID.event(message.id)
+                rows.append(TranscriptItem(
+                    id            : id,
+                    kind          : .humanControlFinished(
+                        report    : ConversationProjection.report(in: message.text),
+                        isExpanded: expanded.contains(id)
+                    ),
+                    date          : message.createdAt,
+                    authorWorkerID: nil,
+                    continuesGroup: false
+                ))
+                return
+            }
             let badge = DeliveryBadge(message.delivery, savedAt: message.createdAt, now: now)
             let kind: TranscriptItem.Kind = message.isFromPerson
                 ? .personMessage(text: message.text, delivery: message.delivery, badge: badge)
@@ -259,6 +301,10 @@ nonisolated enum ConversationProjection {
                 end(event, as: .stopped)
                 rows.append(card(event, .executionInterrupted(note: text)))
 
+            case .executionHandedToPerson:
+                // No card and no interrupted reply: the person taking control is not a problem.
+                end(event, as: .handedToPerson)
+
             case .contextCompacted:
                 let trigger = event.payloadVersion == ContextCompaction.payloadVersion
                     ? event.payload.flatMap(ContextCompaction.decoded)?.trigger
@@ -268,6 +314,10 @@ nonisolated enum ConversationProjection {
             case .contextReset:
                 rows.append(separator(event, .freshStart))
 
+            case .humanControlStopped:
+                rows.append(TranscriptItem(id: .event(event.id), kind: .humanControlStopped, date: event.timestamp,
+                                           authorWorkerID: nil, continuesGroup: false))
+
             default:
                 break
             }
@@ -276,8 +326,12 @@ nonisolated enum ConversationProjection {
         /// The rows with each tool line in place: an ended turn's before its
         /// anchor, the running turn's above its first reply block or else above
         /// the thinking bubble, and a line with no turn in the window at the end.
-        mutating func finish(expanded: Set<TranscriptItem.ID>, opensToolSteps: Bool, showsThinking: Bool)
-            -> [TranscriptItem] {
+        mutating func finish(
+            expanded         : Set<TranscriptItem.ID>,
+            opensToolSteps   : Bool,
+            showsThinking    : Bool,
+            showsHumanControl: Bool
+        ) -> [TranscriptItem] {
             // Where the running turn's line goes is where it stays once the turn ends: see `end`.
             let running = firstReplyIndex ?? rows.count
             if showsThinking, let open = openTurn, let worker = open.event.workerID,
@@ -285,6 +339,16 @@ nonisolated enum ConversationProjection {
                 rows.append(TranscriptItem(id: .thinking(execution: open.event.subjectID, replies: open.replies),
                                            kind: .thinking, date: open.event.timestamp, authorWorkerID: worker,
                                            continuesGroup: false))
+            }
+            // Until the hand-back or stopped row lands, or a turn starts, the person's use of the app is the newest thing.
+            if showsHumanControl, openTurn == nil, !Self.endsHumanControl(rows.last?.kind) {
+                rows.append(TranscriptItem(
+                    id            : .humanControl,
+                    kind          : .humanControl,
+                    date          : rows.last?.date ?? .distantPast,
+                    authorWorkerID: nil,
+                    continuesGroup: false
+                ))
             }
             var before: [Int: [TranscriptItem]] = [:]
             var tail  : [TranscriptItem] = []
@@ -336,6 +400,14 @@ nonisolated enum ConversationProjection {
         private func card(_ event: RecordedEvent, _ kind: TranscriptItem.Kind) -> TranscriptItem {
             TranscriptItem(id: .event(event.id), kind: kind, date: event.timestamp, authorWorkerID: event.workerID,
                            continuesGroup: false)
+        }
+
+        /// True for the hand-back and stopped rows, either of which ends the person's control.
+        private static func endsHumanControl(_ kind: TranscriptItem.Kind?) -> Bool {
+            switch kind {
+            case .humanControlFinished?, .humanControlStopped?: true
+            default:                                            false
+            }
         }
 
         /// A context separator speaks for no one, as a day's does.

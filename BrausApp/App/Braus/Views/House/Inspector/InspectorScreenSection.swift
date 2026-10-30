@@ -7,8 +7,9 @@
 
 import SwiftUI
 
-/// The live screen while there is a window to watch and it is not over the
-/// conversation, where the toolbar's screen toggle puts it; nothing otherwise.
+/// The live screen while there is a window to watch and it is neither over the
+/// conversation, where the toolbar's screen toggle puts it, nor in its own window;
+/// nothing otherwise.
 struct InspectorScreenSection: View {
 
     let team  : TeamModel
@@ -18,7 +19,7 @@ struct InspectorScreenSection: View {
     var footerGap: CGFloat = 0
 
     var body: some View {
-        if team.hasScreen(worker.id), !team.showsScreenInConversation {
+        if team.hasScreen(worker.id), team.screenPlace(of: worker.id) == .inspector {
             Section {
                 WorkerScreenCard(
                     team  : team,

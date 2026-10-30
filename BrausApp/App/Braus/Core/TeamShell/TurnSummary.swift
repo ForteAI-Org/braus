@@ -22,6 +22,9 @@ nonisolated struct TurnSummary: Sendable, Hashable {
         case failed(reason: String)
         case stopped
 
+        /// The person took control of the application the turn was using.
+        case handedToPerson
+
         /// No terminal event and nothing running, such as a turn the app quit in.
         case unfinished
     }
@@ -40,8 +43,9 @@ nonisolated struct TurnSummary: Sendable, Hashable {
 
         let ending = events.filter { $0.type.isTerminal }.min { $0.localOrder < $1.localOrder }
         switch ending?.type {
-        case .executionCompleted?: state = .completed
-        case .executionCancelled?: state = .stopped
+        case .executionCompleted?:      state = .completed
+        case .executionCancelled?:      state = .stopped
+        case .executionHandedToPerson?: state = .handedToPerson
         case .executionFailed?:
             state = .failed(reason: ending?.payload.map { String(decoding: $0, as: UTF8.self) } ?? "")
         default:
@@ -67,11 +71,12 @@ nonisolated struct TurnSummary: Sendable, Hashable {
     /// A few words for the state.
     var stateTitle: String {
         switch state {
-        case .running:    "Running"
-        case .completed:  "Completed"
-        case .failed:     "Failed"
-        case .stopped:    "Stopped"
-        case .unfinished: "No result recorded"
+        case .running:        "Running"
+        case .completed:      "Completed"
+        case .failed:         "Failed"
+        case .stopped:        "Stopped"
+        case .handedToPerson: "Human Interaction"
+        case .unfinished:     "No result recorded"
         }
     }
 
@@ -80,7 +85,7 @@ nonisolated struct TurnSummary: Sendable, Hashable {
     var isTrouble: Bool {
         switch state {
         case .failed, .unfinished          : true
-        case .running, .completed, .stopped: false
+        case .running, .completed, .stopped, .handedToPerson: false
         }
     }
 }
