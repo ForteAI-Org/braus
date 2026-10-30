@@ -374,6 +374,8 @@ final class LendingCompanion: NSObject {
         )
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(centre) }) ?? PersonScreen.current()
         else { return }
+        // The lent application comes to the front: the border floats again, wherever the last lend left it.
+        border.stack(above: nil)
         border.show(frame: frame)
         shown = frame
         startActivity()
@@ -767,11 +769,14 @@ final class LendingCompanion: NSObject {
     }
 
     /// The lent app coming back to the front: the border follows its main window again and the worker
-    /// looks at it. Another app coming in front is the person leaving, and it is left alone, unless
-    /// Stage Manager takes the lent window to its strip: the border then goes until it is back.
+    /// looks at it. Another app coming in front is the person leaving: the border and the worker go
+    /// under its windows, right above the lent window, until the lent app is in front again; and Stage
+    /// Manager taking the lent window to its strip takes the border away until it is back.
     private func activated(_ activated: pid_t?) {
         guard lifecycle.phase == .shown else { return }
         let inFront = activated == processID
+        border.stack(above: inFront ? nil : tracked)
+        overlay?.stack(above: inFront ? nil : tracked)
         if Self.stageManagerIsOn {
             if inFront, !offStage { retrack() }
             watchStage(inFront: inFront)

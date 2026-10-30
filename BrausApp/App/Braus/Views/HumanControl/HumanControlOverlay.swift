@@ -100,9 +100,20 @@ final class HumanControlOverlay: NSObject {
         place(on: screen)
         guard !panel.isVisible else { return }
         stage.reset()
-        panel.orderFrontRegardless()
+        panel.bringOn()
         stage.enter { [weak self] in self?.startWatching() }
     }
+
+    /// Keeps the worker above every window while the lent application is in front, and right above
+    /// the lent `window` while another one is, under that application's windows. A question with its
+    /// countdown is asked in front of everything and the worker goes back there once it is answered.
+    func stack(above window: Int?) {
+        resting = window
+        if countdown == nil { panel.stack(above: window) }
+    }
+
+    /// Where `stack(above:)` last put the worker, which a question leaves for its countdown.
+    private var resting: Int?
 
     private func place(on screen: NSScreen) {
         panel.setFrame(
@@ -141,6 +152,8 @@ final class HumanControlOverlay: NSObject {
         let countdown = TakeBackCountdown(seconds: seconds)
         if countdown.answer == .timeout { return await leave(answer: .timeout) }
         self.countdown = countdown
+        // Asked while the person works in another application: in front of its windows to be seen.
+        panel.stack(above: nil)
         openBubble(countdown: countdown)
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -360,6 +373,7 @@ final class HumanControlOverlay: NSObject {
         ticker?.cancel()
         ticker = nil
         closeBubble()
+        if answer == .no { panel.stack(above: resting) }
         guard answer != .no, panel.isVisible else {
             asker.resume(returning: answer)
             return
@@ -408,6 +422,37 @@ final class HumanControlPanel: NSPanel {
 
     override var canBecomeKey : Bool { false }
     override var canBecomeMain: Bool { false }
+
+    /// The lent window the panel stays right above while another application is in front; nil while
+    /// the lent one is, and the panel floats above every window.
+    private(set) var anchor: Int?
+
+    /// Floats the panel above every window, or with `window` keeps it among ordinary windows right
+    /// above that one, so the windows of an application the person brought forward cover it as they
+    /// cover the lent window.
+    func stack(above window: Int?) {
+        anchor = window
+        level  = window == nil ? .floating : .normal
+        if isVisible { bringOn() }
+    }
+
+    /// Puts the panel on screen where `stack(above:)` keeps it: in front, or right above its anchor,
+    /// or behind every ordinary window while the anchor is off the screen (hidden, minimized).
+    func bringOn() {
+        guard let anchor else {
+            orderFrontRegardless()
+            return
+        }
+        let row = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(clamping: anchor)) as? [[String: Any]])?.first
+        if row?[kCGWindowIsOnscreen as String] as? Bool == true {
+            order(
+                .above,
+                relativeTo: anchor
+            )
+        } else {
+            orderBack(nil)
+        }
+    }
 
     /// Stays where it is put: AppKit would otherwise move it down below the menu bar as it comes on
     /// screen, by however far it reaches above the screen's visible frame, off what it marks.

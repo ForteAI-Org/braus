@@ -57,7 +57,13 @@ final class ControlWindowBorder {
             to  : 1,
             over: Self.quick
         )
-        panel.orderFrontRegardless()
+        panel.bringOn()
+    }
+
+    /// Keeps the border above every window while the lent application is in front, and right above
+    /// the lent `window` while another one is, under that application's windows.
+    func stack(above window: Int?) {
+        panel.stack(above: window)
     }
 
     /// Moves the border to `frame`, shown or not.
