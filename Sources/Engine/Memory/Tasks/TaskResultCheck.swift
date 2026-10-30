@@ -283,29 +283,41 @@ public struct TaskResultCheck: Sendable, Equatable {
                 let matching = scene.elements.filter { element in
                     !wanted.isEmpty && (LabelText.normalize(element.label) == wanted || element.id == label)
                 }
+                let fields = scene.outOfViewFields.filter {
+                    !wanted.isEmpty && LabelText.normalize($0.label) == wanted
+                }
+                let found = !matching.isEmpty || !fields.isEmpty
+                let location = matching.isEmpty && !fields.isEmpty ? " past the window's edge" : ""
                 switch expect {
                     case .present:
-                        return matching.isEmpty ? verdict(.failed, "no element with that label in the scene")
-                            : verdict(.passed, "the element is in the scene")
+                        return found ? verdict(.passed, "the element is in the scene" + location)
+                            : verdict(.failed, "no element with that label in the scene")
                     case .absent:
-                        return matching.isEmpty ? verdict(.passed, "no element with that label in the scene")
-                            : verdict(.failed, "the element is still in the scene")
+                        return found ? verdict(.failed, "the element is still in the scene" + location)
+                            : verdict(.passed, "no element with that label in the scene")
                     case .value(let value):
-                        guard !matching.isEmpty else { return verdict(.failed, "no element with that label in the scene") }
+                        guard found else { return verdict(.failed, "no element with that label in the scene") }
                         let read = matching.compactMap(\.value)
-                        guard !read.isEmpty else { return verdict(.unknown, "the element shows no value Braus can read") }
+                        guard !read.isEmpty || !fields.isEmpty else {
+                            return verdict(.unknown, "the element shows no value Braus can read" + location)
+                        }
                         let expected = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let same = read.contains { shown in
+                        func same(_ shown: String) -> Bool {
                             let shown = shown.trimmingCharacters(in: .whitespacesAndNewlines)
                             return shown == expected || (!LabelText.normalize(expected).isEmpty
                                                          && LabelText.normalize(shown) == LabelText.normalize(expected))
                         }
-                        return same ? verdict(.passed, "the element shows the value expected")
-                            : verdict(.failed, "the element shows another value")
+                        if read.contains(where: same) { return verdict(.passed, "the element shows the value expected") }
+                        if fields.contains(where: { same($0.value) }) {
+                            return verdict(.passed, "the element past the window's edge shows the value expected")
+                        }
+                        return verdict(.failed, "the element" + location + " shows another value")
                     case .state(let state):
-                        guard !matching.isEmpty else { return verdict(.failed, "no element with that label in the scene") }
+                        guard found else { return verdict(.failed, "no element with that label in the scene") }
                         let read = matching.compactMap(\.state).filter { $0 != .unknown }
-                        guard !read.isEmpty else { return verdict(.unknown, "the element shows no state Braus can read") }
+                        guard !read.isEmpty else {
+                            return verdict(.unknown, "the element" + location + " shows no state Braus can read")
+                        }
                         return read.contains(state) ? verdict(.passed, "the element is in the state expected")
                             : verdict(.failed, "the element is in another state")
                 }

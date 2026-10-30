@@ -337,6 +337,13 @@ public struct ValueMinimization: Sendable {
         var kept = scene
         kept.windowTitle = minimize(text: scene.windowTitle).0
         kept.elements = scene.elements.map { minimize(element: $0).0 }
+        kept.outOfViewFields = scene.outOfViewFields.map { field in
+            var kept = field
+            kept.label = minimize(text: field.label).0
+            kept.value = minimize(text: field.value).0
+            kept.container = field.container.map { minimize(text: $0).0 }
+            return kept
+        }
         return kept
     }
 

@@ -12,23 +12,31 @@ public enum DropdownOpening {
 
     /// Window binds native dropdown lookup to an attested capture recipient and its current frame.
     /// The composition layer supplies the native ID resolver; titles and focus are not fallbacks.
-    public struct Window {
+    public struct Window: Sendable {
         let processID: pid_t
         let number: Int
         let frame: CGRect
-        let resolveNumber: (AXUIElement) -> Int?
+        let resolveNumber: @Sendable (AXUIElement) -> Int?
 
         public init(
             processID: pid_t,
             number: Int,
             frame: CGRect,
-            resolveNumber: @escaping (AXUIElement) -> Int?
+            resolveNumber: @escaping @Sendable (AXUIElement) -> Int?
         ) {
             self.processID = processID
             self.number = number
             self.frame = frame
             self.resolveNumber = resolveNumber
         }
+    }
+
+    /// Runs one of these calls on the concurrent pool and waits for it. Finding a control or a menu item walks a
+    /// window's or an application's tree with no limit on its nodes, which the caller's thread, the main thread
+    /// for the seat's selectors, need not wait on.
+    @concurrent
+    public static func awayFromCaller<T: Sendable>(_ call: @Sendable () throws -> T) async throws -> T {
+        try call()
     }
 
     /// Reads a painted item's keyboard position and submenu owner without dispatching an action.

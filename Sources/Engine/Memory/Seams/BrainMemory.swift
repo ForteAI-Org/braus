@@ -232,6 +232,7 @@ public actor BrainMemory: EffectExpecting {
             windowTitle      : scene.windowTitle,
             viewportPixelSize: scene.viewportPixelSize,
             elements         : elements,
+            outOfViewFields  : scene.outOfViewFields,
             sections         : scene.sections,
             commands         : scene.commands,
             token            : scene.token,

@@ -134,6 +134,10 @@ public enum ConfidentialSurfaces {
             texts.append(element.label)
             if let path = element.collectionPath { texts.append(path) }
         }
+        for field in scene.outOfViewFields {
+            texts.append(contentsOf: [field.label, field.value])
+            if let container = field.container { texts.append(container) }
+        }
         var seen = Set<String>()
         return texts.filter { text in
             text.count >= shortestTrackedText && text != ValueMinimization.marker && seen.insert(text).inserted
@@ -159,6 +163,7 @@ public enum ConfidentialSurfaces {
         var kept = scene
         kept.windowTitle = ValueMinimization.marker
         kept.elements = scene.elements.filter { !isContent($0) }
+        kept.outOfViewFields = []
         return kept
     }
 }

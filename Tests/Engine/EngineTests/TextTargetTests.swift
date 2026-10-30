@@ -64,6 +64,25 @@ struct TextTargetTests {
 
     private var bound: TextTargetBinding { TextTargetBinding(identity: nodeA, role: "AXTextField", label: "Nome") }
 
+    @Test("act and type_text refuse fields past the edge before delivering input")
+    func outOfViewFieldsAreNotTargets() async {
+        let scene = SceneSnapshot(
+            bundleID: "web:fixture.test", appName: "fixture.test", windowTitle: "Form",
+            viewportPixelSize: .init(width: 2000, height: 1600), elements: [],
+            outOfViewFields: [OutOfViewField(label: "Nome", value: "Ada", role: "AXTextField")]
+        )
+        let perceived = PerceivedWindow(scene: scene, frame: frame)
+        let actuator = RecordingActuator()
+        #expect(await engine([perceived], actuator: actuator).classify(typing()) == .unclassified(.unresolved))
+        let typed = await engine([perceived], actuator: actuator).deliver(typing())
+        #expect(typed.kind == .honestMiss)
+        let clicked = await engine([perceived], actuator: actuator).act(ActionRequest(
+            processID: pid, bundleID: "web:fixture.test", appName: "fixture.test", target: "Nome", verb: .click
+        ))
+        #expect(clicked.kind == .honestMiss)
+        #expect(actuator.gestures.isEmpty)
+    }
+
     // MARK: Classification
 
     @Test("type_text: an attested ordinary field is ordinary, bound to its identity; a secure one is secure; no gesture")
