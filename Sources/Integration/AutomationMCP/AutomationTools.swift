@@ -4,6 +4,7 @@ import CryptoKit
 import AutomationRuntime
 import EngineCore
 import Foundation
+import os
 import LocalMCP
 import Memory
 import PerceptionCore
@@ -54,6 +55,50 @@ public final class AutomationTools {
     public var producer = CallProducer(source: .app, streamID: "tools-\(UUID().uuidString)")
     /// The task the agent declared through `memory_task` and has not ended: its calls are attributed to it.
     public private(set) var openTask: OpenTask?
+    private var interruptedProducer: CallProducer?
+
+    /// Marks an explicit Stop, not a temporary human suspension. The host drains admitted calls
+    /// before finishing this task, so a call already in flight retains its original attribution.
+    public func markTaskInterrupted() {
+        if interruptedProducer == nil { interruptedProducer = producer }
+    }
+
+    /// Closes the stopped attempt without claiming success or interpreting a candidate.
+    /// A failed write keeps both the task and the interruption pending for a later retry.
+    public func finishInterruptedTask() async throws {
+        guard let interruptedProducer else { return }
+        guard let current = openTask else {
+            self.interruptedProducer = nil
+            return
+        }
+        guard let directory = session.memoryDirectory else {
+            throw AutomationFailure("The stopped task could not be closed because its memory is unavailable.")
+        }
+        let owner = try TaskProducer(source: interruptedProducer.source, streamID: interruptedProducer.streamID)
+        let draft = try TaskCheckpointDraft(
+            kind: .end,
+            declared: .abandoned,
+            note: "The person stopped execution. Actions may have taken effect; completion was not established."
+        )
+        _ = try await TaskChannel.checkpoint(current, draft, producer: owner, memory: MemoryService.shared(for: directory))
+        openTask = nil
+        pendingCandidate = nil
+        remindedCandidate = nil
+        self.interruptedProducer = nil
+        stoppedTaskNotice = "Braus stopped task \(current.taskID) and closed its attempt as abandoned, not completed. "
+            + "Begin a new task for the current request, including any remaining work toward the same goal. "
+            + "The abandoned task cannot be resumed. Observe current effects first; never repeat an uncertain action."
+        try transcribe("Braus stopped task", .object(["task": .string(current.taskID), "outcome": .string("abandoned")]))
+    }
+
+    private var stoppedTaskNotice: String?
+
+    /// Supplies the next turn with the stopped task identity once, without replaying its action history.
+    public func takeStoppedTaskNotice() -> String? {
+        defer { stoppedTaskNotice = nil }
+        return stoppedTaskNotice
+    }
+
     /// The candidate the last checkpoint or end answered that no interpretation has taken yet: until one does,
     /// nothing of that attempt is learned.
     public private(set) var pendingCandidate: String?
@@ -551,7 +596,8 @@ public final class AutomationTools {
                                   "seconds": whole(PostCollectionRequest.wholeSeconds)],
                                  uniquingKeysWith: { $1 }),
                  ["session", "target"]),
-            MemoryTaskTool.definition
+            MemoryTaskTool.definition,
+            HumanStepTool.definition
         ].filter { channels.contains(.adapters) || !Self.adapterTools.contains($0["name"].string ?? "") }
             .filter { channels.contains(.web) || $0["name"].string != "collect_posts" }
     }
@@ -559,10 +605,34 @@ public final class AutomationTools {
     /// The tools that reach the app adapters, served only with `.adapters`.
     static let adapterTools: Set<String> = ["app_capabilities", "app_call"]
 
+    /// Interruption policy for every served tool. Unknown and adapter verbs remain protected.
+    public enum InterruptionPolicy: Sendable {
+        case readOnly, openingScene, mutating
+    }
+
+    public nonisolated static func interruptionPolicy(for name: String) -> InterruptionPolicy {
+        switch name {
+        case "status", "windows", "apps", "observe", "app_capabilities", "human_step": .readOnly
+        case "open_session": .openingScene
+        case "act", "select", "type_text", "insert_text", "press_key", "scroll", "drag",
+             "context_menu", "batch", "menu", "press", "app_call", "close_session",
+             "collect_posts", "memory_task": .mutating
+        default: .mutating
+        }
+    }
+
     /// Runs one tool call. Before anything of it is written (its transcript line, its record), the texts it would
     /// type are classified on a fresh perception (`scope(of:_:)`, W1): what the call withholds and the field each
     /// text step is bound to are its `CallScope`, bound from there to its last output, the error it throws included.
     public func call(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
+        let started = ContinuousClock.now
+        let log = Logger(subsystem: "dev.forte.Braus", category: "AutomationTools")
+        if name == "open_session" { log.info("open_session: tool starting (scope, route and recording)") }
+        defer {
+            if name == "open_session" {
+                log.info("open_session: tool ended after \(started.duration(to: .now).description, privacy: .public)")
+            }
+        }
         #if BRAUS_PHASES
         let tool = PhaseInterval.begin("tool", name)
         defer { tool.end() }
@@ -704,6 +774,11 @@ public final class AutomationTools {
 
     private func toolCall(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
         if name == MemoryTaskTool.name { return try await task(arguments) }
+        if name == HumanStepTool.name {
+            let request = try HumanStepTool.request(arguments)
+            let result = await session.humanStep(request)
+            return HumanStepTool.result(result, withholding: withheld)
+        }
         let before = seen
         // A session that ended leaves no scene to compare the next one against.
         defer { if session.id == nil { seen = [] } }
@@ -1075,7 +1150,7 @@ public final class AutomationTools {
                     )
                 }
                 keep(declared)
-                fingerprints = Self.fingerprints(of: arguments["inputs"])
+                fingerprints = await Self.fingerprints(of: arguments["inputs"])
                 let opened = try await TaskChannel.begin(
                     content,
                     producer: producer,
@@ -1113,7 +1188,7 @@ public final class AutomationTools {
                     memory   : memory
                 )
                 openTask = revised
-                for (path, facts) in Self.fingerprints(of: arguments["inputs"]) where fingerprints[path] == nil { fingerprints[path] = facts }
+                for (path, facts) in await Self.fingerprints(of: arguments["inputs"]) where fingerprints[path] == nil { fingerprints[path] = facts }
                 return open(revised, "revised")
             case .checkpoint(let draft, let declared, let uses, let checks), .end(let draft, let declared, let uses, let checks):
                 guard let current = openTask else { throw Self.noOpenTask }
@@ -1165,6 +1240,9 @@ public final class AutomationTools {
                               !((try? await ProcedureProducer.hasReadResult(attemptID: current.attemptID, memory: memory)) ?? false) {
                         // A result read at a checkpoint is the attempt's result: nothing is missing then.
                         extra["result_check"] = .object(["status": .string("missing"), "next": .string(Self.resultMissing)])
+                    }
+                    if checkpoint.declared == .completed {
+                        extra["completion_evidence"] = Self.completionEvidence(checks, checked: checkedResult)
                     }
                     extra["before_answering"] = .string(Self.closeChangedCopies)
                     return open(current, "ended", extra)
@@ -1527,7 +1605,10 @@ public final class AutomationTools {
     /// The disk as the task's inputs that name an absolute path stood when it declared them, by path, from the call's own
     /// arguments (a value the record withholds is still read, in memory only): what a check of a file changed, kept or
     /// removed compares with. Secret inputs are not read. Read only.
-    static func fingerprints(of inputs: JSONValue) -> [String: TaskResultCheck.FileFacts] {
+    ///
+    /// On the concurrent pool: each file is hashed up to `ProcedureProducer.digestLimit`.
+    @concurrent
+    nonisolated static func fingerprints(of inputs: JSONValue) async -> [String: TaskResultCheck.FileFacts] {
         var found: [String: TaskResultCheck.FileFacts] = [:]
         for input in inputs.array ?? [] where input["secret"].bool != true {
             guard let text = input["value"].string else { continue }
@@ -1621,6 +1702,33 @@ public final class AutomationTools {
             let read = TaskResultCheck.Expectation.fileUnchanged(path: path)
             return MemoryTaskTool.ResultCheck(read: read, kept: MemoryTaskTool.kept(read, by: minimization), isGuard: true)
         }
+    }
+
+    /// Separates a declared completion from the predicates actually checked. Window presence
+    /// cannot certify a value change; matching those predicates to the goal remains the agent's job.
+    static func completionEvidence(_ checks: [MemoryTaskTool.ResultCheck], checked: JSONValue?) -> JSONValue {
+        let resultChecks = checks.filter { !$0.isGuard }
+        let windowOnly = !resultChecks.isEmpty && resultChecks.allSatisfy {
+            if case .window = $0.read { return true }
+            return false
+        }
+        let answers = (checked?.array ?? []).filter { $0["guard"] == .null }
+        let verdict: String
+        if answers.isEmpty { verdict = "not_checked_here" }
+        else if answers.contains(where: { $0["verdict"].string == "failed" }) { verdict = "failed" }
+        else if answers.allSatisfy({ $0["verdict"].string == "passed" }) { verdict = "passed" }
+        else { verdict = "unknown" }
+        return .object([
+            "checks": .string(verdict),
+            "scope": .string(windowOnly ? "window_presence_only" : "declared_predicates_only"),
+            "goal_match": .string("not_assessed"),
+            "guidance": .string(windowOnly
+                ? "Only window presence was checked. This does not verify an applied value, a saved change or task completion. "
+                    + "Compare with the requested result; read the actual applied state before claiming a value change. "
+                    + "A dialog field can retain the last input even when Apply had no effect."
+                : "These verdicts apply only to the named predicates, not automatically to the goal. "
+                    + "A completed outcome is your declaration. Report uncertainty if the requested result is not established.")
+        ])
     }
 
     /// Reads and records each result check the agent named for an attempt (`TaskResultCheck`): the disk for a file,
@@ -2101,9 +2209,20 @@ public final class AutomationTools {
                     // call's fact whether the opening then succeeds or fails (M05). The route row is the dispatch.
                     if let note { await recorder?.advised(CallRouteAdvice(decision: .open, route: nil, message: note)) }
                     await noteDispatch()
-                    let scene = try await session.open(application: app, window: Self.windowTitle(arguments))
-                    value = observation(scene).adding("routeNote", note.map(JSONValue.string))
-                    lastResult = await observed(by: recorder)
+                    do {
+                        let scene = try await session.open(application: app, window: Self.windowTitle(arguments))
+                        value = await observation(scene).adding("routeNote", note.map(JSONValue.string))
+                        lastResult = await observed(by: recorder)
+                    } catch is CancellationError where AutomationCallInterruption.current?.wasInterrupted == true {
+                        guard let id = session.id else { throw CancellationError() }
+                        forgetScene()
+                        value = .object([
+                            "opened": .bool(true), "session": .string(id.uuidString),
+                            "note": .string("The person took control after the session opened. No scene was read. "
+                                + "Observe this session after control returns before acting.")
+                        ]).adding("routeNote", note.map(JSONValue.string))
+                        lastResult = nil
+                    }
             }
         case "observe":
             if values["full"] != nil, arguments["full"].bool == nil {
@@ -2111,18 +2230,18 @@ public final class AutomationTools {
             }
             await noteDispatch()
             let scene = try await session.observe()
-            value = observation(scene, changesOnly: arguments["full"].bool != true)
+            value = await observation(scene, changesOnly: arguments["full"].bool != true)
             lastResult = await observed(by: recorder)
         case "menu":
             await noteDispatch()
             let done = try await session.menu(path: string(arguments, "path"))
-            value = outcome(done)
+            value = await outcome(done)
             lastResult = .outcome(done.kind, message: done.message)
             lastCheck  = done.withStatedCheck.check
         case "press":
             await noteDispatch()
             let done = try await session.press(button: string(arguments, "button"))
-            value = outcome(done)
+            value = await outcome(done)
             lastResult = .outcome(done.kind, message: done.message)
             lastCheck  = done.withStatedCheck.check
         case "collect_posts":
@@ -2137,7 +2256,7 @@ public final class AutomationTools {
         case "act", "select", "type_text", "insert_text", "press_key", "scroll", "drag", "context_menu":
             let step = try Step(name, arguments)
             let done = try await perform(step, dispatch: CallScope.current.dispatch(of: step.texts, at: 0))
-            value = outcome(done)
+            value = await outcome(done)
             lastResult = .outcome(done.kind, message: done.message)
             lastCheck  = done.withStatedCheck.check
         case "batch":
@@ -2219,7 +2338,7 @@ public final class AutomationTools {
                     complete = false
                     break
                 }
-                let value = outcome(result)
+                let value = await outcome(result)
                 results.append(value)
                 do {
                     try await child?.end(.completed, result: .outcome(result.kind, message: result.message),
@@ -2410,17 +2529,16 @@ public final class AutomationTools {
     /// under half the scene's size: a diff any larger saves little and reads worse than the scene.
     /// `nested` is for an observation inside an action result, which already names the session and
     /// is the scene just after the action: it repeats neither the session nor the time.
-    private func observation(_ scene: SceneSnapshot, changesOnly: Bool = false, nested: Bool = false) -> JSONValue {
+    ///
+    /// The scene's text and its changes are written on the concurrent pool. The revision and the baselines are read
+    /// and updated together between those two waits, so a call that interleaves sees them either before or after.
+    private func observation(_ scene: SceneSnapshot, changesOnly: Bool = false, nested: Bool = false) async -> JSONValue {
         #if BRAUS_PHASES
         let rendering = PhaseInterval.begin("render.scene")
         defer { rendering.end() }
         #endif
-        // The producer's secrets and what the call withholds are withheld from the scene's elements before the scene
-        // is written as text, where a value is quoted and escaped.
-        let shown = shownMinimization
-        let scene = shown.knowsNoText ? scene : shown.minimize(scene: scene)
+        let (scene, text) = await Self.rendered(scene, minimizing: shownMinimization)
         revision += 1
-        let text   = scene.text()
         let number = session.observedWindowNumber
         var values: [String: JSONValue] = ["revision": .number(Double(revision))]
         if !nested {
@@ -2431,20 +2549,35 @@ public final class AutomationTools {
             seen.lastIndex { $0.shows(scene, number: number, in: id) }
                 ?? seen.lastIndex { $0.mayShow(scene, number: number, in: id) }
         }
-        if changesOnly, let known {
-            let changes = SceneChanges.text(from: seen[known].scene, to: scene, since: seen[known].revision)
-            if changes.count * 2 < text.count {
-                values["changes"] = .string(changes)
-                values["since"] = .number(Double(seen[known].revision))
-            }
-        }
-        if values["changes"] == nil { values["scene"] = .string(text) }
+        let baseline = known.map { seen[$0] }
         if let known { seen.remove(at: known) }
         if let id = session.id {
             seen.append(Baseline(session: id, windowNumber: number, revision: revision, scene: scene))
             if seen.count > Self.baselineLimit { seen.removeFirst() }
         }
+        if changesOnly, let baseline {
+            let changes = await Self.changes(from: baseline.scene, to: scene, since: baseline.revision)
+            if changes.count * 2 < text.count {
+                values["changes"] = .string(changes)
+                values["since"] = .number(Double(baseline.revision))
+            }
+        }
+        if values["changes"] == nil { values["scene"] = .string(text) }
         return .object(values)
+    }
+
+    /// The scene as it is shown and its text. The producer's secrets and what the call withholds are withheld from
+    /// the scene's elements before the scene is written as text, where a value is quoted and escaped.
+    @concurrent
+    private static func rendered(_ scene: SceneSnapshot,
+                                 minimizing shown: ValueMinimization) async -> (scene: SceneSnapshot, text: String) {
+        let scene = shown.knowsNoText ? scene : shown.minimize(scene: scene)
+        return (scene, scene.text())
+    }
+
+    @concurrent
+    private static func changes(from before: SceneSnapshot, to after: SceneSnapshot, since revision: Int) async -> String {
+        SceneChanges.text(from: before, to: after, since: revision)
     }
 
     /// The most windows whose last scene is kept, the least recently read forgotten first: a turn
@@ -2521,12 +2654,12 @@ public final class AutomationTools {
         }
     }
 
-    private func outcome(_ outcome: ActOutcome) -> JSONValue {
+    private func outcome(_ outcome: ActOutcome) async -> JSONValue {
         var values: [String: JSONValue] = [
             "status": .string(outcome.kind.rawValue), "message": .string(outcome.message),
             "session": session.id.map { .string($0.uuidString) } ?? .null
         ]
-        if let scene = outcome.scene { values["observation"] = observation(scene, changesOnly: true, nested: true) }
+        if let scene = outcome.scene { values["observation"] = await observation(scene, changesOnly: true, nested: true) }
         // P2-03: what the operation's own oracle found, apart from the command's acceptance and the task's goal.
         if let evidence = Self.evidence(outcome.withStatedCheck.check, kind: outcome.kind) { values["evidence"] = evidence }
         return .object(values)

@@ -376,7 +376,11 @@ nonisolated enum MemoryTaskTool {
     label, value: text, or state: on or off, or present: true or false}, read from the session's scene at that moment;
     several when the result has several parts; {none: why} only when nothing lasting can be read. A stage's own result
     (a setting shown in a window you then close) is checked the same way at a checkpoint, before what shows it goes
-    away. What Braus learns rests on these checks. A new request after an end is a new task; after a
+    away. Match each check to the requested result: an open dialog proves only that the dialog is open, and
+    a field can retain the last input without the app applying it. After Apply, read the actual resulting state.
+    An acted_unverified operation is not proof of completion. If later evidence establishes its effect, reconcile
+    that call before interpreting it as completed; otherwise report the uncertainty. A task end's outcome is your
+    declaration, while completion_evidence states only what its checks proved. What Braus learns rests on these checks. A new request after an end is a new task; after a
     restart, resume your unfinished task by its id. Actions taken without an open task are recorded but cannot be
     learned as a procedure. memory_task performs no app action and needs no session.
     """

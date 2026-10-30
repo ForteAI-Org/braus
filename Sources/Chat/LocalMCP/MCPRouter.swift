@@ -17,6 +17,7 @@ public final class MCPRouter {
     private var isBusy = false
     private var activeRequestID: JSONValue?
     private var activeCall: Task<JSONValue, any Error>?
+    private var preservesActiveCall = false
     public private(set) var isAcceptingTools = true
 
     public init(
@@ -56,9 +57,21 @@ public final class MCPRouter {
 
     public func pause() {
         isAcceptingTools = false
+        preservesActiveCall = false
         activeCall?.cancel()
     }
-    public func resume() { isAcceptingTools = true }
+
+    /// Suspends admission for human control without cancelling the admitted call. Late cancellation
+    /// notifications from the interrupted provider cannot cut it short. An explicit pause still can.
+    public func suspendForHumanIntervention() {
+        isAcceptingTools = false
+        preservesActiveCall = true
+    }
+
+    public func resume() {
+        preservesActiveCall = false
+        isAcceptingTools = true
+    }
 
     /// Waits for an in-flight call before the owner releases Seat resources.
     public func drain() async {
@@ -71,7 +84,8 @@ public final class MCPRouter {
             return error(id, -32600, "Invalid JSON-RPC request.")
         }
         if id == .null {
-            if method == "notifications/cancelled", request["params"]["requestId"] == activeRequestID {
+            if method == "notifications/cancelled", !preservesActiveCall,
+               request["params"]["requestId"] == activeRequestID {
                 activeCall?.cancel()
             }
             return nil

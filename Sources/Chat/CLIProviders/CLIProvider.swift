@@ -8,6 +8,8 @@ import Foundation
 public final class CLIProvider {
     private var process: Process?
     private var cancelled = false
+    private var preservesObservedFailure = false
+    private var hasObservedFailure = false
 
     public init() {}
 
@@ -16,7 +18,12 @@ public final class CLIProvider {
         while process != nil { try? await Task.sleep(for: .milliseconds(25)) }
     }
 
-    public func cancel() {
+    /// Interrupts the child. Human takeover can preserve an already reported provider failure so
+    /// callers do not mistake that failure for intentional suspension and retain a failed session.
+    public func cancel(preservingFailure: Bool = false) {
+        // Snapshot only failures already decoded. A child can report failure in response to SIGINT;
+        // that late diagnostic must not turn intentional human suspension into session teardown.
+        preservesObservedFailure = preservingFailure && (cancelled ? preservesObservedFailure : hasObservedFailure)
         cancelled = true
         guard let process, process.isRunning else { return }
         process.interrupt()
@@ -57,6 +64,8 @@ public final class CLIProvider {
         environment.removeValue(forKey: "CLAUDE_CODE_ENTRYPOINT")
         child.environment = environment
         cancelled = false
+        preservesObservedFailure = false
+        hasObservedFailure = false
         try child.run()
         process = child
         defer { process = nil }
@@ -94,7 +103,7 @@ public final class CLIProvider {
                     if line.isEmpty { continue }
                     for event in try decoder.decode(line) {
                         if case .completed = event { completed = true }
-                        if case .failure(let message) = event { providerFailure = message }
+                        if case .failure(let message) = event { providerFailure = message; hasObservedFailure = true }
                         try onEvent(event)
                     }
                 }
@@ -102,14 +111,14 @@ public final class CLIProvider {
             if !pending.isEmpty {
                 for event in try decoder.decode(pending) {
                     if case .completed = event { completed = true }
-                    if case .failure(let message) = event { providerFailure = message }
+                    if case .failure(let message) = event { providerFailure = message; hasObservedFailure = true }
                     try onEvent(event)
                 }
             }
             try await inputTask.value
             while child.isRunning { try await Task.sleep(for: .milliseconds(25)) }
             let diagnostics = try await errorTask.value
-            if cancelled { throw CancellationError() }
+            if cancelled, !preservesObservedFailure { throw CancellationError() }
             if let providerFailure {
                 let stated = decoder.failure ?? ProviderFailure(kind: .turnError, message: providerFailure)
                 throw ProviderFailure(kind: stated.kind, message: stated.message, apiStatus: stated.apiStatus,
