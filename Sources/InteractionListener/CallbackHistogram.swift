@@ -62,7 +62,8 @@ package struct CallbackHistogram: Sendable, Equatable {
 }
 
 /// CallbackLatency is the tap thread's three histograms: callbacks that can produce an event (`input`),
-/// every other callback (`pointer`: moves, drags, keys) and the scroll/hover timer's body (`timer`).
+/// pointer callbacks (`pointer`: moves and drags) and the shared wake timer's body (`timer`).
+/// Key callbacks are omitted so diagnostics cannot expose a typing burst's length.
 package struct CallbackLatency: Sendable, Equatable {
     package var input = CallbackHistogram()
     package var pointer = CallbackHistogram()

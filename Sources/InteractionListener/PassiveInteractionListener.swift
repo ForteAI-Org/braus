@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
 import os
@@ -16,6 +17,7 @@ import Synchronization
 @MainActor
 public final class PassiveInteractionListener {
     public let events: AsyncThrowingStream<InteractionEvent, any Error>
+    package nonisolated let buttons: InteractionButtonState
     private let context: TapContext
     private var activation: (any NSObjectProtocol)?
     private var isStopped = false
@@ -26,7 +28,9 @@ public final class PassiveInteractionListener {
         // the queue; bound it if a slow reader must shed input rather than memory.
         let pair = AsyncThrowingStream<InteractionEvent, any Error>.makeStream(bufferingPolicy: .unbounded)
         events = pair.stream
-        context = TapContext(continuation: pair.continuation, hover: hover, excludedPID: getpid())
+        let buttons = InteractionButtonState { CGEventSource.buttonState(.combinedSessionState, button: .left) }
+        self.buttons = buttons
+        context = TapContext(buttons: buttons, continuation: pair.continuation, hover: hover, excludedPID: getpid())
         let owner = context
         pair.continuation.onTermination = { _ in owner.requestStop() }
         let refresher = Thread { owner.refresh() }
@@ -48,7 +52,8 @@ public final class PassiveInteractionListener {
         context.requestStop()
     }
 
-    /// Advances on all captured input, including events outside a consumer's app filter or lost in a gap.
+    /// A monotonic token that advances on input, including events outside the app filter or lost in a gap.
+    /// Tokens support ordering and equality, but their differences never count keystrokes.
     public var revision: UInt64 { context.revision }
 
     /// Coalescing and loss since start; losses also arrive in `events` as gap events.
@@ -67,7 +72,7 @@ public final class PassiveInteractionListener {
         context.takeLatency(deliver)
     }
 
-    /// Stops callbacks, flushes a pending scroll, finishes the stream and joins the listener's threads.
+    /// Stops callbacks, flushes pending scroll and typing, finishes the stream and joins the listener's threads.
     public func stop() async {
         if !isStopped {
             isStopped = true
@@ -76,6 +81,7 @@ public final class PassiveInteractionListener {
             context.requestStop()
         }
         await context.waitUntilFinished()
+        buttons.finishListening()
     }
 }
 
@@ -95,7 +101,7 @@ final class TapContext: @unchecked Sendable {
         var waiters: [CheckedContinuation<Void, Never>] = []
     }
 
-    // 1024 records of 104 bytes is 104 KiB preallocated; a quarter of it only clicks, focus and gaps take.
+    // 1024 records of 104 bytes is 104 KiB preallocated; a quarter is reserved for critical records.
     let queue = InputQueue(capacity: 1024, reserved: 256)
     let snapshot = Mutex(AttributionSnapshot())
     private let gate = Mutex(Gate())
@@ -103,10 +109,14 @@ final class TapContext: @unchecked Sendable {
     private let refreshWanted = Atomic<Bool>(false)
     private let refreshSignal = DispatchSemaphore(value: 0)
     private let continuation: AsyncThrowingStream<InteractionEvent, any Error>.Continuation
+    private let buttons: InteractionButtonState
     private let hoverEnabled: Bool
     private let excludedPID: Int32
     // Tap thread only.
     private var scroll = ScrollGesture()
+    private var typing = TypingGesture()
+    private var leftPress: InputRecord?
+    private var dragExceededThreshold = false
     private var dwell = HoverDwell()
     private var lastPointer: PointerRoute?
     private var wasDragging = false
@@ -117,7 +127,13 @@ final class TapContext: @unchecked Sendable {
     // Instruments intervals, begun only while signposts are enabled: no allocation or formatting otherwise.
     private static let signposter = OSSignposter(subsystem: "com.forte.braus", category: "InteractionTap")
 
-    init(continuation: AsyncThrowingStream<InteractionEvent, any Error>.Continuation, hover: Bool, excludedPID: Int32) {
+    init(
+        buttons: InteractionButtonState = InteractionButtonState(),
+        continuation: AsyncThrowingStream<InteractionEvent, any Error>.Continuation,
+        hover: Bool,
+        excludedPID: Int32
+    ) {
+        self.buttons = buttons
         self.continuation = continuation
         hoverEnabled = hover
         self.excludedPID = excludedPID
@@ -165,6 +181,7 @@ final class TapContext: @unchecked Sendable {
             guard focusedProcessID != processID else { return }
             focusedProcessID = processID
             if let pending = scroll.take() { queue.push(pending) }
+            if let pending = typing.take() { queue.push(pending) }
             let now = Self.uptime()
             if hoverEnabled { dwell.restart(at: Self.seconds(now)) }
             let revisions = advance()
@@ -184,12 +201,13 @@ final class TapContext: @unchecked Sendable {
         defer {
             gate.withLock { $0.loop = nil }
             if let pending = scroll.take() { queue.push(pending) }
+            if let pending = typing.take() { queue.push(pending) }
             queue.close()
             requestStop()
             leave()
         }
         let pointer = Unmanaged.passUnretained(self).toOpaque()
-        let mask = [CGEventType.leftMouseDown, .rightMouseDown, .scrollWheel, .keyDown,
+        let mask = [CGEventType.leftMouseDown, .leftMouseUp, .rightMouseDown, .scrollWheel, .keyDown,
                     .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .mouseMoved]
             .reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
         guard let tap = CGEvent.tapCreate(
@@ -222,7 +240,7 @@ final class TapContext: @unchecked Sendable {
         }
     }
 
-    /// One reusable timer for scroll settle and hover dwell, armed only from their deadlines, so a still
+    /// One reusable timer for scroll/typing settle and hover dwell, armed only from their deadlines, so a still
     /// pointer and idle input cost no wakeups. Its interval never elapses in practice.
     func addWakeTimer(to loop: CFRunLoop) -> CFRunLoopTimer? {
         let never = Date.distantFuture.timeIntervalSinceReferenceDate
@@ -234,10 +252,11 @@ final class TapContext: @unchecked Sendable {
 
     /// The tap callback's body, on the tap thread. Tests drive it with synthetic events.
     func receive(type: CGEventType, event: CGEvent) {
-        let signpost = Self.signposter.isEnabled ? Self.signposter.beginInterval("receive") : nil
+        let signpost = type != .keyDown && Self.signposter.isEnabled ? Self.signposter.beginInterval("receive") : nil
         let begin = Self.uptime()
         defer {
-            latency.record(type, Self.uptime() &- begin)
+            // Per-key histogram counts would reveal typing length in watch diagnostics.
+            if type != .keyDown { latency.record(type, Self.uptime() &- begin) }
             if let signpost { Self.signposter.endInterval("receive", signpost) }
         }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
@@ -247,6 +266,15 @@ final class TapContext: @unchecked Sendable {
         }
         // Events posted by this process are never described as manual user input.
         guard event.getIntegerValueField(.eventSourceUnixProcessID) != Int64(excludedPID) else { return }
+        if type == .leftMouseUp { buttons.release() }
+        // A plain release preserves the click's revision and dwell deadline.
+        if type == .leftMouseUp, leftPress == nil || !dragExceededThreshold {
+            leftPress = nil
+            dragExceededThreshold = false
+            if wasDragging { requestRefresh() }
+            wasDragging = false
+            return
+        }
         let now = Self.uptime()
         let seconds = Self.seconds(now)
         let route = PointerRoute(
@@ -254,6 +282,7 @@ final class TapContext: @unchecked Sendable {
             recipientWindowNumber: Int(event.getIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent)),
             targetProcessID: Int32(clamping: event.getIntegerValueField(.eventTargetUnixProcessID))
         )
+        if type != .keyDown, let finished = typing.take() { queue.push(finished) }
         if type != .keyDown {
             gate.withLock { $0.pointerRoute = route }
             let entered = lastPointer?.recipientWindowNumber != route.recipientWindowNumber
@@ -274,9 +303,51 @@ final class TapContext: @unchecked Sendable {
         }
         let revisions = advance()
         if hoverEnabled { dwell.restart(at: seconds) }
-        // Keys and drag movement invalidate stale scenes, without reading or retaining their content.
-        guard type == .leftMouseDown || type == .rightMouseDown || type == .scrollWheel else {
+        if type == .keyDown {
             if let finished = scroll.take() { queue.push(finished) }
+            let code = UInt16(clamping: event.getIntegerValueField(.keyboardEventKeycode))
+            let modifiers = Self.modifiers(event.flags)
+            let isShortcut = modifiers.contains(.command) || modifiers.contains(.control) || Self.isNonText(code)
+            if isShortcut, event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+                armWake(at: now)
+                return
+            }
+            var record = InputRecord(kind: isShortcut ? .shortcut : .typing, timestamp: now,
+                                     precedingRevision: revisions.0, revision: revisions.1)
+            record.sourcePID = Int32(clamping: event.getIntegerValueField(.eventSourceUnixProcessID))
+            record.set(.hasSourceProcess)
+            snapshot.withLock { $0.attributeKeyboard(&record, targetProcessID: route.targetProcessID) }
+            if isShortcut {
+                if let finished = typing.take() { queue.push(finished) }
+                record.lostCritical = UInt32(code)
+                record.lostCoalescible = modifiers.rawValue
+                queue.push(record)
+            } else if let finished = typing.append(record) {
+                queue.push(finished)
+            }
+            armWake(at: now)
+            return
+        }
+        if type != .scrollWheel, let finished = scroll.take() { queue.push(finished) }
+        if type == .leftMouseDragged, let press = leftPress {
+            if hypot(route.point.x - Double(press.x), route.point.y - Double(press.y)) > 3 {
+                dragExceededThreshold = true
+            }
+        }
+        if type == .leftMouseUp {
+            if var press = leftPress, dragExceededThreshold {
+                press.type = InputRecord.Kind.drag.rawValue
+                press.lostCritical = 0
+                press.valueA = Float32(route.point.x)
+                press.valueB = Float32(route.point.y)
+                press.timestamp = now
+                press.revision = revisions.1
+                queue.push(press)
+            }
+            leftPress = nil
+            dragExceededThreshold = false
+        }
+        guard type == .leftMouseDown || type == .rightMouseDown || type == .scrollWheel else {
             armWake(at: now)
             return
         }
@@ -291,7 +362,15 @@ final class TapContext: @unchecked Sendable {
             record.valueA = Float32(event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2))
             record.valueB = Float32(event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1))
         }
+        if kind == .click || kind == .rightClick {
+            record.lostCritical = UInt32(clamping: event.getIntegerValueField(.mouseEventClickState))
+        }
         attribute(&record, route: route)
+        if type == .leftMouseDown {
+            buttons.press(processID: record.targetPID)
+            leftPress = record
+            dragExceededThreshold = false
+        }
         if kind == .scrollDelta {
             if let finished = scroll.append(record) { queue.push(finished) }
         } else {
@@ -312,6 +391,7 @@ final class TapContext: @unchecked Sendable {
         let now = Self.uptime()
         let seconds = Self.seconds(now)
         if let settled = scroll.settled(at: seconds) { queue.push(settled) }
+        if let settled = typing.settled(at: seconds) { queue.push(settled) }
         if hoverEnabled, dwell.fire(at: seconds), let pointer = lastPointer {
             let revision = revisionCounter.load(ordering: .relaxed)
             var record = InputRecord(kind: .hover, timestamp: now, precedingRevision: revision, revision: revision)
@@ -327,7 +407,7 @@ final class TapContext: @unchecked Sendable {
     /// Moves the one timer earlier when a deadline requires it. Later deadlines wait for the timer to
     /// fire and re-arm it, so continuous movement costs one wakeup per dwell period, not one per event.
     private func armWake(at now: UInt64) {
-        let next = min(scroll.deadline ?? .infinity, dwell.deadline ?? .infinity)
+        let next = min(scroll.deadline ?? .infinity, typing.deadline ?? .infinity, dwell.deadline ?? .infinity)
         guard let wake, next.isFinite, wakeAt.map({ next < $0 }) ?? true else { return }
         wakeAt = next
         CFRunLoopTimerSetNextFireDate(wake, CFAbsoluteTimeGetCurrent() + max(0, next - Self.seconds(now)))
@@ -343,8 +423,34 @@ final class TapContext: @unchecked Sendable {
 
     private func advance() -> (UInt64, UInt64) {
         let before = revisionCounter.load(ordering: .relaxed)
-        revisionCounter.store(before &+ 1, ordering: .releasing)
-        return (before, before &+ 1)
+        // Equality still invalidates every input, but subtraction cannot reveal a typing burst's length.
+        let after = max(before &+ 1, Self.uptime())
+        revisionCounter.store(after, ordering: .releasing)
+        return (before, after)
+    }
+
+    private static func modifiers(_ flags: CGEventFlags) -> InteractionEvent.Modifiers {
+        var modifiers: InteractionEvent.Modifiers = []
+        if flags.contains(.maskCommand) { modifiers.insert(.command) }
+        if flags.contains(.maskControl) { modifiers.insert(.control) }
+        if flags.contains(.maskAlternate) { modifiers.insert(.option) }
+        if flags.contains(.maskShift) { modifiers.insert(.shift) }
+        return modifiers
+    }
+
+    /// Classifies physical command keys without reading or translating the event's Unicode payload.
+    private static func isNonText(_ code: UInt16) -> Bool {
+        switch Int(code) {
+        case kVK_Return, kVK_Escape, kVK_Tab,
+             kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+             kVK_Home, kVK_End, kVK_PageUp, kVK_PageDown, kVK_Help,
+             kVK_ANSI_KeypadEnter, kVK_ANSI_KeypadClear,
+             kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10,
+             kVK_F11, kVK_F12, kVK_F13, kVK_F14, kVK_F15, kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20:
+            true
+        default:
+            false
+        }
     }
 
     /// Takes the histograms on the tap thread and delivers them off it. Once its loop has ended the tap
