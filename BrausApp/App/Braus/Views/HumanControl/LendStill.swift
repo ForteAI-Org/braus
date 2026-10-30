@@ -69,10 +69,13 @@ final class LendStill {
         ))
         surface      = (contents as AnyObject) as? IOSurface
         seed         = surface?.seed ?? 0
-        contentsRect = layer.contentsRect
+        // A flipped view such as the live one counts the part shown from the top; the card's view,
+        // from the bottom.
+        let shown    = layer.contentsRect
+        contentsRect = picture.isFlipped ? shown : Self.flipped(shown)
         // The surface itself until the copy is made.
         card.contents        = contents
-        card.contentsRect    = contentsRect
+        card.contentsRect    = Self.flipped(contentsRect)
         card.contentsGravity = .resize
         // A window's shadow, as the screen window cast it.
         card.shadowColor     = .black
@@ -172,6 +175,16 @@ final class LendStill {
             )
             CATransaction.commit()
         }
+    }
+
+    /// `rect` in unit coordinates counted from the other edge, top for bottom.
+    nonisolated private static func flipped(_ rect: CGRect) -> CGRect {
+        CGRect(
+            x     : rect.minX,
+            y     : 1 - rect.maxY,
+            width : rect.width,
+            height: rect.height
+        )
     }
 
     /// The part `rect` of `surface`, in unit coordinates from its top left as `contentsRect` has

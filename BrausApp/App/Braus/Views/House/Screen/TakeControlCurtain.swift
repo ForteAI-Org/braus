@@ -113,9 +113,18 @@ final class TakeControlCurtain: NSView {
         self.title = title
         super.init(frame: .zero)
         wantsLayer = true
-        if let picture = picture?.layer, let contents = picture.contents {
+        if let view = picture, let picture = view.layer, let contents = picture.contents {
+            // The part of the surface the picture shows, counted from the top in a flipped view such
+            // as the live one and from the bottom here: a capped stream fills only the top left of
+            // its buffer, and the rectangle read the other way masked the curtain off its lower part.
+            let shown             = picture.contentsRect
             shape.contents        = contents
-            shape.contentsRect    = picture.contentsRect
+            shape.contentsRect    = view.isFlipped == isFlipped ? shown : CGRect(
+                x     : shown.minX,
+                y     : 1 - shown.maxY,
+                width : shown.width,
+                height: shown.height
+            )
             shape.contentsGravity = .resize
             layer?.mask           = shape
         }

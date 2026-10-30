@@ -19,7 +19,10 @@ import SeatBroker
 /// BRAUS_SCREEN_CHECK_FRAME_SCALE its pixels per point (2 by default). BRAUS_SCREEN_CHECK_SIZE is
 /// the window's content size as `<width>x<height>` (the window's own default otherwise), and
 /// BRAUS_SCREEN_CHECK_SECONDS how long it stays before the check quits (20 by default). The check
-/// prints the window's number, which `screencapture -l` takes.
+/// prints the window's number, which `screencapture -l` takes. BRAUS_SCREEN_CHECK_BUFFER=<w>x<h>
+/// draws the PNG at the top left of a larger buffer, the picture showing only that part, as a
+/// stream capped below a 2x screen's pixels carries a window from the seat's 1x display.
+/// BRAUS_SCREEN_CHECK_DISPLAY=<index> centres the window on that display (0 holds the menu bar).
 ///
 /// BRAUS_SCREEN_CHECK_WORKER_STATE is what the worker on the corner says (`WorkerSpeech`):
 /// `thinking`, `acting:<line>`, `saying:<line>`, or `idle` for nothing, the default; several joined
@@ -80,13 +83,21 @@ enum ScreenWindowCheck {
                   context        : nil,
                   hints          : nil
               ),
-              let first  = surface(of: image),
-              let second = surface(of: image)
+              case let buffer = environment["BRAUS_SCREEN_CHECK_BUFFER"]?.split(separator: "x").compactMap({ Int($0) }),
+              let first  = surface(of: image, in: buffer),
+              let second = surface(of: image, in: buffer)
         else {
             FileHandle.standardError.write(Data("screen check: BRAUS_SCREEN_CHECK_FRAME is not a readable PNG\n".utf8))
             exit(1)
         }
         let surfaces = [first, second]
+        // The part of the surface the picture shows, from its top left, as the live view's.
+        let shown    = CGRect(
+            x     : 0,
+            y     : 0,
+            width : Double(image.width) / Double(first.width),
+            height: Double(image.height) / Double(first.height)
+        )
         let scale    = environment["BRAUS_SCREEN_CHECK_FRAME_SCALE"].flatMap(Double.init) ?? 2
         let size     = CGSize(
             width : Double(image.width) / scale,
@@ -123,6 +134,7 @@ enum ScreenWindowCheck {
                 makePicture: { _ in
                     let picture = StillPicture(
                         surface: surfaces[0],
+                        shown  : shown,
                         size   : size
                     )
                     pictures.append(picture)
@@ -139,6 +151,14 @@ enum ScreenWindowCheck {
                     height: requested[1]
                 ))
                 window.center()
+            }
+            if let index = environment["BRAUS_SCREEN_CHECK_DISPLAY"].flatMap(Int.init),
+               NSScreen.screens.indices.contains(index) {
+                let visible = NSScreen.screens[index].visibleFrame
+                window.setFrameOrigin(CGPoint(
+                    x: visible.midX - window.frame.width / 2,
+                    y: visible.midY - window.frame.height / 2
+                ))
             }
             if let edge = environment["BRAUS_SCREEN_CHECK_EDGE"], ["right", "top-right"].contains(edge),
                let visible = window.screen?.visibleFrame {
@@ -286,6 +306,8 @@ enum ScreenWindowCheck {
                     wait > 0 ? TakeControlCurtain.lateReveal : TakeControlBeats.swap - TakeControlBeats.revealStart
                 ))
                 let still = pictures.first.flatMap { LendStill(picture: $0) }
+                // Copied ahead, as the lend does.
+                await still?.prepare()
                 still?.show()
                 try await Task.sleep(for: .milliseconds(30))
                 controller.stepAside()
@@ -826,11 +848,17 @@ enum ScreenWindowCheck {
     }
     #endif
 
-    /// `image` drawn once into a surface of its own, as the stream's frames arrive.
-    private static func surface(of image: CGImage) -> IOSurface? {
+    /// `image` drawn once into a surface of its own, as the stream's frames arrive: at the top left of
+    /// a `buffer` (`[width, height]`) when one is given, transparent around it.
+    private static func surface(
+        of image : CGImage,
+        in buffer: [Int]? = nil
+    ) -> IOSurface? {
+        let width  = buffer?.count == 2 ? max(buffer?[0] ?? 0, image.width) : image.width
+        let height = buffer?.count == 2 ? max(buffer?[1] ?? 0, image.height) : image.height
         guard let surface = IOSurface(properties: [
-            .width          : image.width,
-            .height         : image.height,
+            .width          : width,
+            .height         : height,
             .bytesPerElement: 4,
             .pixelFormat    : kCVPixelFormatType_32BGRA,
         ]) else { return nil }
@@ -847,19 +875,26 @@ enum ScreenWindowCheck {
         }
         guard let context = CGContext(
             data            : surface.baseAddress,
-            width           : image.width,
-            height          : image.height,
+            width           : width,
+            height          : height,
             bitsPerComponent: 8,
             bytesPerRow     : surface.bytesPerRow,
             space           : CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
             bitmapInfo      : CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         ) else { return nil }
 
+        context.clear(CGRect(
+            x     : 0,
+            y     : 0,
+            width : width,
+            height: height
+        ))
+        // The context counts y up from the bottom: the image's top meets the buffer's.
         context.draw(
             image,
             in: CGRect(
                 x     : 0,
-                y     : 0,
+                y     : height - image.height,
                 width : image.width,
                 height: image.height
             )
@@ -867,23 +902,28 @@ enum ScreenWindowCheck {
         return surface
     }
 
-    /// StillPicture stands in for the live view: a layer showing a surface, at the held window's size.
+    /// StillPicture stands in for the live view: a flipped view whose layer shows the `shown` part of
+    /// a surface, at the held window's size.
     private final class StillPicture: NSView {
         private let size: CGSize
 
         init(
             surface: IOSurface,
+            shown  : CGRect,
             size   : CGSize
         ) {
             self.size = size
             super.init(frame: .zero)
             wantsLayer = true
             layer?.contents        = surface
+            layer?.contentsRect    = shown
             layer?.contentsGravity = .resizeAspect
         }
 
         @available(*, unavailable)
         required init?(coder: NSCoder) { nil }
+
+        override var isFlipped: Bool { true }
 
         override var intrinsicContentSize: NSSize { size }
 
