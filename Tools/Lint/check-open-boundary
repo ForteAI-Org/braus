@@ -1,0 +1,273 @@
+#!/usr/bin/env python3
+"""Report tracked boundary findings; reject additions and obsolete exceptions.
+
+Exit 0 accepts the tree, 1 rejects its content or exception format, and 2 means
+Git or the working tree could not be read. Run from inside the repository.
+"""
+
+import argparse
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+EXCEPTIONS = "Tools/Lint/open-boundary-exceptions.txt"
+WORD_ROOTS = ("Sources/", "BrausApp/", "Tests/", "Documentation/", "Tools/Engine/braus/")
+CODE_ROOTS = ("Sources/", "BrausApp/App/Braus/")
+WORDS = re.compile("|".join(bytes.fromhex(value).decode("ascii") for value in (
+    "5054534c",
+    "5074736c",
+    "5c627074736c",
+    "62726175732d6d617070696e67",
+    "62726175735f6d617070696e67",
+    "42726175734d617070696e67",
+    "70726f2d746f6f6c732d6d617070696e67",
+    "6d617070696e672d7365747570",
+    "62726175732d62656e6368283f216d61726b29",
+    "62656e63686b6974",
+    "63616d706169676e2d6c697665",
+    "5c6262616e636f5c62",
+    "5c626d61707061747572615c62",
+)))
+BUNDLE_ID = re.compile(r"(?:com|org|net|io|de|co|us)\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+")
+EXCLUDED_IDS = ("com.apple.", "com.example.", "org.example.", "com.forte.")
+
+
+class SearchError(Exception):
+    """A required Git operation or file read failed."""
+
+
+class FormatError(Exception):
+    """The exception list does not satisfy the reviewed format."""
+
+
+@dataclass(frozen=True)
+class Finding:
+    rule: str
+    path: str
+    line: int
+    literal: str
+
+    @property
+    def key(self):
+        return self.rule, self.path, self.literal
+
+
+def git(root, *args):
+    result = subprocess.run(["git", *args], cwd=root, capture_output=True)
+    if result.returncode:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise SearchError(f"git {args[0]} exited {result.returncode}: {detail}")
+    return result.stdout.decode("utf-8", errors="surrogateescape")
+
+
+def parse_exceptions(text):
+    ceiling = None
+    entries = {}
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("# transitional ceiling:"):
+            match = re.fullmatch(r"# transitional ceiling: ([0-9]+)", line)
+            if not match or ceiling is not None or entries:
+                raise FormatError(f"{EXCEPTIONS}:{number}: invalid or repeated ceiling")
+            ceiling = int(match[1])
+            continue
+        if line.startswith("#"):
+            continue
+        fields = tuple(field.strip() for field in line.split("|"))
+        if ceiling is None or len(fields) != 5 or not all(fields):
+            raise FormatError(f"{EXCEPTIONS}:{number}: expected rule | path | literal | kind | reason")
+        rule, path, literal, kind, reason = fields
+        if (rule != "bundle-id" or kind not in ("transitional", "category")
+                or not path.startswith(CODE_ROOTS) or ".." in Path(path).parts
+                or not BUNDLE_ID.fullmatch(literal) or literal.startswith(EXCLUDED_IDS)):
+            raise FormatError(f"{EXCEPTIONS}:{number}: invalid exception")
+        key = rule, path, literal
+        if key in entries:
+            raise FormatError(f"{EXCEPTIONS}:{number}: duplicate exception")
+        entries[key] = kind, reason
+    if ceiling is None:
+        raise FormatError(f"{EXCEPTIONS}: missing transitional ceiling")
+    return ceiling, entries
+
+
+def string_literals(text):
+    """Yield literal contents and offsets, skipping nested comments outside strings.
+
+    Swift raw and multiline delimiters protect comment markers inside strings.
+    Escaped quotes cannot terminate an ordinary string.
+    """
+    size = len(text)
+
+    def read_string(start, cursor, hashes, quote):
+        content_start = cursor
+        closing = quote + hashes
+        escape = "\\" + hashes
+        while cursor < size:
+            if text.startswith(escape + "(", cursor):
+                cursor = yield from read_code(cursor + len(escape) + 1, parentheses=1)
+            elif text.startswith(escape, cursor):
+                cursor += len(escape) + 1
+            elif text.startswith(closing, cursor):
+                value = text[content_start:cursor]
+                yield value.strip() if len(quote) == 3 else value, start
+                return cursor + len(closing)
+            else:
+                cursor += 1
+        return cursor
+
+    def read_code(cursor, parentheses=0):
+        while cursor < size:
+            if text.startswith("//", cursor):
+                end = text.find("\n", cursor)
+                cursor = size if end < 0 else end
+            elif text.startswith("/*", cursor):
+                depth = 1
+                cursor += 2
+                while cursor < size and depth:
+                    if text.startswith("/*", cursor):
+                        depth += 1
+                        cursor += 2
+                    elif text.startswith("*/", cursor):
+                        depth -= 1
+                        cursor += 2
+                    else:
+                        cursor += 1
+            elif text[cursor] in '#"':
+                start = cursor
+                while cursor < size and text[cursor] == "#":
+                    cursor += 1
+                hashes = text[start:cursor]
+                if cursor >= size or text[cursor] != '"':
+                    continue
+                quote = '"""' if text.startswith('"""', cursor) else '"'
+                cursor = yield from read_string(start, cursor + len(quote), hashes, quote)
+            else:
+                if parentheses:
+                    if text[cursor] == "(":
+                        parentheses += 1
+                    elif text[cursor] == ")":
+                        parentheses -= 1
+                        if not parentheses:
+                            return cursor + 1
+                cursor += 1
+        return cursor
+
+    yield from read_code(0)
+
+
+def scan_tree(root):
+    paths = git(root, "ls-files", "-z", "--", *WORD_ROOTS).split("\0")
+    findings = []
+    for path in filter(None, paths):
+        for match in WORDS.finditer(path):
+            findings.append(Finding("words", path, 1, match[0]))
+        target = root / path
+        # Inspect a tracked link's text without following it outside the repository.
+        text = str(target.readlink()) if target.is_symlink() else target.read_bytes().decode(
+            "utf-8", errors="surrogateescape"
+        )
+        for match in WORDS.finditer(text):
+            findings.append(Finding("words", path, text.count("\n", 0, match.start()) + 1, match[0]))
+        if path.startswith(CODE_ROOTS):
+            for literal, offset in string_literals(text):
+                if BUNDLE_ID.fullmatch(literal) and not literal.startswith(EXCLUDED_IDS):
+                    findings.append(Finding("bundle-id", path, text.count("\n", 0, offset) + 1, literal))
+    return findings
+
+
+def compare_baseline(root, ref, ceiling, *, bootstrap_ref="origin/elio/interactive-bg",
+                     bootstrap_prefix="0e594d72"):
+    """Compare ceilings; the internal bootstrap parameters allow isolated tests."""
+    commit = git(root, "rev-parse", "--verify", "--end-of-options", ref + "^{commit}").strip()
+    tree = git(root, "ls-tree", "-z", commit, "--", EXCEPTIONS)
+    if tree:
+        previous, _ = parse_exceptions(git(root, "show", f"{commit}:{EXCEPTIONS}"))
+    else:
+        bootstrap = git(root, "rev-parse", "--verify", "--end-of-options",
+                        bootstrap_ref + "^{commit}").strip()
+        if not bootstrap.startswith(bootstrap_prefix):
+            raise SearchError("bootstrap reference changed; no fallback is permitted")
+        if commit != bootstrap:
+            print(f"{EXCEPTIONS}: baseline has no exceptions file and is not the bootstrap commit")
+            return False
+        previous = 14
+        print("initial ceiling: 14; baseline has no exceptions file")
+    if ceiling > previous:
+        print(f"{EXCEPTIONS}: ceiling increased from {previous} to {ceiling}")
+        return False
+    return True
+
+
+def scan_commits(root, revision_range):
+    findings = []
+    commits = git(root, "rev-list", "--end-of-options", revision_range, "--").splitlines()
+    for commit in commits:
+        message = git(root, "show", "-s", "--format=%B", commit, "--")
+        for match in WORDS.finditer(message):
+            findings.append(Finding("commits", commit, message.count("\n", 0, match.start()) + 1, match[0]))
+    return findings
+
+
+def main(argv=None, *, root=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--against", metavar="REF", help="refuse an increase from this committed ceiling")
+    parser.add_argument("--strict", action="store_true", help="refuse all transitional exceptions")
+    parser.add_argument("--commits", metavar="RANGE", help="also inspect commit messages in this range")
+    args = parser.parse_args(argv)
+    try:
+        root = Path(git(root or Path.cwd(), "rev-parse", "--show-toplevel").strip())
+        baseline = None
+        if args.against is not None:
+            baseline = git(root, "rev-parse", "--verify", "--end-of-options",
+                           args.against + "^{commit}").strip()
+        findings = scan_tree(root)
+        if args.commits is not None:
+            findings.extend(scan_commits(root, args.commits))
+        try:
+            text = (root / EXCEPTIONS).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            raise FormatError(f"{EXCEPTIONS}: missing exceptions file")
+        ceiling, entries = parse_exceptions(text)
+        accepted = True
+        if baseline is not None:
+            accepted = compare_baseline(root, baseline, ceiling)
+        seen = set()
+        totals = Counter()
+        for finding in findings:
+            kind = entries.get(finding.key, ("unlisted", ""))[0]
+            print(f"{finding.path}:{finding.line}: {finding.rule} {kind}: {finding.literal}")
+            seen.add(finding.key)
+            totals[finding.rule, kind] += 1
+            if kind == "unlisted":
+                accepted = False
+        for key in sorted(entries.keys() - seen):
+            print(f"{EXCEPTIONS}: stale exception: {' | '.join(key)}")
+            accepted = False
+        transitional = totals["bundle-id", "transitional"]
+        if transitional > ceiling:
+            print(f"{EXCEPTIONS}: transitional count {transitional} exceeds ceiling {ceiling}")
+            accepted = False
+        if args.strict and any(kind == "transitional" for kind, _ in entries.values()):
+            print(f"{EXCEPTIONS}: strict mode refuses transitional exceptions")
+            accepted = False
+        print(f"words={totals['words', 'unlisted']}; "
+              f"bundle-id transitional={transitional} category={totals['bundle-id', 'category']} "
+              f"unlisted={totals['bundle-id', 'unlisted']}; "
+              f"commits={totals['commits', 'unlisted']}; transitional ceiling={ceiling}")
+        return 0 if accepted else 1
+    except FormatError as error:
+        print(error, file=sys.stderr)
+        return 1
+    except (SearchError, OSError, UnicodeError) as error:
+        print(f"boundary check could not search: {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
