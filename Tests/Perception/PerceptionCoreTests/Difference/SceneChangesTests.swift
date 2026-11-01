@@ -76,8 +76,12 @@ struct SceneChangesTests {
         before.knowledge = SceneKnowledge(status: .applied, window: ["press_key: opens a panel"])
         let after = Self.scene(Self.rows)
         #expect(SceneChanges.text(from: before, to: after, since: 6)
-            == "memory: no window operations in this state")
-        for status in [SceneKnowledge.Status.nothing, .unrecognized, .unavailable, .applied] {
+            == "Unchanged since revision 6.")
+        var unavailable = after
+        unavailable.knowledge = SceneKnowledge(status: .unavailable)
+        #expect(SceneChanges.text(from: before, to: unavailable, since: 6)
+            == "Unchanged since revision 6.")
+        for status in [SceneKnowledge.Status.nothing, .unrecognized, .applied] {
             var empty = after
             empty.knowledge = SceneKnowledge(status: status)
             #expect(SceneChanges.text(from: before, to: empty, since: 6)

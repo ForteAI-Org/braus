@@ -6,6 +6,7 @@
 //
 
 import AutomationRuntime
+import Darwin
 import Foundation
 import Memory
 @testable import SQLiteMemory
@@ -135,6 +136,38 @@ enum C {
 /// every write it could not save by what it committed, and never publishing an incomplete copy.
 @Suite("Closing the memory: one bound, every write accounted for, no incomplete copy")
 struct MemoryClosingTests {
+
+    @Test("copy retirement waiting on another process does not hold the service's close")
+    func retirementDoesNotHoldClose() async throws {
+        let service = try C.service()
+        await service.setBeforeBackup { throw SkipBackup() }
+        _ = try await service.ready()
+        await service.waitForBackup()
+        await service.maintainCopies(now: Date(), verifiedBackupAt: nil)
+        let path = service.directory.appendingPathComponent(".retired/.retirement.lock").path
+        let lock = Darwin.open(path, O_RDWR)
+        try #require(lock >= 0)
+        defer { #expect(Darwin.close(lock) == 0) }
+        try #require(flock(lock, LOCK_EX | LOCK_NB) == 0)
+
+        let saved = Signal()
+        await service.enqueue("event") { repositories in
+            _ = try await repositories.captures.record(C.event("retirement-0"))
+            saved.raise()
+        }
+        #expect(await C.eventually { saved.isRaised })
+        try await Task.sleep(for: .milliseconds(20))
+        let took = await C.elapsed(C.budget + C.tolerance) {
+            await C.offer(service, "retirement-later", count: 5)
+            await service.close()
+        }
+        #expect(flock(lock, LOCK_UN) == 0)
+        #expect(took != nil)
+        await service.close()
+        #expect(await service.status().written == 6)
+        #expect(try await C.stored(in: service, "retirement", count: 1) == 1)
+        #expect(try await C.stored(in: service, "retirement-later", count: 5) == 5)
+    }
 
     @Test("ordinary close: every offered write is saved and none is left unaccounted")
     func nominal() async throws {

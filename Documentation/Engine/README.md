@@ -767,6 +767,13 @@ separate from a snapshot's primary failure. Pending retirements exclude affected
 recovery candidates until reconciled. Status measures retained bytes and directories
 and reports collisions and incomplete retirements.
 
+`MemoryCopyMaintenance` owns the runtime's copy rotation and retained-file diagnostics on
+a dedicated serial utility executor. Scheduling coalesces overlapping requests. File locks,
+directory syncs and scans do not occupy `MemoryService` or the cooperative executor, so
+accepted writes and the bounded close can proceed while maintenance waits on another process.
+Maintenance touches only closed copies and may finish after the service closes; explicit
+maintenance calls and status reads await that executor for their results.
+
 Only the newest schema copy remains active. Its creation timestamp is encoded in
 its name; age of 30 days or completion of a later verified snapshot retires it.
 Archive directories use 0700; archives, sidecars, copies, manifests and presence files
