@@ -123,6 +123,7 @@ test: native-test-runner
 	@bash Tools/Engine/Scripts/check-product-name.sh
 	@$(PYTHON) Tools/Lint/check-open-boundary
 	@$(PYTHON) Tools/Lint/check-public-logs
+	@$(PYTHON) Tools/Lint/check-model-text
 	@$(PYTHON) Tools/Driver/Phases/test-phase-table.py
 	@TIER_BUNDLES=$(UNIT_BUNDLES) $(TIER) unit - bash Tools/Driver/Scripts/unit-test-command.sh $(SWIFT)
 

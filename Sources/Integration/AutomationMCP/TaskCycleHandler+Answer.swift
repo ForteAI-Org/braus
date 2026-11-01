@@ -10,7 +10,7 @@ extension TaskCycleHandler {
         guard let directory = session.memoryDirectory else {
             throw MemoryTaskTool.Failure(
                 code   : "no_memory",
-                message: "This session has no memory: nothing about tasks is recorded."
+                message: ModelText.text(.init(rawValue: "task_cycle_handler__answer.directory.v1"))
             )
         }
         let memory   = MemoryService.shared(for: directory)
@@ -28,8 +28,8 @@ extension TaskCycleHandler {
                 if let current = openTask {
                     throw MemoryTaskTool.Failure(
                         code   : "task_already_open",
-                        message: "A task is already open: update it, or end it "
-                            + "before beginning another.",
+                        message: ModelText.text(.init(rawValue: "task_cycle_handler__answer.current.v1"))
+                            + ModelText.text(.init(rawValue: "task_cycle_handler__answer.current.v1.2")),
                         details: ["task": .string(current.taskID)]
                     )
                 }
@@ -95,7 +95,7 @@ extension TaskCycleHandler {
                     producer: producer,
                     memory  : memory
                 )
-                let recorded: JSONValue = .string(receipt == .committed ? "recorded" : "already recorded")
+                let recorded: JSONValue = .string(receipt == .committed ? "recorded" : ModelText.text(.init(rawValue: "task_cycle_handler__answer.recorded.v1")))
                 var extra: [String: JSONValue] = ["recorded": recorded]
                 if let used = await linked(current, producer: producer, memory: memory) { extra["recall_use"] = used }
                 if reported > 0 { extra["use_reported"] = .number(Double(reported)) }
@@ -138,16 +138,16 @@ extension TaskCycleHandler {
                 if let current = openTask, current.taskID != taskID {
                     throw MemoryTaskTool.Failure(
                         code   : "task_already_open",
-                        message: "Another task is open: end it before "
-                            + "resuming this one.",
+                        message: ModelText.text(.init(rawValue: "task_cycle_handler__answer.current.v1.3"))
+                            + ModelText.text(.init(rawValue: "task_cycle_handler__answer.current.v1.4")),
                         details: ["task": .string(current.taskID)]
                     )
                 }
                 let (resumed, unfinished) = try await TaskChannel.resume(taskID, producer: producer, memory: memory)
                 openTask = resumed
                 var extra: [String: JSONValue] = [
-                    "guidance": .string("A new attempt began. Observe the present state before acting: nothing of "
-                        + "the earlier attempt is replayed.")
+                    "guidance": .string(ModelText.text(.init(rawValue: "task_cycle_handler__answer.extra.v1"))
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__answer.extra.v1.2")))
                 ]
                 if !unfinished.isEmpty {
                     // A call whose end the archive never got may have run (M06): said, never repeated.
@@ -155,16 +155,19 @@ extension TaskCycleHandler {
                         .object(["event": .string(call.eventID), "tool": .string(call.tool),
                                  "started_at": call.startedAtMS.map { .number(Double($0)) } ?? .null])
                     })
-                    let calls = unfinished.count == 1 ? "1 call" : "\(unfinished.count) calls"
-                    extra["guidance"] = .string("A new attempt began. The earlier attempts left \(calls) without an "
-                        + "end: each may have run, or still be running. Observe its effect in the present state before "
-                        + "acting, and do not repeat it: nothing of the earlier attempts is replayed.")
+                    let calls = unfinished.count == 1 ? "1 call" : ("\(unfinished.count)"
+                        + ModelText.text(.init(rawValue: "answer.TaskCycleHandler.Answer.calls.v1.fragment.2")))
+                    extra["guidance"] = .string((ModelText.text(.init(rawValue: "task_cycle_handler__answer.calls.v1"))
+                        + "\(calls)"
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__answer.calls.v1.2")))
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__answer.calls.v1.3"))
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__answer.calls.v1.4")))
                 }
                 return open(resumed, "resumed", extra)
             case .candidate(let taskID):
                 guard let summary = try await ProcedureProducer.candidate(taskID: taskID, producer: producer, memory: memory) else {
-                    return .object(["status": .string("no candidate"), "task": .string(taskID),
-                                    "message": .string("The task's last attempt started no app action.")])
+                    return .object(["status": .string(ModelText.text(.init(rawValue: "task_cycle_handler__answer.summary.v1"))), "task": .string(taskID),
+                                    "message": .string(ModelText.text(.init(rawValue: "task_cycle_handler__answer.summary.v1.2")))])
                 }
                 return .object(["status": .string("candidate"), "task": .string(taskID), "candidate": Self.candidate(summary)])
             case .interpret(let interpretation, let declared, let checks):
@@ -178,8 +181,8 @@ extension TaskCycleHandler {
                                                        minimization: producerSecrets.recordMinimization)
                         checkedResult = await check(completed, attemptID: state.attemptID, producer: producer, memory: memory)
                     } else {
-                        checkedResult = .object(["status": .string("already checked"),
-                                                 "message": .string("The attempt's result was checked before: nothing more was read.")])
+                        checkedResult = .object(["status": .string(ModelText.text(.init(rawValue: "task_cycle_handler__answer.completed.v1"))),
+                                                 "message": .string(ModelText.text(.init(rawValue: "task_cycle_handler__answer.completed.v1.2")))])
                     }
                 }
                 let outcome = try await ProcedureProducer.interpret(interpretation, producer: producer, memory: memory)
@@ -210,26 +213,28 @@ extension TaskCycleHandler {
                         plan, taskID: current.taskID, attemptID: current.attemptID, revision: current.revision,
                         values: revision.content.inputs, constraints: revision.content.constraints, producer: producer)
                     let data = try JSONEncoder().encode(answer.delivery)
-                    return open(current, answer.recordedNow ? "chosen" : "already chosen",
+                    return open(current, answer.recordedNow ? "chosen" : ModelText.text(.init(rawValue: "task_cycle_handler__answer.data.v1")),
                                 ["recall": try JSONDecoder().decode(JSONValue.self, from: data)])
                 } catch let refusal as RecallChoice.Refusal {
                     throw MemoryTaskTool.Failure(code: refusal.code.rawValue,
-                                                 message: "The plan was not admitted; nothing was recorded or run: "
+                                                 message: ModelText.text(.init(rawValue: "task_cycle_handler__answer.refusal.v1"))
                                                     + refusal.problems.joined(separator: "; ") + ".",
                                                  details: ["problems": .array(refusal.problems.map(JSONValue.string))])
                 } catch let error as MemoryStoreError where Self.isChoiceRecordFault(error) {
                     // The archive refused the choice's own record: an internal error of the experiment, not the memory's
                     // unavailability. The task's facts are untouched and the memory is not suspended.
                     throw MemoryTaskTool.Failure(code: "choice_not_recorded",
-                                                 message: "Braus could not record this choice (\(MemoryService.describe(error))): nothing was "
-                                                    + "recorded or delivered, and this call ran no app action. Plan with the current scene "
-                                                    + "and tools, or propose again.")
+                                                 message: (ModelText.text(.init(rawValue: "task_cycle_handler__answer.error.v1"))
+                                                     + "\(MemoryService.describe(error))"
+                                                     + ModelText.text(.init(rawValue: "task_cycle_handler__answer.error.v1.2")))
+                                                    + ModelText.text(.init(rawValue: "task_cycle_handler__answer.error.v1.3"))
+                                                    + ModelText.text(.init(rawValue: "task_cycle_handler__answer.error.v1.4")))
                 }
             case .reconcile(let call, let finding, let evidence, let note):
                 let owned = try await memory.unresolvedCalls(source: producer.source, streamID: producer.streamID,
                                                              excludingExecutor: nil)
                 guard owned.contains(where: { $0.eventID == call }) else {
-                    throw MemoryTaskTool.Failure(code: "not_reconciled", message: "The call is not unresolved in this producer stream.")
+                    throw MemoryTaskTool.Failure(code: "not_reconciled", message: ModelText.text(.init(rawValue: "task_cycle_handler__answer.owned.v1")))
                 }
                 // The store checks successful read evidence, resource identity and compatible data context.
                 let fact = try CallReconciliation(callEventID: call, kind: .observed, finding: finding, evidenceEventID: evidence,
@@ -237,9 +242,12 @@ extension TaskCycleHandler {
                 do {
                     try await memory.reconcile(fact)
                 } catch {
-                    throw MemoryTaskTool.Failure(code: "not_reconciled", message: "The reconciliation was not recorded "
-                        + "(\(MemoryService.describe(error))): use a successful read of this effect and resource in the same "
-                        + "producer and data context. Unsupported or inconclusive evidence leaves the call unresolved.")
+                    throw MemoryTaskTool.Failure(code: "not_reconciled", message: ModelText.text(.init(rawValue: "task_cycle_handler__answer.fact.v1"))
+
+                            + (ModelText.text(.init(rawValue: "task_cycle_handler__answer.fact.v1.2"))
+                            + "\(MemoryService.describe(error))"
+                            + ModelText.text(.init(rawValue: "task_cycle_handler__answer.fact.v1.3")))
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__answer.fact.v1.4")))
                 }
                 let left = await unresolvedCalls(memory: memory)
                 return .object(["status": .string("reconciled"), "call": .string(call), "finding": .string(finding.rawValue),
@@ -252,16 +260,17 @@ extension TaskCycleHandler {
                 var extra: [String: JSONValue] = ["use_reported": .number(Double(reported))]
                 if !useProblems.isEmpty { extra["use_not_recorded"] = .array(useProblems.map(JSONValue.string)) }
                 if let used = await linked(current, producer: producer, memory: memory) { extra["recall_use"] = used }
-                return open(current, "use recorded", extra)
+                return open(current, ModelText.text(.init(rawValue: "task_cycle_handler__answer.used.v1")), extra)
             case .status:
                 let suspended = await memory.status().suspended
-                var answer: [String: JSONValue] = ["status": .string(openTask == nil ? "no open task" : "open")]
+                var answer: [String: JSONValue] = ["status": .string(openTask == nil ? ModelText.text(.init(rawValue: "task_cycle_handler__answer.answer.v1")) : "open")]
                 if let current = openTask {
                     answer["task"] = .string(current.taskID)
                     answer["attempt"] = .string(current.attemptID)
                     answer["revision"] = .number(Double(current.revision))
                 }
-                if let suspended { answer["memory"] = .string("suspended: \(suspended)") }
+                if let suspended { answer["memory"] = .string((ModelText.text(.init(rawValue: "answer.TaskCycleHandler.Answer.suspended.v1.fragment.0"))
+                    + "\(suspended)")) }
                 // What this process records into and recalls with, as it resolved them: for a run's preflight, which needs the
                 // process's own archive and configuration, not a value set in a shell.
                 answer["archive"] = .string(memory.url.path)
