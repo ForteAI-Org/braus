@@ -469,6 +469,7 @@ public actor CallRecorder: ActionObserving {
         }
         keep(effect: input.effect, controls: controls)
         attempt = input.attempt
+        if let seen = input.after ?? input.before { lastPerceived = seen }
         target  = input.target.map(OperationCheck.Target.init)
         await keep([(input.before, .before), (input.menu, .menu), (input.after, .after)], bundleID: input.bundleID)
     }
