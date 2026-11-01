@@ -15,6 +15,7 @@ import SeatCapture
 import SeatCore
 import SeatInput
 import SeatSession
+import Switches
 
 /// SeatActuator is `Actuating` over the Seat: every gesture becomes one Command admitted under one
 /// Observation Reference inside a Turn, and the receipts are kept until the engine says what it saw.
@@ -33,6 +34,12 @@ import SeatSession
 /// posted somewhere: pop-ups are chosen with the keyboard, and the engine already does so. The
 /// application is never activated; the seat never raises anything.
 public actor SeatActuator: Actuating {
+
+    private enum MessageArm: String, Sendable { case v1, v2 }
+
+    private static var usesMessagesV2: Bool {
+        SwitchBoard.current.arm("outcome", default: MessageArm.v1) == .v2
+    }
 
     private let target: SeatTarget
     private var turn: Turn?
@@ -63,8 +70,17 @@ public actor SeatActuator: Actuating {
         do {
             try await deliver(gesture, expecting: label, in: processID)
         } catch {
-            throw Self.unsent(error) ?? Self.interrupted(error) ?? error
+            throw Self.deliveryError(error)
         }
+    }
+
+    /// Preserves the historical error chain unless typed remote causes are selected.
+    static func deliveryError(_ error: any Error) -> any Error {
+        if usesMessagesV2, let refusal = error as? RemoteContentActuationRefusal, refusal.mayHaveTakenEffect {
+            return GestureEffectUncertain(cause: "remote_content_refused." + refusal.code,
+                                          description: refusal.description)
+        }
+        return unsent(error) ?? interrupted(error) ?? error
     }
 
     /// The refusal as `GestureNotSent` when the seat refused before posting any event of the gesture, and nil
@@ -85,7 +101,7 @@ public actor SeatActuator: Actuating {
             case let refusal as InputEndpointRefusal:
                 return GestureNotSent(reason: "endpoint_refused", sentence: sentence(for: refusal))
             case let refusal as RemoteContentActuationRefusal where !refusal.mayHaveTakenEffect:
-                return GestureNotSent(reason: "remote_content_refused", sentence: refusal.description)
+                return GestureNotSent(reason: usesMessagesV2 ? "remote_content_refused." + refusal.code : "remote_content_refused", sentence: refusal.description)
             case SeatDrivingFailure.pointOutsideTarget:
                 return GestureNotSent(reason: "point_outside_window", sentence:
                     "That point is outside the window the seat holds. Act on an element of the scene.")

@@ -232,9 +232,10 @@ extension ActionEngine {
         if case .ordinary = focus { attested = true }
         if let error = await send([.insert(text)], to: pid) {
             if let refused = Self.notSent(error, "inserting text") { return refused }
-            return ActOutcome(.actedUnverified, "inserting text: delivery failed: \(error); observe before any retry",
+            let outcome = ActOutcome(.actedUnverified, "inserting text: delivery failed: \(error); observe before any retry",
                               check: Self.undelivered(expecting == nil ? .none : .valueReadBack, method: .controlValue,
                                                       expected: attested ? expecting : nil))
+            return Self.preservingCause(error, in: outcome)
         }
         await settle(pid)
         if !attested {
@@ -355,10 +356,11 @@ extension ActionEngine {
                     check: Self.undelivered(.valueReadBack, method: .controlValue, target: element))
             }
             if let refused = Self.notSent(error, "typing into '\(element.label)'", scene: perceived.scene) { return refused }
-            return ActOutcome(.actedUnverified, "typing into '\(element.label)': delivery failed: \(error)",
+            let outcome = ActOutcome(.actedUnverified, "typing into '\(element.label)': delivery failed: \(error)",
                               check: Self.undelivered(.valueReadBack, method: .controlValue,
                                                       expected: isSecure || request.withholdsText ? nil : typed,
                                                       target: element))
+            return Self.preservingCause(error, in: outcome)
         }
         await settle(pid)
         let after = await perceive(pid)?.scene
@@ -458,8 +460,9 @@ extension ActionEngine {
         await raiseIfNeeded(pid, isPopupOpen: (await surfaces(pid)).hasOpenPopup)
         if let error = await send(Array(repeating: chord.gesture, count: times), to: pid) {
             if let refused = Self.notSent(error, pressed, scene: perceived.scene) { return refused }
-            return ActOutcome(.actedUnverified, "\(pressed): delivery failed: \(error)",
+            let outcome = ActOutcome(.actedUnverified, "\(pressed): delivery failed: \(error)",
                               check: Self.undelivered(.structuralEffect, method: .sceneDifference))
+            return Self.preservingCause(error, in: outcome)
         }
         // A background chord's unchanged scene does not qualify the target's menu support.
         let note = dependencies.activation == nil && chord.modifiers.contains(.command) ? Self.menuShortcutNote : ""

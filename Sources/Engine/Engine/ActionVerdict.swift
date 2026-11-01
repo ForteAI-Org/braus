@@ -9,9 +9,28 @@ import CoreGraphics
 import EngineCore
 import Foundation
 import PerceptionCore
+import Switches
 
 /// Judges action effects and qualifies outcomes from the available evidence.
 extension ActionEngine {
+
+    /// Retains uncertain delivery causes and evidence without importing a platform adapter.
+    static func preservingCause(_ error: any Error, in outcome: ActOutcome) -> ActOutcome {
+        guard let error = error as? GestureEffectUncertain else { return outcome }
+        let prior = outcome.check
+        let check = OperationCheck(
+            condition: prior?.condition ?? .structuralEffect,
+            method: prior?.method ?? .sceneDifference,
+            methodVersion: prior?.methodVersion ?? OperationCheck.engineVersion,
+            verdict: .unknown, expected: prior?.expected, observed: prior?.observed,
+            limits: (prior?.limits ?? []) + [.deliveryUncertain], performed: .uncertain,
+            substitute: prior?.substitute, target: prior?.target
+        )
+        return ActOutcome(outcome.kind, outcome.message, scene: outcome.scene, check: check,
+                          notSent: outcome.notSent, noop: outcome.noop, cause: error.cause)
+    }
+
+    private enum MessageArm: String, Sendable { case v1, v2 }
 
     /// The check of an outcome whose path stated none (`ActOutcome.withStatedCheck`).
     static func checked(_ outcome: ActOutcome) -> ActOutcome {
@@ -53,6 +72,17 @@ extension ActionEngine {
                 let afterWindow = await perceive(pid)
                 let after = afterWindow?.scene
                 await recordPick(request, element: element, before: perceived, after: afterWindow)
+                if stillOpen, SwitchBoard.current.arm("outcome", default: MessageArm.v1) == .v2,
+                   after?.elements.contains(where: {
+                       $0.role != "AXMenuItem" && !LabelText.normalize(element.label).isEmpty
+                           && (LabelText.normalize($0.label) == LabelText.normalize(element.label)
+                               || $0.value.map { LabelText.normalize($0) == LabelText.normalize(element.label) } == true)
+                   }) == true {
+                    return ActOutcome(.foundActed, "The selected choice is present.", scene: after,
+                        check: OperationCheck(condition: .menuItemChosen, method: .controlValue, verdict: .passed,
+                            expected: element.label, observed: element.label, limits: [.commandEffectUnchecked],
+                            performed: .requested, target: target))
+                }
                 let check = OperationCheck(
                     condition: .menuClosedAfterChoice, method: .windowCensus, verdict: stillOpen ? .failed : .passed,
                     expected: "menu closed", observed: stillOpen ? "menu open" : "menu closed",

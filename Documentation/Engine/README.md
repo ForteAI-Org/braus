@@ -816,3 +816,17 @@ transcripts retain the three typed fields. Invalid switch values fall back and a
 Menu listings with no scene retain their existing list text as the observation in the new arm.
 Standalone CLI acceptance and historical menu dry-run segmentation keep their existing rules;
 batch no-op acceptance derives its proof only from a saved `set_toggle` request.
+
+In `outcome=v2`, SeatDriving carries remote refusal codes without role or application values.
+Uncertain delivery uses `EngineCore.GestureEffectUncertain`; Engine preserves its cause and
+uncertain check without importing SeatSession. Engine and SeatDriving depend on Switches to
+select this behavior at the producer. A menu that remains open can confirm a choice when the
+after-scene reads that choice in a control; other menu receipts retain their existing meaning.
+
+ResultFormatter owns refusal memory for its session. CallDispatcher supplies the window identity
+from before delivery only when it still matches afterward. Each rendered scene updates a content
+projection that excludes capture tokens and learned annotations. Identical content preserves the
+last refusal; changed content or a sent gesture clears it for that window. The refusal key retains
+the exact tool, target, verb, typed arguments and cause in RAM, excluding request tokens and
+correlation IDs. An identical refusal yields `do_not_repeat`; uncertain delivery is never entered
+as a refusal. The default `outcome=v1` retains historical errors and checks.
