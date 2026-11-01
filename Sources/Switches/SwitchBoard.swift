@@ -60,4 +60,14 @@ public struct SwitchBoard: Sendable, Equatable {
 
     /// Values refused by an arm reader during this process.
     public static var invalid: [String: String] { state.withLock { $0.invalid } }
+
+    /// Writes refused names and values on one line, escaping control characters from the environment.
+    public static func reportInvalidValues(write: (String) -> Void = {
+        FileHandle.standardError.write(Data($0.utf8))
+    }) {
+        let values = invalid
+        guard !values.isEmpty else { return }
+        write(values.keys.sorted().map { "\(String(reflecting: $0))=\(String(reflecting: values[$0] ?? ""))" }
+            .joined(separator: ",") + "\n")
+    }
 }

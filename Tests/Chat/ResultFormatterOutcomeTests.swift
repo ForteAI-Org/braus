@@ -127,4 +127,61 @@ struct ResultFormatterOutcomeTests {
             #expect(text.hasPrefix(acted ? "uncertain · unknown(not_readable) · observe" : "not_sent · not_applicable · do_not_repeat"))
         }
     }
+    @Test func notSentFailuresKeepMinimizedDetailsAndCauses() {
+        let session = ToolResultSession()
+        let secrets = ProducerSecrets()
+        let sceneText = SceneTextPolicy()
+        let formatter = ResultFormatter(session: session, secrets: secrets, sceneText: sceneText)
+        defer { withExtendedLifetime((secrets, sceneText)) {} }
+        for cause in ["no_session", "memory_unconfirmed", "uncertainty_refusal", "historical_value_refusal"] {
+            let result = formatter.thrown(AutomationFailure("fake-private-value", cause: cause), tool: "act",
+                                          mayHaveActed: false, minimized: "Specific refusal: [withheld].")
+            let text = result["content"].array?.first?["text"].string ?? ""
+            #expect(text.hasPrefix("not_sent · not_applicable · do_not_repeat"))
+            #expect(text.contains("Specific refusal: [withheld]."))
+            #expect(!text.contains("fake-private-value"))
+            #expect(text.contains(OutcomeText.message(OutcomeKey(
+                outcome: Outcome(gesture: .notSent, effect: .notApplicable, recovery: .doNotRepeat),
+                verb: "act", cause: cause), label: nil)))
+        }
+    }
+
+    @Test func batchStartRefusalIsNotSent() throws {
+        let session = ToolResultSession()
+        let secrets = ProducerSecrets()
+        let sceneText = SceneTextPolicy()
+        let formatter = ResultFormatter(session: session, secrets: secrets, sceneText: sceneText)
+        defer { withExtendedLifetime((secrets, sceneText)) {} }
+        try SwitchBoard.$testing.withValue(SwitchBoard(values: ["outcome": "v2"])) {
+            let result = try formatter.finish("batch", .object(["steps": .array([.object([
+                "status": .string("error"), "message": .string("fake failure"),
+                "_failure_cause": .string("memory_unconfirmed")
+            ])])]), notice: nil, output: CallOutput())
+            let text = result["content"].array?.first?["text"].string ?? ""
+            #expect(text.contains("not_sent · not_applicable · do_not_repeat"))
+            #expect(text.contains("Memory did not confirm"))
+            #expect(!text.contains("_failure_cause"))
+        }
+    }
+
+    @Test func substitutedNoopExplainsTheUnmadeClick() async throws {
+        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["outcome": "v2"])) {
+            let session = ToolResultSession()
+            let secrets = ProducerSecrets()
+            let sceneText = SceneTextPolicy()
+            let formatter = ResultFormatter(session: session, secrets: secrets, sceneText: sceneText)
+            defer { withExtendedLifetime((secrets, sceneText)) {} }
+            let refusal = ResultFormatter.RefusalContext(sessionID: try #require(session.id), windowNumber: 1,
+                tool: "act", arguments: .object(["target": .string("Control")]))
+            for _ in 0..<2 {
+                let value = await formatter.outcome(ActOutcome(.actedNoop, "Historical text", noop: .substituted),
+                                                    refusal: refusal)
+                let result = try formatter.finish("act", value, notice: nil, output: CallOutput())
+                let text = result["content"].array?.first?["text"].string ?? ""
+                #expect(text.hasPrefix("not_sent · not_applicable · retry"))
+                #expect(text.contains("A menu was open and was closed instead; the click was not made."))
+            }
+        }
+    }
+
 }

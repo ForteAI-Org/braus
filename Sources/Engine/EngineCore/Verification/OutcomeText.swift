@@ -3,11 +3,13 @@ public struct OutcomeKey: Sendable, Hashable {
     public let outcome: Outcome
     public let verb: String
     public let cause: String?
+    public let noop: NoopKind?
 
-    public init(outcome: Outcome, verb: String, cause: String? = nil) {
+    public init(outcome: Outcome, verb: String, cause: String? = nil, noop: NoopKind? = nil) {
         self.outcome = outcome
         self.verb = verb
         self.cause = Self.stableCause(cause)
+        self.noop = noop
     }
 
     static func stableCause(_ cause: String?) -> String? {
@@ -22,6 +24,17 @@ public struct OutcomeKey: Sendable, Hashable {
 /// OutcomeText supplies bounded messages without echoing application data or error text.
 public enum OutcomeText {
     public static func message(_ key: OutcomeKey, label: String?) -> String {
+        if key.noop == .substituted {
+            return "A menu was open and was closed instead; the click was not made."
+        }
+        switch key.cause {
+        case "no_session": return "No session is open. Open a session before sending input."
+        case "memory_unconfirmed": return "Memory did not confirm this step's start; nothing was sent."
+        case "uncertainty_refusal": return "An earlier effect is uncertain; this dependent step was not sent."
+        case "historical_value_refusal": return "This step uses a historical value that the current task has not authorized; nothing was sent."
+        case "invalid_arguments": return "The call's arguments were refused; correct them before retrying."
+        default: break
+        }
         if key.cause == "thrown" {
             return key.outcome.gesture == .uncertain
                 ? "The call ended before its effect could be read."

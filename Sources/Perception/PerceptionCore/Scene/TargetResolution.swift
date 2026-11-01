@@ -40,7 +40,7 @@ extension SceneSnapshot {
             let matches = sections.filter {
                 Self.inline($0.name).caseInsensitiveCompare(Self.inline(section)) == .orderedSame
             }
-            if matches.count > 1 { return .ambiguous(matches.count) }
+            if Set(matches.map(\.name)).count > 1 { return .ambiguous(matches.count) }
         }
         let resolvedSection = section.flatMap { resolveSection(named: $0)?.name }
         func inSection(_ element: SceneElement) -> Bool {
@@ -76,12 +76,12 @@ extension SceneSnapshot {
         }
         // The scene prints a control as "label = value": that copy names the element with both.
         if byLabel.isEmpty, let separator = cleaned.range(of: " = ") {
-            let label = LabelText.withoutBidiControls(String(cleaned[..<separator.lowerBound]))
-            let value = LabelText.withoutBidiControls(String(cleaned[separator.upperBound...]))
+            let label = Self.plain(String(cleaned[..<separator.lowerBound]))
+            let value = Self.plain(String(cleaned[separator.upperBound...]))
             byLabel = elements.filter {
                 inSection($0)
-                    && LabelText.withoutBidiControls($0.label).caseInsensitiveCompare(label) == .orderedSame
-                    && $0.value.map(LabelText.withoutBidiControls)?.caseInsensitiveCompare(value) == .orderedSame
+                    && Self.plain($0.label).caseInsensitiveCompare(label) == .orderedSame
+                    && $0.value.map(Self.plain)?.caseInsensitiveCompare(value) == .orderedSame
             }
         }
         if byLabel.isEmpty {

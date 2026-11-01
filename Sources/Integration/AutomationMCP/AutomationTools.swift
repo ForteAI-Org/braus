@@ -6,6 +6,7 @@ import CryptoKit
 import AutomationRuntime
 import EngineCore
 import Foundation
+import Switches
 import os
 import LocalMCP
 import Memory
@@ -311,4 +312,12 @@ public final class AutomationTools {
     }
 
     static func collection(_ collected: PostCollection) -> JSONValue { ResultFormatter.collection(collected) }
+}
+
+extension AutomationTools {
+    /// Reports invalid switch selections once at the composition root's startup.
+    public static func reportInvalidSwitches() {
+        _ = ResultFormatter.usesOutcomeV2
+        SwitchBoard.reportInvalidValues()
+    }
 }

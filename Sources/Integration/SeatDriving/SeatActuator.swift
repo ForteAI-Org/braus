@@ -121,6 +121,9 @@ public actor SeatActuator: Actuating {
     /// The seat's stop once a gesture's first event may have gone out, in words: its effect stays unknown, and the
     /// engine still reports the gesture as delivered. Nil for any other error.
     static func interrupted(_ error: any Error) -> GestureInterrupted? {
+        if error is InputSequenceFailure || error is NativeTextInputFailure {
+            return GestureInterrupted(sentence: "the input stopped after commands may have been posted; its effect is unknown")
+        }
         guard let stop = error as? SeatInterruption else { return nil }
         return GestureInterrupted(sentence: "the seat stopped it: " + stop.issues.map(Self.words).joined(separator: "; ")
             + "; it may have taken effect, so observe before any retry")

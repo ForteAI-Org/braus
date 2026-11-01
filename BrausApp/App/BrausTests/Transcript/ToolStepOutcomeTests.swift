@@ -2,25 +2,19 @@ import Testing
 @testable import Braus
 
 struct ToolStepOutcomeTests {
-    @Test func unknownEffectIsDone() {
-        let steps = ToolStep.steps(from: [
-            "→ act {\"target\":\"Control\"}",
-            "← act {\"gesture\":\"sent\",\"effect\":\"unknown(not_classified)\",\"recovery\":\"do_not_repeat\"}"
-        ])
-        #expect(steps.count == 1)
-        #expect(steps.first?.state == .done)
-    }
-
-    @Test(arguments: ["absent", "unknown(not_readable)"])
-    func distinguishesAbsentFromUnknown(_ effect: String) {
-        let steps = ToolStep.steps(from: [
-            "→ act {\"target\":\"Control\"}",
-            "← act {\"gesture\":\"sent\",\"effect\":\"\(effect)\",\"recovery\":\"do_not_repeat\"}"
-        ])
-        if effect == "absent" {
-            guard case .failed = steps.first?.state else { Issue.record("Absent effect was not failed"); return }
-        } else {
-            #expect(steps.first?.state == .done)
+    @Test(arguments: ["confirmed", "absent", "unknown(not_readable)", "unknown(not_classified)", "not_applicable"])
+    func succeedsOnlyWithConfirmationOrContinuation(_ effect: String) {
+        for recovery in ["continue", "retry", "do_not_repeat", "observe", "ask_person"] {
+            let steps = ToolStep.steps(from: [
+                "→ act {\"target\":\"Control\"}",
+                "← act {\"gesture\":\"sent\",\"effect\":\"\(effect)\",\"recovery\":\"\(recovery)\"}"
+            ])
+            #expect(steps.count == 1)
+            if effect == "confirmed" || recovery == "continue" {
+                #expect(steps.first?.state == .done)
+            } else {
+                guard case .failed = steps.first?.state else { Issue.record("Unconfirmed step was not failed"); continue }
+            }
         }
     }
 }

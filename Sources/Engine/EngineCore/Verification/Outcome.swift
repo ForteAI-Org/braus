@@ -104,6 +104,7 @@ public struct Outcome: Sendable, Equatable, Hashable {
             }
         case .actedNoop:
             effect = noop == .statePresent ? .confirmed : .notApplicable
+            if noop == .substituted { recovery = .retry }
         case .honestMiss: recovery = .changeTarget(.notFound)
         case .ambiguous: recovery = .changeTarget(.ambiguous)
         case .dryRun: break
