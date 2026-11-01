@@ -114,6 +114,16 @@ public struct SceneSkeleton: Sendable, Equatable, Hashable {
         self.init(surface: sample.surface, elements: sample.elements)
     }
 
+    /// Builds the skeleton the archive compares, minimizing the sample as a saved sample is.
+    /// Equality requires the same minimization context, including any call-specific secrets.
+    public static func comparable(
+        _ sample    : CaptureSample,
+        minimization: ValueMinimization,
+        surface     : ConfidentialSurface?
+    ) -> SceneSkeleton {
+        SceneSkeleton(sample: minimization.minimize(sample: sample, confidential: surface).0)
+    }
+
     /// The structural paths with at least one role.
     public var paths: Set<String> { Set(rolesByPath.keys) }
 
