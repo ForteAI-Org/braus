@@ -13,7 +13,7 @@ public struct ProviderTurn: Sendable {
     public let workingDirectory: String
     /// The provider's reasoning effort, or nil for its default.
     public let effort: String?
-    /// The child's whole environment, or nil to inherit this process's.
+    /// The child's whole environment, filtered by its host. Nil permits process inheritance in provider tests.
     public let environment: [String: String]?
     /// A turn that only compacts `sessionID`'s context. Claude is sent `/compact`, whatever `prompt`
     /// says, on the one turn that allows slash commands; Codex answers `prompt` with an auto-compaction
