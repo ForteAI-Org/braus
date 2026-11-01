@@ -1,5 +1,6 @@
 import AccessibilityFacts
 import AppKit
+import AutomationRuntime
 import Foundation
 import ModelTransports
 import Perception
@@ -40,7 +41,8 @@ public final class SeatBroker {
         sections    : ColorSectionDetector(),
         augmentation: AccessibilityAugmenter(
             budgetSeconds: 0.35,
-            windowNumberResolver: { WindowRelocator.windowNumber(of: $0) }
+            windowNumberResolver: { WindowRelocator.windowNumber(of: $0) },
+            valueGuard: ProductionPerception.workerValueGuard
         ),
         // Off for now, and the owner's call to put back. Measured on one Slack
         // window of 89 elements, same frame, same scene: perception 2.76 s with

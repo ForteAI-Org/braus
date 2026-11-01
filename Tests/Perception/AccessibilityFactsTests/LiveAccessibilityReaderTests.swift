@@ -8,6 +8,48 @@ import Synchronization
 @Suite("Accessibility value admission")
 struct LiveAccessibilityReaderTests {
 
+    @Test("The role-only guard never reserves a label", arguments: ["Key", "Token", "PIN", "Password"])
+    func roleOnlyGuard(label: String) {
+        let reads = Mutex(0)
+        let reader = LiveAccessibilityReader(valueGuard: { _ in false }, copyAttributeValue: { _, name, result in
+            switch name as String {
+                case kAXRoleAttribute: result.pointee = "AXTextField" as CFString
+                case kAXSubroleAttribute: result.pointee = "" as CFString
+                case kAXValueAttribute:
+                    reads.withLock { $0 += 1 }
+                    result.pointee = "ordinary" as CFString
+                default: result.pointee = label as CFString
+            }
+            return .success
+        })
+        #expect(reader.value(AXUIElementCreateApplication(0)) == "ordinary")
+        #expect(reads.withLock { $0 } == 1)
+    }
+
+    @Test("The role-only guard rejects secure classification before AXValue",
+          arguments: ["role", "subrole", "unreadable", "ordinary"])
+    func workerPipelineGuard(scenario: String) {
+        let reads = Mutex(0)
+        let reader = LiveAccessibilityReader(valueGuard: { _ in false }, copyAttributeValue: { _, name, result in
+            switch name as String {
+                case kAXRoleAttribute:
+                    result.pointee = (scenario == "role" ? "AXSecureTextField" : "AXTextField") as CFString
+                case kAXSubroleAttribute:
+                    if scenario == "unreadable" { return .cannotComplete }
+                    result.pointee = (scenario == "subrole" ? "AXSecureTextField" : "") as CFString
+                case kAXValueAttribute:
+                    reads.withLock { $0 += 1 }
+                    result.pointee = "ordinary" as CFString
+                default: return .noValue
+            }
+            return .success
+        })
+        let node = AXUIElementCreateApplication(0)
+        let role = reader.role(node), subrole = reader.subrole(node)
+        #expect(reader.value(node, role: role, subrole: subrole) == (scenario == "ordinary" ? "ordinary" : nil))
+        #expect(reads.withLock { $0 } == (scenario == "ordinary" ? 1 : 0))
+    }
+
     @Test("The default string read requests only AXValue", arguments: ["120.000", "", "  Tempo\n"])
     func unguardedString(value: String) {
         let requests = Mutex<[String]>([])
