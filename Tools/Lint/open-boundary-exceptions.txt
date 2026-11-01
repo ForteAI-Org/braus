@@ -8,6 +8,7 @@ bundle-id | Sources/Driver/TargetReader/Observation/ChromiumAXTreeReadiness.swif
 bundle-id | Sources/Driver/TargetReader/Observation/ChromiumAXTreeReadiness.swift | com.google.Chrome.canary | category | Browser category: accessibility readiness
 bundle-id | Sources/Driver/TargetReader/Observation/ChromiumAXTreeReadiness.swift | com.google.Chrome.dev | category | Browser category: accessibility readiness
 bundle-id | Sources/Driver/TargetReader/Observation/ChromiumAXTreeReadiness.swift | org.chromium.Chromium | category | Browser category: accessibility readiness
+bundle-id | Sources/Engine/Engine/ActionDelivery.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
 bundle-id | Sources/Engine/Engine/ActionEngine.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
 bundle-id | Sources/Engine/EngineCore/Policy/ActionPolicy.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
 bundle-id | Sources/Engine/Memory/Privacy/ConfidentialSurfaces.swift | com.microsoft.Outlook | category | Confidential surface category: correspondence and personal records
