@@ -233,7 +233,7 @@ let package = Package(
     products : [
         .library(name: "BrausChat",
                  targets: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
-                           "AutomationRuntime", "AutomationMCP", "AgentLoop"]),
+                           "AutomationRuntime", "AutomationMCP", "AgentLoop", "Turn"]),
         .library(
             name: "BrausDriver",
             targets: ["SeatCore", "PrivateSymbols", "VirtualScreens", "WindowPlacement",
@@ -513,6 +513,13 @@ let package = Package(
                     settings: pure),
 
         // MARK: Engine tools
+        .target(name: "Turn",
+                dependencies: ["ChatCore", "CLIProviders", "LocalMCP", "ModelTransports", "AutomationRuntime",
+                               "AutomationMCP", "AgentLoop"], path: "Sources/Turn", swiftSettings: facility),
+        .testTarget(name: "TurnTests", dependencies: ["Turn", "ChatCore", "CLIProviders", "LocalMCP", "ModelTransports",
+                                                    "AutomationMCP", "AutomationRuntime", "TestScratch",
+                                                    "EngineCore", "PerceptionCore"],
+                    path: "Tests/Turn", resources: [.copy("Fixtures")], swiftSettings: facility),
         .target(name: "AgentLoop", dependencies: ["ModelTransports", "ChatCore", "LocalMCP", "AutomationRuntime"],
                 path: "Sources/AgentLoop", swiftSettings: facility),
         // Chat contracts exclude processes, persistence, MCP, AppKit and the Driver.
@@ -551,7 +558,7 @@ let package = Package(
                            "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "AutomationRuntime",
                            "ChatCore", "CLIProviders", "FileConversations", "LocalMCP", "AutomationMCP", "SceneOverlay", "InteractionListener", "InteractionObservation",
                            "LocalEmbedding", "SeatBroker", "AppAdapters", "MacDriver", "MacDriving", "MacDelivery",
-                           "MacSession", "Router", "WebSession", "WebDriver", "TaskRouting"]
+                           "MacSession", "Router", "WebSession", "WebDriver", "TaskRouting", "Turn"]
                 .map { .target(name: $0) },
             path: "Tools/Engine/braus",
             swiftSettings: facility
@@ -652,7 +659,7 @@ let package = Package(
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
             name: "BrausCLITests",
-            dependencies: ["braus", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
+            dependencies: ["braus", "Turn", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
                            "Memory", "SQLiteMemory", "SeatBroker", "SeatDriving", "FileConversations", "TestScratch",
                            "AppAdapters"],
             path: "Tests/Engine/BrausCLITests",
