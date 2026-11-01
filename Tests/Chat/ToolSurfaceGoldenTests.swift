@@ -115,12 +115,13 @@ enum ToolGolden {
         }
         func candidateIdentity(_ value: JSONValue) -> JSONValue {
             // Only memory_task end's candidate.id suffix and its exact identity in next use this regex:
-            // ^candidate-[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}-([0-9a-f]{16})$
+            // ^candidate-[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}-([0-9a-f]{1,16})$
             guard case .object(var object) = value, case .object(var candidate)? = object["candidate"],
                   let id = candidate["id"]?.string else { return value }
-            let pattern = "^candidate-[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}-([0-9a-f]{16})$"
-            guard let range = id.range(of: pattern, options: .regularExpression) else { return value }
-            let kept = String(id[range].dropLast(16)) + "<suffix>"
+            let pattern = "^candidate-[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}-([0-9a-f]{1,16})$"
+            guard id.range(of: pattern, options: .regularExpression) != nil,
+                  let separator = id.lastIndex(of: "-") else { return value }
+            let kept = String(id[...separator]) + "<suffix>"
             candidate["id"] = .string(kept)
             object["candidate"] = .object(candidate)
             if let next = object["next"]?.string {
@@ -183,6 +184,26 @@ enum ToolGolden {
             try actual.write(to: FileManager.default.temporaryDirectory.appending(path: "tu3-\(name)-actual.json"))
         }
         #expect(actual == expected, "Golden differs: \(name)")
+    }
+}
+
+@Suite
+@MainActor
+struct CandidateIdentityGoldenTests {
+    @Test(arguments: ["1", "1e8595fe991593", "0123456789abcdef"])
+    func variableWidthSuffixKeepsTheSameGoldenIdentity(_ suffix: String) throws {
+        let id = "candidate-00000000-0000-0000-0000-000000000000-" + suffix
+        let payload: JSONValue = .object([
+            "candidate": .object(["id": .string(id)]),
+            "next": .string("Interpret " + id),
+            "unchanged": .string("Keep " + suffix)
+        ])
+        let result = try ToolGolden.normalized(.array([.object(["structuredContent": payload])]))
+        let decoded = try JSONDecoder().decode(JSONValue.self, from: result)
+        let kept = try #require(decoded.array?.first?["structuredContent"])
+        #expect(kept["candidate"]["id"].string == "candidate-<uuid>-<suffix>")
+        #expect(kept["next"].string == "Interpret candidate-<uuid>-<suffix>")
+        #expect(kept["unchanged"].string == "Keep " + suffix)
     }
 }
 

@@ -1,6 +1,7 @@
 import ChatCore
 import FileConversations
 import Foundation
+import Turn
 
 /// ChatTranscript serializes live provider and tool events into one conversation on the main actor.
 final class ChatTranscript {
@@ -8,6 +9,8 @@ final class ChatTranscript {
     let store: ConversationStore
     /// The last token counts the provider reported, for a script's evidence; nil when it reported none.
     private(set) var lastUsage: ProviderUsage?
+    /// The successful runner outcome for the current request.
+    private(set) var lastOutcome: TurnOutcome?
     /// What the current request cost: the sum of its provider runs (an interpretation reminder is a second run, whose
     /// counts alone the evidence held until 14 October 2026), or, for a provider that counts the whole session (Codex),
     /// the difference from the session's total before the request. Nil when the provider reported nothing.
@@ -30,6 +33,7 @@ final class ChatTranscript {
     /// Starts counting a new request's cost.
     func beginRequest() {
         requestTokens = nil
+        lastOutcome = nil
         totalBefore = lastUsage?.isSessionTotal == true ? lastUsage?.tokens : nil
     }
 
@@ -66,16 +70,37 @@ final class ChatTranscript {
         }
     }
 
+    /// Stores the runner's final usage while retaining the provider's session total for the next turn.
+    func recordUsage(_ reported: ProviderUsage, total: TurnTokenUsage) {
+        lastUsage = reported
+        requestTokens = total.tokens
+    }
+
+    func recordOutcome(_ outcome: TurnOutcome) {
+        lastOutcome = outcome
+    }
+
     func save() throws { try store.save(conversation) }
 
     private static func adding(_ a: ProviderUsage.Tokens, _ b: ProviderUsage.Tokens) -> ProviderUsage.Tokens {
-        ProviderUsage.Tokens(input: a.input + b.input, cacheReads: a.cacheReads + b.cacheReads,
-                             cacheWrites: a.cacheWrites + b.cacheWrites, output: a.output + b.output,
-                             reasoning: a.reasoning + b.reasoning)
+        ProviderUsage.Tokens(
+            input: a.input + b.input,
+            cacheReads: a.cacheReads + b.cacheReads,
+            cacheWrites: a.cacheWrites + b.cacheWrites,
+            cacheWritesHour: a.cacheWritesHour + b.cacheWritesHour,
+            output: a.output + b.output,
+            reasoning: a.reasoning + b.reasoning
+        )
     }
 
     private static func negated(_ a: ProviderUsage.Tokens) -> ProviderUsage.Tokens {
-        ProviderUsage.Tokens(input: -a.input, cacheReads: -a.cacheReads, cacheWrites: -a.cacheWrites, output: -a.output,
-                             reasoning: -a.reasoning)
+        ProviderUsage.Tokens(
+            input: -a.input,
+            cacheReads: -a.cacheReads,
+            cacheWrites: -a.cacheWrites,
+            cacheWritesHour: -a.cacheWritesHour,
+            output: -a.output,
+            reasoning: -a.reasoning
+        )
     }
 }
