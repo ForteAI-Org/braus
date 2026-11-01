@@ -44,7 +44,12 @@ including the interpretation reminder. The runner requires `AutomationMCP`, `Aut
 A runner admits one turn at a time. Suspension blocks new calls, interrupts admitted reads and
 waits for admitted actions to finish. The host retains the application episode; only its current
 token can release suspension after the turn drains. CLI hosts disable suspension. Stop and close
-join the admitted calls before releasing their session, and failures are never retried.
+join admitted calls before cleanup, and failures are never retried. The runner borrows its host
+weakly and retains it only for each admitted call. `closesSessionOnEnd` defaults to true for app
+failures and stops; the CLI sets it to false so signal shutdown can abandon the task and collect
+evidence before closing the session. Explicit `retire()` and `close()` still release it.
+Endpoint cleanup failures are written to stderr and retained for `close()` to report, preserving
+a successful turn and its instruction record, or the original thrown failure.
 
 `TurnOutcome.usage` adds each process's own token counts, converting session totals to differences
 first. Hour cache writes are part of all cache writes; reasoning is part of output. Both routes

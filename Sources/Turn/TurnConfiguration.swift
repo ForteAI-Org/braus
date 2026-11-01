@@ -7,14 +7,15 @@ nonisolated public struct TurnConfiguration: Sendable {
     /// A dedicated private directory owned by runner cleanup; nil creates a temporary one.
     public let connectionFolder: URL?
     public let allowsSuspension: Bool
-    public let appInstructions: Bool
+    /// Closes the Seat after failure or stop; the CLI owns that ordering itself.
+    public let closesSessionOnEnd: Bool
 
     public init(workingDirectory: URL, bridgeExecutable: URL, connectionFolder: URL? = nil,
-                allowsSuspension: Bool, appInstructions: Bool = true) {
+                allowsSuspension: Bool, closesSessionOnEnd: Bool = true) {
         self.workingDirectory = workingDirectory
         self.bridgeExecutable = bridgeExecutable
         self.connectionFolder = connectionFolder
         self.allowsSuspension = allowsSuspension
-        self.appInstructions = appInstructions
+        self.closesSessionOnEnd = closesSessionOnEnd
     }
 }

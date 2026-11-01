@@ -9,13 +9,14 @@ import LocalMCP
 import ModelTransports
 
 /// TurnRunner owns turn execution, private endpoints and suspension independently of host UI and storage.
-/// The host must outlive its runner. Calls, turns and episode transitions are serialized on the main actor.
+/// The host is borrowed weakly and retained for admitted calls. Transitions are serialized on the main actor.
 @MainActor
 public final class TurnRunner {
     private let tools: AutomationTools
     private let configuration: TurnConfiguration
-    private unowned let hosting: any TurnHosting
+    private weak var hosting: (any TurnHosting)?
     private let provider = CLIProvider()
+    private let removeConnectionFile: (URL) throws -> Void
     private let takeReminder: @MainActor () -> String?
     private var servedHost: LocalMCPHost?
     private var temporary: URL?
@@ -58,9 +59,11 @@ public final class TurnRunner {
                   reminder: { tools.takeInterpretationReminder() })
     }
 
-    /// Supplies a controlled interpretation boundary for lifecycle tests.
+    /// Supplies controlled interpretation and endpoint removal boundaries for lifecycle tests.
     init(tools: AutomationTools, configuration: TurnConfiguration, host: any TurnHosting,
-         reminder: @escaping @MainActor () -> String?) {
+         reminder: @escaping @MainActor () -> String?,
+         removeConnectionFile: @escaping (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }) {
+        self.removeConnectionFile = removeConnectionFile
         takeReminder = reminder
         self.tools = tools
         self.configuration = configuration
@@ -79,6 +82,7 @@ public final class TurnRunner {
         onEvent: @escaping @MainActor (TurnRunEvent) -> Void
     ) async throws -> TurnOutcome {
         try admit()
+        guard hosting != nil else { throw CancellationError() }
         self.onEvent = onEvent
         isStopRequested = false
         commandRounds = 0
@@ -92,11 +96,11 @@ public final class TurnRunner {
         previousTotal = request.previousSessionTotal
         let started = ContinuousClock.now
         defer { ended() }
-        hosting.turnBegan()
+        hosting?.turnBegan()
         try await tools.finishInterruptedTask()
         if isStopRequested { throw CancellationError() }
         reset(.turnStart)
-        let seatParts = [tools.takeStoppedTaskNotice(), hosting.seatLine(),
+        let seatParts = [tools.takeStoppedTaskNotice(), hosting?.seatLine(),
                          request.reviewingHumanIntervention ? TurnInstructions.humanInterventionInstructions : nil]
             .compactMap { $0 }
         let seat = seatParts.isEmpty ? nil : seatParts.joined(separator: "\n\n")
@@ -137,8 +141,9 @@ public final class TurnRunner {
                     throw TurnSuspended(token: episode)
                 }
                 episode = nil
-                await tools.session.close()
-                try await tools.finishInterruptedTask()
+                if configuration.closesSessionOnEnd { await tools.session.close() }
+                do { try await tools.finishInterruptedTask() }
+                catch { recordCleanupFailure(error) }
                 throw error
             }
         case .commandLine(let chatProvider, let executable, _, _, let environment, _):
@@ -168,7 +173,7 @@ public final class TurnRunner {
                 if isStopRequested { throw CancellationError() }
                 router.pause()
                 await router.drain()
-                try await endTurnHost()
+                await cleanUpTurnHost()
                 if let session = reportedSession ?? request.sessionID {
                     record(instructions, deliveredTo: session)
                 }
@@ -180,8 +185,7 @@ public final class TurnRunner {
                 else { router.pause() }
                 await router.drain()
                 await provider.waitUntilStopped()
-                do { try await endTurnHost() }
-                catch { throw AutomationFailure("\(primary.localizedDescription) Cleanup failed: \(error.localizedDescription)") }
+                await cleanUpTurnHost()
                 accountPending(session: reportedSession ?? request.sessionID)
                 await reportUsage(provider: chatProvider, session: reportedSession ?? request.sessionID,
                                   environment: environment)
@@ -190,9 +194,9 @@ public final class TurnRunner {
                     throw TurnSuspended(token: episode)
                 }
                 episode = nil
-                await tools.session.close()
+                if configuration.closesSessionOnEnd { await tools.session.close() }
                 do { try await tools.finishInterruptedTask() }
-                catch { throw AutomationFailure("\(primary.localizedDescription) Task cleanup failed: \(error.localizedDescription)") }
+                catch { recordCleanupFailure(error) }
                 throw primary
             }
         }
@@ -265,12 +269,13 @@ public final class TurnRunner {
 
     private func call(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
         guard episode == nil, !isStopRequested else { throw CancellationError() }
+        guard let hosting else { throw CancellationError() }
         if let refusal = hosting.admission(of: name, arguments) { throw AutomationFailure(refusal) }
         let id = UUID()
         let interruption = AutomationCallInterruption()
         let task = Task {
             try await AutomationCallInterruption.$current.withValue(interruption) {
-                try await self.hosting.withinCallScope { try await self.tools.call(name, arguments) }
+                try await hosting.withinCallScope { try await self.tools.call(name, arguments) }
             }
         }
         toolCalls += 1
@@ -302,7 +307,7 @@ public final class TurnRunner {
         episode = token
         isStopRequested = true
         reset(.personHadApp)
-        hosting.turnStopping()
+        hosting?.turnStopping()
         router.suspendForHumanIntervention()
         interruptReads()
         loop?.suspendForHumanIntervention()
@@ -336,14 +341,14 @@ public final class TurnRunner {
         guard isRunning else {
             if wasSuspended {
                 cleanup = Task {
-                    await tools.session.close()
+                    if configuration.closesSessionOnEnd { await tools.session.close() }
                     cleanup = nil
                 }
             }
             return
         }
         isStopRequested = true
-        hosting.turnStopping()
+        hosting?.turnStopping()
         if let loop { loop.stop(); return }
         router.pause()
         provider.cancel()
@@ -359,8 +364,7 @@ public final class TurnRunner {
         episode = nil
         router.pause()
         await router.drain()
-        do { try await endTurnHost() }
-        catch { cleanupFailure = error }
+        await cleanUpTurnHost()
         await tools.session.close()
     }
 
@@ -371,7 +375,7 @@ public final class TurnRunner {
         episode = nil
         isStopRequested = true
         loop?.stop()
-        hosting.turnStopping()
+        hosting?.turnStopping()
         router.pause()
         provider.cancel()
         if isRunning { await withCheckedContinuation { runEndWaiters.append($0) } }
@@ -395,7 +399,7 @@ public final class TurnRunner {
         return TurnInstructions.compose(role: request.role, searchesWeb: searchesWeb, tools: tools.instructions)
     }
 
-    private func providerTurn(
+    func providerTurn(
         _ request: TurnRequest,
         prompt: String,
         session: String?,
@@ -461,19 +465,24 @@ public final class TurnRunner {
             try files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
             return file
         } catch let primary {
-            var failures: [String] = []
-            do { try await endTurnHost() }
-            catch { failures.append(String(describing: error)) }
+            await cleanUpTurnHost()
             if let temporary {
                 self.temporary = nil
                 do { try files.removeItem(at: temporary) }
-                catch { failures.append(String(describing: error)) }
-            }
-            if !failures.isEmpty {
-                throw AutomationFailure("\(primary) Cleanup failed: \(failures.joined(separator: "; "))")
+                catch { recordCleanupFailure(error) }
             }
             throw primary
         }
+    }
+
+    private func recordCleanupFailure(_ error: any Error) {
+        cleanupFailure = cleanupFailure ?? error
+        TurnDiagnostics.cleanup(error)
+    }
+
+    private func cleanUpTurnHost() async {
+        do { try await endTurnHost() }
+        catch { recordCleanupFailure(error) }
     }
 
     private func endTurnHost() async throws {
@@ -483,7 +492,7 @@ public final class TurnRunner {
         if let connectionFile {
             self.connectionFile = nil
             if FileManager.default.fileExists(atPath: connectionFile.path) {
-                try FileManager.default.removeItem(at: connectionFile)
+                try removeConnectionFile(connectionFile)
             }
         }
     }
@@ -542,13 +551,12 @@ extension TurnRunner {
                     default: break
                     }
                 }
-                try await endTurnHost()
+                await cleanUpTurnHost()
             } catch let primary {
                 router.pause()
                 await router.drain()
                 await provider.waitUntilStopped()
-                do { try await endTurnHost() }
-                catch { throw AutomationFailure("\(primary.localizedDescription) Cleanup failed: \(error.localizedDescription)") }
+                await cleanUpTurnHost()
                 throw primary
             }
             switch chatProvider {
