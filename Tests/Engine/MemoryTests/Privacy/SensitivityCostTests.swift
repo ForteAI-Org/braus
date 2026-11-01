@@ -1,7 +1,7 @@
 import Memory
 import Testing
 
-/// SensitivityCostTests reports fixed-input debug costs; run alone with --no-parallel for comparisons.
+/// SensitivityCostTests reports fixed-input costs; run alone with --no-parallel for comparisons.
 @Suite(.serialized)
 struct SensitivityCostTests {
     @Test func fixedMessages() {
@@ -33,4 +33,23 @@ struct SensitivityCostTests {
             }
         }
     }
+    @Test func minimizedMessageCost() {
+        let text = String(repeating: "A normal message with ordinary words. ", count: 32)
+        #expect(text.utf8.count == 1_216)
+        let minimization = ValueMinimization()
+        let clock = ContinuousClock()
+        _ = minimization.minimize(text: text)
+        var samples: [Double] = []
+        for _ in 0..<1_000 {
+            let start = clock.now
+            let result = minimization.minimize(text: text)
+            let elapsed = start.duration(to: clock.now).components
+            #expect(result.0 == text && result.1 == nil)
+            samples.append(Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15)
+        }
+        samples.sort()
+        print("Sensitivity minimization cost: bytes=\(text.utf8.count), samples=\(samples.count), "
+            + "p50Milliseconds=\(samples[499]), p95Milliseconds=\(samples[949])")
+    }
+
 }

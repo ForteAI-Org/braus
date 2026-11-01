@@ -1,4 +1,4 @@
-import Memory
+@testable import Memory
 import Testing
 
 struct SensitivityFindingsTests {
@@ -69,4 +69,34 @@ struct SensitivityFindingsTests {
         print("Sensitivity personal gaps: \(personalCases.filter { $0.expected == "gap" }.count)/\(personalCases.count)")
 
     }
+    @Test func ordinaryWordsAreNotDeclarations() {
+        let classifier = SensitivityClassifier()
+        for word in ["secret", "otp", "mfa"] {
+            #expect(classifier.findings(in: "The \(word) settings are available", field: .init()).isEmpty)
+            #expect(classifier.findings(in: "\(word): fake-value", field: .init()).count == 1)
+            #expect(classifier.findings(in: "\(word) is fake-value", field: .init()).count == 1)
+            #expect(classifier.classify("fake-value", in: .init(labels: [word])).sensitivity == .secret)
+        }
+        #expect(classifier.classify("Open", in: .init(labels: ["4111 1111 1111 1111"])).sensitivity == .ordinary)
+        #expect(classifier.classify("Open", in: .init(labels: ["GB82 WEST 1234 5698 7654 32"])).sensitivity == .ordinary)
+        #expect(classifier.classify("Open", in: .init(labels: ["sk-aaaaaaaaaaaaaaaa"])).sensitivity == .secret)
+    }
+
+    @Test func prefilterPreservesSensitiveCandidates() {
+        let classifier = SensitivityClassifier()
+        #expect(!classifier.mayContainSensitiveText(String(repeating: "A normal message with ordinary words. ", count: 32)))
+        for item in SensitivityCase.all where item.expected == "S" {
+            guard let text = item.value, !text.isEmpty else { continue }
+            let found = classifier.findings(in: text, field: item.field)
+            #expect(!found.isEmpty, "\(item.id)")
+        }
+        for text in ["sk-aaaaaaaaaaaaaaaa", "password: fake-value", "secret: fake-value",
+                     "4111 1111 1111 1111", "GB82 WEST 1234 5698 7654 32",
+                     "eyJaaaaaaaaa.bbbbbbbbbbbb.cccccccccccc", "-----BEGIN PRIVATE KEY-----fake"] {
+            #expect(classifier.mayContainSensitiveText(text))
+            #expect(!classifier.findings(in: text, field: .init()).isEmpty)
+            #expect(ValueMinimization().minimize(text: text).0.contains("[withheld]"))
+        }
+    }
+
 }

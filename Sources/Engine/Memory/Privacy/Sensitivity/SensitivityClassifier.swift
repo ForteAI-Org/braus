@@ -6,6 +6,7 @@ import PerceptionCore
 public struct SensitivityClassifier: Sendable {
     private let rules: SensitivityRules
     private let strongPatterns: [NSRegularExpression]
+    private let declaredWords: Set<String>
     private let declaredPattern: NSRegularExpression?
     private static let editableRoles = ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"]
     private static let cardPattern = expression(#"(?<![A-Za-z0-9])(?:[0-9][ -]?){11,18}[0-9](?![A-Za-z0-9])"#)
@@ -16,6 +17,7 @@ public struct SensitivityClassifier: Sendable {
 
     public init(rules: SensitivityRules = .bundled) {
         self.rules = rules
+        declaredWords = Set(rules.decisiveLabels.compactMap { $0.lowercased().split(separator: " ").first.map(String.init) })
         strongPatterns = rules.strongPatterns == SensitivityRules.bundled.strongPatterns
             ? Self.bundledStrongPatterns : rules.strongPatterns.map(Self.expression)
         declaredPattern = rules.decisiveLabels == SensitivityRules.bundled.decisiveLabels
@@ -26,9 +28,12 @@ public struct SensitivityClassifier: Sendable {
         guard !labels.isEmpty else { return nil }
         let alternatives = labels.sorted { $0.count > $1.count }.map { label in
             let words = label.split(separator: " ").map { NSRegularExpression.escapedPattern(for: String($0)) }
-            return words.joined(separator: #"[\s'’-]+"#)
+            let name = words.joined(separator: #"[\s'’-]+"#)
+            let separator = ["secret", "otp", "mfa"].contains(label)
+                ? #"\s*(?::|is\b)\s*"# : #"(?:\s*(?::|=|is\b|è\b)\s*|\s+)"#
+            return name + #"\b"# + separator
         }.joined(separator: "|")
-        return expression(#"(?i)(?=\b(?:"# + alternatives + #")\b(?:\s*(?::|=|is\b|è\b)\s*|\s+)["']?([^\s"',;]+))"#)
+        return expression(#"(?i)(?=\b(?:"# + alternatives + #")["']?([^\s"',;]+))"#)
     }
 
     /// Classifies a value with field signals, using a secret threshold of three.
@@ -44,8 +49,12 @@ public struct SensitivityClassifier: Sendable {
         if field.declaredSecret { add(3, .declared) }
         if field.labels.contains(where: namesSecret) { add(3, .decisiveLabel) }
         if field.labels.contains(where: { matchesLabel($0, names: rules.weakLabels) }) { add(1, .weakLabel) }
-        let shapes = (field.labels + [value].compactMap { $0 }).flatMap { shapeFindings(in: $0) }
-        if shapes.contains(where: { $0.verdict.reasons.contains(.strongShape) }) { add(3, .strongShape) }
+        let labelHasPrefix = field.labels.contains { label in
+            let whole = NSRange(label.startIndex..., in: label)
+            return strongPatterns.contains { $0.firstMatch(in: label, range: whole) != nil }
+        }
+        let shapes = value.map { shapeFindings(in: $0) } ?? []
+        if labelHasPrefix || shapes.contains(where: { $0.verdict.reasons.contains(.strongShape) }) { add(3, .strongShape) }
         if shapes.contains(where: { $0.verdict.reasons.contains(.checksum) }) { add(3, .checksum) }
         if let value {
             let isShortCode = (4...8).contains(value.utf8.count) && value.utf8.allSatisfy { (48...57).contains($0) }
@@ -76,6 +85,10 @@ public struct SensitivityClassifier: Sendable {
                 return [.init(range: text.startIndex..<text.endIndex, verdict: combined)]
             }
         }
+        guard mayContainSensitiveText(text) else {
+            return verdict.sensitivity == .personal && !text.isEmpty
+                ? [.init(range: text.startIndex..<text.endIndex, verdict: verdict)] : []
+        }
         var found = shapeFindings(in: text)
         let whole = NSRange(text.startIndex..., in: text)
         if let declaredPattern {
@@ -105,6 +118,18 @@ public struct SensitivityClassifier: Sendable {
         }
         if start < text.endIndex { personal.append(.init(range: start..<text.endIndex, verdict: verdict)) }
         return personal
+    }
+
+    /// Rejects ordinary prose before running expressions; shape and declaration candidates still use the full rules.
+    func mayContainSensitiveText(_ text: String) -> Bool {
+        if text.utf8.contains(where: { (48...57).contains($0) }) { return true }
+        if text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .contains(where: { declaredWords.contains(String($0)) }) { return true }
+        if text.contains("-----") || text.split(whereSeparator: \.isWhitespace).contains(where: { $0.utf8.count >= 12 }) {
+            return true
+        }
+        // Custom expressions have no known prefix contract, so they always reach the full rules.
+        return rules.strongPatterns != SensitivityRules.bundled.strongPatterns
     }
 
     private func namesSecret(_ label: String) -> Bool { matchesLabel(label, names: rules.decisiveLabels) }

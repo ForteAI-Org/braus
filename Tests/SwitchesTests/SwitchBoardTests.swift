@@ -30,4 +30,15 @@ struct SwitchBoardTests {
         }
         #expect(SwitchBoard.current == before)
     }
+    @Test func invalidValuesProduceOneDiagnosticLine() {
+        let board = SwitchBoard(values: ["diagnostic-test": "bad\nvalue"])
+        #expect(board.arm("diagnostic-test", default: Arm.v1) == .v1)
+        var lines: [String] = []
+        SwitchBoard.reportInvalidValues { lines.append($0) }
+        #expect(lines.count == 1)
+        #expect(lines[0].hasSuffix("\n"))
+        #expect(lines[0].filter { $0 == "\n" }.count == 1)
+        #expect(lines[0].contains("\"diagnostic-test\"=\"bad\\nvalue\""))
+    }
+
 }

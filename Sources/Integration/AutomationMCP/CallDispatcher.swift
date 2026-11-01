@@ -196,7 +196,7 @@ final class CallDispatcher {
             let (kept, reason) = shown.minimize(text: String(describing: error))
             let failure: any Error = !shown.knowsNoText && reason != nil ? AutomationFailure(kept) : error
             if ResultFormatter.usesOutcomeV2, AgentTool(rawValue: name)?.requiresConfirmedStart == true {
-                return formatter.thrown(failure, tool: name, mayHaveActed: output.mayHaveActed)
+                return formatter.thrown(error, tool: name, mayHaveActed: output.mayHaveActed, minimized: kept)
             }
             throw failure
         }
@@ -331,8 +331,8 @@ final class CallDispatcher {
         if let contract = registeredContract(name) {
             let claim = try claimDataWrites([], capability: contract)
             defer { withExtendedLifetime(claim) {} }
-            if let refusal = try await uncertaintyRefusal([], capability: contract) { throw AutomationFailure(refusal) }
-            if let refusal = try await registeredValueRefusal(contract, arguments) { throw AutomationFailure(refusal) }
+            if let refusal = try await uncertaintyRefusal([], capability: contract) { throw AutomationFailure(refusal, cause: "uncertainty_refusal") }
+            if let refusal = try await registeredValueRefusal(contract, arguments) { throw AutomationFailure(refusal, cause: "historical_value_refusal") }
             return try await answer(name, arguments, recorder: nil)
         }
         let request = try? ToolArguments.callRequest(name, arguments)
@@ -356,8 +356,8 @@ final class CallDispatcher {
             ? (arguments["steps"].array ?? []).compactMap { try? Step(string($0, "operation"), $0).callRequest } : [request]
         let claim = try claimDataWrites(planned)
         defer { withExtendedLifetime(claim) {} }
-        if let refusal = try await uncertaintyRefusal(planned) { throw AutomationFailure(refusal) }
-        if let refusal = await historicalValueRefusal(name, arguments) { throw AutomationFailure(refusal) }
+        if let refusal = try await uncertaintyRefusal(planned) { throw AutomationFailure(refusal, cause: "uncertainty_refusal") }
+        if let refusal = await historicalValueRefusal(name, arguments) { throw AutomationFailure(refusal, cause: "historical_value_refusal") }
         let attribution = request.tool == .batch ? nil : taskCycle.openTask?.attribution
         if case .batch = request {} else {
             do {
@@ -416,7 +416,7 @@ final class CallDispatcher {
     /// The refusal of a call that needs a session when none is open: the call's own contract, never the memory's failure
     /// (live run R01, Workspace event 113, where the agent read it as a memory that was not available).
     static let noSession = AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.noSession.v1"))
-                                             + ModelText.text(.init(rawValue: "call_dispatcher.noSession.v1.2")))
+                                             + ModelText.text(.init(rawValue: "call_dispatcher.noSession.v1.2")), cause: "no_session")
 
     /// The refusal of a call whose start the memory did not confirm: nothing was done.
     private static func unconfirmed(_ error: any Error) -> AutomationFailure {
@@ -424,7 +424,7 @@ final class CallDispatcher {
             (ModelText.text(.init(rawValue: "call_dispatcher.unconfirmed.v1"))
                 + "\(error)"
                 + ModelText.text(.init(rawValue: "call_dispatcher.unconfirmed.v1.2")))
-                + ModelText.text(.init(rawValue: "call_dispatcher.unconfirmed.v1.3"))
+                + ModelText.text(.init(rawValue: "call_dispatcher.unconfirmed.v1.3")), cause: "memory_unconfirmed"
         )
     }
 
@@ -617,12 +617,13 @@ final class CallDispatcher {
         output.modelText       = nil
         let arguments = arguments == .null ? JSONValue.object([:]) : arguments
         guard let definition = toolDefinitions.first(where: { $0["name"].string == name }),
-              let values = arguments.object else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.values.v1"))) }
+              let values = arguments.object else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.values.v1")), cause: "invalid_arguments") }
         if let contract = registeredContract(name) {
             try formatter.transcribe("→ \(name)", arguments)
             if contract.takesSession {
                 guard let id = session.id, arguments["session"].string == id.uuidString else {
-                    throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")))
+                    throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")),
+                        cause: session.id == nil ? "no_session" : "invalid_arguments")
                 }
             }
             let (result, notice) = try await callProvider(contract, arguments: arguments)
@@ -631,15 +632,16 @@ final class CallDispatcher {
         }
         let schema = definition["inputSchema"]
         let allowed = Set(schema["properties"].object?.keys.map { $0 } ?? [])
-        guard Set(values.keys).isSubset(of: allowed) else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.allowed.v1"))) }
+        guard Set(values.keys).isSubset(of: allowed) else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.allowed.v1")), cause: "invalid_arguments") }
         for field in schema["required"].array ?? [] {
-            guard let key = field.string, values[key] != nil else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.key.v1"))) }
+            guard let key = field.string, values[key] != nil else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.key.v1")), cause: "invalid_arguments") }
         }
         try formatter.transcribe("→ \(name)", arguments)
         let value: JSONValue
         if !["status", "windows", "apps", "open_session", "app_capabilities", "app_call"].contains(name) {
             guard let id = session.id, arguments["session"].string == id.uuidString else {
-                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")))
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")),
+                        cause: session.id == nil ? "no_session" : "invalid_arguments")
             }
         }
         switch name {
@@ -885,9 +887,11 @@ final class CallDispatcher {
                         try await child.startStep()
                     } catch {
                         complete = false
-                        results.append(.object(["status": .string("error"),
+                        var failure: [String: JSONValue] = ["status": .string("error"),
                                                 "message": .string(Self.unconfirmed(error).description),
-                                                "guidance": .string(ModelText.text(.init(rawValue: "call_dispatcher.child.v1")))]))
+                                                "guidance": .string(ModelText.text(.init(rawValue: "call_dispatcher.child.v1")))]
+                        if ResultFormatter.usesOutcomeV2 { failure["_failure_cause"] = .string("memory_unconfirmed") }
+                        results.append(.object(failure))
                         try formatter.transcribe("← batch step \(index + 1) not run: \(error)")
                         break
                     }

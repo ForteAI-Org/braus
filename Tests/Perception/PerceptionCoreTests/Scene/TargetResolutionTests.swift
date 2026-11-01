@@ -384,4 +384,13 @@ struct TargetResolutionTests {
         #expect(s.section(at: CGPoint(x: 0.5, y: 0.5))?.name == "region 1")
         #expect(s.section(at: CGPoint(x: 0.1, y: 0.1))?.name == "content")
     }
+    @Test func duplicateSectionsAndInlineLabelValuesResolve() {
+        let element = SceneElement(id: "first", kind: .control, label: "Save\nAs",
+                                   bounds: rect(0, 0, 0.1, 0.1), value: "Draft\nCopy", section: "content")
+        var value = scene([element])
+        value.sections = (0..<2).map { _ in SceneSection(name: "content", bounds: rect(0, 0, 1, 1)) }
+        #expect(value.resolve(target: "first", section: "content") == .found(element))
+        #expect(value.resolve(target: "Save As = Draft Copy", section: "content") == .found(element))
+    }
+
 }

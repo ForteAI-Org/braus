@@ -172,7 +172,7 @@ public struct ValueMinimization: Sendable {
         }
         for (piece, reason) in classified { add(occurrences(of: piece, in: text), reason) }
         for secret in secrets { add(occurrences(of: secret, in: text), .declaredSecret) }
-        if credentials { add(classifier.findings(in: text, field: .init()).map(\.range), .credentialPattern) }
+        if credentials, classifier.mayContainSensitiveText(text) { add(classifier.findings(in: text, field: .init()).map(\.range), .credentialPattern) }
         guard !ranges.isEmpty else { return (text, []) }
         return (replacing(ranges, in: text), reasons)
     }
