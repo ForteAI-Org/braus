@@ -743,3 +743,30 @@ its name; age of 30 days or completion of a later verified snapshot retires it.
 Archive directories use 0700; archives, sidecars, copies, manifests and presence files
 use 0600. Copies, schema copies and `.retired` are excluded from Time Machine; the
 live archive is never marked excluded by this policy.
+
+## Sensitivity classification
+
+`Memory/Privacy/Sensitivity` owns local S (secret), P (personal) and O (ordinary)
+classification and the destination table. Version 1 rules are bundled as JSON;
+web attribute vocabularies come from the same resource for Swift and JavaScript.
+Invalid bundled rules stop initialization rather than permit unclassified values.
+Software trait policies remain empty until a registered trait source is available.
+
+`PerceptionCore.ValueGuard` carries two immutable decisions injected at composition.
+Native readers reject secure roles, unreadable editable subroles and decisive labels
+before requesting values. After a read, the classifier checks shapes and checksums
+with the collected labels, including decimal numeric values. Weak labels alone
+permit reading. Web scene controls apply the same classification before delivery.
+`ConfidentialSurfaces.isContent` remains a structural signal consumed by the classifier.
+Free text findings retain ranges into the original text for local minimization.
+The declaration alternatives share one compiled expression, with overlapping starts
+preserved. Shape detection skips inputs below its minimum length and uses ASCII
+word boundaries directly when possible; Unicode text retains the character-based
+path. Checksum scans require enough ASCII digits to form a candidate. These
+filters do not retain field values or build rule tables per message.
+
+The shared synthetic corpus is in `Tests/Engine/MemoryTests/Privacy/Fixtures/`.
+Explicit gaps record personal identity without a content surface and unrecognized
+seed phrases; these require later rules or measured evaluation of local PII detection.
+Controlled native and JavaScript tests do not establish live desktop coverage or
+production scene latency.

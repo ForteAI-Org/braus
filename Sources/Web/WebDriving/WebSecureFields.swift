@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import Memory
 
 /// WebSecureFields decides which inputs hold a secret whose value Braus never reads: it is never in a
 /// scene, so never in the memory, and no script reads it back. The decision comes from the input's own
@@ -26,32 +27,9 @@ import Foundation
 /// field named for nothing and without these tokens (six bare digit boxes) is not recognized.
 enum WebSecureFields {
 
-    /// The `autocomplete` tokens of a secret.
-    static let secretAutocomplete: Set<String> = [
-        "current-password", "new-password", "one-time-code",
-        "cc-number", "cc-csc", "cc-exp", "cc-exp-month", "cc-exp-year",
-    ]
-
-    /// The names and ids of a secret, as their words written together.
-    static let secretNames: Set<String> = [
-        // A password.
-        "password", "passwd", "pwd", "passcode", "passphrase",
-        // A one-time or verification code.
-        "otp", "totp", "hotp", "onetimecode", "onetimepassword", "onetimepin", "verificationcode", "smscode",
-        "authcode", "securitycode", "mfa", "twofactor", "2fa",
-        // A card's number.
-        "cardnumber", "cardnum", "cardno", "ccnumber", "ccnum", "ccno",
-        // A card's security code.
-        "cvv", "cvv2", "cvc", "cvc2", "csc", "cvn", "cardcode", "cardverification",
-        // A card's expiry.
-        "ccexp", "ccexpiry", "ccexpiration", "ccmonth", "ccyear", "cardexp", "cardexpiry", "cardexpiration",
-        "expmonth", "expyear", "expirymonth", "expiryyear", "expirationmonth", "expirationyear",
-    ]
-
-    /// The input types that hold no typed text.
-    static let nonTextTypes: Set<String> = [
-        "checkbox", "radio", "button", "submit", "reset", "image", "file", "range", "color", "hidden",
-    ]
+    static let secretAutocomplete = SensitivityRules.bundled.markup.secretAutocomplete
+    static let secretNames = SensitivityRules.bundled.markup.secretNames
+    static let nonTextTypes = SensitivityRules.bundled.markup.nonTextTypes
 
     /// Whether an element with tag `tag` and these attributes, by lowercase name, is a secure field.
     static func isSecure(
@@ -67,11 +45,11 @@ enum WebSecureFields {
         if nonTextTypes.contains(type) { return false }
         let tokens = value("autocomplete").split(whereSeparator: \.isWhitespace).map(String.init)
         if tokens.contains(where: secretAutocomplete.contains) { return true }
-        return namesSecret(attributes["name"] ?? "") || namesSecret(attributes["id"] ?? "")
+        return isSecretName(attributes["name"] ?? "") || isSecretName(attributes["id"] ?? "")
     }
 
     /// Whether one word of `text`, or a run of its whole words written together, is among `secretNames`.
-    static func namesSecret(_ text: String) -> Bool {
+    static func isSecretName(_ text: String) -> Bool {
         let words = words(text)
         for start in words.indices {
             var run = ""
@@ -112,8 +90,8 @@ enum WebSecureFields {
     /// `isSecure` as a JavaScript function of an element, reading the same attributes the same way.
     static let function: String = {
         func list(_ names: Set<String>) -> String {
-            let data = (try? JSONEncoder().encode(names.sorted())) ?? Data("[]".utf8)
-            return String(decoding: data, as: UTF8.self)
+            do { return String(decoding: try JSONEncoder().encode(names.sorted()), as: UTF8.self) }
+            catch { preconditionFailure("Cannot encode secure markup rules: \(error)") }
         }
         return """
         ((e) => {
