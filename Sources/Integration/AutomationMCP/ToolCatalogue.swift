@@ -292,12 +292,12 @@ enum ToolCatalogue {
     /// The tools that reach the app adapters, served only with `.adapters`.
     static let adapterTools: Set<String> = ["app_capabilities", "app_call"]
     /// The nonisolated policy view uses the same explicit core declarations as the served contracts.
-    private nonisolated static let policyRegistry: CapabilityRegistry = {
+    nonisolated static let policyRegistry: CapabilityRegistry = {
         let names = ["status", "windows", "apps", "open_session", "observe", "act", "select", "type_text",
                      "insert_text", "press_key", "scroll", "drag", "context_menu", "batch", "menu", "press",
                      "app_capabilities", "app_call", "close_session", "collect_posts", "memory_task", "human_step"]
         do {
-            return try CapabilityRegistry(core: names.map {
+            return try CapabilityRegistry(core: names.compactMap {
                 coreContract(name: $0, description: "", inputSchema: .null)
             }, registered: [])
         } catch {
@@ -311,7 +311,7 @@ enum ToolCatalogue {
 
     /// Wraps the existing served definitions without regenerating their descriptions or schemas.
     static func contracts(for channels: AutomationChannels, adapters: AppAdapters? = nil) -> [CapabilityContract] {
-        var contracts = definitions(for: channels).map { definition in
+        var contracts = definitions(for: channels).compactMap { definition in
             coreContract(
                 name: definition["name"].string ?? "",
                 description: definition["description"].string ?? "",
@@ -320,9 +320,11 @@ enum ToolCatalogue {
         }
         if channels.contains(.adapters) {
             for adapter in (adapters ?? AppAdapters.standard()).adapters {
-                contracts += adapter.verbs.map { verb in
-                    CapabilityContract(
-                        id: CapabilityID(rawValue: "\(adapter.name).\(verb.name)"),
+                for verb in adapter.verbs {
+                    let id = CapabilityID(rawValue: "\(adapter.name).\(verb.name)")
+                    guard !contracts.contains(where: { $0.id == id }) else { continue }
+                    contracts.append(CapabilityContract(
+                        id: id,
                         group: adapter.name,
                         description: verb.summary,
                         inputSchema: verb.schema,
@@ -335,7 +337,7 @@ enum ToolCatalogue {
                         memory: .agentCall(tool: "app_call"),
                         takesSession: false,
                         parallelSafe: false
-                    )
+                    ))
                 }
             }
         }
@@ -354,7 +356,7 @@ enum ToolCatalogue {
         name: String,
         description: String,
         inputSchema: JSONValue
-    ) -> CapabilityContract {
+    ) -> CapabilityContract? {
         let effect: EffectClass
         let interruption: InterruptionClass
         let channel: Channel
@@ -386,7 +388,7 @@ enum ToolCatalogue {
             (effect, interruption, channel) = (.write, .mutating, .seat)
             verification = .engineVerdict
         default:
-            preconditionFailure("Missing core capability contract: \(name)")
+            return nil
         }
         let agentTool = AgentTool(rawValue: name)
         return CapabilityContract(
