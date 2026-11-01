@@ -29,7 +29,11 @@ final class TurnTestTransport: ModelTransport {
         var messages: [[TurnMessage]] = []
     }
     private let state: Mutex<State>
-    init(_ rounds: [[TurnEvent]]) { state = Mutex(State(rounds: rounds)) }
+    private let failure: (any Error)?
+    init(_ rounds: [[TurnEvent]], failure: (any Error)? = nil) {
+        state = Mutex(State(rounds: rounds))
+        self.failure = failure
+    }
     var messages: [[TurnMessage]] { state.withLock { $0.messages } }
     var streaming: StreamingSupport { .incremental }
     func capabilities() async throws -> ModelCapabilities { .init(supportsTools: true) }
@@ -44,7 +48,7 @@ final class TurnTestTransport: ModelTransport {
         }
         return AsyncThrowingStream { continuation in
             for event in round { continuation.yield(event) }
-            continuation.finish()
+            continuation.finish(throwing: failure)
         }
     }
 }

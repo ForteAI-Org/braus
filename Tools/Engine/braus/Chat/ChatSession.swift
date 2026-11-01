@@ -29,7 +29,7 @@ final class ChatSession: TurnHosting {
     var provider: CLIProvider { runner.commandProvider }
     private lazy var runner = TurnRunner(tools: tools, configuration: .init(
         workingDirectory: working, bridgeExecutable: URL(filePath: Self.executablePath),
-        connectionFolder: temporary, allowsSuspension: false), host: self)
+        connectionFolder: temporary, allowsSuspension: false, closesSessionOnEnd: false), host: self)
     private var eventFailure: (any Error)?
     let executable: URL
     let working: URL

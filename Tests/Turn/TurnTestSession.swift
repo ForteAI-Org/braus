@@ -39,5 +39,6 @@ final class TurnTestSession: AutomationSessionOperating {
     }
 
     /// Nothing is open, so there is nothing to release.
-    func close() async {}
+    private(set) var closes = 0
+    func close() async { closes += 1 }
 }

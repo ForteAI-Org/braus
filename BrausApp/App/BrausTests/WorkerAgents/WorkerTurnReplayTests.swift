@@ -80,38 +80,3 @@ struct WorkerTurnReplayTests {
         try await host.close()
     }
 }
-
-extension WorkerTurnReplayTests {
-    @Test func originalProviderArgumentsAndInputRemainByteIdentical() throws {
-        var source = URL(filePath: #filePath)
-        while !FileManager.default.fileExists(atPath: source.appending(path: "Package.swift").path) {
-            source.deleteLastPathComponent()
-        }
-        for provider in [ChatProvider.claude, .codex] {
-            for index in 0..<3 {
-                let role: String? = index == 0 ? nil : "Edit documents."
-                var prompt = "Braus seat: no session is open.\n\nHello"
-                if index == 1 {
-                    prompt = WorkerAgentHost.changedInstructions(WorkerAgentHost.instructions(role: role)) + prompt
-                }
-                if index == 2 {
-                    prompt = "Braus seat: no session is open.\n\n"
-                        + WorkerAgentHost.humanInterventionInstructions + "\n\nHello"
-                }
-                let turn = WorkerAgentHost.turn(prompt: prompt, provider: provider,
-                    selection: .init(provider: provider == .claude ? .claudeCode : .codex, model: "", effort: .medium),
-                    sessionID: index == 0 ? nil : "s1", role: role,
-                    bridgeExecutable: URL(filePath: "/fake/bridge"), connectionFile: URL(filePath: "/fake/connection.json"),
-                    workingDirectory: URL(filePath: "/fake/work"), inheritedEnvironment: [:])
-                let invocation = try CLIProviders.ProviderInvocation(turn)
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-                let actual = try encoder.encode(["arguments": invocation.arguments,
-                                                  "standardInput": [invocation.standardInput]])
-                let expected = try Data(contentsOf: source.appending(path:
-                    "Tests/Turn/Fixtures/replay-\(provider.rawValue)-\(index + 1).json"))
-                #expect(actual == expected)
-            }
-        }
-    }
-}

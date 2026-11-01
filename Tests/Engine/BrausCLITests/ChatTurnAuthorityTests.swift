@@ -279,6 +279,9 @@ struct ChatTurnAuthorityTests {
             await #expect(throws: (any Error).self) { try await turn.value }
             #expect(Self.admitted(await waiting.value), "the call in flight finished")
             #expect(chat.counting.calls == ["open"], "nothing ran again")
+            #expect(chat.counting.id != nil, "the CLI keeps the session available for task evidence")
+            await chat.session.releaseSeat()
+            #expect(chat.counting.id == nil, "the CLI closes the session when explicitly released")
             #expect(!Self.admitted(await Self.call(try chat.client(connection), "open_session", Self.open)))
             #expect(chat.counting.calls == ["open"])
         }
