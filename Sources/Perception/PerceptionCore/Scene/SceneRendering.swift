@@ -95,7 +95,8 @@ extension SceneSnapshot {
         let value = String(reflecting: field.value.trimmingCharacters(in: .whitespacesAndNewlines))
         let availability = field.isEnabled == false ? " [disabled]" : ""
         let owner = field.container.map { " {\($0)}" } ?? ""
-        return "[field] \(field.label) = \(value)\(availability)\(owner)"
+        let details = field.role == "AXSecureTextField" ? " secret" : " = \(value)"
+        return "[field] \(field.label)\(details)\(availability)\(owner)"
     }
 
     /// The heading of the elements that belong to no section.
@@ -280,6 +281,9 @@ extension SceneSnapshot {
 
     /// Value, selection and availability of an element, the compact way: `[sel a..b/n]`.
     private static func compactDetails(_ element: SceneElement) -> String {
+        if element.role == "AXSecureTextField" {
+            return " secret" + (element.isEnabled == false ? " [disabled]" : "")
+        }
         let value = element.value.flatMap { $0 == element.label ? nil : " = \(visibleValue($0))" } ?? ""
         let selection: String
         if let text = element.value, let range = SceneElement.validRange(element.selectedRange, value: text) {
@@ -291,6 +295,10 @@ extension SceneSnapshot {
     }
 
     private static func liveDetails(_ element: SceneElement) -> String {
+        if element.role == "AXSecureTextField" {
+            return " secret" + (element.isEnabled == false ? " [disabled]" : "")
+                + (element.container.map { " {\($0)}" } ?? "")
+        }
         let value = element.value.flatMap { $0 == element.label ? nil : " = \(visibleValue($0))" } ?? ""
         let selection: String
         if let text = element.value, let range = SceneElement.validRange(element.selectedRange, value: text) {
