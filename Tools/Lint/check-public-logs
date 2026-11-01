@@ -1,0 +1,403 @@
+#!/usr/bin/env python3
+"""Reject new public text logs and replay code or markers in Release products.
+
+Allowed forms: terminal .count (including .utf8.count), identifiers ending in
+Count or Bytes, and explicitly typed Duration/TimeInterval values, optionally
+with .description or .formatted(...). Everything else needs a recorded exception.
+Exit 0 accepts, 1 rejects content, and 2 reports an inspection error.
+"""
+import argparse
+from functools import lru_cache
+import itertools
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+EXCEPTIONS = "Tools/Lint/public-log-exceptions.txt"
+INITIAL_CEILING = 365
+REPLAY_MARKERS = ("HumanInterventionReplay", "Library/Application Support/Braus/Runs", "handoff-")
+
+
+def without_comments(text):
+    """Blank Swift comments without changing offsets or string contents."""
+    kept = list(text)
+    size = len(text)
+
+    def blank(start, end):
+        for index in range(start, end):
+            if kept[index] != "\n":
+                kept[index] = " "
+
+    def string(cursor, hashes, quote):
+        closing = quote + hashes
+        escape = "\\" + hashes
+        while cursor < size:
+            if text.startswith(escape + "(", cursor):
+                cursor = code(cursor + len(escape) + 1, 1)
+            elif text.startswith(escape, cursor):
+                cursor += len(escape) + 1
+            elif text.startswith(closing, cursor):
+                return cursor + len(closing)
+            else:
+                cursor += 1
+        return cursor
+
+    def code(cursor, parentheses=0):
+        while cursor < size:
+            start = cursor
+            if text.startswith("//", cursor):
+                end = text.find("\n", cursor)
+                cursor = size if end < 0 else end
+                blank(start, cursor)
+            elif text.startswith("/*", cursor):
+                depth = 1
+                cursor += 2
+                while cursor < size and depth:
+                    if text.startswith("/*", cursor):
+                        depth += 1
+                        cursor += 2
+                    elif text.startswith("*/", cursor):
+                        depth -= 1
+                        cursor += 2
+                    else:
+                        cursor += 1
+                blank(start, cursor)
+            elif text[cursor] in '#"':
+                while cursor < size and text[cursor] == "#":
+                    cursor += 1
+                hashes = text[start:cursor]
+                if cursor < size and text[cursor] == '"':
+                    quote = '"""' if text.startswith('"""', cursor) else '"'
+                    cursor = string(cursor + len(quote), hashes, quote)
+                elif cursor == start:
+                    cursor += 1
+            else:
+                if parentheses:
+                    if text[cursor] == "(":
+                        parentheses += 1
+                    elif text[cursor] == ")":
+                        parentheses -= 1
+                        if parentheses == 0:
+                            return cursor + 1
+                cursor += 1
+        return cursor
+
+    code(0)
+    return ''.join(kept)
+
+
+def interpolations(text):
+    """Read balanced Swift interpolations, including nested strings and closures."""
+    source = without_comments(text)
+    pattern = re.compile(r'\\#*\(')
+    for start in pattern.finditer(source):
+        cursor = start.end()
+        depth = 1
+        quote = None
+        separators = []
+        while cursor < len(text) and depth:
+            char = source[cursor]
+            if quote:
+                if char == "\\":
+                    cursor += 2
+                    continue
+                if char == quote:
+                    quote = None
+            elif char == '"':
+                quote = char
+            elif char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+            elif char == "," and depth == 1:
+                separators.append(cursor)
+            cursor += 1
+        if depth:
+            continue
+        for separator in separators:
+            tail = source[separator + 1:cursor - 1]
+            if re.match(r'\s*privacy\s*:\s*\.\s*public\b', tail):
+                line = text.count("\n", 0, start.start()) + 1
+                first = text.rfind("\n", 0, start.start()) + 1
+                last = text.find("\n", cursor)
+                if last < 0:
+                    last = len(text)
+                yield source[start.end():separator].strip(), line, text[first:last].strip()
+                break
+
+
+def outer_shape(expression):
+    """Keep only the outer expression, replacing balanced argument groups with ()."""
+    result = []
+    stack = []
+    quoted = False
+    escaped = False
+    for char in expression:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+            continue
+        if char == '"':
+            if not stack:
+                return None
+            quoted = True
+        elif char in "([{":
+            if not stack:
+                result.append("()")
+            stack.append(char)
+        elif char in ")]}":
+            if not stack or "([{".index(stack.pop()) != ")]}".index(char):
+                return None
+        elif not stack:
+            result.append(char)
+    return None if stack or quoted else ''.join(result)
+
+
+@lru_cache(maxsize=64)
+def duration_names(text):
+    return frozenset(re.findall(r'\b(\w+)\s*:\s*(?:Duration|TimeInterval)\b', text))
+
+
+def allowed(expression, text):
+    chain = r'[A-Za-z_][\w]*(?:\??\.[A-Za-z_][\w]*)*'
+    if re.fullmatch(r'[A-Za-z_]\w*(?:\(\))?(?:\??\.[A-Za-z_]\w*(?:\(\))?)*\.count', outer_shape(expression) or ''):
+        return True
+    if re.fullmatch(chain, expression) and re.search(r'(Count|Bytes)$', expression):
+        return True
+    # Require explicit type evidence rather than a suggestive variable name.
+    shape = outer_shape(expression)
+    for name in duration_names(text):
+        if shape in (name, name + '.description', name + '.formatted()'):
+            return True
+    return False
+
+
+def condition(source):
+    """Parse Boolean compilation flags; reject syntax whose implication is unknown."""
+    tokens = re.findall(r'&&|\|\||!|\(|\)|\b[A-Za-z_]\w*\b', source)
+    if ''.join(tokens) != re.sub(r'\s+', '', source):
+        raise ValueError(f"unrecognized compilation condition: {source}")
+    position = 0
+
+    def primary():
+        nonlocal position
+        if position >= len(tokens):
+            raise ValueError("incomplete compilation condition")
+        token = tokens[position]
+        position += 1
+        if token == "!":
+            return ("not", primary())
+        if token == "(":
+            result = either()
+            if position >= len(tokens) or tokens[position] != ")":
+                raise ValueError("unbalanced compilation condition")
+            position += 1
+            return result
+        if not re.fullmatch(r'[A-Za-z_]\w*', token):
+            raise ValueError("invalid compilation condition")
+        return ("flag", token)
+
+    def both():
+        nonlocal position
+        result = primary()
+        while position < len(tokens) and tokens[position] == "&&":
+            position += 1
+            result = ("and", result, primary())
+        return result
+
+    def either():
+        nonlocal position
+        result = both()
+        while position < len(tokens) and tokens[position] == "||":
+            position += 1
+            result = ("or", result, both())
+        return result
+
+    result = either()
+    if position != len(tokens):
+        raise ValueError("unrecognized compilation condition")
+    return result
+
+
+def evaluate(tree, flags):
+    kind, *parts = tree
+    if kind == "flag":
+        return flags.get(parts[0], False)
+    if kind == "not":
+        return not evaluate(parts[0], flags)
+    if kind == "and":
+        return evaluate(parts[0], flags) and evaluate(parts[1], flags)
+    return evaluate(parts[0], flags) or evaluate(parts[1], flags)
+
+
+def implies_debug(conditions):
+    if not conditions:
+        return False
+    joined = ' && '.join('(' + value + ')' for value in conditions)
+    tree = condition(joined)
+    flags = sorted(set(re.findall(r'\b[A-Za-z_]\w*\b', joined)) - {"DEBUG", "true", "false"})
+    if len(flags) > 12:
+        raise ValueError("too many compilation flags to prove DEBUG protection")
+    for values in itertools.product((False, True), repeat=len(flags)):
+        if evaluate(tree, dict(zip(flags, values), DEBUG=False, true=True, false=False)):
+            return False
+    return True
+
+
+def replay_findings(text):
+    stack = []
+    for number, line in enumerate(without_comments(text).splitlines(), 1):
+        directive = re.match(r'\s*#(if|elseif|else|endif)\b(.*)', line)
+        if directive:
+            kind, value = directive.groups()
+            value = value.split("//", 1)[0].strip()
+            if kind == "if":
+                stack.append(([value], value))
+            elif not stack:
+                raise ValueError(f"line {number}: unmatched #{kind}")
+            elif kind == "endif":
+                stack.pop()
+            else:
+                previous, _ = stack[-1]
+                excluded = " && ".join(f"!({item})" for item in previous)
+                active = excluded if kind == "else" else f"({excluded}) && ({value})"
+                stack[-1] = (previous + ([value] if kind == "elseif" else []), active)
+        # Comments and headers do not produce replay code or strings.
+        code = line
+        if (re.search(r"\bHumanInterventionReplay\b", code)
+                or REPLAY_MARKERS[1] in code or re.search(r"(?<![\w-])handoff-", code)):
+            try:
+                guarded = implies_debug([active for _, active in stack])
+            except ValueError as error:
+                yield number, str(error)
+                continue
+            if not guarded:
+                yield number, "replay marker is not protected by DEBUG"
+    if stack:
+        raise ValueError("unterminated compilation condition")
+
+
+def parse_exceptions(text):
+    records = [json.loads(line) for line in text.splitlines() if line.strip() and not line.startswith("#")]
+    if not records or set(records[0]) != {"ceiling"}:
+        raise ValueError("missing exception ceiling")
+    ceiling = records[0]["ceiling"]
+    if type(ceiling) is not int or not 0 <= ceiling <= INITIAL_CEILING:
+        raise ValueError("exception ceiling exceeds the initial inventory")
+    entries = {}
+    for record in records[1:]:
+        if set(record) != {"path", "text", "reason", "destination", "removal"}:
+            raise ValueError("each exception needs path, text, reason, destination and removal")
+        if not all(isinstance(value, str) and value.strip() for value in record.values()):
+            raise ValueError("empty exception field")
+        path = Path(record["path"])
+        if path.is_absolute() or ".." in path.parts or path.parts[0] not in ("Sources", "BrausApp"):
+            raise ValueError("invalid exception path")
+        key = record["path"], record["text"]
+        if key in entries:
+            raise ValueError("duplicate exception")
+        entries[key] = record
+    if len(entries) > ceiling:
+        raise ValueError("exception file grew beyond its ceiling")
+    return ceiling, entries
+
+
+def check_baseline(root, ceiling, entries):
+    # Once committed, the ceiling and individual exceptions may only shrink.
+    probe = subprocess.run(["git", "rev-parse", "--verify", "HEAD"], cwd=root, capture_output=True, text=True)
+    if probe.returncode:
+        if (root / ".git").exists():
+            raise OSError(probe.stderr.strip())
+        return
+    tree = subprocess.run(["git", "ls-tree", "HEAD", "--", EXCEPTIONS], cwd=root, capture_output=True, text=True, check=True)
+    if tree.stdout:
+        prior = subprocess.run(["git", "show", "HEAD:" + EXCEPTIONS], cwd=root, capture_output=True, text=True, check=True)
+        old_ceiling, old_entries = parse_exceptions(prior.stdout)
+        if ceiling > old_ceiling or entries.keys() - old_entries.keys():
+            raise ValueError("exception inventory grew relative to HEAD")
+
+
+def check_products(directory):
+    directory = Path(directory)
+    if not directory.is_dir():
+        raise ValueError(f"missing Release product directory: {directory}")
+    products = set()
+    accepted = True
+    for path in sorted(directory.rglob("*")):
+        if not path.is_file():
+            continue
+        kind = subprocess.run(["/usr/bin/file", "-b", str(path)], capture_output=True, text=True, check=True).stdout
+        if "Mach-O" not in kind or not ("executable" in kind or "shared library" in kind or "bundle" in kind):
+            continue
+        resolved = path.resolve()
+        if resolved in products:
+            continue
+        products.add(resolved)
+        print(f"Release product: {path}")
+        strings = subprocess.run(["/usr/bin/strings", "-a", str(path)], capture_output=True, text=True, check=True).stdout
+        symbols = subprocess.run(["/usr/bin/nm", "-a", str(path)], capture_output=True, text=True, check=True).stdout
+        for marker in REPLAY_MARKERS:
+            if marker in strings or marker in symbols:
+                print(f"{path}: forbidden Release marker: {marker}")
+                accepted = False
+    if not products:
+        raise ValueError(f"no relevant Mach-O products in {directory}")
+    return accepted
+
+
+def main(argv=None, *, root=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--release-products", metavar="DIR")
+    args = parser.parse_args(argv)
+    try:
+        if root is None:
+            result = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True)
+            root = Path(result.stdout.strip())
+        ceiling, entries = parse_exceptions((root / EXCEPTIONS).read_text())
+        check_baseline(root, ceiling, entries)
+        seen = set()
+        accepted = True
+        count = 0
+        for folder in ("Sources", "BrausApp"):
+            for path in sorted((root / folder).rglob("*.swift")):
+                if path.is_symlink():
+                    raise ValueError(f"source symlink cannot be inspected: {path}")
+                text = path.read_text()
+                code = without_comments(text)
+                relative = path.relative_to(root).as_posix()
+                for expression, number, line in interpolations(text):
+                    count += 1
+                    if allowed(expression, code):
+                        continue
+                    key = relative, line
+                    if key in entries:
+                        seen.add(key)
+                    else:
+                        print(f"{relative}:{number}: unlisted public interpolation: {expression}")
+                        accepted = False
+                for number, reason in replay_findings(text):
+                    print(f"{relative}:{number}: {reason}")
+                    accepted = False
+        for path, line in sorted(entries.keys() - seen):
+            print(f"{path}: obsolete exception: {line}")
+            accepted = False
+        print(f"public interpolations={count}; exceptions={len(entries)}; ceiling={ceiling}")
+        if args.release_products:
+            accepted = check_products(args.release_products) and accepted
+        return 0 if accepted else 1
+    except (ValueError, json.JSONDecodeError) as error:
+        print(error, file=sys.stderr)
+        return 1
+    except (OSError, UnicodeError, subprocess.CalledProcessError) as error:
+        print(f"public log inspection failed: {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -605,6 +605,10 @@ Driver offers is not yet turned on here.
   replaced. Foreign keys are enabled and verified per connection, the file is in WAL, and no
   statement outlives the call that prepared it.
 
+Recall query persistence applies `RecallQueryMasking` only to `remaining_work` and need text,
+replacing literal task values with `{name}` before credential scrubbing. Search inputs and results
+keep their existing behavior. Historical query text remains the responsibility of archive conversion.
+
 ## Evidence
 
 Unit: `ActVerificationTests` (one test per verdict), `ActOracleTests` (11: the three oracles, the exact
