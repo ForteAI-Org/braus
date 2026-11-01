@@ -21,6 +21,15 @@ struct SQLiteConfigurationTests {
         await store.close()
     }
 
+    @Test func writerJournalSizeLimit() async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
+        let limit = try await store.write {
+            try $0.query("PRAGMA journal_size_limit") { $0.integer(0) }.first ?? nil
+        }
+        #expect(try #require(limit) == Int64(64 * 1024 * 1024))
+        await store.close()
+    }
+
     @Test func cacheSizePerRole() async throws {
         let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
         let writer = try await store.write {

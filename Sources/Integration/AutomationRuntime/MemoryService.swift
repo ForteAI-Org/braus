@@ -827,7 +827,13 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             guard admitting, state == .open, queue.isEmpty, drainer == nil, directWork == 0,
                   queueBecameIdle == idleSince, let store else { return }
             do {
-                _ = try await store.checkpointIfDue()
+                if let report = try await store.checkpointIfDue(),
+                   generation == checkpointGeneration,
+                   report.outcome == .busy || report.frames - report.checkpointedFrames > store.configuration.checkpointFrames {
+                    scheduleCheckpointAfterPause()
+                }
+            } catch MemoryStoreError.unavailable(.closed) {
+                // A normal close can finish while maintenance is awaiting its connection.
             } catch {
                 Self.log.error("memory checkpoint failed: \(Self.describe(error), privacy: .public)")
             }

@@ -710,7 +710,11 @@ within one transaction.
 
 Automatic WAL checkpoints are disabled. `MemoryService` requests a passive checkpoint
 after two seconds without queued or direct work, above 1,000 outstanding frames. A write
-above 16,000 outstanding frames forces a passive checkpoint; close attempts TRUNCATE.
+above 16,000 outstanding frames schedules a passive checkpoint. Passive checkpoints use the
+bulk connection and executor, so the writer does not wait for their I/O. A partial or busy pause
+checkpoint is retried after another pause while frames remain above the threshold. Only writable
+openings attempt TRUNCATE at close, and a busy result is retained in `lastCloseError`.
+The writer limits retained journal allocation to 64 MiB when SQLite resets the WAL.
 Cache budgets and frame thresholds belong to store configuration. Defaults are 8 MiB
 for the writer, 4 MiB for each ordinary reader and 2 MiB for bulk. `releaseMemory()`
 runs on every owner. Diagnostics separate pages emitted by committed writes, outstanding

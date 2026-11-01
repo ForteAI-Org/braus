@@ -55,6 +55,25 @@ actor SQLiteReader {
         try connection.releaseMemory()
     }
 
+    /// Copies WAL frames outside a read transaction on the bulk executor.
+    func checkpoint(gate: (@Sendable () -> Void)?) throws -> SQLiteMemoryStore.Checkpoint {
+        try pool.check()
+        guard let connection else { throw MemoryStoreError.unavailable(.closed) }
+        let started = ContinuousClock.now
+        gate?()
+        let before = try connection.checkpoint(mode: SQLITE_CHECKPOINT_NOOP)
+        let result = try connection.checkpoint()
+        let outcome: SQLiteMemoryStore.Checkpoint.Outcome = result.wasBusy ? .busy
+            : (result.checkpointed == result.frames ? .complete : .partial)
+        return SQLiteMemoryStore.Checkpoint(
+            frames: result.frames,
+            checkpointedFrames: result.checkpointed,
+            framesCopied: max(0, max(0, result.checkpointed) - max(0, before.checkpointed)),
+            outcome: outcome,
+            duration: ContinuousClock.now - started
+        )
+    }
+
     func read<T: Sendable>(_ body: @Sendable (SQLiteSnapshot) throws -> T) async throws -> T {
         let started = ContinuousClock.now
         defer { pool.reportRead(since: started) }
@@ -111,7 +130,17 @@ actor SQLiteReader {
             }
             let primary: any Error
             if let failure = error as? SQLiteConnection.Failure {
-                primary = MemoryStoreError(failure, phase: phase, cleanup: cleanup)
+                if failure.isReadContention {
+                    let fault = MemoryStoreFault(
+                        code: .init(primary: failure.primary, extended: failure.extended),
+                        phase: phase,
+                        message: failure.message,
+                        cleanup: cleanup
+                    )
+                    primary = MemoryStoreError.contention(fault, attempts: 1, waited: .zero)
+                } else {
+                    primary = MemoryStoreError(failure, phase: phase, cleanup: cleanup)
+                }
             } else {
                 primary = SQLiteMemoryStore.classified(error, phase: phase)
             }

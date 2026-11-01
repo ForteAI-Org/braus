@@ -1,6 +1,8 @@
 import Dispatch
 import Foundation
 import Memory
+import SQLiteAmalgamation
+import Synchronization
 @testable import SQLiteMemory
 import Testing
 
@@ -44,6 +46,82 @@ struct SQLiteExecutorTests {
         held.release()
         #expect(try await writing.value)
         #expect(try await count("SELECT count(*) FROM brain_apps", in: store) == 1)
+        await store.close()
+    }
+
+    @Test(arguments: [false, true])
+    func checkpointsDoNotHoldWriter(forced: Bool) async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase(), configuration: .init(
+            checkpointFrames: 1, forcedCheckpointFrames: forced ? 2 : 16000
+        ))
+        let held = HeldOperation()
+        let checkpointState = Mutex<(ConnectionRole?, Bool?)>((nil, nil))
+        await store.holdCheckpoints {
+            let role = SQLiteConnectionExecutor.currentRole
+            let released = held.hold()
+            checkpointState.withLock { $0 = (role, released) }
+        }
+        defer { held.release() }
+        _ = try await store.write {
+            try $0.execute("INSERT INTO brain_apps (bundle_id) VALUES ('first.app')")
+        }
+        let paused = Task { if !forced { _ = try await store.checkpointIfDue() } }
+        for await _ in held.entered { break }
+        #expect(try await store.write { transaction in
+            try transaction.execute("INSERT INTO brain_apps (bundle_id) VALUES ('second.app')")
+            return SQLiteConnectionExecutor.currentRole
+        } == .writer)
+        held.release()
+        try await paused.value
+        let deadline = ContinuousClock.now + .seconds(5)
+        while try await store.diagnostics().checkpoints == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(checkpointState.withLock { $0.0 } == .bulk)
+        #expect(checkpointState.withLock { $0.1 } == true, "writer finished before the checkpoint's hold expired")
+        #expect(try await store.diagnostics().checkpoints == 1)
+        await store.close()
+    }
+
+    @Test func diagnosticsDuringCloseReportsClosed() async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
+        let held = HeldOperation()
+        let reading = Task { try await store.read(priority: .critical) { _ in held.hold() } }
+        defer { held.release() }
+        for await _ in held.entered { break }
+        let inspecting = Task { await storeError { _ = try await store.diagnostics() } }
+        let closing = Task { await store.close() }
+        let deadline = ContinuousClock.now + .seconds(5)
+        var closed = false
+        while ContinuousClock.now < deadline {
+            if await storeError({ _ = try await store.read { _ in 1 } }) == .unavailable(.closed) {
+                closed = true
+                break
+            }
+            await Task.yield()
+        }
+        #expect(closed)
+        held.release()
+        #expect(try await reading.value)
+        #expect(await inspecting.value == .unavailable(.closed))
+        await closing.value
+        #expect(await store.liveHandles == 0)
+    }
+
+    @Test func readerRetriesProtocolContention() async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
+        let attempts = Mutex(0)
+        let result = try await store.read(priority: .critical) { snapshot in
+            let attempt = attempts.withLock { $0 += 1; return $0 }
+            _ = try snapshot.query("SELECT count(*) FROM brain_apps") { $0.integer(0) }
+            if attempt == 1 {
+                throw SQLiteConnection.Failure(primary: SQLITE_PROTOCOL, extended: SQLITE_PROTOCOL,
+                                               message: "reader WAL lock contention")
+            }
+            return attempt
+        }
+        #expect(result == 2)
+        #expect(try await store.diagnostics().busyRetries == 1)
         await store.close()
     }
 

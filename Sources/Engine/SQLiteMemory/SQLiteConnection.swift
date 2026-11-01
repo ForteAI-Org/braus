@@ -26,6 +26,7 @@ final class SQLiteConnection {
         let message : String
 
         var isBusy  : Bool { primary == SQLITE_BUSY }
+        var isReadContention: Bool { isBusy || primary == SQLITE_PROTOCOL }
         var isLocked: Bool { primary == SQLITE_LOCKED }
     }
 

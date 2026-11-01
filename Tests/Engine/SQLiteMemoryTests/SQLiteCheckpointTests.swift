@@ -7,6 +7,7 @@
 
 import Foundation
 import Memory
+import SQLiteAmalgamation
 @testable import SQLiteMemory
 import Testing
 
@@ -37,6 +38,10 @@ struct SQLiteCheckpointTests {
             checkpointFrames: 1, forcedCheckpointFrames: 2
         ))
         _ = try await record(EventRow(id: "forced", key: "forced-key"), in: store)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while try await store.diagnostics().forcedCheckpoints == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         let diagnostics = try await store.diagnostics()
         #expect(diagnostics.forcedCheckpoints == 1)
         #expect(diagnostics.pauseCheckpoints == 0)
@@ -63,6 +68,43 @@ struct SQLiteCheckpointTests {
         #expect(copied.walBytes == written.walBytes)
         let url = store.url
         await store.close()
+        #expect(try walSize(url) == 0)
+    }
+
+    @Test func busyCloseCheckpointIsReported() async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
+        let reader = try SQLiteConnection(path: store.url.path, readOnly: true)
+        defer { reader.close() }
+        try reader.execute("BEGIN")
+        _ = try reader.query("SELECT count(*) FROM brain_apps") { $0.integer(0) }
+        _ = try await store.write {
+            try $0.execute("INSERT INTO brain_apps (bundle_id) VALUES ('later.app')")
+        }
+        await store.close()
+        guard case .contention(let fault, _, _)? = await store.lastCloseError else {
+            Issue.record("expected a busy close checkpoint, got \(String(describing: await store.lastCloseError))")
+            return
+        }
+        #expect(fault.code.primary == SQLITE_BUSY)
+        #expect(fault.phase == .checkpoint)
+        #expect(await store.liveHandles == 0)
+        try reader.execute("COMMIT")
+    }
+
+    @Test func archiveReaderCloseDoesNotTruncate() async throws {
+        let url = try temporaryDatabase()
+        let producer = try await SQLiteMemoryStore.open(at: url)
+        let archive = try await SQLiteMemoryStore.open(at: url, opening: .existingArchive)
+        _ = try await producer.write {
+            try $0.execute("INSERT INTO brain_apps (bundle_id) VALUES ('producer.app')")
+        }
+        let size = try walSize(url)
+        #expect(size > 0)
+        await archive.close()
+        #expect(await archive.lastCloseError == nil)
+        #expect(try walSize(url) == size)
+        await producer.close()
+        #expect(await producer.lastCloseError == nil)
         #expect(try walSize(url) == 0)
     }
 
