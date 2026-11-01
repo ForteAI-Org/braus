@@ -124,12 +124,6 @@ final class ResultFormatter {
             ))
             value = .object(fields)
         }
-        if name == "status", case .object(var fields) = value {
-            _ = Self.usesOutcomeV2
-            fields["switches"] = .object(SwitchBoard.current.values.mapValues(JSONValue.string))
-            fields["switches_invalid"] = .object(SwitchBoard.invalid.mapValues(JSONValue.string))
-            value = .object(fields)
-        }
         var answered = Self.noted(Self.noted(value, session.seatNotice), session.browserNotice, as: "browser")
         if let notice, case .object(var object) = answered {
             object["memory"] = .string(notice)

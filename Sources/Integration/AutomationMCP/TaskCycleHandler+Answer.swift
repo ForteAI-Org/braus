@@ -4,6 +4,7 @@ import Foundation
 import LocalMCP
 import Memory
 import PerceptionCore
+import Switches
 
 extension TaskCycleHandler {
     func taskAnswer(_ arguments: JSONValue) async throws -> JSONValue {
@@ -262,8 +263,11 @@ extension TaskCycleHandler {
                 if let used = await linked(current, producer: producer, memory: memory) { extra["recall_use"] = used }
                 return open(current, ModelText.text(.init(rawValue: "task_cycle_handler__answer.used.v1")), extra)
             case .status:
+                _ = ResultFormatter.usesOutcomeV2
                 let suspended = await memory.status().suspended
                 var answer: [String: JSONValue] = ["status": .string(openTask == nil ? ModelText.text(.init(rawValue: "task_cycle_handler__answer.answer.v1")) : "open")]
+                answer["switches"] = .object(SwitchBoard.current.values.mapValues(JSONValue.string))
+                answer["switches_invalid"] = .object(SwitchBoard.invalid.mapValues(JSONValue.string))
                 if let current = openTask {
                     answer["task"] = .string(current.taskID)
                     answer["attempt"] = .string(current.attemptID)

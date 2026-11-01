@@ -12,6 +12,6 @@ struct TurnCall {
     private static let log = Logger(subsystem: "dev.forte.Braus", category: "HumanControl")
 
     static func logInterruption(_ name: String) {
-        log.info("take control: interrupting \(name, privacy: .public), person requested control")
+        log.info("take control: interrupting \(name, privacy: .private), person requested control")
     }
 }

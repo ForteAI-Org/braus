@@ -46,7 +46,7 @@ public nonisolated enum ModelText {
 
     public static var catalogue: [Entry] {
         systemPromptTexts + toolDescriptionTexts + toolAnswerTexts + refusalTexts
-            + mcpInstructionTexts + seatLineTexts + legendTexts + summaryTexts + outcomeTexts
+            + mcpInstructionTexts + seatLineTexts + legendTexts + summaryTexts + outcomeTexts + capabilityTexts
     }
 
     private static let entries = Dictionary(uniqueKeysWithValues: catalogue.map { ($0.key, $0.text) })

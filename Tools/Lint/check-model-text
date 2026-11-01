@@ -208,13 +208,6 @@ def check(root):
 
 # Each identity below is a reviewed non-prose literal, never a general allow rule.
 CLASSIFICATIONS = """
-BrausApp/App/Braus/Core/WorkerAgents/WorkerAgentHost.swift | base | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | protocol key or enumerated value
-BrausApp/App/Braus/Core/WorkerAgents/WorkerAgentHost.swift | instructionRecord | 4864d4b52fcd7152ad87e96efbd9e89c71930b0f81b619120c0afd40e657bee2 | protocol key or enumerated value
-BrausApp/App/Braus/Core/WorkerAgents/WorkerAgentHost.swift | log | c419f55bc0c8036756fe83b903eba400bfcb69056f338e8536d905feb38c6721 | protocol key or enumerated value
-BrausApp/App/Braus/Core/WorkerAgents/WorkerAgentHost.swift | log | e499cf3a39e9d63cb93cc95ab9df763c9383ac0308d145354cf28b01dd69e474 | protocol key or enumerated value
-BrausApp/App/Braus/Core/WorkerAgents/WorkerAgentHost.swift | message | 98be486a01834c7bb83b3c7353edc3e046ca30fe710141f939aaec11f15c6407 | protocol key or enumerated value
-BrausApp/App/Braus/Core/WorkerAgents/WorkerAgentHost.swift | policy | d35b920df92be2d582c8d26a9f2a56600042f1e79ff26a8eeeb0ab5f10ede1dc | local diagnostic, not delivered to the model
-BrausApp/App/Braus/Core/WorkerAgents/WorkerAgentHost.swift | seat | 98be486a01834c7bb83b3c7353edc3e046ca30fe710141f939aaec11f15c6407 | protocol key or enumerated value
 Sources/AgentLoop/ModelToolLoop.swift | data | 01fd914a955123ca6c1402729198ec4d0ad08d1b488db255350809932d5dc64b | protocol key or enumerated value
 Sources/AgentLoop/ModelToolLoop.swift | data | a2d12f9a1e524791a1a287df1a1d7ca339597327db2a400a5c05b9c0436e894b | protocol key or enumerated value
 Sources/AgentLoop/ModelToolLoop.swift | data | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | protocol key or enumerated value
@@ -319,7 +312,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | listing | 9144403ccd467
 Sources/Integration/AutomationMCP/CallDispatcher.swift | listing | a6398914000b39e9fcead76d2d878a78743e9bf9e9dfa5e01be6940c71523902 | value composition or separator
 Sources/Integration/AutomationMCP/CallDispatcher.swift | listing | ba2a8232349d2f54e00d91cf3585cb9df37fc99ab9f7e90347fc0a65200fd215 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | log | 201d0019592bd86a0b1694e9ca2af086a912319abc05813b00be96016204864c | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | log | 3f93980460d1b370124810244cb1aad02b99847561d02ddc7d792410821cd866 | local diagnostic, not delivered to the model
 Sources/Integration/AutomationMCP/CallDispatcher.swift | log | a5e5450b1bf4cf0d02cecfb49ee577f0f34d5b81c8c21846437100b26cb41d71 | local diagnostic, not delivered to the model
 Sources/Integration/AutomationMCP/CallDispatcher.swift | log | e499cf3a39e9d63cb93cc95ab9df763c9383ac0308d145354cf28b01dd69e474 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | log | fe26e158c248c22eb7bff607d20e38cdb50b859ca4a0001789c41cfa6772bade | protocol key or enumerated value
@@ -952,7 +944,6 @@ Sources/Integration/AutomationMCP/MemoryTaskTool.swift | text | a0b7821a11db5319
 Sources/Integration/AutomationMCP/MemoryTaskTool.swift | text | b33d34f485aa141880b4c886a9a627d38b7761c29d89ca9b1f954b01cf9a36fe | protocol key or enumerated value
 Sources/Integration/AutomationMCP/MemoryTaskTool.swift | text | bebe0a00e8f2b8cf34ed5ce9139045f7659b72bf8a5d7fe6cf961c997898529d | catalogue key
 Sources/Integration/AutomationMCP/MemoryTaskTool.swift | text | c14af64bf7a6fe74f64cf35c53a18a90878048978e7c046e38a15f912b150b50 | catalogue key
-Sources/Integration/AutomationMCP/MemoryTaskTool.swift | text | c1980264fc223a890afae83c91bd2d438ef2ad0dae751fdea3660c3e556b1396 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/MemoryTaskTool.swift | text | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/MemoryTaskTool.swift | text | dde0e3dc0ad9a0daf42c9d0ab5a9a1c466093b12ccae1ca4c613754a34526930 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/MemoryTaskTool.swift | text | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | protocol key or enumerated value
@@ -1695,28 +1686,6 @@ Sources/Integration/AutomationMCP/ToolCatalogue.swift | inputs | ded824aeecf5ce0
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | inputs | e37ddc25411cac1217d09d11e8f80d720d6f14d80b152eeaf4a00e78a2620c10 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | inputs | e5403d474c2a98cc5ce06a6d2ce74bdfc68bbae4bc39a037d0f974d3a302c55b | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | instructions | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 1706c6e65ba467fae61caec26716cd1037e3ee730e6d5f77f7c971fc63c3a347 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 1903b3ace707060169d059edc22d142d337dddacb6ba41ceaaeb25997524fdb0 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 1e37124ee6d6c37fc98eac761fd24aa017fd6982f40f73e284a3a12b4e259a9a | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 2fdfd80b7ab2cd1f0e01ad2cdf1aaa69eee4609f73931facfb67d6a6b6de247d | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 345a71448618954a967cf6a02d03f8fba9c101d54ffdecffb6c5f40b0386af6f | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 584f9502e0c17e8fb68b19fb5a0bb63a4a19525f6b95b965f7bfc00b6497634b | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 62c4c04485b3675c8a8594d8418517ed0e7bd2bee6955b143bef6417296e3fe4 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 65329cc8b768423c288d10b26b2e48701c201e5f37928f461af6dfd5a9a6d9ae | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 7e49e1eb47743009f28005af788ac2e0cc4063b9b73714c355cba249ef35ac6e | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 807c1ce09850d9ff5c4dc59b66d34d89dfbf1486e0909d1be3f5d13ba8f6b3c4 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 8dac625925dff4ce3ce795479774c56113af2e44edb49e4dd648038826bc45e2 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 9144403ccd467ba7cd67c4233beb1bedcdf497e27e98a6b82f9f6dc006fd5f2a | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 9f5474bb73ce7418b870c171ec7c35ba84d0a3c3b25ddf220d3f7d63249d5a93 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | a8f2b314899139c67e822fefc626e1d8c369856621895c42f602a5e8f8dc5424 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | d33f6725c5db4ca902fb358d22cb82499df619feeea073f8b9d0d2dea5e84775 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | d994f883ae1c68f4b89aed84ed97cd5c1590829c2653cd34b0fc896e646a2323 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | ded824aeecf5ce0b5f7c3529663a3538a7f03175078b32057d90a76864094773 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | e2946cabbb26da3c076d98f3395e9fe1e0725ba39df2fe6e79f955408c07ed90 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | e37ddc25411cac1217d09d11e8f80d720d6f14d80b152eeaf4a00e78a2620c10 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | e6f9696c8a766ee8c3cd0016078905cddaeb24d54be50406b2faa7a5d211b74a | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | fe26e158c248c22eb7bff607d20e38cdb50b859ca4a0001789c41cfa6772bade | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | mcpClientInstructions | d6bfe7d8928903c560efc3f4ec702c35c2cf9bab39654d92a2a57191427988a6 | catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | mcpInstructions | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | native | 037ebf4b6f4d6afd5785ac67f9c8a1ce17aeaecdacaefde0c10c78cc34e61b7c | catalogue key
@@ -2016,7 +1985,6 @@ Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | commandsLine | d7
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | compactDetails | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | compactDetails | 38b45abfba1051db24212ad57f65c56bfb09bbf102c095d167149cc2205588c5 | protocol key or enumerated value
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | details | 38b45abfba1051db24212ad57f65c56bfb09bbf102c095d167149cc2205588c5 | protocol key or enumerated value
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | does | 0c7251056955fe4ce4a1ce04e35e4686e046de90fb2e193d65bfe89631c68d1f | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | does | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | field | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | head | 52109349dabf69106e04ec2f493fb8b6ade94ea100227cccce6559ab8b96553f | value composition or separator
@@ -2033,20 +2001,13 @@ Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | knowledgeText | 1
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | knowledgeText | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | protocol key or enumerated value
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | label | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | liveDetails | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | liveDetails | 1dd5ba43ca481afcc0ea595b35785cd5db8d161c9cd05a63a66d039220d71681 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | liveDetails | 38b45abfba1051db24212ad57f65c56bfb09bbf102c095d167149cc2205588c5 | protocol key or enumerated value
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | note | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | note | 1dd5ba43ca481afcc0ea595b35785cd5db8d161c9cd05a63a66d039220d71681 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | note | de46333939494ba034559116e1585776da2fbb96b1b3bebac2d5c89a830ff422 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | out | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | outOfViewText | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | outOfViewText | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | protocol key or enumerated value
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | owner | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | owner | 1dd5ba43ca481afcc0ea595b35785cd5db8d161c9cd05a63a66d039220d71681 | value composition or separator
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | plainText | 1c009c2f1a130e518c0e0675df2048a360b434a2fadbcdd412dc049133ba1234 | protocol key or enumerated value
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | plainText | 9bc11a44bf4464569b7cc140a5fa531f40157737b8a7604c5935b2216174a1fc | value composition or separator
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | plainText | a80987103c1721d340ad4f3bfa8617b3f3ca5ed28803d970fef300a3e847030a | value composition or separator
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | plainText | c12d6b842b7252692d2550337fcfeaef4dc432a55e441786035d4ebccbf43ea9 | protocol key or enumerated value
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | position | e8a4571295696223d6e49f642c7283f0cf78f4bd4a85003f1ecd137c11c79f3c | path, format or parser pattern
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | range | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | recalled | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
@@ -2056,9 +2017,6 @@ Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | title | 12ae32cb1
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | value | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | vertical | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | vertical | 86717a60b4829bc1f09bfa5cdb65637ae5632e0a656eab8cbf1c8095804788a2 | value composition or separator
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | visibleValue | 729e2865c247816a9f99d1f7fe87f8b8fe1e74815fdb5547de30a0e570b275ea | protocol key or enumerated value
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | visibleValue | 8eb852fe331310caa37e80df8a4d52ee8deb3ddc0a5143b52c662d984d9e8018 | protocol key or enumerated value
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | visibleValue | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | protocol key or enumerated value
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | adopting | 8f3ce909beabd37056f12be4ac612dc3dd50ea61546932f29b1ee7da15165bcd | local diagnostic, not delivered to the model
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | buttons | ab3398be73d358da4aa387f3747694a679c3f756430b4a9105e7d658c6c3ccb1 | local diagnostic, not delivered to the model
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | buttons | f240463dada079fc3d64b63fd6c50a01e772da977083807d79b1027d1a31253e | value composition or separator
@@ -2230,10 +2188,8 @@ Sources/Integration/AutomationMCP/ResultFormatter.swift | allowed | e4b90d9db6f8
 Sources/Integration/AutomationMCP/ResultFormatter.swift | definition | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | effect | 9a5e13f69efc348b5cb6292b127326a7726463d80b3e19e4395bfba72db2e4a1 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | 4d01709fcd599118652e3b27bd0ca97c802f832183d01f76a034755f2bc62fa3 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | 5c7d0644728067c2af734933f743b535d8d32a83143f7f8bb5f4e51739abc8e7 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | d9f439b074f954d1fc1c0633985aa258ab3b0e5fee6c4c3190e97206e31da407 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | gesture | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 30c2d05e600f9d3640346fae5539720c9ed14fd25c1ef25491b95aed31725ede | outcome protocol key or value composition
@@ -2271,13 +2227,167 @@ Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 8cf14017030734a
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | ccb5167cac54f9796d4d7be1ce43146e90a04171970aa4d3bd1f398a511bce03 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | d9fd9a3d81d750e6edc61aec66e7c4112f7af7c34ebe0a0d20189464ec9df135 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | 6bdb95cbfd647dc56d6b1d241787c6a3aafffe36896105fbb416fa8c1e6711ff | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | 9a5e13f69efc348b5cb6292b127326a7726463d80b3e19e4395bfba72db2e4a1 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | f6a7353e2ee11da2421e532f9f8b1d35511d74467d88c7c3028808ea976d1b3c | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | usesOutcomeV2 | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | outcome protocol key or value composition
+BrausApp/App/Braus/Core/WorkerAgents/WorkerAgentHost.swift | request | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | protocol key, catalogue key or value composition
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 1306dd73de75ca00b5ffa99ca2f6ea514fa91102073c2596cfc39a6d857550f2 | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 1c037e2c8eca44b7e068daaf4bbf0bb11c9f3d2f33901bf63287373486cc964b | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 20f0c6862365c74d381b7da5ffbfe3aea9dd441826a6363d901c656a19fc539b | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 33877a55f8f22d4579b8ed6083f20a7f069b5c9b5f1efaca8fe044f88e05b30b | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 4c7ab8bf66e90b2fc4ddf1177670c5d5f232ccd45d07c6d5527ed2db9cc03243 | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 5082ff88320afb86cd212f197dd08a7451bd9736526d23787ba9c20ba4fca968 | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 5f511caf629030d6ff89d18bfbf5c394cd96783a644a9b0193819ff065c5daaf | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 7225e8a83ecb85dd3a2c53c0d831f60a1b1ff285736726384929c4df15cbb773 | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 825587468f6d4889d124846f0b3a6d2c4f367f53b88faba7098f25df19e412c2 | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 857aa3cede02863e7e0929dd7d88ef7dc603819c1b160c7038536b082a9e1c45 | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 95fdd41dc7dd74988b7883dbec760808816bc9ff95815b6d6032e9f04e4b207a | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 9c3a8dfe5176c67995dc805364c200248f5602054fca00e3e0289e4012756f4e | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 9e90273b79a345e4c3e8ff8ff15f58fcc68e7302f68c43087351d1ca41bab787 | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | role | 6559de1f0ad4cf75a2056472692e6ea48963f025fd06b2bbf42211d3a31c2b46 | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | role | 896ae337975d927768848989760d036a2af1503fc040c0eb0f83ffb54e860f80 | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | role | 981ac984df825f02b74bcdb8867df2eff48bb27c61b48f0dcf0011c76353edfd | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | role | a88c5d2d907eddf4404a27bfdb8c3284ea18c6744550a7d5a05c2d56bd4ae3fd | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | role | d9edfc3a21356bacaff6f34d3cf040b3ee92a36c4feab33d2de37fad14f7ffb1 | closed remote refusal cause code
+Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | role | fe4863416e32f91dd1a498827f01917ce8b1087ab297b6cfe819666ca7694686 | closed remote refusal cause code
+Sources/Integration/AutomationMCP/CallDispatcher.swift | call | 08017413696227307d191f4ee23bb31a4be433d1a8a759b3b32106a895a9ec72 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | call | 62784b8f52ecdf36e0fad867a66c6528befbd893bd36ce0f2ea29d59cda3d56f | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | call | e76d248e0bb4835c5c45e74906f943c4e84f19fb25e594b8c5605e21fed7d1b2 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contract | dda6450fcafd1b31eed717b1e5601f31775a04cfe912f59830443d272a786000 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 5b67dabed24ac753ef9a80852049355f8816550e64b7eb1610ce0cd7cca3a778 | composition precondition diagnostic or structural separator
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 7299b59de0b5dad3b622afc3bdf57544e505249c77a6d4254bd14b1fc9a4ade8 | composition precondition diagnostic or structural separator
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 75be2ff932089dcc3d98b7f391e847c1f4319f85671d262c5fe85097fb0c3ce4 | composition precondition diagnostic or structural separator
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | bde3eef3b282a1e8c486feb9e94174522cba1b068b179545a3d947ecbaaaa760 | composition precondition diagnostic or structural separator
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | db4c8e0030dde562cb982c41d00d2972ba64e6c98417a866c57aca38d9dd1ed7 | composition precondition diagnostic or structural separator
+Sources/Integration/AutomationMCP/CallDispatcher.swift | elapsed | 9c5bbf275a09cfe8e9dbc7864e488cb30ba6d9bf0c88a56397daacd6ca9e0ee1 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | provider | bfe4d8faf4d6d0615162fd36f0ad2eb19d62d1973f6b9374fc15caa471db859c | composition precondition diagnostic or structural separator
+Sources/Integration/AutomationMCP/CallDispatcher.swift | recordingFailure | 1c07ce69f8418f31fdf0400e8f3b6f3813b5c7660f08d1e69fdb5b5ba1ec6419 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | recordingFailure | 1e3a4bb7a615a086084a6a01807b361e87fde9ffb1ba303abec543a214fca540 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | recordingFailure | 275451f61f868a26e2baf386055c7454e06360afdd4f44f1dbdae70e445b8a8a | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | recordingFailure | 490d426248946871eaa2e46d4ec13e9eb5b4d5a0e7ecf866e1d4a1ea769da179 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | recordingFailure | 9b0af8ce8167fa9e5a229faa88d19c8a76a691d006c5c4ee98cb5ce190868542 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | recordingFailure | a4a214ca10e884621b9aec3a68751e0f350b07c542981fbc2127e9344fbec0cc | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | recordingFailure | f665c5f60902d17c726241783943c75a660db9c3137f692155b0b2a8efb2ae7c | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | refusal | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | registered | 5b67dabed24ac753ef9a80852049355f8816550e64b7eb1610ce0cd7cca3a778 | composition precondition diagnostic or structural separator
+Sources/Integration/AutomationMCP/CallDispatcher.swift | toolDefinitions | 257286b768ee01518960b3c485f54d2c2a0256fb0f15e7ccd4c58cf61a2ff6cb | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | toolDefinitions | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | toolDefinitions | 4b1545477be6dc17f3a70e659635a34650696be11c051c0c247ea3a09b73d279 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | toolDefinitions | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | toolDefinitions | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | value | 28ab210f7622dc6f37597c88e1ef478354e5d19ac04098c4557100d73c880df6 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | value | d711788ef934ceb391438f04eb8870b336d90bc60039edd73d3b5fdb40878638 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/CallDispatcher.swift | value | d9fd9a3d81d750e6edc61aec66e7c4112f7af7c34ebe0a0d20189464ec9df135 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/MemoryTaskTool.swift | verdict | c1980264fc223a890afae83c91bd2d438ef2ad0dae751fdea3660c3e556b1396 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | 3d872b2ab22a2475ca9ba197dc3cc954d8c991e44284994557fbcaf873cdb73f | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | 50530c9455c9963db7ff3ad85ff057248e774f2a1ca605ea62fb08e8ed7033e3 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | c83e10d5a7fc75f9e1a8b16f24c0f81eb7ed27c3ef2f13fac0e5249f88344a1b | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | key | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | key | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | key | 6bdb95cbfd647dc56d6b1d241787c6a3aafffe36896105fbb416fa8c1e6711ff | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | key | 86c710c3b129ad22477b5a8b596953d1b22414acabb81378b008190fa00d2f49 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | key | 9a5e13f69efc348b5cb6292b127326a7726463d80b3e19e4395bfba72db2e4a1 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | key | e75c9a31d928d69f5826b160571f07cdac34449d6410a51d34d513c1ecae0ed2 | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | key | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | key | f6a7353e2ee11da2421e532f9f8b1d35511d74467d88c7c3028808ea976d1b3c | protocol key, catalogue key or value composition
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | agentTool | 7461ce1a13d9062a09d3bd42b4bcbcd04771652ac1a83bad7aba4c4bc415937d | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | agentTool | cf51937bad8b2f6948b8edf1bd3289f3bc332ec610f99df2f5aff0218b3a554b | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | agentTool | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | contracts | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | contracts | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | contracts | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | contracts | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | id | 4fad9287131db620a994a24a54b0eca01ba1eb961b1d7bb46f976ea33c04e12b | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | id | 9144403ccd467ba7cd67c4233beb1bedcdf497e27e98a6b82f9f6dc006fd5f2a | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | id | 9bce31cb4de07148aad54a47607e9f345f3db4046c085e67ab135ff598016dec | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 1706c6e65ba467fae61caec26716cd1037e3ee730e6d5f77f7c971fc63c3a347 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 1903b3ace707060169d059edc22d142d337dddacb6ba41ceaaeb25997524fdb0 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 1e37124ee6d6c37fc98eac761fd24aa017fd6982f40f73e284a3a12b4e259a9a | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 2f642ed3dda6c943808f699b60b8bf40dc66e058c9216e269d8f6e9d30dc6bb8 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 2fdfd80b7ab2cd1f0e01ad2cdf1aaa69eee4609f73931facfb67d6a6b6de247d | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 345a71448618954a967cf6a02d03f8fba9c101d54ffdecffb6c5f40b0386af6f | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 584f9502e0c17e8fb68b19fb5a0bb63a4a19525f6b95b965f7bfc00b6497634b | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 62c4c04485b3675c8a8594d8418517ed0e7bd2bee6955b143bef6417296e3fe4 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 65329cc8b768423c288d10b26b2e48701c201e5f37928f461af6dfd5a9a6d9ae | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 7e49e1eb47743009f28005af788ac2e0cc4063b9b73714c355cba249ef35ac6e | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 807c1ce09850d9ff5c4dc59b66d34d89dfbf1486e0909d1be3f5d13ba8f6b3c4 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 8dac625925dff4ce3ce795479774c56113af2e44edb49e4dd648038826bc45e2 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 9144403ccd467ba7cd67c4233beb1bedcdf497e27e98a6b82f9f6dc006fd5f2a | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 9f5474bb73ce7418b870c171ec7c35ba84d0a3c3b25ddf220d3f7d63249d5a93 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | a8f2b314899139c67e822fefc626e1d8c369856621895c42f602a5e8f8dc5424 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | d33f6725c5db4ca902fb358d22cb82499df619feeea073f8b9d0d2dea5e84775 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | d994f883ae1c68f4b89aed84ed97cd5c1590829c2653cd34b0fc896e646a2323 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | ded824aeecf5ce0b5f7c3529663a3538a7f03175078b32057d90a76864094773 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | e2946cabbb26da3c076d98f3395e9fe1e0725ba39df2fe6e79f955408c07ed90 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | e37ddc25411cac1217d09d11e8f80d720d6f14d80b152eeaf4a00e78a2620c10 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | e6f9696c8a766ee8c3cd0016078905cddaeb24d54be50406b2faa7a5d211b74a | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | fe26e158c248c22eb7bff607d20e38cdb50b859ca4a0001789c41cfa6772bade | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 140f43d63a3579ba56f9b9e50b5fe92fdca1e2a191a6601c2f4c0f2aa97d5fb5 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 1706c6e65ba467fae61caec26716cd1037e3ee730e6d5f77f7c971fc63c3a347 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 1903b3ace707060169d059edc22d142d337dddacb6ba41ceaaeb25997524fdb0 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 1e37124ee6d6c37fc98eac761fd24aa017fd6982f40f73e284a3a12b4e259a9a | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 2c0a42b79fe27c6fc00f03a0f6d29c4ed6ac2d768de43853fed42c45121a8b0d | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 2fdfd80b7ab2cd1f0e01ad2cdf1aaa69eee4609f73931facfb67d6a6b6de247d | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 345a71448618954a967cf6a02d03f8fba9c101d54ffdecffb6c5f40b0386af6f | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 584f9502e0c17e8fb68b19fb5a0bb63a4a19525f6b95b965f7bfc00b6497634b | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 62c4c04485b3675c8a8594d8418517ed0e7bd2bee6955b143bef6417296e3fe4 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 65329cc8b768423c288d10b26b2e48701c201e5f37928f461af6dfd5a9a6d9ae | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 78dbaa0fb69b5f2d5d226b6e2b57ce3e12074b6e5a307867866516df56c0b7ef | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 7e49e1eb47743009f28005af788ac2e0cc4063b9b73714c355cba249ef35ac6e | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 807c1ce09850d9ff5c4dc59b66d34d89dfbf1486e0909d1be3f5d13ba8f6b3c4 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 8dac625925dff4ce3ce795479774c56113af2e44edb49e4dd648038826bc45e2 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 9144403ccd467ba7cd67c4233beb1bedcdf497e27e98a6b82f9f6dc006fd5f2a | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 9f5474bb73ce7418b870c171ec7c35ba84d0a3c3b25ddf220d3f7d63249d5a93 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | a8f2b314899139c67e822fefc626e1d8c369856621895c42f602a5e8f8dc5424 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | d33f6725c5db4ca902fb358d22cb82499df619feeea073f8b9d0d2dea5e84775 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | d994f883ae1c68f4b89aed84ed97cd5c1590829c2653cd34b0fc896e646a2323 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | ded824aeecf5ce0b5f7c3529663a3538a7f03175078b32057d90a76864094773 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | e2946cabbb26da3c076d98f3395e9fe1e0725ba39df2fe6e79f955408c07ed90 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | e37ddc25411cac1217d09d11e8f80d720d6f14d80b152eeaf4a00e78a2620c10 | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | e6f9696c8a766ee8c3cd0016078905cddaeb24d54be50406b2faa7a5d211b74a | capability contract metadata or composition diagnostic, not model instructions
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | fe26e158c248c22eb7bff607d20e38cdb50b859ca4a0001789c41cfa6772bade | capability contract metadata or composition diagnostic, not model instructions
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | details | 7fadea8333a6ab6fe4d39c4662043f61d2b6c03a5d6f132cc75963f4aa5f776e | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | does | 0a730b3b226d804127f69d1c03155900d6d5ab514219f3216a5b8e3e90393a0b | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | escapedValue | a220e2083255be01088dbf72d3c08c3297ff3f495d888b1259d88d433ec4b9bc | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | header | 08de43e988bb29723b1fd642b6c197ebee0eee5c210201368586619c10331718 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | header | 63b6e10858aba611294beeaacf4b6db75bf5817784e0daf3f25f238d15abe849 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | horizontal | 55bcd93bd6163ed824178a7278e1b54f7729589981114c11203c2eb5c0f0bfb1 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | horizontal | aa8a6e60dc38cbf8963e25f5787eac73b384e0c62ceb481371a4c974fcc536ad | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | inline | 52109349dabf69106e04ec2f493fb8b6ade94ea100227cccce6559ab8b96553f | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | inlineTitle | 0c926fba014b31b506cd4ceb60d646c0c867432650fa0671fcafed6b772614a3 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | inlineTitle | c612f163cf0113132ebbf347d8419bb3023032dd106a5e5e14d0185dc3164ea7 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | liveDetails | eb0a359a28285b7e03fd48ea1a2416d89f3f831598cf768a42cc321277f1973b | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | note | eb0a359a28285b7e03fd48ea1a2416d89f3f831598cf768a42cc321277f1973b | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | owner | 0c346557cf798d1b4fa360493fa43eba94569a4f48f4dbaddcb82ab7812ee415 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | owner | eb0a359a28285b7e03fd48ea1a2416d89f3f831598cf768a42cc321277f1973b | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | text | 0e11fff2bf9ec228fa47e18c59bbe1e835db7c8aecc5a1e43d4418ab679b0364 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | text | 1c009c2f1a130e518c0e0675df2048a360b434a2fadbcdd412dc049133ba1234 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | text | 1c42e4afa33a85833a5e815dd1a918200fe11d31bce223f9dbb6ddfbd05e9af8 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | text | 231673fff7c6c89156474f5c1c2ca231c4f7e9378859e740c0ee60864f8fce94 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | text | 9bc11a44bf4464569b7cc140a5fa531f40157737b8a7604c5935b2216174a1fc | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | text | a80987103c1721d340ad4f3bfa8617b3f3ca5ed28803d970fef300a3e847030a | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | text | a9f43df6ca9805dcccd34ec34fd5d2cad8bf2a3f887fbd22397b621b3cf16f85 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | text | c12d6b842b7252692d2550337fcfeaef4dc432a55e441786035d4ebccbf43ea9 | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | title | 1264852a440e5d753d80197601db893512b434160b480b0ce7776b7db61bd25a | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | title | 2b76ec26cfba0d51c629f54cfab0ffdcb15618f51c38c26932caaa478345760e | scene value composition, escaping or structural delimiter
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | title | 4d5c472bd4c32d4c01abd3756b6481852c696c816b3396fd523bf3c80784b593 | scene value composition, escaping or structural delimiter
+Sources/Turn/TurnRoundCounter.swift | maximum | c1a4e4eb50d994dbcd9e8d85c0e2bd79e9abdc5bbc393e6406ff2a528c2adc91 | person-facing host error, local file identity or turn composition
+Sources/Turn/TurnRunner.swift | environment | 176619b2106255ec3d6ca8366789c465c6b0378d8903001d483dd6a840ead10d | person-facing host error, local file identity or turn composition
+Sources/Turn/TurnRunner.swift | instructionRecord | 4864d4b52fcd7152ad87e96efbd9e89c71930b0f81b619120c0afd40e657bee2 | person-facing host error, local file identity or turn composition
+Sources/Turn/TurnRunner.swift | listed | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | person-facing host error, local file identity or turn composition
+Sources/Turn/TurnRunner.swift | message | 98be486a01834c7bb83b3c7353edc3e046ca30fe710141f939aaec11f15c6407 | person-facing host error, local file identity or turn composition
+Sources/Turn/TurnRunner.swift | policy | 076190e3d64dc9eeceebde08a55cc79f38ed6c33bd6dbbbe3b17be167f2954d9 | person-facing host error, local file identity or turn composition
+Sources/Turn/TurnRunner.swift | seat | 98be486a01834c7bb83b3c7353edc3e046ca30fe710141f939aaec11f15c6407 | person-facing host error, local file identity or turn composition
+Sources/Turn/TurnRunner.swift | session | 402b5f1e916d40d4c8ea549a76392d9507172fadb9cb6cdcdc9187ef60aedcd8 | person-facing host error, local file identity or turn composition
+Sources/Turn/TurnRunner.swift | session | b47118e88c3899d24c64ee520d259e80cabd0a35e3aa893e0ea5029dd3176f77 | person-facing host error, local file identity or turn composition
+Sources/Turn/TurnRunner.swift | temporary | e88bb9452a963ab3742612b1cd32ea64ceca091d93c26d1808a6d0817a2ad1ac | person-facing host error, local file identity or turn composition
+Sources/Turn/TurnRunner.swift | turn | cd22ec4662d06b6ec1935fd8b18a599a328e52554891ffd101a7b5279da2d62e | person-facing host error, local file identity or turn composition
+Sources/Turn/TurnRunner.swift | web | 38d3bb58f57bd9b4a0fc5607ad4e1a7150d082d2d31723587a82d2b4df69aa55 | person-facing host error, local file identity or turn composition
+Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | answer | 5c7d0644728067c2af734933f743b535d8d32a83143f7f8bb5f4e51739abc8e7 | process switch status protocol key
+Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | answer | d9f439b074f954d1fc1c0633985aa258ab3b0e5fee6c4c3190e97206e31da407 | process switch status protocol key
 """
 
 

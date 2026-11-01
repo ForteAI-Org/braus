@@ -536,7 +536,7 @@ extension TurnRunner {
                 throw AutomationFailure("Braus is missing a required support component. Details: \(configuration.bridgeExecutable.path)")
             }
             let connection = try await start()
-            let turn = providerTurn(request, prompt: "Braus compacted this conversation. Reply only: ok",
+            let turn = providerTurn(request, prompt: ModelText.text(.init(rawValue: "turn.compacted")),
                                     session: session, connection: connection, compaction: true)
             let started = Date()
             var boundary: (pre: Int?, post: Int?)?

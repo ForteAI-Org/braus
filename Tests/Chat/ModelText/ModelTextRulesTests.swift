@@ -8,6 +8,8 @@ struct ModelTextNamesTests {
     func names() {
         #expect(validate(ModelText.catalogue, context: RuleContext()).filter { $0.code == .name }.isEmpty)
         #expect(validate([specimen("Call observe with expected_value.")], context: RuleContext()).isEmpty)
+        #expect(validate([specimen("The call completed. Do not repeat it.", delivery: .toolAnswer(tool: "act"))],
+                         context: RuleContext()).isEmpty)
         #expect(validate([specimen("Call missing_tool.")], context: RuleContext()).contains { $0.code == .name })
     }
 }

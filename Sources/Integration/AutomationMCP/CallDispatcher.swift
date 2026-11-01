@@ -175,7 +175,8 @@ final class CallDispatcher {
         if name == "open_session" { log.info("open_session: tool starting (scope, route and recording)") }
         defer {
             if name == "open_session" {
-                log.info("open_session: tool ended after \(started.duration(to: .now).description, privacy: .public)")
+                let elapsed: Duration = started.duration(to: .now)
+                log.info("open_session: tool ended after \(elapsed.description, privacy: .public)")
             }
         }
         #if BRAUS_PHASES
@@ -485,7 +486,9 @@ final class CallDispatcher {
                                                          excludingExecutor: nil).filter { gatesUncertainty($0.request) }
         // Registered writes have no saved resource identity yet, so unresolved effects block them conservatively.
         if registeredWrite, let call = unresolved.first {
-            return "An earlier effect is unresolved (\(call.eventID)); reconcile it before this capability writes."
+            return ModelText.text(.init(rawValue: "capability.unresolvedPrefix"))
+                + "\(call.eventID)"
+                + ModelText.text(.init(rawValue: "capability.unresolvedSuffix"))
         }
         for call in unresolved {
             for request in requests where gatesUncertainty(request) {
@@ -535,7 +538,9 @@ final class CallDispatcher {
         guard !values.isEmpty else { return nil }
         let found = try await MemoryService.shared(for: directory).historicalValues(values, attemptID: task.attemptID)
         guard let value = found.first else { return nil }
-        return "This value comes from an earlier attempt: \(value). Read it again or name it as a task input."
+        return ModelText.text(.init(rawValue: "capability.historicalPrefix"))
+            + value
+            + ModelText.text(.init(rawValue: "capability.historicalSuffix"))
     }
 
     /// The recorder of one call over this session's memory, under the producer and its current trace.
@@ -597,14 +602,21 @@ final class CallDispatcher {
                     contract.id, result: nil, failure: String(describing: error), verified: nil
                 )
             } catch let recordingFailure {
-                throw AutomationFailure("Capability failed: \(error). Recording failed: \(recordingFailure)")
+                throw AutomationFailure(
+                    ModelText.text(.init(rawValue: "capability.failurePrefix"))
+                        + "\(error)"
+                        + ModelText.text(.init(rawValue: "capability.recordingFailure"))
+                        + "\(recordingFailure)"
+                )
             }
             throw error
         }
         do {
             try await recording?.ended(contract.id, result: result, failure: nil, verified: nil)
         } catch {
-            return (result, "Recording failed: \(error). The call completed. Do not repeat it.")
+            return (result, ModelText.text(.init(rawValue: "capability.recordingPrefix"))
+                + "\(error)"
+                + ModelText.text(.init(rawValue: "capability.completedSuffix")))
         }
         return (result, recording == nil ? ModelText.text(.init(rawValue: "call_dispatcher.it.v1.2")) : nil)
     }

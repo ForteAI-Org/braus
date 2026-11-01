@@ -874,7 +874,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             } catch MemoryStoreError.unavailable(.closed) {
                 // A normal close can finish while maintenance is awaiting its connection.
             } catch {
-                Self.log.error("memory checkpoint failed: \(Self.describe(error), privacy: .public)")
+                Self.log.error("memory checkpoint failed: \(Self.describe(error), privacy: .private)")
             }
         }
     }
@@ -1345,7 +1345,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             try measureRetirement()
         } catch {
             retirement.reason = String(describing: error)
-            Self.log.error("memory retirement failed: \(String(describing: error), privacy: .public)")
+            Self.log.error("memory retirement failed: \(String(describing: error), privacy: .private)")
         }
     }
 
@@ -1400,7 +1400,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
                 }
                 .sorted { $0.1 > $1.1 }
         } catch {
-            Self.log.error("memory backup listing failed: \(String(describing: error), privacy: .public)")
+            Self.log.error("memory backup listing failed: \(String(describing: error), privacy: .private)")
             return []
         }
     }

@@ -84,7 +84,8 @@ func validate(_ entries: [ModelText.Entry], context: RuleContext) -> [Violation]
         for token in tokens where token.contains("_") {
             if !context.toolNames.contains(token), !context.visibleNames.contains(token) { add(entry, .name) }
         }
-        for phrase in matches("(?i)\\b(?:call|use) [a-z][a-z_0-9]*", text) {
+        for phrase in matches("(?i)\\b(?:the )?(?:call|use) [a-z][a-z_0-9]*", text)
+            where !phrase.lowercased().hasPrefix("the ") {
             let name = String(phrase.split(separator: " ").last!)
             if !context.toolNames.contains(name) { add(entry, .name); add(entry, .contradiction) }
         }
