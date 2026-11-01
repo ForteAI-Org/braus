@@ -409,7 +409,7 @@ actor HumanInterventionConsumer {
                 let windows = NativeHumanSceneReader.frontWindows(in: listed, processID: window.processID)
                 for surface in windows {
                     let title = ValueMinimization().minimize(text: surface.title ?? "").0
-                    Self.log.notice("final window #\(surface.number, privacy: .public) size=\(surface.frame.width, privacy: .public)x\(surface.frame.height, privacy: .public) layer=\(surface.layer, privacy: .public) title=\(title, privacy: .public)")
+                    Self.log.notice("final window #\(surface.number, privacy: .private) size=\(surface.frame.width, privacy: .private)x\(surface.frame.height, privacy: .private) layer=\(surface.layer, privacy: .private) title=\(title, privacy: .private)")
                 }
                 let closed = Set(textBaselines.keys).union(initialScenes.keys)
                     .filter { number in !listed.contains { $0.number == number } }.sorted()

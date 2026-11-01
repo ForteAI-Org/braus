@@ -170,7 +170,7 @@ final class WindowTwins {
             }
             twin.place(picture: frame)
             twins[window.windowNumber] = twin
-            Self.log.notice("Twin of \(String(describing: window.kind), privacy: .public) window \(window.windowNumber, privacy: .public) '\(window.title, privacy: .public)' comes at \(String(describing: frame), privacy: .public), live \(twin.isLive, privacy: .public) at \(scale, privacy: .public)x: \(reason, privacy: .public)")
+            Self.log.notice("Twin of \(String(describing: window.kind), privacy: .private) window \(window.windowNumber, privacy: .private) '\(window.title, privacy: .private)' comes at \(String(describing: frame), privacy: .private), live \(twin.isLive, privacy: .private) at \(scale, privacy: .private)x: \(reason, privacy: .private)")
         }
         let app    = TwinLayout.appStack(
             main       : first,

@@ -320,6 +320,7 @@ enum SQLiteRecallRows {
 
     static func record(_ transaction: SQLiteTransaction, _ query: SQLiteRecallRepository.RecordedQuery, at nowMS: Int64) throws {
         let request = query.request
+        let remainingWork = RecallQueryMasking.masked(request.remainingWork, values: request.values)
         try transaction.execute(
             """
             INSERT INTO memory_recall_queries (query_id, task_id, task_occurrence_id, task_revision, source, source_stream_id, reason,
@@ -328,7 +329,7 @@ enum SQLiteRecallRows {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [.text(query.queryID), .text(request.taskID), .text(request.attemptID), .integer(Int64(request.revision)),
-             .text(query.producer.source.rawValue), .text(query.producer.streamID), .text(request.reason.rawValue), .text(request.remainingWork),
+             .text(query.producer.source.rawValue), .text(query.producer.streamID), .text(request.reason.rawValue), .text(remainingWork),
              query.generationID.map(SQLiteValue.integer) ?? .null, .text(query.channel.rawValue), .text(query.searchStatus.rawValue),
              query.searchNote.map(SQLiteValue.text) ?? .null, .integer(Int64(RecallContract.candidateLimit)),
              .integer(Int64(query.candidatesConsidered)), .text(query.coverage.rawValue), .text(query.delivery),
@@ -336,9 +337,10 @@ enum SQLiteRecallRows {
              query.durationUS.map(SQLiteValue.integer) ?? .null]
         )
         for need in query.needs {
+            let text = RecallQueryMasking.masked(need.need.text, values: request.values)
             try transaction.execute(
                 "INSERT INTO memory_recall_needs (query_id, position, text, bundle_id, coverage, reason) VALUES (?, ?, ?, ?, ?, ?)",
-                [.text(query.queryID), .integer(Int64(need.position)), .text(need.need.text), need.need.bundleID.map(SQLiteValue.text) ?? .null,
+                [.text(query.queryID), .integer(Int64(need.position)), .text(text), need.need.bundleID.map(SQLiteValue.text) ?? .null,
                  .text(need.coverage.rawValue), need.reason.map { .text($0.rawValue) } ?? .null]
             )
             let selections = need.delivered + need.alternatives + need.excluded
