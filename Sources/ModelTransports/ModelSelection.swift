@@ -83,8 +83,9 @@ public struct ModelSelection: Sendable, Hashable, Codable {
     public static func supportedEfforts(provider: ModelProvider, model: String) -> [ReasoningEffort] {
         switch provider {
         case .codex: ReasoningEffort.allCases
-        // Haiku 4.5 has no effort parameter (extended thinking only).
-        case .claudeCode, .anthropic: model.contains("haiku") ? [] : [.low, .medium, .high, .xhigh, .max]
+        case .claudeCode, .anthropic:
+            ModelProfiles.profile(provider: provider, modelID: model, info: nil).acceptsEffort
+                ? [.low, .medium, .high, .xhigh, .max] : []
         case .gemini: [.low, .medium, .high]
         case .ollama: [.low, .high]
         }

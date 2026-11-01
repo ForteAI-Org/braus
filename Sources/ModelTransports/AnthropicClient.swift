@@ -20,16 +20,7 @@ struct AnthropicClient: ModelTransport {
     func complete(prompt: String, schema: Data, timeout: TimeInterval)
         async throws -> (text: String, usage: ModelUsage) {
         guard !apiKey.isEmpty else { throw ProviderError.missingAPIKey(.anthropic) }
-        let schemaObject = try JSONSerialization.jsonObject(with: schema)
-        // Haiku 4.5 rejects `effort`; every other current model takes it.
-        var outputConfig: [String: Any] = ["format": ["type": "json_schema", "schema": schemaObject]]
-        if !model.contains("haiku") { outputConfig["effort"] = effort.rawValue }
-        let body: [String: Any] = [
-            "model": model,
-            "max_tokens": 16000,
-            "output_config": outputConfig,
-            "messages": [["role": "user", "content": prompt]],
-        ]
+        let body = try structuredBody(prompt: prompt, schema: schema)
         let (json, elapsed) = try await HTTPTransport.postJSON(Self.endpoint, headers: headers,
                                                                body: body, timeout: timeout)
 
@@ -44,6 +35,21 @@ struct AnthropicClient: ModelTransport {
         return (text, ModelUsage(inputTokens: usage?["input_tokens"] as? Int,
                                  outputTokens: usage?["output_tokens"] as? Int,
                                  duration: elapsed))
+    }
+
+    /// Builds the structured Messages body without making a request.
+    func structuredBody(prompt: String, schema: Data) throws -> [String: Any] {
+        let schemaObject = try JSONSerialization.jsonObject(with: schema)
+        var outputConfig: [String: Any] = ["format": ["type": "json_schema", "schema": schemaObject]]
+        if !ModelSelection.supportedEfforts(provider: .anthropic, model: model).isEmpty {
+            outputConfig["effort"] = effort.rawValue
+        }
+        return [
+            "model": model,
+            "max_tokens": 16000,
+            "output_config": outputConfig,
+            "messages": [["role": "user", "content": prompt]],
+        ]
     }
 
     func converse(_ messages: [TurnMessage], timeout: TimeInterval)
@@ -81,7 +87,9 @@ struct AnthropicClient: ModelTransport {
         // as one of them.
         let system = messages.filter { $0.role == .system }.map(\.text).joined(separator: "\n\n")
         if !system.isEmpty { body["system"] = system }
-        if !model.contains("haiku") { body["output_config"] = ["effort": effort.rawValue] }
+        if !ModelSelection.supportedEfforts(provider: .anthropic, model: model).isEmpty {
+            body["output_config"] = ["effort": effort.rawValue]
+        }
         if !tools.isEmpty {
             body["tools"] = try tools.map { tool in
                 ["name": tool.name, "description": tool.description,
