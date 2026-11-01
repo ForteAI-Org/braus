@@ -1,4 +1,4 @@
-import Capabilities
+@_exported import Capabilities
 import CapabilityRegistrations
 import AppAdapters
 import AppKit
@@ -86,8 +86,8 @@ public final class AutomationTools {
     private let taskCycle: TaskCycleHandler
     private let dispatcher: CallDispatcher
 
-    /// Freezes capability contracts and retains their providers for this composition.
-    /// Conflicting identifiers or inconsistent family ownership are composition errors and fail at startup.
+    /// Retains providers and keeps capability contracts aligned with the adapters and routes served.
+    /// Conflicting registered identifiers or inconsistent family ownership are composition errors and fail at startup.
     public init(
         session: any AutomationSessionOperating,
         channels: AutomationChannels = [],

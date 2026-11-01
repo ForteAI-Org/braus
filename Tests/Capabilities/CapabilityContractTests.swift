@@ -8,6 +8,11 @@ import Testing
 @Suite
 @MainActor
 struct CapabilityContractTests {
+    @Test func policyNamesEqualAllServedDefinitions() {
+        let names = Set(AutomationTools.definitions(for: [.native, .web, .adapters]).compactMap { $0["name"].string })
+        #expect(names == Set(ToolCatalogue.policyRegistry.all.map(\.id.rawValue)))
+    }
+
     @Test func everyServedToolHasAnExplicitContract() throws {
         let definitions = AutomationTools.definitions(for: [.native, .web, .adapters])
         let contracts = ToolCatalogue.contracts(for: [.native, .web, .adapters])
@@ -60,6 +65,31 @@ struct CoreEffectClassTests {
 @Suite
 @MainActor
 struct AdapterContractTests {
+    @Test func duplicateAdapterVerbsKeepTheFirstContract() {
+        let adapters = AppAdapters([DemoAdapter(safeties: [.read, .write]), DemoAdapter(safeties: [.irreversible])])
+        let tools = AutomationTools(session: DemoSession(), adapters: adapters)
+        let contracts = ToolCatalogue.contracts(for: [.adapters], adapters: adapters)
+            .filter { $0.id.rawValue == "demo.inspect" }
+        #expect(contracts.count == 1)
+        #expect(contracts.first?.effect == .read)
+        #expect(tools.effectClass(of: "app_call", arguments: .object([
+            "app": .string("demo"), "verb": .string("inspect")
+        ])) == .read)
+    }
+
+    @Test func adapterChangesUpdateTheServedEffect() {
+        let tools = AutomationTools(session: DemoSession())
+        let arguments: JSONValue = .object(["app": .string("demo"), "verb": .string("inspect")])
+        #expect(tools.effectClass(of: "app_call", arguments: arguments) == .write)
+        tools.adapters = AppAdapters([DemoAdapter(safeties: [.read])])
+        #expect(tools.effectClass(of: "app_call", arguments: arguments) == .read)
+        tools.adapters = AppAdapters([DemoAdapter(safeties: [.irreversible])])
+        #expect(tools.effectClass(of: "app_call", arguments: arguments) == .irreversible)
+        tools.adapters = nil
+        #expect(tools.effectClass(of: "app_call", arguments: arguments) == .write)
+        #expect(!tools.toolDefinitions.contains { $0["name"].string == "app_call" })
+    }
+
     @Test func adapterContractsPreserveTheirDeclarations() throws {
         let adapters = AppAdapters.standard()
         let contracts = ToolCatalogue.contracts(for: [.adapters], adapters: adapters)

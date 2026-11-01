@@ -19,12 +19,16 @@ import TaskRouting
 /// CallDispatcher runs a call in its scope and recorder, borrowing state kept alive by the facade.
 final class CallDispatcher {
     private let session: any AutomationSessionOperating
-    let registry: CapabilityRegistry
+    private(set) var registry: CapabilityRegistry
     private let providers: [String: any CapabilityProviding]
     private let recording: (any CapabilityRecording)?
     private let channels: AutomationChannels
-    var adapters: AppAdapters?
-    var router: TaskRouter?
+    var adapters: AppAdapters? {
+        didSet { rebuildRegistry() }
+    }
+    var router: TaskRouter? {
+        didSet { rebuildRegistry() }
+    }
     private unowned let producerSecrets: ProducerSecrets
     private unowned let sceneText: SceneTextPolicy
     private unowned let taskCycle: TaskCycleHandler
@@ -78,6 +82,21 @@ final class CallDispatcher {
         self.formatter = formatter
     }
 
+    private func rebuildRegistry() {
+        let registered = registry.all.filter {
+            if case .registered = $0.origin { return true }
+            return false
+        }
+        do {
+            registry = try CapabilityRegistry(
+                core: ToolCatalogue.contracts(for: served, adapters: adapters),
+                registered: registered
+            )
+        } catch {
+            preconditionFailure("Invalid capability composition: \(error)")
+        }
+    }
+
     /// The channels this instance serves: those composed, `.adapters` while `adapters` is set and `.web` while
     /// `router` is and the web is composed.
     var served: AutomationChannels {
@@ -94,7 +113,7 @@ final class CallDispatcher {
                 "name": .string(contract.id.rawValue),
                 "description": .string(contract.description),
                 "inputSchema": contract.inputSchema,
-                "annotations": .object(["readOnlyHint": .bool(contract.interruption == .readOnly)])
+                "annotations": .object(["readOnlyHint": .bool(contract.effect == .read)])
             ])
         }
     }
@@ -297,9 +316,7 @@ final class CallDispatcher {
             defer { withExtendedLifetime(claim) {} }
             if let refusal = try await uncertaintyRefusal([], capability: contract) { throw AutomationFailure(refusal) }
             if let refusal = try await registeredValueRefusal(contract, arguments) { throw AutomationFailure(refusal) }
-            let value = try await answer(name, arguments, recorder: nil)
-            return try finish(name, value, notice: recording == nil
-                ? ModelText.text(.init(rawValue: "call_dispatcher.it.v1.2")) : nil)
+            return try await answer(name, arguments, recorder: nil)
         }
         let request = try? ToolArguments.callRequest(name, arguments)
         guard let recorder = makeRecorder(sessionID: session.id) else {
@@ -538,8 +555,11 @@ final class CallDispatcher {
         }
     }
 
-    /// Records only the provider execution, preserving the provider error if ending the record also fails.
-    private func callProvider(_ contract: CapabilityContract, arguments: JSONValue) async throws -> JSONValue {
+    /// Records provider execution without replacing a completed result or the provider's failure.
+    private func callProvider(
+        _ contract: CapabilityContract,
+        arguments: JSONValue
+    ) async throws -> (result: JSONValue, notice: String?) {
         guard case .registered(let family) = contract.origin, let provider = providers[family] else {
             preconditionFailure("Missing provider for registered capability: \(contract.id.rawValue)")
         }
@@ -561,8 +581,12 @@ final class CallDispatcher {
             }
             throw error
         }
-        try await recording?.ended(contract.id, result: result, failure: nil, verified: nil)
-        return result
+        do {
+            try await recording?.ended(contract.id, result: result, failure: nil, verified: nil)
+        } catch {
+            return (result, "Recording failed: \(error). The call completed. Do not repeat it.")
+        }
+        return (result, recording == nil ? ModelText.text(.init(rawValue: "call_dispatcher.it.v1.2")) : nil)
     }
 
     private func answer(_ name: String, _ arguments: JSONValue, recorder: CallRecorder?) async throws -> JSONValue {
@@ -581,7 +605,9 @@ final class CallDispatcher {
                     throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")))
                 }
             }
-            return try await callProvider(contract, arguments: arguments)
+            let (result, notice) = try await callProvider(contract, arguments: arguments)
+            let value = notice != nil && result.object == nil ? JSONValue.object(["result": result]) : result
+            return try finish(name, value, notice: notice)
         }
         let schema = definition["inputSchema"]
         let allowed = Set(schema["properties"].object?.keys.map { $0 } ?? [])

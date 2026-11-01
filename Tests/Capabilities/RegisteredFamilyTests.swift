@@ -45,9 +45,12 @@ private actor RecordingSpy: CapabilityRecording {
 private nonisolated struct DemoProvider: CapabilityProviding {
     let family = "demo"
     let spy: RecordingSpy
+    var readInterruption: InterruptionClass = .readOnly
+    var failsWrites = true
+    var result: JSONValue = .object(["value": .string("demo result")])
 
     var contracts: [CapabilityContract] {
-        [("read", EffectClass.read, InterruptionClass.readOnly), ("write", .write, .mutating)].map { name, effect, interruption in
+        [("read", EffectClass.read, readInterruption), ("write", .write, .mutating)].map { name, effect, interruption in
             CapabilityContract(
                 id: CapabilityID(rawValue: "demo.\(name)"),
                 group: "demo",
@@ -67,14 +70,23 @@ private nonisolated struct DemoProvider: CapabilityProviding {
 
     func call(_ id: CapabilityID, arguments: JSONValue, context: CapabilityCallContext) async throws -> JSONValue {
         await spy.called(id, context: context, hasFreshScope: CallScope.current.withheld.isEmpty)
-        if id.rawValue == "demo.write" { throw DemoFailure.provider }
-        return .object(["value": .string("demo result")])
+        if id.rawValue == "demo.write", failsWrites { throw DemoFailure.provider }
+        return result
     }
 }
 
 @Suite
 @MainActor
 struct RegisteredFamilyTests {
+    @Test func readOnlyHintUsesEffectEvenWhenInterruptionIsMutating() throws {
+        let tools = AutomationTools(
+            session: DemoSession(),
+            capabilities: [DemoProvider(spy: RecordingSpy(), readInterruption: .mutating)]
+        )
+        let definition = try #require(tools.toolDefinitions.first { $0["name"].string == "demo.read" })
+        #expect(definition["annotations"]["readOnlyHint"] == .bool(true))
+    }
+
     @Test func recordsExactlyOnceAroundSuccessAndFailure() async throws {
         let session = DemoSession()
         let spy = RecordingSpy()
@@ -84,7 +96,7 @@ struct RegisteredFamilyTests {
         #expect(tools.effectClass(of: "demo.read", arguments: .null) == .read)
         #expect(!tools.isParallelSafe("demo.read", arguments: .null))
         #expect(AutomationTools.interruptionPolicy(for: "demo.read") == .mutating)
-        let result = try await tools.call("demo.read", .object([:]))
+        let result = try decodedCapabilityResult(await tools.call("demo.read", .object([:])))
         #expect(result["value"].string == "demo result")
         await #expect(throws: DemoFailure.provider) { try await tools.call("demo.write", .object([:])) }
         #expect(await spy.events == ["began:demo.read", "called:demo.read", "ended:demo.read:success",
@@ -95,16 +107,38 @@ struct RegisteredFamilyTests {
     @Test func missingObserverSaysNotRecorded() async throws {
         let spy = RecordingSpy()
         let tools = AutomationTools(session: DemoSession(), capabilities: [DemoProvider(spy: spy)])
-        let result = try await tools.call("demo.read", .object([:]))
+        let result = try decodedCapabilityResult(await tools.call("demo.read", .object([:])))
         #expect(result["memory"].string?.contains("not recorded") == true)
         #expect(await spy.events == ["called:demo.read"])
     }
 
-    @Test func endFailureDoesNotRepeatTheObserverOrProvider() async throws {
+    @Test(arguments: ["demo.read", "demo.write"])
+    func endFailureDoesNotRepeatTheObserverOrProvider(_ name: String) async throws {
         let spy = RecordingSpy(failAtEnd: true)
-        let tools = AutomationTools(session: DemoSession(), capabilities: [DemoProvider(spy: spy)], recording: spy)
-        await #expect(throws: DemoFailure.recording) { try await tools.call("demo.read", .object([:])) }
-        #expect(await spy.events == ["began:demo.read", "called:demo.read", "ended:demo.read:success"])
+        let tools = AutomationTools(
+            session: DemoSession(),
+            capabilities: [DemoProvider(spy: spy, failsWrites: false)],
+            recording: spy
+        )
+        let result = try decodedCapabilityResult(await tools.call(name, .object([:])))
+        #expect(result["value"].string == "demo result")
+        #expect(result["memory"].string?.contains("Recording failed") == true)
+        #expect(result["memory"].string?.contains("Do not repeat") == true)
+        #expect(await spy.events == ["began:\(name)", "called:\(name)", "ended:\(name):success"])
+    }
+
+    @Test func endFailurePreservesScalarResultsWithTheNotice() async throws {
+        let spy = RecordingSpy(failAtEnd: true)
+        let tools = AutomationTools(
+            session: DemoSession(),
+            capabilities: [DemoProvider(spy: spy, result: .string("completed"))],
+            recording: spy
+        )
+        let response = try await tools.call("demo.read", .object([:]))
+        let result = try decodedCapabilityResult(response)
+        #expect(response["isError"] == .bool(false))
+        #expect(result["result"] == .string("completed"))
+        #expect(result["memory"].string?.contains("Do not repeat") == true)
     }
 
     @Test func beginningFailurePreventsExecution() async throws {
