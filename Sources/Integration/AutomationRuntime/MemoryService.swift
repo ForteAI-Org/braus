@@ -8,6 +8,7 @@
 import Foundation
 import Memory
 import OSLog
+import PhaseSignposts
 import PerceptionCore
 import SQLiteMemory
 import Synchronization
@@ -104,6 +105,29 @@ nonisolated public struct MemoryRepositories: Sendable {
         procedures   = SQLiteProcedureRepository(store: store)
         relations    = SQLiteBrainRelationRepository(store: store)
         recall       = SQLiteRecallRepository(store: store)
+    }
+}
+
+/// MemoryWorkStatistics holds process-local totals without retaining operation labels.
+/// Queue wait is available only for admitted enqueued work. Other entries record total duration.
+nonisolated public struct MemoryWorkStatistics: Sendable, Equatable {
+    /// Totals describes completed logical requests and their separate execution attempts.
+    public struct Totals: Sendable, Equatable {
+        /// Logical requests that ended, including failures; retries do not add another completion.
+        public internal(set) var completed = 0
+        public internal(set) var attempts = 0
+        public internal(set) var dropped = 0
+        public internal(set) var waitCount = 0
+        public internal(set) var wait: Duration = .zero
+        public internal(set) var duration: Duration = .zero
+    }
+
+    private var classes: [WorkClassLabel: Totals] = [:]
+    public internal(set) var unclassifiedCount = 0
+
+    public internal(set) subscript(_ workClass: WorkClassLabel) -> Totals {
+        get { classes[workClass, default: Totals()] }
+        set { classes[workClass] = newValue }
     }
 }
 
@@ -273,6 +297,8 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         /// pass is wanted.
         public let relationRecovery: SQLiteBrainRelationRepository.CatchUp
         public let relationRecoveryPending: Bool
+        /// Process-local work totals, independent of the archive's persisted state.
+        public let workStatistics: MemoryWorkStatistics
     }
 
     /// Activity is what a quitting process may ask without waiting for the actor: whether this
@@ -285,6 +311,8 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// One write as it waits in the queue: a label for the log and the body.
     private struct Write {
         let label: String
+        let workClass: WorkClassLabel
+        let admitted: ContinuousClock.Instant
         let body: @Sendable (MemoryRepositories) async throws -> Void
     }
 
@@ -313,6 +341,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     private var storeClosing = false
     private var lastClose: String?
     private nonisolated let activity = Mutex(Activity())
+    private var workStatistics = MemoryWorkStatistics()
     private var written = 0
     private var failed = 0
     private var partial = 0
@@ -434,20 +463,41 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// Adds a write to the queue and returns at once. The write runs after every write enqueued before
     /// it; its failure is a counted gap, never an error for the caller.
     public func enqueue(_ label: String, _ body: @escaping @Sendable (MemoryRepositories) async throws -> Void) {
+        let workClass = Self.enqueueClass(label)
+        if workClass == .background { workStatistics.unclassifiedCount += 1 }
         guard admitting, state != .closed else {
+            workStatistics[workClass].dropped += 1
             dropped += 1
             return
         }
         guard queue.count < configuration.queueLimit else {
+            workStatistics[workClass].dropped += 1
             dropped += 1
             if dropped == 1 || dropped.isMultiple(of: 100) {
                 Self.log.error("memory queue full: \(self.dropped) writes dropped")
             }
             return
         }
-        queue.append(Write(label: label, body: body))
+        queue.append(Write(label: label, workClass: workClass, admitted: .now, body: body))
         activity.withLock { $0.outstanding += 1 }
         if drainer == nil { drainer = Task { await self.drain() } }
+    }
+
+    /// Classifies only the explicitly supported enqueue labels; all other labels are counted gaps
+    /// in the vocabulary, without retaining their text.
+    private static func enqueueClass(_ label: String) -> WorkClassLabel {
+        switch label {
+        case "brain record", "brain relation", "brain observe",
+             "scene before", "scene after", "scene current":
+            .followUp
+        default:
+            .background
+        }
+    }
+
+    private func completeWork(_ workClass: WorkClassLabel, since started: ContinuousClock.Instant) {
+        workStatistics[workClass].completed += 1
+        workStatistics[workClass].duration += started.duration(to: .now)
     }
 
     /// Waits until every write enqueued before this call has run, or until the budget is spent,
@@ -489,6 +539,12 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         fallback    : (@Sendable (MemoryRepositories, EssentialWriteFailure) async throws -> Void)? = nil,
         _ body      : @escaping @Sendable (MemoryRepositories) async throws -> Void
     ) async throws -> Confirmation {
+        let workStarted = ContinuousClock.now
+        #if BRAUS_PHASES
+        let phase = PhaseInterval.beginWork(.critical)
+        defer { phase.end() }
+        #endif
+        defer { completeWork(.critical, since: workStarted) }
         guard let probe = essentialProbe else {
             return try await SQLiteMemoryStore.$operationLabel.withValue("essential: \(label)") {
                 try await confirmed(label, beforeEffect: beforeEffect, afterEffect: afterEffect, fallback: fallback, body)
@@ -588,6 +644,13 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// the archive opened, contention waited for within `essentialCycles` lock budgets, every error as
     /// the store or the contract threw it. It touches no suspension: it starts no effect.
     public func perform<T: Sendable>(_ body: @Sendable (MemoryRepositories) async throws -> T) async throws -> T {
+        let started = ContinuousClock.now
+        workStatistics[.interactive].attempts += 1
+        #if BRAUS_PHASES
+        let phase = PhaseInterval.beginWork(.interactive)
+        defer { phase.end() }
+        #endif
+        defer { completeWork(.interactive, since: started) }
         let repositories = try await ready()
         return try await SQLiteMemoryStore.$cycleLimit.withValue(configuration.essentialCycles) {
             try await body(repositories)
@@ -635,6 +698,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     private func offer(_ essential: Essential) async -> Result<Void, EssentialWriteFailure> {
         var pause = configuration.essentialPause
         for attempt in 1...configuration.essentialAttempts {
+            workStatistics[.critical].attempts += 1
             do {
                 guard !storeClosing else { throw MemoryUnavailable("the memory is closed") }
                 let repositories = try await open()
@@ -669,12 +733,23 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
                 continue
             }
             let write = queue.removeFirst()
+            let extracted = ContinuousClock.now
+            workStatistics[write.workClass].attempts += 1
+            #if BRAUS_PHASES
+            let phase = PhaseInterval.beginWork(write.workClass)
+            defer { phase.end() }
+            #endif
+            workStatistics[write.workClass].waitCount += 1
+            workStatistics[write.workClass].wait += write.admitted.duration(to: extracted)
             let tally = SQLiteMemoryStore.CommitTally()
             running = (write.label, tally)
             do {
                 try await SQLiteMemoryStore.$tally.withValue(tally) {
                     try await SQLiteMemoryStore.$operationLabel.withValue("derived: \(write.label)") {
-                        try await write.body(try await self.open())
+                        let repositories = try await self.open()
+                        let started = ContinuousClock.now
+                        defer { workStatistics[write.workClass].duration += started.duration(to: .now) }
+                        try await write.body(repositories)
                     }
                 }
                 settle(write, tally: tally, error: nil)
@@ -691,6 +766,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// counted as unsettled leaves that count for this one.
     private func settle(_ write: Write, tally: SQLiteMemoryStore.CommitTally, error: (any Error)?) {
         running = nil
+        workStatistics[write.workClass].completed += 1
         if runningUnsettled {
             runningUnsettled = false
             unsettled -= 1
@@ -1014,6 +1090,13 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             activity.withLock { $0.copying = false }
         }
         guard let store else { return }
+        let started = ContinuousClock.now
+        workStatistics[.idle].attempts += 1
+        #if BRAUS_PHASES
+        let phase = PhaseInterval.begin("memory.backup")
+        defer { phase.end() }
+        #endif
+        defer { completeWork(.idle, since: started) }
         let stamp       = Self.stamp(Date())
         let destination = directory.appendingPathComponent("\(configuration.fileName).backup-\(stamp)")
         do {
@@ -1116,6 +1199,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         if !drained {
             dropped += leftQueued
             activity.withLock { $0.outstanding -= leftQueued }
+            for write in queue { workStatistics[write.workClass].dropped += 1 }
             queue.removeAll()
             drainer?.cancel()
         }
@@ -1223,7 +1307,8 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
                       essentialWritten: essentialWritten, essentialFailed: essentialFailed,
                       suspended: suspendedReason, pendingEssential: pendingEssential.count,
                       lastMigration: lastMigration, lastUnification: lastUnification,
-                      relationRecovery: relationRecovery, relationRecoveryPending: relationRecoveryWanted)
+                      relationRecovery: relationRecovery, relationRecoveryPending: relationRecoveryWanted,
+                      workStatistics: workStatistics)
     }
 
     /// The archive's applications and counts.

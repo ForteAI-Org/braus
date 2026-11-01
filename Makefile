@@ -40,7 +40,7 @@ REPORTS   := Documentation/Driver/compatibility
 # AppKit RunLoop pumping can also end this otherwise pure bundle before its
 # async main reports completion.
 # The app's own tests remain in BrausTests. This is a run count, not a test count.
-UNIT_BUNDLES := 39
+UNIT_BUNDLES := 40
 
 # The seat cycle, alone in its own process.
 HOST_CYCLE_TESTS := 1
