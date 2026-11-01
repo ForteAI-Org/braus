@@ -84,7 +84,9 @@ struct RegisteredFamilyTests {
         #expect(tools.effectClass(of: "demo.read", arguments: .null) == .read)
         #expect(!tools.isParallelSafe("demo.read", arguments: .null))
         #expect(AutomationTools.interruptionPolicy(for: "demo.read") == .mutating)
-        let result = try await tools.call("demo.read", .object([:]))
+        let response = try await tools.call("demo.read", .object([:]))
+        let text = try #require(response["content"].array?.first?["text"].string)
+        let result = try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
         #expect(result["value"].string == "demo result")
         await #expect(throws: DemoFailure.provider) { try await tools.call("demo.write", .object([:])) }
         #expect(await spy.events == ["began:demo.read", "called:demo.read", "ended:demo.read:success",
@@ -95,7 +97,9 @@ struct RegisteredFamilyTests {
     @Test func missingObserverSaysNotRecorded() async throws {
         let spy = RecordingSpy()
         let tools = AutomationTools(session: DemoSession(), capabilities: [DemoProvider(spy: spy)])
-        let result = try await tools.call("demo.read", .object([:]))
+        let response = try await tools.call("demo.read", .object([:]))
+        let text = try #require(response["content"].array?.first?["text"].string)
+        let result = try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
         #expect(result["memory"].string?.contains("not recorded") == true)
         #expect(await spy.events == ["called:demo.read"])
     }
