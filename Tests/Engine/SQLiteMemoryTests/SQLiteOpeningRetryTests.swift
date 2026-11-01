@@ -38,7 +38,7 @@ struct SQLiteOpeningRetryTests {
         let diagnostics = try await store.diagnostics()
         #expect(diagnostics.bootstrappedNow)
         #expect(diagnostics.schemaVersion == SQLiteMemorySchema.version)
-        #expect(await store.liveHandles == 2)
+        #expect(await store.liveHandles == 4)
         _ = try await record(EventRow(id: "after-retry", key: "k"), in: store)
         #expect(try await count("SELECT count(*) FROM memory_events", in: store) == 1)
         await store.close()
@@ -73,7 +73,7 @@ struct SQLiteOpeningRetryTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         try await store.open()
         #expect(try await store.diagnostics().bootstrappedNow)
-        #expect(await store.liveHandles == 2)
+        #expect(await store.liveHandles == 4)
         await store.close()
     }
 
@@ -92,7 +92,7 @@ struct SQLiteOpeningRetryTests {
         #expect(await store.liveHandles == 0)
         #expect(!FileManager.default.fileExists(atPath: url.path))
         try await store.open()
-        #expect(await store.liveHandles == 2)
+        #expect(await store.liveHandles == 4)
         await store.close()
     }
 

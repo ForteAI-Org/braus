@@ -329,6 +329,10 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
 
     private var queue: [Write] = []
     private var drainer: Task<Void, Never>?
+    private var checkpointTask: Task<Void, Never>?
+    private var queueBecameIdle: ContinuousClock.Instant?
+    private var checkpointGeneration: UInt64 = 0
+    private var directWork = 0
     /// The write taken from the queue and running now, with the tally of what it committed.
     private var running: (label: String, tally: SQLiteMemoryStore.CommitTally)?
     /// Whether the close counted the running write as unsettled, so its end corrects that count.
@@ -478,6 +482,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             }
             return
         }
+        interruptCheckpointPause()
         queue.append(Write(label: label, workClass: workClass, admitted: .now, body: body))
         activity.withLock { $0.outstanding += 1 }
         if drainer == nil { drainer = Task { await self.drain() } }
@@ -644,6 +649,9 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// the archive opened, contention waited for within `essentialCycles` lock budgets, every error as
     /// the store or the contract threw it. It touches no suspension: it starts no effect.
     public func perform<T: Sendable>(_ body: @Sendable (MemoryRepositories) async throws -> T) async throws -> T {
+        interruptCheckpointPause()
+        directWork += 1
+        defer { directWork -= 1; scheduleCheckpointAfterPause() }
         let started = ContinuousClock.now
         workStatistics[.interactive].attempts += 1
         #if BRAUS_PHASES
@@ -696,6 +704,9 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// One essential write, offered up to `essentialAttempts` times while its failure may pass, each
     /// within `essentialCycles` lock budgets: the outcome, counted.
     private func offer(_ essential: Essential) async -> Result<Void, EssentialWriteFailure> {
+        interruptCheckpointPause()
+        directWork += 1
+        defer { directWork -= 1; scheduleCheckpointAfterPause() }
         var pause = configuration.essentialPause
         for attempt in 1...configuration.essentialAttempts {
             workStatistics[.critical].attempts += 1
@@ -758,6 +769,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             }
         }
         drainer = nil
+        scheduleCheckpointAfterPause()
         scheduleBackupIfDue()
     }
 
@@ -787,6 +799,40 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
 
     /// The calls one pass of the relation recovery evaluates at most, by kind of work.
     static let relationRecoveryBatch = 25
+
+    private func interruptCheckpointPause() {
+        checkpointTask?.cancel()
+        checkpointTask = nil
+        queueBecameIdle = nil
+        checkpointGeneration &+= 1
+    }
+
+    /// A new queue entry cancels this pause. The generation prevents an older task from clearing a newer one.
+    private func scheduleCheckpointAfterPause() {
+        guard admitting, state == .open, queue.isEmpty, drainer == nil, directWork == 0 else { return }
+        checkpointTask?.cancel()
+        checkpointGeneration &+= 1
+        let generation = checkpointGeneration
+        let idleSince = ContinuousClock.now
+        queueBecameIdle = idleSince
+        checkpointTask = Task {
+            do {
+                try await Task.sleep(for: .seconds(2))
+            } catch {
+                if generation == checkpointGeneration { checkpointTask = nil }
+                return
+            }
+            guard generation == checkpointGeneration else { return }
+            defer { if generation == checkpointGeneration { checkpointTask = nil } }
+            guard admitting, state == .open, queue.isEmpty, drainer == nil, directWork == 0,
+                  queueBecameIdle == idleSince, let store else { return }
+            do {
+                _ = try await store.checkpointIfDue()
+            } catch {
+                Self.log.error("memory checkpoint failed: \(Self.describe(error), privacy: .public)")
+            }
+        }
+    }
 
     /// Asks for the relation recovery. It runs in the queue's drainer, only while the queue is empty, one
     /// bounded pass at a time with the queue looked at again between passes: whatever is offered
@@ -915,6 +961,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             if !legacy.isEmpty, unifying == nil {
                 unifying = Task { await self.unify(legacy, into: store, repositories: repositories) }
             }
+            scheduleCheckpointAfterPause()
             return repositories
         } catch {
             if state != .closed {
@@ -1186,6 +1233,9 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     }
 
     private func performClose() async {
+        checkpointTask?.cancel()
+        checkpointTask = nil
+        checkpointGeneration &+= 1
         let started  = ContinuousClock.now
         let deadline = started + configuration.closingBudget
         let copying  = backingUp != nil

@@ -15,6 +15,29 @@ import Testing
 @Suite("The waiting policy's limits")
 struct SQLiteConfigurationTests {
 
+    @Test func autoCheckpointDisabled() async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
+        #expect(try await store.diagnostics().autoCheckpointFrames == 0)
+        await store.close()
+    }
+
+    @Test func cacheSizePerRole() async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
+        let writer = try await store.write {
+            try $0.query("PRAGMA cache_size") { $0.integer(0) }.first ?? nil
+        }
+        #expect(writer == -8192)
+        for (priority, expected) in [(ReadPriority.critical, -4096), (.interactive, -4096), (.common, -4096), (.bulk, -2048)] {
+            let size = try await store.read(priority: priority) {
+                try $0.query("PRAGMA cache_size") { $0.integer(0) }.first ?? nil
+            }
+            #expect(size == Int64(expected))
+        }
+        try await store.releaseMemory()
+        #expect(try await store.read { _ in 42 } == 42)
+        await store.close()
+    }
+
     @Test("the defaults are accepted")
     func defaults() {
         #expect(SQLiteMemoryStore.Configuration().problem == nil)
@@ -28,6 +51,11 @@ struct SQLiteConfigurationTests {
             .init(retryPause: .milliseconds(10), maximumRetryPause: .milliseconds(5)),
             .init(lockBudget: .milliseconds(4), retryPause: .milliseconds(5)),
             .init(snapshotPagesPerStep: 0),
+            .init(writerCacheKiB: 0),
+            .init(readerCacheKiB: -1),
+            .init(bulkCacheKiB: 0),
+            .init(checkpointFrames: 0),
+            .init(checkpointFrames: 100, forcedCheckpointFrames: 99),
         ]
         for configuration in refused {
             #expect(configuration.problem != nil)

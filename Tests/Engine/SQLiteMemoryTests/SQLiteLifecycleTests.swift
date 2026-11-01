@@ -59,7 +59,7 @@ struct SQLiteLifecycleTests {
         let diagnostics = try await store.diagnostics()
         #expect(diagnostics.schemaVersion == SQLiteMemorySchema.version)
         #expect(diagnostics.bootstrappedNow)
-        #expect(await store.liveHandles == 2)
+        #expect(await store.liveHandles == 4)
         await store.close()
         #expect(await store.liveHandles == 0)
     }
@@ -78,7 +78,7 @@ struct SQLiteLifecycleTests {
         raw.close()
         try await store.open()
         #expect(try await store.diagnostics().schemaVersion == SQLiteMemorySchema.version)
-        #expect(await store.liveHandles == 2)
+        #expect(await store.liveHandles == 4)
         await store.close()
     }
 

@@ -10,9 +10,7 @@ import Memory
 @testable import SQLiteMemory
 import Testing
 
-/// The checkpoint policy is the library's automatic passive one, documented and observed, plus an
-/// explicit passive checkpoint that reports what it moved and never fails for a reader still on
-/// an older snapshot.
+/// Explicit passive checkpoints report their cost and tolerate readers still on older snapshots.
 @Suite("Checkpoints of the write-ahead log")
 struct SQLiteCheckpointTests {
 
@@ -34,6 +32,40 @@ struct SQLiteCheckpointTests {
         await store.close()
     }
 
+    @Test func forcedCheckpoint() async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase(), configuration: .init(
+            checkpointFrames: 1, forcedCheckpointFrames: 2
+        ))
+        _ = try await record(EventRow(id: "forced", key: "forced-key"), in: store)
+        let diagnostics = try await store.diagnostics()
+        #expect(diagnostics.forcedCheckpoints == 1)
+        #expect(diagnostics.pauseCheckpoints == 0)
+        #expect(diagnostics.residualWALFrames == 0)
+        await store.close()
+    }
+
+    @Test func walAccounting() async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
+        _ = try await store.checkpoint()
+        let before = try await store.diagnostics()
+        _ = try await record(EventRow(id: "accounted", key: "accounted-key"), in: store)
+        let written = try await store.diagnostics()
+        #expect(written.lastWriteFramesAdded > 0)
+        #expect(written.framesAdded - before.framesAdded == written.lastWriteFramesAdded)
+        #expect(written.residualWALFrames == written.lastWriteFramesAdded)
+        #expect(written.walBytes > 0)
+        let report = try await store.checkpoint()
+        let copied = try await store.diagnostics()
+        #expect(copied.framesAdded == written.framesAdded)
+        #expect(copied.residualWALFrames == 0)
+        #expect(copied.checkpointedFrames - written.checkpointedFrames == report.framesCopied)
+        #expect(copied.checkpointDuration - written.checkpointDuration == report.duration)
+        #expect(copied.walBytes == written.walBytes)
+        let url = store.url
+        await store.close()
+        #expect(try walSize(url) == 0)
+    }
+
     private func walSize(_ url: URL) throws -> UInt64 {
         (try FileManager.default.attributesOfItem(atPath: url.path + "-wal")[.size] as? UInt64) ?? 0
     }
@@ -42,7 +74,7 @@ struct SQLiteCheckpointTests {
     func explicitCheckpoint() async throws {
         let url   = try temporaryDatabase()
         let store = try await SQLiteMemoryStore.open(at: url)
-        #expect(try await store.diagnostics().autoCheckpointFrames == 1000)
+        #expect(try await store.diagnostics().autoCheckpointFrames == 0)
         for index in 0..<20 {
             _ = try await record(EventRow(id: "e\(index)", key: "k\(index)"), in: store)
         }
@@ -57,6 +89,7 @@ struct SQLiteCheckpointTests {
         // Nothing new: the log's frames are all in the file already.
         let again = try await store.checkpoint()
         #expect(again.outcome == .complete)
+        #expect(again.framesCopied == 0)
         #expect(try await count("SELECT count(*) FROM memory_events", in: store) == 20)
         await store.close()
     }
@@ -90,8 +123,8 @@ struct SQLiteCheckpointTests {
         await store.close()
     }
 
-    @Test("the library's automatic checkpoint keeps the log bounded across many commits")
-    func automaticCheckpointBoundsTheLog() async throws {
+    @Test("continuous writes defer checkpoints below the forced threshold")
+    func checkpointOnlyInPause() async throws {
         let url   = try temporaryDatabase()
         let store = try await SQLiteMemoryStore.open(at: url)
         let padding = String(repeating: "x", count: 3900)
@@ -105,7 +138,11 @@ struct SQLiteCheckpointTests {
         }
         let size = try walSize(url)
         #expect(size > 0)
-        #expect(size < 8 * 1024 * 1024)
+        #expect(size > 8 * 1024 * 1024)
+        #expect(try await store.diagnostics().checkpoints == 0)
+        #expect(try await store.checkpointIfDue() != nil)
+        #expect(try await store.diagnostics().pauseCheckpoints == 1)
+        #expect(try await store.checkpointIfDue() == nil)
         #expect(try await count("SELECT count(*) FROM brain_apps", in: store) == 2500)
         await store.close()
     }
