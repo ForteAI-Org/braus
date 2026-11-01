@@ -200,27 +200,36 @@ struct SQLiteExecutorTests {
         #expect(try SQLiteMemoryRecovery.recover(url, copies: { [] }, stamp: "released") == .notCorrupt)
     }
 
-    @Test func closeRejectsWaitingWritesBeforeReadersFinish() async throws {
+    @Test(arguments: [ReadPriority.critical, .common, .bulk])
+    func closeRejectsWaitingWritesBeforeReadersFinish(priority: ReadPriority) async throws {
         let url = try temporaryDatabase()
         let store = try await SQLiteMemoryStore.open(at: url)
         var events = await waits(of: store)
         let holder = try SQLiteConnection(path: url.path)
         try holder.execute("BEGIN IMMEDIATE")
         let held = HeldOperation()
-        let reading = Task { try await store.read(priority: .bulk) { _ in held.hold() } }
+        let reading = Task {
+            try await store.read(priority: priority) { snapshot in
+                _ = try snapshot.query("SELECT count(*) FROM brain_apps") { $0.integer(0) }
+                return held.hold()
+            }
+        }
         defer { held.release() }
         for await _ in held.entered { break }
         let writing = Task { await storeError { _ = try await record(EventRow(id: "waiting", key: "waiting-key"), in: store) } }
         #expect(await events.next() == .pausing(.begin, attempt: 1))
         let closing = Task { await store.close() }
         let deadline = ContinuousClock.now + .seconds(5)
+        let probePriority: ReadPriority = priority.index == 0 ? .common : .critical
         var closed = false
         while ContinuousClock.now < deadline {
-            let error = await storeError { _ = try await store.read(priority: .critical) { _ in 1 } }
+            let error = await storeError { _ = try await store.read(priority: probePriority) { _ in 1 } }
             if error == .unavailable(.closed) { closed = true; break }
             await Task.yield()
         }
         #expect(closed)
+        #expect(await store.holdsPresence)
+        #expect(await store.liveHandles > 0)
         try holder.execute("ROLLBACK")
         holder.close()
         #expect(await writing.value == .unavailable(.closed))
@@ -228,7 +237,11 @@ struct SQLiteExecutorTests {
         #expect(try await reading.value)
         await closing.value
         #expect(await store.liveHandles == 0)
+        #expect(!(await store.holdsPresence))
         #expect(try rawCount("SELECT count(*) FROM memory_events", at: url) == 0)
+        let reopened = try await SQLiteMemoryStore.open(at: url)
+        _ = try await record(EventRow(id: "reopened", key: "reopened-key"), in: reopened)
+        await reopened.close()
     }
 
     @Test func writeOrderUnchanged() async throws {

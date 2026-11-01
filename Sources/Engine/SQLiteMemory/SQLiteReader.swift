@@ -27,6 +27,7 @@ actor SQLiteReader {
     func open(path: String, role: ConnectionRole) throws {
         let connection = try SQLiteConnection(path: path, mayCreate: false)
         do {
+            try connection.disableAutomaticCloseCheckpoint()
             try connection.execute("PRAGMA foreign_keys = ON")
             try connection.execute("PRAGMA synchronous = FULL")
             try connection.execute("PRAGMA query_only = ON")

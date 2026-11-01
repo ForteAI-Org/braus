@@ -704,6 +704,8 @@ Three reader actors own separate serial executors: reader 0 serves `critical` an
 reader runs at `utility`. Read routing uses a mutex only to borrow an actor reference;
 transactions run entirely on that actor without a suspension. Lifecycle changes stop
 admission before closing each connection on its owner and releasing the archive's presence lock.
+Store-owned connections disable SQLite's implicit checkpoint on close. Final WAL maintenance
+belongs to the store's explicit close checkpoint, after every reader has closed.
 `dataVersion()` and `readVersioned` always use reader 0 because SQLite version tokens
 are comparable only on the same connection. The latter reads its token before its data
 within one transaction.

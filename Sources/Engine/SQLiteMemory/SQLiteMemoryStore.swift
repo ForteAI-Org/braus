@@ -1395,6 +1395,7 @@ public actor SQLiteMemoryStore {
     private static func connect(_ path: String, readOnly: Bool, mayCreate: Bool = true) throws -> SQLiteConnection {
         do {
             let connection = try SQLiteConnection(path: path, readOnly: readOnly, mayCreate: mayCreate)
+            try connection.disableAutomaticCloseCheckpoint()
             try connection.execute("PRAGMA foreign_keys = ON")
             guard try integerPragma(connection, "foreign_keys") == 1 else {
                 throw refusal(.open, "foreign_keys could not be enabled")

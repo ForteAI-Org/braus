@@ -185,6 +185,15 @@ final class SQLiteConnection {
         }
     }
 
+    /// Disables SQLite's implicit checkpoint during close; the store owns explicit maintenance.
+    func disableAutomaticCloseCheckpoint() throws {
+        let handle = try openHandle()
+        let status = braus_sqlite_no_checkpoint_on_close(handle, 1, nil)
+        guard status == SQLITE_OK else {
+            throw Failure(primary: status & 0xFF, extended: status, message: String(cString: sqlite3_errmsg(handle)))
+        }
+    }
+
     /// Releases unused pages from this connection's cache, outside a transaction.
     func releaseMemory() throws {
         let handle = try openHandle()
