@@ -6,6 +6,7 @@
 import CoreGraphics
 import Foundation
 import JavaScriptCore
+import Memory
 import PerceptionCore
 import Testing
 import WebDriver
@@ -163,5 +164,44 @@ struct WebSecureFieldTests {
         context.evaluateScript("document.activeElement = zip")
         #expect(context.evaluateScript(WebControls.focusedFieldScript).toString() == "10115")
         #expect(context.evaluateScript(WebControls.controlValuesScript).toArray() as? [String] == ["10115"])
+    }
+}
+
+struct WebMarkupParityTests {
+    private struct Case: Decodable {
+        let id: String
+        let tag: String?
+        let attributes: [String: String]?
+        let expected: String
+        let field: FieldSignals
+    }
+
+    @Test func sharedCases() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let url = root.appendingPathComponent("Tests/Engine/MemoryTests/Privacy/Fixtures/sensitivity-cases.json")
+        let cases = try JSONDecoder().decode([Case].self, from: Data(contentsOf: url))
+        let context = try #require(JSContext())
+        let secure = try #require(context.evaluateScript(WebSecureFields.function))
+        for item in cases {
+            guard let tag = item.tag, let attributes = item.attributes else { continue }
+            let native = WebSecureFields.isSecure(tag: tag, attributes: attributes)
+            let element = try #require(context.evaluateScript("""
+                ((tag, attributes) => ({tagName: tag, getAttribute: n => attributes[n] || null}))
+                """)).call(withArguments: [tag, attributes])
+            #expect(secure.call(withArguments: [element as Any]).toBool() == native, "\(item.id)")
+            let verdict = SensitivityClassifier().classify(nil, in: .init(markupDeclaresSecret: native))
+            #expect(verdict.sensitivity.rawValue == item.expected, "\(item.id)")
+            if native { #expect(verdict.reasons.contains(.secureMarkup)) }
+        }
+    }
+
+    @Test func valueAfterReading() throws {
+        for value in ["eyJabcdefgh.abcdefgh.abcdefgh", "GB82 WEST 1234 5698 7654 32"] {
+            let node = WebAXNode(id: "1", role: "textbox", value: value)
+            let element = try #require(WebSceneBuilder.element(for: node, name: "Token", container: nil,
+                                                               collection: nil, textCovered: false))
+            #expect(element.value == nil)
+        }
     }
 }

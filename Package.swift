@@ -364,7 +364,7 @@ let package = Package(
         .testTarget(
             name         : "AutomationRuntimeTests",
             dependencies : ["AutomationRuntime", "AutomationMCP", "AppAdapters", "Memory", "SQLiteMemory", "EngineCore",
-                            "Engine", "PerceptionCore", "LocalMCP", "LocalEmbedding", "WindowServerListing",
+                            "Engine", "PerceptionCore", "Perception", "LocalMCP", "LocalEmbedding", "WindowServerListing",
                             "TestScratch", "PhaseSignposts"].map { .target(name: $0) },
             path         : "Tests/Integration/AutomationRuntimeTests",
             // The Recall's quality corpus: knowledge learned through the tools and queries split by family.
@@ -449,7 +449,8 @@ let package = Package(
         engine("WorkspaceActivation", ["EngineCore"], settings: pure),
 
         // What the agent remembers: observed objects, the brain, routes, recall, and the storing role. Pure.
-        engine("Memory", ["EngineCore", "PerceptionCore"], settings: pure),
+        engine("Memory", ["EngineCore", "PerceptionCore"], settings: pure,
+               resources: [.copy("Privacy/Sensitivity/Rules")]),
 
         // `KnowledgeStoring` over one JSON file per application, with backups and write-behind.
         engine("FileKnowledge", ["Memory"], settings: pure),
@@ -607,7 +608,7 @@ let package = Package(
 
         // MARK: Perception tests
         perceptionTests("PerceptionCore", ["PerceptionCore"]),
-        perceptionTests("AccessibilityFacts", ["AccessibilityFacts", "PerceptionCore"]),
+        perceptionTests("AccessibilityFacts", ["AccessibilityFacts", "PerceptionCore", "Memory"]),
         perceptionTests("Perception", ["Perception", "PerceptionCore"]),
         perceptionTests("IncrementalText", ["IncrementalText", "PerceptionCore"]),
         perceptionTests("PixelSections", ["PixelSections", "PerceptionCore"]),
@@ -628,12 +629,12 @@ let package = Package(
 
         // A page as the engine sees a window: the scene from the accessibility tree and the layout, and the
         // roles that act on it over the DevTools protocol. Synthetic process ids name the tabs.
-        web("WebDriving", ["WebDriver", "EngineCore", "PerceptionCore"]),
+        web("WebDriving", ["WebDriver", "EngineCore", "PerceptionCore", "Memory"]),
         // The person's paired Chrome profiles: the hub the Braus extension's native host reaches, and the
         // DevTools transport that drives Braus's own tabs in one profile through its extension instance.
         web("ChromeProfiles", ["WebDriver"]),
         webTests("ChromeProfiles", ["ChromeProfiles", "WebDriver"]),
-        webTests("WebDriving", ["WebDriving", "WebDriver", "Engine", "EngineCore", "PerceptionCore", "TestScratch"],
+        webTests("WebDriving", ["WebDriving", "WebDriver", "Engine", "EngineCore", "PerceptionCore", "Memory", "TestScratch"],
                  resources: [.copy("Fixtures/web-scene.html"), .copy("Fixtures/web-hostile.html"),
                              .copy("Fixtures/web-secure.html"), .copy("Fixtures/hit-test.html"),
                              .copy("Fixtures/settle.html"), .copy("Fixtures/frames.html"),
@@ -659,7 +660,7 @@ let package = Package(
         engineTests("Engine", ["Engine", "EngineCore", "PerceptionCore"]),
         engineTests("Memory", ["Memory", "EngineCore", "PerceptionCore"],
                     resources: [.copy("Fixtures/route-corpus.json"), .copy("Fixtures/misfire-corpus.json"),
-                                .copy("Fixtures/misfire-corpus.md")]),
+                                .copy("Fixtures/misfire-corpus.md"), .copy("Privacy/Fixtures/sensitivity-cases.json")]),
         engineTests("FileKnowledge", ["FileKnowledge", "Memory", "PerceptionCore", "TestScratch"]),
         // The local model's tokenizer and encoder against Hugging Face's own outputs; the model files come from
         // BRAUS_RECALL_MODELS and the suites that need them are skipped, saying so, without it.

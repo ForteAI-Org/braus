@@ -128,7 +128,7 @@ public struct ValueMinimization: Sendable {
     /// a declared secret's, a credential's; nil when the text is kept as it is.
     public func minimize(text: String, typedInto target: String? = nil) -> (String, WithholdingReason?) {
         let (kept, reasons) = Self.withholding(text, classified: classified, secrets: secrets, credentials: scrubsCredentials)
-        if let target, Self.namesSecret(target), !text.isEmpty {
+        if let target, Self.classifier.classify(text, in: .init(labels: [target])).sensitivity == .secret, !text.isEmpty {
             return (Self.marker, Self.strongest(reasons.union([.secretTarget])))
         }
         if let whole = exact[text] { return (Self.marker, Self.strongest(reasons.union([whole]))) }
@@ -172,7 +172,7 @@ public struct ValueMinimization: Sendable {
         }
         for (piece, reason) in classified { add(occurrences(of: piece, in: text), reason) }
         for secret in secrets { add(occurrences(of: secret, in: text), .declaredSecret) }
-        if credentials { add(credentialRanges(in: text), .credentialPattern) }
+        if credentials { add(classifier.findings(in: text, field: .init()).map(\.range), .credentialPattern) }
         guard !ranges.isEmpty else { return (text, []) }
         return (replacing(ranges, in: text), reasons)
     }
@@ -271,7 +271,7 @@ public struct ValueMinimization: Sendable {
             gaps.append(ValueRedaction(eventID: key.eventID, location: .sampleTitle(phase: key.phase, ordinal: key.ordinal),
                                        reason: .confidentialContent))
         }
-        for index in kept.elements.indices where ConfidentialSurfaces.isContent(kept.elements[index]) {
+        for index in kept.elements.indices where Self.classifier.classify(kept.elements[index]).sensitivity != .ordinary {
             if kept.elements[index].label != Self.marker {
                 kept.elements[index].label = Self.marker
                 gaps.append(ValueRedaction(
@@ -630,125 +630,10 @@ public struct ValueMinimization: Sendable {
         return ValueMinimization(secrets: secrets, classified: classified, exact: exact, scrubsCredentials: scrubsCredentials)
     }
 
-    // MARK: Rules
+    private static let classifier = SensitivityClassifier()
 
-    /// Whether a control's name says it holds a secret: a password, a passcode, a PIN, a token, an
-    /// API key, a one-time or security code, a card's verification number, in English or Italian.
-    public static func namesSecret(_ label: String) -> Bool {
-        let words = label.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
-        let joined = words.joined(separator: " ")
-        let single: Set<String> = ["password", "passwd", "passcode", "passphrase", "pin", "token", "secret", "otp",
-                                   "cvv", "cvc", "apikey", "totp", "2fa", "mfa"]
-        if words.contains(where: single.contains) { return true }
-        let phrases = ["api key", "access key", "secret key", "private key", "security code", "verification code",
-                       "one time code", "auth code", "parola d ordine", "codice segreto", "codice di sicurezza",
-                       "codice di verifica", "chiave api", "chiave segreta"]
-        return phrases.contains { joined.contains($0) }
+    /// Whether the shared classifier finds a secret anywhere in the supplied text.
+    public static func hasCredentialShape(_ text: String) -> Bool {
+        classifier.findings(in: text, field: .init()).contains { $0.verdict.sensitivity == .secret }
     }
-
-    /// The text with every credential shape replaced by the marker, and whether any was found: private
-    /// keys, well-known token prefixes (`sk-`, `ghp_`, `github_pat_`, `xox?-`, `AKIA`, `AIza`), JSON
-    /// web tokens, and long mixed-case alphanumeric strings that read as generated keys.
-    public static func scrubCredentials(_ text: String) -> (String, Bool) {
-        let (kept, reasons) = withholding(text, classified: [:], secrets: [], credentials: true)
-        return (kept, !reasons.isEmpty)
-    }
-
-    /// Where the credential shapes of `text` are: every match of the patterns and every word that reads as
-    /// a generated key, found on the text as given.
-    static func credentialRanges(in text: String) -> [Range<String.Index>] {
-        // The shortest shape searched for is a Slack token's 15 characters: a shorter text holds none.
-        guard text.utf8.count >= 15 else { return [] }
-        var found: [Range<String.Index>] = []
-        let whole = NSRange(text.startIndex..., in: text)
-        for pattern in credentialPatterns {
-            for match in pattern.matches(in: text, range: whole) {
-                if let range = Range(match.range, in: text), !range.isEmpty { found.append(range) }
-            }
-        }
-        for token in text.split(separator: " ") where looksGenerated(String(token)) {
-            found.append(token.startIndex..<token.endIndex)
-        }
-        return found
-    }
-
-    /// Whether a text has a credential's shape anywhere in it.
-    public static func hasCredentialShape(_ text: String) -> Bool { scrubCredentials(text).1 }
-
-    /// Whether a word reads as a generated key. An absolute path (`/…` or `~/…`) is judged by its
-    /// components, since its slashes join names that are each short and would otherwise add up to a
-    /// key's length (live run R01, LV02): it has a key's shape when one component does, whole or as a
-    /// shorter random run (`readsRandom`). Any other word, a key with slashes in its alphabet among them,
-    /// is judged whole.
-    static func looksGenerated(_ token: String) -> Bool {
-        let trimmed = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`.,;:()[]{}<>"))
-        guard trimmed != marker else { return false }
-        if let components = pathComponents(trimmed) {
-            return components.contains { isGeneratedWord($0) || readsRandom($0) }
-        }
-        return isGeneratedWord(trimmed)
-    }
-
-    /// The characters a generated key is drawn from: letters, digits and the separators of base64.
-    private static let keyAlphabet = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "+/=_-"))
-
-    /// A word of 32 or more characters drawn from a key's alphabet, with upper case, lower case and
-    /// digits all present: how generated keys look, and how file names and hashes do not.
-    static func isGeneratedWord(_ word: String) -> Bool {
-        guard word.count >= 32 else { return false }
-        guard word.unicodeScalars.allSatisfy({ keyAlphabet.contains($0) && $0.isASCII }) else { return false }
-        let upper = word.contains { $0.isUppercase }, lower = word.contains { $0.isLowercase }
-        let digit = word.contains { $0.isNumber }
-        return upper && lower && digit
-    }
-
-    /// The components of an absolute path, from the root or the home folder, without the empty one a
-    /// final slash leaves; nil for any other word, and for one with an empty component inside, which
-    /// no path has and a key with slashes may.
-    static func pathComponents(_ word: String) -> [String]? {
-        let rest: Substring
-        if word.hasPrefix("~/") { rest = word.dropFirst(2) } else if word.hasPrefix("/") { rest = word.dropFirst() } else { return nil }
-        var components = rest.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        if components.last == "" { components.removeLast() }
-        guard !components.isEmpty, !components.contains("") else { return nil }
-        return components
-    }
-
-    /// Whether a path component reads as random though shorter than a key: twelve letters and digits or
-    /// more, drawn from a key's alphabet, upper case, lower case and digits all present, and the kind of
-    /// character changing between at least half of the adjacent letters and digits, as it does in a
-    /// generated string (`aB3dE5fG7hI9jK1l`) and not in a name (`Reports2026`, `BrausAppSupport`).
-    static func readsRandom(_ component: String) -> Bool {
-        let scalars = Array(component.unicodeScalars)
-        guard scalars.allSatisfy({ keyAlphabet.contains($0) && $0.isASCII }) else { return false }
-        func kind(_ scalar: Unicode.Scalar) -> Int? {
-            switch scalar.value {
-                case 0x41...0x5A: 0
-                case 0x61...0x7A: 1
-                case 0x30...0x39: 2
-                default         : nil
-            }
-        }
-        let kinds = scalars.map(kind)
-        let present = Set(kinds.compactMap { $0 })
-        guard kinds.compactMap({ $0 }).count >= 12, present.count == 3 else { return false }
-        var pairs = 0, changes = 0
-        for (left, right) in zip(kinds, kinds.dropFirst()) {
-            guard let left, let right else { continue }
-            pairs += 1
-            if left != right { changes += 1 }
-        }
-        return changes * 2 >= pairs
-    }
-
-    private static let credentialPatterns: [NSRegularExpression] = [
-        "-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)",
-        "\\bsk-(ant-)?[A-Za-z0-9_-]{16,}",
-        "\\bgh[pousr]_[A-Za-z0-9]{30,}",
-        "\\bgithub_pat_[A-Za-z0-9_]{20,}",
-        "\\bxox[abposr]-[A-Za-z0-9-]{10,}",
-        "\\bAKIA[0-9A-Z]{16}\\b",
-        "\\bAIza[0-9A-Za-z_-]{35}\\b",
-        "\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}",
-    ].compactMap { try? NSRegularExpression(pattern: $0) }
 }
