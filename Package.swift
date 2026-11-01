@@ -456,7 +456,7 @@ let package = Package(
         // and a separate reader, typed errors. Imports Memory and SQLiteAmalgamation only; AutomationRuntime's
         // MemoryService composes it.
         engine("SQLiteMemory", ["Memory", "SQLiteAmalgamation"], settings: pure,
-               resources: [.copy("Resources/brain-living-memory-schema.sql")]),
+               resources: [.copy("Resources/brain-living-memory-schema.sql"), .copy("Resources/memory-schema-22.sql")]),
         // SQLite 3.54.0 from sqlite.org, compiled in so every supported macOS runs the library the schema and the
         // store need, not the system's, which is older before macOS 27. The options keep the system library's
         // trigger, durability and limit defaults. Source, options and update steps in the folder's README.
