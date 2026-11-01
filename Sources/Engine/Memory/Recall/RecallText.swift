@@ -88,21 +88,7 @@ public enum RecallText {
     /// file's name without its extension too), and a number of any length (a slide `2`) as a whole number: only a text that
     /// one value alone has, so two values written alike (an extension `png` and a format `PNG`) leave the mention to neither.
     public static func mentions(_ text: String, values: [TaskValue]) -> Set<String> {
-        var owners: [String: Set<String>] = [:]
-        for candidate in RecallBinding.candidates(values) where !candidate.isDerived || candidate.name.hasSuffix(".name") {
-            guard let value = candidate.text?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  value.count >= 3 || (!value.isEmpty && value.allSatisfy(\.isNumber)) else { continue }
-            let name = candidate.isDerived ? String(candidate.name.dropLast(".name".count)) : candidate.name
-            owners[value.lowercased(), default: []].insert(name)
-        }
-        var mentioned: Set<String> = []
-        for (value, names) in owners where names.count == 1 {
-            let pattern = "(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: value) + "(?![\\p{L}\\p{N}])"
-            guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-                  expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil else { continue }
-            mentioned.formUnion(names)
-        }
-        return mentioned
+        MethodText.mentions(text, values: values)
     }
 
     /// The coordinating conjunctions a request joins its clauses with.
@@ -115,21 +101,7 @@ public enum RecallText {
     /// own. The longest value goes first; a file's name without its extension is a value too; values shorter than
     /// three characters, withheld or missing are left in place.
     public static func masked(_ text: String, values: [TaskValue]) -> String {
-        var replacements: [(text: String, name: String)] = []
-        for candidate in RecallBinding.candidates(values) where !candidate.isDerived || candidate.name.hasSuffix(".name") {
-            guard let value = candidate.text?.trimmingCharacters(in: .whitespacesAndNewlines), value.count >= 3 else { continue }
-            let name = candidate.isDerived ? String(candidate.name.dropLast(".name".count)) : candidate.name
-            replacements.append((value, name))
-        }
-        var masked = text
-        for replacement in replacements.sorted(by: { $0.text.count > $1.text.count }) {
-            let pattern = "(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: replacement.text) + "(?![\\p{L}\\p{N}])"
-            guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
-            let range = NSRange(masked.startIndex..., in: masked)
-            masked = expression.stringByReplacingMatches(in: masked, range: range,
-                                                         withTemplate: NSRegularExpression.escapedTemplate(for: "<\(replacement.name)>"))
-        }
-        return masked
+        MethodText.masked(text, values: values)
     }
 
     /// Function words of Italian and English that say nothing about a task.
