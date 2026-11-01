@@ -5,7 +5,6 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 25/09/2026.
 //
 
-import AutomationMCP
 import AutomationRuntime
 import ChatCore
 import Foundation
@@ -27,16 +26,17 @@ import ModelTransports
 /// Memory across turns is the history the caller passes; within a turn the
 /// loop keeps every call and result. `summarize` compacts that history into a
 /// summary the caller sends instead. A failure is never retried.
+/// The host supplies tools and system text; this module requires no application or UI types.
 @MainActor
-final class ModelToolLoop {
+public final class ModelToolLoop {
 
     // ponytail: a fixed ceiling of 100 tool rounds per turn; make it a setting if real work needs more.
-    static let toolRoundLimit = 100
+    public static let toolRoundLimit = 100
 
     private let call: @MainActor (String, JSONValue) async throws -> JSONValue
 
-    /// What a final answer is followed by, once: `AutomationTools.takeInterpretationReminder`, the request for a
-    /// learning candidate the model left uninterpreted. Nil goes on to the end of the turn.
+    /// What a final answer is followed by: the host's request for an uninterpreted learning candidate.
+    /// Nil goes on to the end of the turn.
     private let reminder: @MainActor () -> String?
 
     /// Set by `stop`; checked before each round and each tool call.
@@ -52,24 +52,28 @@ final class ModelToolLoop {
     /// Whether those tools open web addresses, which the instructions then teach.
     private let offersWeb: Bool
 
-    /// `call` runs one tool by name, as `AutomationTools.call` does, and reports
-    /// its records itself; `definitions` are the tools it serves.
-    init(
-        call       : @escaping @MainActor (String, JSONValue) async throws -> JSONValue,
-        reminder   : @escaping @MainActor () -> String? = { nil },
-        definitions: [JSONValue] = AutomationTools.definitions,
-        offersWeb  : Bool        = false
+    private let instructions: any LoopInstructionComposing
+
+    /// `call` runs one tool by name and reports its records itself; `definitions` are the tools it serves.
+    /// `instructions` supplies the host's system text for each turn.
+    public init(
+        call        : @escaping @MainActor (String, JSONValue) async throws -> JSONValue,
+        reminder    : @escaping @MainActor () -> String? = { nil },
+        definitions : [JSONValue],
+        offersWeb   : Bool = false,
+        instructions: any LoopInstructionComposing
     ) {
-        self.call        = call
-        self.reminder    = reminder
-        self.definitions = definitions
-        self.offersWeb   = offersWeb
+        self.call         = call
+        self.reminder     = reminder
+        self.definitions  = definitions
+        self.offersWeb    = offersWeb
+        self.instructions = instructions
     }
 
     /// The window a loop turn on `selection` runs in: the `num_ctx` Braus sends
     /// Ollama, else what the provider's catalogue states for the model, and nil
     /// when it states none.
-    static func contextWindow(
+    public static func contextWindow(
         of selection: ModelSelection,
         settings    : ProviderSettings,
         catalogue   : [ModelInfo]
@@ -91,13 +95,12 @@ final class ModelToolLoop {
     /// `seat`, Braus's seat line, goes ahead of `prompt` when the model can
     /// call tools; one without tools is told it cannot use apps.
     ///
-    /// `baseTools` are the tools Braus serves this turn (`AutomationTools.toolDefinitions`), and `instructions` the
-    /// base text of the same channels (`AutomationTools.instructions`).
+    /// `baseTools` are the tools the host serves this turn, and `instructions` is their base text.
     ///
     /// Throws `CancellationError` after `stop`, once a tool call in flight has
     /// finished; the transport's failure, in the provider's words; or a failure
     /// naming `toolRoundLimit` when the model keeps calling tools.
-    func run(
+    public func run(
         transport    : any ModelTransport,
         role         : String?,
         history      : [TurnMessage],
@@ -105,15 +108,15 @@ final class ModelToolLoop {
         seat         : String? = nil,
         contextWindow: Int? = nil,
         baseTools    : [JSONValue]? = nil,
-        instructions : String = AutomationTools.instructions,
-        onEvent      : @escaping @MainActor (WorkerAgentEvent) -> Void
+        instructions : String,
+        onEvent      : @escaping @MainActor (ProviderEvent) -> Void
     ) async throws {
         let hasTools = try await transport.capabilities().supportsTools
         let offered  = try Self.toolDefinitions(baseTools ?? definitions)
         let tools    = hasTools ? offered : []
         var messages = [TurnMessage(
             role: .system,
-            text: WorkerAgentHost.instructions(
+            text: self.instructions.systemText(
                 role      : role,
                 hasTools  : hasTools,
                 tools     : instructions
@@ -130,11 +133,11 @@ final class ModelToolLoop {
         var context: Int?
         defer {
             if let spent {
-                onEvent(.provider(.usage(ProviderUsage(
+                onEvent(.usage(ProviderUsage(
                     tokens       : spent,
                     contextTokens: context,
                     contextWindow: contextWindow
-                ))))
+                )))
             }
         }
 
@@ -159,7 +162,7 @@ final class ModelToolLoop {
             }
 
             let text = reply.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { onEvent(.provider(.assistant(text))) }
+            if !text.isEmpty { onEvent(.assistant(text)) }
             if preservesObservedFailure, let failure = reply.failure, !(failure is CancellationError) {
                 throw failure
             }
@@ -168,12 +171,12 @@ final class ModelToolLoop {
             guard !reply.calls.isEmpty else {
                 // A candidate left uninterpreted is never learned: one more round asks for it, as `braus chat` does.
                 if hasTools, let asked = reminder() {
-                    onEvent(.provider(.activity(asked)))
+                    onEvent(.activity(asked))
                     messages.append(TurnMessage(role: .assistant, text: reply.text, record: reply.record))
                     messages.append(TurnMessage(role: .user, text: asked))
                     continue
                 }
-                onEvent(.provider(.completed))
+                onEvent(.completed)
                 return
             }
             guard toolRounds < Self.toolRoundLimit else {
@@ -200,16 +203,16 @@ final class ModelToolLoop {
     // MARK: Compaction
 
     /// What the summary call is told it is for.
-    static let summaryInstructions = "You summarize a conversation between a person and an assistant, so "
+    public static let summaryInstructions = "You summarize a conversation between a person and an assistant, so "
         + "the assistant can go on from the summary alone."
 
     /// What the summary call asks for, after the history.
-    static let summaryRequest = "Summarize the conversation so far for yourself to continue from: the "
+    public static let summaryRequest = "Summarize the conversation so far for yourself to continue from: the "
         + "person's goals, the decisions made, the current state of the work, and the open items. Be "
         + "concise, a few hundred words at most, and write only the summary."
 
     /// What a later turn is sent before a summary, in place of the messages it replaced.
-    static let summaryPreface = "Summary of the conversation before this point, which replaces it:\n\n"
+    public static let summaryPreface = "Summary of the conversation before this point, which replaces it:\n\n"
 
     /// Asks the model for a summary of `history`, which a later turn is sent
     /// in place of it, in one call with no tools, so it needs no desktop.
@@ -218,7 +221,7 @@ final class ModelToolLoop {
     ///
     /// Throws `CancellationError` after `stop`, the transport's failure, or a
     /// failure when the model wrote no summary. It is never retried.
-    func summarize(
+    public func summarize(
         transport: any ModelTransport,
         history  : [TurnMessage]
     ) async throws -> (summary: String, tokens: ProviderUsage.Tokens?) {
@@ -258,7 +261,7 @@ final class ModelToolLoop {
     /// Stops the running turn: the round streaming now is cancelled and no
     /// further tool call starts. A call already running finishes, and `run`
     /// then throws.
-    func stop() {
+    public func stop() {
         preservesObservedFailure = false
         isStopRequested = true
         round?.cancel()
@@ -266,7 +269,7 @@ final class ModelToolLoop {
 
     /// Interrupts generation for a human episode without erasing a transport failure the completed
     /// round already observed. Such a failure still takes the host's ordinary failure-cleanup path.
-    func suspendForHumanIntervention() {
+    public func suspendForHumanIntervention() {
         stop()
         preservesObservedFailure = true
     }
