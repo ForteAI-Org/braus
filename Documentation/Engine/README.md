@@ -691,3 +691,26 @@ manual input, window attribution and production perception. It does not feed the
 
 For external Claude and Codex clients using the running macOS app, see
 [Local MCP connections](LocalMCP.md).
+
+## SQLite connection execution
+
+`SQLiteMemoryStore` owns a writer on a dedicated serial executor at `userInitiated` QoS.
+Three reader actors own separate serial executors: reader 0 serves `critical` and
+`interactive`, reader 1 serves existing/default reads at `userInitiated`, and the bulk
+reader runs at `utility`. Read routing uses a mutex only to borrow an actor reference;
+transactions run entirely on that actor without a suspension. Lifecycle changes stop
+admission before closing each connection on its owner and releasing the archive's presence lock.
+`dataVersion()` and `readVersioned` always use reader 0 because SQLite version tokens
+are comparable only on the same connection. The latter reads its token before its data
+within one transaction.
+
+Automatic WAL checkpoints are disabled. `MemoryService` requests a passive checkpoint
+after two seconds without queued or direct work, above 1,000 outstanding frames. A write
+above 16,000 outstanding frames forces a passive checkpoint; close attempts TRUNCATE.
+Cache budgets and frame thresholds belong to store configuration. Defaults are 8 MiB
+for the writer, 4 MiB for each ordinary reader and 2 MiB for bulk. `releaseMemory()`
+runs on every owner. Diagnostics separate pages emitted by committed writes, outstanding
+WAL frames, physical WAL allocation and frames copied and time spent in checkpoints.
+Maintenance failures after a successful commit are reported in diagnostics without
+turning the committed write into an error; close checkpoint errors remain available
+as `lastCloseError`.

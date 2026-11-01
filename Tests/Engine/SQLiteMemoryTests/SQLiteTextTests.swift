@@ -65,7 +65,7 @@ struct SQLiteTextTests {
         #expect(await readText("after", in: store) == .malformedText(MemoryTextFault(column: 0, byteCount: 3, invalidByteOffset: 2)))
         // Each refusal ended its transaction with nothing committed; the store goes on.
         #expect(try await store.diagnostics().commits == committedBefore)
-        #expect(await store.liveHandles == 2)
+        #expect(await store.liveHandles == 4)
         #expect(try await readBytes("middle", in: store) == [0x61, 0xFF, 0x62])
         #expect(try await readBytes("after", in: store) == [0xC3, 0xA9, 0xFF])
         _ = try await store.write { try $0.execute("INSERT INTO strict_probe VALUES ('later', 'fine')") }

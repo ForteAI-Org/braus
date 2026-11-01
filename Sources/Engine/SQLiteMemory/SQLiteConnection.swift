@@ -39,6 +39,8 @@ final class SQLiteConnection {
 
         /// Another connection was checkpointing at the same time, so this one did nothing.
         let wasBusy: Bool
+
+        var remaining: Int { max(0, frames - checkpointed) }
     }
 
     let path: String
@@ -161,15 +163,13 @@ final class SQLiteConnection {
         return results
     }
 
-    /// Runs one passive checkpoint of the write-ahead log: as many frames as can be copied without
-    /// waiting for any reader or writer, then a sync of the database file when all of them were.
-    /// It never invokes a busy handler and never truncates or restarts the log, so it is safe with
-    /// other processes on the file. Must be called outside any transaction.
-    func checkpoint() throws -> CheckpointResult {
+    /// Runs WAL maintenance outside a transaction. The default PASSIVE mode copies available frames
+    /// without waiting. NOOP only reads frame counts; TRUNCATE is reserved for the store's close.
+    func checkpoint(mode: Int32 = SQLITE_CHECKPOINT_PASSIVE) throws -> CheckpointResult {
         let handle = try openHandle()
         var frames      : Int32 = -1
         var checkpointed: Int32 = -1
-        let status = sqlite3_wal_checkpoint_v2(handle, "main", SQLITE_CHECKPOINT_PASSIVE, &frames, &checkpointed)
+        let status = sqlite3_wal_checkpoint_v2(handle, "main", mode, &frames, &checkpointed)
         switch status {
         case SQLITE_OK:
             return CheckpointResult(frames: Int(frames), checkpointed: Int(checkpointed), wasBusy: false)
@@ -182,6 +182,27 @@ final class SQLiteConnection {
                 message : String(cString: sqlite3_errmsg(handle))
             )
         }
+    }
+
+    /// Releases unused pages from this connection's cache, outside a transaction.
+    func releaseMemory() throws {
+        let handle = try openHandle()
+        let status = sqlite3_db_release_memory(handle)
+        guard status == SQLITE_OK else {
+            throw Failure(primary: status & 0xFF, extended: status, message: String(cString: sqlite3_errmsg(handle)))
+        }
+    }
+
+    /// Counts pages emitted by the pager, including WAL frames spilled before a commit.
+    func cacheWrites() throws -> Int {
+        let handle = try openHandle()
+        var current: Int32 = 0
+        var highwater: Int32 = 0
+        let status = sqlite3_db_status(handle, SQLITE_DBSTATUS_CACHE_WRITE, &current, &highwater, 0)
+        guard status == SQLITE_OK else {
+            throw Failure(primary: status & 0xFF, extended: status, message: String(cString: sqlite3_errmsg(handle)))
+        }
+        return Int(current)
     }
 
     /// The raw handle, for the module's own wrappers of library objects that take one. Throws
@@ -197,7 +218,7 @@ final class SQLiteConnection {
 /// SQLiteStatementProfile writes, for a measure of the store's cost, every statement's duration and text to the file
 /// `BRAUS_SQLITE_PROFILE` names: one line each, nanoseconds then the statement as this module wrote it, its bound values
 /// never included (`sqlite3_sql`, not the expanded text). Off unless the variable is set when the process starts; a
-/// diagnosis for the scale campaign, never a product's behaviour.
+/// diagnosis of storage cost, never a product's behaviour.
 enum SQLiteStatementProfile {
     nonisolated(unsafe) static let file: UnsafeMutablePointer<FILE>? = {
         guard let path = ProcessInfo.processInfo.environment["BRAUS_SQLITE_PROFILE"], !path.isEmpty else { return nil }
