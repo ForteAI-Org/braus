@@ -264,6 +264,8 @@ let package = Package(
         .executable(name: "braus-chrome-host", targets: ["braus-chrome-host"]),
     ],
     targets: [
+        .target(name: "Switches", path: "Sources/Switches", swiftSettings: pure),
+        .testTarget(name: "SwitchesTests", dependencies: ["Switches"], path: "Tests/SwitchesTests", swiftSettings: suite),
         
         // MARK: Driver
         // Pure types and role protocols. No OS call, no facility import.
@@ -348,7 +350,7 @@ let package = Package(
                                     "AutomationRuntime", "Memory", "SQLiteMemory", "SeatBroker"]),
         driverTests("TargetReader", ["TargetReader"]),
 
-        .testTarget(name: "ReplayTests", dependencies: ["AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore", "LocalMCP", "Memory"], path: "Tests/Replay", resources: [.copy("Fixtures")], swiftSettings: suite),
+        .testTarget(name: "ReplayTests", dependencies: ["Switches", "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore", "LocalMCP", "Memory"], path: "Tests/Replay", resources: [.copy("Fixtures")], swiftSettings: suite),
 
         // MARK: Broker tests
         // The folders tests write, under one root per test process that the process removes when it exits.
@@ -547,7 +549,7 @@ let package = Package(
         integration("AutomationMCP", ["Capabilities", "CapabilityRegistrations",
                                      "AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts",
-                                     "AppAdapters", "TaskRouting"]),
+                                     "AppAdapters", "TaskRouting", "Switches"]),
         // The task router's rules and its catalogue of default routes: pure, and consulted before a session opens.
         integration("TaskRouting", settings: pure),
         // The session before the drivers: it sends each open to the web, the native driver or the desktop
@@ -663,7 +665,7 @@ let package = Package(
         .testTarget(name: "AgentLoopTests", dependencies: ["AgentLoop", "ModelTransports", "ChatCore",
                                                          "LocalMCP", "AutomationRuntime"],
                     path: "Tests/AgentLoop", swiftSettings: suite),
-        .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
+        .testTarget(name: "ChatTests", dependencies: ["Switches", "ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
                                                     "TestScratch", "AppAdapters", "TaskRouting", "Capabilities"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
@@ -678,7 +680,7 @@ let package = Package(
         engineTests("EngineCore", ["EngineCore", "PerceptionCore"]),
         engineTests("Engine", ["Engine", "EngineCore", "PerceptionCore"]),
         engineTests("Memory", ["Memory", "EngineCore", "PerceptionCore"],
-                    resources: [.copy("Fixtures/route-corpus.json"), .copy("Fixtures/misfire-corpus.json"),
+                    resources: [.copy("Fixtures/misfire-corpus.json"),
                                 .copy("Fixtures/misfire-corpus.md"), .copy("Privacy/Fixtures/sensitivity-cases.json")]),
         engineTests("FileKnowledge", ["FileKnowledge", "Memory", "PerceptionCore", "TestScratch"]),
         // The local model's tokenizer and encoder against Hugging Face's own outputs; the model files come from

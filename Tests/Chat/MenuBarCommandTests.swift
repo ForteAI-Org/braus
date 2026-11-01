@@ -667,3 +667,22 @@ struct MenuBarCommandTests {
         #expect(listed.pressed == nil && listed.answer == nil)
     }
 }
+
+extension MenuBarCommandTests {
+    @Test(arguments: [false, true])
+    func destructiveRefusalIsTyped(_ allowed: Bool) {
+        guard case .outcome(let outcome) = resolve("Layer > Delete > Layer", allowsDestructive: allowed) else {
+            Issue.record("The destructive command was not refused")
+            return
+        }
+        #expect(outcome.notSent == (allowed ? .destructiveUnverifiable : .needsConsent))
+        #expect(outcome.outcome.recovery == (allowed ? .changeTarget(.destructive) : .askPerson))
+    }
+
+    @Test func disabledRefusalsAreTyped() {
+        for outcome in [MenuBarCommand.disabledRefusal("File > Save"), MenuBarCommand.dialogRefusal("File > Save")] {
+            #expect(outcome.notSent == .disabled)
+            #expect(outcome.outcome.recovery == .changeTarget(.disabled))
+        }
+    }
+}

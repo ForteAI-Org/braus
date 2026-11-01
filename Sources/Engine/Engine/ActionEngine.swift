@@ -101,8 +101,8 @@ public struct ActionEngine: Sendable {
     func refusal(destructive what: String, scene: SceneSnapshot?, needsConsent: String) -> ActOutcome? {
         switch IrreversiblePolicy.decision(allowed: permissions.allowsDestructive, readBack: .cannotConfirm) {
             case .allowed:        nil
-            case .needsConsent:   ActOutcome(.refused, needsConsent, scene: scene)
-            case .cannotReadBack: ActOutcome(.refused, IrreversiblePolicy.readBackRefusal(what), scene: scene)
+            case .needsConsent:   ActOutcome(.refused, needsConsent, scene: scene, notSent: .needsConsent)
+            case .cannotReadBack: ActOutcome(.refused, IrreversiblePolicy.readBackRefusal(what), scene: scene, notSent: .destructiveUnverifiable)
         }
     }
 
@@ -282,7 +282,7 @@ public struct ActionEngine: Sendable {
             return ActOutcome(.actedNoop, "a pop-up menu was open and '\(element.label)' is NOT one of its items: "
                 + "closed the menu instead of clicking through it. The scene below is current; act '\(element.label)' "
                     + "again now.",
-                scene: after, check: recovery)
+                scene: after, check: recovery, noop: .substituted)
         }
         return await clickVerified(
             request, element: element, at: point, perceived: perceived, surfacesBefore: surfaces, expected: expected
@@ -514,7 +514,7 @@ public struct ActionEngine: Sendable {
                 + "do", scene: perceived.scene, check: OperationCheck(
                     condition: .requestedStateAlreadyPresent, method: .controlState, verdict: .passed,
                     expected: desired.rawValue, observed: current?.rawValue, performed: .none,
-                    target: OperationCheck.Target(element)))
+                    target: OperationCheck.Target(element)), noop: .statePresent)
         }
         if let applied = await formatThroughMenu(request, element: element, perceived: perceived) {
             return applied
@@ -762,7 +762,7 @@ public struct ActionEngine: Sendable {
         let pid = request.processID
         let before = await surfaces(pid).popups
         if let child = navigation.submenuFrame, child != popupFrame, before.contains(child) {
-            return ActOutcome(.actedNoop, "the submenu '\(element.label)' is already open", scene: perceived.scene)
+            return ActOutcome(.actedNoop, "the submenu '\(element.label)' is already open", scene: perceived.scene, noop: .statePresent)
         }
         guard let row = navigation.row, (0..<64).contains(row) else {
             return ActOutcome(.honestMiss, "the submenu's row order is unreadable; no input was sent", scene: perceived.scene)

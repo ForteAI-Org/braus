@@ -101,7 +101,7 @@ thread that touched it.
 | `HIDActuation` | the foreground `Actuating`: synthetic events at the HID system tap |
 | `AccessibilityActions` | `ControlPressing` over the live accessibility tree: open a dropdown by its own press, read a combo box's value, read a toggle under a point |
 | `WorkspaceActivation` | `ApplicationActivating` over AppKit's workspace |
-| `Memory` | what the agent remembers, pure: `AppKnowledge` (observed objects per window state, menu commands, the brain, routes), `UIBrain` with `ObjectAnchor`, `SiblingGroup`, `LearnedTransition`, `BrainMatcher`, `BrainUpdater` and `BrainRetention`, `Route`, `RouteEarning`, `Recall` with `RecallEvidence` and `SightingGraph`, `Allowlist`, `KnowledgeCoding`, the role `KnowledgeStoring` with `InMemoryKnowledgeStore`, and `BrainMemory`, which fills `EffectExpecting` and enriches scenes from the stored brain (`BrainReading`); and the contracts of the living memory, pure: the observation contract (`ObservationKind`, `CaptureSample` with `CaptureElement`, `MemoryEventRecord`, `SceneSkeleton` and `SceneStructureMatcher`, `SceneDefinition`), the brain's storage and applications (`BrainStoring`, `BrainApplicationStoring` with `BrainApplicationCommand` and `BrainApplicationKey`, `BrainKeys`, `DecayReport`, `BrainClock`, `TransitionEffectRecord`), the agent calls (`AgentCallStoring` with `AgentTool`, `AgentCallRequest`, `AgentCallRecord`, `AgentCallProgress`, `AgentCallResult`, `ObservedEffect`), the menu commands as data (`MenuCommandStoring`), the observed inputs and explicit attributions (`ObservedInputStoring`, `VerificationStoring`, `TaskAttributionStoring`), the procedures and experiences (`RouteStoring`, `StepOccurrenceStoring`, `ExperienceStoring`), since D2 the procedures built from a task (`ProcedureSegmentation` and `ProcedureCandidate`, `ProcedureInterpretation`, `ProcedureAssembly` and `ProcedureVersion`, `QualificationPolicy` and `PartQualification`, `ProcedureInspection`) and the functional Brain's relations (`BrainRelationPolicy`, `BrainRelation`, `SceneElementKey`, `BrainRelationReading`), the brain's general graph (`BrainGraphStoring`, `MemoryOverview`) and the read of traces (`MemoryTraceReading`); the store's answers (`MemoryStoreError`, `MemoryReceipt`, `MemorySchemaMismatch`, `MemoryTextFault`, `MemorySnapshotRefusal`) |
+| `Memory` | what the agent remembers, pure: `AppKnowledge` (observed objects per window state, menu commands, the brain, routes), `UIBrain` with `ObjectAnchor`, `SiblingGroup`, `LearnedTransition`, `BrainMatcher`, `BrainUpdater` and `BrainRetention`, `Route`, `Recall` with `RecallEvidence` and `SightingGraph`, `Allowlist`, `KnowledgeCoding`, the role `KnowledgeStoring` with `InMemoryKnowledgeStore`, and `BrainMemory`, which fills `EffectExpecting` and enriches scenes from the stored brain (`BrainReading`); and the contracts of the living memory, pure: the observation contract (`ObservationKind`, `CaptureSample` with `CaptureElement`, `MemoryEventRecord`, `SceneSkeleton` and `SceneStructureMatcher`, `SceneDefinition`), the brain's storage and applications (`BrainStoring`, `BrainApplicationStoring` with `BrainApplicationCommand` and `BrainApplicationKey`, `BrainKeys`, `DecayReport`, `BrainClock`, `TransitionEffectRecord`), the agent calls (`AgentCallStoring` with `AgentTool`, `AgentCallRequest`, `AgentCallRecord`, `AgentCallProgress`, `AgentCallResult`, `ObservedEffect`), the menu commands as data (`MenuCommandStoring`), the observed inputs and explicit attributions (`ObservedInputStoring`, `VerificationStoring`, `TaskAttributionStoring`), the procedures and experiences (`RouteStoring`, `StepOccurrenceStoring`, `ExperienceStoring`), since D2 the procedures built from a task (`ProcedureSegmentation` and `ProcedureCandidate`, `ProcedureInterpretation`, `ProcedureAssembly` and `ProcedureVersion`, `QualificationPolicy` and `PartQualification`, `ProcedureInspection`) and the functional Brain's relations (`BrainRelationPolicy`, `BrainRelation`, `SceneElementKey`, `BrainRelationReading`), the brain's general graph (`BrainGraphStoring`, `MemoryOverview`) and the read of traces (`MemoryTraceReading`); the store's answers (`MemoryStoreError`, `MemoryReceipt`, `MemorySchemaMismatch`, `MemoryTextFault`, `MemorySnapshotRefusal`) |
 | `FileKnowledge` | `KnowledgeStoring` over one JSON file per application: write-behind, a directory lock, daily backups, quarantine and restore; and `FileAllowlistStore`. No source imports it since the Brain moved to SQLite; `braus` still lists it as a dependency and the `BrausEngine` library vends it. The JSON files it wrote are not read at run time |
 | `SQLiteMemory` | the living memory's SQLite store, composed by `AutomationRuntime`'s `MemoryService`: `SQLiteMemoryStore` opens one file, bootstraps current schema 19 from the module's one schema text and migrates only explicitly recognized historical shapes after a verified copy; other shapes are refused, runs typed write and read transactions over a serial writer and a separate reader, checkpoints passively, copies the file through the backup API (`snapshot(to:)`) and reports the reader's `data_version`; the `SQLite*Repository` types fill the `Memory` roles above, one transaction per write. The current table inventory and historical shapes are documented in [Memory schema](MemorySchema.md); do not derive compatibility from a schema version number alone. Schemas 2 to 5 add the facts of D1 and the procedures and relations of D2 with their history of evaluations (`SQLiteProcedureRepository`, `SQLiteBrainRelationRepository`); schema 6 adds the Recall's derived index and its facts (`SQLiteRecallRepository`). See [the memory schema](MemorySchema.md), [the memory contracts](MemoryContracts.md), [the memory procedures](MemoryProcedures.md), [the memory recall](MemoryRecall.md) and [uncertain effects and refusals](MemoryContracts.md#uncertain-effects-and-persistent-refusals) |
 | `LocalEmbedding` | `TextEmbedding` over a pinned local model (`LocalEmbeddingModel`, `EmbeddingModelManifest`): safetensors by memory mapping, the XLM-RoBERTa Unigram tokenizer, a BERT-family encoder on Accelerate, pooling and normalization, every file checked against its sha256. Imports `Memory`, Foundation and Accelerate; no network. The models are installed by `Tools/Engine/Scripts/fetch-recall-model.sh` ([MemoryRecall](MemoryRecall.md#local-embedding)) |
@@ -608,13 +608,12 @@ Driver offers is not yet turned on here.
   never its reliability, and authorizes no replay; changing a published Route is a new version.
   The brain's projection owns only the transitions `LearnedTransition` represents; every other arc
   lives in the general graph, which nothing in production writes.
-- A route is a belief: only a proof (`RouteEarning.verdict` over the outcomes its own steps cover,
-  and an answer that does not hand the work back) may create one, a contradiction demotes it, and
-  demotion never erases. Steps store semantic targets, never coordinates, and never typed text.
+- Route reliability comes from the procedure's recorded checks and qualification. The old route
+  earning rule has been removed. Steps store semantic targets, never coordinates or typed text.
 - Recall answers `fire`, `hint` or `abstain`, and every slot it fills itself must name something
   concrete: an application the graph knows by a whole component or an end of one, or an entity
   sighted inside the targeted application. "Seen but not trusted" is narrated; "never seen" is silent.
-  `Route`, `RouteEarning` and `Recall` work over `AppKnowledge` and are called by tests only: no
+  `Route` and `Recall` work over `AppKnowledge` and are called by tests only: no
   production path earns a route or recalls one in this checkout.
 - `KnowledgeStoring` serializes its own mutations, and a load after a mutation returns sees what
   the mutation wrote whether or not it has reached disk. No storage type appears in a public API of
@@ -647,7 +646,7 @@ answers, the keyboard pick, type-ahead, and the pop-up dismissal; `CaptureSurfac
 surface classification. `MemoryTests` (162 in 19 suites, `swift test list`, 2026-10-07) covers the
 knowledge containers and their legacy JSON, the brain (anchors, groups, ordinal rescue, identity
 hygiene from measured Premiere failures, enrichment, the naming ledger, decay and the observation
-clock), routes and route earning against the real `route-corpus.json`, recall against the real
+clock), route structure, recall against the real
 `misfire-corpus.json` and its human table, the in-memory store's serialization, the `BrainMemory`
 seam over a stored Brain, structure-v4 on synthetic skeletons, the brain's two seams for its stored
 projection, and the contracts of calls, results, sample keys and content, menu commands, inputs
@@ -706,7 +705,6 @@ pending singletons, replaced by the store actor's own state.
 | `LocatorCore/MenuKnowledge.swift` (the commands and their matching) | `Memory/Knowledge/{MenuCommand,AppKnowledge+Menus}.swift` |
 | `LocatorCore/UIBrain.swift` | `Memory/Brain/*` (one type per file; `BrainUpdater.detectGroups` became `SiblingGroupDetector`) |
 | `LocatorCore/Routes.swift` | `Memory/Routes/{GoalPhrase,RouteStep,Route,RoutePolicy,AppKnowledge+Routes}.swift` |
-| `LocatorCore/RouteEarning.swift` | `Memory/Routes/RouteEarning.swift` (outcomes are `ActOutcomeKind`, not strings) |
 | `LocatorCore/Recall.swift`, `LocatorMemory.{Experience,GraphContext,hint,tokens,core}` | `Memory/Recall/*` (`SightingGraph`, `RecallEvidence`, `MemoryHint`; `core` is `LabelText.coreKey`) |
 | `LocatorCore/KnowledgeStore.swift` (+ `KnowledgeMemo`, `KnowledgePending`, `AllowlistStore`) | `Memory/Storage/KnowledgeStoring.swift` (the role), `FileKnowledge/{FileKnowledgeStore,FileAllowlistStore}.swift` |
 | `LocatorCore/DescriptorStore.make{Encoder,Decoder}` | `Memory/Knowledge/KnowledgeCoding.swift` |
@@ -795,3 +793,20 @@ Explicit gaps record personal identity without a content surface and unrecognize
 seed phrases; these require later rules or measured evaluation of local PII detection.
 Controlled native and JavaScript tests do not establish live desktop coverage or
 production scene latency.
+
+## Typed action results
+
+`EngineCore.Outcome` separates gesture delivery, effect and recovery. `Outcome.converting` is the
+single conversion of producer evidence; an attached scene replaces an instruction to observe with
+`do_not_repeat`. Refusal causes and intentional no-op kinds travel with `ActOutcome`, including
+through copies that change the scene, message or check. Historical readers derive no-op context only
+from the stored request. The archive continues to store its existing result vocabulary.
+
+The independent `Switches` target owns process configuration from `BRAUS_SWITCHES`, read once,
+with a single installation and task-local test overrides. `outcome=v1` is the default and keeps the
+existing action response. `outcome=v2` emits a row, bounded catalogue message and observation;
+transcripts retain the three typed fields. Invalid switch values fall back and are reported in status.
+
+Menu listings with no scene retain their existing list text as the observation in the new arm.
+Standalone CLI acceptance and historical menu dry-run segmentation keep their existing rules;
+batch no-op acceptance derives its proof only from a saved `set_toggle` request.

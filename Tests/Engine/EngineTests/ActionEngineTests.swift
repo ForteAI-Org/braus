@@ -342,12 +342,16 @@ struct ActionEngineTests {
         let refused = await engine(scenes: ScriptedScenes([scene([trash])]), actuator: unconsented)
             .act(request("Delete"))
         #expect(refused.kind == .refused && refused.message.contains("person must allow destructive actions"))
+        #expect(refused.notSent == .needsConsent)
+        #expect(refused.outcome.recovery == .askPerson)
         // The person's consent is necessary, never sufficient: the scene read again is no verifier of a delete.
         let blind = RecordingActuator()
         let unconfirmed = await engine(scenes: ScriptedScenes([scene([trash]), scene([trash], title: "Gone")]),
                                        actuator: blind, permissions: ActionPermissions(allowsDestructive: true))
             .act(request("Delete"))
         #expect(unconfirmed.kind == .refused, Comment(rawValue: unconfirmed.message))
+        #expect(unconfirmed.notSent == .destructiveUnverifiable)
+        #expect(unconfirmed.outcome.recovery == .changeTarget(.destructive))
         #expect(unconfirmed.message.contains("cannot read its effect back"), Comment(rawValue: unconfirmed.message))
         #expect(unconsented.gestures.isEmpty && blind.gestures.isEmpty)
     }
@@ -775,6 +779,9 @@ struct ActionEngineTests {
         let outcome = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator).act(request("Export"))
         #expect(outcome.kind == .refused)
         #expect(outcome.message == "clicked 'Export': nothing was sent. No control answered there.")
+        #expect(outcome.notSent == .targetUnreachable)
+        #expect(outcome.cause == "endpoint_refused")
+        #expect(outcome.outcome.recovery == .changeTarget(.unreachable))
         #expect(outcome.check?.performed == OperationCheck.Performed.none, "\(String(describing: outcome.check))")
         #expect(!outcome.message.contains("delivery failed"))
 

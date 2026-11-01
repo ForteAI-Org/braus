@@ -364,10 +364,13 @@ enum SQLiteAgentCallRows {
                     stopped = true
                 case (.completed, .outcome(let kind, _)?):
                     attempted += 1
-                    var accepted = kind == .foundActed
-                    if kind == .actedNoop, case .act(_, .setToggle, _, _) = try request(handle, eventID: id, stored: step) {
-                        accepted = true
+                    var noop: NoopKind?
+                    if kind == .actedNoop,
+                       case .act(_, .setToggle, _, _) = try request(handle, eventID: id, stored: step) {
+                        noop = .statePresent
                     }
+                    let accepted = Outcome.converting(kind, check: nil, notSent: nil, noop: noop,
+                                                      sceneAttached: false).effect == .confirmed
                     if accepted { verified += 1 } else { stopped = true }
                 case (.failed, _):
                     attempted += 1

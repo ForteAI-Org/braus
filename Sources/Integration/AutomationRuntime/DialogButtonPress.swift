@@ -123,13 +123,13 @@ public enum DialogButtonPress {
                     break
                 case .needsConsent:
                     return .outcome(ActOutcome(.refused, "'\(only.title)' reads as destructive, and the person has not "
-                        + "allowed it."))
+                        + "allowed it.", notSent: .needsConsent))
                 case .cannotReadBack:
-                    return .outcome(ActOutcome(.refused, IrreversiblePolicy.readBackRefusal("'\(only.title)'")))
+                    return .outcome(ActOutcome(.refused, IrreversiblePolicy.readBackRefusal("'\(only.title)'"), notSent: .destructiveUnverifiable))
             }
         }
         guard only.isEnabled else {
-            return .outcome(ActOutcome(.refused, "'\(only.title)' is disabled right now."))
+            return .outcome(ActOutcome(.refused, "'\(only.title)' is disabled right now.", notSent: .disabled))
         }
         return .press(only.element, title: only.title)
     }

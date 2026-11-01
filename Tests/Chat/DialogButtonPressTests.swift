@@ -201,3 +201,23 @@ struct DialogButtonPressTests {
         #expect(askedElsewhere == 1)
     }
 }
+
+extension DialogButtonPressTests {
+    @Test(arguments: [
+        ("Delete", true, false, NotSentCause.needsConsent, Recovery.askPerson),
+        ("Delete", true, true, .destructiveUnverifiable, .changeTarget(.destructive)),
+        ("Save", false, false, .disabled, .changeTarget(.disabled)),
+    ])
+    func typedRefusal(_ title: String, _ enabled: Bool, _ allowed: Bool,
+                      _ cause: NotSentCause, _ recovery: Recovery) {
+        let buttons = [Button(title: title, isEnabled: enabled, element: "button")]
+        guard case .outcome(let outcome) = DialogButtonPress.resolve(title, among: buttons,
+                                                                   allowsDestructive: allowed) else {
+            Issue.record("The refused button was pressed")
+            return
+        }
+        #expect(outcome.notSent == cause)
+        #expect(outcome.outcome.recovery == recovery)
+        #expect(outcome.outcome.gesture == .notSent)
+    }
+}
