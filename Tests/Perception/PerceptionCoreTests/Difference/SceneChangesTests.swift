@@ -71,15 +71,18 @@ struct SceneChangesTests {
     }
 
     @Test
-    func noNotReadLine() {
+    func windowOperationsAreCleared() {
         var before = Self.scene(Self.rows)
         before.knowledge = SceneKnowledge(status: .applied, window: ["press_key: opens a panel"])
         let after = Self.scene(Self.rows)
-        #expect(SceneChanges.text(from: before, to: after, since: 6) == "Unchanged since revision 6.")
+        #expect(SceneChanges.text(from: before, to: after, since: 6)
+            == "memory: no window operations in this state")
         for status in [SceneKnowledge.Status.nothing, .unrecognized, .unavailable, .applied] {
             var empty = after
             empty.knowledge = SceneKnowledge(status: status)
-            #expect(SceneChanges.text(from: before, to: empty, since: 6) == "Unchanged since revision 6.")
+            #expect(SceneChanges.text(from: before, to: empty, since: 6)
+                == "memory: no window operations in this state")
+            #expect(SceneChanges.text(from: after, to: empty, since: 6) == "Unchanged since revision 6.")
         }
         #expect(SceneChanges.text(from: after, to: before, since: 6)
             == "memory: what was learned in this window's state is shown\n  window: press_key: opens a panel")

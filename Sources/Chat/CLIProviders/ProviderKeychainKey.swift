@@ -16,17 +16,19 @@ nonisolated public struct ProviderKeychainKey: Sendable, Equatable {
         }
     }
 
-    /// Failure identifies the service and system status, never the credential value.
+    /// Failure identifies the service, variable name or system status, never the credential value.
     public enum Failure: Error, Equatable, LocalizedError, CustomStringConvertible {
         case notFound(service: String)
         case unreadable(service: String, status: Int32)
         case empty(service: String)
+        case emptyVariable(name: String)
 
         public var description: String {
             switch self {
             case .notFound(let service): "No provider credential found for Keychain service '\(service)'."
             case .unreadable(let service, let status):
                 "Could not read provider credential for Keychain service '\(service)' (status \(status))."
+            case .emptyVariable(let name): "The environment variable '\(name)' selected by --pass-env is empty."
             case .empty(let service): "The provider credential for Keychain service '\(service)' is empty."
             }
         }

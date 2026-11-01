@@ -19,9 +19,7 @@ struct ModelProfileTests {
             ModelProvider.claudeCode.defaultModels + ModelProvider.anthropic.defaultModels
                 + large + medium + smallWithoutEffort + smallWithEffort + [
                     "claude-haiku-4-5-20251001", "claude-sonnet-4-20250514", "claude-opus-5-5[1m]",
-                    "claude-opus-5-20260601", "sonnet", "opus", "default",
-                    "claude-fable-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-5",
-                    "claude-sonnet-4-6", "claude-sonnet-4-5",
+                    "claude-opus-5-20260601",
                 ]
         )).sorted()
     }
@@ -95,7 +93,12 @@ struct ModelProfileTests {
                 let expected: [ReasoningEffort] = todaysEffortRule(id) ? [.low, .medium, .high, .xhigh, .max] : []
                 #expect(ModelSelection.supportedEfforts(provider: provider, model: id) == expected)
             }
-            #expect(!ModelSelection.supportedEfforts(provider: provider, model: "claude-haiku-9-9").isEmpty)
+            for id in ["claude-haiku-9-9", "unlisted-model", "sonnet", "opus", "default",
+                       "claude-fable-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-5",
+                       "claude-sonnet-4-6", "claude-sonnet-4-5"] {
+                #expect(ModelSelection.supportedEfforts(provider: provider, model: id).isEmpty)
+                #expect(!profile(id).acceptsEffort)
+            }
         }
         #expect(ModelSelection.supportedEfforts(provider: .codex, model: "haiku") == ReasoningEffort.allCases)
         #expect(ModelSelection.supportedEfforts(provider: .gemini, model: "haiku") == [.low, .medium, .high])
@@ -149,6 +152,18 @@ struct ModelProfileTests {
         }
     }
 
+    @Test(arguments: ["claude-haiku-9-9", "unlisted-model"])
+    func unknownModelRequestsOmitEffort(_ id: String) throws {
+        let schema = Data(#"{"type":"object"}"#.utf8)
+        let client = AnthropicClient(model: id, effort: .high, apiKey: "fake-test-key")
+        let structured = try client.structuredBody(prompt: "Hello", schema: schema)
+        let output = try #require(structured["output_config"] as? [String: Any])
+        #expect(output["effort"] == nil)
+        let streamed = try client.requestBody(messages: [TurnMessage(role: .user, text: "Hello")], tools: [])
+        #expect(streamed["output_config"] == nil)
+        #expect(!ClaudeCLIClient.completionArguments(model: id, effort: .high, schema: schema).contains("--effort"))
+    }
+
     @Test
     func tableValuesAreTheInitialOnes() {
         let groups: [(ids: [String], modelClass: ModelProfile.ModelClass, guardTokens: Int, acceptsEffort: Bool)] = [
@@ -185,7 +200,7 @@ struct ModelProfileTests {
         #expect(prudent.noProgressRoundCeiling == 50)
         #expect(prudent.turnTokenBudget == nil)
         #expect(prudent.securityNote == nil)
-        #expect(prudent.acceptsEffort)
+        #expect(!prudent.acceptsEffort)
         #expect(prudent.origin == .prudentDefault)
         for provider in [ModelProvider.anthropic, .claudeCode] {
             for (raw, canonical) in [

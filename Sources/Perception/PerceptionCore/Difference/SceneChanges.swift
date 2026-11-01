@@ -66,8 +66,8 @@ public enum SceneChanges {
             header.append("viewport: \(after.viewportPixelSize.width)x\(after.viewportPixelSize.height)\n")
         }
         let knowledge = after.knowledgeText()
-        if !knowledge.isEmpty, knowledge != before.knowledgeText() {
-            header.append(knowledge)
+        if knowledge != before.knowledgeText() {
+            header.append(knowledge.isEmpty ? "memory: no window operations in this state\n" : knowledge)
         }
         let sectionsChanged = !sameLayout(before, after)
         let sectionNames = Set(after.sections.map(\.name))

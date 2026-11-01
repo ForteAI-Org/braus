@@ -6,6 +6,8 @@ import Testing
 
 @MainActor
 struct ModelTextStabilityTests {
+    private final class BundleAnchor: NSObject {}
+
     static func canonicalBytes() throws -> Data {
         var rows: [JSONValue] = ModelText.catalogue.map {
             .object(["key": .string($0.key.rawValue), "text": .string($0.text)])
@@ -43,7 +45,7 @@ struct ModelTextStabilityTests {
         for index in 0..<2 {
             let output = directory.appending(path: "\(index).json")
             let log = directory.appending(path: "\(index).log")
-            FileManager.default.createFile(atPath: log.path, contents: nil)
+            try #require(FileManager.default.createFile(atPath: log.path, contents: nil))
             let handle = try FileHandle(forWritingTo: log)
             defer {
                 do { try handle.close() }
@@ -51,7 +53,13 @@ struct ModelTextStabilityTests {
             }
             let process = Process()
             process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
-            process.arguments = ["--testing-library", "swift-testing", "--filter", "ModelTextStabilityTests/childBytes"]
+            // SwiftPM's helper removes its bundle argument before the test reads CommandLine.
+            let binary = try #require(Bundle(for: BundleAnchor.self).executableURL)
+            process.arguments = [
+                "--test-bundle-path", binary.path,
+                "--testing-library", "swift-testing", "--filter", "ModelTextStabilityTests/childBytes"
+            ]
+            process.currentDirectoryURL = directory
             var environment = ProcessInfo.processInfo.environment
             environment["BRAUS_MODEL_TEXT_CHILD"] = output.path
             process.environment = environment
@@ -61,7 +69,11 @@ struct ModelTextStabilityTests {
             process.waitUntilExit()
             let diagnostics = try String(contentsOf: log, encoding: .utf8)
             try #require(process.terminationStatus == 0, "\(diagnostics)")
-            results.append(try Data(contentsOf: output))
+            try #require(FileManager.default.fileExists(atPath: output.path),
+                         "Child did not write canonical bytes: \(diagnostics)")
+            let bytes = try Data(contentsOf: output)
+            #expect(!bytes.isEmpty)
+            results.append(bytes)
         }
         #expect(results[0] == results[1])
         #expect(results[0] == (try Self.canonicalBytes()))
