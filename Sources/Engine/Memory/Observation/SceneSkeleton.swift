@@ -106,12 +106,8 @@ public struct SceneSkeleton: Sendable, Equatable, Hashable {
     /// letters or digits ("foto_3.png @ 100% (RGB/8)", "Report.pdf"). A version ("v1.2") or an ellipsis
     /// ("Apri…") names none.
     public static func isContentCaption(_ label: String) -> Bool {
-        guard let fileName else { return false }
-        return fileName.firstMatch(in: label, range: NSRange(label.startIndex..., in: label)) != nil
+        MethodText.isFileName(label)
     }
-
-    /// A constant pattern: it compiles, and a pattern that did not would only keep every caption as v3 did.
-    private static let fileName = try? NSRegularExpression(pattern: #"(?<![\w.])[^\s/\\:]*[\p{L}\p{N}]\.\p{L}[\p{L}\p{N}]{0,4}(?![\w])"#)
 
     /// The skeleton of a sample.
     public init(sample: CaptureSample) {
