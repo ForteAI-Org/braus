@@ -27,7 +27,7 @@ struct ExternalMCPSessionTests {
     @Test func currentCatalogAndInstructionsDoNotPromiseUnportedFeatures() async throws {
         let session = ExternalMCPSession(profile: MCPClientProfile(name: "Synthetic"), session: SyntheticMCPDesktop())
         let listed = await session.router.handle(request("tools/list"))
-        #expect(listed?["result"]["tools"].array == AutomationTools.definitions(offeringAdapters: true))
+        #expect(listed?["result"]["tools"].array == AutomationTools.definitions(for: []))
         let initialized = await session.router.handle(request("initialize"))
         let instructions = try #require(initialized?["result"]["instructions"].string)
         #expect(instructions == AutomationTools.mcpInstructions(.full))
