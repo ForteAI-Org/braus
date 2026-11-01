@@ -7,6 +7,7 @@
 
 import Foundation
 import Memory
+import SQLiteAmalgamation
 @testable import SQLiteMemory
 import Testing
 
@@ -18,6 +19,63 @@ struct SQLiteConfigurationTests {
     @Test func autoCheckpointDisabled() async throws {
         let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
         #expect(try await store.diagnostics().autoCheckpointFrames == 0)
+        await store.close()
+    }
+
+    @Test func closingAnIdleConnectionDoesNotCheckpoint() async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
+        _ = try await store.checkpoint()
+        let idle = try SQLiteConnection(path: store.url.path)
+        try idle.disableAutomaticCloseCheckpoint()
+        var disabled: Int32 = 0
+        #expect(braus_sqlite_no_checkpoint_on_close(try idle.openHandle(), -1, &disabled) == SQLITE_OK)
+        #expect(disabled == 1)
+        _ = try idle.query("SELECT count(*) FROM brain_apps") { $0.integer(0) }
+        _ = try await store.write {
+            try $0.execute("INSERT INTO brain_apps (bundle_id) VALUES ('close.app')")
+        }
+        let before = try await store.diagnostics().residualWALFrames
+        #expect(before > 0)
+        idle.close()
+        #expect(try await store.diagnostics().residualWALFrames == before)
+        await store.close()
+        #expect(await store.liveHandles == 0)
+        #expect(await store.lastCloseError == nil)
+    }
+
+    @Test func releasingStoreDoesNotCheckpoint() async throws {
+        let url = try temporaryDatabase()
+        let observer: SQLiteConnection
+        let before: Int
+        weak var released: SQLiteMemoryStore?
+        do {
+            let store = try await SQLiteMemoryStore.open(at: url)
+            _ = try await store.checkpoint()
+            observer = try SQLiteConnection(path: url.path)
+            _ = try observer.query("SELECT count(*) FROM brain_apps") { $0.integer(0) }
+            _ = try await store.write {
+                try $0.execute("INSERT INTO brain_apps (bundle_id) VALUES ('release.app')")
+            }
+            for priority in [ReadPriority.critical, .common, .bulk] {
+                #expect(try await store.read(priority: priority) {
+                    try $0.query("SELECT count(*) FROM brain_apps") { $0.integer(0) }.first ?? nil
+                } == Int64(1))
+            }
+            before = try observer.checkpoint(mode: SQLITE_CHECKPOINT_NOOP).remaining
+            released = store
+        }
+        defer { observer.close() }
+        #expect(released == nil)
+        #expect(before > 0)
+        #expect(try observer.checkpoint(mode: SQLITE_CHECKPOINT_NOOP).remaining == before)
+    }
+
+    @Test func writerJournalSizeLimit() async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
+        let limit = try await store.write {
+            try $0.query("PRAGMA journal_size_limit") { $0.integer(0) }.first ?? nil
+        }
+        #expect(try #require(limit) == Int64(64 * 1024 * 1024))
         await store.close()
     }
 

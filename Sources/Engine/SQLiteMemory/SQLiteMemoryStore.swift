@@ -254,6 +254,9 @@ public actor SQLiteMemoryStore {
     private(set) var liveHandles = 0
 
     private var writer          : SQLiteConnection?
+    private var openingKind     : Opening?
+    private var forcedCheckpointTask: Task<Void, Never>?
+    private var checkpointGate: (@Sendable () -> Void)?
     private var readers: [SQLiteReader] = []
     private var readerShutdown: Task<Void, Never>?
     private var closing: Task<Void, Never>?
@@ -509,8 +512,8 @@ public actor SQLiteMemoryStore {
         if lifecycle == .closed { throw MemoryStoreError.unavailable(.closed) }
     }
 
-    /// Closes every connection on its owner executor. A final TRUNCATE is attempted after readers
-    /// close; another process can keep it busy. Any close checkpoint error remains in lastCloseError.
+    /// Closes every connection on its owner executor. Writable openings attempt a final TRUNCATE
+    /// after readers close. A busy outcome or checkpoint error remains in lastCloseError.
     public func close() async {
         if let closing { await closing.value; return }
         let inFlight = opening
@@ -528,11 +531,22 @@ public actor SQLiteMemoryStore {
                     }
                 }
             }
+            await forcedCheckpointTask?.value
             await readerShutdown?.value
             await closeReaders()
             if let writer {
-                do { _ = try writer.checkpoint(mode: SQLITE_CHECKPOINT_TRUNCATE) }
-                catch { lastCloseError = Self.maintenanceError(error) }
+                if openingKind?.writes == true {
+                    do {
+                        let result = try writer.checkpoint(mode: SQLITE_CHECKPOINT_TRUNCATE)
+                        if result.wasBusy {
+                            throw SQLiteConnection.Failure(
+                                primary: SQLITE_BUSY,
+                                extended: SQLITE_BUSY,
+                                message: "close TRUNCATE checkpoint is busy"
+                            )
+                        }
+                    } catch { lastCloseError = Self.maintenanceError(error) }
+                }
                 release(writer)
             }
             writer = nil
@@ -554,14 +568,14 @@ public actor SQLiteMemoryStore {
 
     /// Reads connection settings and accumulated waiting, WAL and checkpoint diagnostics.
     public func diagnostics() async throws -> Diagnostics {
-        let writer = try writerConnection()
+        _ = try writerConnection()
         var readerRetries = 0
         var readerWaited = Duration.zero
         for reader in readers {
             readerRetries += await reader.busyRetries
             readerWaited += await reader.waited
         }
-        try stillOpen()
+        let writer = try writerConnection()
         do {
             return Diagnostics(
                 path                : url.path,
@@ -706,15 +720,24 @@ public actor SQLiteMemoryStore {
         return committed.value
     }
 
-    /// Maintenance follows the commit synchronously so another writer cannot enter its accounting interval.
+    /// Counts emitted frames synchronously, then schedules maintenance away from the writer.
     private func recordWAL(on writer: SQLiteConnection, since before: Int) {
         do {
             lastWriteFramesAdded = max(0, try writer.cacheWrites() - before)
             framesAdded += lastWriteFramesAdded
             let status = try writer.checkpoint(mode: SQLITE_CHECKPOINT_NOOP)
-            if status.remaining > configuration.forcedCheckpointFrames {
-                _ = try checkpoint()
-                forcedCheckpoints += 1
+            if status.remaining > configuration.forcedCheckpointFrames, forcedCheckpointTask == nil {
+                forcedCheckpointTask = Task {
+                    defer { forcedCheckpointTask = nil }
+                    do {
+                        _ = try await checkpoint()
+                        forcedCheckpoints += 1
+                    } catch MemoryStoreError.unavailable(.closed) {
+                        // Closing ends maintenance that has not started yet.
+                    } catch {
+                        lastCheckpointError = Self.maintenanceError(error)
+                    }
+                }
             }
         } catch {
             // The commit already succeeded. Report maintenance failure without inviting a replay.
@@ -778,30 +801,15 @@ public actor SQLiteMemoryStore {
 
     // MARK: Checkpoint
 
-    /// Runs one passive checkpoint on the writer: frames of the log are copied into the file as far
-    /// as no reader, in this process or another, still needs them; nothing is waited for and the
-    /// log is neither truncated nor restarted, so other processes on the file are never assumed
-    /// absent. A partial or busy outcome is reported, not thrown. Automatic checkpoints are disabled.
-    public func checkpoint() throws -> Checkpoint {
-        let writer  = try writerConnection()
-        let started = clock.now
+    /// Runs a passive checkpoint on the bulk connection, leaving the writer free to commit.
+    /// A partial or busy outcome is reported, not thrown. Automatic checkpoints are disabled.
+    public func checkpoint() async throws -> Checkpoint {
+        _ = try writerConnection()
+        let reader = try readPool.reader(for: .bulk)
         do {
-            let before = try writer.checkpoint(mode: SQLITE_CHECKPOINT_NOOP)
-            let result  = try writer.checkpoint()
-            let outcome: Checkpoint.Outcome
-            if result.wasBusy {
-                outcome = .busy
-            } else {
-                outcome = result.checkpointed == result.frames ? .complete : .partial
-            }
-            let report = Checkpoint(
-                frames            : result.frames,
-                checkpointedFrames: result.checkpointed,
-                framesCopied      : max(0, max(0, result.checkpointed) - max(0, before.checkpointed)),
-                outcome           : outcome,
-                duration          : clock.now - started
-            )
-            checkpoints   += 1
+            let report = try await reader.checkpoint(gate: checkpointGate)
+            try stillOpen()
+            checkpoints += 1
             lastCheckpoint = report
             checkpointedFrames += report.framesCopied
             checkpointDuration += report.duration
@@ -821,14 +829,19 @@ public actor SQLiteMemoryStore {
     /// Runs a passive checkpoint when the caller has observed a pause and the WAL exceeds its threshold.
     /// Continuous writers use the higher forced threshold after their commits instead.
     @discardableResult
-    public func checkpointIfDue() throws -> Checkpoint? {
+    public func checkpointIfDue() async throws -> Checkpoint? {
         if Task.isCancelled { return nil }
         let writer = try writerConnection()
         let status = try writer.checkpoint(mode: SQLITE_CHECKPOINT_NOOP)
         guard status.remaining > configuration.checkpointFrames else { return nil }
-        let report = try checkpoint()
+        let report = try await checkpoint()
         pauseCheckpoints += 1
         return report
+    }
+
+    /// Holds checkpoint execution on its connection queue, for the package's tests only.
+    package func holdCheckpoints(_ gate: (@Sendable () -> Void)?) {
+        checkpointGate = gate
     }
 
     private static func walBytes(at url: URL) throws -> UInt64 {
@@ -1326,6 +1339,7 @@ public actor SQLiteMemoryStore {
                 try stillOpening()
             }
             self.writer = writer
+            self.openingKind = kind
             self.bootstrappedNow = created
             self.migration       = migration
             self.lifecycle       = .open
@@ -1437,6 +1451,7 @@ public actor SQLiteMemoryStore {
     private static func connect(_ path: String, readOnly: Bool, mayCreate: Bool = true) throws -> SQLiteConnection {
         do {
             let connection = try SQLiteConnection(path: path, readOnly: readOnly, mayCreate: mayCreate)
+            try connection.disableAutomaticCloseCheckpoint()
             try connection.execute("PRAGMA foreign_keys = ON")
             guard try integerPragma(connection, "foreign_keys") == 1 else {
                 throw refusal(.open, "foreign_keys could not be enabled")
@@ -1458,6 +1473,7 @@ public actor SQLiteMemoryStore {
         }
         try connection.execute("PRAGMA synchronous = FULL")
         try connection.execute("PRAGMA wal_autocheckpoint = 0")
+        try connection.execute("PRAGMA journal_size_limit = 67108864")
         try SQLiteArchiveRetirement.protectFamily(URL(fileURLWithPath: connection.path))
     }
 

@@ -26,6 +26,7 @@ final class SQLiteConnection {
         let message : String
 
         var isBusy  : Bool { primary == SQLITE_BUSY }
+        var isReadContention: Bool { isBusy || primary == SQLITE_PROTOCOL }
         var isLocked: Bool { primary == SQLITE_LOCKED }
     }
 
@@ -181,6 +182,15 @@ final class SQLiteConnection {
                 extended: sqlite3_extended_errcode(handle),
                 message : String(cString: sqlite3_errmsg(handle))
             )
+        }
+    }
+
+    /// Disables SQLite's implicit checkpoint during close; the store owns explicit maintenance.
+    func disableAutomaticCloseCheckpoint() throws {
+        let handle = try openHandle()
+        let status = braus_sqlite_no_checkpoint_on_close(handle, 1, nil)
+        guard status == SQLITE_OK else {
+            throw Failure(primary: status & 0xFF, extended: status, message: String(cString: sqlite3_errmsg(handle)))
         }
     }
 
