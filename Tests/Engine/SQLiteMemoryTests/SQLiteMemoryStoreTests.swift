@@ -112,8 +112,8 @@ struct SQLiteMemoryStoreTests {
         #expect(!FileManager.default.fileExists(atPath: garbage.path + "-wal"))
     }
 
-    @Test("a directory that does not exist or cannot be written is an open error, and no file appears")
-    func unwritablePath() async throws {
+    @Test("a missing directory is refused; an owned existing directory is corrected to private permissions")
+    func directoryPermissions() async throws {
         let missing = FileManager.default.temporaryDirectory
             .appendingPathComponent("braus-missing-\(UUID().uuidString)/memory.sqlite")
         let error = await storeError { _ = try await SQLiteMemoryStore.open(at: missing) }
@@ -128,16 +128,10 @@ struct SQLiteMemoryStoreTests {
         let sealed = Scratch.directory("braus-sealed")
         try FileManager.default.createDirectory(at: sealed, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: sealed.path)
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sealed.path) }
-        let refused = await storeError {
-            _ = try await SQLiteMemoryStore.open(at: sealed.appendingPathComponent("memory.sqlite"))
-        }
-        guard case .open(let sealedFault)? = refused else {
-            Issue.record("expected .open, got \(String(describing: refused))")
-            return
-        }
-        #expect(sealedFault.code.primary == 14 || sealedFault.code.primary == 8)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: sealed.path).isEmpty)
+        let corrected = try await SQLiteMemoryStore.open(at: sealed.appendingPathComponent("memory.sqlite"))
+        let attributes = try FileManager.default.attributesOfItem(atPath: sealed.path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
+        await corrected.close()
     }
 
     @Test("a future schema version is refused and the file is neither downgraded nor reset")

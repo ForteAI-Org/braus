@@ -153,6 +153,7 @@ struct MemoryClosingTests {
     func copyHeldAtItsStart() async throws {
         let service = try C.service()
         let gate = Gate()
+        await service.setBackupEnvironment(now: { Date() }, capacity: { _ in Int64.max })
         await service.setBeforeBackup { try await gate.pass() }
         _ = try await service.ready()
         #expect(await gate.reached())
@@ -167,10 +168,11 @@ struct MemoryClosingTests {
         #expect(await service.status().lastClose?.contains("stopped with nothing published") == true)
     }
 
-    @Test("a copy held between two of its steps, its partial file on disk: the close cancels it there, removes the partial file and publishes nothing")
+    @Test("a copy held between two of its steps, its partial file on disk: the close cancels it there, retires the partial family and publishes nothing")
     func copyHeldBetweenTwoSteps() async throws {
         let service = try C.service(pagesPerStep: 1, backupInterval: .zero)
         let start = Gate(), step = Gate()
+        await service.setBackupEnvironment(now: { Date() }, capacity: { _ in Int64.max })
         await service.setBeforeBackup { try await start.pass() }
         _ = try await service.ready()
         #expect(await start.reached(), "the day's copy begins at the open")
@@ -182,7 +184,9 @@ struct MemoryClosingTests {
         let took = await C.elapsed(C.budget + C.tolerance) { await service.close() }
         #expect(took != nil, "the close returned within its bound")
         #expect(step.cancellations == 1, "the copy was cancelled while it waited between two steps")
-        #expect(try C.files(service, ".partial").isEmpty, "the cancelled copy left no partial file")
+        #expect(try C.files(service, ".partial").isEmpty, "the cancelled partial family is no longer active")
+        let retired = try FileManager.default.contentsOfDirectory(atPath: service.directory.appendingPathComponent(".retired").path)
+        #expect(retired.contains { $0.contains(".partial-") }, "the cancelled copy is preserved")
         #expect(try C.files(service, ".backup-").isEmpty, "the cancelled copy published nothing")
         let summary = await service.status().lastClose ?? ""
         #expect(summary.contains("stopped with nothing published"), "\(summary)")

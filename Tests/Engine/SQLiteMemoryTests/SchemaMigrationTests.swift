@@ -133,7 +133,7 @@ struct SchemaMigrationTests {
         #expect(try Self.counts(tables, at: url) == before)
     }
 
-    @Test("two opens of one archive of schema 1 at once migrate it once; the second finds the current schema and keeps no copy of its own")
+    @Test("two opens migrate once and retain every verified copy, with at most one active family")
     func twoOpenersMigrateOnce() async throws {
         let url = try await Self.populatedVersion1()
         async let first  = SQLiteMemoryStore.open(at: url)
@@ -144,9 +144,42 @@ struct SchemaMigrationTests {
         #expect(try await a.read { try SchemaShape($0) } == SchemaShape.current)
         await a.close()
         await b.close()
-        #expect(try strayFiles(beside: url).filter { $0.contains(".schema-1-") && !$0.hasSuffix(".lock") }
-                == migrations.map(\.copyName))
+        let active = try strayFiles(beside: url).filter { $0.contains(".schema-1-") && !$0.hasSuffix(".lock") }
+        #expect(active.count <= 1)
+        for migration in migrations {
+            let copy = url.deletingLastPathComponent().appendingPathComponent(migration.copyName)
+            let retired = url.deletingLastPathComponent().appendingPathComponent(".retired")
+                .appendingPathComponent(migration.copyName).appendingPathComponent(migration.copyName)
+            let preserved = FileManager.default.fileExists(atPath: copy.path) ? copy : retired
+            #expect(try Data(contentsOf: preserved).count > 0)
+        }
         #expect(try rawCount("SELECT count(*) FROM memory_schema_migrations", at: url) == 1)
+    }
+
+    @Test func supersededMigrationRetainsCopy() async throws {
+        let url = try await Self.populatedVersion1()
+        let held = SQLiteMemoryStore(url: url)
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        await held.holdMigrationCommit {
+            entered.continuation.yield()
+            for await _ in release.stream { break }
+        }
+        let opening = Task { try await held.open() }
+        for await _ in entered.stream { break }
+        let files = try FileManager.default.contentsOfDirectory(at: url.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+        let original = try #require(files.first { $0.lastPathComponent.contains(".schema-1-") })
+        let originalBytes = try Data(contentsOf: original)
+        try await Task.sleep(for: .milliseconds(5))
+        let winner = try await SQLiteMemoryStore.open(at: url)
+        release.continuation.yield()
+        try await opening.value
+        #expect(try await held.diagnostics().migration == nil)
+        let saved = url.deletingLastPathComponent().appendingPathComponent(".retired")
+            .appendingPathComponent(original.lastPathComponent).appendingPathComponent(original.lastPathComponent)
+        #expect(try Data(contentsOf: saved) == originalBytes)
+        await held.close()
+        await winner.close()
     }
 
     @Test("a new archive records its bootstrap at the current schema from nothing, with no copy")

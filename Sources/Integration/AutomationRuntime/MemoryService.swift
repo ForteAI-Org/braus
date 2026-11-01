@@ -245,8 +245,31 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         case closed
     }
 
-    /// Status is what a reader may show about the memory: where it is, where it stands, the library it
-    /// runs on when open, and what happened to the writes this process offered.
+    /// BackupSkipReason identifies a preflight refusal that did not start a copy.
+    public enum BackupSkipReason: String, Sendable { case lowSpace }
+
+    /// BackupFailureReason separates filesystem preflight failures from copy failures.
+    public enum BackupFailureReason: Sendable, Equatable {
+        case preflight(String), snapshot(String)
+    }
+
+    /// BackupState describes the most recent attempted scheduled copy.
+    public enum BackupState: Sendable, Equatable {
+        case idle, verified
+        case skipped(BackupSkipReason)
+        case failed(BackupFailureReason)
+    }
+
+    /// RetirementStatus exposes retained storage and unresolved retirement effects.
+    public struct RetirementStatus: Sendable, Equatable {
+        public var count = 0
+        public var bytes: UInt64 = 0
+        public var collisions = 0
+        public var incomplete = 0
+        public var reason: String?
+    }
+
+    /// Status describes the archive, this process's writes, and copy maintenance.
     nonisolated public struct Status: Sendable, Equatable {
         public let path: String
         public let state: State
@@ -274,6 +297,9 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         public let lastFailure: String?
         /// When the newest copy of the archive was taken, when one exists.
         public let lastBackup: Date?
+        public let backupState: BackupState
+        public let backupRetryAt: Date?
+        public let retirement: RetirementStatus
         /// What the service did with an archive it found corrupt, when it found one.
         public let lastRecovery: String?
         /// What the service imported from the JSON Brains beside an archive it created, when it created one.
@@ -380,6 +406,19 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     private var lastUnification: String?
 
     private var lastBackup: Date?
+    private var backupState: BackupState = .idle
+    private var backupRetryAt: Date?
+    private var backupFailures = 0
+    private var retirement = RetirementStatus()
+    private var observedStoreRetirement: RetirementReport?
+    private var backupNow: @Sendable () -> Date = { Date() }
+    private var availableCapacity: @Sendable (URL) throws -> Int64 = { directory in
+        let values = try directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        guard let bytes = values.volumeAvailableCapacityForImportantUsage else {
+            throw MemoryUnavailable("the volume's available capacity is unknown")
+        }
+        return bytes
+    }
     private var lastRecovery: String?
     private var lastImport: String?
     /// What the relation recovery did, and whether a pass of it waits in the queue.
@@ -902,7 +941,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
 
     private func performOpen() async throws -> MemoryRepositories {
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try SQLiteArchiveRetirement.privateDirectory(directory)
             let existed = FileManager.default.fileExists(atPath: url.path)
             let key     = directory.standardizedFileURL.resolvingSymlinksInPath().path
             let legacy  = Self.legacyOrigins.withLock { $0[key] ?? [] }
@@ -994,13 +1033,25 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
 
     // MARK: Copies and recovery
 
+    private func openStore() async throws -> SQLiteMemoryStore {
+        let attempted = SQLiteMemoryStore(url: url, configuration: configuration.store)
+        do {
+            try await attempted.open()
+            return attempted
+        } catch {
+            if let report = await attempted.lastRetirement { recordRetirement(report) }
+            if let failure = await attempted.lastRetirementError { retirement.reason = failure }
+            throw error
+        }
+    }
+
     /// Opens the store; a file the library calls corrupt is moved aside and the newest copy restored
     /// first, then the store is opened once more.
     /// The open store, and whether this open went through a recovery.
     private func openRecovering() async throws -> (SQLiteMemoryStore, recovered: Bool) {
         let firstError: any Error
         do {
-            return (try await SQLiteMemoryStore.open(at: url, configuration: configuration.store), false)
+            return (try await openStore(), false)
         } catch {
             firstError = error
         }
@@ -1028,7 +1079,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             Self.log.error("memory recovered: \(recovery, privacy: .public)")
         }
         // Whatever the recovery did, this open went through one: it never counts as a new archive.
-        return (try await SQLiteMemoryStore.open(at: url, configuration: configuration.store), true)
+        return (try await openStore(), true)
     }
 
     // MARK: Unification
@@ -1124,8 +1175,11 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// is being taken. The copy runs beside the writes; it never holds them up.
     private func scheduleBackupIfDue() {
         guard admitting, state == .open, backingUp == nil else { return }
+        let now = backupNow()
+        maintainCopies(now: now, verifiedBackupAt: nil)
+        if let backupRetryAt, now < backupRetryAt { return }
         if let newest = lastBackup ?? newestBackup()?.date,
-           Date().timeIntervalSince(newest) < Double(configuration.backupInterval.components.seconds) { return }
+           now.timeIntervalSince(newest) < Double(configuration.backupInterval.components.seconds) { return }
         backingUp = Task { await self.backup() }
     }
 
@@ -1144,32 +1198,205 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         defer { phase.end() }
         #endif
         defer { completeWork(.idle, since: started) }
-        let stamp       = Self.stamp(Date())
+        let stamp       = Self.stamp(backupNow())
         let destination = directory.appendingPathComponent("\(configuration.fileName).backup-\(stamp)")
+        var startedCopy = false
         do {
+            var size: UInt64 = 0
+            for suffix in ["", "-wal"] {
+                let path = url.path + suffix
+                if suffix.isEmpty || FileManager.default.fileExists(atPath: path) {
+                    let attributes = try FileManager.default.attributesOfItem(atPath: path)
+                    guard let bytes = (attributes[.size] as? NSNumber)?.uint64Value else {
+                        throw MemoryUnavailable("the archive size is unknown")
+                    }
+                    size += bytes
+                }
+            }
+            let capacity = try availableCapacity(directory)
+            guard Double(capacity) >= Double(size) * 1.5 else {
+                backupState = .skipped(.lowSpace)
+                backupRetryAt = backupNow().addingTimeInterval(3_600)
+                lastCopyPublished = false
+                return
+            }
+            startedCopy = true
             if let beforeBackup { try await beforeBackup() }
             _ = try await store.snapshot(to: destination)
-            lastBackup        = Date()
+            let completed = backupNow()
+            lastBackup        = completed
             lastCopyPublished = true
-            for old in backups().dropFirst(max(1, configuration.keptBackups)) {
-                try? FileManager.default.removeItem(at: old.url)
-            }
+            backupState       = .verified
+            backupFailures    = 0
+            backupRetryAt     = nil
+            maintainCopies(now: completed, verifiedBackupAt: completed)
         } catch {
+            backupFailures = min(backupFailures + 1, 6)
+            let delay = min(86_400.0, 3_600.0 * pow(2, Double(backupFailures - 1)))
+            backupRetryAt = backupNow().addingTimeInterval(delay)
+            backupState = .failed(startedCopy ? .snapshot(Self.describe(error)) : .preflight(Self.describe(error)))
             lastCopyPublished = false
             Self.log.error("memory copy failed: \(Self.describe(error), privacy: .public)")
         }
     }
 
-    /// The copies of the archive beside it, the newest first.
+    package func setBackupEnvironment(
+        now: @escaping @Sendable () -> Date,
+        capacity: @escaping @Sendable (URL) throws -> Int64
+    ) {
+        backupNow = now
+        availableCapacity = capacity
+    }
+
+    package func waitForBackup() async { await backingUp?.value }
+
+    package func runBackupIfDue() async {
+        scheduleBackupIfDue()
+        await backingUp?.value
+    }
+
+    package nonisolated static func copyStamp(_ date: Date) -> String { stamp(date) }
+
+    private nonisolated static func copyDate(_ name: String) -> Date? {
+        guard name.count >= 22 else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd'T'HHmmss.SSS'Z'"
+        formatter.isLenient = false
+        return formatter.date(from: String(name.suffix(22)))
+    }
+
+    /// Retires closed copies only. A failed or ambiguous family remains visible in diagnostics.
+    package func maintainCopies(now: Date, verifiedBackupAt: Date?) {
+        let retired = directory.appendingPathComponent(".retired")
+        retirement.collisions = 0
+        retirement.incomplete = 0
+        retirement.reason = nil
+        do {
+            // Recover pending manifests even when no new family is eligible.
+            try SQLiteArchiveRetirement.privateDirectory(retired)
+            try SQLiteArchiveRetirement.exclude(retired)
+            let recovery = try SQLiteArchiveRetirement.retire(
+                directory.appendingPathComponent(".retirement-recovery"), into: retired
+            )
+            recordRetirement(recovery)
+            guard recovery.state == .retired || recovery.state == .unchanged else {
+                try measureRetirement()
+                return
+            }
+            let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            let sidecars = ["-wal", "-shm", "-journal"]
+            let names = Set(files.map(\.lastPathComponent))
+            let orphaned = Set(files.compactMap { file -> String? in
+                let name = file.lastPathComponent
+                guard name.hasPrefix(configuration.fileName + "."),
+                      let suffix = sidecars.first(where: name.hasSuffix) else { return nil }
+                let base = String(name.dropLast(suffix.count))
+                guard !names.contains(base), base.hasPrefix(configuration.fileName + ".backup-")
+                    || base.hasPrefix(configuration.fileName + ".schema-")
+                    || base.contains(".refused") || base.contains(".abandoned") else { return nil }
+                return base
+            })
+            for name in orphaned.sorted() {
+                recordRetirement(try SQLiteArchiveRetirement.retire(directory.appendingPathComponent(name), into: retired))
+            }
+            let copies = files.filter { file in
+                let name = file.lastPathComponent
+                return name.hasPrefix(configuration.fileName + ".") && !sidecars.contains(where: name.hasSuffix)
+            }
+            for copy in copies where copy.lastPathComponent.hasPrefix(configuration.fileName + ".backup-")
+                && Self.copyDate(copy.lastPathComponent) == nil {
+                retirement.collisions += 1
+                retirement.reason = "retirementNeedsReview: backup creation timestamp is unknown"
+            }
+            let schemas = copies.filter { $0.lastPathComponent.hasPrefix(configuration.fileName + ".schema-") }
+                .sorted { $0.lastPathComponent.suffix(22) > $1.lastPathComponent.suffix(22) }
+            var candidates = Array(backups().dropFirst(max(1, configuration.keptBackups))).map(\.url)
+            for (index, copy) in schemas.enumerated() {
+                guard let created = Self.copyDate(copy.lastPathComponent) else {
+                    retirement.collisions += 1
+                    retirement.reason = "retirementNeedsReview: schema creation timestamp is unknown"
+                    continue
+                }
+                try SQLiteArchiveRetirement.protectFamily(copy)
+                try SQLiteArchiveRetirement.excludeFamily(copy)
+                if index > 0 || now.timeIntervalSince(created) >= 30 * 86_400
+                    || verifiedBackupAt.map({ $0 > created }) == true {
+                    candidates.append(copy)
+                }
+            }
+            candidates += copies.filter {
+                $0.lastPathComponent.contains(".refused") || $0.lastPathComponent.contains(".abandoned")
+            }
+            for copy in candidates {
+                recordRetirement(try SQLiteArchiveRetirement.retire(copy, into: retired))
+            }
+            for copy in backups() {
+                try SQLiteArchiveRetirement.protectFamily(copy.url)
+                try SQLiteArchiveRetirement.excludeFamily(copy.url)
+            }
+            try measureRetirement()
+        } catch {
+            retirement.reason = String(describing: error)
+            Self.log.error("memory retirement failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func recordRetirement(_ report: RetirementReport) {
+        if report.state == .needsReview { retirement.collisions += 1 }
+        if report.state == .incomplete { retirement.incomplete += 1 }
+        if let reason = report.reason { retirement.reason = reason }
+    }
+
+    private func measureRetirement() throws {
+        let retired = directory.appendingPathComponent(".retired")
+        let entries = try FileManager.default.contentsOfDirectory(at: retired, includingPropertiesForKeys: nil)
+        let collisions = entries.filter {
+            !$0.lastPathComponent.hasPrefix(".pending-")
+                && FileManager.default.fileExists(atPath: directory.appendingPathComponent($0.lastPathComponent).path)
+        }.count
+        retirement.collisions = max(retirement.collisions, collisions)
+        if collisions > 0 { retirement.reason = "retirementNeedsReview: active and retired names collide" }
+        retirement.count = 0
+        retirement.incomplete = entries.filter { $0.lastPathComponent.hasPrefix(".pending-") }.count
+        retirement.bytes = 0
+        var pending = entries
+        for entry in entries where !entry.lastPathComponent.hasPrefix(".pending-") {
+            if try entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+                retirement.count += 1
+            }
+        }
+        while let file = pending.popLast() {
+            let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey])
+            guard values.isSymbolicLink != true else {
+                throw MemoryUnavailable("retirementNeedsReview: symbolic link in retired directory")
+            }
+            if values.isRegularFile == true { retirement.bytes += UInt64(values.fileSize ?? 0) }
+            if values.isDirectory == true {
+                pending += try FileManager.default.contentsOfDirectory(at: file, includingPropertiesForKeys: nil)
+            }
+        }
+    }
+
+    /// Lists published backups, excluding copies named by pending or conflicting retired families.
     private nonisolated func backups() -> [(url: URL, date: Date)] {
-        let prefix = "\(configuration.fileName).backup-"
-        let files  = (try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]
-        )) ?? []
-        return files
-            .filter { $0.lastPathComponent.hasPrefix(prefix) }
-            .map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
-            .sorted { $0.1 > $1.1 }
+        do {
+            let retired = directory.appendingPathComponent(".retired")
+            let unavailable = FileManager.default.fileExists(atPath: retired.path)
+                ? try SQLiteArchiveRetirement.unavailableCopies(in: retired) : []
+            return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                .compactMap { file -> (URL, Date)? in
+                    let name = file.lastPathComponent
+                    guard name.hasPrefix(configuration.fileName + ".backup-"), !unavailable.contains(name),
+                          let date = Self.copyDate(name) else { return nil }
+                    return (file, date)
+                }
+                .sorted { $0.1 > $1.1 }
+        } catch {
+            Self.log.error("memory backup listing failed: \(String(describing: error), privacy: .public)")
+            return []
+        }
     }
 
     private nonisolated func newestBackup() -> (url: URL, date: Date)? { backups().first }
@@ -1345,14 +1572,29 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     public func status() async -> Status {
         // The library linked into this process, the one the archive is or would be opened with.
         var version: String? = SQLiteLibrary.version, sourceID: String? = SQLiteLibrary.sourceID
-        if let store, state == .open, let diagnostics = try? await store.diagnostics() {
-            version  = diagnostics.libraryVersion
-            sourceID = diagnostics.librarySourceID
+        if let store, state == .open {
+            do {
+                let diagnostics = try await store.diagnostics()
+                version = diagnostics.libraryVersion
+                sourceID = diagnostics.librarySourceID
+                if let report = diagnostics.lastRetirement, report != observedStoreRetirement {
+                    recordRetirement(report)
+                    observedStoreRetirement = report
+                }
+                if let error = diagnostics.lastRetirementError { retirement.reason = error }
+            } catch {
+                retirement.reason = "retirement diagnostics unavailable: \(error)"
+            }
+        }
+        if FileManager.default.fileExists(atPath: directory.appendingPathComponent(".retired").path) {
+            do { try measureRetirement() }
+            catch { retirement.reason = String(describing: error) }
         }
         return Status(path: url.path, state: state, libraryVersion: version, librarySourceID: sourceID,
                       pending: queue.count, inFlight: running == nil ? 0 : 1, written: written, failed: failed,
                       partial: partial, dropped: dropped, unsettled: unsettled,
                       lastFailure: lastFailure, lastBackup: lastBackup ?? newestBackup()?.date,
+                      backupState: backupState, backupRetryAt: backupRetryAt, retirement: retirement,
                       lastRecovery: lastRecovery, lastImport: lastImport, lastClose: lastClose,
                       essentialWritten: essentialWritten, essentialFailed: essentialFailed,
                       suspended: suspendedReason, pendingEssential: pendingEssential.count,

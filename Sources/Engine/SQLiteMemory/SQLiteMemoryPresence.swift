@@ -48,11 +48,16 @@ final class SQLiteMemoryPresence {
     /// opened nor made.
     static func take(_ mode: Mode, of archive: URL) throws -> SQLiteMemoryPresence? {
         let path = lockPath(of: archive)
-        var descriptor = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
+        var descriptor = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
         // A directory that may not be written still lets an existing lock file be locked.
         if descriptor < 0 { descriptor = open(path, O_RDONLY | O_CLOEXEC) }
         guard descriptor >= 0 else { throw failure("the presence lock \(path) could not be opened") }
         let presence = SQLiteMemoryPresence(path: path, mode: mode, descriptor: descriptor)
+        guard fchmod(descriptor, 0o600) == 0 else {
+            let error = failure("the presence lock permissions could not be set")
+            presence.release()
+            throw error
+        }
         while true {
             if flock(descriptor, (mode == .shared ? LOCK_SH : LOCK_EX) | LOCK_NB) == 0 { return presence }
             let code = errno

@@ -714,3 +714,28 @@ WAL frames, physical WAL allocation and frames copied and time spent in checkpoi
 Maintenance failures after a successful commit are reported in diagnostics without
 turning the committed write into an error; close checkpoint errors remain available
 as `lastCloseError`.
+
+SQLite copies use a dedicated read-only source connection through `snapshot(to:)`.
+Moving that work onto the bulk reader remains open in SK2; RA1 retains the existing
+connection ownership. Before a scheduled copy, `MemoryService` requires available
+volume capacity of at least 1.5 times the archive size. Failures wait 1, 2, 4, 8,
+16, then 24 hours; a verified snapshot resets the wait. Status exposes the reason
+and retry date. Low capacity skips the copy and delays eligibility by an hour.
+
+`SQLiteArchiveRetirement` owns closed-copy retirement independently of the runtime.
+It serializes processes with a dedicated file lock, inventories base/WAL/SHM/journal,
+checks all destinations, and syncs a private manifest containing relative names,
+sizes and SHA-256 digests before exclusive renames. It publishes the directory at
+`.retired/<copy-name>/` only after every member moved. Failed moves attempt exclusive
+rollback; interrupted families retain their manifest and resume only after complete
+presence and digest validation. Ambiguity requires human review. No automatic deletion
+occurs, including for partial copies and journal residues. Cleanup diagnostics stay
+separate from a snapshot's primary failure. Pending retirements exclude affected copies from
+recovery candidates until reconciled. Status measures retained bytes and directories
+and reports collisions and incomplete retirements.
+
+Only the newest schema copy remains active. Its creation timestamp is encoded in
+its name; age of 30 days or completion of a later verified snapshot retires it.
+Archive directories use 0700; archives, sidecars, copies, manifests and presence files
+use 0600. Copies, schema copies and `.retired` are excluded from Time Machine; the
+live archive is never marked excluded by this policy.
