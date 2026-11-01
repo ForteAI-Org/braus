@@ -23,6 +23,6 @@ public enum RecallQueryMasking {
                 offset += 1
             }
         }
-        return ValueMinimization.scrubCredentials(String(decoding: kept, as: UTF8.self)).0
+        return ValueMinimization().minimize(text: String(decoding: kept, as: UTF8.self)).0
     }
 }
