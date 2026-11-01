@@ -270,7 +270,10 @@ final class WorkerAgentHost {
                 task.cancel()
             }
         }
-        let router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
+        let router = MCPRouter(
+            tools: tools.toolDefinitions,
+            instructions: AutomationTools.mcpInstructions(.firstLine)
+        ) { name, arguments in
             try await brausCall(name, arguments)
         }
         self.barrier   = barrier

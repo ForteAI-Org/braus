@@ -30,7 +30,8 @@ struct ExternalMCPSessionTests {
         #expect(listed?["result"]["tools"].array == AutomationTools.definitions(offeringAdapters: true))
         let initialized = await session.router.handle(request("initialize"))
         let instructions = try #require(initialized?["result"]["instructions"].string)
-        #expect(instructions.contains(AutomationTools.instructions(offeringAdapters: true)))
+        #expect(instructions == AutomationTools.mcpInstructions(.full))
+        #expect(!instructions.contains(AutomationTools.instructions(offeringAdapters: true)))
         #expect(!instructions.contains("Each message from the person begins with Braus's seat line"))
         await session.close()
     }

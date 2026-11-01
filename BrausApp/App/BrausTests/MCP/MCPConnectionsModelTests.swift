@@ -8,7 +8,7 @@ import Testing
 struct MCPConnectionsModelTests {
     private func model(_ root: URL) -> MCPConnectionsModel {
         MCPConnectionsModel(directory: root, executable: URL(filePath: "/usr/bin/true")) { _, _ in
-            MCPHostSession(router: MCPRouter(tools: []) { _, _ in .null })
+            MCPHostSession(router: MCPRouter(tools: [], instructions: nil) { _, _ in .null })
         }
     }
 

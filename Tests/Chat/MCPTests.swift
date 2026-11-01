@@ -14,7 +14,7 @@ struct MCPTests {
 
     @Test
     func initializeNegotiatesAndNotificationsHaveNoResponse() async throws {
-        let router = MCPRouter(tools: [definition]) { _, _ in .object([:]) }
+        let router = MCPRouter(tools: [definition], instructions: nil) { _, _ in .object([:]) }
         let initialized = try #require(await router.handle(request("initialize")))
         #expect(initialized["result"]["protocolVersion"].string == "2025-11-25")
         #expect(await router.handle(.object(["jsonrpc": .string("2.0"),
@@ -26,7 +26,7 @@ struct MCPTests {
     @Test
     func concurrentActionsAreRejectedAndPauseCancelsThenDrains() async throws {
         var calls = 0
-        let router = MCPRouter(tools: [definition]) { _, _ in
+        let router = MCPRouter(tools: [definition], instructions: nil) { _, _ in
             calls += 1
             try await Task.sleep(for: .seconds(30))
             return .object([:])
@@ -46,7 +46,7 @@ struct MCPTests {
     @Test
     func loopbackAuthenticationAndReconnect() async throws {
         var calls = 0
-        let router = MCPRouter(tools: [definition]) { _, _ in
+        let router = MCPRouter(tools: [definition], instructions: nil) { _, _ in
             calls += 1
             return MCPRouter.toolResult(.object(["status": .string("ok")]))
         }
@@ -76,7 +76,7 @@ struct MCPTests {
     /// states at once, ready and cancelled; the host's channel takes the first and the process goes on.
     @Test
     func aConnectionCancelledAsItBecomesReadyDoesNotEndTheHost() async throws {
-        let router = MCPRouter(tools: [definition]) { _, _ in MCPRouter.toolResult(.object(["status": .string("ok")])) }
+        let router = MCPRouter(tools: [definition], instructions: nil) { _, _ in MCPRouter.toolResult(.object(["status": .string("ok")])) }
         let host = LocalMCPHost(router: router)
         let endpoint = try await host.start()
         defer { host.stop() }

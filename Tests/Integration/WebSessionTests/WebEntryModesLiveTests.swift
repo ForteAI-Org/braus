@@ -129,7 +129,7 @@ struct WebEntryModesLiveTests {
                                     channels: [.web])
         tools.producer = CallProducer(source: mode.source, streamID: mode.stream, traceID: "message-1",
                                       messageRef: "message-1")
-        let router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
+        let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil) { name, arguments in
             try await tools.call(name, arguments)
         }
         let start = await server.targets.count

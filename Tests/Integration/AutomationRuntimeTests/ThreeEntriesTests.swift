@@ -113,7 +113,7 @@ struct ThreeEntriesTests {
     static func run(_ entry: Entry) async throws -> Run {
         let session = Self.session(try W.directory())
         let tools = P.tools(session, source: entry.source, stream: entry.stream)
-        let router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
+        let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil) { name, arguments in
             try await tools.call(name, arguments)
         }
         var run = Run()

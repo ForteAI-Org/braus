@@ -30,7 +30,7 @@ struct RecallSharingTests {
     /// An MCP client's entry: its router over the tools of its own session and producer.
     static func client(_ session: LearningSession, stream: String = "mcp-client") async throws -> MCPRouter {
         let tools = P.tools(session, source: .mcp, stream: stream)
-        let router = MCPRouter(tools: AutomationTools.definitions) { name, arguments in try await tools.call(name, arguments) }
+        let router = MCPRouter(tools: AutomationTools.definitions, instructions: nil) { name, arguments in try await tools.call(name, arguments) }
         let initialized = await router.handle(.object(["jsonrpc": .string("2.0"), "id": .number(0), "method": .string("initialize"),
                                                         "params": .object(["protocolVersion": .string("2025-11-25")])]))
         #expect(initialized?["result"]["serverInfo"]["name"].string == "braus")

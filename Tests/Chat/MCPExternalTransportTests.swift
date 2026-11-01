@@ -19,7 +19,7 @@ struct MCPExternalTransportTests {
         var connected = 0
         let host = LocalMCPHost(maximumConnections: 1) {
             created += 1
-            let router = MCPRouter(tools: [.object(["name": .string("slow")])]) { _, _ in
+            let router = MCPRouter(tools: [.object(["name": .string("slow")])], instructions: nil) { _, _ in
                 started = true
                 do { try await Task.sleep(for: .seconds(30)) }
                 catch { cancelled = true; throw error }
@@ -49,7 +49,7 @@ struct MCPExternalTransportTests {
         var created = 0
         let host = LocalMCPHost(maximumConnections: 1) {
             created += 1
-            return MCPHostSession(router: MCPRouter(tools: []) { _, _ in .null })
+            return MCPHostSession(router: MCPRouter(tools: [], instructions: nil) { _, _ in .null })
         }
         let endpoint = try await host.start()
         let bad = try await connect(endpoint)
@@ -73,7 +73,7 @@ struct MCPExternalTransportTests {
 
     @Test func cancellationMatchesOnlyTheActiveRequest() async throws {
         var started = false
-        let router = MCPRouter(tools: [.object(["name": .string("slow")])]) { _, _ in
+        let router = MCPRouter(tools: [.object(["name": .string("slow")])], instructions: nil) { _, _ in
             started = true
             try await Task.sleep(for: .seconds(30))
             return .null
