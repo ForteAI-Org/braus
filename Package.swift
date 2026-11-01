@@ -233,7 +233,8 @@ let package = Package(
     products : [
         .library(name: "BrausChat",
                  targets: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
-                           "AutomationRuntime", "AutomationMCP", "AgentLoop"]),
+                           "AutomationRuntime", "AutomationMCP", "AgentLoop",
+                           "Capabilities"]),
         .library(
             name: "BrausDriver",
             targets: ["SeatCore", "PrivateSymbols", "VirtualScreens", "WindowPlacement",
@@ -528,7 +529,16 @@ let package = Package(
                     "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding",
                     // The one reader of an app's names in the person's languages (`BundleNames`); MacDriver depends on nothing.
                     "MacDriver", "PhaseSignposts"]),
-        integration("AutomationMCP", ["AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
+        .target(name: "Capabilities", dependencies: ["LocalMCP"].map { .target(name: $0) },
+                path: "Sources/Capabilities", swiftSettings: pure),
+        .target(name: "CapabilityRegistrations", dependencies: ["Capabilities"].map { .target(name: $0) },
+                path: "Sources/CapabilityRegistrations", swiftSettings: facility),
+        .testTarget(name: "CapabilitiesTests",
+                    dependencies: ["Capabilities", "AutomationMCP", "AutomationRuntime", "AppAdapters", "LocalMCP",
+                                   "EngineCore", "PerceptionCore", "Memory"].map { .target(name: $0) },
+                    path: "Tests/Capabilities", swiftSettings: suite),
+        integration("AutomationMCP", ["Capabilities", "CapabilityRegistrations",
+                                     "AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts",
                                      "AppAdapters", "TaskRouting"]),
         // The task router's rules and its catalogue of default routes: pure, and consulted before a session opens.
