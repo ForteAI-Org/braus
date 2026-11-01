@@ -1,6 +1,7 @@
 import AgentLoop
 import AutomationMCP
 import AutomationRuntime
+import Capabilities
 import ChatCore
 import CLIProviders
 import Foundation

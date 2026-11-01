@@ -516,7 +516,7 @@ let package = Package(
         // MARK: Engine tools
         .target(name: "Turn",
                 dependencies: ["ChatCore", "CLIProviders", "LocalMCP", "ModelTransports", "AutomationRuntime",
-                               "AutomationMCP", "AgentLoop"], path: "Sources/Turn", swiftSettings: facility),
+                               "AutomationMCP", "AgentLoop", "Capabilities"], path: "Sources/Turn", swiftSettings: facility),
         .testTarget(name: "TurnTests", dependencies: ["Turn", "ChatCore", "CLIProviders", "LocalMCP", "ModelTransports",
                                                     "AutomationMCP", "AutomationRuntime", "TestScratch",
                                                     "EngineCore", "PerceptionCore"],
@@ -665,7 +665,7 @@ let package = Package(
                     path: "Tests/AgentLoop", swiftSettings: suite),
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
-                                                    "TestScratch", "AppAdapters", "TaskRouting"],
+                                                    "TestScratch", "AppAdapters", "TaskRouting", "Capabilities"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
             name: "BrausCLITests",
