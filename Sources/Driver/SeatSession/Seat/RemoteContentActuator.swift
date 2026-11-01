@@ -420,12 +420,12 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         guard let wanted = requestedLabel, case let names = labels(node), !names.isEmpty,
               !names.contains(where: { Self.sameLabel($0, wanted) })
         else { return press(node, kAXPressAction) }
-        let found = names[0]
+        let foundRole = role(node) ?? kAXUnknownRole
         guard let other = named(wanted, besides: node) else {
-            note("the element at that point is '\(found)', not '\(wanted)': nothing was pressed")
-            return .failure(.wrongElement(requested: wanted, found: found))
+            note("the element at that point (\(foundRole)) does not match the requested control: nothing was pressed")
+            return .failure(.wrongElement(requested: wanted, foundRole: foundRole))
         }
-        note("the element at that point is '\(found)', so '\(wanted)' is pressed instead")
+        note("the element at that point (\(foundRole)) does not match: the requested control is pressed instead")
         return press(other, kAXPressAction)
     }
 
@@ -503,11 +503,11 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     /// either the actuation asks for one posted click. A control with no readable state, before or
     /// after, is never pressed or clicked again: nothing proves the press did not work.
     private func verify(_ target: Node, before: Bool?, _ actuation: inout RemoteContentActuation) {
-        let name   = label(target) ?? role(target) ?? kAXUnknownRole
+        let kind   = role(target) ?? kAXUnknownRole
         let isFlip = role(target) == kAXCheckBoxRole
         // A segment already on cannot show a press, where a switch can always flip.
         guard let before, isFlip || !before else {
-            note("AXPress on '\(name)' answered success and its state is "
+            note("AXPress on \(kind) answered success and its state is "
                 + "\(before.map { $0 ? "on" : "off" } ?? "not readable"): nothing proves it was ignored")
             return
         }
@@ -516,7 +516,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
             settle()
             return readableState(of: target).map { isFlip ? $0 != before : $0 }
         }
-        guard let first = changed() else { return note("'\(name)' no longer answers its state after AXPress") }
+        guard let first = changed() else { return note("\(kind) no longer answers its state after AXPress") }
         guard !first else { return }
 
         let child  = children(target).first { actions($0).contains(kAXPressAction) }
@@ -524,9 +524,9 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         let helper = child == nil ? "parent" : "child"
         if let other {
             let code = perform(other, kAXPressAction)
-            note("AXPress on '\(name)' left its state unchanged, so AXPress on its \(helper) answered "
+            note("AXPress on \(kind) left its state unchanged, so AXPress on its \(helper) answered "
                 + "AXError \(code.rawValue) (\(code))")
-            guard let second = changed() else { return note("'\(name)' no longer answers its state") }
+            guard let second = changed() else { return note("\(kind) no longer answers its state") }
             if second {
                 actuation = RemoteContentActuation(
                     action   : "\(kAXPressAction) on its \(helper)",
@@ -536,7 +536,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
                 return
             }
         }
-        note("'\(name)' still shows the same state after accessibility, so one click is posted on the host window")
+        note("\(kind) still shows the same state after accessibility, so one click is posted on the host window")
         actuation.needsPostedClick = true
     }
 
@@ -652,7 +652,7 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> {
         if let wanted = requestedLabel, case let names = labels(node) + [formCaption(of: node)].compactMap({ $0 }),
            !names.isEmpty, !names.contains(where: { Self.sameLabel($0, wanted) }) {
-            return .failure(.wrongElement(requested: wanted, found: names[0]))
+            return .failure(.wrongElement(requested: wanted, foundRole: role))
         }
         if isOrdinaryWindow, !selectionIsSettable(node, kAXSelectedTextRangeAttribute) {
             return .failure(.unsupportedRole(role))
