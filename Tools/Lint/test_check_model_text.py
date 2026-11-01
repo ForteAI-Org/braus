@@ -38,6 +38,24 @@ class ModelTextLintTests(unittest.TestCase):
         self.assertEqual(findings[0].raw, '"message"')
         self.assertEqual(findings[0].symbol, 'object')
 
+    def test_outcome_cause_keys_require_exact_reviewed_identity(self):
+        path = 'Sources/Integration/AutomationMCP/CallDispatcher.swift'
+        known = lint.classifications()
+        for symbol, code in [
+            ('refusal', 'uncertainty_refusal'),
+            ('refusal', 'historical_value_refusal'),
+            ('noSession', 'no_session'),
+            ('unconfirmed', 'memory_unconfirmed'),
+            ('values', 'invalid_arguments'),
+        ]:
+            with self.subTest(code=code):
+                source = f'let {symbol} = "{code}"'
+                finding = lint.scan_file(path, source)[0]
+                self.assertEqual(known[finding.key], 'typed outcome cause key in OutcomeText')
+                self.assertNotIn(lint.scan_file('Example.swift', source)[0].key, known)
+                self.assertNotIn(lint.scan_file(path, f'let unreviewed = "{code}"')[0].key, known)
+        self.assertNotIn(lint.scan_file(path, 'let refusal = "new_refusal"')[0].key, known)
+
     def test_identity_changes_with_sentence(self):
         before = lint.scan_file('Example.swift', 'let text = "Read."')[0]
         after = lint.scan_file('Example.swift', 'let text = "Wait."')[0]

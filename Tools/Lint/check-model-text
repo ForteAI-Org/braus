@@ -227,13 +227,13 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | allowed | e4b90d9db6f8b
 Sources/Integration/AutomationMCP/CallDispatcher.swift | app | 4e5ef144c51cd25230c144c3e1d8e842b9860b7a3cec2699d4e24e6517fc4b20 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | app | 8a2b49b006c72755f21f9d8e8b2bcf4fa20678a466bf4781b7117b230f60afff | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | apps | 4e5ef144c51cd25230c144c3e1d8e842b9860b7a3cec2699d4e24e6517fc4b20 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | child | 2181f7dd63a13e48a5f6e722a6e1d8ca8e33aa46e3a26d7b8b7d43cbdc9ece9f | catalogue key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | child | 4d01709fcd599118652e3b27bd0ca97c802f832183d01f76a034755f2bc62fa3 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | child | 53559c3195349ffb4472e6f552ad9e6767dde8954c77cd64c9d2cb4040aa94f9 | catalogue key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | child | 698c1b5307dd91176b57a7151284d06816553fa414c494f4c5b7677e8a4815ed | local diagnostic, not delivered to the model
+Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | 2181f7dd63a13e48a5f6e722a6e1d8ca8e33aa46e3a26d7b8b7d43cbdc9ece9f | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | 4d01709fcd599118652e3b27bd0ca97c802f832183d01f76a034755f2bc62fa3 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | 53559c3195349ffb4472e6f552ad9e6767dde8954c77cd64c9d2cb4040aa94f9 | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | 698c1b5307dd91176b57a7151284d06816553fa414c494f4c5b7677e8a4815ed | local diagnostic, not delivered to the model
 Sources/Integration/AutomationMCP/CallDispatcher.swift | child | 6fea4daeea71a0350d2f95cc6268e2e6cedf0dbc2aaf37aabe15013dad760248 | local diagnostic, not delivered to the model
-Sources/Integration/AutomationMCP/CallDispatcher.swift | child | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | child | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | claims | 34179d31127e02f8b120607905a5ccfcacd5270e4dea99a1b4e50ddcd2a64033 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | collected | 1e37124ee6d6c37fc98eac761fd24aa017fd6982f40f73e284a3a12b4e259a9a | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | collected | 7e49e1eb47743009f28005af788ac2e0cc4063b9b73714c355cba249ef35ac6e | protocol key or enumerated value
@@ -2192,7 +2192,7 @@ Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | 6618ade9e8912
 Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | gesture | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 30c2d05e600f9d3640346fae5539720c9ed14fd25c1ef25491b95aed31725ede | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | cause | 30c2d05e600f9d3640346fae5539720c9ed14fd25c1ef25491b95aed31725ede | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 6bdb95cbfd647dc56d6b1d241787c6a3aafffe36896105fbb416fa8c1e6711ff | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | outcome protocol key or value composition
@@ -2216,10 +2216,9 @@ Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | fd3830a0864
 Sources/Integration/AutomationMCP/ResultFormatter.swift | scene | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | schema | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | status | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 01fd914a955123ca6c1402729198ec4d0ad08d1b488db255350809932d5dc64b | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | minimized | 01fd914a955123ca6c1402729198ec4d0ad08d1b488db255350809932d5dc64b | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 1f045eb0c10376bc8c09d8890dc96aa5afda8a435c766e180847c76fdb61f03d | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 30c2d05e600f9d3640346fae5539720c9ed14fd25c1ef25491b95aed31725ede | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 40db6b2f09e09cb7ace93c27775a8c1ec45baccaeaa601cf4fc08d2b95350e90 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 6bdb95cbfd647dc56d6b1d241787c6a3aafffe36896105fbb416fa8c1e6711ff | outcome protocol key or value composition
@@ -2388,6 +2387,22 @@ Sources/Turn/TurnRunner.swift | turn | cd22ec4662d06b6ec1935fd8b18a599a328e52554
 Sources/Turn/TurnRunner.swift | web | 38d3bb58f57bd9b4a0fc5607ad4e1a7150d082d2d31723587a82d2b4df69aa55 | person-facing host error, local file identity or turn composition
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | answer | 5c7d0644728067c2af734933f743b535d8d32a83143f7f8bb5f4e51739abc8e7 | process switch status protocol key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | answer | d9f439b074f954d1fc1c0633985aa258ab3b0e5fee6c4c3190e97206e31da407 | process switch status protocol key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | refusal | 03d169f34843574376faeea27e579c83993c3b41446eaa80f4e183289c31faba | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/CallDispatcher.swift | refusal | aeea15a11cf49c7015aa35cab3225ed3cb5b1dc28d7740886522cd68921a4a8b | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/CallDispatcher.swift | noSession | dfa5894ccebc5b629d7073885509184cf78ac0b0d1553da1590e36a7d20a2261 | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/CallDispatcher.swift | unconfirmed | b0bc9ae44af84d24eec7b177dcd0e7ac1f540f92304a5e2ea9399ab2adf7846b | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/CallDispatcher.swift | values | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/CallDispatcher.swift | id | dfa5894ccebc5b629d7073885509184cf78ac0b0d1553da1590e36a7d20a2261 | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/CallDispatcher.swift | id | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/CallDispatcher.swift | allowed | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/CallDispatcher.swift | key | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | ecfb8ffe241b00c11ba8c75a4951f9eed3eda1509b79e3be6daa48a504b56bd5 | internal outcome cause protocol key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | b0bc9ae44af84d24eec7b177dcd0e7ac1f540f92304a5e2ea9399ab2adf7846b | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/ResultFormatter.swift | cause | ecfb8ffe241b00c11ba8c75a4951f9eed3eda1509b79e3be6daa48a504b56bd5 | internal outcome cause protocol key
+Sources/Integration/AutomationMCP/ResultFormatter.swift | notSent | b0bc9ae44af84d24eec7b177dcd0e7ac1f540f92304a5e2ea9399ab2adf7846b | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
+Sources/Integration/AutomationMCP/ResultFormatter.swift | minimized | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | value composition separator
+Sources/Integration/AutomationMCP/ToolArguments.swift | invalid | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
 """
 
 
