@@ -347,6 +347,8 @@ let package = Package(
                                     "AutomationRuntime", "Memory", "SQLiteMemory", "SeatBroker"]),
         driverTests("TargetReader", ["TargetReader"]),
 
+        .testTarget(name: "ReplayTests", dependencies: ["AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore", "LocalMCP", "Memory"], path: "Tests/Replay", resources: [.copy("Fixtures")], swiftSettings: suite),
+
         // MARK: Broker tests
         // The folders tests write, under one root per test process that the process removes when it exits.
         .target(name: "TestScratch", dependencies: ["LocalMCP"], path: "Tests/Support/TestScratch",
