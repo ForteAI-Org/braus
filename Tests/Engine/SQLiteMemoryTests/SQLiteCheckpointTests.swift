@@ -16,6 +16,24 @@ import Testing
 @Suite("Checkpoints of the write-ahead log")
 struct SQLiteCheckpointTests {
 
+    @Test func checkpointDurationReported() async throws {
+        let store = try await SQLiteMemoryStore.open(at: temporaryDatabase())
+        let report = try await store.checkpoint()
+        let diagnostics = try await store.diagnostics()
+        #expect(diagnostics.lastCheckpoint?.duration == report.duration)
+        #expect(report.duration >= .zero)
+        await #expect(throws: MemoryStoreError.self) {
+            try await store.snapshot(to: store.url)
+        }
+        let failedDuration = try #require(try await store.diagnostics().lastSnapshotDuration)
+        #expect(failedDuration >= .zero)
+        #expect(try await store.diagnostics().snapshots == 0)
+        let destination = store.url.deletingLastPathComponent().appendingPathComponent("copy.sqlite")
+        let copy = try await store.snapshot(to: destination)
+        #expect(try await store.diagnostics().lastSnapshotDuration == copy.duration)
+        await store.close()
+    }
+
     private func walSize(_ url: URL) throws -> UInt64 {
         (try FileManager.default.attributesOfItem(atPath: url.path + "-wal")[.size] as? UInt64) ?? 0
     }

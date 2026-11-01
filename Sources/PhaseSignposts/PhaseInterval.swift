@@ -11,7 +11,7 @@ import os
 /// PhaseInterval is one `os_signpost` interval of a phase measurement build.
 ///
 /// The whole file is compiled only under the `BRAUS_PHASES` condition, which no default
-/// configuration sets (SwiftPM or Xcode): a normal build has this module empty, and every call site
+/// configuration sets (SwiftPM or Xcode): a normal build omits these intervals, and every call site
 /// is inside its own `#if BRAUS_PHASES`. A measurement build is made optimized on purpose, since
 /// Swift in Debug would skew the numbers. `Tools/Driver/Phases/phase-table.py` turns the
 /// signposts into a table.
@@ -65,6 +65,21 @@ public struct PhaseInterval: Sendable {
         let phase = begin(name)
         defer { phase.end() }
         return try await body()
+    }
+}
+#endif
+
+#if BRAUS_PHASES
+extension PhaseInterval {
+    /// Starts the interval for one logical work entry, with a fixed name for its class.
+    public static func beginWork(_ workClass: WorkClassLabel) -> PhaseInterval {
+        switch workClass {
+        case .critical: begin("memory.work.critical")
+        case .interactive: begin("memory.work.interactive")
+        case .followUp: begin("memory.work.followUp")
+        case .background: begin("memory.work.background")
+        case .idle: begin("memory.work.idle")
+        }
     }
 }
 #endif
