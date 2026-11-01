@@ -12,10 +12,22 @@ import Testing
 
 /// A snapshot is a consistent copy through the backup API: it holds what was committed as of one
 /// read transaction, wherever those pages were, log included; it is verified before it is handed
-/// over; it never overwrites, never replaces the store's file, and an interrupted one leaves
-/// nothing behind.
+/// over; it never overwrites, never replaces the store's file, and an interrupted one preserves
+/// its partial family in retirement.
 @Suite("Snapshots through the backup API")
 struct SQLiteSnapshotTests {
+
+    private func expectRetiredPartial(beside url: URL) throws {
+        let retired = url.deletingLastPathComponent().appendingPathComponent(".retired")
+        let entries = try FileManager.default.contentsOfDirectory(at: retired, includingPropertiesForKeys: nil)
+        let family = try #require(entries.first {
+            $0.lastPathComponent.contains(".partial-")
+                && FileManager.default.fileExists(atPath: $0.appendingPathComponent($0.lastPathComponent).path)
+        })
+        let partial = family.appendingPathComponent(family.lastPathComponent)
+        #expect(FileManager.default.fileExists(atPath: partial.path))
+        #expect(FileManager.default.fileExists(atPath: family.appendingPathComponent("manifest.json").path))
+    }
 
     private func filled(_ url: URL, events: Int, configuration: SQLiteMemoryStore.Configuration = .init()) async throws -> SQLiteMemoryStore {
         let store = try await SQLiteMemoryStore.open(at: url, configuration: configuration)
@@ -46,7 +58,7 @@ struct SQLiteSnapshotTests {
         #expect(report.pageCount > 0)
         #expect(report.pageSize == 4096)
         #expect(report.steps >= 1)
-        #expect(try strayFiles(beside: url) == ["copy.sqlite"])
+        #expect(try strayFiles(beside: url) == [".retired", "copy.sqlite"])
         #expect(try rawCount("SELECT count(*) FROM memory_events", at: destination) == 50)
         let check = try SQLiteConnection(path: destination.path)
         #expect(try check.query("PRAGMA journal_mode") { try $0.text(0) }.first == "delete")
@@ -94,7 +106,7 @@ struct SQLiteSnapshotTests {
         await store.close()
     }
 
-    @Test("a snapshot cancelled between two steps is not handed over and leaves no file")
+    @Test("a snapshot cancelled between two steps is not handed over and preserves its partial family")
     func cancellationBetweenSteps() async throws {
         let url   = try temporaryDatabase()
         let store = try await filled(url, events: 5, configuration: .init(snapshotPagesPerStep: 1))
@@ -110,14 +122,15 @@ struct SQLiteSnapshotTests {
         copying.cancel()
         #expect(await copying.value == .cancelled(.snapshot))
         #expect(!FileManager.default.fileExists(atPath: destination.path))
-        #expect(try strayFiles(beside: url) == [])
+        #expect(try strayFiles(beside: url) == [".retired"])
+        try expectRetiredPartial(beside: url)
         #expect(await store.liveHandles == 4)
         #expect(try await store.diagnostics().snapshots == 0)
         _ = try await record(EventRow(id: "after", key: "k"), in: store)
         await store.close()
     }
 
-    @Test("a close during a snapshot ends it with closed, and no handle or file survives")
+    @Test("a close during a snapshot ends it with closed, and releases every handle before retiring the partial family")
     func closeDuringSnapshot() async throws {
         let url   = try temporaryDatabase()
         let store = try await filled(url, events: 5, configuration: .init(snapshotPagesPerStep: 1))
@@ -129,10 +142,11 @@ struct SQLiteSnapshotTests {
         #expect(await copying.value == .unavailable(.closed))
         #expect(await store.liveHandles == 0)
         #expect(!FileManager.default.fileExists(atPath: destination.path))
-        #expect(try strayFiles(beside: url) == [])
+        #expect(try strayFiles(beside: url) == [".retired"])
+        try expectRetiredPartial(beside: url)
     }
 
-    @Test("while the finished copy is checked, the store answers reads and writes; a close then still ends the copy with no file left")
+    @Test("while the finished copy is checked, the store answers reads and writes; a close then still ends the copy with its partial family retired")
     func storeFreeDuringVerification() async throws {
         let url   = try temporaryDatabase()
         let store = try await filled(url, events: 5)
@@ -165,7 +179,34 @@ struct SQLiteSnapshotTests {
         #expect(await closing.value == .unavailable(.closed))
         #expect(await store.liveHandles == 0)
         #expect(!FileManager.default.fileExists(atPath: second.path))
-        #expect(try strayFiles(beside: url) == ["copy.sqlite"])
+        #expect(try strayFiles(beside: url) == [".retired", "copy.sqlite"])
+        try expectRetiredPartial(beside: url)
+    }
+
+    @Test func snapshotFailureRetainsPartialFamily() async throws {
+        let url = try temporaryDatabase()
+        let store = try await filled(url, events: 5, configuration: .init(snapshotPagesPerStep: 1))
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        await store.holdSnapshots {
+            entered.continuation.yield()
+            for await _ in release.stream { break }
+        }
+        let destination = url.deletingLastPathComponent().appendingPathComponent("copy.sqlite")
+        let copying = Task {
+            await SQLiteArchiveRetirement.$fault.withValue({ phase, _ in
+                if phase == .afterMove { throw SQLiteArchiveRetirement.Interruption() }
+            }) {
+                await storeError { _ = try await store.snapshot(to: destination) }
+            }
+        }
+        for await _ in entered.stream { break }
+        copying.cancel()
+        release.continuation.yield()
+        #expect(await copying.value == .cancelled(.snapshot))
+        #expect(try await store.diagnostics().lastRetirement?.state == .incomplete)
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
+        await store.close()
     }
 
     @Test("a writer active in another process, holding the lock, neither blocks the copy nor gets into it")
