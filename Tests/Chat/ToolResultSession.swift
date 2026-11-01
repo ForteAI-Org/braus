@@ -17,6 +17,8 @@ final class ToolResultSession: AutomationSessionOperating {
     var calls: [String] = []
     var openedWindowTitles: [String?] = []
     var results: [ActOutcomeKind] = []
+    var actionError: (any Error)?
+    var actionResult: ActOutcome?
     var throwOnTarget: String?
     var observationFailure: AutomationFailure?
     var endsWhenObserved = false
@@ -52,6 +54,8 @@ final class ToolResultSession: AutomationSessionOperating {
 
     func act(target: String, verb: ActionVerb, section: String?, desiredState: ControlState?) async throws -> ActOutcome {
         calls.append(target)
+        if let actionError { throw actionError }
+        if let actionResult { return actionResult }
         if target == throwOnTarget {
             if endsWhenActFails { id = nil }
             throw AutomationFailure("Synthetic transport failure after an earlier effect.")

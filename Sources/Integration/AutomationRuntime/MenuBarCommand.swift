@@ -138,9 +138,9 @@ public enum MenuBarCommand {
                     break
                 case .needsConsent:
                     return .outcome(ActOutcome(.refused, "\(path) reads as destructive, and the person has not "
-                        + "allowed it."))
+                        + "allowed it.", notSent: .needsConsent))
                 case .cannotReadBack:
-                    return .outcome(ActOutcome(.refused, IrreversiblePolicy.readBackRefusal(path)))
+                    return .outcome(ActOutcome(.refused, IrreversiblePolicy.readBackRefusal(path), notSent: .destructiveUnverifiable))
             }
         }
         // A Close command may end the application; the caller reads whether it does only for one.
@@ -245,14 +245,14 @@ public enum MenuBarCommand {
     static func disabledRefusal(_ path: String) -> ActOutcome {
         ActOutcome(.refused, "\(path) is disabled right now. An application in the background can leave its "
             + "menus disabled after a dialog until it is brought forward; say so rather than concluding the "
-            + "command is unavailable, and use a control in the window if there is one.")
+            + "command is unavailable, and use a control in the window if there is one.", notSent: .disabled)
     }
 
     /// The refusal for an item disabled because a dialog of the application is open, which is
     /// the application's own reason and not a stale menu.
     static func dialogRefusal(_ path: String) -> ActOutcome {
         ActOutcome(.refused, "\(path) is disabled because a dialog of the application is open: "
-            + "answer or close the dialog first.")
+            + "answer or close the dialog first.", notSent: .disabled)
     }
 
     /// Resolves `path` in the menu bar of `processID` and presses the item it names, or lists the
@@ -308,7 +308,7 @@ public enum MenuBarCommand {
                 return (nil, disabledRefusal(path), path, nil)
             case .list(let path, let items):
                 return (nil, ActOutcome(.actedNoop, "\(path) holds: \(items.joined(separator: ", ")). "
-                    + "Nothing was pressed: name one of them to press it."), nil, nil)
+                    + "Nothing was pressed: name one of them to press it.", noop: .listing), nil, nil)
             case .press(let item, let path):
                 let error = press(item)
                 // An item that opens a modal can keep the reply past the timeout: it was pressed.

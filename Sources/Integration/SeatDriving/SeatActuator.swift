@@ -74,6 +74,13 @@ public actor SeatActuator: Actuating {
     /// not being ready (`seatNotReady` is always thrown before a post), a remote panel's refusal that cannot have
     /// taken effect, and a point or a gesture this actuator refuses itself.
     static func unsent(_ error: any Error) -> GestureNotSent? {
+        let reasons = pauseReasons(of: error)
+        if reasons.contains(.humanIntervention) {
+            return GestureNotSent(reason: "human_intervention", sentence: "The person is controlling the application.")
+        }
+        if reasons.contains(.inputAuthorityExpired) {
+            return GestureNotSent(reason: "input_authority_expired", sentence: "The command belongs to an earlier control state.")
+        }
         switch error {
             case let refusal as InputEndpointRefusal:
                 return GestureNotSent(reason: "endpoint_refused", sentence: sentence(for: refusal))

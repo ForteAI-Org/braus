@@ -16,6 +16,8 @@ Cua is used the way its own docs say (see README, "How Cua is driven"): an actio
 `run_actions` call with `observe:true`, a re-read is a `since:"latest"` diff. `cua-legacy` keeps the
 6 October pair (action, then a full `get_window_state`) as the secondary series `step_legacy`.
 """
+from outcome import fields as outcome_fields, legacy_kind, is_failure
+
 import argparse, json, math, os, subprocess, sys, threading, time
 from mcpclient import MCPClient
 import prepare, rusage
@@ -276,8 +278,16 @@ def self_verdict(reply):
     if "steps" in structured and structured["steps"]:
         step = structured["steps"][0]
         return step.get("effect") or ("ok" if step.get("ok") else "failed")
+    result = reply.get("result") or {}
+    for item in result.get("content", []):
+        row = item.get("text", "").split("\n", 1)[0]
+        if outcome_fields(row):
+            return row
     body = reply_body(reply) or {}
-    return body.get("status") or (body.get("outcome") or {}).get("status")
+    row = body.get("outcome")
+    if outcome_fields(row):
+        return row
+    return body.get("status") or (row.get("status") if isinstance(row, dict) else None)
 
 
 def failed(reply):
@@ -291,6 +301,9 @@ def failed(reply):
     if structured.get("ok") is False or structured.get("failed_step") is not None:
         bad = next((s for s in structured.get("steps", []) if s.get("ok") is False), {})
         return f"run_actions step {structured.get('failed_step')}: {bad.get('message') or bad.get('error') or 'failed'}"[:300]
+    verdict = self_verdict(reply)
+    if outcome_fields(verdict):
+        return verdict if is_failure(verdict) else None
     body = reply_body(reply) or {}
     message = body.get("message") or ""
     if body.get("status") in BAD_STATUS:

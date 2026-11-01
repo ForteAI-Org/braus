@@ -82,7 +82,7 @@ struct CommandLineBatchTests {
                     throw AutomationFailure("the menu did not open")
                 }
                 try await CommandLineCall.end(recorder, outcome: ActOutcome(.foundActed, "clicked"), tool: .act)
-                return .foundActed
+                return ActOutcome(.foundActed, "Completed.")
             }
             Issue.record("the batch did not stop")
         } catch is BatchFailure {}
@@ -115,7 +115,7 @@ struct CommandLineBatchTests {
                 let kind: ActOutcomeKind = number == 2 ? .honestMiss : .foundActed
                 try await CommandLineCall.end(recorder, outcome: ActOutcome(kind, "answered"),
                                               tool: number == 2 ? .select : .act)
-                return kind
+                return ActOutcome(kind, "Answered.")
             }
             Issue.record("the batch did not stop")
         } catch is BatchFailure {}
@@ -137,7 +137,7 @@ struct CommandLineBatchTests {
         do {
             try await CommandLineBatch.run(steps, app: app, parent: parent, children: children) { _, _, _ in
                 gestures += 1
-                return .foundActed
+                return ActOutcome(.foundActed, "Completed.")
             }
             Issue.record("the batch ran unconfirmed")
         } catch let failure as ActFailure {
@@ -166,7 +166,7 @@ struct CommandLineBatchTests {
                 }
                 try await CommandLineCall.end(recorder, outcome: ActOutcome(.foundActed, "clicked"),
                                               tool: number == 2 ? .select : .act)
-                return .foundActed
+                return ActOutcome(.foundActed, "Completed.")
             }
             Issue.record("the batch went on after an unsaved end")
         } catch let failure as BatchFailure {

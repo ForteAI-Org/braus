@@ -153,10 +153,10 @@ public struct SeatDropdownSelector {
                 case .allowed:
                     break
                 case .needsConsent:
-                    return (ActOutcome(.refused, "selection requires --allow-destructive", scene: before.scene), nil)
+                    return (ActOutcome(.refused, "selection requires --allow-destructive", scene: before.scene, notSent: .needsConsent), nil)
                 case .cannotReadBack:
                     return (ActOutcome(.refused, IrreversiblePolicy.readBackRefusal("Selecting '\(item)'"),
-                                       scene: before.scene), nil)
+                                       scene: before.scene, notSent: .destructiveUnverifiable), nil)
             }
         }
         if dryRun {

@@ -42,10 +42,10 @@ enum ActCommand {
             desiredState: arguments.desiredState,
             isDryRun    : invocation.flags.contains("dry-run")
         )
-        let kind: ActOutcomeKind
+        let result: ActOutcome
         if invocation.flags.contains("seat") {
             let knowledge = Runtime.knowledgeDirectory(invocation)
-            var acted = ActOutcomeKind.refused
+            var acted = ActOutcome(.refused, "The action did not run.")
             try await BrokeredSeat.withSession(
                 application,
                 invocation,
@@ -59,10 +59,10 @@ enum ActCommand {
                     try await brokered(request, on: desktop, recorder: recorder)
                 }
             }
-            kind = acted
+            result = acted
         } else {
             let runtime = Runtime(invocation: invocation)
-            kind = try await perform(request, recorder: runtime.commandLineRecorder()) { recorder in
+            result = try await perform(request, recorder: runtime.commandLineRecorder()) { recorder in
                 await runtime.engine(
                     recorder         : recorder,
                     allowsDestructive: invocation.flags.contains("allow-destructive")
@@ -70,8 +70,10 @@ enum ActCommand {
             }
             await runtime.finish()
         }
-        let acceptable: Set<ActOutcomeKind> = [.foundActed, .dryRun, .actedNoop]
-        if !acceptable.contains(kind) { throw ActFailure(kind) }
+        let outcome = result.outcome
+        if outcome.recovery != .continue || outcome.gesture == .uncertain {
+            throw ActFailure(result.kind)
+        }
     }
 
     /// The brokered session's act of `request`, made as the call `recorder` records.
@@ -101,7 +103,7 @@ enum ActCommand {
         recorder : CallRecorder,
         begun    : Bool = false,
         acting   : (CallRecorder) async throws -> ActOutcome
-    ) async throws -> ActOutcomeKind {
+    ) async throws -> ActOutcome {
         let call = AgentCallRequest.act(target: request.target, verb: request.verb, value: request.desiredState,
                                         section: request.section)
         if !request.isDryRun, !begun {
@@ -109,7 +111,7 @@ enum ActCommand {
                 try await recorder.begin(call, app: AppContextIdentity(bundleID: request.bundleID))
             } catch {
                 print("refused: Braus's memory did not confirm the action before it could act (\(error)); nothing was done")
-                return .refused
+                return ActOutcome(.refused, "The memory did not confirm the action.")
             }
         }
         let started = ContinuousClock.now
@@ -136,6 +138,6 @@ enum ActCommand {
         if !request.isDryRun {
             try await CommandLineCall.end(recorder, outcome: outcome, tool: .act)
         }
-        return outcome.kind
+        return outcome
     }
 }

@@ -2224,6 +2224,60 @@ Sources/SeatBroker/Seat/SeatErrorMapper.swift | stop | 7299b59de0b5dad3b622afc3b
 Sources/SeatBroker/Seat/SeatErrorMapper.swift | stop | e649b20ce5d23ab7a6bc208c9fa725b5ffc4a121df82bafe4e6dcc0dfba4bd6e | value composition or separator
 Sources/SeatBroker/Seat/SeatErrorMapper.swift | windows | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/SeatBroker/Seat/SeatErrorMapper.swift | windows | f240463dada079fc3d64b63fd6c50a01e772da977083807d79b1027d1a31253e | value composition or separator
+Sources/Integration/AutomationMCP/ResultFormatter.swift | allowed | cf51937bad8b2f6948b8edf1bd3289f3bc332ec610f99df2f5aff0218b3a554b | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | allowed | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | allowed | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | definition | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | effect | 9a5e13f69efc348b5cb6292b127326a7726463d80b3e19e4395bfba72db2e4a1 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | 4d01709fcd599118652e3b27bd0ca97c802f832183d01f76a034755f2bc62fa3 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | 5c7d0644728067c2af734933f743b535d8d32a83143f7f8bb5f4e51739abc8e7 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | d9f439b074f954d1fc1c0633985aa258ab3b0e5fee6c4c3190e97206e31da407 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | gesture | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 30c2d05e600f9d3640346fae5539720c9ed14fd25c1ef25491b95aed31725ede | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 6bdb95cbfd647dc56d6b1d241787c6a3aafffe36896105fbb416fa8c1e6711ff | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 9a5e13f69efc348b5cb6292b127326a7726463d80b3e19e4395bfba72db2e4a1 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | edecec53ab11f560816e75a17681eb83886beace01d7fb927d99707d3d031aac | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | f6a7353e2ee11da2421e532f9f8b1d35511d74467d88c7c3028808ea976d1b3c | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcomeText | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | outcomeText | 4003cb961291f10927e1ccb1d129186886281ed836135f19f4ec7665d77d3a9e | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | 00826c718b0c77a2a95f2b9635880e7095421a0e597f2373d27eb250daacb4d2 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | 9a5e13f69efc348b5cb6292b127326a7726463d80b3e19e4395bfba72db2e4a1 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | edecec53ab11f560816e75a17681eb83886beace01d7fb927d99707d3d031aac | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | f6a7353e2ee11da2421e532f9f8b1d35511d74467d88c7c3028808ea976d1b3c | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | scene | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | schema | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | status | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 01fd914a955123ca6c1402729198ec4d0ad08d1b488db255350809932d5dc64b | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 1f045eb0c10376bc8c09d8890dc96aa5afda8a435c766e180847c76fdb61f03d | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 30c2d05e600f9d3640346fae5539720c9ed14fd25c1ef25491b95aed31725ede | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 40db6b2f09e09cb7ace93c27775a8c1ec45baccaeaa601cf4fc08d2b95350e90 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 6bdb95cbfd647dc56d6b1d241787c6a3aafffe36896105fbb416fa8c1e6711ff | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 8cf14017030734ad620982d3d2d80caa8c2826ccb859d12ecfd2caa3222633a2 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | text | ccb5167cac54f9796d4d7be1ce43146e90a04171970aa4d3bd1f398a511bce03 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | text | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | text | d9fd9a3d81d750e6edc61aec66e7c4112f7af7c34ebe0a0d20189464ec9df135 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | 6bdb95cbfd647dc56d6b1d241787c6a3aafffe36896105fbb416fa8c1e6711ff | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | 9a5e13f69efc348b5cb6292b127326a7726463d80b3e19e4395bfba72db2e4a1 | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | typed | f6a7353e2ee11da2421e532f9f8b1d35511d74467d88c7c3028808ea976d1b3c | outcome protocol key or value composition
+Sources/Integration/AutomationMCP/ResultFormatter.swift | usesOutcomeV2 | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | outcome protocol key or value composition
 """
 
 

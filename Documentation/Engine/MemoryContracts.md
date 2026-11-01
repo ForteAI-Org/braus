@@ -95,7 +95,7 @@ Since D1 production also writes the call verifications (scope `call`), the task 
 their memberships, and the tables schema 2 adds. No producer in this checkout writes the menu commands, the
 Watcher's inputs and correlations, task labels, Routes, step occurrences, experiences or the general graph's
 arcs and anchor links: their repositories, fixtures and readers exist (`SQLiteMemoryTests`), and `overview()` counts them, but
-production leaves them empty. The ported `Route`, `RouteEarning` and `Recall` types of the `Memory` module work
+production leaves them empty. The ported `Route` and `Recall` types of the `Memory` module work
 over `AppKnowledge` and are called by tests only.
 
 The first open of a directory creates `memory.sqlite` at schema 1 and, in the same open, before any write of

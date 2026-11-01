@@ -29,7 +29,7 @@ enum SelectCommand {
             knowledge: knowledge,
             recorder : Runtime.commandLineRecorder(knowledge: knowledge)
         ) { desktop, _ in
-            let kind = try await perform(
+            let result = try await perform(
                 control   : control,
                 item      : item,
                 bundleID  : bundleID,
@@ -37,7 +37,11 @@ enum SelectCommand {
                 invocation: invocation,
                 recorder  : Runtime.commandLineRecorder(knowledge: knowledge)
             )
-            guard [.foundActed, .dryRun].contains(kind) else { throw ActFailure(kind) }
+            guard (result.outcome.gesture == .sent && result.outcome.recovery == .continue)
+                || (result.outcome.gesture == .notSent && result.outcome.recovery == .continue
+                    && invocation.flags.contains("dry-run")) else {
+                throw ActFailure(result.kind)
+            }
         }
     }
 
@@ -52,7 +56,7 @@ enum SelectCommand {
         recorder: CallRecorder,
         begun: Bool = false,
         evidenceDirectory: String? = nil
-    ) async throws -> ActOutcomeKind {
+    ) async throws -> ActOutcome {
         let dryRun = invocation.flags.contains("dry-run")
         // A batch's step is begun and started by its batch; the command's own call is begun here.
         if !dryRun, !begun {
@@ -63,7 +67,7 @@ enum SelectCommand {
                 )
             } catch {
                 print("refused: Braus's memory did not confirm the selection before it could act (\(error)); nothing was done")
-                return .refused
+                return ActOutcome(.refused, "The memory did not confirm the selection.")
             }
         }
         do {
@@ -92,7 +96,7 @@ enum SelectCommand {
                     print("selection: focus changed=\(observation.frontmostApplicationChanged), cursor distance=\(observation.maximumCursorDistance)")
                 }
             }
-            return result.outcome.kind
+            return result.outcome
         } catch let suspension as CommandLineCall.Unsaved {
             throw suspension
         } catch {

@@ -12,6 +12,7 @@ summary.json: {"meta": [meta rows], "baseline": {...}, "drivers": {driver: {"foo
 """
 import argparse, json, math, statistics, sys
 from collections import Counter
+from outcome import fields as outcome_fields, legacy_kind, is_failure
 
 TEXT_CHARS_PER_TOKEN = 4  # a rough English/JSON average; images use Anthropic's w*h/750
 DRIVERS = ["braus", "cua", "cua-overlay", "cua-legacy", "cua-fast"]
@@ -103,7 +104,10 @@ def per_second(row, key):
 
 def reported_ok(row):
     """The call succeeded and did not say honest_miss, ambiguous or refused (also in old rows)."""
-    return bool(row.get("ok")) and row.get("self_verdict") not in BAD_STATUS
+    verdict = row.get("self_verdict")
+    if outcome_fields(verdict):
+        return bool(row.get("ok")) and not is_failure(verdict)
+    return bool(row.get("ok")) and legacy_kind(verdict) not in BAD_STATUS
 
 
 def success_of(row):
