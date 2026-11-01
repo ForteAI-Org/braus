@@ -31,10 +31,14 @@ extension TaskCycleHandler {
             let data = try JSONEncoder().encode(answer.delivery)
             return ["recall": try JSONDecoder().decode(JSONValue.self, from: data)]
         } catch let error as TaskContextError {
-            return ["recall_error": .string("The memory was not searched: \(error).")]
+            return ["recall_error": .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1"))
+                + "\(error)"
+                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.2"))))]
         } catch {
-            return ["recall_error": .string("The memory could not be searched (\(MemoryService.describe(error))); plan with the current "
-                                            + "scene and tools.")]
+            return ["recall_error": .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.3"))
+                + "\(MemoryService.describe(error))"
+                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.4")))
+                                            + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.5")))]
         }
     }
 
@@ -53,10 +57,14 @@ extension TaskCycleHandler {
             let data = try JSONEncoder().encode(answer.delivery)
             return ["recall_proposal": try JSONDecoder().decode(JSONValue.self, from: data)]
         } catch let error as TaskContextError {
-            return ["recall_error": .string("The memory was not searched: \(error).")]
+            return ["recall_error": .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.6"))
+                + "\(error)"
+                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.7"))))]
         } catch {
-            return ["recall_error": .string("The memory could not be searched (\(MemoryService.describe(error))); plan with the current "
-                                            + "scene and tools.")]
+            return ["recall_error": .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.8"))
+                + "\(MemoryService.describe(error))"
+                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.9")))
+                                            + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.10")))]
         }
     }
 
@@ -89,14 +97,19 @@ extension TaskCycleHandler {
             } catch RecallUseError.unknownQuery(let id) {
                 // A proposal's id is no query's (live run R01): say which id a use names, and that nothing was recorded.
                 if await service.isProposal(id, of: task.taskID) {
-                    problems.append("\(id) is a proposal, not a query: a use names the query that memory_task choose answered "
-                                    + "(recall.query). A proposal you did not choose from has no use to report. This use was not recorded.")
+                    problems.append(("\(id)" + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1")))
+                                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.2")))
                 } else {
-                    problems.append("No query \(id) with that need was made by this attempt: report the query ids recall answered. "
-                                    + "This use was not recorded.")
+                    problems.append((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.3"))
+                        + "\(id)"
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.4")))
+                                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.5")))
                 }
             } catch {
-                problems.append("The use of query \(use.queryID) was not recorded: \(MemoryService.describe(error))")
+                problems.append((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.6"))
+                    + "\(use.queryID)"
+                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.7"))
+                    + "\(MemoryService.describe(error))"))
             }
         }
         return (recorded, problems)
@@ -125,7 +138,7 @@ extension TaskCycleHandler {
 
     static let noOpenTask = MemoryTaskTool.Failure(
         code   : "no_open_task",
-        message: "No task is open in this session: begin one, or resume your unfinished task by its id."
+        message: ModelText.text(.init(rawValue: "task_cycle_handler__evidence.noOpenTask.v1"))
     )
 
     static func failure(of error: TaskContextError) -> MemoryTaskTool.Failure {
@@ -133,39 +146,53 @@ extension TaskCycleHandler {
             case .invalid:
                 return MemoryTaskTool.Failure(
                     code   : "invalid_task",
-                    message: "The task cannot be recorded as given: \(error)."
+                    message: (ModelText.text(.init(rawValue: "task_cycle_handler__evidence.failure.v1"))
+                        + "\(error)"
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.failure.v1.2")))
                 )
             case .unknownTask(let id):
-                return MemoryTaskTool.Failure(code: "unknown_task", message: "No task \(id) of yours is recorded.")
+                return MemoryTaskTool.Failure(code: "unknown_task", message: (ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.8"))
+                    + "\(id)"
+                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.9"))))
             case .unknownAttempt:
                 return MemoryTaskTool.Failure(
                     code   : "unknown_task",
-                    message: "The attempt is not the task's last one: resume the task."
+                    message: ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.10"))
                 )
             case .foreignTask(let id):
                 return MemoryTaskTool.Failure(
                     code   : "foreign_task",
-                    message: "Task \(id) belongs to another producer: it cannot be "
-                        + "read or changed from here. Begin your own task."
+                    message: (ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.11"))
+                        + "\(id)"
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.12")))
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.13"))
                 )
             case .closed(let id, let status):
                 return MemoryTaskTool.Failure(
                     code   : "task_closed",
-                    message: "Task \(id) ended as \(status.rawValue): begin a new "
-                        + "task for a new request."
+                    message: (ModelText.text(.init(rawValue: "task_cycle_handler__evidence.status.v1"))
+                        + "\(id)"
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.status.v1.2"))
+                        + "\(status.rawValue)"
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.status.v1.3")))
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.status.v1.4"))
                 )
             case .staleRevision(let id, let expected, let current):
                 return MemoryTaskTool.Failure(
                     code   : "stale_revision",
-                    message: "Task \(id) is at revision \(current), not "
-                        + "\(expected): read it again and revise from the current revision.",
+                    message: (ModelText.text(.init(rawValue: "task_cycle_handler__evidence.current.v1"))
+                        + "\(id)"
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.current.v1.2"))
+                        + "\(current)"
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.current.v1.3")))
+                        + ("\(expected)" + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.current.v1.4"))),
                     details: ["current_revision": .number(Double(current))]
                 )
             case .attemptNotRunning:
                 return MemoryTaskTool.Failure(
                     code   : "attempt_not_running",
-                    message: "This attempt ended: resume the task to "
-                        + "continue it."
+                    message: ModelText.text(.init(rawValue: "task_cycle_handler__evidence.current.v1.5"))
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.current.v1.6"))
                 )
         }
     }
@@ -173,45 +200,64 @@ extension TaskCycleHandler {
     static func failure(of error: ProcedureError) -> MemoryTaskTool.Failure {
         switch error {
             case .unknownCandidate(let id):
-                return MemoryTaskTool.Failure(code: "unknown_candidate", message: "No candidate \(id) of your tasks is recorded.")
+                return MemoryTaskTool.Failure(code: "unknown_candidate", message: (ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.14"))
+                    + "\(id)"
+                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.15"))))
             case .staleCandidate(let id, let current):
                 return MemoryTaskTool.Failure(
                     code   : "stale_candidate",
-                    message: "Candidate \(id) is not the attempt's latest: interpret \(current), which covers the later actions.",
+                    message: (ModelText.text(.init(rawValue: "task_cycle_handler__evidence.current.v1.7"))
+                        + "\(id)"
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.current.v1.8"))
+                        + "\(current)"
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.current.v1.9"))),
                     details: ["current_candidate": .string(current)]
                 )
             case .conflictingInterpretation(_, let revision):
                 return MemoryTaskTool.Failure(
                     code   : "interpretation_conflict",
-                    message: "Revision \(revision) of this interpretation was recorded with other statements: omit the revision "
-                        + "to record a new one."
+                    message: (ModelText.text(.init(rawValue: "task_cycle_handler__evidence.revision.v1"))
+                        + "\(revision)"
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.revision.v1.2")))
+                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.revision.v1.3"))
                 )
             case .revisionOutOfOrder(_, let expected):
                 return MemoryTaskTool.Failure(code: "revision_out_of_order",
-                                              message: "The next revision of this interpretation is \(expected).",
+                                              message: (ModelText.text(.init(rawValue: "task_cycle_handler__evidence.expected.v1"))
+                                                  + "\(expected)"
+                                                  + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.expected.v1.2"))),
                                               details: ["next_revision": .number(Double(expected))])
             case .unknownReference(let what):
                 return MemoryTaskTool.Failure(code: "unknown_reference",
-                                              message: "The candidate and its actions have nothing the interpretation names "
-                                                + "as \(what).")
+                                              message: ModelText.text(.init(rawValue: "task_cycle_handler__evidence.what.v1"))
+
+                                                    + (ModelText.text(.init(rawValue: "answer.TaskCycleHandler.Evidence.what.v1.fragment.0"))
+                                                    + "\(what)"
+                                                    + ModelText.text(.init(rawValue: "answer.TaskCycleHandler.Evidence.what.v1.fragment.2"))))
             case .contradictedPrefix(let step, let why):
                 return MemoryTaskTool.Failure(code: "contradicted_prefix",
-                                              message: "Step \(step + 1) is not the same operation in both versions (\(why)): they do not "
-                                                + "share the steps before the divergence you named. Name the first step that differs.",
+                                              message: (ModelText.text(.init(rawValue: "task_cycle_handler__evidence.why.v1"))
+                                                  + "\(step + 1)"
+                                                  + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.why.v1.2"))
+                                                  + "\(why)"
+                                                  + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.why.v1.3")))
+                                                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.why.v1.4")),
                                               details: ["step": .number(Double(step + 1))])
             default:
                 return MemoryTaskTool.Failure(code: "invalid_interpretation",
-                                              message: "The interpretation cannot be recorded as given: "
-                                                + "\(MemoryTaskTool.words(error)).")
+                                              message: ModelText.text(.init(rawValue: "task_cycle_handler__evidence.why.v1.5"))
+
+                                                    + ("\(MemoryTaskTool.words(error))"
+                                                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.why.v1.6"))))
         }
     }
 
     /// What the end of a completed task that named no result is told: how to name it with the interpretation.
-    static let resultMissing = "No result_check was given, so nothing proves this task's result and its procedure can be "
-        + "admitted only if every step was verified on its own. Give result_check in your interpret call: what Braus can read "
-        + "to verify the result the person asked for ({file_written|file_changed|file_unchanged|file_absent: path}, "
-        + "{file_moved|file_copied: path, to: path}, {file: path, contains: text}, {window: title, app, open}, {element: label, value|state|present} while the app's session "
-        + "is open), or {none: why} when the task leaves nothing to read."
+    static let resultMissing = ModelText.text(.init(rawValue: "task_cycle_handler__evidence.resultMissing.v1"))
+        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.resultMissing.v1.2"))
+        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.resultMissing.v1.3"))
+        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.resultMissing.v1.4"))
+        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.resultMissing.v1.5"))
 
     /// The disk as the task's inputs that name an absolute path stood when it declared them, by path, from the call's own
     /// arguments (a value the record withholds is still read, in memory only): what a check of a file changed, kept or
@@ -334,11 +380,11 @@ extension TaskCycleHandler {
             "scope": .string(windowOnly ? "window_presence_only" : "declared_predicates_only"),
             "goal_match": .string("not_assessed"),
             "guidance": .string(windowOnly
-                ? "Only window presence was checked. This does not verify an applied value, a saved change or task completion. "
-                    + "Compare with the requested result; read the actual applied state before claiming a value change. "
-                    + "A dialog field can retain the last input even when Apply had no effect."
-                : "These verdicts apply only to the named predicates, not automatically to the goal. "
-                    + "A completed outcome is your declaration. Report uncertainty if the requested result is not established.")
+                ? ModelText.text(.init(rawValue: "task_cycle_handler__evidence.verdict.v1"))
+                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.verdict.v1.2"))
+                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.verdict.v1.3"))
+                : ModelText.text(.init(rawValue: "task_cycle_handler__evidence.verdict.v1.4"))
+                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.verdict.v1.5")))
         ])
     }
 
@@ -362,11 +408,13 @@ extension TaskCycleHandler {
                                                                     memory: memory)
                 var answer: [String: JSONValue] = ["check": .string(named.kept.line), "verdict": .string(check.verdict.rawValue),
                                                    "found": .string(check.observed)]
-                if named.isGuard { answer["guard"] = .string("added by Braus and shown; it does not admit or refuse the procedure") }
+                if named.isGuard { answer["guard"] = .string(ModelText.text(.init(rawValue: "task_cycle_handler__evidence.answer.v1"))) }
                 answers.append(.object(answer))
             } catch {
                 answers.append(.object(["check": .string(named.kept.line),
-                                        "error": .string("The check could not be recorded: \(MemoryService.describe(error)).")]))
+                                        "error": .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.answer.v1.2"))
+                                            + "\(MemoryService.describe(error))"
+                                            + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.answer.v1.3"))))]))
             }
         }
         return .array(answers)
@@ -376,15 +424,15 @@ extension TaskCycleHandler {
     /// when it is not running.
     private func windowReading(of app: String?) async -> TaskResultCheck.Reading {
         guard let word = app ?? session.memoryApplication else {
-            return .unread("no application was named and no session holds one, so no window was listed")
+            return .unread(ModelText.text(.init(rawValue: "task_cycle_handler__evidence.word.v1")))
         }
         guard let running = try? RunningApplicationLookup.running(word) else {
             // Only a name no running application answers to says it is not running; an ambiguous one says nothing.
             return RunningApplicationLookup.isNotRunning(word) ? .screen(windows: nil, scene: nil)
-                : .unread("the name given answers to several running applications")
+                : .unread(ModelText.text(.init(rawValue: "task_cycle_handler__evidence.running.v1")))
         }
         guard let windows = try? await session.windowCandidates(ownedBy: running.processIdentifier) else {
-            return .unread("the application's windows could not be listed")
+            return .unread(ModelText.text(.init(rawValue: "task_cycle_handler__evidence.windows.v1")))
         }
         return .screen(windows: windows.map { $0.title ?? "" }, scene: nil)
     }
@@ -446,9 +494,9 @@ extension TaskCycleHandler {
             "new": .bool(summary.isNew),
             "steps": .array(steps),
             "blocks": .array(blocks),
-            "interpret": .string("Call memory_task interpret with this candidate: labels and outcomes of the procedure, of the "
-                + "blocks when there are several, and of the steps; the parameters with their roles and values; the uses "
-                + "of parameters in steps' arguments as templates. Steps and blocks are fixed."),
+            "interpret": .string(ModelText.text(.init(rawValue: "task_cycle_handler__evidence.known.v1"))
+                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.known.v1.2"))
+                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.known.v1.3"))),
         ].merging(known, uniquingKeysWith: { $1 }))
     }
 
@@ -465,7 +513,10 @@ extension TaskCycleHandler {
             }
             if let range = partID.range(of: "/phase-", options: .backwards) {
                 let bounds = partID[range.upperBound...].split(separator: "-").compactMap { Int($0) }
-                if bounds.count == 2 { return "steps \(bounds[0] + 1)–\(bounds[1] + 1)" }
+                if bounds.count == 2 { return (ModelText.text(.init(rawValue: "answer.TaskCycleHandler.Evidence.bounds.v1.fragment.0"))
+                    + "\(bounds[0] + 1)"
+                    + ModelText.text(.init(rawValue: "answer.TaskCycleHandler.Evidence.bounds.v1.fragment.2"))
+                    + "\(bounds[1] + 1)") }
             }
             return partID
         }
@@ -478,32 +529,37 @@ extension TaskCycleHandler {
                                                "admitted": .bool(qualification.verdict == .admitted)]
             if !qualification.findings.isEmpty {
                 fields["reasons"] = .array(qualification.findings.map { finding in
-                    .string(finding.reason.rawValue + (finding.stepPosition.map { " (step \(step($0)))" } ?? ""))
+                    .string(finding.reason.rawValue
+                        + (finding.stepPosition.map { (ModelText.text(.init(rawValue: "answer.TaskCycleHandler.Evidence.fields.v1.fragment.0"))
+                        + "\(step($0))"
+                        + ModelText.text(.init(rawValue: "answer.TaskCycleHandler.Evidence.fields.v1.fragment.2"))) } ?? ""))
                 })
             }
             return .object(fields)
         }
         var answer: [String: JSONValue] = [
-            "status": .string(outcome.receipt == .committed ? "interpreted" : "already recorded"),
+            "status": .string(outcome.receipt == .committed ? "interpreted" : ModelText.text(.init(rawValue: "task_cycle_handler__evidence.answer.v1.4"))),
             "candidate": .string(candidateID), "revision": .number(Double(outcome.revision)), "version": .string(outcome.routeID),
             "parts": .array(parts),
         ]
         if let repeats = outcome.repeats {
             answer["repeats"] = .string(repeats)
-            answer["run"] = .string("This task repeated the method of an earlier procedure: this version replaces it in the "
-                + "catalogue, and its steps verified in the earlier run count as verified here.")
+            answer["run"] = .string(ModelText.text(.init(rawValue: "task_cycle_handler__evidence.repeats.v1"))
+                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.repeats.v1.2")))
         }
         if let source = outcome.followedUnchosen {
-            answer["reuse"] = .string("This run repeats source \(source) of the proposal you received without choosing it: it is "
-                + "counted as followed without a choice. When a source does the very work, choose it first (its readyPlan), then "
-                + "adapt it and report adapted.")
+            answer["reuse"] = .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.source.v1"))
+                + "\(source)"
+                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.source.v1.2")))
+                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.source.v1.3"))
+                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.source.v1.4")))
         }
         if !outcome.leftOut.isEmpty {
             answer["left_out"] = .array(outcome.leftOut.keys.sorted().map { position in
                 .object(["step": .number(Double(position + 1)), "why": .string(outcome.leftOut[position]?.rawValue ?? "")])
             })
-            answer["method"] = .string("The procedure keeps the steps that did the work; the steps in left_out stay in the "
-                + "candidate as evidence and are not repeated by a reuse.")
+            answer["method"] = .string(ModelText.text(.init(rawValue: "task_cycle_handler__evidence.source.v1.5"))
+                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.source.v1.6")))
         }
         if !outcome.findings.isEmpty {
             answer["findings"] = .array(outcome.findings.map { finding in

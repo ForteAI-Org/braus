@@ -31,7 +31,7 @@ struct AutomationToolsTests {
 
     @Test("shortcut guidance preserves target-specific support and observed file-panel state")
     func shortcutGuidanceMatchesQualifiedTargets() {
-        let instructions = AutomationTools.instructions
+        let instructions = ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1.5"))
         #expect(!instructions.contains("Command-C, Command-V, Command-A, Command-Z) do nothing"))
         #expect(instructions.contains("Shortcut support depends on the target and its current context"))
         #expect(instructions.contains("never automatically replay an action that may already have happened"))
@@ -41,7 +41,7 @@ struct AutomationToolsTests {
 
     @Test("the instructions say that document apps save an edit by themselves, and how a panel's Go to Folder takes a path")
     func autosaveAndPanelPathGuidance() {
-        let instructions = AutomationTools.instructions
+        let instructions = ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1.5"))
         #expect(instructions.contains("save an edit into the open file by themselves, without Save"))
         #expect(instructions.contains("the copy where the person asked (File > Save As, its name and its folder)"))
         #expect(instructions.contains("If the copy cannot be saved there, edit nothing and say so"))
