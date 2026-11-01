@@ -118,14 +118,27 @@ final class CallDispatcher {
         )
     }
 
-    private func outcome(_ value: ActOutcome) async -> JSONValue { await formatter.outcome(value) }
+    private func refusalContext(tool: String, arguments: JSONValue) -> ResultFormatter.RefusalContext? {
+        guard let id = session.id, let window = session.observedWindowNumber else { return nil }
+        return ResultFormatter.RefusalContext(sessionID: id, windowNumber: window, tool: tool, arguments: arguments)
+    }
+
+    private func outcome(_ value: ActOutcome, refusal: ResultFormatter.RefusalContext?) async -> JSONValue {
+        let stable = refusal.flatMap {
+            $0.sessionID == session.id && $0.windowNumber == session.observedWindowNumber ? $0 : nil
+        }
+        return await formatter.outcome(value, refusal: stable)
+    }
 
     private func observation(
         _ scene: SceneSnapshot,
         changesOnly: Bool = false,
         nested: Bool = false
     ) async -> JSONValue {
-        await sceneText.observation(
+        if let id = session.id, let window = session.observedWindowNumber {
+            formatter.noteScene(scene, sessionID: id, windowNumber: window)
+        }
+        return await sceneText.observation(
             scene,
             changesOnly: changesOnly,
             nested: nested,
@@ -767,14 +780,16 @@ final class CallDispatcher {
             output.lastResult = await observed(by: recorder)
         case "menu":
             await noteDispatch()
+            let refusal = refusalContext(tool: name, arguments: arguments)
             let done = try await session.menu(path: string(arguments, "path"))
-            value = await outcome(done)
+            value = await outcome(done, refusal: refusal)
             output.lastResult = .outcome(done.kind, message: done.message)
             output.lastCheck  = done.withStatedCheck.check
         case "press":
             await noteDispatch()
+            let refusal = refusalContext(tool: name, arguments: arguments)
             let done = try await session.press(button: string(arguments, "button"))
-            value = await outcome(done)
+            value = await outcome(done, refusal: refusal)
             output.lastResult = .outcome(done.kind, message: done.message)
             output.lastCheck  = done.withStatedCheck.check
         case "collect_posts":
@@ -788,8 +803,9 @@ final class CallDispatcher {
             value = ResultFormatter.collection(collected)
         case "act", "select", "type_text", "insert_text", "press_key", "scroll", "drag", "context_menu":
             let step = try Step(name, arguments)
+            let refusal = refusalContext(tool: name, arguments: arguments)
             let done = try await perform(step, dispatch: CallScope.current.dispatch(of: step.texts, at: 0))
-            value = await outcome(done)
+            value = await outcome(done, refusal: refusal)
             output.lastResult = .outcome(done.kind, message: done.message)
             output.lastCheck  = done.withStatedCheck.check
         case "batch":
@@ -851,6 +867,7 @@ final class CallDispatcher {
                     }
                 }
                 started += 1
+                let refusal = refusalContext(tool: try string(rows[index], "operation"), arguments: rows[index])
                 let result: ActOutcome
                 let dispatch = CallScope.current.dispatch(of: step.texts, at: index)
                 do { result = try await CallRecorder.$current.withValue(child) { try await self.perform(step, dispatch: dispatch) } }
@@ -875,7 +892,7 @@ final class CallDispatcher {
                     complete = false
                     break
                 }
-                let value = await outcome(result)
+                let value = await outcome(result, refusal: refusal)
                 results.append(value)
                 do {
                     try await child?.end(.completed, result: .outcome(result.kind, message: result.message),
@@ -905,6 +922,7 @@ final class CallDispatcher {
             output.lastResult = .batch(stopped: !complete, attempted: started, verified: verified)
         case "close_session":
             await session.close()
+            formatter.resetRefusals()
             var result: [String: JSONValue] = ["status": .string("closed"),
                                                "message": .string(ModelText.text(.init(rawValue: "call_dispatcher.result.v1")))]
             if let warning = session.closeWarning { result["warning"] = .string(warning) }

@@ -342,10 +342,11 @@ public struct ActionEngine: Sendable {
             if let refused = Self.notSent(error, "\(request.verb.performed) '\(element.label)'", scene: perceived.scene) {
                 return refused
             }
-            return ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)': delivery failed: "
+            let outcome = ActOutcome(.actedUnverified, "\(request.verb.performed) '\(element.label)': delivery failed: "
                 + "\(error)", scene: nil, check: OperationCheck(
                     condition: .structuralEffect, method: .sceneDifference, verdict: .unknown,
                     limits: [.deliveryUncertain], performed: .uncertain, target: OperationCheck.Target(element)))
+            return Self.preservingCause(error, in: outcome)
         }
         // A press through accessibility is never also clicked, so a reply that found no effect says so.
         let through = await dependencies.actuator.lastDeliveryRoute(in: pid) == .accessibility
@@ -531,11 +532,12 @@ public struct ActionEngine: Sendable {
                 before: perceived, attempt: Self.attempt(after: error)
             ))
             if let refused = Self.notSent(error, "set '\(element.label)'", scene: perceived.scene) { return refused }
-            return ActOutcome(.actedUnverified, "set '\(element.label)': delivery failed: \(error)",
+            let outcome = ActOutcome(.actedUnverified, "set '\(element.label)': delivery failed: \(error)",
                               check: OperationCheck(condition: .stateAfterGesture, method: .controlState,
                                                     verdict: .unknown, expected: desired.rawValue,
                                                     limits: [.deliveryUncertain], performed: .uncertain,
                                                     target: OperationCheck.Target(element)))
+            return Self.preservingCause(error, in: outcome)
         }
         await settle(pid)
         let afterWindow = await perceive(pid)
@@ -656,11 +658,12 @@ public struct ActionEngine: Sendable {
                 await dependencies.actuator.confirm(.unknown, in: pid)
                 await recordPick(request, element: element, before: perceived, after: nil,
                                  attempt: .deliveryFailed("\(error)"))
-                return ActOutcome(.actedUnverified, "picking '\(element.label)': delivery failed: \(error)",
+                let outcome = ActOutcome(.actedUnverified, "picking '\(element.label)': delivery failed: \(error)",
                                   check: OperationCheck(condition: .valueReadBack, method: .controlValue,
                                                         verdict: .unknown, expected: element.label,
                                                         limits: [.deliveryUncertain], performed: .uncertain,
                                                         target: OperationCheck.Target(element)))
+                return Self.preservingCause(error, in: outcome)
             }
             await pause(timing.popupCommit)
             let stillOpen = await surfaces(pid).hasOpenPopup
@@ -724,10 +727,11 @@ public struct ActionEngine: Sendable {
             await dependencies.actuator.confirm(.unknown, in: pid)
             await recordPick(request, element: element, before: perceived, after: nil,
                              attempt: .deliveryFailed("\(error)"))
-            return ActOutcome(.actedUnverified, "typing '\(typed)': delivery failed: \(error)", check: OperationCheck(
+            let outcome = ActOutcome(.actedUnverified, "typing '\(typed)': delivery failed: \(error)", check: OperationCheck(
                 condition: .menuClosedAfterChoice, method: .windowCensus, verdict: .unknown,
                 limits: [.deliveryUncertain, .commandEffectUnchecked], performed: .uncertain,
                 target: OperationCheck.Target(element)))
+            return Self.preservingCause(error, in: outcome)
         }
         let afterWindow = await perceive(pid)
         let after = afterWindow?.scene
@@ -786,7 +790,8 @@ public struct ActionEngine: Sendable {
             if !sent, let refused = Self.notSent(error, "opening submenu '\(element.label)'", scene: perceived.scene) {
                 return refused
             }
-            return ActOutcome(.actedUnverified, "opening submenu '\(element.label)': delivery failed: \(error)")
+            let outcome = ActOutcome(.actedUnverified, "opening submenu '\(element.label)': delivery failed: \(error)")
+            return Self.preservingCause(error, in: outcome)
         }
         await pause(timing.popupCommit)
         let afterPopups = await surfaces(pid).popups
@@ -853,8 +858,9 @@ public struct ActionEngine: Sendable {
         await raiseIfNeeded(pid, isPopupOpen: (await surfaces(pid)).hasOpenPopup)
         if let error = await send([.scroll(at: point, deltaY: lines)], to: pid, over: element?.label) {
             if let refused = Self.notSent(error, scrolled, scene: perceived.scene) { return refused }
-            return ActOutcome(.actedUnverified, "\(scrolled): delivery failed: \(error)",
+            let outcome = ActOutcome(.actedUnverified, "\(scrolled): delivery failed: \(error)",
                               check: Self.undelivered(.structuralEffect, method: .sceneDifference, target: element))
+            return Self.preservingCause(error, in: outcome)
         }
         return await judged(
             scrolled, in: request, before: perceived, targetID: element?.id,
@@ -914,8 +920,9 @@ public struct ActionEngine: Sendable {
         await raiseIfNeeded(pid, isPopupOpen: (await surfaces(pid)).hasOpenPopup)
         if let error = await send([.drag(from: start, to: finish)], to: pid, over: element.label) {
             if let refused = Self.notSent(error, dragged, scene: scene) { return refused }
-            return ActOutcome(.actedUnverified, "\(dragged): delivery failed: \(error)",
+            let outcome = ActOutcome(.actedUnverified, "\(dragged): delivery failed: \(error)",
                               check: Self.undelivered(.structuralEffect, method: .sceneDifference, target: element))
+            return Self.preservingCause(error, in: outcome)
         }
         return await judged(
             dragged, in: request, before: perceived, targetID: element.id,
@@ -967,9 +974,10 @@ public struct ActionEngine: Sendable {
         await raiseIfNeeded(pid, isPopupOpen: before.hasOpenPopup)
         if let error = await send([.click(at: point, button: .right)], to: pid, over: element.label) {
             if let refused = Self.notSent(error, "right-clicking '\(element.label)'", scene: perceived.scene) { return refused }
-            return ActOutcome(.actedUnverified, "right-clicking '\(element.label)': delivery failed: \(error)",
+            let outcome = ActOutcome(.actedUnverified, "right-clicking '\(element.label)': delivery failed: \(error)",
                               check: Self.undelivered(.menuItemChosen, method: .windowCensus, expected: item,
                                                       target: element))
+            return Self.preservingCause(error, in: outcome)
         }
         // The fixed pause on purpose: the menu is a window of its own, which the target's frames never show.
         await pause(timing.clickSettle)
