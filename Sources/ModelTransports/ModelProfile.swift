@@ -37,7 +37,7 @@ public struct ModelProfile: Sendable, Hashable, Codable {
 /// ModelProfiles resolves exact catalogue ids to provisional context assumptions.
 /// It depends on catalogue values only and performs no storage, network or process work.
 public enum ModelProfiles {
-    /// The conservative fallback for an id absent from the table, retaining effort support.
+    /// The conservative fallback for an id absent from the table, without assuming effort support.
     public static let prudent = ModelProfile(
         modelClass: .small,
         contextWindowTokens: 32_768,
@@ -48,7 +48,7 @@ public enum ModelProfiles {
         noProgressRoundCeiling: 50,
         turnTokenBudget: nil,
         securityNote: nil,
-        acceptsEffort: true,
+        acceptsEffort: false,
         origin: .prudentDefault
     )
 

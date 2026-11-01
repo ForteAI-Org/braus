@@ -2,6 +2,7 @@ import ChatCore
 import CLIProviders
 import Foundation
 import ModelTransports
+import Security
 import Synchronization
 import Testing
 
@@ -64,7 +65,8 @@ struct ChildEnvironmentTests {
     }
 
     @Test(arguments: [ProviderKeychainKey.Failure.notFound(service: "test.service"),
-                      .empty(service: "test.service"), .unreadable(service: "test.service", status: -50)])
+                      .empty(service: "test.service"), .unreadable(service: "test.service", status: -50),
+                      .unreadable(service: "test.service", status: errSecInteractionNotAllowed)])
     func failuresStayTypedAndNeverContainCredentialValues(_ failure: ProviderKeychainKey.Failure) {
         let keychain = Keychain(.failure(failure))
         #expect(throws: failure) {
@@ -78,6 +80,36 @@ struct ChildEnvironmentTests {
             #expect(!failure.localizedDescription.contains(value))
             #expect(!String(describing: failure).contains(value))
         }
+    }
+
+    @Test(arguments: [ChatProvider.claude, .codex])
+    func providerConfigurationValuesArePreserved(_ provider: ChatProvider) throws {
+        let configuration = ["CLAUDE_CONFIG_DIR": "/fake/custom config", "NODE_EXTRA_CA_CERTS": "/fake/custom cert.pem"]
+        let result = try ChildEnvironment.build(
+            inherited: inherited.merging(configuration) { _, new in new },
+            provider: provider,
+            credential: .none,
+            keychain: Keychain(.failure(.notFound(service: "unused")))
+        )
+        for (name, value) in configuration {
+            #expect(result[name] == (provider == .claude ? value : nil))
+        }
+    }
+
+    @Test
+    func anEmptyNamedVariableCannotLaunchAChild() {
+        let failure = ProviderKeychainKey.Failure.emptyVariable(name: "X")
+        let keychain = Keychain(.success("FAKE-KEYCHAIN"))
+        #expect(throws: failure) {
+            try ChildEnvironment.build(
+                inherited: inherited.merging(["X": ""]) { _, new in new },
+                provider: .claude,
+                credential: .namedVariable("X"),
+                keychain: keychain
+            )
+        }
+        #expect(keychain.services.withLock { $0.isEmpty })
+        #expect(failure.localizedDescription == "The environment variable 'X' selected by --pass-env is empty.")
     }
 
     @Test
