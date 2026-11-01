@@ -70,12 +70,19 @@ actor RelationsDouble: BrainRelationReading {
 
     private let fixedState: String?
     private var stored: [BrainRelation] = []
+    private let savedSkeleton: SceneSkeleton?
 
-    init(state: String?) { fixedState = state }
+    init(state: String?, skeleton: SceneSkeleton? = nil) {
+        fixedState = state
+        savedSkeleton = skeleton
+    }
 
     func set(_ relations: [BrainRelation]) { stored = relations }
 
-    func state(of skeleton: SceneSkeleton, isComplete: Bool, in bundleID: String) async throws -> String? { fixedState }
+    func state(of skeleton: SceneSkeleton, isComplete: Bool, in bundleID: String) async throws -> String? {
+        guard savedSkeleton == nil || savedSkeleton == skeleton else { return nil }
+        return fixedState
+    }
 
     func state(of sample: CaptureSampleKey) async throws -> String? { fixedState }
 
@@ -109,6 +116,138 @@ struct BrainMemoryTests {
 
     private func record(_ element: SceneElement, _ effect: SceneEffect?) -> ActionRecord {
         ActionRecord(bundleID: bundle, element: element, verb: .click, effect: effect, windowTitleAfter: nil)
+    }
+
+    private func contentWindow(_ bundleID: String) -> PerceivedWindow {
+        let caption = SceneElement(
+            id         : "control|content",
+            kind       : .control,
+            label      : "Personal entry",
+            bounds     : Fixtures.rect(0.2, 0.2, 0.1, 0.1),
+            role       : "AXLink",
+            labelOrigin: .title
+        )
+        let item = SceneElement(
+            id            : "control|item",
+            kind          : .control,
+            label         : "Personal item",
+            bounds        : Fixtures.rect(0.3, 0.3, 0.1, 0.1),
+            role          : "AXButton",
+            labelOrigin   : .title,
+            collectionPath: "Personal entries"
+        )
+        var shown = scene([export, caption, item])
+        shown.bundleID = bundleID
+        return PerceivedWindow(scene: shown, frame: .zero, capture: .unknown, surface: .window)
+    }
+
+    @Test(arguments: ["com.apple.Notes", "com.apple.iCal"])
+    func liveSkeletonMatchesSavedOne(bundleID: String) {
+        let capture = CaptureSample(key: sample("live"), of: contentWindow(bundleID))
+        let minimization = ValueMinimization()
+        let surface = ConfidentialSurfaces.surface(of: bundleID)
+        let saved = SceneSkeleton(sample: minimization.minimize(sample: capture, confidential: surface).0)
+        let live = SceneSkeleton.comparable(capture, minimization: minimization, surface: surface)
+        #expect(SceneSkeleton(sample: capture) != saved)
+        #expect(saved.collections == [ValueMinimization.marker])
+        #expect(saved.captions.contains(SceneSkeleton.Caption(role: "AXLink", label: ValueMinimization.marker)))
+        #expect(live == saved)
+        #expect(live.canonical == saved.canonical)
+    }
+
+    @Test(arguments: ["com.apple.Notes", "com.apple.iCal"], [false, true])
+    func stateFoundForMinimizedCapture(bundleID: String, hasSecret: Bool) async throws {
+        var liveScene = contentWindow(bundleID).scene
+        if hasSecret {
+            liveScene.elements[0].label = "731"
+            liveScene.elements[0].container = "Panel 731"
+        }
+        let shown = PerceivedWindow(scene: liveScene, frame: .zero, capture: .unknown, surface: .window)
+        let minimization = ValueMinimization(secrets: hasSecret ? ["731"] : [])
+        let capture = CaptureSample(key: sample("saved"), of: shown)
+        let saved = SceneSkeleton(sample: minimization.minimize(
+            sample      : capture,
+            confidential: ConfidentialSurfaces.surface(of: bundleID)
+        ).0)
+        let relations = RelationsDouble(state: "S", skeleton: saved)
+        let store = InMemoryBrainStore()
+        let memory: BrainMemory
+        if hasSecret {
+            memory = BrainMemory(
+                brains      : store,
+                applications: store,
+                relations   : relations,
+                minimization: minimization,
+                clock       : { Fixtures.t0 }
+            )
+        } else {
+            memory = BrainMemory(brains: store, applications: store, relations: relations, clock: { Fixtures.t0 })
+        }
+        let target = shown.scene.elements[0]
+        let capturedTarget = try #require(CaptureElement(target))
+        let key = try #require(SceneElementKey.key(of: capturedTarget))
+        let relationKey = BrainRelationKey(
+            bundleID    : bundleID,
+            contextID   : nil,
+            fromSceneID : "S",
+            elementKey  : key,
+            verb        : .click,
+            argumentsKey: "",
+            toSceneID   : nil,
+            outcome     : .effect,
+            effectKind  : "elementsAppeared"
+        )
+        await relations.set([BrainRelation(
+            relationID    : relationKey.relationID,
+            key           : relationKey,
+            firstSeenMS   : 0,
+            lastSeenMS    : 0,
+            supports      : 2,
+            contradictions: 0
+        )])
+        let enriched = await memory.enrich(shown.scene, window: shown)
+        #expect(enriched.knowledge?.status == .applied)
+        #expect(enriched.elements[0].does != nil)
+        #expect(await memory.expectedEffect(of: .click, on: target, in: shown) == .elementsAppeared(labels: []))
+    }
+
+    @Test
+    func comparableIsIdentityWithoutContent() {
+        let capture = CaptureSample(key: sample("plain"), of: window([export]))
+        let original = SceneSkeleton(sample: capture)
+        let comparable = SceneSkeleton.comparable(capture, minimization: ValueMinimization(), surface: nil)
+        #expect(comparable == original)
+        #expect(comparable.canonical == original.canonical)
+    }
+
+    private func secretCapture() -> CaptureSample {
+        var target = export
+        target.label = "731"
+        target.container = "Panel 731"
+        return CaptureSample(key: sample("secret"), of: window([target]))
+    }
+
+    @Test
+    func comparableUsesExplicitSecrets() {
+        let capture = secretCapture()
+        let minimization = ValueMinimization(secrets: ["731"])
+        let saved = SceneSkeleton(sample: minimization.minimize(sample: capture, confidential: nil).0)
+        let comparable = SceneSkeleton.comparable(capture, minimization: minimization, surface: nil)
+        #expect(saved.captions == [SceneSkeleton.Caption(role: "AXButton", label: ValueMinimization.marker)])
+        #expect(saved.paths == ["Panel " + ValueMinimization.marker])
+        #expect(comparable == saved)
+        #expect(comparable.canonical == saved.canonical)
+    }
+
+    @Test
+    func defaultDoesNotRepresentCallSecrets() {
+        let capture = secretCapture()
+        let saved = SceneSkeleton(sample: ValueMinimization(secrets: ["731"]).minimize(
+            sample: capture, confidential: nil
+        ).0)
+        let comparable = SceneSkeleton.comparable(capture, minimization: ValueMinimization(), surface: nil)
+        #expect(comparable != saved)
+        #expect(comparable == SceneSkeleton(sample: capture))
     }
 
     @Test("observing a scene anchors its elements, scoped to the window's title family, once per sample")
