@@ -65,9 +65,9 @@ public enum SceneChanges {
         if before.viewportPixelSize != after.viewportPixelSize {
             header.append("viewport: \(after.viewportPixelSize.width)x\(after.viewportPixelSize.height)\n")
         }
-        if before.knowledge != after.knowledge {
-            let knowledge = after.knowledgeText()
-            header.append(knowledge.isEmpty ? "memory: not read for this scene\n" : knowledge)
+        let knowledge = after.knowledgeText()
+        if !knowledge.isEmpty, knowledge != before.knowledgeText() {
+            header.append(knowledge)
         }
         let sectionsChanged = !sameLayout(before, after)
         let sectionNames = Set(after.sections.map(\.name))
@@ -80,10 +80,12 @@ public enum SceneChanges {
             matchedAfter.insert(new)
             let was = earlier(before.elements[old], after.elements[new], sections: sectionNames)
             guard !was.isEmpty else { continue }
+            var shown = after.elements[new]
+            shown.does = nil
             reported.append(Line(
                 section: placed(after.elements[new].section, in: after),
                 bounds : after.elements[new].bounds,
-                text   : "~ " + line(after.elements[new]) + "  (was " + was.joined(separator: ", ") + ")"
+                text   : "~ " + line(shown) + "  (was " + was.joined(separator: ", ") + ")"
             ))
         }
         for (index, element) in after.elements.enumerated() where !matchedAfter.contains(index) {
@@ -252,7 +254,6 @@ public enum SceneChanges {
             was.append(old.isEnabled == false ? "[disabled]" : "enabled")
         }
         if old.container != new.container { was.append(old.container.map { "{\($0)}" } ?? "no container") }
-        if old.does != new.does { was.append(old.does.map { ": \($0)" } ?? "no learned effect") }
         if abs(old.bounds.midX - new.bounds.midX) > nearby || abs(old.bounds.midY - new.bounds.midY) > nearby {
             was.append(SceneSnapshot.place(old.bounds))
         }

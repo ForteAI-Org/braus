@@ -70,6 +70,53 @@ struct SceneChangesTests {
         )
     }
 
+    @Test
+    func noNotReadLine() {
+        var before = Self.scene(Self.rows)
+        before.knowledge = SceneKnowledge(status: .applied, window: ["press_key: opens a panel"])
+        let after = Self.scene(Self.rows)
+        #expect(SceneChanges.text(from: before, to: after, since: 6) == "Unchanged since revision 6.")
+        for status in [SceneKnowledge.Status.nothing, .unrecognized, .unavailable, .applied] {
+            var empty = after
+            empty.knowledge = SceneKnowledge(status: status)
+            #expect(SceneChanges.text(from: before, to: empty, since: 6) == "Unchanged since revision 6.")
+        }
+        #expect(SceneChanges.text(from: after, to: before, since: 6)
+            == "memory: what was learned in this window's state is shown\n  window: press_key: opens a panel")
+        #expect(SceneChanges.text(from: before, to: before, since: 6) == "Unchanged since revision 6.")
+    }
+
+    @Test
+    func learnedEffectIsNoChange() {
+        let before = Self.scene(Self.rows)
+        var after = before
+        after.elements[0].does = "opens a panel"
+        #expect(SceneChanges.text(from: before, to: after, since: 2) == "Unchanged since revision 2.")
+        #expect(SceneChanges.elements(from: before, to: after).isEmpty)
+        var changedEffect = after
+        changedEffect.elements[0].does = "closes a panel"
+        #expect(SceneChanges.text(from: after, to: changedEffect, since: 2) == "Unchanged since revision 2.")
+        #expect(SceneChanges.text(from: after, to: before, since: 2) == "Unchanged since revision 2.")
+        var added = Self.element("New", 0.1, 0.8)
+        added.does = "opens a panel"
+        after.elements.append(added)
+        let changes = SceneChanges.text(from: before, to: after, since: 2)
+        let addedLine = changes.split(separator: "\n").first { $0.hasPrefix("+ [control] New") }
+        #expect(addedLine?.contains(": opens a panel") == true, "\(changes)")
+        #expect(!changes.contains("~ "))
+    }
+
+    @Test
+    func changedLineCarriesNoEffect() {
+        var before = Self.scene([Self.element("Gain", 0.1, 0.2, value: "old")])
+        before.elements[0].does = "old effect"
+        var after = before
+        after.elements[0].value = "new"
+        after.elements[0].does = "new effect"
+        #expect(SceneChanges.text(from: before, to: after, since: 1)
+            == "## content @0,0 100x100\n~ [control] Gain = new @10,20  (was = \"old\")")
+    }
+
     private static let rows = (0..<6).map { element("Track \($0 + 1)", 0.1, 0.1 + 0.1 * Double($0)) }
 
     @Test("the same elements in another order, jittered, regrouped and retagged are unchanged")

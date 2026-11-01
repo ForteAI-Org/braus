@@ -18,8 +18,8 @@ import Testing
 /// The corrections of the D2 review through the product's own entry (`AutomationTools` over
 /// `LearningSession`, the shared `MemoryService`, the real archive): a menu command and a dialog button
 /// record their own perceptions before and after and keep their window check (F07); what was learned on
-/// the window reaches the scene a model reads, and an unreadable memory is said there and gone once it
-/// reads again (F02, F05); a call whose derived write was lost is recovered by the service on its own
+/// the window reaches the scene a model reads, and an unreadable memory leaves the live scene without
+/// a memory line (F02, F05); a call whose derived write was lost is recovered by the service on its own
 /// (F03). These are integration proofs over a double of the operating system, not a live run.
 @MainActor
 @Suite("The review's corrections through the tools", .serialized)
@@ -36,7 +36,8 @@ struct ReviewCorrectionTests {
         _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.preview)"}"#)
         let menu = try await Learning.call(tools, "menu", #"{"session":"\#(id)","path":"File > Export…"}"#)
         let after = menu["observation"]["scene"].string ?? menu["observation"]["changes"].string ?? ""
-        #expect(after.contains("memory:"), "the scene after the command says what the memory knows: \(menu)")
+        #expect(!after.contains("memory:") && after.contains("Export"),
+                "the new dialog has no learned window operations: \(menu)")
         _ = try await Learning.call(tools, "press", #"{"session":"\#(id)","button":"Save"}"#)
         let ended = try await Learning.task(tools, #"{"operation":"end","outcome":"completed"}"#)
         #expect(ended["candidate"]["steps"].array?.map { $0["tool"].string ?? "" } == ["menu", "press"], "one step per command")
@@ -117,7 +118,7 @@ struct ReviewCorrectionTests {
         MemoryService.forget(session.directory)
     }
 
-    @Test("a shortcut learned on the window reaches the scene the model reads; an unreadable memory is said there with the live scene, and gone once the memory reads again")
+    @Test("a shortcut learned on the window reaches the scene the model reads; an unreadable memory leaves the live scene without a memory line")
     func windowKnowledgeAndDegradation() async throws {
         let session = Learning.photoSession(try W.directory())
         session.script["press_key|s"] = LearningSession.Outcome(effect: .windowTitleChanged(title: "Saved"))
@@ -136,7 +137,7 @@ struct ReviewCorrectionTests {
         await memory.close()
         let unreadable = try await Learning.call(tools, "observe", #"{"session":"\#(id)","full":true}"#)
         let degraded = unreadable["scene"].string ?? unreadable["changes"].string ?? ""
-        #expect(degraded.contains("memory: unavailable right now") && degraded.contains("Rotate Right"), "\(degraded)")
+        #expect(!degraded.contains("memory:") && degraded.contains("Rotate Right"), "\(degraded)")
         #expect(unreadable["memory"].string?.contains("not recorded") == true, "the call itself says it was not recorded")
         #expect(!degraded.contains("SQLITE") && !degraded.contains("closed"), "the error stays in the process: \(degraded)")
         MemoryService.forget(session.directory)
