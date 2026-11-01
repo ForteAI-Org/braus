@@ -1,3 +1,5 @@
+import Capabilities
+import CapabilityRegistrations
 import AppAdapters
 import AppKit
 import CryptoKit
@@ -84,11 +86,15 @@ public final class AutomationTools {
     private let taskCycle: TaskCycleHandler
     private let dispatcher: CallDispatcher
 
+    /// Freezes capability contracts and retains their providers for this composition.
+    /// Conflicting identifiers or inconsistent family ownership are composition errors and fail at startup.
     public init(
         session: any AutomationSessionOperating,
         channels: AutomationChannels = [],
         adapters: AppAdapters? = nil,
-        offersWeb: Bool = false
+        offersWeb: Bool = false,
+        capabilities: [any CapabilityProviding] = RegisteredProviders.make(),
+        recording: (any CapabilityRecording)? = nil
     ) {
         var composed = channels
         if adapters != nil { composed.insert(.adapters) }
@@ -106,7 +112,8 @@ public final class AutomationTools {
         self.formatter = formatter
         self.taskCycle = taskCycle
         self.dispatcher = CallDispatcher(session: session, channels: composed, adapters: adapters, router: router,
-                                         secrets: secrets, sceneText: sceneText, taskCycle: taskCycle, formatter: formatter)
+                                         secrets: secrets, sceneText: sceneText, taskCycle: taskCycle, formatter: formatter,
+                                         capabilities: capabilities, recording: recording)
     }
 
     /// Runs one tool call. Before anything of it is written (its transcript line, its record), the texts it would
@@ -197,6 +204,21 @@ public final class AutomationTools {
         ToolCatalogue.interruptionPolicy(for: name)
     }
 
+    /// Resolves interruption using this instance's registered capability contracts as well as the core.
+    public func interruptionClass(of tool: String, arguments: JSONValue) -> InterruptionClass {
+        dispatcher.registry.interruptionClass(of: tool, arguments: arguments)
+    }
+
+    /// Resolves the named capability's effect, including adapter verbs and delegated calls.
+    public func effectClass(of tool: String, arguments: JSONValue) -> EffectClass {
+        dispatcher.registry.effectClass(of: tool, arguments: arguments)
+    }
+
+    /// Allows parallel execution only for a contract that explicitly promises it.
+    public func isParallelSafe(_ tool: String, arguments: JSONValue) -> Bool {
+        dispatcher.registry.isParallelSafe(tool, arguments: arguments)
+    }
+
     /// The element a target names when the model copied the scene's id mark: the id between the quotes of a
     /// trailing `id:'…'`, with or without what the scene printed before it (`[field] Name id:'control|name'`,
     /// an unlabeled icon's `id:'?|@4,0'`). The scene resolves a target by its exact id or by its label, never by
@@ -228,9 +250,7 @@ public final class AutomationTools {
     public static var definitions: [JSONValue] { definitions(for: []) }
 
     /// Interruption policy for every served tool. Unknown and adapter verbs remain protected.
-    public enum InterruptionPolicy: Sendable {
-        case readOnly, openingScene, mutating
-    }
+    public typealias InterruptionPolicy = InterruptionClass
 
     /// MCPInstructionsForm selects the complete client guidance or its standalone opening line.
     public nonisolated enum MCPInstructionsForm: Sendable, Hashable {

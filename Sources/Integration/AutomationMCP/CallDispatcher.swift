@@ -1,3 +1,4 @@
+import Capabilities
 import AppAdapters
 import AppKit
 import CryptoKit
@@ -18,6 +19,9 @@ import TaskRouting
 /// CallDispatcher runs a call in its scope and recorder, borrowing state kept alive by the facade.
 final class CallDispatcher {
     private let session: any AutomationSessionOperating
+    let registry: CapabilityRegistry
+    private let providers: [String: any CapabilityProviding]
+    private let recording: (any CapabilityRecording)?
     private let channels: AutomationChannels
     var adapters: AppAdapters?
     var router: TaskRouter?
@@ -37,8 +41,33 @@ final class CallDispatcher {
         secrets: ProducerSecrets,
         sceneText: SceneTextPolicy,
         taskCycle: TaskCycleHandler,
-        formatter: ResultFormatter
+        formatter: ResultFormatter,
+        capabilities: [any CapabilityProviding],
+        recording: (any CapabilityRecording)?
     ) {
+        var providers: [String: any CapabilityProviding] = [:]
+        var registered: [CapabilityContract] = []
+        for provider in capabilities {
+            let family = provider.family
+            let contracts = provider.contracts
+            precondition(!family.isEmpty && !family.contains("."), "A capability family must be one name")
+            precondition(providers[family] == nil, "Duplicate capability family: \(family)")
+            precondition(contracts.allSatisfy {
+                $0.origin == .registered(provider: family) && $0.id.rawValue.hasPrefix(family + ".")
+            }, "Capability contracts must belong to their provider family")
+            providers[family] = provider
+            registered += contracts
+        }
+        do {
+            self.registry = try CapabilityRegistry(
+                core: ToolCatalogue.contracts(for: channels, adapters: adapters),
+                registered: registered
+            )
+        } catch {
+            preconditionFailure("Invalid capability composition: \(error)")
+        }
+        self.providers = providers
+        self.recording = recording
         self.session = session
         self.channels = channels
         self.adapters = adapters
@@ -58,7 +87,23 @@ final class CallDispatcher {
         return served
     }
 
-    var toolDefinitions: [JSONValue] { ToolCatalogue.definitions(for: served) }
+    var toolDefinitions: [JSONValue] {
+        ToolCatalogue.definitions(for: served) + registry.all.compactMap { contract in
+            guard case .registered = contract.origin else { return nil }
+            return .object([
+                "name": .string(contract.id.rawValue),
+                "description": .string(contract.description),
+                "inputSchema": contract.inputSchema,
+                "annotations": .object(["readOnlyHint": .bool(contract.interruption == .readOnly)])
+            ])
+        }
+    }
+
+    private func registeredContract(_ name: String) -> CapabilityContract? {
+        guard let contract = registry.contract(for: CapabilityID(rawValue: name)),
+              case .registered = contract.origin else { return nil }
+        return contract
+    }
 
     private func finish(
         _ name: String,
@@ -247,6 +292,15 @@ final class CallDispatcher {
     /// says so, the effect is never repeated, and no further effect starts until the end is saved.
     private func dispatch(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
         let arguments = arguments == .null ? JSONValue.object([:]) : arguments
+        if let contract = registeredContract(name) {
+            let claim = try claimDataWrites([], capability: contract)
+            defer { withExtendedLifetime(claim) {} }
+            if let refusal = try await uncertaintyRefusal([], capability: contract) { throw AutomationFailure(refusal) }
+            if let refusal = try await registeredValueRefusal(contract, arguments) { throw AutomationFailure(refusal) }
+            let value = try await answer(name, arguments, recorder: nil)
+            return try finish(name, value, notice: recording == nil
+                ? ModelText.text(.init(rawValue: "call_dispatcher.it.v1.2")) : nil)
+        }
         let request = try? ToolArguments.callRequest(name, arguments)
         guard let recorder = makeRecorder(sessionID: session.id) else {
             return try finish(name, try await answer(name, arguments, recorder: nil), notice: nil)
@@ -356,8 +410,14 @@ final class CallDispatcher {
 
     /// Reserves a producer's writes before the first suspension, covering the gate/start race across processes.
     /// Read-only calls remain available. The hold spans dispatch and recording, and dies with its process on a crash.
-    private func claimDataWrites(_ requests: [AgentCallRequest], readOnly: Bool = false) throws -> AppClaims.Hold? {
-        guard !readOnly, requests.contains(where: gatesUncertainty), let directory = session.memoryDirectory else { return nil }
+    private func claimDataWrites(
+        _ requests: [AgentCallRequest],
+        readOnly: Bool = false,
+        capability: CapabilityContract? = nil
+    ) throws -> AppClaims.Hold? {
+        let registeredWrite = capability.map { $0.effect != .read } ?? false
+        guard !readOnly, registeredWrite || requests.contains(where: gatesUncertainty),
+              let directory = session.memoryDirectory else { return nil }
         let identity = try JSONEncoder().encode([producer.source.rawValue, producer.streamID])
         let key = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
         let claims = AppClaims(namespace: directory.appending(path: "effect-claims", directoryHint: .isDirectory))
@@ -372,17 +432,24 @@ final class CallDispatcher {
     /// resource such a call reached, and no later fact resolved it. A read-only call, and `memory_task`, always run. The
     /// refusal holds across restarts, since it reads the archive; what resolves it is `memory_task reconcile`.
     private func uncertaintyRefusal(
-        _ requests: [AgentCallRequest]
+        _ requests: [AgentCallRequest],
+        capability: CapabilityContract? = nil
     ) async throws -> String? {
         // A call with an oracle of its own (an adapter's) is what the gate holds: a UI gesture's unverified effect is read on
         // the next observation of the same window, and a repeat there is the agent's reading of it.
-        guard requests.contains(where: gatesUncertainty), let directory = session.memoryDirectory else { return nil }
+        let registeredWrite = capability.map { $0.effect != .read } ?? false
+        guard registeredWrite || requests.contains(where: gatesUncertainty),
+              let directory = session.memoryDirectory else { return nil }
         let memory = MemoryService.shared(for: directory)
         let executor = MemoryExecutor.current(for: directory, source: producer.source)
         if let executor { await MemoryExecutor.sweep(memory, folder: directory, current: executor) }
         // A pending call of this executor can still act; it must block a concurrent repeat too. Read errors fail closed.
         let unresolved = try await memory.unresolvedCalls(source: producer.source, streamID: producer.streamID,
                                                          excludingExecutor: nil).filter { gatesUncertainty($0.request) }
+        // Registered writes have no saved resource identity yet, so unresolved effects block them conservatively.
+        if registeredWrite, let call = unresolved.first {
+            return "An earlier effect is unresolved (\(call.eventID)); reconcile it before this capability writes."
+        }
         for call in unresolved {
             for request in requests where gatesUncertainty(request) {
                 let repeats = call.isRepeated(by: request)
@@ -422,6 +489,18 @@ final class CallDispatcher {
             + ModelText.text(.init(rawValue: "call_dispatcher.value.v1.5"))
     }
 
+    /// Refuses identifiers imported from earlier attempts before a registered write reaches its provider.
+    private func registeredValueRefusal(_ contract: CapabilityContract, _ arguments: JSONValue) async throws -> String? {
+        guard contract.effect != .read, let task = taskCycle.openTask,
+              let directory = session.memoryDirectory else { return nil }
+        let values = StructuredLeaves.fields(of: arguments).filter { $0.kind == .text || $0.kind == .number }
+            .compactMap(\.text).filter { !$0.isEmpty }
+        guard !values.isEmpty else { return nil }
+        let found = try await MemoryService.shared(for: directory).historicalValues(values, attemptID: task.attemptID)
+        guard let value = found.first else { return nil }
+        return "This value comes from an earlier attempt: \(value). Read it again or name it as a task input."
+    }
+
     /// The recorder of one call over this session's memory, under the producer and its current trace.
     private func makeRecorder(sessionID: UUID?, parent: CallRecorder? = nil, position: Int? = nil) -> CallRecorder? {
         guard let directory = session.memoryDirectory else { return nil }
@@ -459,6 +538,33 @@ final class CallDispatcher {
         }
     }
 
+    /// Records only the provider execution, preserving the provider error if ending the record also fails.
+    private func callProvider(_ contract: CapabilityContract, arguments: JSONValue) async throws -> JSONValue {
+        guard case .registered(let family) = contract.origin, let provider = providers[family] else {
+            preconditionFailure("Missing provider for registered capability: \(contract.id.rawValue)")
+        }
+        try await recording?.began(contract.id, arguments: arguments)
+        let result: JSONValue
+        do {
+            result = try await provider.call(
+                contract.id,
+                arguments: arguments,
+                context: CapabilityCallContext(sessionID: session.id)
+            )
+        } catch {
+            do {
+                try await recording?.ended(
+                    contract.id, result: nil, failure: String(describing: error), verified: nil
+                )
+            } catch let recordingFailure {
+                throw AutomationFailure("Capability failed: \(error). Recording failed: \(recordingFailure)")
+            }
+            throw error
+        }
+        try await recording?.ended(contract.id, result: result, failure: nil, verified: nil)
+        return result
+    }
+
     private func answer(_ name: String, _ arguments: JSONValue, recorder: CallRecorder?) async throws -> JSONValue {
         output.lastResult = nil
         output.lastCheck  = nil
@@ -468,6 +574,15 @@ final class CallDispatcher {
         let arguments = arguments == .null ? JSONValue.object([:]) : arguments
         guard let definition = toolDefinitions.first(where: { $0["name"].string == name }),
               let values = arguments.object else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.values.v1"))) }
+        if let contract = registeredContract(name) {
+            try formatter.transcribe("→ \(name)", arguments)
+            if contract.takesSession {
+                guard let id = session.id, arguments["session"].string == id.uuidString else {
+                    throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")))
+                }
+            }
+            return try await callProvider(contract, arguments: arguments)
+        }
         let schema = definition["inputSchema"]
         let allowed = Set(schema["properties"].object?.keys.map { $0 } ?? [])
         guard Set(values.keys).isSubset(of: allowed) else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.allowed.v1"))) }
