@@ -747,7 +747,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             // The call's recorder, bound once before the selector runs: it takes the selector's perceptions, and the
             // Seat's receipt the selector returns is handed to it before the scene is enriched (M05).
             let recorder = Self.recorder(runtime, sessionID: id)
-            let selector = SeatContextMenuSelector(target: seat, pipeline: ProductionPerception.pipeline())
+            let selector = SeatContextMenuSelector(target: seat, pipeline: ProductionPerception.workerPipeline())
             let chosen = try await selector.selectWithReceipt(
                 item: item, on: control,
                 identity: SeatDriving.ApplicationIdentity(
@@ -1009,7 +1009,11 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         // The call's recorder, bound once before the selector runs: the selector reports its perceptions to it, and
         // the receipt it returns is handed to it before the scene is enriched (M05).
         let recorder = Self.recorder(runtime, sessionID: id)
-        let selector = SeatDropdownSelector(target: target, pipeline: ProductionPerception.pipeline(), windows: runtime.windows)
+        let selector = SeatDropdownSelector(
+            target: target,
+            pipeline: ProductionPerception.workerPipeline(),
+            windows: runtime.windows
+        )
         let result = try await selector.select(
             control: control, item: item,
             identity: SeatDriving.ApplicationIdentity(
