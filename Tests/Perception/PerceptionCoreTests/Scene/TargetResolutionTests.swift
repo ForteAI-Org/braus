@@ -25,6 +25,65 @@ struct TargetResolutionTests {
         )
     }
 
+    @Test
+    func inlineNamesResolveWithoutChangingPerceivedText() {
+        let first = SceneElement(id: "first", kind: .control, label: "Save\nAs",
+                                 bounds: rect(0, 0, 0.1, 0.1), container: "Left\rPane", section: "A\nB")
+        var second = first
+        second.id = "second"
+        second.container = "Right Pane"
+        second.bounds.y = 0.5
+        var value = scene([first, second])
+        value.sections = [SceneSection(name: "A\nB", bounds: rect(0, 0, 1, 1))]
+        #expect(value.resolve(target: "Save As", section: "A B") == .ambiguous(2))
+        #expect(value.resolve(target: "first", section: "A B") == .found(first))
+        #expect(value.resolve(target: "Save As {Left Pane}") == .found(first))
+        #expect(value.resolve(target: "Save\rAs {Left\nPane}") == .found(first))
+        #expect(value.resolveSection(named: "A B") == value.sections[0])
+        #expect(value.resolveSection(named: "A\rB") == value.sections[0])
+        #expect(value.elements[0].label == "Save\nAs")
+        value.sections = []
+        #expect(value.resolve(target: "Save As", section: "Left Pane") == .found(first))
+        #expect(value.resolve(target: "Save As", section: "Left\nPane") == .found(first))
+    }
+
+    @Test
+    func normalizedSectionCollisionsRefuseEvenAnID() {
+        let element = SceneElement(id: "first", kind: .control, label: "Save",
+                                   bounds: rect(0, 0, 0.1, 0.1), section: "A\nB")
+        var value = scene([element])
+        value.sections = ["A\nB", "A B"].map { SceneSection(name: $0, bounds: rect(0, 0, 1, 1)) }
+        for query in ["A B", "A\nB", "A\rB"] {
+            #expect(value.resolveSection(named: query) == nil)
+            #expect(value.resolve(target: "first", section: query) == .ambiguous(2))
+            #expect(value.resolve(target: "Save", section: query) == .ambiguous(2))
+        }
+        value.sections = ["top bar (A\nB)", "top bar (A B)", "top bar #1"].map {
+            SceneSection(name: $0, bounds: rect(0, 0, 1, 1))
+        }
+        #expect(value.resolveSection(named: "top bar (A B)") == nil)
+        #expect(value.resolve(target: "first", section: "top bar (A B)") == .ambiguous(2))
+        value.sections = [SceneSection(name: "top\nbar #1", bounds: rect(0, 0, 1, 1))]
+        #expect(value.resolveSection(named: "top bar (Toolbar)") == value.sections[0])
+    }
+
+    @Test
+    func normalizedContainerCollisionsStayAmbiguous() {
+        let first = SceneElement(id: "first", kind: .control, label: "Save",
+                                 bounds: rect(0, 0, 0.1, 0.1), container: "A\nB")
+        var second = first
+        second.id = "second"
+        second.container = "A B"
+        second.bounds.y = 0.5
+        var value = scene([first, second])
+        #expect(value.resolve(target: "Save", section: "A B") == .ambiguous(2))
+        #expect(value.resolve(target: "Save {A B}") == .ambiguous(2))
+        value.elements[1].bounds = first.bounds
+        value.elements[1].kind = .text
+        #expect(value.resolve(target: "Save {A B}") == .ambiguous(2))
+        #expect(value.resolve(target: "Save", section: "A B") == .ambiguous(2))
+    }
+
     @Test("an id wins over a label")
     func idWinsOverLabel() throws {
         let s = scene([SceneElement(id: "aa", kind: .control, label: "Export", bounds: rect(0, 0, 0.1, 0.1)),
