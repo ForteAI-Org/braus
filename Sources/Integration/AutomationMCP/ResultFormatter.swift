@@ -5,12 +5,16 @@ import Foundation
 import LocalMCP
 import Memory
 import PerceptionCore
+import Switches
 #if BRAUS_PHASES
 import PhaseSignposts
 #endif
 
 /// ResultFormatter renders tool answers and transcripts using the producer and scene state it borrows.
 final class ResultFormatter {
+    nonisolated enum OutcomeArm: String, Sendable { case v1, v2 }
+    static var usesOutcomeV2: Bool { SwitchBoard.current.arm("outcome", default: OutcomeArm.v1) == .v2 }
+
     private let session: any AutomationSessionOperating
     private unowned let secrets: ProducerSecrets
     private unowned let sceneText: SceneTextPolicy
@@ -32,6 +36,21 @@ final class ResultFormatter {
         let rendering = PhaseInterval.begin("render.result")
         defer { rendering.end() }
         #endif
+        var value = value
+        if Self.usesOutcomeV2, case .object(var fields) = value,
+           let status = fields["status"]?.string, let kind = ActOutcomeKind(rawValue: status) {
+            let outcome = Outcome.converting(kind, check: output.lastCheck, notSent: nil,
+                                            noop: nil, sceneAttached: fields["observation"] != nil)
+            fields.removeValue(forKey: "status")
+            fields.removeValue(forKey: "evidence")
+            fields["gesture"] = .string(outcome.gesture.rawValue)
+            fields["effect"] = .string(outcome.effect.text)
+            fields["recovery"] = .string(outcome.recovery.text)
+            fields["_outcome_message"] = .string(OutcomeText.message(
+                OutcomeKey(outcome: outcome, verb: name), label: nil
+            ))
+            value = .object(fields)
+        }
         var answered = Self.noted(Self.noted(value, session.seatNotice), session.browserNotice, as: "browser")
         if let notice, case .object(var object) = answered {
             object["memory"] = .string(notice)
@@ -39,13 +58,16 @@ final class ResultFormatter {
         }
         let shown = secrets.shownMinimization
         if !shown.knowsNoText { answered = ProducerSecrets.minimized(answered, by: shown) }
+        let outcomeText = Self.usesOutcomeV2 ? try Self.outcomeText(answered) : nil
         var transcribed = answered
         if case .object(var object) = answered, !output.transcriptOmits.isEmpty || !output.contentTexts.isEmpty {
             object["result"] = object["result"].map { Self.withholding(Set(output.transcriptOmits), in: $0) }
             let minimization = ValueMinimization(secrets: output.contentTexts)
             transcribed = Self.mappingTexts(.object(object)) { minimization.minimize(text: $0).0 }
         }
+        if Self.usesOutcomeV2 { transcribed = Self.transcriptOutcome(transcribed) }
         try transcribe("← \(name)", transcribed)
+        if let outcomeText { return MCPRouter.textResult(outcomeText + (notice.map { "\nmemory: \($0)" } ?? "")) }
         if let modelText = output.modelText {
             return MCPRouter.textResult(shown.minimize(text: modelText).0 + (notice.map { "\nmemory: \($0)" } ?? ""))
                 .adding("structuredContent", answered)
@@ -253,9 +275,107 @@ final class ResultFormatter {
         ]
         if let scene = outcome.scene { values["observation"] = await sceneText.observation(scene, changesOnly: true, nested: true,
                                                                                           session: session, shown: secrets.shownMinimization) }
+        if Self.usesOutcomeV2 {
+            values.removeValue(forKey: "status")
+            let typed = outcome.outcome
+            if outcome.noop == .listing && outcome.scene == nil {
+                values["observation"] = .string(outcome.message)
+            }
+            values["gesture"] = .string(typed.gesture.rawValue)
+            values["effect"] = .string(typed.effect.text)
+            values["recovery"] = .string(typed.recovery.text)
+            values["_outcome_message"] = .string(OutcomeText.message(
+                OutcomeKey(outcome: typed, verb: "", cause: outcome.cause), label: nil
+            ))
+            return .object(values)
+        }
         // P2-03: what the operation's own oracle found, apart from the command's acceptance and the task's goal.
         if let evidence = Self.evidence(outcome.withStatedCheck.check, kind: outcome.kind) { values["evidence"] = evidence }
         return .object(values)
+    }
+
+    /// Renders a typed action, or replaces the action objects of a batch with their rows.
+    private static func outcomeText(_ value: JSONValue) throws -> String? {
+        if let gesture = value["gesture"].string, let effect = value["effect"].string,
+           let recovery = value["recovery"].string {
+            var text = "\(gesture) · \(effect) · \(recovery)\n" + (value["_outcome_message"].string ?? "")
+            for key in ["observation", "result", "notice", "browser"] where value[key] != .null {
+                text += "\n" + String(decoding: try JSONEncoder().encode(value[key]), as: UTF8.self)
+            }
+            return text
+        }
+        guard value["steps"].array != nil else { return nil }
+        return String(decoding: try JSONEncoder().encode(batchOutcome(value)), as: UTF8.self)
+    }
+
+    private static func transcriptOutcome(_ value: JSONValue) -> JSONValue {
+        switch value {
+        case .array(let items): return .array(items.map(transcriptOutcome))
+        case .object(var fields):
+            fields.removeValue(forKey: "_outcome_message")
+            return .object(fields.mapValues(transcriptOutcome))
+        default: return value
+        }
+    }
+
+    private static func batchOutcome(_ value: JSONValue) -> JSONValue {
+        switch value {
+        case .array(let items): return .array(items.map(batchOutcome))
+        case .object(var fields):
+            if fields["status"]?.string == "error" {
+                let outcome = Outcome.converting(.actedUnverified, check: .unchecked(performed: .uncertain),
+                    notSent: nil, noop: nil, sceneAttached: fields["observation"] != nil)
+                fields["outcome"] = .string(outcome.row)
+                fields["message"] = .string(OutcomeText.message(
+                    OutcomeKey(outcome: outcome, verb: "", cause: "thrown"), label: nil
+                ))
+                fields.removeValue(forKey: "status")
+                fields.removeValue(forKey: "evidence")
+            }
+            if let gesture = fields["gesture"]?.string, let effect = fields["effect"]?.string,
+               let recovery = fields["recovery"]?.string {
+                fields["outcome"] = .string("\(gesture) · \(effect) · \(recovery)")
+                fields["message"] = fields["_outcome_message"]
+                for key in ["gesture", "effect", "recovery", "_outcome_message", "status", "evidence"] {
+                    fields.removeValue(forKey: key)
+                }
+            }
+            return .object(fields.mapValues(batchOutcome))
+        default: return value
+        }
+    }
+
+    /// Classifies only a validated call as potentially acting; the answer still owns validation errors.
+    func mayAct(
+        _ name: String,
+        arguments: JSONValue,
+        request: AgentCallRequest?,
+        definitions: [JSONValue]
+    ) -> Bool {
+        guard let request, request.tool.requiresConfirmedStart,
+              let fields = arguments.object,
+              let definition = definitions.first(where: { $0["name"].string == name }) else { return false }
+        let schema = definition["inputSchema"]
+        let allowed = Set(schema["properties"].object?.keys.map { $0 } ?? [])
+        guard Set(fields.keys).isSubset(of: allowed),
+              (schema["required"].array ?? []).allSatisfy({ $0.string.map { fields[$0] != nil } == true }) else {
+            return false
+        }
+        if request.tool.takesSession {
+            return session.id.map { arguments["session"].string == $0.uuidString } == true
+        }
+        return true
+    }
+
+    /// Answers a non-cancellation failure using only catalogue prose for the model.
+    func thrown(_ error: any Error, tool: String, mayHaveActed: Bool) -> JSONValue {
+        let outcome = Outcome.converting(mayHaveActed ? .actedUnverified : .refused,
+                                        check: mayHaveActed ? .unchecked(performed: .uncertain) : nil,
+                                        notSent: nil, noop: nil, sceneAttached: false)
+        let text = outcome.row + "\n" + OutcomeText.message(
+            OutcomeKey(outcome: outcome, verb: tool, cause: "thrown"), label: nil
+        )
+        return MCPRouter.textResult(text).adding("isError", .bool(true))
     }
 
     /// Every text of a JSON value, however nested: what a call the schema will refuse may carry anywhere.

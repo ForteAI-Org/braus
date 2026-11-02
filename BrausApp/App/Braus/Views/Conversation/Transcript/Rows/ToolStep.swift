@@ -355,6 +355,11 @@ nonisolated struct ToolStep: Sendable, Hashable {
             if reason.hasSuffix(" Observe before any retry.") { reason.removeLast(26) }
             return .failed(reason: shortened(reason, limit: 120))
         }
+        if checksOutcome, let outcome = object(answer), outcome["gesture"] is String,
+           let effect = outcome["effect"] as? String, let recovery = outcome["recovery"] as? String {
+            let failed = effect != "confirmed" && recovery != "continue"
+            return failed ? .failed(reason: shortened(outcome["message"] as? String ?? effect, limit: 120)) : .done
+        }
         guard checksOutcome, let outcome = object(answer), let status = outcome["status"] as? String,
               !successes.contains(status)
         else { return .done }

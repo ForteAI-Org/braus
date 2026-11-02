@@ -115,9 +115,9 @@ public struct SeatContextMenuSelector {
                 case .allowed:
                     break
                 case .needsConsent:
-                    return ActOutcome(.refused, "'\(item)' requires --allow-destructive", scene: before.scene)
+                    return ActOutcome(.refused, "'\(item)' requires --allow-destructive", scene: before.scene, notSent: .needsConsent)
                 case .cannotReadBack:
-                    return ActOutcome(.refused, IrreversiblePolicy.readBackRefusal("'\(item)'"), scene: before.scene)
+                    return ActOutcome(.refused, IrreversiblePolicy.readBackRefusal("'\(item)'"), scene: before.scene, notSent: .destructiveUnverifiable)
             }
         }
         let captured = beforeDelivery.geometry.window

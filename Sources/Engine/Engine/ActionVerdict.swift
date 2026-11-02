@@ -136,7 +136,18 @@ extension ActionEngine {
     /// instead. Nil for any other failure, which stays a delivery whose effect is unknown.
     static func notSent(_ error: any Error, _ action: String, scene: SceneSnapshot? = nil) -> ActOutcome? {
         guard let refusal = error as? GestureNotSent else { return nil }
-        return ActOutcome(.refused, "\(action): nothing was sent. \(refusal.sentence)", scene: scene)
+        let code = refusal.reason.split(separator: "#", maxSplits: 1).first
+        let category = code?.split(separator: ".", maxSplits: 1).first.map(String.init)
+        let cause: NotSentCause = switch category {
+        case "seat_not_ready": .seatNotReady
+        case "human_intervention": .humanIntervention
+        case "input_authority_expired": .inputAuthorityExpired
+        case "endpoint_refused", "remote_content_refused", "point_outside_window", "seat_preflight", "input_target_changed":
+            .targetUnreachable
+        default: .other
+        }
+        return ActOutcome(.refused, "\(action): nothing was sent. \(refusal.sentence)", scene: scene,
+                          notSent: cause, cause: refusal.reason)
     }
 
     /// The attempt a failed delivery records: not attempted, with the actuator's reason, when nothing went out.

@@ -67,7 +67,7 @@ struct BatchTests {
         var calls: [Int] = []
         try await BatchSequence.run(plan.steps) { number, _ in
             calls.append(number)
-            return number == 2 ? .actedNoop : .foundActed
+            return ActOutcome(number == 2 ? .actedNoop : .foundActed, "Answered.")
         }
         #expect(calls == [1, 2, 3])
     }
@@ -83,7 +83,7 @@ struct BatchTests {
         do {
             try await BatchSequence.run(plan.steps) { number, _ in
                 calls.append(number)
-                return number == 2 ? kind : .foundActed
+                return ActOutcome(number == 2 ? kind : .foundActed, "Answered.")
             }
             Issue.record("continued after a failed step")
         } catch let error as BatchFailure {
@@ -119,7 +119,7 @@ struct BatchTests {
                 try await BatchSequence.run(plan.steps) { number, _ in
                     calls.append(number)
                     withUnsafeCurrentTask { $0?.cancel() }
-                    return .foundActed
+                    return ActOutcome(.foundActed, "Completed.")
                 }
                 Issue.record("ignored cancellation")
             } catch let error as BatchFailure {

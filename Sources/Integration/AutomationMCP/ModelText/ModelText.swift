@@ -46,14 +46,14 @@ public nonisolated enum ModelText {
 
     public static var catalogue: [Entry] {
         systemPromptTexts + toolDescriptionTexts + toolAnswerTexts + refusalTexts
-            + mcpInstructionTexts + seatLineTexts + legendTexts + summaryTexts + capabilityTexts
+            + mcpInstructionTexts + seatLineTexts + legendTexts + summaryTexts + outcomeTexts + capabilityTexts
     }
 
     private static let entries = Dictionary(uniqueKeysWithValues: catalogue.map { ($0.key, $0.text) })
 
     public static func text(_ key: Key) -> String {
         guard let text = entries[key] else { preconditionFailure("Unknown model text key: \(key.rawValue)") }
-        return text
+        return outcomeText(key, fallback: text)
     }
 
     /// Substitutes typed slots in one pass, so replacement text cannot introduce another slot.

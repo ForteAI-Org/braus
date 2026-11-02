@@ -170,6 +170,7 @@ final class CallDispatcher {
         let tool = PhaseInterval.begin("tool", name)
         defer { tool.end() }
         #endif
+        output.mayHaveActed = false
         let scope = await scope(of: name, arguments)
         do {
             return try await CallScope.$current.withValue(scope) {
@@ -179,10 +180,13 @@ final class CallDispatcher {
             // The error reaches the model and its log: the producer's secrets and what the call withholds are
             // withheld from it too.
             let shown = ValueMinimization(secrets: producerSecrets.secrets, classified: scope.withheld, scrubsCredentials: false)
-            guard !(error is CancellationError), !shown.knowsNoText else { throw error }
+            guard !(error is CancellationError) else { throw error }
             let (kept, reason) = shown.minimize(text: String(describing: error))
-            guard reason != nil else { throw error }
-            throw AutomationFailure(kept)
+            let failure: any Error = !shown.knowsNoText && reason != nil ? AutomationFailure(kept) : error
+            if ResultFormatter.usesOutcomeV2, AgentTool(rawValue: name)?.requiresConfirmedStart == true {
+                return formatter.thrown(failure, tool: name, mayHaveActed: output.mayHaveActed)
+            }
+            throw failure
         }
     }
 
@@ -321,6 +325,7 @@ final class CallDispatcher {
         }
         let request = try? ToolArguments.callRequest(name, arguments)
         guard let recorder = makeRecorder(sessionID: session.id) else {
+            output.mayHaveActed = formatter.mayAct(name, arguments: arguments, request: request, definitions: toolDefinitions)
             return try finish(name, try await answer(name, arguments, recorder: nil), notice: nil)
         }
         guard let request else {
@@ -348,6 +353,7 @@ final class CallDispatcher {
             } catch {
                 await producerSecrets.collect(from: recorder)
                 guard !request.tool.requiresConfirmedStart else { throw Self.unconfirmed(error) }
+                output.mayHaveActed = formatter.mayAct(name, arguments: arguments, request: request, definitions: toolDefinitions)
                 let value = try await CallRecorder.$current.withValue(nil) {
                     try await self.answer(name, arguments, recorder: nil)
                 }
@@ -358,6 +364,7 @@ final class CallDispatcher {
         }
         await producerSecrets.collect(from: recorder)
         do {
+            output.mayHaveActed = formatter.mayAct(name, arguments: arguments, request: request, definitions: toolDefinitions)
             let value = try await CallRecorder.$current.withValue(recorder) {
                 try await self.answer(name, arguments, recorder: recorder)
             }
@@ -1024,6 +1031,9 @@ final class CallDispatcher {
 }
 
 struct CallOutput {
+    /// True once the call reaches a path that can deliver input.
+    var mayHaveActed = false
+
     /// The typed result of the call `answer` concluded last, for its record.
     var lastResult: AgentCallResult?
 
