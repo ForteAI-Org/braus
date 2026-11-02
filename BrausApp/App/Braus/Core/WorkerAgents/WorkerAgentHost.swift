@@ -301,7 +301,8 @@ final class WorkerAgentHost {
         + "candidates, before opening either. Each message from the person begins with Braus's seat line, "
         + "which replaces the status call for that turn. When it names an open session, observe it by that ID "
         + "before acting; to continue in the last application it names, call open_session with that "
-        + "application directly."
+        + "application directly. Canvases appear in the scene as [canvas]. Call canvas with its id only "
+        + "when the task needs what is drawn there; pictures are small."
 
     /// What a command line that may search the web is told after the app's line.
     static let webInstructions = "You can search the web and read web pages with your web tools when a task "

@@ -597,7 +597,8 @@ public final class AutomationTools {
                                  uniquingKeysWith: { $1 }),
                  ["session", "target"]),
             MemoryTaskTool.definition,
-            HumanStepTool.definition
+            HumanStepTool.definition,
+            CanvasTool.definition
         ].filter { channels.contains(.adapters) || !Self.adapterTools.contains($0["name"].string ?? "") }
             .filter { channels.contains(.web) || $0["name"].string != "collect_posts" }
     }
@@ -612,7 +613,7 @@ public final class AutomationTools {
 
     public nonisolated static func interruptionPolicy(for name: String) -> InterruptionPolicy {
         switch name {
-        case "status", "windows", "apps", "observe", "app_capabilities", "human_step": .readOnly
+        case "status", "windows", "apps", "observe", "app_capabilities", "human_step", "canvas": .readOnly
         case "open_session": .openingScene
         case "act", "select", "type_text", "insert_text", "press_key", "scroll", "drag",
              "context_menu", "batch", "menu", "press", "app_call", "close_session",
@@ -778,6 +779,19 @@ public final class AutomationTools {
             let request = try HumanStepTool.request(arguments)
             let result = await session.humanStep(request)
             return HumanStepTool.result(result, withholding: withheld)
+        }
+        if name == CanvasTool.name {
+            let request = try CanvasTool.request(arguments)
+            guard session.id != nil else { throw AutomationFailure("No held Seat window. Open a session first.") }
+            guard let history = session.canvasHistory else {
+                throw AutomationFailure("No canvas history for the held Seat window. Observe it first.")
+            }
+            return try CanvasTool.result(
+                request,
+                history    : history,
+                isWithheld : { ValueMinimization.namesSecret($0) || self.withheld($0) != $0 },
+                withholding: withheld
+            )
         }
         let before = seen
         // A session that ended leaves no scene to compare the next one against.

@@ -12,7 +12,7 @@ struct AutomationToolsTests {
     @Test("every served tool has an explicit interruption policy")
     @MainActor
     func interruptionClassification() {
-        let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities", "human_step"]
+        let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities", "human_step", "canvas"]
         let writes: Set<String> = ["act", "select", "type_text", "insert_text", "press_key", "scroll", "drag",
                                   "context_menu", "batch", "menu", "press", "app_call", "close_session",
                                   "collect_posts", "memory_task"]

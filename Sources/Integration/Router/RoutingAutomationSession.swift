@@ -6,6 +6,7 @@
 import AutomationRuntime
 import EngineCore
 import Foundation
+import IncrementalText
 import PerceptionCore
 import WindowServerListing
 
@@ -140,6 +141,8 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
     public func humanStep(_ request: HumanStepRequest) async -> HumanStepResult {
         await desktop.humanStep(request)
     }
+
+    public var canvasHistory: CanvasHistory? { current.canvasHistory }
 
     /// Runs `call` on the current session. When the native session gives the app back instead (it acts on
     /// nothing then), the desktop session opens the app and `call` runs there.

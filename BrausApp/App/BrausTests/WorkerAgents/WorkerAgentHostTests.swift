@@ -34,7 +34,8 @@ struct WorkerAgentHostTests {
         + "candidates, before opening either. Each message from the person begins with Braus's seat line, "
         + "which replaces the status call for that turn. When it names an open session, observe it by that ID "
         + "before acting; to continue in the last application it names, call open_session with that "
-        + "application directly."
+        + "application directly. Canvases appear in the scene as [canvas]. Call canvas with its id only "
+        + "when the task needs what is drawn there; pictures are small."
 
     /// A worker's text is the command line's base, whole and first, for the Seat alone and with the channels composed;
     /// then the app's line; then a role, after both and never in their place.

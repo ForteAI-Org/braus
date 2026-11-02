@@ -517,20 +517,20 @@ let package = Package(
         .target(name: "FileConversations", dependencies: ["ChatCore"],
                 path: "Sources/Chat/FileConversations", swiftSettings: pure),
         .target(name: "LocalMCP", path: "Sources/Chat/LocalMCP", swiftSettings: facility),
-        integration("AutomationRuntime", ["LocalMCP", "Perception", "VisionText", "PixelSections", "PixelRegions", "WindowServerListing", "AccessibilityFacts",
+        integration("AutomationRuntime", ["IncrementalText", "LocalMCP", "Perception", "VisionText", "PixelSections", "PixelRegions", "WindowServerListing", "AccessibilityFacts",
                     "ScreenCapture", "Engine", "EngineCore", "HIDActuation", "AccessibilityActions",
                     "WorkspaceActivation", "Memory", "SQLiteMemory", "LiveScenes", "PerceptionCore",
                     "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding",
                     // The one reader of an app's names in the person's languages (`BundleNames`); MacDriver depends on nothing.
                     "MacDriver"]),
-        integration("AutomationMCP", ["AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
+        integration("AutomationMCP", ["IncrementalText", "AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts",
                                      "AppAdapters", "TaskRouting"]),
         // The task router's rules and its catalogue of default routes: pure, and consulted before a session opens.
         integration("TaskRouting", settings: pure),
         // The session before the drivers: it sends each open to the web, the native driver or the desktop
         // (seat) session it is handed, and knows none of them.
-        integration("Router", ["AutomationRuntime", "EngineCore", "PerceptionCore", "WindowServerListing"]),
+        integration("Router", ["IncrementalText", "AutomationRuntime", "EngineCore", "PerceptionCore", "WindowServerListing"]),
         // The MacDriver as a session: its runtime over the Mac roles and its session on one native app.
         integration("MacSession", ["AutomationRuntime", "Router", "MacDriving", "MacDriver", "MacDelivery", "Engine", "EngineCore",
                                    "PerceptionCore", "Memory", "AccessibilityActions", "WindowServerListing"]),
@@ -639,7 +639,7 @@ let package = Package(
                              .copy("Fixtures/requests.html")]),
 
         // MARK: Engine tests
-        .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
+        .testTarget(name: "ChatTests", dependencies: ["IncrementalText", "ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
                                                     "TestScratch", "AppAdapters", "TaskRouting"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
