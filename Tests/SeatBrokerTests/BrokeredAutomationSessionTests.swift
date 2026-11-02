@@ -530,7 +530,7 @@ struct BrokeredAutomationSessionTests {
         }
         // The host's stop is `MCPRouter.pause`, which cancels the tool call in flight.
         let tools  = AutomationTools(session: desktop)
-        let router = MCPRouter(tools: AutomationTools.definitions) { name, arguments in
+        let router = MCPRouter(tools: AutomationTools.definitions, instructions: nil) { name, arguments in
             try await tools.call(name, arguments)
         }
         let call = Task {

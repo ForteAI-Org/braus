@@ -9,7 +9,7 @@ struct MCPConnectionsViewTests {
     @Test func rendersEmptyAndConfiguredConnectionsAtMinimumWidth() async throws {
         let root = URL.temporaryDirectory.appendingPathComponent("mcp-view-" + UUID().uuidString)
         let model = MCPConnectionsModel(directory: root, executable: URL(filePath: "/usr/bin/true")) { _, _ in
-            MCPHostSession(router: MCPRouter(tools: []) { _, _ in .null })
+            MCPHostSession(router: MCPRouter(tools: [], instructions: nil) { _, _ in .null })
         }
         await model.prepare()
         let empty = root.appendingPathComponent("empty.png")

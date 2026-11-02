@@ -184,7 +184,7 @@ final class HostedConnections {
         let session = HostedSession()
         sessions.append(session)
         let tools = AutomationTools(session: session)
-        let router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
+        let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil) { name, arguments in
             try await tools.call(name, arguments)
         }
         return MCPHostSession(router: router) { [unowned self] in

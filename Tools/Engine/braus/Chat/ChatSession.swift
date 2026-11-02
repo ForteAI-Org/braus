@@ -114,7 +114,10 @@ final class ChatSession {
             ?? Self.session(desktop: desktop, options: options, knowledge: knowledge, owner: owner, web: web)
         let tools = ChatTools(session: driven, channels: options.channels)
         self.tools = tools
-        router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
+        router = MCPRouter(
+            tools: tools.toolDefinitions,
+            instructions: AutomationTools.mcpInstructions(.firstLine)
+        ) { name, arguments in
             return try await tools.call(name, arguments)
         }
         // Calls are admitted only during a turn, through that turn's own host.

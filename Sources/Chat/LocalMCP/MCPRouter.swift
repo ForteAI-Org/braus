@@ -11,7 +11,7 @@ public final class MCPRouter {
     public typealias Call = @MainActor (String, JSONValue) async throws -> JSONValue
     private var tools: [JSONValue]
     private let call: Call
-    private let instructions: String
+    private let instructions: String?
     private let announcesToolListChanges: Bool
     private var notificationSinks: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var isBusy = false
@@ -22,8 +22,7 @@ public final class MCPRouter {
 
     public init(
         tools: [JSONValue],
-        instructions: String = "Use windows, then open_session. All actions stay on the background Seat. "
-            + "Observe after resuming a conversation. Never repeat an unverified action blindly.",
+        instructions: String?,
         announcesToolListChanges: Bool = false,
         call: @escaping Call
     ) {
@@ -96,13 +95,14 @@ public final class MCPRouter {
             case "initialize":
                 let requested = request["params"]["protocolVersion"].string ?? ""
                 let supported = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"]
-                result = .object([
+                var initialization: [String: JSONValue] = [
                     "protocolVersion": .string(supported.contains(requested) ? requested : "2025-11-25"),
                     "capabilities": .object(["tools": announcesToolListChanges
                         ? .object(["listChanged": .bool(true)]) : .object([:])]),
-                    "serverInfo": .object(["name": .string("braus"), "version": .string("0.1.0")]),
-                    "instructions": .string(instructions)
-                ])
+                    "serverInfo": .object(["name": .string("braus"), "version": .string("0.1.0")])
+                ]
+                if let instructions { initialization["instructions"] = .string(instructions) }
+                result = .object(initialization)
             case "ping": result = .object([:])
             case "tools/list": result = .object(["tools": .array(tools)])
             case "tools/call":
