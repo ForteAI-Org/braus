@@ -29,6 +29,18 @@ public actor ClaudeCLIClient: ModelTransport {
             authenticated = true
         }
         try Task.checkCancellation()
+        let arguments = Self.completionArguments(model: model, effort: effort, schema: schema)
+        let result = try await CodexCLIClient.run(executable: Self.executableURL(), arguments: arguments,
+                                                  input: Data(prompt.utf8), schema: nil, timeout: timeout)
+        return try Self.decode(result)
+    }
+
+    /// Builds the completion arguments without starting a process.
+    static func completionArguments(
+        model: String,
+        effort: ReasoningEffort,
+        schema: Data
+    ) -> [String] {
         var arguments = [
             "-p", "--output-format", "json",
             "--json-schema", String(decoding: schema, as: UTF8.self),
@@ -36,11 +48,10 @@ public actor ClaudeCLIClient: ModelTransport {
             "--tools", "", "--max-turns", "3",
             "--no-session-persistence", "--disable-slash-commands", "--strict-mcp-config",
         ]
-        // Haiku 4.5 has no effort levels; the flag is left out for it.
-        if !model.contains("haiku") { arguments += ["--effort", effort.rawValue] }
-        let result = try await CodexCLIClient.run(executable: Self.executableURL(), arguments: arguments,
-                                                  input: Data(prompt.utf8), schema: nil, timeout: timeout)
-        return try Self.decode(result)
+        if !ModelSelection.supportedEfforts(provider: .claudeCode, model: model).isEmpty {
+            arguments += ["--effort", effort.rawValue]
+        }
+        return arguments
     }
 
     static func checkAuthentication() async throws {
