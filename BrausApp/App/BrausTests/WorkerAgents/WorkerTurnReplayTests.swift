@@ -60,7 +60,10 @@ struct WorkerTurnReplayTests {
                 var text = text
                 for (actual, fixed) in [(connection, "/fake/connection.json"), (script.path, "/fake/bridge"),
                                         (work.path, "/fake/work")] {
-                    text = text.replacingOccurrences(of: actual.replacingOccurrences(of: "/", with: "\\/"), with: fixed)
+                    text = text.replacingOccurrences(
+                        of: actual.replacingOccurrences(of: "/", with: "\\/"),
+                        with: fixed.replacingOccurrences(of: "/", with: "\\/")
+                    )
                         .replacingOccurrences(of: actual, with: fixed)
                 }
                 return text

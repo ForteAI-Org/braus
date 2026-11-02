@@ -19,7 +19,7 @@ struct ModelProfileTests {
             ModelProvider.claudeCode.defaultModels + ModelProvider.anthropic.defaultModels
                 + large + medium + smallWithoutEffort + smallWithEffort + [
                     "claude-haiku-4-5-20251001", "claude-sonnet-4-20250514", "claude-opus-5-5[1m]",
-                    "claude-opus-5-20260601",
+                    "claude-opus-5-20260601", "",
                 ]
         )).sorted()
     }
@@ -43,6 +43,15 @@ struct ModelProfileTests {
         let value = profile("unlisted-model")
         #expect(value == ModelProfiles.prudent)
         #expect(value.origin == .prudentDefault)
+    }
+
+    @Test(arguments: [ModelProvider.claudeCode, .anthropic])
+    func defaultModelKeepsEffort(_ provider: ModelProvider) {
+        let value = ModelProfiles.profile(provider: provider, modelID: "", info: nil)
+        #expect(value.acceptsEffort)
+        #expect(value.origin == .prudentDefault)
+        #expect(value.contextWindowTokens == ModelProfiles.prudent.contextWindowTokens)
+        #expect(ModelSelection.supportedEfforts(provider: provider, model: "") == [.low, .medium, .high, .xhigh, .max])
     }
 
     @Test

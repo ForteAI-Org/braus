@@ -94,7 +94,8 @@ public enum ModelProfiles {
             acceptsEffort = entry.acceptsEffort
         } else {
             base = prudent
-            acceptsEffort = base.acceptsEffort
+            // An empty id selects the provider's default model and preserves its existing effort argument.
+            acceptsEffort = modelID.isEmpty || base.acceptsEffort
         }
         return ModelProfile(
             modelClass: base.modelClass,
