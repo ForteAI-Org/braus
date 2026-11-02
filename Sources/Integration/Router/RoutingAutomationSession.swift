@@ -184,6 +184,25 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
         return try await desktop.windowCandidates(ownedBy: processID)
     }
 
+    public var hasSeat: Bool { desktop.hasSeat }
+
+    /// Only the desktop session holds on a Seat, and only while it is the current route.
+    public var holdsOnSeat: Bool { current === desktop && desktop.holdsOnSeat }
+
+    /// Opens on the desktop session, never asking the native route, which would leave the application on the
+    /// person's screen; the route that was current is closed first, as any move to another session does.
+    public func openOnSeat(application: String) async throws -> SceneSnapshot {
+        lastHandoff  = nil
+        openedWindow = nil
+        return try await open(application, window: nil, on: desktop)
+    }
+
+    /// Activity goes to the desktop session, the one route with an inactivity release; a pair never splits
+    /// across two sessions when the route changes during the call.
+    public func beginActivity() -> UUID { desktop.beginActivity() }
+
+    public func endActivity(_ token: UUID) { desktop.endActivity(token) }
+
     public var memoryDirectory: URL? { current.memoryDirectory }
     public var memoryApplication: String? { current.memoryApplication }
     public var dataProfile: String? { current.dataProfile }

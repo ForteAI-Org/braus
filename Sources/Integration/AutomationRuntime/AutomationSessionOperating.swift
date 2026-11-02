@@ -62,6 +62,28 @@ public protocol AutomationSessionOperating: AnyObject {
     /// (`AppAdapters.seatConflict`).
     var memoryApplication: String? { get }
 
+    /// Whether this session can hold an application on a Seat: false for one that has none (a host without
+    /// desktop access, a test double, a router whose desktop session has none).
+    var hasSeat: Bool { get }
+
+    /// Whether the application the session holds now lives on its Seat: false while it holds none, or holds
+    /// it on another route (a native driver, a browser engine).
+    var holdsOnSeat: Bool { get }
+
+    /// Opens `application` on the session's Seat, as `open` does with no window title, and answers its first
+    /// scene: a router opens it on its desktop session whatever its other routes would take. Without a router
+    /// it is `open`.
+    func openOnSeat(application: String) async throws -> SceneSnapshot
+
+    /// Marks a call in flight on this session, so an inactivity release never fires under it. Pair the
+    /// token with `endActivity` on every path, including failure and cancellation; calls may overlap.
+    /// It opens nothing and grants no input authority.
+    func beginActivity() -> UUID
+
+    /// Ends the call `token` marked; the inactivity window restarts once no call is in flight. A
+    /// repeated or foreign token does nothing.
+    func endActivity(_ token: UUID)
+
     /// Runs a command with the held application frontmost on its Seat, then waits for handback.
     /// The bundle ID must match the current hold, ignoring case; another or absent hold answers
     /// `notHeld` without running `body` or opening anything. Sessions without a Seat do the same.
@@ -130,6 +152,19 @@ public extension AutomationSessionOperating {
     var memoryDirectory: URL? { nil }
 
     var memoryApplication: String? { nil }
+
+    var hasSeat: Bool { false }
+
+    var holdsOnSeat: Bool { false }
+
+    func openOnSeat(application: String) async throws -> SceneSnapshot {
+        try await open(application: application, window: nil)
+    }
+
+    /// A session without an inactivity release has nothing to keep from firing.
+    func beginActivity() -> UUID { UUID() }
+
+    func endActivity(_ token: UUID) {}
 
     /// The profile the session's pages are in (P2-05), a minimal identifier: nil for a session that has none.
     var dataProfile: String? { nil }

@@ -435,6 +435,11 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The route this session is when no routing session fronts it (M05).
     public var dispatchRoute: CallRoute.Route? { .desktop }
 
+    /// Every application this session opens is on its Seat.
+    public var hasSeat: Bool { true }
+
+    public var holdsOnSeat: Bool { application != nil }
+
     /// Marks a call in flight and cancels the inactivity release. Pair the returned token with
     /// `endActivity` in `defer`, including on failure or cancellation. Calls may nest or overlap.
     /// This tracks activity only; it neither opens a session nor grants input authority.
