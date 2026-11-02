@@ -60,31 +60,63 @@ extension SceneSnapshot {
     /// The format is lossless for target resolution: every label, id, section and state it resolved
     /// by is still printed, and a `{container}` is printed where it changes within a section.
     public func text() -> String {
-        var out = compactHeader(counting: true)
-        out += knowledgeText()
+        textLayout().text
+    }
+
+    /// The full scene text in its parts, each section apart: what `text()` joins.
+    public func textLayout() -> SceneTextLayout {
         let shared = labelsSharedAcrossOwners
+        var parts: [SceneTextPart] = []
         if sections.isEmpty {
-            out += compactLines(of: elements, sharedLabels: shared)
+            parts.append(SceneTextPart(
+                title       : Self.unsectioned,
+                heading     : "",
+                body        : compactLines(of: elements, sharedLabels: shared),
+                elementCount: elements.count
+            ))
         } else {
             for section in sectionsInReadingOrder {
-                out += compactSectionLine(section)
-                out += compactLines(
-                    of          : elements.filter { $0.section == section.name },
-                    sharedLabels: shared,
-                    keepingOrder: section.name == Self.openMenu
-                )
+                let members = elements.filter { $0.section == section.name }
+                parts.append(SceneTextPart(
+                    title       : section.name,
+                    heading     : compactSectionLine(section),
+                    body        : compactLines(
+                        of          : members,
+                        sharedLabels: shared,
+                        keepingOrder: section.name == Self.openMenu
+                    ),
+                    elementCount: members.count
+                ))
             }
             let loose = elements.filter { $0.section == nil }
             if !loose.isEmpty {
-                out += "## \(Self.unsectioned)\n"
-                out += compactLines(of: loose, sharedLabels: shared)
+                parts.append(SceneTextPart(
+                    title       : Self.unsectioned,
+                    heading     : "## \(Self.unsectioned)\n",
+                    body        : compactLines(of: loose, sharedLabels: shared),
+                    elementCount: loose.count
+                ))
             }
         }
-        if !commands.isEmpty { out += commandsLine() }
-        return out + outOfViewText()
+        return SceneTextLayout(
+            head    : compactHeader(counting: true) + knowledgeText(),
+            sections: parts,
+            commands: commands.isEmpty ? "" : commandsLine(),
+            edge    : outOfViewPart()
+        )
     }
 
     static let outOfViewHeading = "## past the window's edge (read only, not visible)\n"
+
+    private func outOfViewPart() -> SceneTextPart? {
+        guard !outOfViewFields.isEmpty else { return nil }
+        return SceneTextPart(
+            title       : String(Self.outOfViewHeading.dropFirst(3).dropLast()),
+            heading     : Self.outOfViewHeading,
+            body        : outOfViewFields.map { Self.outOfViewLine($0) + "\n" }.joined(),
+            elementCount: outOfViewFields.count
+        )
+    }
 
     private func outOfViewText() -> String {
         guard !outOfViewFields.isEmpty else { return "" }
