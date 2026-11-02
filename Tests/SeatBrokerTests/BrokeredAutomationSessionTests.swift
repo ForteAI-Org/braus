@@ -1651,6 +1651,37 @@ struct BrokeredAutomationSessionTests {
         await desktop.close()
     }
 
+    @Test("the tools' hold opens the application through the broker and keeps it until the command returns",
+          .timeLimit(.minutes(1)))
+    func toolsHoldKeepsTheApplicationThroughTheCommand() async throws {
+        let broker  = SeatBroker()
+        let idle    = IdleClock()
+        let desktop = Self.frontSession(broker, idle: idle)
+        let tools   = AutomationTools(session: desktop)
+        try await desktop.turn {
+            let held = try await tools.holding("test.process") { hold in
+                await Self.letTheWaitBegin()
+                #expect(idle.pendingCount == 0, "no inactivity release waits under the command")
+                #expect(hold == .held)
+                return desktop.memoryApplication
+            }
+            #expect(held == "test.process" && desktop.holdsComputer)
+            #expect(desktop.hasSeat && desktop.holdsOnSeat)
+            await Self.until { idle.pendingCount == 1 }
+            #expect(idle.waits == [.seconds(30)], "the idle window starts once the command returns")
+
+            var ran = false
+            let refused = await #expect(throws: AutomationTools.HoldRefused.self) {
+                try await tools.holding("test.other") { _ in ran = true }
+            }
+            #expect(refused?.reason.contains("could not hold test.other") == true, "\(String(describing: refused))")
+            #expect(!ran && desktop.id == nil, "the held application was closed first, and nothing ran")
+            #expect(desktop.hasSeat && !desktop.holdsOnSeat)
+        }
+        await desktop.close()
+        #expect(broker.queue.entries.isEmpty)
+    }
+
     @Test("an observation in flight prevents release and starts a full idle window on every exit",
           arguments: CallEnding.allCases)
     func anObservationInFlightRestartsTheIdleClock(_ ending: CallEnding) async throws {

@@ -125,24 +125,143 @@ struct AppAdapterToolsTests {
         #expect(transcript.lines.count == 2 && transcript.lines.last?.hasPrefix("← app_call") == true)
     }
 
-    @Test("an app_call on the app the session holds on the seat is refused, and reaches nothing")
-    func refusedOnTheHeldApp() async throws {
-        let scribe  = ScribeAdapter()
-        let session = RoutingSession()
-        let tools   = AutomationTools(session: session, adapters: AppAdapters([scribe]))
-        let call: JSONValue = .object([
-            "app"      : .string("scribe"),
-            "verb"     : .string("write"),
-            "arguments": .object(["path": .string("notes.txt"), "text": .string("draft")]),
-        ])
-        session.held = "test.scribe"
-        let refused = try await tools.call("app_call", call).answerText
-        #expect(refused.hasPrefix("refused The seat is driving Scribe"))
-        #expect(refused.contains("close_session first, or do the whole task through one route"))
-        #expect(await scribe.written.isEmpty)
+    // MARK: Holding the application on the seat
+
+    private static func write(_ app: String) -> JSONValue {
+        .object(["app": .string(app), "verb": .string("write"),
+                 "arguments": .object(["path": .string("notes.txt"), "text": .string("draft")])])
+    }
+
+    @Test("an adapter that scripts its app holds it on the seat before it runs, as an activity of the session")
+    func scriptedAdapterHoldsItsApp() async throws {
+        let log     = HoldLog()
+        let session = HoldingSession(log)
+        let tools   = AutomationTools(session: session, adapters: AppAdapters([ScriptedAdapter(log)]))
+        let first   = try await tools.call("app_call", Self.write("scripted"))
+        #expect(log.events == ["begin", "seat test.scripted", "run write", "end"])
+        let id = try #require(session.id).uuidString
+        #expect(first.answerText == "ok Wrote.\nsession: \(id)")
+        #expect(first["structuredContent"]["session"] == .string(id))
+        let again = try await tools.call("app_call", Self.write("scripted"))
+        #expect(log.events.suffix(3) == ["begin", "run write", "end"], "a held app is not opened again")
+        #expect(again["structuredContent"]["session"] == .null && session.id?.uuidString == id)
+    }
+
+    @Test("an adapter that scripts its app closes the other app the session holds before holding its own")
+    func differentHeldAppClosedFirst() async throws {
+        let log     = HoldLog()
+        let session = HoldingSession(log)
         session.held = "com.apple.iCal"
-        #expect(try await tools.call("app_call", call).answerText.hasPrefix("ok "))
+        session.id   = UUID()
+        let tools = AutomationTools(session: session, adapters: AppAdapters([ScriptedAdapter(log)]))
+        _ = try await tools.call("app_call", Self.write("scripted"))
+        #expect(log.events == ["begin", "close", "seat test.scripted", "run write", "end"])
+        #expect(session.held == "test.scripted")
+    }
+
+    @Test("a hold that fails answers the reason and runs nothing")
+    func failedHoldRunsNothing() async throws {
+        let log     = HoldLog()
+        let session = HoldingSession(log)
+        session.refusal = "Another worker holds Scripted."
+        let tools  = AutomationTools(session: session, adapters: AppAdapters([ScriptedAdapter(log)]))
+        let answer = try await tools.call("app_call", Self.write("scripted")).answerText
+        #expect(answer.hasPrefix("refused Braus could not hold test.scripted on the seat, so nothing was done"))
+        #expect(answer.contains("Another worker holds Scripted."))
+        #expect(log.events == ["begin", "seat test.scripted", "end"])
+    }
+
+    @Test("without a Seat an adapter that scripts its app runs unheld, as before, and the hook runs with noSeat")
+    func noSeatRunsUnheld() async throws {
+        let log     = HoldLog()
+        let session = HoldingSession(log)
+        session.hasSeat = false
+        let tools  = AutomationTools(session: session, adapters: AppAdapters([ScriptedAdapter(log)]))
+        let answer = try await tools.call("app_call", Self.write("scripted"))
+        #expect(answer.answerText == "ok Wrote.")
+        #expect(log.events == ["begin", "run write", "end"], "nothing opened")
+        let bare = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([ScriptedAdapter(log)]))
+        #expect(try await bare.call("app_call", Self.write("scripted")).answerText == "ok Wrote.")
+        session.id = UUID()
+        let observed = JSONValue.string(try #require(session.id).uuidString)
+        _ = try await tools.call("observe", .object(["session": observed]))
+        let hold = try await tools.holding("test.daw") { hold in
+            log.add("unheld")
+            return hold
+        }
+        #expect(hold == .noSeat)
+        #expect(log.events.suffix(3) == ["begin", "unheld", "end"], "nothing opened or closed")
+        #expect(try await tools.call("observe", .object(["session": observed])).payload["changes"] == .null,
+                "a command that may change the app makes the scene stale without a Seat too")
+    }
+
+    @Test("an open that does not land the app on the Seat refuses the call, and runs nothing")
+    func openOffTheSeatRefuses() async throws {
+        let log     = HoldLog()
+        let session = HoldingSession(log)
+        session.landsOnSeat = false
+        let tools  = AutomationTools(session: session, adapters: AppAdapters([ScriptedAdapter(log)]))
+        let answer = try await tools.call("app_call", Self.write("scripted")).answerText
+        #expect(answer.hasPrefix("refused Braus opened test.scripted but the seat does not hold it"), "\(answer)")
+        #expect(log.events == ["begin", "seat test.scripted", "end"])
+    }
+
+    @Test("an adapter on the app the session holds runs; one that scripts no app seats nothing")
+    func storeAdapterSeatsNothing() async throws {
+        let log     = HoldLog()
+        let scribe  = ScribeAdapter()
+        let session = HoldingSession(log)
+        session.held = "test.scribe"
+        session.id   = UUID()
+        let tools = AutomationTools(session: session, adapters: AppAdapters([scribe]))
+        #expect(try await tools.call("app_call", Self.write("scribe")).answerText == "ok Wrote notes.txt.")
         #expect(await scribe.written == ["draft"])
+        #expect(log.events == ["begin", "end"], "nothing opened or closed")
+    }
+
+    @Test("after a verb that may change the app, the next scene is answered whole; after a read, as changes")
+    func writingVerbMakesTheSceneStale() async throws {
+        let session = HoldingSession(HoldLog())
+        session.held = "test.scribe"
+        session.id   = UUID()
+        let tools = AutomationTools(session: session, adapters: AppAdapters([ScribeAdapter()]))
+        let id    = JSONValue.string(try #require(session.id).uuidString)
+        _ = try await tools.call("observe", .object(["session": id]))
+        _ = try await tools.call("app_call", .object(["app": .string("scribe"), "verb": .string("read"),
+                                                      "arguments": .object(["path": .string("notes.txt")])]))
+        let afterRead = try await tools.call("observe", .object(["session": id])).payload
+        #expect(afterRead["changes"] == .string("Unchanged since revision 1."))
+        _ = try await tools.call("app_call", Self.write("scribe"))
+        let afterWrite = try await tools.call("observe", .object(["session": id])).payload
+        #expect(afterWrite["changes"] == .null && afterWrite["scene"].string != nil)
+        let next = try await tools.call("observe", .object(["session": id])).payload
+        #expect(next["changes"] == .string("Unchanged since revision 3."), "a scene answered whole is the new baseline")
+    }
+
+    @Test("another tool family holds an app through the hook, as an activity, and learns when it cannot")
+    func hookHoldsAndReports() async throws {
+        let log     = HoldLog()
+        let session = HoldingSession(log)
+        let tools   = AutomationTools(session: session)
+        let value   = try await tools.holding("test.daw") { hold -> Int in
+            log.add("body")
+            return hold == .held ? 7 : 0
+        }
+        #expect(value == 7)
+        #expect(log.events == ["begin", "seat test.daw", "body", "end"])
+        let id = JSONValue.string(try #require(session.id).uuidString)
+        _ = try await tools.call("observe", .object(["session": id]))
+        _ = try await tools.holding("test.daw", mayChange: false) { _ in log.add("read") }
+        #expect(try await tools.call("observe", .object(["session": id])).payload["changes"] != .null)
+        _ = try await tools.holding("test.daw") { _ in log.add("write") }
+        #expect(try await tools.call("observe", .object(["session": id])).payload["changes"] == .null)
+
+        session.refusal = "No seat here."
+        let refused = await #expect(throws: AutomationTools.HoldRefused.self) {
+            try await tools.holding("test.other") { _ in log.add("never") }
+        }
+        #expect(refused?.reason.contains("No seat here.") == true)
+        #expect(!log.events.contains("never") && log.events.suffix(4) == ["begin", "close", "seat test.other", "end"])
     }
 
     @Test("an app_call on an app another session holds on the seat is refused, and reaches nothing")
@@ -385,4 +504,103 @@ private final class AdapterOnlySession: AutomationSessionOperating {
         throw AutomationFailure("unused")
     }
     func close() async {}
+}
+
+/// HoldLog keeps the order of what a session and an adapter did, from any thread.
+nonisolated private final class HoldLog: Sendable {
+    private let lines = Mutex<[String]>([])
+
+    var events: [String] { lines.withLock { $0 } }
+
+    func add(_ event: String) { lines.withLock { $0.append(event) } }
+}
+
+/// HoldingSession opens whatever it is asked, unless it has a refusal, and logs its opens, closes and activity, so
+/// the order of a hold and the adapter's run can be read.
+@MainActor
+private final class HoldingSession: AutomationSessionOperating {
+    var id: UUID?
+    var held: String?
+    var refusal: String?
+    private let log: HoldLog
+    /// Twenty rows, so a scene with no change answers as changes, which are shorter than half of it.
+    private let scene = SceneSnapshot(
+        bundleID         : "test.scribe",
+        appName          : "Scribe",
+        windowTitle      : "Notes",
+        viewportPixelSize: ViewportPixelSize(width: 400, height: 200),
+        elements         : (0..<20).map { index in
+            SceneElement(id: "row\(index)", kind: .control, label: "Note \(index)",
+                         bounds: NormalizedRect(x: 0.1, y: 0.04 * Double(index), width: 0.2, height: 0.03))
+        }
+    )
+
+    init(_ log: HoldLog) { self.log = log }
+
+    var hasSeat = true
+    /// Whether an open lands on the Seat; false stands for a route that opened it elsewhere.
+    var landsOnSeat = true
+    var memoryApplication: String? { held }
+    var holdsOnSeat: Bool { held != nil && landsOnSeat }
+
+    func openOnSeat(application: String) async throws -> SceneSnapshot {
+        log.add("seat \(application)")
+        return try await opened(application)
+    }
+
+    func beginActivity() -> UUID {
+        log.add("begin")
+        return UUID()
+    }
+
+    func endActivity(_ token: UUID) { log.add("end") }
+
+    func open(application: String, window: String?) async throws -> SceneSnapshot {
+        log.add("open \(application)")
+        return try await opened(application)
+    }
+
+    private func opened(_ application: String) async throws -> SceneSnapshot {
+        if let refusal { throw AutomationFailure(refusal) }
+        held = application
+        id   = UUID()
+        return scene
+    }
+
+    func observe() async throws -> SceneSnapshot { scene }
+    func act(target: String, verb: ActionVerb, section: String?, desiredState: ControlState?) async throws -> ActOutcome {
+        throw AutomationFailure("unused")
+    }
+    func select(control: String, item: String) async throws -> ActOutcome { throw AutomationFailure("unused") }
+    func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome {
+        throw AutomationFailure("unused")
+    }
+
+    func close() async {
+        log.add("close")
+        held = nil
+        id   = nil
+    }
+}
+
+/// ScriptedAdapter scripts its own app, as Mail's adapter does on the Mac, and logs each run of its one verb.
+private final class ScriptedAdapter: AppAdapting {
+    let name                 = "scripted"
+    let appNames             = ["Scripted"]
+    let bundleIDs: Set<String> = ["test.scripted"]
+    let scriptedApplication: String? = "test.scripted"
+    let verbs = [AdapterVerb("write", "Writes.",
+                             parameters: [AdapterParameter("path", .string, "path"),
+                                          AdapterParameter("text", .string, "text", content: true)],
+                             safety: .write, readBack: "none, a fake")]
+    private let log: HoldLog
+
+    init(_ log: HoldLog) { self.log = log }
+
+    func availability() async -> AdapterAvailability { .ready }
+
+    func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome {
+        log.add("run \(verb)")
+        return .confirmed("Wrote.")
+    }
 }

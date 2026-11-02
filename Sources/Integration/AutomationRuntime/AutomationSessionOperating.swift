@@ -58,8 +58,8 @@ public protocol AutomationSessionOperating: AnyObject {
     /// session with no memory, whose calls are not recorded.
     var memoryDirectory: URL? { get }
     /// The bundle ID of the application the session holds, as a call's event names it; nil before
-    /// `open` and after `close`. While it is set, an adapter call on that app is refused
-    /// (`AppAdapters.seatConflict`).
+    /// `open` and after `close`. Another session's hold refuses an adapter call on that app
+    /// (`AppAdapters.seatConflict`); this session's own does not.
     var memoryApplication: String? { get }
 
     /// Whether this session can hold an application on a Seat: false for one that has none (a host without
