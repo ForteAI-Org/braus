@@ -347,7 +347,7 @@ let package = Package(
         // AutomationRuntime, Memory, SQLiteMemory and SeatBroker for the Seat rung's wiring oracle alone (M05): test
         // target only.
         driverTests("SeatSession", ["SeatSession", "SeatCore", "CursorGuard", "SeatInput", "SeatDriving", "EngineCore",
-                                    "AutomationRuntime", "Memory", "SQLiteMemory", "SeatBroker"]),
+                                    "AutomationRuntime", "Memory", "SQLiteMemory", "SeatBroker", "Switches"]),
         driverTests("TargetReader", ["TargetReader"]),
 
         .testTarget(name: "ReplayTests", dependencies: ["Switches", "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore", "LocalMCP", "Memory"], path: "Tests/Replay", resources: [.copy("Fixtures")], swiftSettings: suite),
@@ -442,7 +442,7 @@ let package = Package(
         engine("EngineCore", ["PerceptionCore"], settings: pure),
 
         // The act and observe cycle over the roles: resolve, gesture, verify, outcome. Nonisolated on purpose.
-        engine("Engine", ["EngineCore", "PerceptionCore", "PhaseSignposts"], settings: pure),
+        engine("Engine", ["EngineCore", "PerceptionCore", "PhaseSignposts", "Switches"], settings: pure),
 
         // The foreground `Actuating`: synthetic events at the HID system tap.
         engine("HIDActuation", ["EngineCore"], settings: pure),
@@ -512,7 +512,7 @@ let package = Package(
         // adopted window, routed commands inside a Turn, no activation.
         integration("SeatDriving", ["SeatCore", "SeatSession", "SeatCapture", "SeatInput", "WindowPlacement",
                                     "EngineCore", "PerceptionCore", "Perception", "AccessibilityActions",
-                                    "PhaseSignposts"],
+                                    "PhaseSignposts", "Switches"],
                     settings: pure),
 
         // MARK: Engine tools
@@ -667,7 +667,7 @@ let package = Package(
                     path: "Tests/AgentLoop", swiftSettings: suite),
         .testTarget(name: "ChatTests", dependencies: ["Switches", "ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
-                                                    "TestScratch", "AppAdapters", "TaskRouting", "Capabilities",
+                                                    "TestScratch", "AppAdapters", "TaskRouting", "Capabilities", "Engine", "SeatDriving", "SeatSession",
                                                     "braus-bridge"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
@@ -679,7 +679,7 @@ let package = Package(
             swiftSettings: facility
         ),
         engineTests("EngineCore", ["EngineCore", "PerceptionCore"]),
-        engineTests("Engine", ["Engine", "EngineCore", "PerceptionCore"]),
+        engineTests("Engine", ["Engine", "EngineCore", "PerceptionCore", "Switches"]),
         engineTests("Memory", ["Memory", "EngineCore", "PerceptionCore"],
                     resources: [.copy("Fixtures/misfire-corpus.json"),
                                 .copy("Fixtures/misfire-corpus.md"), .copy("Privacy/Fixtures/sensitivity-cases.json")]),

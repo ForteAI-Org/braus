@@ -15,6 +15,79 @@ final class ResultFormatter {
     nonisolated enum OutcomeArm: String, Sendable { case v1, v2 }
     static var usesOutcomeV2: Bool { SwitchBoard.current.arm("outcome", default: OutcomeArm.v1) == .v2 }
 
+    struct RefusalContext {
+        let sessionID: UUID
+        let windowNumber: Int
+        let tool: String
+        let arguments: JSONValue
+    }
+
+    private struct Refusal: Equatable {
+        let tool: String
+        let arguments: JSONValue
+        let cause: String?
+    }
+
+    /// Keeps only content facts; capture tokens and learned annotations cannot clear a refusal.
+    private struct SceneContent: Equatable {
+        let bundleID: String
+        let windowTitle: String
+        let viewportPixelSize: ViewportPixelSize
+        let sections: [SceneSection]
+        let commands: [String]
+        let outOfViewFields: [OutOfViewField]
+        let elements: [SceneElement]
+
+        init(scene: SceneSnapshot) {
+            bundleID = scene.bundleID
+            windowTitle = scene.windowTitle
+            viewportPixelSize = scene.viewportPixelSize
+            sections = scene.sections
+            commands = scene.commands.sorted()
+            outOfViewFields = scene.outOfViewFields
+            elements = Self.elements(scene)
+        }
+
+        private static func elements(_ scene: SceneSnapshot) -> [SceneElement] {
+            scene.elements.map {
+                SceneElement(id: $0.id, kind: .control, label: $0.label, bounds: $0.bounds,
+                             role: $0.role, state: $0.state, value: $0.value, isEnabled: $0.isEnabled,
+                             container: $0.container, section: $0.section)
+            }.sorted { $0.id < $1.id }
+        }
+    }
+
+    private var refusalSessionID: UUID?
+    private var contents: [Int: SceneContent] = [:]
+    private var refusals: [Int: Refusal] = [:]
+
+    func resetRefusals() {
+        contents.removeAll()
+        refusals.removeAll()
+        refusalSessionID = nil
+    }
+
+    private func useSession(_ id: UUID) {
+        if refusalSessionID != id {
+            resetRefusals()
+            refusalSessionID = id
+        }
+    }
+
+    func noteScene(_ scene: SceneSnapshot, sessionID: UUID, windowNumber: Int) {
+        guard Self.usesOutcomeV2 else { return }
+        useSession(sessionID)
+        let content = SceneContent(scene: scene)
+        if let prior = contents[windowNumber], prior != content { refusals[windowNumber] = nil }
+        contents[windowNumber] = content
+    }
+
+    private static func gestureArguments(_ value: JSONValue) -> JSONValue {
+        guard case .object(var fields) = value else { return value }
+        for key in ["token", "correlation_id", "correlationID", "session", "operation"] { fields.removeValue(forKey: key) }
+        return .object(fields)
+    }
+
     private let session: any AutomationSessionOperating
     private unowned let secrets: ProducerSecrets
     private unowned let sceneText: SceneTextPolicy
@@ -268,7 +341,10 @@ final class ResultFormatter {
         ])
     }
 
-    func outcome(_ outcome: ActOutcome) async -> JSONValue {
+    func outcome(_ outcome: ActOutcome, refusal: RefusalContext? = nil) async -> JSONValue {
+        if let scene = outcome.scene, let id = session.id, let window = session.observedWindowNumber {
+            noteScene(scene, sessionID: id, windowNumber: window)
+        }
         var values: [String: JSONValue] = [
             "status": .string(outcome.kind.rawValue), "message": .string(outcome.message),
             "session": session.id.map { .string($0.uuidString) } ?? .null
@@ -277,7 +353,24 @@ final class ResultFormatter {
                                                                                           session: session, shown: secrets.shownMinimization) }
         if Self.usesOutcomeV2 {
             values.removeValue(forKey: "status")
-            let typed = outcome.outcome
+            var typed = outcome.outcome
+            var cause = outcome.cause
+            if let refusal {
+                useSession(refusal.sessionID)
+                if typed.gesture == .notSent {
+                    let key = Refusal(tool: refusal.tool, arguments: Self.gestureArguments(refusal.arguments), cause: cause)
+                    if typed.recovery != .continue, outcome.noop != .substituted {
+                        if refusals[refusal.windowNumber] == key {
+                            typed = Outcome(gesture: .notSent, effect: .notApplicable, recovery: .doNotRepeat)
+                            cause = "already_refused"
+                        }
+                        refusals[refusal.windowNumber] = key
+                    }
+                } else if typed.gesture == .sent {
+                    refusals[refusal.windowNumber] = nil
+                }
+            }
+            if cause == nil && typed.gesture == .uncertain { cause = "seat_error" }
             if outcome.noop == .listing && outcome.scene == nil {
                 values["observation"] = .string(outcome.message)
             }
@@ -285,7 +378,7 @@ final class ResultFormatter {
             values["effect"] = .string(typed.effect.text)
             values["recovery"] = .string(typed.recovery.text)
             values["_outcome_message"] = .string(OutcomeText.message(
-                OutcomeKey(outcome: typed, verb: "", cause: outcome.cause), label: nil
+                OutcomeKey(outcome: typed, verb: refusal?.tool ?? "", cause: cause, noop: outcome.noop), label: nil
             ))
             return .object(values)
         }
@@ -323,11 +416,14 @@ final class ResultFormatter {
         case .array(let items): return .array(items.map(batchOutcome))
         case .object(var fields):
             if fields["status"]?.string == "error" {
-                let outcome = Outcome.converting(.actedUnverified, check: .unchecked(performed: .uncertain),
+                let cause = fields.removeValue(forKey: "_failure_cause")?.string ?? "thrown"
+                let notSent = cause == "memory_unconfirmed"
+                let outcome = Outcome.converting(notSent ? .refused : .actedUnverified,
+                    check: notSent ? nil : .unchecked(performed: .uncertain),
                     notSent: nil, noop: nil, sceneAttached: fields["observation"] != nil)
                 fields["outcome"] = .string(outcome.row)
                 fields["message"] = .string(OutcomeText.message(
-                    OutcomeKey(outcome: outcome, verb: "", cause: "thrown"), label: nil
+                    OutcomeKey(outcome: outcome, verb: "", cause: cause), label: nil
                 ))
                 fields.removeValue(forKey: "status")
                 fields.removeValue(forKey: "evidence")
@@ -367,14 +463,18 @@ final class ResultFormatter {
         return true
     }
 
-    /// Answers a non-cancellation failure using only catalogue prose for the model.
-    func thrown(_ error: any Error, tool: String, mayHaveActed: Bool) -> JSONValue {
-        let outcome = Outcome.converting(mayHaveActed ? .actedUnverified : .refused,
-                                        check: mayHaveActed ? .unchecked(performed: .uncertain) : nil,
-                                        notSent: nil, noop: nil, sceneAttached: false)
-        let text = outcome.row + "\n" + OutcomeText.message(
-            OutcomeKey(outcome: outcome, verb: tool, cause: "thrown"), label: nil
+    /// Answers a failure with catalogue context and the already minimized detail before any input was sent.
+    func thrown(_ error: any Error, tool: String, mayHaveActed: Bool, minimized: String? = nil) -> JSONValue {
+        let cause = (error as? AutomationFailure)?.cause ?? "thrown"
+        let outcome = mayHaveActed
+            ? Outcome.converting(.actedUnverified, check: .unchecked(performed: .uncertain),
+                                 notSent: nil, noop: nil, sceneAttached: false)
+            : Outcome(gesture: .notSent, effect: .notApplicable,
+                      recovery: cause == "invalid_arguments" ? .retry : .doNotRepeat)
+        var text = outcome.row + "\n" + OutcomeText.message(
+            OutcomeKey(outcome: outcome, verb: tool, cause: cause), label: nil
         )
+        if !mayHaveActed, let minimized { text += "\n" + minimized }
         return MCPRouter.textResult(text).adding("isError", .bool(true))
     }
 

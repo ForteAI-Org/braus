@@ -72,7 +72,7 @@ public struct Outcome: Sendable, Equatable, Hashable {
         case .foundActed:
             gesture = .sent
             effect = check?.condition == .menuItemChosen && check?.verdict == .passed
-                && check?.limits.contains(.commandEffectUnchecked) == true ? .unknown(.notClassified) : .confirmed
+                && check?.method != .controlValue && check?.limits.contains(.commandEffectUnchecked) == true ? .unknown(.notClassified) : .confirmed
         case .actedUnverified:
             gesture = .sent
             let limits = check?.limits ?? []
@@ -104,6 +104,7 @@ public struct Outcome: Sendable, Equatable, Hashable {
             }
         case .actedNoop:
             effect = noop == .statePresent ? .confirmed : .notApplicable
+            if noop == .substituted { recovery = .retry }
         case .honestMiss: recovery = .changeTarget(.notFound)
         case .ambiguous: recovery = .changeTarget(.ambiguous)
         case .dryRun: break

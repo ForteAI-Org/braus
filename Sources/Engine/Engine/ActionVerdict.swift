@@ -9,9 +9,28 @@ import CoreGraphics
 import EngineCore
 import Foundation
 import PerceptionCore
+import Switches
 
 /// Judges action effects and qualifies outcomes from the available evidence.
 extension ActionEngine {
+
+    /// Retains uncertain delivery causes and evidence without importing a platform adapter.
+    static func preservingCause(_ error: any Error, in outcome: ActOutcome) -> ActOutcome {
+        guard let error = error as? GestureEffectUncertain else { return outcome }
+        let prior = outcome.check
+        let check = OperationCheck(
+            condition: prior?.condition ?? .structuralEffect,
+            method: prior?.method ?? .sceneDifference,
+            methodVersion: prior?.methodVersion ?? OperationCheck.engineVersion,
+            verdict: .unknown, expected: prior?.expected, observed: prior?.observed,
+            limits: (prior?.limits ?? []) + [.deliveryUncertain], performed: .uncertain,
+            substitute: prior?.substitute, target: prior?.target
+        )
+        return ActOutcome(outcome.kind, outcome.message, scene: outcome.scene, check: check,
+                          notSent: outcome.notSent, noop: outcome.noop, cause: error.cause)
+    }
+
+    private enum MessageArm: String, Sendable { case v1, v2 }
 
     /// The check of an outcome whose path stated none (`ActOutcome.withStatedCheck`).
     static func checked(_ outcome: ActOutcome) -> ActOutcome {
@@ -49,10 +68,20 @@ extension ActionEngine {
                         limits: [.deliveryUncertain], performed: .uncertain, target: target))
             case .sent(.unattested):
                 await pause(timing.popupCommit)
-                let stillOpen = await surfaces(pid).hasOpenPopup
+                let openSurfaces = await surfaces(pid)
+                let stillOpen = openSurfaces.hasOpenPopup
                 let afterWindow = await perceive(pid)
                 let after = afterWindow?.scene
                 await recordPick(request, element: element, before: perceived, after: afterWindow)
+                if stillOpen, SwitchBoard.current.arm("outcome", default: MessageArm.v1) == .v2,
+                   let afterWindow,
+                   Self.chosenControl(element, before: perceived, after: afterWindow,
+                                      popups: openSurfaces.popups) != nil {
+                    return ActOutcome(.foundActed, "The selected choice is present.", scene: after,
+                        check: OperationCheck(condition: .menuItemChosen, method: .controlValue, verdict: .passed,
+                            expected: element.label, observed: element.label, limits: [.commandEffectUnchecked],
+                            performed: .requested, target: target))
+                }
                 let check = OperationCheck(
                     condition: .menuClosedAfterChoice, method: .windowCensus, verdict: stillOpen ? .failed : .passed,
                     expected: "menu closed", observed: stillOpen ? "menu open" : "menu closed",
@@ -92,6 +121,32 @@ extension ActionEngine {
                         return nil
                 }
         }
+    }
+
+    /// Reads a choice only on its owning control, outside the still-open popup.
+    static func chosenControl(
+        _ choice: SceneElement,
+        before: PerceivedWindow,
+        after: PerceivedWindow,
+        popups: [CGRect]
+    ) -> SceneElement? {
+        let label = LabelText.normalize(choice.label)
+        guard !label.isEmpty, let owner = choice.container else { return nil }
+        let controls = before.scene.elements.filter {
+            $0.id != choice.id && ["AXPopUpButton", "AXComboBox", "AXMenuButton"].contains($0.role ?? "")
+                && (owner == $0.id || LabelText.normalize(owner) == LabelText.normalize($0.label))
+        }
+        guard controls.count == 1, let control = controls.first else { return nil }
+        let matches = after.scene.elements.filter { candidate in
+            guard candidate.id == control.id, candidate.id != choice.id, candidate.role == control.role else { return false }
+            let center = candidate.bounds.center
+            let point = CGPoint(x: after.frame.minX + center.x * after.frame.width,
+                                y: after.frame.minY + center.y * after.frame.height)
+            return !popups.contains { $0.contains(point) }
+                && (LabelText.normalize(candidate.label) == label
+                    || candidate.value.map(LabelText.normalize) == label)
+        }
+        return matches.count == 1 ? matches.first : nil
     }
 
     /// The outcome of an action whose last wait did not settle (`SettleResult`): what was read after it may not be

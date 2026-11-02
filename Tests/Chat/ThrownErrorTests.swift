@@ -16,6 +16,7 @@ struct ThrownErrorTests {
             #expect(result["isError"].bool == true)
             #expect(result["content"].array?.first?["text"].string?
                 .hasPrefix("not_sent · not_applicable · do_not_repeat") == true)
+            #expect(result["content"].array?.first?["text"].string?.contains("session") == true)
         }
     }
 
@@ -42,7 +43,8 @@ struct ThrownErrorTests {
                 "extra": .bool(true)
             ]))
             #expect(result["content"].array?.first?["text"].string?
-                .hasPrefix("not_sent · not_applicable · do_not_repeat") == true)
+                .hasPrefix("not_sent · not_applicable · retry") == true)
+            #expect(result["content"].array?.first?["text"].string?.contains("arguments") == true)
             #expect(session.calls.isEmpty)
         }
     }

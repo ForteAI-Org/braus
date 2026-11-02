@@ -72,6 +72,31 @@ nonisolated public enum RemoteContentActuationRefusal: Error, Sendable, Equatabl
     /// The click is under an `AXWebArea`, where a click stays posted: nothing was done.
     case webContent
 
+    /// A stable structural cause, without application roles, labels or error values.
+    public var code: String {
+        switch self {
+        case .gestureUnmeasured: "gesture_unmeasured"
+        case .pixelDropdown: "pixel_dropdown"
+        case .noElementAtPoint: "no_element_at_point"
+        case .outsideRemoteContent: "outside_remote_content"
+        case .unreadable: "unreadable"
+        case .fieldRequiresClick: "field_requires_click"
+        case .unsupportedRole(let role) where role == kAXRowRole: "row_not_text"
+        case .unsupportedRole(let role) where RemoteContentActuator<AXUIElement>.pressedRoles.contains(role):
+            "control_not_text"
+        case .unsupportedRole(let role) where RemoteContentActuator<AXUIElement>.textRoles.contains(role):
+            "text_field_clicks"
+        case .unsupportedRole: "nothing_clickable"
+        case .opensMenu(let role): role == kAXMenuButtonRole || role == kAXMenuRole ? "opens_menu" : "opens_list"
+        case .actionRefused(_, let code): code == AXError.actionUnsupported.rawValue ? "action_unsupported" : "action_refused"
+        case .selectionNotVerified: "selection_not_verified"
+        case .columnView: "column_view"
+        case .selectedNotOpened: "selected_not_opened"
+        case .wrongElement: "wrong_element"
+        case .webContent: "web_content"
+        }
+    }
+
     /// True for a refusal that follows an effect or may: the effect is unknown,
     /// and the caller reports it as an action, not as a refusal. Finder answered
     /// AXOpen with -25205 on 06/10/2026 and its window then showed the folder,

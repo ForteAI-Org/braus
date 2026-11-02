@@ -137,14 +137,27 @@ final class CallDispatcher {
         )
     }
 
-    private func outcome(_ value: ActOutcome) async -> JSONValue { await formatter.outcome(value) }
+    private func refusalContext(tool: String, arguments: JSONValue) -> ResultFormatter.RefusalContext? {
+        guard let id = session.id, let window = session.observedWindowNumber else { return nil }
+        return ResultFormatter.RefusalContext(sessionID: id, windowNumber: window, tool: tool, arguments: arguments)
+    }
+
+    private func outcome(_ value: ActOutcome, refusal: ResultFormatter.RefusalContext?) async -> JSONValue {
+        let stable = refusal.flatMap {
+            $0.sessionID == session.id && $0.windowNumber == session.observedWindowNumber ? $0 : nil
+        }
+        return await formatter.outcome(value, refusal: stable)
+    }
 
     private func observation(
         _ scene: SceneSnapshot,
         changesOnly: Bool = false,
         nested: Bool = false
     ) async -> JSONValue {
-        await sceneText.observation(
+        if let id = session.id, let window = session.observedWindowNumber {
+            formatter.noteScene(scene, sessionID: id, windowNumber: window)
+        }
+        return await sceneText.observation(
             scene,
             changesOnly: changesOnly,
             nested: nested,
@@ -184,7 +197,7 @@ final class CallDispatcher {
             let (kept, reason) = shown.minimize(text: String(describing: error))
             let failure: any Error = !shown.knowsNoText && reason != nil ? AutomationFailure(kept) : error
             if ResultFormatter.usesOutcomeV2, AgentTool(rawValue: name)?.requiresConfirmedStart == true {
-                return formatter.thrown(failure, tool: name, mayHaveActed: output.mayHaveActed)
+                return formatter.thrown(error, tool: name, mayHaveActed: output.mayHaveActed, minimized: kept)
             }
             throw failure
         }
@@ -319,8 +332,8 @@ final class CallDispatcher {
         if let contract = registeredContract(name) {
             let claim = try claimDataWrites([], capability: contract)
             defer { withExtendedLifetime(claim) {} }
-            if let refusal = try await uncertaintyRefusal([], capability: contract) { throw AutomationFailure(refusal) }
-            if let refusal = try await registeredValueRefusal(contract, arguments) { throw AutomationFailure(refusal) }
+            if let refusal = try await uncertaintyRefusal([], capability: contract) { throw AutomationFailure(refusal, cause: "uncertainty_refusal") }
+            if let refusal = try await registeredValueRefusal(contract, arguments) { throw AutomationFailure(refusal, cause: "historical_value_refusal") }
             return try await answer(name, arguments, recorder: nil)
         }
         let request = try? ToolArguments.callRequest(name, arguments)
@@ -344,8 +357,8 @@ final class CallDispatcher {
             ? (arguments["steps"].array ?? []).compactMap { try? Step(string($0, "operation"), $0).callRequest } : [request]
         let claim = try claimDataWrites(planned)
         defer { withExtendedLifetime(claim) {} }
-        if let refusal = try await uncertaintyRefusal(planned) { throw AutomationFailure(refusal) }
-        if let refusal = await historicalValueRefusal(name, arguments) { throw AutomationFailure(refusal) }
+        if let refusal = try await uncertaintyRefusal(planned) { throw AutomationFailure(refusal, cause: "uncertainty_refusal") }
+        if let refusal = await historicalValueRefusal(name, arguments) { throw AutomationFailure(refusal, cause: "historical_value_refusal") }
         let attribution = request.tool == .batch ? nil : taskCycle.openTask?.attribution
         if case .batch = request {} else {
             do {
@@ -404,7 +417,7 @@ final class CallDispatcher {
     /// The refusal of a call that needs a session when none is open: the call's own contract, never the memory's failure
     /// (live run R01, Workspace event 113, where the agent read it as a memory that was not available).
     static let noSession = AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.noSession.v1"))
-                                             + ModelText.text(.init(rawValue: "call_dispatcher.noSession.v1.2")))
+                                             + ModelText.text(.init(rawValue: "call_dispatcher.noSession.v1.2")), cause: "no_session")
 
     /// The refusal of a call whose start the memory did not confirm: nothing was done.
     private static func unconfirmed(_ error: any Error) -> AutomationFailure {
@@ -412,7 +425,7 @@ final class CallDispatcher {
             (ModelText.text(.init(rawValue: "call_dispatcher.unconfirmed.v1"))
                 + "\(error)"
                 + ModelText.text(.init(rawValue: "call_dispatcher.unconfirmed.v1.2")))
-                + ModelText.text(.init(rawValue: "call_dispatcher.unconfirmed.v1.3"))
+                + ModelText.text(.init(rawValue: "call_dispatcher.unconfirmed.v1.3")), cause: "memory_unconfirmed"
         )
     }
 
@@ -616,12 +629,13 @@ final class CallDispatcher {
         output.modelText       = nil
         let arguments = arguments == .null ? JSONValue.object([:]) : arguments
         guard let definition = toolDefinitions.first(where: { $0["name"].string == name }),
-              let values = arguments.object else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.values.v1"))) }
+              let values = arguments.object else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.values.v1")), cause: "invalid_arguments") }
         if let contract = registeredContract(name) {
             try formatter.transcribe("→ \(name)", arguments)
             if contract.takesSession {
                 guard let id = session.id, arguments["session"].string == id.uuidString else {
-                    throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")))
+                    throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")),
+                        cause: session.id == nil ? "no_session" : "invalid_arguments")
                 }
             }
             let (result, notice) = try await callProvider(contract, arguments: arguments)
@@ -630,15 +644,16 @@ final class CallDispatcher {
         }
         let schema = definition["inputSchema"]
         let allowed = Set(schema["properties"].object?.keys.map { $0 } ?? [])
-        guard Set(values.keys).isSubset(of: allowed) else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.allowed.v1"))) }
+        guard Set(values.keys).isSubset(of: allowed) else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.allowed.v1")), cause: "invalid_arguments") }
         for field in schema["required"].array ?? [] {
-            guard let key = field.string, values[key] != nil else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.key.v1"))) }
+            guard let key = field.string, values[key] != nil else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.key.v1")), cause: "invalid_arguments") }
         }
         try formatter.transcribe("→ \(name)", arguments)
         let value: JSONValue
         if !["status", "windows", "apps", "open_session", "app_capabilities", "app_call"].contains(name) {
             guard let id = session.id, arguments["session"].string == id.uuidString else {
-                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")))
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")),
+                        cause: session.id == nil ? "no_session" : "invalid_arguments")
             }
         }
         switch name {
@@ -805,14 +820,16 @@ final class CallDispatcher {
             output.lastResult = await observed(by: recorder)
         case "menu":
             await noteDispatch()
+            let refusal = refusalContext(tool: name, arguments: arguments)
             let done = try await session.menu(path: string(arguments, "path"))
-            value = await outcome(done)
+            value = await outcome(done, refusal: refusal)
             output.lastResult = .outcome(done.kind, message: done.message)
             output.lastCheck  = done.withStatedCheck.check
         case "press":
             await noteDispatch()
+            let refusal = refusalContext(tool: name, arguments: arguments)
             let done = try await session.press(button: string(arguments, "button"))
-            value = await outcome(done)
+            value = await outcome(done, refusal: refusal)
             output.lastResult = .outcome(done.kind, message: done.message)
             output.lastCheck  = done.withStatedCheck.check
         case "collect_posts":
@@ -826,8 +843,9 @@ final class CallDispatcher {
             value = ResultFormatter.collection(collected)
         case "act", "select", "type_text", "insert_text", "press_key", "scroll", "drag", "context_menu":
             let step = try Step(name, arguments)
+            let refusal = refusalContext(tool: name, arguments: arguments)
             let done = try await perform(step, dispatch: CallScope.current.dispatch(of: step.texts, at: 0))
-            value = await outcome(done)
+            value = await outcome(done, refusal: refusal)
             output.lastResult = .outcome(done.kind, message: done.message)
             output.lastCheck  = done.withStatedCheck.check
         case "batch":
@@ -881,14 +899,17 @@ final class CallDispatcher {
                         try await child.startStep()
                     } catch {
                         complete = false
-                        results.append(.object(["status": .string("error"),
+                        var failure: [String: JSONValue] = ["status": .string("error"),
                                                 "message": .string(Self.unconfirmed(error).description),
-                                                "guidance": .string(ModelText.text(.init(rawValue: "call_dispatcher.child.v1")))]))
+                                                "guidance": .string(ModelText.text(.init(rawValue: "call_dispatcher.child.v1")))]
+                        if ResultFormatter.usesOutcomeV2 { failure["_failure_cause"] = .string("memory_unconfirmed") }
+                        results.append(.object(failure))
                         try formatter.transcribe("← batch step \(index + 1) not run: \(error)")
                         break
                     }
                 }
                 started += 1
+                let refusal = refusalContext(tool: try string(rows[index], "operation"), arguments: rows[index])
                 let result: ActOutcome
                 let dispatch = CallScope.current.dispatch(of: step.texts, at: index)
                 do { result = try await CallRecorder.$current.withValue(child) { try await self.perform(step, dispatch: dispatch) } }
@@ -913,7 +934,7 @@ final class CallDispatcher {
                     complete = false
                     break
                 }
-                let value = await outcome(result)
+                let value = await outcome(result, refusal: refusal)
                 results.append(value)
                 do {
                     try await child?.end(.completed, result: .outcome(result.kind, message: result.message),
@@ -943,6 +964,7 @@ final class CallDispatcher {
             output.lastResult = .batch(stopped: !complete, attempted: started, verified: verified)
         case "close_session":
             await session.close()
+            formatter.resetRefusals()
             var result: [String: JSONValue] = ["status": .string("closed"),
                                                "message": .string(ModelText.text(.init(rawValue: "call_dispatcher.result.v1")))]
             if let warning = session.closeWarning { result["warning"] = .string(warning) }

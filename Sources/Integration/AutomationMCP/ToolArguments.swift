@@ -7,6 +7,10 @@ import PerceptionCore
 
 /// ToolArguments decodes a complete call before any effects begin.
 enum ToolArguments {
+    private static func invalid(_ message: String) -> AutomationFailure {
+        AutomationFailure(message, cause: "invalid_arguments")
+    }
+
     /// The request of a call as the contract keeps it, from the arguments `answer` will decode the
     /// same way; it throws for arguments the call itself would refuse.
     static func callRequest(_ name: String, _ arguments: JSONValue) throws -> AgentCallRequest {
@@ -36,7 +40,7 @@ enum ToolArguments {
 
     static func requiredString(_ object: JSONValue, _ key: String) throws -> String {
         guard let value = object[key].string, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw AutomationFailure("\(key) must be a nonempty string.")
+            throw ToolArguments.invalid("\(key) must be a nonempty string.")
         }
         return value
     }
@@ -70,7 +74,7 @@ enum ToolArguments {
     /// A supplied title is exact, including an empty native title; omission requests the main window.
     static func windowTitle(_ object: JSONValue) throws -> String? {
         guard let supplied = object.object?["window"] else { return nil }
-        guard let title = supplied.string else { throw AutomationFailure("window must be a string.") }
+        guard let title = supplied.string else { throw ToolArguments.invalid("window must be a string.") }
         return title
     }
 
@@ -99,7 +103,7 @@ enum ToolArguments {
         guard object.object?[key] != nil else { return fallback }
         guard case .number(let value) = object[key], value.rounded() == value,
               value >= Double(range.lowerBound), value <= Double(range.upperBound) else {
-            throw AutomationFailure("\(key) must be a whole number from \(range.lowerBound) to \(range.upperBound).")
+            throw ToolArguments.invalid("\(key) must be a whole number from \(range.lowerBound) to \(range.upperBound).")
         }
         return Int(value)
     }
@@ -108,7 +112,7 @@ enum ToolArguments {
     private static func offset(_ object: JSONValue, _ key: String) throws -> Double {
         guard object.object?[key] != nil else { return 0 }
         guard case .number(let value) = object[key], abs(value) <= maximumOffset else {
-            throw AutomationFailure("\(key) must be a number of points within ±\(Int(maximumOffset)).")
+            throw ToolArguments.invalid("\(key) must be a number of points within ±\(Int(maximumOffset)).")
         }
         return value
     }
@@ -147,38 +151,38 @@ enum ToolArguments {
         init(_ name: String, _ args: JSONValue) throws {
             guard (["act", "select"] + inputTools).contains(name),
                   let definition = AutomationTools.definitions.first(where: { $0["name"].string == name }) else {
-                throw AutomationFailure("batch supports act, select, type_text, insert_text, press_key, scroll, drag and "
+                throw ToolArguments.invalid("batch supports act, select, type_text, insert_text, press_key, scroll, drag and "
                                         + "context_menu only.")
             }
             let permitted = Set(definition["inputSchema"]["properties"].object?.keys.map { $0 } ?? [])
                 .union(["operation"])
             guard let object = args.object, Set(object.keys).isSubset(of: permitted) else {
-                throw AutomationFailure("Unknown step argument.")
+                throw ToolArguments.invalid("Unknown step argument.")
             }
             let section = try optionalString(args, "section")
             switch name {
             case "type_text":
                 guard let text = args["text"].string, !text.isEmpty else {
-                    throw AutomationFailure("text must be a nonempty string.")
+                    throw ToolArguments.invalid("text must be a nonempty string.")
                 }
                 if object["replace"] != nil, args["replace"].bool == nil {
-                    throw AutomationFailure("replace must be true or false.")
+                    throw ToolArguments.invalid("replace must be true or false.")
                 }
                 self = .input(.typeText(text, into: try reference(args, "target"),
                                         replacing: args["replace"].bool ?? true), section: section)
             case "insert_text":
                 guard let text = args["text"].string, !text.isEmpty else {
-                    throw AutomationFailure("text must be a nonempty string.")
+                    throw ToolArguments.invalid("text must be a nonempty string.")
                 }
                 self = .input(.insertText(text, expecting: try optionalString(args, "expected_value")), section: nil)
             case "press_key":
                 guard let key = KeyChord.Name(try requiredString(args, "key")) else {
-                    throw AutomationFailure("key must be return, tab, escape, space, delete, an arrow, a letter, a digit, / or ~.")
+                    throw ToolArguments.invalid("key must be return, tab, escape, space, delete, an arrow, a letter, a digit, / or ~.")
                 }
                 var modifiers: KeyModifiers = []
                 if object["modifiers"] != nil {
                     guard let tokens = args["modifiers"].array else {
-                        throw AutomationFailure("modifiers must be a list of cmd, shift, opt and ctrl.")
+                        throw ToolArguments.invalid("modifiers must be a list of cmd, shift, opt and ctrl.")
                     }
                     for token in tokens {
                         switch token.string {
@@ -186,7 +190,7 @@ enum ToolArguments {
                         case "shift": modifiers.insert(.shift)
                         case "opt"  : modifiers.insert(.option)
                         case "ctrl" : modifiers.insert(.control)
-                        default     : throw AutomationFailure("modifiers must be a list of cmd, shift, opt and ctrl.")
+                        default     : throw ToolArguments.invalid("modifiers must be a list of cmd, shift, opt and ctrl.")
                         }
                     }
                 }
@@ -195,7 +199,7 @@ enum ToolArguments {
             case "scroll":
                 let direction = try requiredString(args, "direction")
                 guard direction == "up" || direction == "down" else {
-                    throw AutomationFailure("direction must be up or down.")
+                    throw ToolArguments.invalid("direction must be up or down.")
                 }
                 let lines = try whole(args, "lines", 1...InputRequest.maximumScrollLines, default: 3)
                 self = .input(.scroll(lines: direction == "up" ? lines : -lines, over: try optionalReference(args, "target")),
@@ -204,10 +208,10 @@ enum ToolArguments {
                 let hasOffset = object["dx"] != nil || object["dy"] != nil
                 let end: InputRequest.DragEnd
                 if let target = try optionalReference(args, "to") {
-                    guard !hasOffset else { throw AutomationFailure("drag takes to or dx/dy, not both.") }
+                    guard !hasOffset else { throw ToolArguments.invalid("drag takes to or dx/dy, not both.") }
                     end = .target(target)
                 } else {
-                    guard hasOffset else { throw AutomationFailure("drag needs to, or dx and dy.") }
+                    guard hasOffset else { throw ToolArguments.invalid("drag needs to, or dx and dy.") }
                     end = .offset(dx: try offset(args, "dx"), dy: try offset(args, "dy"))
                 }
                 self = .input(.drag(from: try reference(args, "from"), to: end), section: section)
@@ -218,15 +222,15 @@ enum ToolArguments {
                 self = .select(try reference(args, "control"), try requiredString(args, "item"))
             default:
                 let rawVerb = object["verb"] == nil ? "click" : try requiredString(args, "verb")
-                guard let verb = ActionVerb(rawValue: rawVerb) else { throw AutomationFailure("Unsupported action verb.") }
+                guard let verb = ActionVerb(rawValue: rawVerb) else { throw ToolArguments.invalid("Unsupported action verb.") }
                 let state: ControlState?
                 if object["value"] != nil {
                     guard let value = ControlState(rawValue: try requiredString(args, "value")),
-                          value == .on || value == .off else { throw AutomationFailure("value must be on or off.") }
+                          value == .on || value == .off else { throw ToolArguments.invalid("value must be on or off.") }
                     state = value
                 } else { state = nil }
-                if verb == .setToggle, state == nil { throw AutomationFailure("set_toggle requires value on or off.") }
-                if verb != .setToggle, state != nil { throw AutomationFailure("value is only valid for set_toggle.") }
+                if verb == .setToggle, state == nil { throw ToolArguments.invalid("set_toggle requires value on or off.") }
+                if verb != .setToggle, state != nil { throw ToolArguments.invalid("value is only valid for set_toggle.") }
                 self = .act(try reference(args, "target"), verb, section, state)
             }
         }
