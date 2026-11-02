@@ -504,7 +504,7 @@ let package = Package(
         // adopted window, routed commands inside a Turn, no activation.
         integration("SeatDriving", ["SeatCore", "SeatSession", "SeatCapture", "SeatInput", "WindowPlacement",
                                     "EngineCore", "PerceptionCore", "Perception", "AccessibilityActions",
-                                    "PhaseSignposts"],
+                                    "PhaseSignposts", "IncrementalText"],
                     settings: pure),
 
         // MARK: Engine tools
@@ -588,7 +588,7 @@ let package = Package(
         .testTarget(name: "AppAdaptersTests", dependencies: ["AppAdapters", "EngineCore", "LocalMCP"],
                     path: "Tests/Mac/AppAdaptersTests", swiftSettings: suite),
         .testTarget(name: "MacDrivingTests", dependencies: ["MacDriving", "MacDriver", "EngineCore", "PerceptionCore",
-                                                          "Perception"],
+                                                          "Perception", "IncrementalText"],
                     path: "Tests/Mac/MacDrivingTests", resources: [.copy("Trees")], swiftSettings: suite),
         .testTarget(name: "MacSessionTests", dependencies: ["MacSession", "Router", "MacDriving", "MacDriver", "AutomationRuntime",
                                                           "AutomationMCP", "TaskRouting", "EngineCore", "PerceptionCore",
