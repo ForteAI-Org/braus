@@ -1,0 +1,601 @@
+{
+  "actions" : [
+
+  ],
+  "children" : [
+    {
+      "actions" : [
+        "AXPress"
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          237,
+          92
+        ],
+        [
+          92,
+          34
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        0
+      ],
+      "role" : "AXButton",
+      "title" : "Play"
+    },
+    {
+      "actions" : [
+        "AXShowMenu",
+        "AXConfirm"
+      ],
+      "children" : [
+        {
+          "actions" : [
+            "AXPress"
+          ],
+          "children" : [
+
+          ],
+          "descriptionText" : "Search",
+          "frame" : [
+            [
+              357,
+              97.5
+            ],
+            [
+              21,
+              24
+            ]
+          ],
+          "isEnabled" : true,
+          "isFocused" : false,
+          "path" : [
+            1,
+            0
+          ],
+          "role" : "AXButton"
+        }
+      ],
+      "descriptionText" : "Search",
+      "frame" : [
+        [
+          353,
+          92
+        ],
+        [
+          262,
+          34
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        1
+      ],
+      "placeholder" : "Search",
+      "role" : "AXTextField",
+      "subrole" : "AXSearchField",
+      "value" : ""
+    },
+    {
+      "actions" : [
+        "AXShowMenu",
+        "AXPress"
+      ],
+      "children" : [
+
+      ],
+      "descriptionText" : "Zoom",
+      "frame" : [
+        [
+          653,
+          92
+        ],
+        [
+          152,
+          34
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        2
+      ],
+      "role" : "AXPopUpButton",
+      "value" : "100%"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          243,
+          230
+        ],
+        [
+          108,
+          26
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        3
+      ],
+      "role" : "AXStaticText",
+      "value" : "Track 1"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          243,
+          310
+        ],
+        [
+          108,
+          26
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        4
+      ],
+      "role" : "AXStaticText",
+      "value" : "Track 2"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          243,
+          390
+        ],
+        [
+          108,
+          26
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        5
+      ],
+      "role" : "AXStaticText",
+      "value" : "Track 3"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          243,
+          470
+        ],
+        [
+          108,
+          26
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        6
+      ],
+      "role" : "AXStaticText",
+      "value" : "Track 4"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          375,
+          172
+        ],
+        [
+          68,
+          26
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        7
+      ],
+      "role" : "AXStaticText",
+      "value" : "00:00"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          510,
+          172
+        ],
+        [
+          68,
+          26
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        8
+      ],
+      "role" : "AXStaticText",
+      "value" : "00:05"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          645,
+          172
+        ],
+        [
+          68,
+          26
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        9
+      ],
+      "role" : "AXStaticText",
+      "value" : "00:10"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          780,
+          172
+        ],
+        [
+          68,
+          26
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        10
+      ],
+      "role" : "AXStaticText",
+      "value" : "00:15"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          915,
+          172
+        ],
+        [
+          68,
+          26
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        11
+      ],
+      "role" : "AXStaticText",
+      "value" : "00:20"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          1050,
+          172
+        ],
+        [
+          68,
+          26
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        12
+      ],
+      "role" : "AXStaticText",
+      "value" : "00:25"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          1185,
+          172
+        ],
+        [
+          68,
+          26
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        13
+      ],
+      "role" : "AXStaticText",
+      "value" : "00:30"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          374,
+          205
+        ],
+        [
+          900,
+          320
+        ]
+      ],
+      "identifier" : "canvas.timeline",
+      "isFocused" : false,
+      "path" : [
+        14
+      ],
+      "role" : "AXGroup"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          374,
+          565
+        ],
+        [
+          620,
+          160
+        ]
+      ],
+      "identifier" : "canvas.image",
+      "isFocused" : false,
+      "path" : [
+        15
+      ],
+      "role" : "AXImage"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          1034,
+          565
+        ],
+        [
+          240,
+          160
+        ]
+      ],
+      "identifier" : "canvas.empty",
+      "isFocused" : false,
+      "path" : [
+        16
+      ],
+      "role" : "AXGroup"
+    },
+    {
+      "actions" : [
+        "AXPress"
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          222,
+          41
+        ],
+        [
+          16,
+          16
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        17
+      ],
+      "role" : "AXButton",
+      "subrole" : "AXCloseButton"
+    },
+    {
+      "actions" : [
+        "AXPress",
+        "AXShowMenu"
+      ],
+      "children" : [
+        {
+          "actions" : [
+
+          ],
+          "children" : [
+
+          ],
+          "frame" : [
+            [
+              269,
+              42
+            ],
+            [
+              14,
+              14
+            ]
+          ],
+          "isFocused" : false,
+          "path" : [
+            18,
+            0
+          ],
+          "role" : "AXGroup"
+        }
+      ],
+      "frame" : [
+        [
+          268,
+          41
+        ],
+        [
+          16,
+          16
+        ]
+      ],
+      "isEnabled" : false,
+      "isFocused" : false,
+      "path" : [
+        18
+      ],
+      "role" : "AXButton",
+      "subrole" : "AXZoomButton"
+    },
+    {
+      "actions" : [
+        "AXPress"
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          245,
+          41
+        ],
+        [
+          16,
+          16
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        19
+      ],
+      "role" : "AXButton",
+      "subrole" : "AXMinimizeButton"
+    },
+    {
+      "actions" : [
+
+      ],
+      "children" : [
+
+      ],
+      "frame" : [
+        [
+          296,
+          41
+        ],
+        [
+          100,
+          16
+        ]
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "path" : [
+        20
+      ],
+      "role" : "AXStaticText",
+      "value" : "Canvas Fixture"
+    }
+  ],
+  "frame" : [
+    [
+      214,
+      33
+    ],
+    [
+      1100,
+      732
+    ]
+  ],
+  "isFocused" : false,
+  "path" : [
+
+  ],
+  "role" : "AXWindow",
+  "subrole" : "AXDialog",
+  "title" : "Canvas Fixture"
+}
