@@ -45,7 +45,7 @@ final class TaskCycleHandler {
             return
         }
         guard let directory = session.memoryDirectory else {
-            throw AutomationFailure("The stopped task could not be closed because its memory is unavailable.")
+            throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle_handler.directory.v1")))
         }
         let owner = try TaskProducer(source: interruptedProducer.source, streamID: interruptedProducer.streamID)
         let draft = try TaskCheckpointDraft(
@@ -58,9 +58,11 @@ final class TaskCycleHandler {
         pendingCandidate = nil
         remindedCandidate = nil
         self.interruptedProducer = nil
-        stoppedTaskNotice = "Braus stopped task \(current.taskID) and closed its attempt as abandoned, not completed. "
-            + "Begin a new task for the current request, including any remaining work toward the same goal. "
-            + "The abandoned task cannot be resumed. Observe current effects first; never repeat an uncertain action."
+        stoppedTaskNotice = (ModelText.text(.init(rawValue: "task_cycle_handler.draft.v1"))
+            + "\(current.taskID)"
+            + ModelText.text(.init(rawValue: "task_cycle_handler.draft.v1.2")))
+            + ModelText.text(.init(rawValue: "task_cycle_handler.draft.v1.3"))
+            + ModelText.text(.init(rawValue: "task_cycle_handler.draft.v1.4"))
         try formatter.transcribe("Braus stopped task", .object(["task": .string(current.taskID), "outcome": .string("abandoned")]))
     }
 
@@ -93,24 +95,28 @@ final class TaskCycleHandler {
     func takeInterpretationReminder() -> String? {
         guard let candidate = pendingCandidate, candidate != remindedCandidate else { return nil }
         remindedCandidate = candidate
-        return "Braus: memory_task answered candidate \(candidate), and you did not interpret it, so nothing of that "
-            + "task is learned. Call memory_task interpret with that candidate now, as its answer describes. Then "
-            + "reply with one short line."
+        return (ModelText.text(.init(rawValue: "task_cycle_handler.candidate.v1"))
+            + "\(candidate)"
+            + ModelText.text(.init(rawValue: "task_cycle_handler.candidate.v1.2")))
+            + ModelText.text(.init(rawValue: "task_cycle_handler.candidate.v1.3"))
+            + ModelText.text(.init(rawValue: "task_cycle_handler.candidate.v1.4"))
     }
 
     /// The line an answer with a candidate leads with.
     static func interpretNext(_ candidate: String) -> String {
-        "Call memory_task interpret with candidate \(candidate) in your next call, before you answer the person: "
-            + "until then nothing of this task is learned."
+        (ModelText.text(.init(rawValue: "task_cycle_handler.interpretNext.v1"))
+            + "\(candidate)"
+            + ModelText.text(.init(rawValue: "task_cycle_handler.interpretNext.v1.2")))
+            + ModelText.text(.init(rawValue: "task_cycle_handler.interpretNext.v1.3"))
     }
 
     /// What an end answer asks before the agent answers the person. A document the task changed and kept only as a
     /// copy is still open with the change; the app quit when the session ends then stops on its save prompt in the
     /// person's seat, where the next task finds it. In the instructions alone it was not followed (PhotoCraft,
     /// Sonnet 5.5, 14/10/2026); at the end of the task it is the next thing to do.
-    static let closeChangedCopies = "Before you answer the person: a document this task changed and saved only as a "
-        + "copy (Save a Copy, Export) is still open with the change. Close it now from the File menu (Close) and "
-        + "choose not to save (Don't Save). Leave any other window or prompt as it is."
+    static let closeChangedCopies = ModelText.text(.init(rawValue: "task_cycle_handler.closeChangedCopies.v1"))
+        + ModelText.text(.init(rawValue: "task_cycle_handler.closeChangedCopies.v1.2"))
+        + ModelText.text(.init(rawValue: "task_cycle_handler.closeChangedCopies.v1.3"))
 
     /// Interprets, as Braus, the candidate of a completed task the agent left uninterpreted after its reminder
     /// (`ProcedureProducer.brausInterpretation`), through the same `memory_task interpret` as the agent's, so the
@@ -165,8 +171,10 @@ final class TaskCycleHandler {
             isError  = true
         } catch {
             answered = Self.taskFailure(MemoryTaskTool.Failure(code: "memory_unavailable",
-                message: "Braus's memory did not record the task (\(MemoryService.describe(error))). App actions still "
-                    + "require the memory; use status."))
+                message: (ModelText.text(.init(rawValue: "task_cycle_handler.error.v1"))
+                    + "\(MemoryService.describe(error))"
+                    + ModelText.text(.init(rawValue: "task_cycle_handler.error.v1.2")))
+                    + ModelText.text(.init(rawValue: "task_cycle_handler.error.v1.3"))))
             isError  = true
         }
         try formatter.transcribe("← \(MemoryTaskTool.name)", answered)

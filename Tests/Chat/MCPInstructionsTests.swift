@@ -24,7 +24,7 @@ struct MCPInstructionsTests {
     }
 
     @Test func externalTextFitsTheClients() {
-        let full = AutomationTools.mcpInstructions(.full)
+        let full = ModelText.text(.init(rawValue: "tool_catalogue.mcpClientInstructions.v1"))
         let firstLine = AutomationTools.mcpInstructions(.firstLine)
         #expect(full.count <= 2000)
         #expect(firstLine.count <= 200)
@@ -38,7 +38,7 @@ struct MCPInstructionsTests {
     }
 
     @Test func externalTextNamesNoAppAndNoClientTool() {
-        let full = AutomationTools.mcpInstructions(.full).lowercased()
+        let full = ModelText.text(.init(rawValue: "tool_catalogue.mcpClientInstructions.v1")).lowercased()
         for forbidden in ["Pro Tools", "Finder", "Safari", "TextEdit", "Preview", "Chrome", "AppleScript",
                           "shell", "You are", "browser", "web"] {
             #expect(!full.contains(forbidden.lowercased()))
@@ -58,7 +58,7 @@ struct MCPInstructionsTests {
     }
 
     @Test func externalTextNamesOnlyServedTools() throws {
-        let full = AutomationTools.mcpInstructions(.full)
+        let full = ModelText.text(.init(rawValue: "tool_catalogue.mcpClientInstructions.v1"))
         let names = Set(AutomationTools.definitions.compactMap { $0["name"].string })
         for name in ["open_session", "observe", "memory_task"] {
             #expect(full.contains(name))
@@ -72,7 +72,7 @@ struct MCPInstructionsTests {
     }
 
     @Test func externalTextResumesWithAFullScene() {
-        let full = AutomationTools.mcpInstructions(.full)
+        let full = ModelText.text(.init(rawValue: "tool_catalogue.mcpClientInstructions.v1"))
         #expect(full.contains("After an interruption, a reconnect or a compaction, call observe with full true before acting."))
         #expect(full.contains("memory_task status says where the task stands, not what the screen shows"))
         #expect(full.contains("It does not replace observe"))

@@ -233,7 +233,7 @@ public final class AutomationTools {
     }
 
     /// MCPInstructionsForm selects the complete client guidance or its standalone opening line.
-    public enum MCPInstructionsForm: Sendable {
+    public nonisolated enum MCPInstructionsForm: Sendable, Hashable {
         case firstLine
         case full
     }

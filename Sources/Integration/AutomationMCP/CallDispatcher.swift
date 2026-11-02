@@ -231,8 +231,8 @@ final class CallDispatcher {
             // A failed call reaches the model without its scenes, so the baseline stays the one it read.
             sceneText.keepBaseline(before)
             let guidance = session.id == nil
-                ? "Use status and list current windows before opening a new session."
-                : "Observe before any retry."
+                ? ModelText.text(.init(rawValue: "call_dispatcher.guidance.v1"))
+                : ModelText.text(.init(rawValue: "call_dispatcher.guidance.v1.2"))
             try formatter.transcribe("← \(name) error: \(error). \(guidance)")
             throw error
         }
@@ -256,10 +256,10 @@ final class CallDispatcher {
             if AgentTool(rawValue: name)?.requiresConfirmedStart == true {
                 // The call itself refuses such a request before any effect: let it say why, unrecorded.
                 _ = try await answer(name, arguments, recorder: nil)
-                throw AutomationFailure("Braus's memory cannot represent this call, so it was not run.")
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.it.v1")))
             }
             return try finish(name, try await answer(name, arguments, recorder: nil),
-                          notice: "This call was not recorded: Braus's memory cannot represent its arguments.")
+                          notice: ModelText.text(.init(rawValue: "call_dispatcher.it.v1.2")))
         }
         // The contract refuses such a call before the memory is asked; it is said as what it is, nothing run or recorded.
         if request.tool.requiresConfirmedStart, request.tool.takesSession, session.id == nil { throw Self.noSession }
@@ -280,7 +280,9 @@ final class CallDispatcher {
                 let value = try await CallRecorder.$current.withValue(nil) {
                     try await self.answer(name, arguments, recorder: nil)
                 }
-                return try finish(name, value, notice: "This call was not recorded: \(error).")
+                return try finish(name, value, notice: (ModelText.text(.init(rawValue: "call_dispatcher.value.v1"))
+                    + "\(error)"
+                    + ModelText.text(.init(rawValue: "call_dispatcher.value.v1.2"))))
             }
         }
         await producerSecrets.collect(from: recorder)
@@ -292,7 +294,9 @@ final class CallDispatcher {
             let notice: String?
             do {
                 try await recorder.end(.completed, result: output.lastResult, tool: request.tool, check: output.lastCheck)
-                notice = await recorder.recordingGap.map { "Part of this call was not recorded: \($0)." }
+                notice = await recorder.recordingGap.map { (ModelText.text(.init(rawValue: "call_dispatcher.notice.v1"))
+                    + "\($0)"
+                    + ModelText.text(.init(rawValue: "call_dispatcher.notice.v1.2"))) }
             } catch {
                 notice = Self.suspended(error)
             }
@@ -305,7 +309,9 @@ final class CallDispatcher {
                 try await recorder.end(cancelled ? .cancelled : .failed,
                                        result: cancelled ? nil : .error(message: String(describing: error)),
                                        tool: request.tool, check: output.lastCheck)
-                notice = await recorder.recordingGap.map { "Part of this call was not recorded: \($0)." }
+                notice = await recorder.recordingGap.map { (ModelText.text(.init(rawValue: "call_dispatcher.notice.v1.3"))
+                    + "\($0)"
+                    + ModelText.text(.init(rawValue: "call_dispatcher.notice.v1.4"))) }
             } catch let failure {
                 notice = Self.suspended(failure)
             }
@@ -319,21 +325,25 @@ final class CallDispatcher {
 
     /// The refusal of a call that needs a session when none is open: the call's own contract, never the memory's failure
     /// (live run R01, Workspace event 113, where the agent read it as a memory that was not available).
-    static let noSession = AutomationFailure("This call needs an open session and none is open, so nothing was done. Open one "
-                                             + "with open_session, then call again.")
+    static let noSession = AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.noSession.v1"))
+                                             + ModelText.text(.init(rawValue: "call_dispatcher.noSession.v1.2")))
 
     /// The refusal of a call whose start the memory did not confirm: nothing was done.
     private static func unconfirmed(_ error: any Error) -> AutomationFailure {
         AutomationFailure(
-            "Braus's memory did not confirm this call before it could act (\(error)), so nothing was done. "
-                + "Braus records every action before taking it; use status, and try again once the memory is available."
+            (ModelText.text(.init(rawValue: "call_dispatcher.unconfirmed.v1"))
+                + "\(error)"
+                + ModelText.text(.init(rawValue: "call_dispatcher.unconfirmed.v1.2")))
+                + ModelText.text(.init(rawValue: "call_dispatcher.unconfirmed.v1.3"))
         )
     }
 
     /// What the answer says when the end of a call that may have acted could not be saved.
     private static func suspended(_ error: any Error) -> String {
-        "The action ran, but Braus's memory could not save its record (\(error)). Do not repeat the action: observe instead. "
-            + "Braus takes no further action until the record is saved."
+        (ModelText.text(.init(rawValue: "call_dispatcher.suspended.v1"))
+            + "\(error)"
+            + ModelText.text(.init(rawValue: "call_dispatcher.suspended.v1.2")))
+            + ModelText.text(.init(rawValue: "call_dispatcher.suspended.v1.3"))
     }
 
     private func gatesUncertainty(_ request: AgentCallRequest) -> Bool {
@@ -355,7 +365,7 @@ final class CallDispatcher {
         switch claims.acquire(key, owner: UUID()) {
             case .success(let hold): return hold
             case .failure:
-                throw AutomationFailure("Not run: another write in this producer context is running, or its coordination lock is unavailable. Wait for it to finish; nothing was sent.")
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.hold.v1")))
         }
     }
 
@@ -378,12 +388,18 @@ final class CallDispatcher {
             for request in requests where gatesUncertainty(request) {
                 let repeats = call.isRepeated(by: request)
                 if repeats {
-                    return "Not run: it repeats call \(call.eventID), whose effect is not known (\(call.reason.rawValue)). Read "
-                        + "whether it happened, then memory_task reconcile {call, finding, evidence}; nothing was sent."
+                    return (ModelText.text(.init(rawValue: "call_dispatcher.repeats.v1"))
+                        + "\(call.eventID)"
+                        + ModelText.text(.init(rawValue: "call_dispatcher.repeats.v1.2"))
+                        + "\(call.reason.rawValue)"
+                        + ModelText.text(.init(rawValue: "call_dispatcher.repeats.v1.3")))
+                        + ModelText.text(.init(rawValue: "call_dispatcher.repeats.v1.4"))
                 }
                 if call.isDepended(on: request) {
-                    return "Not run: it acts on what call \(call.eventID) reached, whose effect is not known. Read it first, "
-                        + "then memory_task reconcile {call, finding, evidence}; nothing was sent."
+                    return (ModelText.text(.init(rawValue: "call_dispatcher.repeats.v1.5"))
+                        + "\(call.eventID)"
+                        + ModelText.text(.init(rawValue: "call_dispatcher.repeats.v1.6")))
+                        + ModelText.text(.init(rawValue: "call_dispatcher.repeats.v1.7"))
                 }
             }
         }
@@ -401,8 +417,10 @@ final class CallDispatcher {
         guard !values.isEmpty,
               let found = try? await MemoryService.shared(for: directory).historicalValues(values, attemptID: task.attemptID),
               let value = found.first else { return nil }
-        return "Not run: '\(value)' is an identifier another run produced, and nothing in this run read or named it. Read it "
-            + "in this run (or name it as an input of the task) before using it; nothing was sent."
+        return (ModelText.text(.init(rawValue: "call_dispatcher.value.v1.3"))
+            + "\(value)"
+            + ModelText.text(.init(rawValue: "call_dispatcher.value.v1.4")))
+            + ModelText.text(.init(rawValue: "call_dispatcher.value.v1.5"))
     }
 
     /// The recorder of one call over this session's memory, under the producer and its current trace.
@@ -450,18 +468,18 @@ final class CallDispatcher {
         output.modelText       = nil
         let arguments = arguments == .null ? JSONValue.object([:]) : arguments
         guard let definition = toolDefinitions.first(where: { $0["name"].string == name }),
-              let values = arguments.object else { throw AutomationFailure("Invalid tool arguments.") }
+              let values = arguments.object else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.values.v1"))) }
         let schema = definition["inputSchema"]
         let allowed = Set(schema["properties"].object?.keys.map { $0 } ?? [])
-        guard Set(values.keys).isSubset(of: allowed) else { throw AutomationFailure("Unknown tool argument.") }
+        guard Set(values.keys).isSubset(of: allowed) else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.allowed.v1"))) }
         for field in schema["required"].array ?? [] {
-            guard let key = field.string, values[key] != nil else { throw AutomationFailure("A required argument is missing.") }
+            guard let key = field.string, values[key] != nil else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.key.v1"))) }
         }
         try formatter.transcribe("→ \(name)", arguments)
         let value: JSONValue
         if !["status", "windows", "apps", "open_session", "app_capabilities", "app_call"].contains(name) {
             guard let id = session.id, arguments["session"].string == id.uuidString else {
-                throw AutomationFailure("Session ID is missing or stale. Use status; open a session if necessary and observe again.")
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")))
             }
         }
         switch name {
@@ -489,8 +507,11 @@ final class CallDispatcher {
                     guard let first = offered.first else { throw error }
                     value = .object(["applications": .array([]),
                                      "not_running": .array(offered.prefix(3).map(ToolArguments.candidate)),
-                                     "next": .string("\(first.name) is not running, so it has no window: open it with open_session "
-                                                     + "{app: \"\(first.bundleID)\"}.")])
+                                     "next": .string(("\(first.name)" + ModelText.text(.init(rawValue: "call_dispatcher.first.v1")))
+
+                                                         + (ModelText.text(.init(rawValue: "answer.CallDispatcher.first.v1.fragment.0"))
+                                                         + "\(first.bundleID)"
+                                                         + ModelText.text(.init(rawValue: "answer.CallDispatcher.first.v1.fragment.2"))))])
                     output.lastResult = .listing(ListingResult(kind: .windows, applications: []))
                     break
                 }
@@ -516,7 +537,7 @@ final class CallDispatcher {
             let shown = found.prefix(ToolArguments.applicationLimit)
             var listing: [String: JSONValue] = ["applications": .array(shown.map(ToolArguments.candidate))]
             if found.count > shown.count {
-                listing["more"] = .string("\(found.count - shown.count) more not listed; pass a query to find them.")
+                listing["more"] = .string(("\(found.count - shown.count)" + ModelText.text(.init(rawValue: "call_dispatcher.listing.v1"))))
             }
             value = .object(listing)
             output.lastResult = .listing(ListingResult(kind: .apps, applications: shown.map {
@@ -555,7 +576,7 @@ final class CallDispatcher {
             } catch {
                 guard let verb = resolved?.verb, verb.resultConfidentiality != .ordinary,
                       !(error is CancellationError) else { throw error }
-                throw AutomationFailure("The adapter failed; its confidential error details were withheld.")
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.verb.v1")))
             }
             // A confidential verb's result (P1-06) is the model's: its fields are withheld from the record and the
             // transcript, each value whole and the long ones wherever they appear (the outcome's message among them).
@@ -579,7 +600,7 @@ final class CallDispatcher {
             output.lastResult = .outcome(outcome.kind, message: outcome.message)
         case "open_session":
             if values["named"] != nil, arguments["named"].bool == nil {
-                throw AutomationFailure("named must be true or false.")
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.content.v1")))
             }
             let app = try string(arguments, "app")
             let decision = await route(opening: app, named: arguments["named"].bool == true)
@@ -609,15 +630,15 @@ final class CallDispatcher {
                         sceneText.forgetScene()
                         value = .object([
                             "opened": .bool(true), "session": .string(id.uuidString),
-                            "note": .string("The person took control after the session opened. No scene was read. "
-                                + "Observe this session after control returns before acting.")
+                            "note": .string(ModelText.text(.init(rawValue: "call_dispatcher.id.v1.2"))
+                                + ModelText.text(.init(rawValue: "call_dispatcher.id.v1.3")))
                         ]).adding("routeNote", note.map(JSONValue.string))
                         output.lastResult = nil
                     }
             }
         case "observe":
             if values["full"] != nil, arguments["full"].bool == nil {
-                throw AutomationFailure("full must be true or false.")
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1.4")))
             }
             await noteDispatch()
             let scene = try await session.observe()
@@ -638,7 +659,7 @@ final class CallDispatcher {
         case "collect_posts":
             guard case .collectPosts(let target, let maxScrolls, let seconds) = try ToolArguments.callRequest(name, arguments)
             else {
-                throw AutomationFailure("Invalid tool arguments.")
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.seconds.v1")))
             }
             await noteDispatch()
             let collected = try await session.collectPosts(
@@ -652,7 +673,7 @@ final class CallDispatcher {
             output.lastCheck  = done.withStatedCheck.check
         case "batch":
             guard let rows = arguments["steps"].array, (1...20).contains(rows.count) else {
-                throw AutomationFailure("batch requires 1...20 steps.")
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.rows.v1")))
             }
             let steps = try rows.map { try Step(string($0, "operation"), $0) }
             // Each step is a call of its own, the batch's child at its position, recorded planned with it.
@@ -682,7 +703,11 @@ final class CallDispatcher {
             var stepGaps: [String] = []
             func noteGap(of child: CallRecorder?, at index: Int) async {
                 guard let gap = await child?.recordingGap else { return }
-                stepGaps.append("Part of step \(index + 1) was not recorded: \(gap).")
+                stepGaps.append((ModelText.text(.init(rawValue: "call_dispatcher.gap.v1"))
+                    + "\(index + 1)"
+                    + ModelText.text(.init(rawValue: "call_dispatcher.gap.v1.2"))
+                    + "\(gap)"
+                    + ModelText.text(.init(rawValue: "call_dispatcher.gap.v1.3"))))
             }
             for (index, step) in steps.enumerated() {
                 if Task.isCancelled {
@@ -699,7 +724,7 @@ final class CallDispatcher {
                         complete = false
                         results.append(.object(["status": .string("error"),
                                                 "message": .string(Self.unconfirmed(error).description),
-                                                "guidance": .string("This step was not run. Earlier effects remain.")]))
+                                                "guidance": .string(ModelText.text(.init(rawValue: "call_dispatcher.child.v1")))]))
                         try formatter.transcribe("← batch step \(index + 1) not run: \(error)")
                         break
                     }
@@ -720,8 +745,8 @@ final class CallDispatcher {
                     }
                     await noteGap(of: child, at: index)
                     let guidance = session.id == nil
-                        ? "Earlier effects remain. Use status and list current windows before opening a new session."
-                        : "Earlier effects remain. Observe before deciding the next step."
+                        ? ModelText.text(.init(rawValue: "call_dispatcher.guidance.v1.3"))
+                        : ModelText.text(.init(rawValue: "call_dispatcher.guidance.v1.4"))
                     let failed: JSONValue = .object(["status": .string("error"), "message": .string(String(describing: error)),
                         "guidance": .string(guidance)])
                     results.append(failed)
@@ -760,11 +785,11 @@ final class CallDispatcher {
         case "close_session":
             await session.close()
             var result: [String: JSONValue] = ["status": .string("closed"),
-                                               "message": .string("Application session closed.")]
+                                               "message": .string(ModelText.text(.init(rawValue: "call_dispatcher.result.v1")))]
             if let warning = session.closeWarning { result["warning"] = .string(warning) }
             value = .object(result)
-            output.lastResult = .closed(message: "Application session closed.")
-        default: throw AutomationFailure("Unknown tool: \(name)")
+            output.lastResult = .closed(message: ModelText.text(.init(rawValue: "call_dispatcher.warning.v1")))
+        default: throw AutomationFailure((ModelText.text(.init(rawValue: "call_dispatcher.warning.v1.2")) + "\(name)"))
         }
         return value
     }
@@ -796,7 +821,7 @@ final class CallDispatcher {
     /// The adapters, or the refusal of an adapter tool in a composition without them.
     private func enabledAdapters() throws -> AppAdapters {
         guard let adapters else {
-            throw AutomationFailure("App adapters are not enabled in this Braus: open the app with open_session instead.")
+            throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.adapters.v1")))
         }
         return adapters
     }
