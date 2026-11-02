@@ -1,3 +1,6 @@
+import AppAdapters
+import Capabilities
+import Memory
 import AutomationRuntime
 import EngineCore
 import Foundation
@@ -288,15 +291,121 @@ enum ToolCatalogue {
 
     /// The tools that reach the app adapters, served only with `.adapters`.
     static let adapterTools: Set<String> = ["app_capabilities", "app_call"]
-    nonisolated static func interruptionPolicy(for name: String) -> AutomationTools.InterruptionPolicy {
-        switch name {
-        case "status", "windows", "apps", "observe", "app_capabilities", "human_step": .readOnly
-        case "open_session": .openingScene
-        case "act", "select", "type_text", "insert_text", "press_key", "scroll", "drag",
-             "context_menu", "batch", "menu", "press", "app_call", "close_session",
-             "collect_posts", "memory_task": .mutating
-        default: .mutating
+    /// The nonisolated policy view uses the same explicit core declarations as the served contracts.
+    nonisolated static let policyRegistry: CapabilityRegistry = {
+        let names = ["status", "windows", "apps", "open_session", "observe", "act", "select", "type_text",
+                     "insert_text", "press_key", "scroll", "drag", "context_menu", "batch", "menu", "press",
+                     "app_capabilities", "app_call", "close_session", "collect_posts", "memory_task", "human_step"]
+        do {
+            return try CapabilityRegistry(core: names.compactMap {
+                coreContract(name: $0, description: "", inputSchema: .null)
+            }, registered: [])
+        } catch {
+            preconditionFailure("Invalid core capability declarations: \(error)")
         }
+    }()
+
+    nonisolated static func interruptionPolicy(for name: String) -> InterruptionClass {
+        policyRegistry.interruptionClass(of: name, arguments: .null)
+    }
+
+    /// Wraps the existing served definitions without regenerating their descriptions or schemas.
+    static func contracts(for channels: AutomationChannels, adapters: AppAdapters? = nil) -> [CapabilityContract] {
+        var contracts = definitions(for: channels).compactMap { definition in
+            coreContract(
+                name: definition["name"].string ?? "",
+                description: definition["description"].string ?? "",
+                inputSchema: definition["inputSchema"]
+            )
+        }
+        if channels.contains(.adapters) {
+            for adapter in (adapters ?? AppAdapters.standard()).adapters {
+                for verb in adapter.verbs {
+                    let id = CapabilityID(rawValue: "\(adapter.name).\(verb.name)")
+                    guard !contracts.contains(where: { $0.id == id }) else { continue }
+                    contracts.append(CapabilityContract(
+                        id: id,
+                        group: adapter.name,
+                        description: verb.summary,
+                        inputSchema: verb.schema,
+                        effect: effect(of: verb.safety),
+                        interruption: .mutating,
+                        verification: verb.confirmation == .readBack
+                            ? .readBack(description: verb.readBack) : .none(reason: "no read-back"),
+                        channel: .adapter,
+                        origin: .adapter(adapter.name),
+                        memory: .agentCall(tool: "app_call"),
+                        takesSession: false,
+                        parallelSafe: false
+                    ))
+                }
+            }
+        }
+        return contracts
+    }
+
+    private static func effect(of safety: AdapterVerb.Safety) -> EffectClass {
+        switch safety {
+        case .read: .read
+        case .write: .write
+        case .irreversible: .irreversible
+        }
+    }
+
+    private nonisolated static func coreContract(
+        name: String,
+        description: String,
+        inputSchema: JSONValue
+    ) -> CapabilityContract? {
+        let effect: EffectClass
+        let interruption: InterruptionClass
+        let channel: Channel
+        let verification: Verification
+        switch name {
+        case "status", "windows", "apps", "human_step":
+            (effect, interruption, channel) = (.read, .readOnly, .braus)
+            verification = .none(reason: "Read-only result")
+        case "observe":
+            (effect, interruption, channel) = (.read, .readOnly, .seat)
+            verification = .none(reason: "Scene observation")
+        case "app_capabilities":
+            (effect, interruption, channel) = (.read, .readOnly, .adapter)
+            verification = .none(reason: "Read-only result")
+        case "collect_posts":
+            (effect, interruption, channel) = (.read, .mutating, .web)
+            verification = .none(reason: "Read-only result")
+        case "memory_task":
+            (effect, interruption, channel) = (.read, .mutating, .braus)
+            verification = .resultCheck
+        case "open_session":
+            (effect, interruption, channel) = (.write, .openingScene, .seat)
+            verification = .engineVerdict
+        case "app_call":
+            (effect, interruption, channel) = (.write, .mutating, .adapter)
+            verification = .none(reason: "The named verb owns verification")
+        case "close_session", "act", "select", "type_text", "insert_text", "press_key", "scroll", "drag",
+             "context_menu", "batch", "menu", "press":
+            (effect, interruption, channel) = (.write, .mutating, .seat)
+            verification = .engineVerdict
+        default:
+            return nil
+        }
+        let agentTool = AgentTool(rawValue: name)
+        return CapabilityContract(
+            id: CapabilityID(rawValue: name),
+            group: channel.rawValue,
+            description: description,
+            inputSchema: inputSchema,
+            effect: effect,
+            interruption: interruption,
+            verification: verification,
+            channel: channel,
+            origin: .core,
+            memory: agentTool.map { .agentCall(tool: $0.rawValue) }
+                ?? .notRecorded(reason: "Recorded by its own interaction cycle"),
+            takesSession: agentTool?.takesSession ?? (inputSchema["required"].array?.contains(.string("session")) == true),
+            parallelSafe: false
+        )
     }
     static func schema(_ properties: [String: JSONValue], _ required: [String]) -> JSONValue {
         .object(["type": .string("object"), "properties": .object(properties),

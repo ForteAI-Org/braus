@@ -233,7 +233,8 @@ let package = Package(
     products : [
         .library(name: "BrausChat",
                  targets: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
-                           "AutomationRuntime", "AutomationMCP", "AgentLoop", "Turn"]),
+                           "AutomationRuntime", "AutomationMCP", "AgentLoop", "Turn",
+                           "Capabilities"]),
         .library(
             name: "BrausDriver",
             targets: ["SeatCore", "PrivateSymbols", "VirtualScreens", "WindowPlacement",
@@ -515,7 +516,7 @@ let package = Package(
         // MARK: Engine tools
         .target(name: "Turn",
                 dependencies: ["ChatCore", "CLIProviders", "LocalMCP", "ModelTransports", "AutomationRuntime",
-                               "AutomationMCP", "AgentLoop"], path: "Sources/Turn", swiftSettings: facility),
+                               "AutomationMCP", "AgentLoop", "Capabilities"], path: "Sources/Turn", swiftSettings: facility),
         .testTarget(name: "TurnTests", dependencies: ["Turn", "ChatCore", "CLIProviders", "LocalMCP", "ModelTransports",
                                                     "AutomationMCP", "AutomationRuntime", "TestScratch",
                                                     "EngineCore", "PerceptionCore"],
@@ -535,7 +536,16 @@ let package = Package(
                     "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding",
                     // The one reader of an app's names in the person's languages (`BundleNames`); MacDriver depends on nothing.
                     "MacDriver", "PhaseSignposts"]),
-        integration("AutomationMCP", ["AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
+        .target(name: "Capabilities", dependencies: ["LocalMCP"].map { .target(name: $0) },
+                path: "Sources/Capabilities", swiftSettings: pure),
+        .target(name: "CapabilityRegistrations", dependencies: ["Capabilities"].map { .target(name: $0) },
+                path: "Sources/CapabilityRegistrations", swiftSettings: facility),
+        .testTarget(name: "CapabilitiesTests",
+                    dependencies: ["Capabilities", "AutomationMCP", "AutomationRuntime", "AppAdapters", "LocalMCP",
+                                   "EngineCore", "PerceptionCore", "Memory"].map { .target(name: $0) },
+                    path: "Tests/Capabilities", swiftSettings: suite),
+        integration("AutomationMCP", ["Capabilities", "CapabilityRegistrations",
+                                     "AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts",
                                      "AppAdapters", "TaskRouting"]),
         // The task router's rules and its catalogue of default routes: pure, and consulted before a session opens.
@@ -655,7 +665,7 @@ let package = Package(
                     path: "Tests/AgentLoop", swiftSettings: suite),
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
-                                                    "TestScratch", "AppAdapters", "TaskRouting",
+                                                    "TestScratch", "AppAdapters", "TaskRouting", "Capabilities",
                                                     "braus-bridge"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(

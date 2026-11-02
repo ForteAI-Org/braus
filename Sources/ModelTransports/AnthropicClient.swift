@@ -60,10 +60,11 @@ struct AnthropicClient: ModelTransport {
     func converse(_ messages: [TurnMessage], tools: [ToolDefinition], timeout: TimeInterval)
         throws -> AsyncThrowingStream<TurnEvent, any Error> {
         guard !apiKey.isEmpty else { throw ProviderError.missingAPIKey(.anthropic) }
+        let names = try ToolNameAliases(tools: tools, messages: messages)
         let body = try requestBody(messages: messages, tools: tools)
         let request = try HTTPTransport.request(Self.endpoint, headers: headers, body: body, timeout: timeout)
         return HTTPTransport.stream(request, assembler: TurnAssembler(format: .serverSentEvents, decode: Self.decode,
-                                                                      recording: .anthropic))
+                                                                      recording: .anthropic, toolNames: names))
     }
 
     /// Every current Claude model takes tools and images, and thinks, so this
@@ -76,12 +77,13 @@ struct AnthropicClient: ModelTransport {
     /// the tools as `{name, description, input_schema}`, and one automatic
     /// cache breakpoint, which the API moves to the last block of each request.
     func requestBody(messages: [TurnMessage], tools: [ToolDefinition]) throws -> [String: Any] {
+        let names = try ToolNameAliases(tools: tools, messages: messages)
         var body: [String: Any] = [
             "model": model,
             "max_tokens": 16000,
             "stream": true,
             "cache_control": ["type": "ephemeral"],
-            "messages": try Self.messages(messages),
+            "messages": try Self.messages(messages.map(names.sending)),
         ]
         // The Messages API takes the system instruction beside the turns, not
         // as one of them.
@@ -92,7 +94,7 @@ struct AnthropicClient: ModelTransport {
         }
         if !tools.isEmpty {
             body["tools"] = try tools.map { tool in
-                ["name": tool.name, "description": tool.description,
+                ["name": ToolNameAliases.wireName(tool.name), "description": tool.description,
                  "input_schema": try JSONSerialization.jsonObject(with: tool.parameters)]
             }
         }

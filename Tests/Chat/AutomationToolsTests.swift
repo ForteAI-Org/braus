@@ -1,6 +1,7 @@
 import AppKit
 import AutomationMCP
 import AutomationRuntime
+import Capabilities
 import EngineCore
 import Foundation
 import LocalMCP

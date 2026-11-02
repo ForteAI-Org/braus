@@ -274,6 +274,19 @@ authorized commit must be followed by verification of its actual effect.
 The Seat path has no foreground fallback. Multi-app concurrent control and remote
 ChatGPT connections remain separate work.
 
+## Tool names at API boundaries
+
+Capability IDs such as `demo.read` stay canonical in permissions, dispatch and
+memory. ModelTransports gives API tools stable ASCII aliases when their names
+contain other characters or exceed 64 bytes. Existing valid names stay unchanged.
+Aliases use a SHA-256 digest of the canonical Unicode spelling; conflicting names
+refuse the request before it is sent. Definitions and reconstructed history use
+the same aliases, and streamed calls regain their canonical IDs before leaving
+the transport. Tool arguments are unchanged. Native provider records keep their
+wire names and signatures; Gemini responses match the names in those records,
+including older records made before aliases. The CLI transports do not serve
+these API tool turns.
+
 ## Permissions and provider access
 
 Run from the terminal that has the necessary macOS permissions. This CLI phase
