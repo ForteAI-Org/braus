@@ -36,11 +36,20 @@ extension SceneSnapshot {
         preferNativeControls: Bool = false,
         preferTextEntry: Bool = false
     ) -> Resolution {
+        if let section, !section.isEmpty {
+            let matches = sections.filter {
+                Self.inline($0.name).caseInsensitiveCompare(Self.inline(section)) == .orderedSame
+            }
+            if Set(matches.map(\.name)).count > 1 { return .ambiguous(matches.count) }
+        }
         let resolvedSection = section.flatMap { resolveSection(named: $0)?.name }
         func inSection(_ element: SceneElement) -> Bool {
             guard let section, !section.isEmpty else { return true }
-            return element.section?.caseInsensitiveCompare(resolvedSection ?? section) == .orderedSame
-                || (resolvedSection == nil && element.container?.caseInsensitiveCompare(section) == .orderedSame)
+            let matchesSection = element.section.map(Self.inline)?
+                .caseInsensitiveCompare(Self.inline(resolvedSection ?? section)) == .orderedSame
+            let matchesContainer = element.container.map(Self.inline)?
+                .caseInsensitiveCompare(Self.inline(section)) == .orderedSame
+            return matchesSection || (resolvedSection == nil && matchesContainer)
         }
         func preferringTextEntry(_ candidates: [SceneElement]) -> [SceneElement] {
             guard preferTextEntry, candidates.count > 1 else { return candidates }
@@ -67,12 +76,12 @@ extension SceneSnapshot {
         }
         // The scene prints a control as "label = value": that copy names the element with both.
         if byLabel.isEmpty, let separator = cleaned.range(of: " = ") {
-            let label = LabelText.withoutBidiControls(String(cleaned[..<separator.lowerBound]))
-            let value = LabelText.withoutBidiControls(String(cleaned[separator.upperBound...]))
+            let label = Self.plain(String(cleaned[..<separator.lowerBound]))
+            let value = Self.plain(String(cleaned[separator.upperBound...]))
             byLabel = elements.filter {
                 inSection($0)
-                    && LabelText.withoutBidiControls($0.label).caseInsensitiveCompare(label) == .orderedSame
-                    && $0.value.map(LabelText.withoutBidiControls)?.caseInsensitiveCompare(value) == .orderedSame
+                    && Self.plain($0.label).caseInsensitiveCompare(label) == .orderedSame
+                    && $0.value.map(Self.plain)?.caseInsensitiveCompare(value) == .orderedSame
             }
         }
         if byLabel.isEmpty {
@@ -104,8 +113,10 @@ extension SceneSnapshot {
             if !controls.isEmpty, onlyControlsAndCaptions { byLabel = controls }
         }
         // A copied "{context}" names the element's own context among same-named ones.
-        if byLabel.count > 1, let context = LabelText.displayContext(target) {
-            let inContext = byLabel.filter { $0.container?.caseInsensitiveCompare(context) == .orderedSame }
+        if byLabel.count > 1, let context = LabelText.displayContext(Self.inline(target)) {
+            let inContext = byLabel.filter {
+                $0.container.map(Self.inline)?.caseInsensitiveCompare(Self.inline(context)) == .orderedSame
+            }
             if !inContext.isEmpty { byLabel = inContext }
         }
         byLabel = Self.collapseSameRow(byLabel)
@@ -116,7 +127,7 @@ extension SceneSnapshot {
     /// A label as compared: without bidi controls, and without the leading bullet a recognizer
     /// reads into a list row ("• carla_video_bn").
     private static func plain(_ label: String) -> String {
-        let text = LabelText.withoutBidiControls(label)
+        let text = inline(LabelText.withoutBidiControls(label))
         guard text.hasPrefix("\u{2022}") else { return text }
         return String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
     }
@@ -124,16 +135,20 @@ extension SceneSnapshot {
     /// Resolves a section name exactly, or a decorative bar by role when exactly one bar matches.
     /// Content and sidebar names are never broadened: those may identify different panes.
     public func resolveSection(named query: String) -> SceneSection? {
-        let exact = sections.filter { $0.name.caseInsensitiveCompare(query) == .orderedSame }
-        if exact.count == 1 { return exact[0] }
+        let exact = sections.filter {
+            Self.inline($0.name).caseInsensitiveCompare(Self.inline(query)) == .orderedSame
+        }
+        if !exact.isEmpty { return exact.count == 1 ? exact[0] : nil }
         func barRole(_ name: String) -> String? {
-            let lower = name.lowercased()
+            let lower = Self.inline(name).lowercased()
             return ["top bar", "bottom bar"].first {
                 lower == $0 || (lower.hasPrefix($0 + " (") && lower.hasSuffix(")"))
             }
         }
         guard let role = barRole(query) else { return nil }
-        let matches = sections.filter { barRole($0.name) == role || $0.name.lowercased().hasPrefix(role + " #") }
+        let matches = sections.filter {
+            barRole($0.name) == role || Self.inline($0.name).lowercased().hasPrefix(role + " #")
+        }
         return matches.count == 1 ? matches[0] : nil
     }
 
@@ -195,6 +210,9 @@ extension SceneSnapshot {
     /// Duplicates in different rows are two real places and stay as they are.
     static func collapseSameRow(_ candidates: [SceneElement]) -> [SceneElement] {
         guard let first = candidates.first, candidates.count > 1 else { return candidates }
+        // Distinct owners that print alike cannot prove that these are facets of one widget.
+        let owners = Set(candidates.compactMap(\.container))
+        if Set(owners.map { inline($0).lowercased() }).count < owners.count { return candidates }
         let firstBox = first.bounds.cgRect
         func overlapFraction(_ box: CGRect) -> Double {
             let intersection = box.intersection(firstBox)

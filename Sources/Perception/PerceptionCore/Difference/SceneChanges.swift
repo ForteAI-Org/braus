@@ -254,12 +254,12 @@ public enum SceneChanges {
         if (old.isEnabled == false) != (new.isEnabled == false) {
             was.append(old.isEnabled == false ? "[disabled]" : "enabled")
         }
-        if old.container != new.container { was.append(old.container.map { "{\($0)}" } ?? "no container") }
+        if old.container != new.container { was.append(old.container.map { "{\(SceneSnapshot.inline($0))}" } ?? "no container") }
         if abs(old.bounds.midX - new.bounds.midX) > nearby || abs(old.bounds.midY - new.bounds.midY) > nearby {
             was.append(SceneSnapshot.place(old.bounds))
         }
         if let section = old.section, section != new.section, sections.contains(section) {
-            was.append("in \(section)")
+            was.append("in \(SceneSnapshot.inline(section))")
         }
         return was
     }
@@ -272,7 +272,7 @@ public enum SceneChanges {
     /// A removed element as the reader can still tell it apart: its tag, label, shown id and place.
     private static func short(_ element: SceneElement) -> String {
         let identity = shownID(element).map { " id:'\($0)'" } ?? ""
-        let label = element.isUnlabeled && element.label == SceneSnapshot.unlabeledLabel ? "" : " " + element.label
+        let label = element.isUnlabeled && element.label == SceneSnapshot.unlabeledLabel ? "" : " " + SceneSnapshot.inline(element.label)
         return "[\(tag(element))]\(label)\(identity) \(SceneSnapshot.place(element.bounds))"
     }
 

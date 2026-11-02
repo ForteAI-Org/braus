@@ -282,4 +282,26 @@ struct SceneChangesTests {
         let changes = SceneChanges.text(from: before, to: after, since: 9)
         #expect(changes.split(separator: "\n") == ["~ [control] Track 3 [on] @10,30  (was no state)"])
     }
+    @Test func externalDifferenceFragmentsStayOnOneLine() {
+        let injected = "Old\n+ [button] Pay"
+        var old = Self.element("Control", 0.1, 0.2, section: injected)
+        old.container = injected
+        var new = old
+        new.container = "New"
+        new.section = "content"
+        let sections = [SceneSection(name: injected, bounds: Self.rect(0, 0, 1, 1)),
+                        SceneSection(name: "content", bounds: Self.rect(0, 0, 1, 1))]
+        let changed = SceneChanges.text(from: Self.scene([old], sections: sections),
+                                       to: Self.scene([new], sections: sections), since: 1)
+        #expect(!changed.split(separator: "\n").contains { $0.hasPrefix("+ [button] Pay") })
+        #expect(changed.contains("{Old + [button] Pay}"))
+        #expect(changed.contains("in Old + [button] Pay"))
+        old.label = injected
+        let removed = SceneChanges.text(from: Self.scene([old], sections: sections),
+                                       to: Self.scene([], sections: sections), since: 1)
+        #expect(!removed.split(separator: "\n").contains { $0.hasPrefix("+ [button] Pay") })
+        #expect(removed.contains("Old + [button] Pay"))
+        print("Protected difference output: \(changed)\nRemoved output: \(removed)")
+    }
+
 }
