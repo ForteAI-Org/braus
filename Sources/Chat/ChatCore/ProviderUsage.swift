@@ -73,3 +73,20 @@ public struct ProviderUsage: Sendable, Equatable {
         self.rateLimits = rateLimits
     }
 }
+
+nonisolated extension ProviderUsage.Tokens {
+
+    /// Adds each token count across two usages.
+    public static func + (
+        lhs: Self,
+        rhs: Self
+    ) -> Self {
+        Self(
+            input      : lhs.input + rhs.input,
+            cacheReads : lhs.cacheReads + rhs.cacheReads,
+            cacheWrites: lhs.cacheWrites + rhs.cacheWrites,
+            output     : lhs.output + rhs.output,
+            reasoning  : lhs.reasoning + rhs.reasoning
+        )
+    }
+}

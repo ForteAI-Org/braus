@@ -6,6 +6,7 @@
 //
 
 import AppAdapters
+import AgentLoop
 import AutomationMCP
 import AutomationRuntime
 import ChatCore
@@ -388,7 +389,9 @@ final class WorkerAgentHost {
         if WorkerAnswer(provider: selection.provider) == .modelLoop {
             let loop  = ModelToolLoop(
                 call    : brausCall,
-                reminder: { [tools] in tools.takeInterpretationReminder() }
+                reminder: { [tools] in tools.takeInterpretationReminder() },
+                definitions: AutomationTools.definitions,
+                instructions: WorkerLoopInstructions()
             )
             self.loop = loop
             defer { endLoop() }
@@ -403,7 +406,7 @@ final class WorkerAgentHost {
                     baseTools    : tools.toolDefinitions,
                     instructions : tools.instructions
                 ) { event in
-                    guard case .provider(.usage(let reported)) = event else { return onEvent(event) }
+                    guard case .usage(let reported) = event else { return onEvent(.provider(event)) }
 
                     onEvent(.usage(Self.turnUsage(
                         reported,
@@ -607,7 +610,11 @@ final class WorkerAgentHost {
         tools.forgetScene()
 
         if WorkerAnswer(provider: selection.provider) == .modelLoop {
-            let loop  = ModelToolLoop { _, _ in throw AutomationFailure("A summary calls no tool.") }
+            let loop  = ModelToolLoop(
+                call: { _, _ in throw AutomationFailure("A summary calls no tool.") },
+                definitions: AutomationTools.definitions,
+                instructions: WorkerLoopInstructions()
+            )
             self.loop = loop
             defer { endLoop() }
 
@@ -1064,5 +1071,12 @@ final class WorkerAgentHost {
             self.connectionFile = nil
             try? FileManager.default.removeItem(at: connectionFile)
         }
+    }
+}
+
+/// WorkerLoopInstructions supplies the app's existing system text to the shared loop.
+struct WorkerLoopInstructions: LoopInstructionComposing {
+    func systemText(role: String?, hasTools: Bool, tools: String) -> String {
+        WorkerAgentHost.instructions(role: role, hasTools: hasTools, tools: tools)
     }
 }
