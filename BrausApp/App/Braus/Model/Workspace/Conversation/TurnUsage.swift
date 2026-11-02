@@ -76,6 +76,7 @@ nonisolated extension ProviderUsage.Tokens {
             input      : max(0, lhs.input - rhs.input),
             cacheReads : max(0, lhs.cacheReads - rhs.cacheReads),
             cacheWrites: max(0, lhs.cacheWrites - rhs.cacheWrites),
+            cacheWritesHour: max(0, lhs.cacheWritesHour - rhs.cacheWritesHour),
             output     : max(0, lhs.output - rhs.output),
             reasoning  : max(0, lhs.reasoning - rhs.reasoning)
         )

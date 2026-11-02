@@ -33,6 +33,31 @@ all, `ActVerification.interrupted` still asks the surface's identity: a Cancel t
 stays closed while the focus is coming back, and anything else is uncertain, which is not a failure
 and is never a reason to send the gesture again.
 
+## Shared turn execution
+
+`Turn` in `Sources/Turn` owns command line turns, the model loop, context resets and
+human suspension. `WorkerAgentHost` supplies application approval scope and event storage;
+`ChatSession` supplies transcript persistence and holds the Seat around the whole runner call,
+including the interpretation reminder. The runner requires `AutomationMCP`, `AutomationRuntime`,
+`AgentLoop` and provider transports, and imports no application UI or workspace storage types.
+
+A runner admits one turn at a time. Suspension blocks new calls, interrupts admitted reads and
+waits for admitted actions to finish. The host retains the application episode; only its current
+token can release suspension after the turn drains. CLI hosts disable suspension. Stop and close
+join admitted calls before cleanup, and failures are never retried. The runner borrows its host
+weakly and retains it only for each admitted call. `closesSessionOnEnd` defaults to true for app
+failures and stops; the CLI sets it to false so signal shutdown can abandon the task and collect
+evidence before closing the session. Explicit `retire()` and `close()` still release it.
+Endpoint cleanup failures are written to stderr and retained for `close()` to report, preserving
+a successful turn and its instruction record, or the original thrown failure.
+
+`TurnOutcome.usage` adds each process's own token counts, converting session totals to differences
+first. Hour cache writes are part of all cache writes; reasoning is part of output. Both routes
+retain one final usage event. Per-round usage remains open and is outside TU2; `AgentLoop` is
+unchanged. `TurnBudget.off` preserves the existing loop ceiling while requests and calls are counted.
+Command line contract fixtures and the three original application input fixtures live in
+`Tests/Turn/Fixtures`; host tests locate them from their source paths.
+
 ## Human intervention in a background session
 
 The [interactive background control design](InteractiveBackground.md) separates temporary event

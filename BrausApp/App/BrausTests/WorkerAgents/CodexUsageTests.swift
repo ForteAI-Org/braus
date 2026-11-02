@@ -87,6 +87,16 @@ private func place(
 @Suite("What a Codex turn cost")
 struct CodexUsageTests {
 
+    @Test func tokenDifferenceKeepsHourWritesAndClampsAtZero() {
+        let earlier = ProviderUsage.Tokens(input: 100, cacheReads: 10, cacheWrites: 40,
+                                          cacheWritesHour: 20, output: 30, reasoning: 5)
+        let later = ProviderUsage.Tokens(input: 200, cacheReads: 30, cacheWrites: 90,
+                                        cacheWritesHour: 50, output: 70, reasoning: 15)
+        #expect(later - earlier == .init(input: 100, cacheReads: 20, cacheWrites: 50,
+                                        cacheWritesHour: 30, output: 40, reasoning: 10))
+        #expect(earlier - later == .init())
+    }
+
     @Test func aTurnIsTheSessionTotalLessTheOneBeforeInTheSameSession() throws {
         let one = WorkerAgentHost.turnUsage(
             try reported("codex-turn1"),

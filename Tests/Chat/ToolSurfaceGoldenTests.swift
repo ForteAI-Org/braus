@@ -196,6 +196,26 @@ enum ToolGolden {
 
 @Suite
 @MainActor
+struct CandidateIdentityGoldenTests {
+    @Test(arguments: ["1", "1e8595fe991593", "0123456789abcdef"])
+    func variableWidthSuffixKeepsTheSameGoldenIdentity(_ suffix: String) throws {
+        let id = "candidate-00000000-0000-0000-0000-000000000000-" + suffix
+        let payload: JSONValue = .object([
+            "candidate": .object(["id": .string(id)]),
+            "next": .string("Interpret " + id),
+            "unchanged": .string("Keep " + suffix)
+        ])
+        let result = try ToolGolden.normalized(.array([.object(["structuredContent": payload])]))
+        let decoded = try JSONDecoder().decode(JSONValue.self, from: result)
+        let kept = try #require(decoded.array?.first?["structuredContent"])
+        #expect(kept["candidate"]["id"].string == "candidate-<uuid>-<suffix>")
+        #expect(kept["next"].string == "Interpret candidate-<uuid>-<suffix>")
+        #expect(kept["unchanged"].string == "Keep " + suffix)
+    }
+}
+
+@Suite
+@MainActor
 struct InterruptionPolicyLocationTests {
     @Test
     func everyServedNameAndUnknown() {

@@ -233,7 +233,7 @@ let package = Package(
     products : [
         .library(name: "BrausChat",
                  targets: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
-                           "AutomationRuntime", "AutomationMCP", "AgentLoop"]),
+                           "AutomationRuntime", "AutomationMCP", "AgentLoop", "Turn"]),
         .library(
             name: "BrausDriver",
             targets: ["SeatCore", "PrivateSymbols", "VirtualScreens", "WindowPlacement",
@@ -513,6 +513,13 @@ let package = Package(
                     settings: pure),
 
         // MARK: Engine tools
+        .target(name: "Turn",
+                dependencies: ["ChatCore", "CLIProviders", "LocalMCP", "ModelTransports", "AutomationRuntime",
+                               "AutomationMCP", "AgentLoop"], path: "Sources/Turn", swiftSettings: facility),
+        .testTarget(name: "TurnTests", dependencies: ["Turn", "ChatCore", "CLIProviders", "LocalMCP", "ModelTransports",
+                                                    "AutomationMCP", "AutomationRuntime", "TestScratch",
+                                                    "EngineCore", "PerceptionCore"],
+                    path: "Tests/Turn", resources: [.copy("Fixtures")], swiftSettings: facility),
         .target(name: "AgentLoop", dependencies: ["ModelTransports", "ChatCore", "LocalMCP", "AutomationRuntime"],
                 path: "Sources/AgentLoop", swiftSettings: facility),
         // Chat contracts exclude processes, persistence, MCP, AppKit and the Driver.

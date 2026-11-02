@@ -39,6 +39,7 @@ struct ProviderUsageTests {
         #expect(events.contains(.assistant("ok")))
 
         #expect(usage.tokens == ProviderUsage.Tokens(input: 2 + 3555, cacheReads: 0, cacheWrites: 3555,
+                                                     cacheWritesHour: 3555,
                                                      output: 4, reasoning: 0))
         #expect(!usage.isSessionTotal)
         #expect(usage.contextTokens == 3561)
