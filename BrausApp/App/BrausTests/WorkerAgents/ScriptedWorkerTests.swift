@@ -18,6 +18,87 @@ import Testing
 struct ScriptedWorkerTests {
 
     @Test
+    func resolvesSessionForTheNextRoundAndSavesReturnedPNGs() async throws {
+        let root = URL.temporaryDirectory.appending(path: "scripted-canvas-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let session = UUID().uuidString
+        let script = try ScriptedWorkerScript(data: Data("""
+            [
+              {"calls":[{"tool":"open_session","arguments":{"app":"CanvasFixture"}}]},
+              {"calls":[{"tool":"observe","arguments":{"session":"$session"}}]},
+              {"calls":[{"tool":"canvas","arguments":{"id":"canvas 1"}}]},
+              {"answer":"Finished."}
+            ]
+            """.utf8))
+        let run = try ScriptedWorkerRun(
+            script : script,
+            support: root
+        )
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg=="
+        let loop = ModelToolLoop(
+            call: { name, arguments in
+                if name == "observe" { #expect(arguments["session"] == .string(session)) }
+                if name != "canvas" {
+                    return .object(["content": .array([
+                        .object(["type": .string("text"), "text": .string("A readable scene.")])
+                    ]), "structuredContent": .object(["session": .string(session)])])
+                }
+                let image: JSONValue = .object([
+                    "type": .string("image"), "mimeType": .string("image/png"), "data": .string(png)
+                ])
+                return .object(["content": .array([
+                    .object(["type": .string("text"), "text": .string("before, after")]), image, image
+                ])])
+            },
+            recordResult: { call, result, startedAt in
+                try run.record(
+                    call     : call,
+                    result   : result,
+                    startedAt: startedAt
+                )
+            }
+        )
+        try await loop.run(
+            transport: run.transport,
+            role     : nil,
+            history  : [],
+            prompt   : "Start."
+        ) { _ in }
+        let log = try String(
+            contentsOf: root.appending(path: "scripted-tools.jsonl"),
+            encoding  : .utf8
+        )
+        let last = try #require(log.split(separator: "\n").last)
+        let entry = try JSONDecoder().decode(
+            JSONValue.self,
+            from: Data(last.utf8)
+        )
+        let images = try #require(entry["images"].array)
+        #expect(images.count == 2)
+        for image in images {
+            #expect(image["width"] == .number(1))
+            #expect(image["height"] == .number(1))
+            let file = try #require(image["file"].string)
+            #expect(try Data(contentsOf: root.appending(path: file)) == Data(base64Encoded: png))
+        }
+    }
+
+    @Test
+    func refusesSessionPlaceholderBeforeAnySession() throws {
+        let script = try ScriptedWorkerScript(data: Data("""
+            [{"calls":[{"tool":"observe","arguments":{"session":"$session"}}]},{"answer":"Done"}]
+            """.utf8))
+        let transport = ScriptedWorkerTransport(script: script)
+        #expect(throws: AutomationFailure.self) {
+            try transport.converse(
+                [],
+                tools  : [],
+                timeout: 1
+            )
+        }
+    }
+
+    @Test
     func parsesOrderedCallsAndAFinalAnswer() throws {
         let script = try ScriptedWorkerScript(data: Data("""
             [

@@ -5,7 +5,9 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 02/11/2026.
 //
 
+import AutomationRuntime
 import Foundation
+import LocalMCP
 import ModelTransports
 import Synchronization
 
@@ -44,7 +46,25 @@ nonisolated final class ScriptedWorkerTransport: ModelTransport {
     ) throws -> AsyncThrowingStream<TurnEvent, any Error> {
         let events = try played.withLock { index in
             guard index < script.rounds.count else { throw ModelTransportError.streamEndedEarly(deltas: 0) }
-            let events = script.rounds[index]
+            let events = try script.rounds[index].map { event -> TurnEvent in
+                guard case .toolCall(let call) = event else { return event }
+                var arguments = try JSONDecoder().decode(
+                    JSONValue.self,
+                    from: call.arguments
+                )
+                if arguments["session"] == .string("$session") {
+                    guard let session = Self.session(in: messages), var fields = arguments.object else {
+                        throw AutomationFailure("The script requested $session before a tool returned a live session.")
+                    }
+                    fields["session"] = .string(session)
+                    arguments = .object(fields)
+                }
+                return .toolCall(ToolCall(
+                    id       : call.id,
+                    name     : call.name,
+                    arguments: try JSONEncoder().encode(arguments)
+                ))
+            }
             index += 1
             return events
         }
@@ -52,5 +72,21 @@ nonisolated final class ScriptedWorkerTransport: ModelTransport {
             for event in events { continuation.yield(event) }
             continuation.finish()
         }
+    }
+
+    /// Resolves only the session argument, from the most recent successful tool answer naming it.
+    /// Plain-text answers have no session; a null session invalidates one returned earlier.
+    private static func session(in messages: [TurnMessage]) -> String? {
+        for message in messages.reversed() where message.role == .tool && !message.isError {
+            guard let line = message.text.split(separator: "\n").last,
+                  let value = try? JSONDecoder().decode(
+                      JSONValue.self,
+                      from: Data(line.utf8)
+                  ),
+                  value.object?["session"] != nil else { continue }
+            guard let session = value["session"].string, UUID(uuidString: session) != nil else { return nil }
+            return session
+        }
+        return nil
     }
 }

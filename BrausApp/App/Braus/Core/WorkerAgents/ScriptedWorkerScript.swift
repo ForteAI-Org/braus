@@ -15,6 +15,7 @@ import ModelTransports
 /// Every round except the last has a nonempty `calls` array; only the last has an `answer`.
 /// Arguments must be objects. At most 100 tool rounds precede the final nonempty answer.
 /// Calls run serially through ModelToolLoop; a tool failure is logged and the script continues.
+/// A session argument of `$session` uses the last successful earlier round's live session id.
 nonisolated struct ScriptedWorkerScript: Sendable {
 
     let rounds: [[TurnEvent]]

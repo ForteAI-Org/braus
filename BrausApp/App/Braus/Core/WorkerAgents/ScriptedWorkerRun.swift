@@ -6,7 +6,9 @@
 //
 
 import AutomationRuntime
+import CoreGraphics
 import Foundation
+import ImageIO
 import LocalMCP
 import ModelTransports
 
@@ -27,6 +29,7 @@ final class ScriptedWorkerRun {
 
     let transport: ScriptedWorkerTransport
     private let log: URL
+    private var imageCount = 0
     private(set) var report = Report()
 
     /// Records entry time and explicitly reports overrides that cannot activate in this process.
@@ -93,6 +96,31 @@ final class ScriptedWorkerRun {
         if report.launchToFirstToolMs == nil {
             report.launchToFirstToolMs = Self.milliseconds(Self.launchedAt.duration(to: startedAt))
         }
+        var images: [JSONValue] = []
+        for block in result["content"].array ?? [] where !isError && block["mimeType"] == .string("image/png") {
+            guard block["type"] == .string("image"), let encoded = block["data"].string,
+                  let data = Data(base64Encoded: encoded),
+                  let source = CGImageSourceCreateWithData(
+                      data as CFData,
+                      nil
+                  ),
+                  let image = CGImageSourceCreateImageAtIndex(
+                      source,
+                      0,
+                      nil
+                  ) else {
+                throw AutomationFailure("The scripted PNG result could not be decoded for its audit.")
+            }
+            imageCount += 1
+            let file = "image-\(imageCount).png"
+            try data.write(to: log.deletingLastPathComponent().appending(path: file))
+            images.append(.object([
+                "file": .string(file),
+                "width": .number(Double(image.width)),
+                "height": .number(Double(image.height)),
+                "bytes": .number(Double(data.count))
+            ]))
+        }
         let entry: JSONValue = .object([
             "round"       : .number(Double(transport.roundsPlayed)),
             "tool"        : .string(call.name),
@@ -103,6 +131,7 @@ final class ScriptedWorkerRun {
             "result"      : .string(text),
             "error"       : isError ? .string(text) : .null,
             "hasImage"    : .bool((result["content"].array ?? []).contains { $0["type"].string == "image" }),
+            "images"      : .array(images),
             "durationMs"  : .number(elapsed),
             "sinceLaunchMs": .number(Self.milliseconds(Self.launchedAt.duration(to: startedAt))),
         ])
