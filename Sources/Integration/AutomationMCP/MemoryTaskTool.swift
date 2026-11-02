@@ -923,7 +923,11 @@ nonisolated enum MemoryTaskTool {
         for key in ["inputs", "outputs", "parameters"] {
             for item in arguments[key].array ?? [] {
                 guard let text = item["value"].string, !text.isEmpty, !found.contains(text) else { continue }
-                if item["secret"].bool == true || ValueMinimization.hasCredentialShape(text) { found.append(text) }
+                let verdict = SensitivityClassifier().classify(
+                    text,
+                    in: .init(declaredSecret: item["secret"].bool == true)
+                )
+                if verdict.sensitivity == .secret { found.append(text) }
             }
         }
         return found

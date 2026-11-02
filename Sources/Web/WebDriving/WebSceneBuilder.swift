@@ -5,6 +5,7 @@
 
 import CoreGraphics
 import Foundation
+import Memory
 import PerceptionCore
 
 /// WebSceneBuilder turns a page's accessibility tree and layout into the scene a window gives the
@@ -241,12 +242,15 @@ public enum WebSceneBuilder {
         isSecure   : Bool = false
     ) -> SceneElement? {
         let enabled = node.flag("disabled").map { !$0 } ?? true
+        let classifier = SensitivityClassifier()
         func control(_ role: String, label: String? = nil, state: ControlState? = nil, value: String? = nil,
                      unnamed: String) -> SceneElement {
             let label = label ?? name
+            let withheld = classifier.classify(value, in: .init(labels: [label], markupDeclaresSecret: isSecure))
+                .sensitivity == .secret
             return SceneElement(
                 id: "", kind: label.isEmpty ? .icon : .control, label: label.isEmpty ? unnamed : cut(label),
-                bounds: .zero, role: role, state: state, value: value, isEnabled: enabled, container: container,
+                bounds: .zero, role: role, state: state, value: withheld ? nil : value, isEnabled: enabled, container: container,
                 isUnlabeled: label.isEmpty, labelOrigin: label.isEmpty ? nil : .title, collectionPath: collection
             )
         }

@@ -2,7 +2,9 @@ import AccessibilityFacts
 import EngineCore
 import Foundation
 import LiveScenes
+import Memory
 import Perception
+import PerceptionCore
 import PixelSections
 import PixelRegions
 import ScreenCapture
@@ -20,11 +22,10 @@ public enum ProductionPerception {
         case textOnly = "text-only"
     }
 
-    /// The worker's value guard: the role rule only. No label is reserved, so a field named "Key" or "Token"
-    /// stays readable; the full predicate is SG3's classifier.
-    package nonisolated static let workerValueGuard: @Sendable (String) -> Bool = { _ in false }
+    /// The worker uses the same classifier as human scene reads.
+    package nonisolated static let workerValueGuard = SensitivityClassifier().valueGuard
 
-    /// Creates the production pipeline with the worker's role-only value guard.
+    /// Creates the production pipeline with the classifier's value guard.
     package nonisolated static func workerPipeline(
         mode: Mode = .full,
         timingHook: ScenePipeline.TimingHook? = nil
@@ -38,7 +39,7 @@ public enum ProductionPerception {
     /// `timingHook` observes construction and stage durations. Nil keeps timing disabled.
     public nonisolated static func pipeline(
         mode: Mode = .full,
-        valueGuard: (@Sendable (String) -> Bool)? = nil,
+        valueGuard: ValueGuard? = nil,
         timingHook: ScenePipeline.TimingHook? = nil
     ) -> ScenePipeline {
         let started = timingHook.map { _ in ContinuousClock.now }
@@ -57,10 +58,10 @@ public enum ProductionPerception {
     /// Creates a foreground reader. Excluded processes remain absent from popup-region captures,
     /// allowing an inspection overlay to observe without reading its own rendered boxes.
     /// Workers pass `workerValueGuard`; Peek and Watch inspect the person's screen without a guard.
-    /// The person's scene reader supplies its own label predicate, independently of worker policy.
+    /// The person's scene reader supplies the same classifier's guard.
     public static func foregroundScenes(
         excludingProcesses: [pid_t] = [],
-        valueGuard: (@Sendable (String) -> Bool)? = nil
+        valueGuard: ValueGuard? = nil
     ) -> any SceneProviding {
         LiveSceneProvider(
             pipeline: pipeline(valueGuard: valueGuard),

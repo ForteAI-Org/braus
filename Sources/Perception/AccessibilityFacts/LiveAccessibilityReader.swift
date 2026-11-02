@@ -24,7 +24,7 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
     private let applicationBundleID  : String?
     private let elementTimeoutSeconds: Float?
-    private let valueGuard: (@Sendable (String) -> Bool)?
+    private let valueGuard: ValueGuard?
     private let copyAttributeValue: @Sendable (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError
 
     /// Creates a reader. An absent bundle ID uses only standard accessibility state attributes.
@@ -35,7 +35,7 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
     public init(
         applicationBundleID: String? = nil,
         elementTimeoutSeconds: Float? = nil,
-        valueGuard: (@Sendable (String) -> Bool)? = nil,
+        valueGuard: ValueGuard? = nil,
         batchesAttributes: Bool = false
     ) {
         self.init(
@@ -52,7 +52,7 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
     init(
         applicationBundleID: String? = nil,
         elementTimeoutSeconds: Float? = nil,
-        valueGuard: (@Sendable (String) -> Bool)? = nil,
+        valueGuard: ValueGuard? = nil,
         copyAttributeValue: @escaping @Sendable (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError,
         copyAttributeValues: (@Sendable (AXUIElement, [String]) -> [String: Answer]?)? = nil
     ) {
@@ -118,8 +118,8 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
     public nonisolated func identifier(_ node: AXUIElement) -> String? { string(node, kAXIdentifierAttribute) }
     public nonisolated func value(_ node: AXUIElement) -> String? {
         guard let valueGuard else { return string(node, kAXValueAttribute) }
-        return AccessibilityValueReading.read(
-            isReservedLabel: valueGuard,
+        return AccessibilityValueReading.readText(
+            guard: valueGuard,
             attribute: { valueClassification(node, $0) },
             value: { string(node, kAXValueAttribute) }
         )
@@ -127,8 +127,8 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
     public nonisolated func value(_ node: AXUIElement, role: String?, subrole: String?) -> String? {
         guard let valueGuard else { return string(node, kAXValueAttribute) }
-        return AccessibilityValueReading.read(
-            isReservedLabel: valueGuard,
+        return AccessibilityValueReading.readText(
+            guard: valueGuard,
             attribute: { name in
                 switch name {
                     case kAXRoleAttribute: role
@@ -142,8 +142,8 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
     public nonisolated func numericValue(_ node: AXUIElement, role: String?, subrole: String?) -> Int? {
         guard let valueGuard else { return (attribute(node, kAXValueAttribute) as? NSNumber)?.intValue }
-        return AccessibilityValueReading.read(
-            isReservedLabel: valueGuard,
+        return AccessibilityValueReading.readNumber(
+            guard: valueGuard,
             attribute: { name in
                 switch name {
                     case kAXRoleAttribute: role
@@ -182,8 +182,8 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
 
     public nonisolated func numericValue(_ node: AXUIElement) -> Int? {
         guard let valueGuard else { return (attribute(node, kAXValueAttribute) as? NSNumber)?.intValue }
-        return AccessibilityValueReading.read(
-            isReservedLabel: valueGuard,
+        return AccessibilityValueReading.readNumber(
+            guard: valueGuard,
             attribute: { valueClassification(node, $0) },
             value: { (attribute(node, kAXValueAttribute) as? NSNumber)?.intValue }
         )

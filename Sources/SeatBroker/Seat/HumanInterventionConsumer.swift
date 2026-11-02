@@ -504,10 +504,11 @@ actor HumanInterventionConsumer {
     /// Removes reserved field values wherever OCR or another label repeats them, then applies the
     /// same minimization used by observation records. No unminimized scene becomes a baseline.
     static func minimized(_ scene: SceneSnapshot) -> SceneSnapshot {
-        let secretValues = scene.elements.filter {
-            $0.role == "AXSecureTextField" || ValueMinimization.namesSecret($0.label)
+        let classifier = SensitivityClassifier()
+        let secretValues = scene.elements.filter { element in
+            classifier.classify(element.value, in: .init(role: element.role, subrole: "", labels: [element.label])).sensitivity == .secret
         }.compactMap(\.value) + scene.outOfViewFields.filter {
-            $0.role == "AXSecureTextField" || ValueMinimization.namesSecret($0.label)
+            classifier.classify($0.value, in: .init(role: $0.role, subrole: "", labels: [$0.label])).sensitivity == .secret
         }.map(\.value)
         var minimized = ValueMinimization(secrets: secretValues).minimize(scene: scene)
         for index in minimized.elements.indices where minimized.elements[index].role == "AXSecureTextField" {
@@ -530,7 +531,7 @@ actor HumanInterventionConsumer {
         } + (before.outOfViewFields + after.outOfViewFields).map { (label: $0.label, value: $0.value) }
         let values = Set(fields.map(\.value))
         let secrets = Set(fields.filter {
-            $0.value.count > 2 && ValueMinimization.namesSecret($0.label)
+            $0.value.count > 2 && SensitivityClassifier().classify($0.value, in: .init(labels: [$0.label])).sensitivity == .secret
         }.map(\.value))
         let minimization = ValueMinimization(
             secrets: Array(secrets), exact: Dictionary(uniqueKeysWithValues: values.map { ($0, .confidentialContent) }))

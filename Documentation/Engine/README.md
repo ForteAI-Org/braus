@@ -695,3 +695,36 @@ manual input, window attribution and production perception. It does not feed the
 
 For external Claude and Codex clients using the running macOS app, see
 [Local MCP connections](LocalMCP.md).
+
+## Sensitivity classification
+
+`Memory/Privacy/Sensitivity` owns local S (secret), P (personal) and O (ordinary)
+classification and the destination table. Revision 2 rules are bundled as JSON;
+web attribute vocabularies come from the same resource for Swift and JavaScript.
+Invalid bundled rules stop initialization rather than permit unclassified values.
+Software trait policies remain empty until a registered trait source is available.
+
+An explicit `API token` label is decisive. Numeric PINs of three to eight digits
+are secret; generic `Key` and `Token` labels remain weak. Postal phrases suppress
+only the weak `code` or `codice` signal: secure roles, declarations, checksums and
+other secret signals still prevail. Optional contextual rules preserve decoding
+of earlier rule documents with their original numeric policy.
+
+`PerceptionCore.ValueGuard` carries two immutable decisions injected at composition.
+Native readers reject secure roles, unreadable editable subroles and decisive labels
+before requesting values. After a read, the classifier checks shapes and checksums
+with the collected labels, including decimal numeric values. Weak labels alone
+permit reading. Web scene controls apply the same classification before delivery.
+`ConfidentialSurfaces.isContent` remains a structural signal consumed by the classifier.
+Free text findings retain ranges into the original text for local minimization.
+The declaration alternatives share one compiled expression, with overlapping starts
+preserved. Shape detection skips inputs below its minimum length and uses ASCII
+word boundaries directly when possible; Unicode text retains the character-based
+path. Checksum scans require enough ASCII digits to form a candidate. These
+filters do not retain field values or build rule tables per message.
+
+The shared synthetic corpus is in `Tests/Engine/MemoryTests/Privacy/Fixtures/`.
+Explicit gaps record personal identity without a content surface and unrecognized
+seed phrases; these require later rules or measured evaluation of local PII detection.
+Controlled native and JavaScript tests do not establish live desktop coverage or
+production scene latency.

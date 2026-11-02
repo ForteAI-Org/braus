@@ -309,7 +309,7 @@ struct HumanInterventionSummaryTests {
         clicks: UInt32 = 1,
         picture: HumanPreviewControl.RetainedPicture? = nil
     ) -> HumanRecordedInteraction {
-        let element = InteractionElementMetadata.read(isReservedLabel: ValueMinimization.namesSecret) {
+        let element = InteractionElementMetadata.read(isReservedLabel: SensitivityClassifier().valueGuard.refusesLabel) {
             ["AXRole": role, "AXTitle": label, "AXValue": "never read this"][$0] ?? nil
         }
         let event = InteractionEvent(

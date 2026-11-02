@@ -362,7 +362,7 @@ let package = Package(
         .testTarget(
             name         : "AutomationRuntimeTests",
             dependencies : ["AutomationRuntime", "AutomationMCP", "AppAdapters", "Memory", "SQLiteMemory", "EngineCore",
-                            "Engine", "PerceptionCore", "LocalMCP", "LocalEmbedding", "WindowServerListing",
+                            "Engine", "PerceptionCore", "Perception", "LocalMCP", "LocalEmbedding", "WindowServerListing",
                             "TestScratch"].map { .target(name: $0) },
             path         : "Tests/Integration/AutomationRuntimeTests",
             // The Recall's quality corpus: knowledge learned through the tools and queries split by family.
@@ -604,7 +604,7 @@ let package = Package(
 
         // MARK: Perception tests
         perceptionTests("PerceptionCore", ["PerceptionCore"]),
-        perceptionTests("AccessibilityFacts", ["AccessibilityFacts", "PerceptionCore"]),
+        perceptionTests("AccessibilityFacts", ["AccessibilityFacts", "PerceptionCore", "Memory"]),
         perceptionTests("Perception", ["Perception", "PerceptionCore"]),
         perceptionTests("IncrementalText", ["IncrementalText", "PerceptionCore"]),
         perceptionTests("PixelSections", ["PixelSections", "PerceptionCore"]),
@@ -625,12 +625,12 @@ let package = Package(
 
         // A page as the engine sees a window: the scene from the accessibility tree and the layout, and the
         // roles that act on it over the DevTools protocol. Synthetic process ids name the tabs.
-        web("WebDriving", ["WebDriver", "EngineCore", "PerceptionCore"]),
+        web("WebDriving", ["WebDriver", "EngineCore", "PerceptionCore", "Memory"]),
         // The person's paired Chrome profiles: the hub the Braus extension's native host reaches, and the
         // DevTools transport that drives Braus's own tabs in one profile through its extension instance.
         web("ChromeProfiles", ["WebDriver"]),
         webTests("ChromeProfiles", ["ChromeProfiles", "WebDriver"]),
-        webTests("WebDriving", ["WebDriving", "WebDriver", "Engine", "EngineCore", "PerceptionCore", "TestScratch"],
+        webTests("WebDriving", ["WebDriving", "WebDriver", "Engine", "EngineCore", "PerceptionCore", "Memory", "TestScratch"],
                  resources: [.copy("Fixtures/web-scene.html"), .copy("Fixtures/web-hostile.html"),
                              .copy("Fixtures/web-secure.html"), .copy("Fixtures/hit-test.html"),
                              .copy("Fixtures/settle.html"), .copy("Fixtures/frames.html"),
