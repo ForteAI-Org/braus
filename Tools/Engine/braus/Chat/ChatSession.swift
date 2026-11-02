@@ -59,6 +59,7 @@ final class ChatSession {
     let executable: URL
     let working: URL
     private let temporary: URL
+    private let credential: ChildEnvironment.Credential
     private var signals: ChatSignals?
     /// The transcript the tool lines and a stop are written to now.
     private(set) var current: ChatTranscript?
@@ -88,6 +89,7 @@ final class ChatSession {
         session   : ((BrokeredAutomationSession) -> any AutomationSessionOperating)? = nil
     ) throws {
         self.executable = executable
+        credential = options.credential
         knowledge = options.knowledgeDirectory.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             ?? EngineRuntime.sharedKnowledge()
         if options.allowUnvalidated {
@@ -281,11 +283,17 @@ final class ChatSession {
     /// The turn's provider runs, with its reminder, through `connectionFile`.
     private func run(_ message: String, in transcript: ChatTranscript, connectionFile: URL) async throws {
         let instructions = tools.instructions
+        let environment = try ChildEnvironment.build(
+            inherited: ProcessInfo.processInfo.environment,
+            provider: transcript.conversation.provider,
+            credential: credential,
+            keychain: SystemKeychain()
+        )
         let turn = ProviderTurn(
             provider: transcript.conversation.provider, model: transcript.conversation.model,
             sessionID: transcript.conversation.providerSessionID, prompt: message,
             instructions: instructions, bridgeExecutable: Self.executablePath,
-            connectionFile: connectionFile.path, workingDirectory: working.path
+            connectionFile: connectionFile.path, workingDirectory: working.path, environment: environment
         )
         try await desktop.turn {
             try await provider.run(turn, executable: executable) { event in try transcript.event(event) }
@@ -298,7 +306,7 @@ final class ChatSession {
                 provider: transcript.conversation.provider, model: transcript.conversation.model,
                 sessionID: transcript.conversation.providerSessionID, prompt: reminder,
                 instructions: instructions, bridgeExecutable: Self.executablePath,
-                connectionFile: connectionFile.path, workingDirectory: working.path
+                connectionFile: connectionFile.path, workingDirectory: working.path, environment: environment
             )
             try await provider.run(follow, executable: executable) { event in try transcript.event(event) }
         }

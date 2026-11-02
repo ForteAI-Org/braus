@@ -34,7 +34,7 @@ nonisolated public enum JSONValue: Codable, Sendable, Equatable {
 
     @MainActor
     public static func encoding<T: Encodable>(_ value: T) throws -> JSONValue {
-        try JSONDecoder().decode(Self.self, from: JSONEncoder().encode(value))
+        try JSONDecoder().decode(Self.self, from: canonicalEncoder().encode(value))
     }
 
     /// Returns a fresh encoder for JSON sent to models and clients: sorted keys and unescaped slashes.

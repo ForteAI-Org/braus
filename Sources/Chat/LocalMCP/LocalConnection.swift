@@ -77,7 +77,7 @@ final class MCPChannel {
     }
 
     func write(_ value: JSONValue) async throws {
-        var data = try JSONEncoder().encode(value)
+        var data = try JSONValue.canonicalEncoder().encode(value)
         data.append(10)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             connection.send(content: data, completion: .contentProcessed { error in

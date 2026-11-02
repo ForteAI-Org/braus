@@ -515,7 +515,7 @@ let package = Package(
         // MARK: Engine tools
         // Chat contracts exclude processes, persistence, MCP, AppKit and the Driver.
         .target(name: "ChatCore", path: "Sources/Chat/ChatCore", swiftSettings: pure),
-        .target(name: "CLIProviders", dependencies: ["ChatCore"],
+        .target(name: "CLIProviders", dependencies: ["ChatCore", "ModelTransports"],
                 path: "Sources/Chat/CLIProviders", swiftSettings: facility),
         .target(name: "FileConversations", dependencies: ["ChatCore"],
                 path: "Sources/Chat/FileConversations", swiftSettings: pure),
@@ -643,7 +643,8 @@ let package = Package(
         // MARK: Engine tests
         .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
-                                                    "TestScratch", "AppAdapters", "TaskRouting"],
+                                                    "TestScratch", "AppAdapters", "TaskRouting",
+                                                    "braus-bridge"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
             name: "BrausCLITests",

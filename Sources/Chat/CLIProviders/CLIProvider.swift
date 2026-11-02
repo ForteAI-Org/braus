@@ -59,6 +59,7 @@ public final class CLIProvider {
         child.standardOutput = output
         child.standardError = errors
         child.standardInput = input
+        // Hosts supply the filtered whole environment; isolated provider tests may still inherit this process's.
         var environment = turn.environment ?? ProcessInfo.processInfo.environment
         environment.removeValue(forKey: "CLAUDECODE")
         environment.removeValue(forKey: "CLAUDE_CODE_ENTRYPOINT")

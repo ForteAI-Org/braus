@@ -1,10 +1,12 @@
 import AutomationRuntime
 import ChatCore
+import CLIProviders
 import Foundation
 
 /// ChatOptions parses only the chat surface; quoted prompts are preserved as a single value.
 struct ChatOptions {
     var provider: ChatProvider?
+    var credential: ChildEnvironment.Credential = .none
     var model: String?
     var hasModelOption = false
     var resume: String?
@@ -55,7 +57,7 @@ struct ChatOptions {
             case "--allow-destructive": allowDestructive = true
             case "--continue": continueOnError = true
             case "--provider", "--model", "--resume", "--history-dir", "--knowledge", "--script", "--evidence", "--preflight",
-                 "--channels", "--chrome":
+                 "--channels", "--chrome", "--provider-key-service", "--pass-env":
                 index += 1
                 guard index < arguments.count, !arguments[index].hasPrefix("--"), !arguments[index].isEmpty else {
                     throw invalid("Missing value for \(word).")
@@ -75,6 +77,12 @@ struct ChatOptions {
                 case "--script": script = value
                 case "--evidence": evidence = value
                 case "--preflight": preflight = value
+                case "--provider-key-service", "--pass-env":
+                    guard credential == .none else {
+                        throw invalid("--provider-key-service and --pass-env are mutually exclusive.")
+                    }
+                    credential = word == "--provider-key-service"
+                        ? .keychain(ProviderKeychainKey(service: value)) : .namedVariable(value)
                 case "--channels":
                     do { channels = try AutomationChannels(parsing: value) }
                     catch { throw invalid("--channels: \(error)") }
@@ -107,6 +115,8 @@ struct ChatOptions {
     braus chat [\"prompt\"] [options]
 
       --provider claude|codex       use the installed, signed-in provider CLI
+      --provider-key-service <service> read one provider credential from the Keychain
+      --pass-env <NAME>            pass one named variable instead of a Keychain credential
       --model <name>                provider model ID/alias; default uses the provider default
       --resume <UUID|last>          resume a saved Braus conversation
       --list                       list saved conversations
