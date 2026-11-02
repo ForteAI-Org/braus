@@ -26,6 +26,8 @@ import QuartzCore
 /// shows, never a second capture. It is seeded with the small one's last frame
 /// so a still window does not open black, and hands its own last frame to the
 /// small one it lands in, which the stream does not draw into while hidden.
+/// A screen that draws itself, such as a tool line's pictures, passes
+/// `copiesFrames` false and keeps its own drawing both ways.
 ///
 /// While it is in a window it owns the keyboard: Escape and a click on the
 /// backdrop close it, and Tab goes nowhere else. It shows no close button; the
@@ -60,6 +62,7 @@ final class EnlargedScreenHostView: NSView {
     private let screen        : NSView
     private let backdrop      = CALayer()
     private let onRequestClose: () -> Void
+    private let copiesFrames  : Bool
 
     /// The small view the grow starts from, held until the first layout has a size to grow to.
     private weak var opener: NSView?
@@ -91,8 +94,10 @@ final class EnlargedScreenHostView: NSView {
         opener        : NSView?,
         reducesMotion : Bool,
         label         : String,
+        copiesFrames  : Bool = true,
         onRequestClose: @escaping () -> Void
     ) {
+        self.copiesFrames   = copiesFrames
         self.screen         = screen
         self.nativeSize     = nativeSize
         self.opener         = opener
@@ -218,10 +223,12 @@ final class EnlargedScreenHostView: NSView {
         let target = restFrame
         screen.frame = target
         let origin = convertedFrame(of: opener) ?? target
-        Self.copyFrame(
-            from: opener,
-            to  : screen
-        )
+        if copiesFrames {
+            Self.copyFrame(
+                from: opener,
+                to  : screen
+            )
+        }
 
         guard !reducesMotion else {
             fade(
@@ -254,11 +261,13 @@ final class EnlargedScreenHostView: NSView {
         isClosing = true
         window?.makeFirstResponder(previousResponder)
         // The small view was paused while hidden, so it takes the newest frame before it shows again.
-        let landed = { [screen, weak small] in
-            Self.copyFrame(
-                from: screen,
-                to  : small
-            )
+        let landed = { [screen, copiesFrames, weak small] in
+            if copiesFrames {
+                Self.copyFrame(
+                    from: screen,
+                    to  : small
+                )
+            }
             finished()
         }
 

@@ -1020,6 +1020,11 @@ final class TranscriptController: NSObject {
             // The keyboard follows the reader to the quoted message, so this row keeps no action outlined.
             setFocusedAction(nil)
             revealQuoted(quote.messageID)
+        case .openPictures(let index):
+            if let item = rows.firstIndex(where: { $0.item.id == id }),
+               let cell = collectionView.item(at: IndexPath(item: item, section: 0)) as? TranscriptCell {
+                cell.rowView.openPictures(block: index)
+            }
         }
     }
 

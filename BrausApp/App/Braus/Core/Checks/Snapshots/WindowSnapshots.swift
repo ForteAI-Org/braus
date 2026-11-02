@@ -421,6 +421,7 @@ enum WindowSnapshots {
 
             try await writeReply(to: output)
             try await writeSlashCommands(to: output)
+            try await writeCanvasPictures(in: store, to: output)
         } catch {
             FileHandle.standardError.write(Data("snapshots failed: \(error)\n".utf8))
             status = 1

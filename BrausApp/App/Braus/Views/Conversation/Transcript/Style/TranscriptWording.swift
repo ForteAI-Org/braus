@@ -315,6 +315,9 @@ nonisolated enum TranscriptWording {
             return "Open link to \(shown)"
         case .openQuote:
             return "Go to quoted message"
+        case .openPictures(let index):
+            guard text.blocks.indices.contains(index), !text.blocks[index].string.isEmpty else { return "Open pictures" }
+            return "Open pictures of \(text.blocks[index].string)"
         }
     }
 

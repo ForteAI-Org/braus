@@ -8,8 +8,8 @@
 import Foundation
 
 /// RowAction is something a row does only when asked: go to the message its
-/// quote came from, copy one of its code blocks or open one of its links
-/// (§12.4, §12.5).
+/// quote came from, copy one of its code blocks, open one of its links or
+/// enlarge the pictures of a tool line (§12.4, §12.5).
 ///
 /// Every action is reachable from the keyboard: Left and Right move through a
 /// focused row's actions in reading order, Return or Space runs the focused
@@ -25,17 +25,22 @@ nonisolated enum RowAction: Sendable, Hashable {
     /// Goes to the message the row's quote came from.
     case openQuote
 
+    /// Enlarges the pictures of the pictures block at `block`.
+    case openPictures(block: Int)
+
     /// The row's actions, in reading order: its quote first, at the bubble's top, then its text's.
     static func actions(in row: PreparedRow) -> [RowAction] {
         (row.item.quote == nil ? [] : [.openQuote]) + actions(in: row.text)
     }
 
     /// The row's actions, in reading order: a finished code block's Copy
-    /// sits at its top, and a link's runs, destination included, are one action.
+    /// sits at its top, a pictures block's pictures are one action, and a
+    /// link's runs, destination included, are one action.
     static func actions(in text: PreparedText) -> [RowAction] {
         var actions: [RowAction] = []
         for (index, block) in text.blocks.enumerated() {
             if block.isCompleteCode { actions.append(.copyBlock(index: index)) }
+            if case .pictures = block.kind { actions.append(.openPictures(block: index)) }
             var open: (destination: String, range: NSRange)?
             for run in block.runs {
                 if let link = run.link, let current = open, current.destination == link,

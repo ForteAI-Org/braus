@@ -49,6 +49,10 @@ nonisolated struct RowGeometry: Sendable, Hashable {
     /// measured at and its measured height.
     let blockTexts: [CGRect]
 
+    /// Where each picture of a pictures block is drawn, by block, above its label; empty for
+    /// every other block.
+    let pictureFrames: [[CGRect]]
+
     /// Where the delivery badge sits, on the footer line at the bubble's inner
     /// corner with the time beside it, when the row has one.
     let badge     : CGRect?
@@ -89,6 +93,14 @@ nonisolated struct RowGeometry: Sendable, Hashable {
     static let quoteCornerRadius: CGFloat = 8
 
     static let toolShadowRoom: CGFloat = 4
+
+    /// A tool line's pictures: each fits this box, side by side with `pictureGap` between them,
+    /// and its label sits `pictureLabelGap` under the tallest. A small picture is drawn at most
+    /// `pictureEnlargement` times its pixel size.
+    static let pictureBox         = CGSize(width: 200, height: 96)
+    static let pictureGap         : CGFloat = 8
+    static let pictureLabelGap    : CGFloat = 4
+    static let pictureEnlargement : CGFloat = 2
 
     /// How far the footer's time and badge sit in from the bubble's edge, clear of its rounded corner.
     static let footerInset: CGFloat = 8
@@ -206,14 +218,29 @@ nonisolated struct RowGeometry: Sendable, Hashable {
         quote   : QuoteSize? = nil
     ) {
         self.rowWidth = rowWidth
+        // A pictures block holds its pictures above its label: they are its top inset, and its least width.
+        let room    = Self.textWidthLimit(for: item.kind, rowWidth: rowWidth, style: style)
+        let strips  = blocks.map { kind -> [CGRect] in
+            guard case .pictures(let shown) = kind else { return [] }
+            return Self.pictureFrames(shown.pictures, width: room)
+        }
+        let insets  = zip(blocks, zip(sizes, strips)).map { kind, measured in
+            var inset = Self.blockInsets(kind, style: style)
+            if let bottom = measured.1.map(\.maxY).max() {
+                inset.top = bottom + (measured.0.height > 0 ? Self.pictureLabelGap : 0)
+            }
+            return inset
+        }
+
         // Blocks stack from the text's origin; the row is placed around their total size.
         var local: [CGRect] = []
         var stackWidth: CGFloat = 0, stackHeight: CGFloat = 0
         for (index, (kind, size)) in zip(blocks, sizes).enumerated() {
             if index > 0 { stackHeight += Self.spacing(after: blocks[index - 1], before: kind) }
-            let insets = Self.blockInsets(kind, style: style)
+            let insets = insets[index]
             let height = kind == .rule ? Self.ruleHeight : size.height + insets.top + insets.bottom
-            let frame  = CGRect(x: 0, y: stackHeight, width: size.width + insets.left + insets.right,
+            let strip  = strips[index].map(\.maxX).max() ?? 0
+            let frame  = CGRect(x: 0, y: stackHeight, width: max(strip, size.width + insets.left + insets.right),
                                 height: height)
             local.append(frame)
             stackWidth  = max(stackWidth, frame.width)
@@ -378,14 +405,49 @@ nonisolated struct RowGeometry: Sendable, Hashable {
                 frame.origin.x   = column.start + Self.cardPadding.width
                 frame.size.width = column.width - 2 * Self.cardPadding.width
             }
-            let insets = Self.blockInsets(kind, style: style)
+            let insets = insets[index]
             let width  = Self.textWidthLimit(for: kind, in: item.kind, rowWidth: rowWidth, style: style)
             frames.append(frame)
             texts.append(CGRect(x: frame.minX + insets.left, y: frame.minY + insets.top, width: width,
                                 height: sizes[index].height))
         }
-        self.blocks     = frames
-        self.blockTexts = texts
+        self.blocks        = frames
+        self.blockTexts    = texts
+        self.pictureFrames = zip(strips, frames).map { strip, frame in
+            strip.map { $0.offsetBy(dx: frame.minX, dy: frame.minY) }
+        }
+    }
+
+    /// Where each of `pictures` is drawn, from its strip's top-left: side by side, aligned at the
+    /// top, each fit in `pictureBox` at its proportions and at most `pictureEnlargement` times its
+    /// pixel size, in whole points. A strip wider than `width` is reduced as a whole to fit it.
+    static func pictureFrames(
+        _ pictures: [ToolPictures.Picture],
+        width     : CGFloat
+    ) -> [CGRect] {
+        let sizes = pictures.map { picture -> CGSize in
+            let pixels = CGSize(width: max(1, picture.width), height: max(1, picture.height))
+            let scale  = min(
+                pictureBox.width / pixels.width,
+                pictureBox.height / pixels.height,
+                pictureEnlargement
+            )
+            return CGSize(width: pixels.width * scale, height: pixels.height * scale)
+        }
+        let gaps   = pictureGap * CGFloat(max(0, sizes.count - 1))
+        let widths = sizes.map(\.width).reduce(0, +)
+        let fit    = widths > 0 && widths + gaps > width ? max(0, width - gaps) / widths : 1
+        var x: CGFloat = 0
+        return sizes.map { size in
+            let frame = CGRect(
+                x     : x,
+                y     : 0,
+                width : (size.width * fit).rounded(),
+                height: (size.height * fit).rounded()
+            )
+            x = frame.maxX + pictureGap
+            return frame
+        }
     }
 
     // MARK: Blocks

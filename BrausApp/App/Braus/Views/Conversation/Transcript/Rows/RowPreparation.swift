@@ -48,7 +48,9 @@ nonisolated enum RowPreparation {
                 let limit = RowGeometry.textWidthLimit(for: block.kind, in: item.kind, rowWidth: width, style: style)
                 let key   = LayoutMeasurementCache.Key(content: block, width: limit, style: style)
                 if let known = cache.size(for: key) ?? measured[key] { return known }
-                let size = block.kind == .rule ? .zero : measure(block.attributed(style), width: CGFloat(key.width))
+                let size = block.kind == .rule || block.string.isEmpty
+                    ? .zero
+                    : measure(block.attributed(style), width: CGFloat(key.width))
                 measured[key] = size
                 return size
             }
@@ -300,17 +302,23 @@ nonisolated enum RowPreparation {
         return PreparedText(blocks: [label, card])
     }
 
-    /// The tool line: its summary, one quiet line the chevron follows; opened, the steps on a card
-    /// under it, one line each. Nothing on it is marked as a problem: a turn that failed has its own card.
+    /// The tool line: its summary, one quiet line the chevron follows, then the pictures its steps
+    /// showed the model, a block each with its label; opened, the steps on a card under them, one
+    /// line each. Nothing on it is marked as a problem: a turn that failed has its own card.
     private static func toolLine(_ steps: [ToolStep], isExpanded: Bool, ending: TranscriptItem.TurnEnding?)
         -> PreparedText {
         var summary = PreparedBlock(kind: .toolSummary)
         summary.append(TranscriptWording.toolSummary(steps, ending: ending), role: .toolCaption)
+        let pictures = steps.compactMap(\.pictures).suffix(ToolPictures.recordsPerTurn).map { shown in
+            var block = PreparedBlock(kind: .pictures(shown))
+            block.append(shown.label ?? "", role: .toolCaption)
+            return block
+        }
         let lines = isExpanded ? TranscriptWording.toolSteps(steps, ending: ending) : []
-        guard !lines.isEmpty else { return PreparedText(blocks: [summary]) }
+        guard !lines.isEmpty else { return PreparedText(blocks: [summary] + pictures) }
 
         var card = PreparedBlock(kind: .toolSteps)
         card.append(lines.joined(separator: "\n"), role: .toolCaption)
-        return PreparedText(blocks: [summary, card])
+        return PreparedText(blocks: [summary] + pictures + [card])
     }
 }
