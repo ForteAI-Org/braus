@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 30/10/2026.
 //
 
+#if DEBUG
 import Foundation
 import InteractionListener
 import InteractionObservation
@@ -186,3 +187,4 @@ struct HumanInterventionStructureTests {
         #expect(digest.text.contains("Unobserved: a pane hosted by Displays Service."))
     }
 }
+#endif
