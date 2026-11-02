@@ -74,7 +74,7 @@ struct HumanStepToolTests {
     @Test func imagesSurviveTheRouterAndHaveATextFallback() async throws {
         let session = HumanStepSession()
         let picture = Data([0, 1, 2, 3])
-        session.answer = HumanStepResult(text: "3: Colour palette", picture: picture)
+        session.answer = HumanStepResult(text: "3: Colour palette", images: [.init(data: picture, mimeType: "image/heic")])
         let tools = AutomationTools(session: session)
         let router = MCPRouter(tools: tools.toolDefinitions, call: tools.call)
         let response = try #require(await router.handle(request(["picture": .number(3)])))
@@ -86,9 +86,26 @@ struct HumanStepToolTests {
         #expect(blocks[1]["data"] == .string(picture.base64EncodedString()))
     }
 
+    @Test func aCanvasPairTravelsAsTwoPNGBlocks() {
+        let before = Data([1, 2]), after = Data([3, 4])
+        let result = HumanStepTool.result(
+            HumanStepResult(
+                text  : "1: drag",
+                images: [.init(data: before, mimeType: "image/png"), .init(data: after, mimeType: "image/png")]
+            ),
+            withholding: { $0 }
+        )
+        let blocks = result["content"].array ?? []
+        #expect(blocks.count == 3)
+        #expect(blocks.first?["text"].string == "1: drag\n2 pictures attached (PNG).")
+        #expect(blocks.dropFirst().map { $0["mimeType"] } == [.string("image/png"), .string("image/png")])
+        #expect(blocks.dropFirst().map { $0["data"] } == [.string(before.base64EncodedString()),
+                                                          .string(after.base64EncodedString())])
+    }
+
     @Test func minimizesAllResponseTextAndDoesNotAttachFailedPictures() {
         let result = HumanStepTool.result(
-            HumanStepResult(text: "secret", picture: Data([1]), isError: true),
+            HumanStepResult(text: "secret", images: [.init(data: Data([1]), mimeType: "image/png")], isError: true),
             withholding: { $0.replacingOccurrences(of: "secret", with: "[protected]") }
         )
         #expect(result["content"].array?.count == 1)
