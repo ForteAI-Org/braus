@@ -18,7 +18,7 @@ import Testing
 @Suite("A moment in front, on purpose")
 struct BriefActivationTests {
 
-    private static let user = FakeGeometry.reference(
+    static let user = FakeGeometry.reference(
         frame       : CGRect(x: 100, y: 100, width: 600, height: 500),
         processID   : FakeGeometry.userPID,
         windowNumber: 801
@@ -26,13 +26,13 @@ struct BriefActivationTests {
 
     /// What the recovery was asked and what it said.
     @MainActor
-    private final class Record {
+    final class Record {
         var requested: [WindowReference]         = []
         var briefRequested: [WindowReference]    = []
         var reports  : [UserFocusRecoveryReport] = []
     }
 
-    private static func seat(
+    static func seat(
         sensing          : FakeSensing,
         requestsActivate : Bool = true,
         hasBriefRestorer : Bool = false,

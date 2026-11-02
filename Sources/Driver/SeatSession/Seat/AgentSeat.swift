@@ -5218,23 +5218,10 @@ public final class AgentSeat {
         performOnce  : (@MainActor () -> Void)?
     ) async -> BriefActivationOutcome {
 
-        guard let recovery = focusRecovery else {
-            return refuseBriefActivation(.noFocusRecovery, "no focus recovery is installed")
+        if let refused = inFrontRefusal(admittingOpenDialog: false) {
+            return refuseBriefActivation(refused.refusal, refused.reason)
         }
-        guard !isTearingDown, state.acceptsCommands, !actionInFlight, !adoptionInFlight,
-              transfersInFlight == 0, !recovery.isPaused else {
-            return refuseBriefActivation(
-                .seatNotReady,
-                "the seat is \(state.rawValue)" + (recovery.isPaused ? " and its focus recovery is paused" : "")
-            )
-        }
-        if let dialog = openDialogs.first {
-            return refuseBriefActivation(
-                .dialogOpen,
-                "window \(dialog.windowNumber) of the application is a dialog open in the seat"
-            )
-        }
-        guard let target = session.currentTarget?.window.reference else {
+        guard let recovery = focusRecovery, let target = session.currentTarget?.window.reference else {
             return refuseBriefActivation(.targetNotPrepared, "the seat holds no target window")
         }
 
@@ -5276,6 +5263,141 @@ public final class AgentSeat {
             briefly in front: \(run.summary, privacy: .public)
             """)
         return run.outcome
+    }
+
+    /// Why the seat will not bring its target in front now, nil when it may:
+    /// the refusals a brief activation and a front lease share, in the order
+    /// they are checked. An open dialog refuses unless it is admitted.
+    private func inFrontRefusal(
+        admittingOpenDialog: Bool
+    ) -> (refusal: BriefActivationOutcome.Refusal, reason: String)? {
+        guard let recovery = focusRecovery else { return (.noFocusRecovery, "no focus recovery is installed") }
+        guard !isTearingDown, state.acceptsCommands, !actionInFlight, !adoptionInFlight,
+              transfersInFlight == 0, !recovery.isPaused else {
+            return (
+                .seatNotReady,
+                "the seat is \(state.rawValue)" + (recovery.isPaused ? " and its focus recovery is paused" : "")
+            )
+        }
+        if !admittingOpenDialog, let dialog = openDialogs.first {
+            return (.dialogOpen, "window \(dialog.windowNumber) of the application is a dialog open in the seat")
+        }
+        guard session.currentTarget != nil else { return (.targetNotPrepared, "the seat holds no target window") }
+        return nil
+    }
+
+    // MARK: The front lent for a Command
+
+    /// The bound of a front lease whose caller names none. A routing Command
+    /// measured about four seconds on 02/11/2026 and some run longer, so this
+    /// is several of those with room, not a qualified budget.
+    public static let frontLeaseLimit = Duration.seconds(30)
+
+    /// How a front lease puts the person's pointer back. A test replaces it.
+    var warpPointer: (CGPoint) -> CGError = { CGWarpMouseCursorPosition($0) }
+
+    /// Lends the front to the window the seat holds while `body` runs, then
+    /// gives it back to the person's window and verifies it. It is for a
+    /// Command that posts keys and clicks to the frontmost application and
+    /// takes seconds, which a brief activation's synchronous callback and two
+    /// seconds cannot carry. The application's windows stay where the seat
+    /// holds them, on the virtual display.
+    ///
+    /// The answer is what the body returned or threw, nil when it never ran,
+    /// and how the lease ended. A body that ran is never retried, and its
+    /// effect survives an unverified handback, which is never success.
+    ///
+    /// It refuses for the brief activation's reasons, with one line in the log,
+    /// a dialog of the application open in the seat included unless
+    /// `admittingOpenDialog` says the Command is there to answer it. Once the
+    /// lease runs, a dialog or window the application opens or closes is the
+    /// body's doing: it does not end the lease or read as the person's focus,
+    /// and the follow pass takes it in afterwards through the Command's record
+    /// (ADR 0033). The seat is `acting` for the whole lease, so no other pass
+    /// runs underneath, and it reports no `targetActivated`.
+    ///
+    /// The body starts once the target is seen in front, and is cancelled when
+    /// `bound` passes from the request or when the person takes the front, which
+    /// ends the lease and stays theirs. The handback waits for a cancelled body
+    /// to return, so a body has to honour cancellation at its suspension points.
+    ///
+    /// A posted click moves the person's pointer onto the virtual display, so
+    /// the pointer is read at the start and put back after the handback when
+    /// it is on the seat's display or, the person not having taken the front,
+    /// still where the body left it. A pointer moved since is left alone.
+    public func lendFront<Value: Sendable>(
+        admittingOpenDialog: Bool = false,
+        atMost bound       : Duration = frontLeaseLimit,
+        _ body             : @escaping @MainActor () async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: FrontLeaseOutcome) {
+
+        if let refused = inFrontRefusal(admittingOpenDialog: admittingOpenDialog) {
+            return (nil, refuseFrontLease(refused.refusal, refused.reason))
+        }
+        guard let recovery = focusRecovery, let target = session.currentTarget?.window.reference else {
+            return (nil, refuseFrontLease(.targetNotPrepared, "the seat holds no target window"))
+        }
+
+        let previous = state
+        actionInFlight = true
+        transition(to: .acting, reason: .requested)
+        defer {
+            actionInFlight = false
+            restoreActionState(previous, reason: .requested)
+            requestWindowFollow(
+                through: recovery.commandProvenance == nil
+                    ? .zero : .nanoseconds(Int64(CommandProvenance.marginNanoseconds))
+            )
+        }
+        let pointerAtStart = sensing.cursorLocation
+        var pointerLeft: CGPoint?
+        var result: Result<Value, any Error>?
+        let run = await recovery.lendFront(
+            target,
+            atMost: UInt64(clamping: bound.wholeNanoseconds),
+            body  : { [self] in
+                let selected = session.currentTarget?.window.reference
+                guard !isTearingDown, selected?.hasSameIdentity(as: target) == true else { return }
+                do { result = .success(try await body()) } catch { result = .failure(error) }
+                pointerLeft = sensing.cursorLocation
+            }
+        )
+        if case .refused(let refusal) = run.outcome, refusal != .frontRequestRefused {
+            return (nil, refuseFrontLease(refusal, run.summary))
+        }
+        // Once the person took the front, a pointer off the seat's display is theirs.
+        let personTookFront = if case .frontTaken = run.outcome { true } else { false }
+        putPointerBack(to: pointerAtStart, leftAt: personTookFront ? nil : pointerLeft)
+        Self.log.notice("""
+            lent the front to pid \(target.processID, privacy: .public) window \(target.windowNumber, privacy: .public): \
+            \(run.summary, privacy: .public)
+            """)
+        return (result, run.outcome)
+    }
+
+    /// Puts the pointer back at `start` when the lease is what moved it: it is
+    /// on the seat's display, where the person's own never is, or still at
+    /// `left`, where the body left it. Anywhere else the person moved it.
+    private func putPointerBack(to start: CGPoint?, leftAt left: CGPoint?) {
+        guard let start, let current = sensing.cursorLocation, current != start,
+              sensing.virtualDisplayBounds.contains(current) || current == left
+        else { return }
+        let error = warpPointer(start)
+        if error != .success {
+            Self.log.notice("""
+                the pointer could not be put back after a front lease: error \(error.rawValue, privacy: .public)
+                """)
+        }
+    }
+
+    private func refuseFrontLease(
+        _ refusal: BriefActivationOutcome.Refusal,
+        _ reason : String
+    ) -> FrontLeaseOutcome {
+        Self.log.notice("""
+            a front lease was refused, \(refusal.rawValue, privacy: .public): \(reason, privacy: .public)
+            """)
+        return .refused(refusal)
     }
 
     /// The dialogs of the driven application open in the seat now, empty when
