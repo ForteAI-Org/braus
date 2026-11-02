@@ -83,6 +83,14 @@ struct BrokeredAutomationSessionTests {
             }
             pending.removeFirst().resume()
         }
+
+        /// Wakes every wait after scheduling settles, including cancelled waits left by earlier calls.
+        func elapseAll() async {
+            await BrokeredAutomationSessionTests.letTheWaitBegin()
+            let waiting = pending
+            pending.removeAll()
+            for continuation in waiting { continuation.resume() }
+        }
     }
 
     /// The fixtures' resolution of a name: "Test" is the `test.process` their seating names; any other word is taken
@@ -890,9 +898,8 @@ struct BrokeredAutomationSessionTests {
         #expect(live == "Braus seat: session \(id.uuidString) is open on Test (test.process), window \"Test\". "
             + "Observe it with this session ID before acting.")
 
-        // The first turn's wait was cancelled by the second, whose wait then releases the seat.
-        await idle.elapseOldest()
-        await idle.elapseOldest()
+        // Only the current turn's final wait may release; earlier cancelled waits do nothing.
+        await idle.elapseAll()
         await Self.until { !desktop.holdsComputer }
         #expect(desktop.id == nil)
         #expect(desktop.turnStatus == "Braus seat: no session is open. "
@@ -961,10 +968,21 @@ struct BrokeredAutomationSessionTests {
           .timeLimit(.minutes(1)))
     func anIdleHolderReleasesWhenTheIdleWindowElapses() async throws {
         let broker  = SeatBroker()
-        let desktop = try Self.seated(broker, idleWindow: .milliseconds(50))
-        try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
+        let idle    = IdleClock()
+        let desktop = try Self.seated(broker, idle: idle)
+        try await desktop.turn {
+            _ = try await desktop.open(application: "Test", window: nil)
+            await Self.until { idle.pendingCount == 1 }
+        }
         #expect(desktop.activity == "Using Test")
 
+        await Self.until { idle.pendingCount == 2 }
+        #expect(idle.waits == [.seconds(30), .seconds(30)])
+        // Ending the turn starts a full pause, even if its in-turn wait returns late.
+        await idle.elapseOldest()
+        await Self.letTheWaitBegin()
+        #expect(desktop.holdsComputer)
+        await idle.elapseOldest()
         await Self.until { !desktop.holdsComputer }
 
         #expect(!desktop.holdsComputer)
@@ -996,10 +1014,11 @@ struct BrokeredAutomationSessionTests {
         #expect(opens == 1)
         #expect(desktop.id == session)
         #expect(desktop.activity == "Using Test")
-        await Self.until { idle.waits.count == 2 }
-        #expect(idle.pendingCount == 1)
+        await Self.letTheWaitBegin()
+        #expect(idle.pendingCount >= 1)
+        #expect(idle.waits.allSatisfy { $0 == .milliseconds(50) })
 
-        await idle.elapseOldest()
+        await idle.elapseAll()
         await Self.until { !desktop.holdsComputer }
         #expect(desktop.activity == nil)
         #expect(broker.queue.entries.isEmpty)
@@ -1012,16 +1031,15 @@ struct BrokeredAutomationSessionTests {
         let idle    = IdleClock()
         let desktop = try Self.seated(broker, idle: idle)
         try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
+        await Self.until { idle.pendingCount == 1 }
 
         let lease = try await Task { try await broker.queue.acquire("Braus") }.value
 
         #expect(!desktop.holdsComputer)
-        await Self.until { idle.pendingCount == 1 }
-        #expect(idle.pendingCount == 1)
         #expect(broker.queue.entries.map(\.label) == ["Braus"])
 
         // The window elapsing after the queue's release closes nothing: the other entry keeps the seat.
-        await idle.elapseOldest()
+        await idle.elapseAll()
         await Self.letTheWaitBegin()
         #expect(broker.queue.entries.map(\.label) == ["Braus"])
         #expect(broker.queue.entries.map(\.state) == [.acting])
@@ -1029,25 +1047,169 @@ struct BrokeredAutomationSessionTests {
         lease.giveBack()
     }
 
-    @Test("a turn that runs longer than the idle window keeps the computer until it ends",
+    @Test("an inactive application is released inside its turn and the next call finds no session",
           .timeLimit(.minutes(1)))
-    func aTurnLongerThanTheIdleWindowIsNeverReleasedInside() async throws {
+    func anInactiveHolderReleasesInsideItsTurn() async throws {
         let broker  = SeatBroker()
-        let desktop = try Self.seated(broker, idleWindow: .milliseconds(30))
-        try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
-        let session = desktop.id
+        let idle    = IdleClock()
+        let desktop = try Self.seated(broker, idle: idle)
 
         try await desktop.turn {
-            try await Task.sleep(for: .milliseconds(200))
+            _ = try await desktop.open(application: "Test", window: nil)
             #expect(desktop.holdsComputer)
-            #expect(desktop.id == session)
-            #expect(try await desktop.observe().appName == "Test")
+            await idle.elapseOldest()
+            await Self.until { !desktop.holdsComputer }
+            #expect(idle.waits == [.seconds(30)])
+            #expect(desktop.id == nil)
+            #expect(broker.queue.entries.isEmpty)
+            let refusal = await #expect(throws: AutomationFailure.self) { try await desktop.observe() }
+            #expect(refusal?.description == "No live application session. Use windows and open_session, then observe.")
         }
-        #expect(desktop.id == session)
-
-        await Self.until { !desktop.holdsComputer }
         #expect(desktop.activity == nil)
         #expect(broker.queue.entries.isEmpty)
+        await desktop.close()
+    }
+
+    enum CallEnding: CaseIterable, Sendable {
+        case success
+        case failure
+        case cancellation
+    }
+
+    @Test("overlapping activity tokens keep the application until the last call ends")
+    func activityTokensKeepTheSeatUntilTheLastCallEnds() async throws {
+        let broker  = SeatBroker()
+        let idle    = IdleClock()
+        let desktop = try Self.seated(broker, idle: idle)
+        try await desktop.turn {
+            _ = try await desktop.open(application: "Test", window: nil)
+            await Self.until { idle.pendingCount == 1 }
+            let first = desktop.beginActivity()
+            let last  = desktop.beginActivity()
+            desktop.endActivity(first)
+            desktop.endActivity(first)
+            await idle.elapseOldest()
+            await Self.letTheWaitBegin()
+            #expect(desktop.holdsComputer)
+            #expect(idle.waits == [.seconds(30)])
+
+            desktop.endActivity(last)
+            await Self.until { idle.pendingCount == 1 }
+            // A duplicate end must not replace the newly started idle window.
+            desktop.endActivity(last)
+            await Self.letTheWaitBegin()
+            #expect(idle.waits == [.seconds(30), .seconds(30)])
+            await idle.elapseOldest()
+            await Self.until { !desktop.holdsComputer }
+            #expect(desktop.id == nil)
+            #expect(broker.queue.entries.isEmpty)
+        }
+        await desktop.close()
+    }
+
+    @Test("an observation in flight prevents release and starts a full idle window on every exit",
+          arguments: CallEnding.allCases)
+    func anObservationInFlightRestartsTheIdleClock(_ ending: CallEnding) async throws {
+        let broker = SeatBroker()
+        let idle   = IdleClock()
+        let scene  = SceneSnapshot(
+            bundleID         : "test.process",
+            appName          : "Test",
+            windowTitle      : "Test",
+            viewportPixelSize: ViewportPixelSize(
+                width : 10,
+                height: 10
+            ),
+            elements         : []
+        )
+        var blocks = false
+        var reading = false
+        var finishReading: CheckedContinuation<Void, Never>?
+        let desktop = Self.session(
+            broker,
+            perceiving: { _, _ in
+                if blocks {
+                    reading = true
+                    await withCheckedContinuation { finishReading = $0 }
+                    try Task.checkCancellation()
+                    if ending == .failure { throw Opened() }
+                }
+                return scene
+            },
+            running: { _ in RunningFixture() },
+            waitIdle: { await idle.wait($0) }
+        ) { _, _, _ in
+            let opened = TargetApp(
+                pid      : ProcessInfo.processInfo.processIdentifier,
+                bundleID : "test.process",
+                name     : "Test",
+                bundleURL: nil,
+                windows  : []
+            )
+            return (opened, SeatTarget())
+        }
+
+        try await desktop.turn {
+            _ = try await desktop.open(application: "Test", window: nil)
+            let session = desktop.id
+            await Self.until { idle.pendingCount == 1 }
+            blocks = true
+            let call = Task { try await desktop.observe() }
+            await Self.until { reading }
+            #expect(reading)
+
+            await idle.elapseOldest()
+            await Self.letTheWaitBegin()
+            #expect(desktop.id == session)
+            #expect(desktop.holdsComputer)
+            #expect(idle.waits == [.seconds(30)])
+
+            if ending == .cancellation { call.cancel() }
+            finishReading?.resume()
+            switch ending {
+                case .success:
+                    #expect(try await call.value.windowTitle == "Test")
+                case .failure:
+                    await #expect(throws: Opened.self) { try await call.value }
+                case .cancellation:
+                    await #expect(throws: CancellationError.self) { try await call.value }
+            }
+            await Self.until { idle.pendingCount == 1 }
+            #expect(idle.waits == [.seconds(30), .seconds(30)])
+            #expect(desktop.id == session)
+            await idle.elapseOldest()
+            await Self.until { !desktop.holdsComputer }
+            #expect(desktop.id == nil)
+            #expect(broker.queue.entries.isEmpty)
+        }
+        await desktop.close()
+    }
+
+    @Test("human intervention prevents inactivity release inside a turn and its end restores the clock")
+    func humanControlStopsTheInTurnIdleClock() async throws {
+        let broker  = SeatBroker()
+        let idle    = IdleClock()
+        let desktop = try Self.seated(broker, idle: idle)
+        try await desktop.turn {
+            _ = try await desktop.open(application: "Test", window: nil)
+            let session = desktop.id
+            await Self.until { idle.pendingCount == 1 }
+            let hold = try desktop.retainForHumanIntervention()
+            _ = try await desktop.observe()
+            await idle.elapseOldest()
+            await Self.letTheWaitBegin()
+            #expect(desktop.id == session)
+            #expect(desktop.holdsComputer)
+            #expect(idle.waits == [.seconds(30)])
+
+            try await desktop.endHumanIntervention(hold)
+            await idle.elapseOldest()
+            await Self.until { !desktop.holdsComputer }
+            #expect(idle.waits == [.seconds(30), .seconds(30)])
+            #expect(desktop.id == nil)
+            #expect(broker.queue.entries.isEmpty)
+        }
+        await desktop.close()
     }
 
     @Test("after Release the computer, the pending idle release does nothing, even under a later lease",
@@ -1058,6 +1220,7 @@ struct BrokeredAutomationSessionTests {
         var opens   = 0
         let desktop = try Self.seated(broker, idle: idle, opens: { opens += 1 })
         try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
+        await Self.until { idle.pendingCount == 1 }
 
         await desktop.close()
         #expect(!desktop.holdsComputer)

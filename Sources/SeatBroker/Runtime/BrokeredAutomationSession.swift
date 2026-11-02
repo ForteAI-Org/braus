@@ -35,10 +35,10 @@ import VisionText
 ///
 /// The seat is kept after a turn for `idleWindow` without another turn, then closed, so a quick
 /// follow-up reuses the open session and the window comes back soon after. A new turn cancels
-/// that pending close. An entry that starts waiting while this session holds the seat between
-/// turns makes it close at once; one that arrives during a turn makes it close when `turn` ends,
-/// never inside it. The next turn then finds no live session and opens one again, which waits in
-/// the queue like any other entry.
+/// that pending close. Inside a turn, the same window starts when the last call ends: a call in
+/// flight keeps the seat however long it runs. An entry that starts waiting between turns makes
+/// the session close at once; one arriving during a turn waits for its end or an inactivity release.
+/// A call after release finds no live session and must open one again through the queue.
 ///
 /// Calls are serialized by the owner, as `AutomationSessionOperating` requires. Cancelling an
 /// `open` that waits in the queue takes the worker out of it; one cancelled after the seat was
@@ -72,7 +72,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// Escape quits DaVinci Resolve instead of closing its dialog, so it is never suggested there.
     static let quitsOnEscape: Set<String> = ["com.blackmagic-design.DaVinciResolve"]
 
-    /// How long a worker keeps the seat after its turn ends with no other turn, Eliomar's choice:
+    /// How long a worker keeps the seat without a call in flight, and after its turn ends:
     /// a quick follow-up ("and what is the first one called?") still finds the session and its
     /// context, and the window comes back to the person's screen soon after the worker goes quiet.
     static let idleWindow: Duration = .seconds(30)
@@ -124,6 +124,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private var isInTurn = false
     @ObservationIgnored private var humanDetails: HumanInterventionDetails?
     @ObservationIgnored private var idleRelease: Task<Void, Never>?
+    @ObservationIgnored private var inFlightCalls: Set<UUID> = []
     /// Pins the current lease across turn endings while the person controls its preview.
     @ObservationIgnored
     private var humanIntervention: UUID?
@@ -410,12 +411,32 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The route this session is when no routing session fronts it (M05).
     public var dispatchRoute: CallRoute.Route? { .desktop }
 
+    /// Marks a call in flight and cancels the inactivity release. Pair the returned token with
+    /// `endActivity` in `defer`, including on failure or cancellation. Calls may nest or overlap.
+    /// This tracks activity only; it neither opens a session nor grants input authority.
+    public func beginActivity() -> UUID {
+        let token = UUID()
+        inFlightCalls.insert(token)
+        idleRelease?.cancel()
+        idleRelease = nil
+        return token
+    }
+
+    /// Ends one call and restarts the full idle window once the last call ends. Repeated or foreign
+    /// tokens do nothing. Human intervention and a closing session keep precedence over the timer.
+    public func endActivity(_ token: UUID) {
+        guard inFlightCalls.remove(token) != nil, inFlightCalls.isEmpty else { return }
+        releaseWhenIdle()
+    }
+
     /// Checks the grants, waits for a seat, opens the application on it and returns the first
     /// scene, which the Brain observes. A missing grant is asked for through the broker and
     /// refused at once, before the queue. Failures close and return the seat before throwing.
     /// Human takeover during the first scene read preserves the completed adoption and rethrows
     /// CancellationError for the tool to answer with the opened session and no scene.
     public func open(application word: String, window title: String?) async throws -> SceneSnapshot {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let started = ContinuousClock.now
         Self.log.info("open_session: waiting for prior close")
         defer { Self.log.info("open_session: ended after \(started.duration(to: .now).description, privacy: .public)") }
@@ -567,19 +588,25 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The installed and running applications `query` names, ranked as `open` resolves a name, so
     /// what the worker is offered and what it may open cannot disagree. Needs no seat and no grant.
     public func applications(matching query: String?) async throws -> [ApplicationCandidate] {
-        Self.candidates(await ApplicationOpening.rankedOffMain(query, in: TargetEnumerator.preparedTargets()))
+        let activity = beginActivity()
+        defer { endActivity(activity) }
+        return Self.candidates(await ApplicationOpening.rankedOffMain(query, in: TargetEnumerator.preparedTargets()))
     }
 
     /// The bundle ID `open` resolves `application` to, through the same `ApplicationOpening.resolve`, so a name in
     /// the person's language routes as the app's own does. Nil, by design, for a name `open` would refuse: that
     /// open then says why. Needs no seat and no grant.
     public func resolvedBundleID(of application: String) async -> String? {
-        try? await ApplicationOpening.resolvedOffMain(application, in: TargetEnumerator.preparedTargets()).bundleID
+        let activity = beginActivity()
+        defer { endActivity(activity) }
+        return try? await ApplicationOpening.resolvedOffMain(application, in: TargetEnumerator.preparedTargets()).bundleID
     }
 
     /// The windows of `processID`, the seat's already adopted windows included: a held floating window keeps its
     /// row with its current identity even when the system's list no longer shows it.
     public func windowCandidates(ownedBy processID: pid_t) async throws -> [WindowRow] {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let held = (try? target?.agentSeat().adoptedWindows.map(\.reference)) ?? []
         return TargetEnumerator.windows(of: processID, includingHeld: held).map {
             WindowRow(layer: 0, frame: $0.frame, title: $0.title, number: $0.windowNumber)
@@ -610,6 +637,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func observe() async throws -> SceneSnapshot {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         do {
             return try await perceivedScene()
         } catch {
@@ -641,6 +670,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
 
     /// A fresh scene with the pixels it was read from, for a person who asks to see what the agent sees.
     public func observeWithImage() async throws -> (scene: SceneSnapshot, image: CGImage?) {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let scene = try await observe()
         return (scene, target?.lastSceneImage)
     }
@@ -658,6 +689,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         desiredState: ControlState?,
         isDryRun    : Bool
     ) async throws -> ActOutcome {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let (application, runtime, seat) = try current()
         if case .refuse(let sentence) = try await SeatAdmission.awaited(
             seat.agentSeat(),
@@ -712,6 +745,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// withheld one is delivered with the engine told, so its answer quotes no value of the field and its check keeps
     /// none of the texts.
     public func deliver(_ input: InputRequest.Input, section: String?, dispatch: TextDispatch) async throws -> ActOutcome {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         guard dispatch == .withheld else {
             throw AutomationFailure("This session cannot type only into the field the call recorded, so nothing was typed.")
         }
@@ -736,6 +771,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     private func deliver(_ input: InputRequest.Input, section: String?, withholdsText: Bool) async throws -> ActOutcome {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let (application, runtime, seat) = try current()
         if case .refuse(let sentence) = try await SeatAdmission.awaited(
             seat.agentSeat(),
@@ -784,6 +821,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func menu(path: String) async throws -> ActOutcome {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
@@ -969,6 +1008,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func press(button: String) async throws -> ActOutcome {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
@@ -1005,6 +1046,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         onMenu   : @escaping @MainActor @Sendable (ContextMenu) -> Void = { _ in },
         onCapture: @escaping @MainActor @Sendable (String, CGImage) throws -> Void = { _, _ in }
     ) async throws -> (outcome: ActOutcome, receipt: PopupMenuReceipt?) {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let (application, runtime, target) = try current()
         // The call's recorder, bound once before the selector runs: the selector reports its perceptions to it, and
         // the receipt it returns is handed to it before the scene is enriched (M05).
@@ -1107,12 +1150,13 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
 
     /// Runs one turn of the worker's agent, and closes afterwards when another entry is waiting in
     /// the queue, which gives the seat back; otherwise it closes once `idleWindow` passes with no
-    /// new turn. Starting a turn cancels that pending close, and nothing is released while `body`
-    /// runs, since the agent may be between an observation and an act.
+    /// new turn. Starting a turn restarts that window; pauses inside `body` release the seat after
+    /// the same window, while a call in flight keeps it until the call ends.
     public func turn(_ body: () async throws -> Void) async throws {
         idleRelease?.cancel()
         idleRelease = nil
         isInTurn = true
+        releaseWhenIdle()
         do {
             try await body()
         } catch {
@@ -1237,6 +1281,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     private func endTurn() async {
+        idleRelease?.cancel()
+        idleRelease = nil
         isInTurn = false
         let details = humanDetails
         humanDetails = nil
@@ -1257,24 +1303,27 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func humanStep(_ request: HumanStepRequest) async -> HumanStepResult {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         guard isInTurn, humanIntervention == nil, closing == nil, let humanDetails else { return .unavailable }
         return humanDetails.result(request)
     }
 
-    /// Closes once an open session has gone `idleWindow` without a turn. The wait is tied to the
+    /// Closes once an open session has gone `idleWindow` without a call in flight. The wait is tied to the
     /// lease held now, so one that outlives a close, or returns under a later lease, closes nothing.
     private func releaseWhenIdle() {
-        guard let lease, id != nil, closing == nil, !isInTurn, humanIntervention == nil else { return }
+        guard let lease, id != nil, closing == nil, inFlightCalls.isEmpty, humanIntervention == nil else { return }
         idleRelease?.cancel()
         idleRelease = Task { [weak self, waitIdle, idleWindow] in
+            guard !Task.isCancelled else { return }
             do {
                 try await waitIdle(idleWindow)
             } catch {
-                // The wait ends early only when cancelled: a turn started or the session closed.
+                // A call, a turn boundary, human intervention or close cancels the wait.
                 return
             }
             guard let self, !Task.isCancelled, self.lease === lease,
-                  !isInTurn, humanIntervention == nil, closing == nil else { return }
+                  inFlightCalls.isEmpty, humanIntervention == nil, closing == nil else { return }
             await close()
         }
     }
