@@ -839,6 +839,9 @@ final class TeamModel {
         withholding: (String) -> String
     ) {
         switch event {
+        case .tool(let record) where record.hasPrefix(ToolPictures.mark):
+            // Pictures change no step the mascot says, and their encoding is no text to withhold from.
+            break
         case .tool(let record):
             turnReports[workerID]?.add(tool: withholding(record))
         case .provider(.assistant(let text)):

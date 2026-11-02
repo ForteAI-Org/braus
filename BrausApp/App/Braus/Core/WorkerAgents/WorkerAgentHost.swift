@@ -270,11 +270,14 @@ final class WorkerAgentHost {
             }
             calls.running[id] = CallsInFlight.Call(tool: name, task: task, interruption: interruption)
             defer { calls.running[id] = nil }
-            return try await withTaskCancellationHandler {
+            let result = try await withTaskCancellationHandler {
                 try await task.value
             } onCancel: {
                 task.cancel()
             }
+            // The pictures the model was shown go on the tool line too, after the tool's own records.
+            if let pictures = ToolPictures.record(tool: name, result: result) { try tools.record?(pictures) }
+            return result
         }
         let router = MCPRouter(tools: tools.toolDefinitions) { name, arguments in
             try await brausCall(name, arguments)
