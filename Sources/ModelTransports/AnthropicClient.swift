@@ -104,7 +104,7 @@ struct AnthropicClient: ModelTransport {
                 results = (results ?? []) + [[
                     "type": "tool_result",
                     "tool_use_id": message.call?.id ?? "",
-                    "content": message.text,
+                    "content": resultContent(of: message),
                     "is_error": message.isError,
                 ]]
                 continue
@@ -129,6 +129,17 @@ struct AnthropicClient: ModelTransport {
         return try text + message.toolCalls.map { call in
             ["type": "tool_use", "id": call.id, "name": call.name,
              "input": try JSONSerialization.jsonObject(with: call.arguments)]
+        }
+    }
+
+    /// Images stay inside their tool result, beside its text, rather than becoming user input.
+    private static func resultContent(of message: TurnMessage) -> Any {
+        guard !message.images.isEmpty else { return message.text }
+        let text: [[String: Any]] = message.text.isEmpty ? [] : [["type": "text", "text": message.text]]
+        return text + message.images.map { image in
+            ["type": "image", "source": [
+                "type": "base64", "media_type": image.mediaType, "data": image.data.base64EncodedString()
+            ]]
         }
     }
 

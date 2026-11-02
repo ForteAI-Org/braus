@@ -56,6 +56,10 @@ public struct TurnMessage: Sendable, Hashable {
     public let role: Role
     public let text: String
 
+    /// A tool result's pictures, held only for the run that received them. Stored or rebuilt
+    /// history uses `forHistory` before starting another run, never between its tool rounds.
+    public let images: [TurnImage]
+
     /// The calls an `assistant` message made, in order. Empty on any other.
     public let toolCalls: [ToolCall]
 
@@ -71,22 +75,57 @@ public struct TurnMessage: Sendable, Hashable {
     /// `toolCalls`. Nil on any other, and for a provider that keeps none.
     public let record: TurnRecord?
 
-    public init(role: Role, text: String, toolCalls: [ToolCall] = [], record: TurnRecord? = nil) {
-        self.role = role
-        self.text = text
+    public init(
+        role     : Role,
+        text     : String,
+        toolCalls: [ToolCall] = [],
+        record   : TurnRecord? = nil
+    ) {
+        self.role      = role
+        self.text      = text
+        self.images    = []
         self.toolCalls = toolCalls
-        self.call = nil
-        self.isError = false
-        self.record = record
+        self.call      = nil
+        self.isError   = false
+        self.record    = record
     }
 
     /// The answer to `call`: what the tool returned, or its failure when `isError`.
-    public init(result text: String, of call: ToolCall, isError: Bool) {
-        self.role = .tool
-        self.text = text
+    public init(
+        result text: String,
+        of call    : ToolCall,
+        isError    : Bool,
+        images     : [TurnImage] = []
+    ) {
+        self.role      = .tool
+        self.text      = text
+        self.images    = images
         self.toolCalls = []
-        self.call = call
-        self.isError = isError
-        self.record = nil
+        self.call      = call
+        self.isError   = isError
+        self.record    = nil
+    }
+
+    /// Replaces each picture with one short marker for a later run or a summary. Applying this
+    /// inside an active tool loop would rewrite its prefix, so only history boundaries use it.
+    public var forHistory: TurnMessage {
+        replacingImages(with: images.map { _ in "[picture omitted from earlier turn]" })
+    }
+
+    /// Keeps pictures only when the selected model is known to read them. The fallback says why
+    /// once per result, regardless of how many pictures it held, and leaves the text intact.
+    public func forModel(with capabilities: ModelCapabilities) -> TurnMessage {
+        capabilities.supportsVision ? self : replacingImages(with: [
+            "picture omitted: this model does not read images"
+        ])
+    }
+
+    private func replacingImages(with lines: [String]) -> TurnMessage {
+        guard !images.isEmpty, let call else { return self }
+        return TurnMessage(
+            result : ([text].filter { !$0.isEmpty } + lines).joined(separator: "\n"),
+            of     : call,
+            isError: isError
+        )
     }
 }

@@ -63,18 +63,36 @@ struct GeminiClient: ModelTransport {
 
     /// Gemini's text models take tools. The speech and image generation models
     /// the catalogue also lists take none (their model pages say so), and are
-    /// told apart by name, so this asks the network nothing. Thinking and images
-    /// are left unclaimed: not every text model has them, and nothing reads them.
+    /// told apart by name, so this asks the network nothing. Known multimodal
+    /// Gemini families read images, except the speech generation models.
     func capabilities() async throws -> ModelCapabilities {
-        // ponytail: a name rule for the two documented families without tools; a new one fails with Gemini's 400.
-        ModelCapabilities(supportsTools: !model.contains("-tts") && !model.contains("-image"))
+        knownCapabilities
+    }
+
+    private var knownCapabilities: ModelCapabilities {
+        let multimodal = ["gemini-1.5-", "gemini-2.", "gemini-3-", "gemini-3.", "gemini-4-"]
+            .contains { model.hasPrefix($0) }
+        return ModelCapabilities(
+            supportsTools : !model.contains("-tts") && !model.contains("-image"),
+            supportsVision: multimodal && !model.contains("-tts")
+        )
     }
 
     /// The streamed body: the turns as `contents`, the system instruction
     /// beside them, and each tool as a function declaration with its schema
     /// as `parametersJsonSchema`.
-    func requestBody(messages: [TurnMessage], tools: [ToolDefinition]) throws -> [String: Any] {
-        var body: [String: Any] = ["contents": try Self.contents(messages)]
+    func requestBody(
+        messages: [TurnMessage],
+        tools   : [ToolDefinition]
+    ) throws -> [String: Any] {
+        let capabilities = knownCapabilities
+        let prepared = messages.map { $0.forModel(with: capabilities) }
+        let perPartResolution = model.hasPrefix("gemini-3-") || model.hasPrefix("gemini-3.")
+            || model.hasPrefix("gemini-4-")
+        var body: [String: Any] = ["contents": try Self.contents(
+            prepared,
+            usesPerPartResolution: perPartResolution
+        )]
         let system = messages.filter { $0.role == .system }.map(\.text).joined(separator: "\n\n")
         if !system.isEmpty { body["systemInstruction"] = ["parts": [["text": system]]] }
         if model.contains("gemini-3") {
@@ -94,8 +112,13 @@ struct GeminiClient: ModelTransport {
     /// `functionCall` parts, the first with the signature the documentation
     /// gives for a call it did not produce. The answers to one turn's calls are
     /// one `user` turn of `functionResponse` parts, each `{"output": ...}` or
-    /// `{"error": ...}`, with the call's id when the call came with one.
-    static func contents(_ messages: [TurnMessage]) throws -> [[String: Any]] {
+    /// `{"error": ...}`, with the call's id when the call came with one. Pictures follow their
+    /// function response as inline parts in that same turn, with low resolution for small crops
+    /// when the model supports v1beta's per-part resolution.
+    static func contents(
+        _ messages           : [TurnMessage],
+        usesPerPartResolution: Bool = false
+    ) throws -> [[String: Any]] {
         var contents: [[String: Any]] = []
         var responses: [[String: Any]]?
         var calledIDs: Set<String> = []
@@ -106,6 +129,17 @@ struct GeminiClient: ModelTransport {
                 var response: [String: Any] = ["name": call?.name ?? "", "response": [key: value(of: message.text)]]
                 if let id = call?.id, calledIDs.contains(id) { response["id"] = id }
                 responses = (responses ?? []) + [["functionResponse": response]]
+                // v1beta Part accepts inlineData beside functionResponse in the same user turn.
+                // Per-part mediaResolution is an object with a level, supported from Gemini 3.
+                responses = (responses ?? []) + message.images.map { image in
+                    var part: [String: Any] = ["inlineData": [
+                        "mimeType": image.mediaType, "data": image.data.base64EncodedString()
+                    ]]
+                    if usesPerPartResolution && image.isSmall {
+                        part["mediaResolution"] = ["level": "MEDIA_RESOLUTION_LOW"]
+                    }
+                    return part
+                }
                 continue
             }
             if let answered = responses {
