@@ -133,6 +133,7 @@ struct MemoryWiringTests {
     @Test("opening takes a verified copy of the archive once an interval, and keeps the newest copies only")
     func dailyCopy() async throws {
         let service = try W.service()
+        await service.setBackupEnvironment(now: { Date() }, capacity: { _ in Int64.max })
         _ = await W.recorder(service, session: nil).observe(W.window([W.open, W.save]))
         #expect(await service.flush(within: .seconds(10)))
         for _ in 0..<200 where try files(service, ".backup-").isEmpty { try await Task.sleep(for: .milliseconds(10)) }
@@ -149,12 +150,14 @@ struct MemoryWiringTests {
     @Test("a corrupt archive is moved aside with its date, never deleted, and the newest copy takes its place")
     func corruptRestoredFromCopy() async throws {
         let service = try W.service()
+        await service.setBackupEnvironment(now: { Date() }, capacity: { _ in Int64.max })
         _ = await W.recorder(service, session: nil).observe(W.window([W.open, W.save]))
         #expect(await service.flush(within: .seconds(10)))
         await service.close()
         // A copy is the archive as it was opened, like the JSON store's copy before the day's first save:
         // the next opening, once the interval has passed, keeps what the first one learned.
         let next = MemoryService(directory: service.directory, configuration: .init(backupInterval: .zero))
+        await next.setBackupEnvironment(now: { Date() }, capacity: { _ in Int64.max })
         _ = try await next.ready()
         for _ in 0..<200 where try files(next, ".backup-").count < 2 { try await Task.sleep(for: .milliseconds(10)) }
         await next.close()

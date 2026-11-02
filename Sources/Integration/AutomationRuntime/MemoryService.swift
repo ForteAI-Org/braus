@@ -245,8 +245,31 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         case closed
     }
 
-    /// Status is what a reader may show about the memory: where it is, where it stands, the library it
-    /// runs on when open, and what happened to the writes this process offered.
+    /// BackupSkipReason identifies a preflight refusal that did not start a copy.
+    public enum BackupSkipReason: String, Sendable { case lowSpace }
+
+    /// BackupFailureReason separates filesystem preflight failures from copy failures.
+    public enum BackupFailureReason: Sendable, Equatable {
+        case preflight(String), snapshot(String)
+    }
+
+    /// BackupState describes the most recent attempted scheduled copy.
+    public enum BackupState: Sendable, Equatable {
+        case idle, verified
+        case skipped(BackupSkipReason)
+        case failed(BackupFailureReason)
+    }
+
+    /// RetirementStatus exposes retained storage and unresolved retirement effects.
+    public struct RetirementStatus: Sendable, Equatable {
+        public var count = 0
+        public var bytes: UInt64 = 0
+        public var collisions = 0
+        public var incomplete = 0
+        public var reason: String?
+    }
+
+    /// Status describes the archive, this process's writes, and copy maintenance.
     nonisolated public struct Status: Sendable, Equatable {
         public let path: String
         public let state: State
@@ -274,6 +297,9 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         public let lastFailure: String?
         /// When the newest copy of the archive was taken, when one exists.
         public let lastBackup: Date?
+        public let backupState: BackupState
+        public let backupRetryAt: Date?
+        public let retirement: RetirementStatus
         /// What the service did with an archive it found corrupt, when it found one.
         public let lastRecovery: String?
         /// What the service imported from the JSON Brains beside an archive it created, when it created one.
@@ -380,6 +406,20 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     private var lastUnification: String?
 
     private var lastBackup: Date?
+    private var backupState: BackupState = .idle
+    private var backupRetryAt: Date?
+    private var backupFailures = 0
+    private let copyMaintenance: MemoryCopyMaintenance
+    private var maintainingCopies: Task<Void, Never>?
+    private var observedStoreRetirement: RetirementReport?
+    private var backupNow: @Sendable () -> Date = { Date() }
+    private var availableCapacity: @Sendable (URL) throws -> Int64 = { directory in
+        let values = try directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        guard let bytes = values.volumeAvailableCapacityForImportantUsage else {
+            throw MemoryUnavailable("the volume's available capacity is unknown")
+        }
+        return bytes
+    }
     private var lastRecovery: String?
     private var lastImport: String?
     /// What the relation recovery did, and whether a pass of it waits in the queue.
@@ -395,9 +435,10 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     private static let log = Logger(subsystem: "dev.forte.Braus", category: "Memory")
 
     public init(directory: URL, configuration: Configuration = Configuration(), clock: MemoryClock = MemoryClock()) {
-        self.directory     = directory
-        self.configuration = configuration
-        self.clock         = clock
+        self.directory       = directory
+        self.configuration   = configuration
+        self.clock           = clock
+        self.copyMaintenance = MemoryCopyMaintenance(directory: directory, configuration: configuration)
     }
 
     // MARK: One service per directory
@@ -908,7 +949,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
 
     private func performOpen() async throws -> MemoryRepositories {
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try SQLiteArchiveRetirement.privateDirectory(directory)
             let existed = FileManager.default.fileExists(atPath: url.path)
             let key     = directory.standardizedFileURL.resolvingSymlinksInPath().path
             let legacy  = Self.legacyOrigins.withLock { $0[key] ?? [] }
@@ -1000,13 +1041,25 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
 
     // MARK: Copies and recovery
 
+    private func openStore() async throws -> SQLiteMemoryStore {
+        let attempted = SQLiteMemoryStore(url: url, configuration: configuration.store)
+        do {
+            try await attempted.open()
+            return attempted
+        } catch {
+            if let report = await attempted.lastRetirement { await copyMaintenance.recordRetirement(report) }
+            if let failure = await attempted.lastRetirementError { await copyMaintenance.recordFailure(failure) }
+            throw error
+        }
+    }
+
     /// Opens the store; a file the library calls corrupt is moved aside and the newest copy restored
     /// first, then the store is opened once more.
     /// The open store, and whether this open went through a recovery.
     private func openRecovering() async throws -> (SQLiteMemoryStore, recovered: Bool) {
         let firstError: any Error
         do {
-            return (try await SQLiteMemoryStore.open(at: url, configuration: configuration.store), false)
+            return (try await openStore(), false)
         } catch {
             firstError = error
         }
@@ -1034,7 +1087,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             Self.log.error("memory recovered: \(recovery, privacy: .public)")
         }
         // Whatever the recovery did, this open went through one: it never counts as a new archive.
-        return (try await SQLiteMemoryStore.open(at: url, configuration: configuration.store), true)
+        return (try await openStore(), true)
     }
 
     // MARK: Unification
@@ -1130,8 +1183,11 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// is being taken. The copy runs beside the writes; it never holds them up.
     private func scheduleBackupIfDue() {
         guard admitting, state == .open, backingUp == nil else { return }
+        let now = backupNow()
+        scheduleCopyMaintenance(now: now)
+        if let backupRetryAt, now < backupRetryAt { return }
         if let newest = lastBackup ?? newestBackup()?.date,
-           Date().timeIntervalSince(newest) < Double(configuration.backupInterval.components.seconds) { return }
+           now.timeIntervalSince(newest) < Double(configuration.backupInterval.components.seconds) { return }
         backingUp = Task { await self.backup() }
     }
 
@@ -1142,7 +1198,11 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             backingUp = nil
             activity.withLock { $0.copying = false }
         }
-        guard let store else { return }
+        await maintainingCopies?.value
+        guard !Task.isCancelled, let store else {
+            lastCopyPublished = false
+            return
+        }
         let started = ContinuousClock.now
         workStatistics[.idle].attempts += 1
         #if BRAUS_PHASES
@@ -1150,32 +1210,86 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         defer { phase.end() }
         #endif
         defer { completeWork(.idle, since: started) }
-        let stamp       = Self.stamp(Date())
+        let stamp       = Self.stamp(backupNow())
         let destination = directory.appendingPathComponent("\(configuration.fileName).backup-\(stamp)")
+        var startedCopy = false
         do {
+            var size: UInt64 = 0
+            for suffix in ["", "-wal"] {
+                let path = url.path + suffix
+                if suffix.isEmpty || FileManager.default.fileExists(atPath: path) {
+                    let attributes = try FileManager.default.attributesOfItem(atPath: path)
+                    guard let bytes = (attributes[.size] as? NSNumber)?.uint64Value else {
+                        throw MemoryUnavailable("the archive size is unknown")
+                    }
+                    size += bytes
+                }
+            }
+            let capacity = try availableCapacity(directory)
+            guard Double(capacity) >= Double(size) * 1.5 else {
+                backupState = .skipped(.lowSpace)
+                backupRetryAt = backupNow().addingTimeInterval(3_600)
+                lastCopyPublished = false
+                return
+            }
+            startedCopy = true
             if let beforeBackup { try await beforeBackup() }
             _ = try await store.snapshot(to: destination)
-            lastBackup        = Date()
+            let completed = backupNow()
+            lastBackup        = completed
             lastCopyPublished = true
-            for old in backups().dropFirst(max(1, configuration.keptBackups)) {
-                try? FileManager.default.removeItem(at: old.url)
-            }
+            backupState       = .verified
+            backupFailures    = 0
+            backupRetryAt     = nil
+            await maintainCopies(now: completed, verifiedBackupAt: completed)
         } catch {
+            backupFailures = min(backupFailures + 1, 6)
+            let delay = min(86_400.0, 3_600.0 * pow(2, Double(backupFailures - 1)))
+            backupRetryAt = backupNow().addingTimeInterval(delay)
+            backupState = .failed(startedCopy ? .snapshot(Self.describe(error)) : .preflight(Self.describe(error)))
             lastCopyPublished = false
             Self.log.error("memory copy failed: \(Self.describe(error), privacy: .public)")
         }
     }
 
-    /// The copies of the archive beside it, the newest first.
+    package func setBackupEnvironment(
+        now: @escaping @Sendable () -> Date,
+        capacity: @escaping @Sendable (URL) throws -> Int64
+    ) {
+        backupNow = now
+        availableCapacity = capacity
+    }
+
+    package func waitForBackup() async { await backingUp?.value }
+
+    package func runBackupIfDue() async {
+        scheduleBackupIfDue()
+        await backingUp?.value
+    }
+
+    package nonisolated static func copyStamp(_ date: Date) -> String { stamp(date) }
+
+    /// Retires closed copies on their maintenance executor and preserves incomplete results.
+    package func maintainCopies(now: Date, verifiedBackupAt: Date?) async {
+        await copyMaintenance.maintainCopies(now: now, verifiedBackupAt: verifiedBackupAt)
+    }
+
+    private func scheduleCopyMaintenance(now: Date) {
+        guard maintainingCopies == nil else { return }
+        maintainingCopies = Task {
+            await maintainCopies(now: now, verifiedBackupAt: nil)
+            maintainingCopies = nil
+        }
+    }
+
+    /// Lists published backups, excluding copies named by pending or conflicting retired families.
     private nonisolated func backups() -> [(url: URL, date: Date)] {
-        let prefix = "\(configuration.fileName).backup-"
-        let files  = (try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]
-        )) ?? []
-        return files
-            .filter { $0.lastPathComponent.hasPrefix(prefix) }
-            .map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
-            .sorted { $0.1 > $1.1 }
+        do {
+            return try MemoryCopyMaintenance.backups(in: directory, configuration: configuration)
+        } catch {
+            Self.log.error("memory backup listing failed: \(String(describing: error), privacy: .private)")
+            return []
+        }
     }
 
     private nonisolated func newestBackup() -> (url: URL, date: Date)? { backups().first }
@@ -1351,14 +1465,26 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     public func status() async -> Status {
         // The library linked into this process, the one the archive is or would be opened with.
         var version: String? = SQLiteLibrary.version, sourceID: String? = SQLiteLibrary.sourceID
-        if let store, state == .open, let diagnostics = try? await store.diagnostics() {
-            version  = diagnostics.libraryVersion
-            sourceID = diagnostics.librarySourceID
+        if let store, state == .open {
+            do {
+                let diagnostics = try await store.diagnostics()
+                version = diagnostics.libraryVersion
+                sourceID = diagnostics.librarySourceID
+                if let report = diagnostics.lastRetirement, report != observedStoreRetirement {
+                    observedStoreRetirement = report
+                    await copyMaintenance.recordRetirement(report)
+                }
+                if let error = diagnostics.lastRetirementError { await copyMaintenance.recordFailure(error) }
+            } catch {
+                await copyMaintenance.recordFailure("retirement diagnostics unavailable: \(error)")
+            }
         }
+        let retirement = await copyMaintenance.status()
         return Status(path: url.path, state: state, libraryVersion: version, librarySourceID: sourceID,
                       pending: queue.count, inFlight: running == nil ? 0 : 1, written: written, failed: failed,
                       partial: partial, dropped: dropped, unsettled: unsettled,
                       lastFailure: lastFailure, lastBackup: lastBackup ?? newestBackup()?.date,
+                      backupState: backupState, backupRetryAt: backupRetryAt, retirement: retirement,
                       lastRecovery: lastRecovery, lastImport: lastImport, lastClose: lastClose,
                       essentialWritten: essentialWritten, essentialFailed: essentialFailed,
                       suspended: suspendedReason, pendingEssential: pendingEssential.count,

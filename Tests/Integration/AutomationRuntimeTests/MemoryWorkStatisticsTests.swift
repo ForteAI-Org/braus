@@ -143,6 +143,7 @@ struct MemoryWorkStatisticsTests {
 
     @Test func failedBackupIsIdle() async throws {
         let service = try W.service()
+        await service.setBackupEnvironment(now: { Date() }, capacity: { _ in Int64.max })
         await service.setBeforeBackup { throw EssentialWriteFailure.io("Test copy failure") }
         _ = try await service.ready()
         let deadline = ContinuousClock.now + .seconds(10)

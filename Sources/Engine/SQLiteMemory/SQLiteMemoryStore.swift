@@ -150,6 +150,9 @@ public actor SQLiteMemoryStore {
 
         /// The migration this open ran on an archive of an earlier schema, nil when it ran none.
         public let migration: Migration?
+        /// Cleanup failures are separate from the primary snapshot or migration error.
+        public let lastRetirement: RetirementReport?
+        public let lastRetirementError: String?
 
         /// Committed write transactions since the open.
         public let commits: Int
@@ -278,12 +281,16 @@ public actor SQLiteMemoryStore {
     private var checkpoints     = 0
     private var lastCheckpoint  : Checkpoint?
     private var snapshots       = 0
+    /// Retirement diagnostics remain readable after a failed open or a close.
+    public private(set) var lastRetirement: RetirementReport?
+    public private(set) var lastRetirementError: String?
     private var lastSnapshotDuration: Duration?
     private var waitObserver    : (@Sendable (WaitEvent) -> Void)?
     private var slowObserver    : (threshold: Duration, report: @Sendable (SlowOperation) -> Void)?
     private var stepGate        : (@Sendable () async throws -> Void)?
     private var verificationGate: (@Sendable () async -> Void)?
     private var migrationFault  : (@Sendable () throws -> Void)?
+    private var beforeMigrationCommit: (@Sendable () async -> Void)?
     private var presence        : SQLiteMemoryPresence?
     private let clock           = ContinuousClock()
 
@@ -580,6 +587,8 @@ public actor SQLiteMemoryStore {
                 foreignKeysEnabled  : try Self.integerPragma(writer, "foreign_keys") == 1,
                 bootstrappedNow     : bootstrappedNow,
                 migration           : migration,
+                lastRetirement      : lastRetirement,
+                lastRetirementError : lastRetirementError,
                 commits             : commits,
                 busyRetries         : busyRetries + readerRetries,
                 waited              : waited + readerWaited,
@@ -851,8 +860,8 @@ public actor SQLiteMemoryStore {
     /// built at a temporary path beside the destination that only this call names, checked
     /// (`integrity_check`, `foreign_key_check`, the current schema with every table), put in rollback
     /// journal mode so it is one self-contained file, and then renamed into place without
-    /// clobbering. Any refusal, failure, cancellation between steps or close of the store removes
-    /// the temporary files this call created and leaves no copy: an interrupted copy is never
+    /// clobbering. Any refusal, failure, cancellation between steps or close of the store retires
+    /// the temporary family this call created without publishing a copy: an interrupted copy is never
     /// handed over, and nothing is restored from a copy on the store's own initiative.
     public func snapshot(to destination: URL) async throws -> Snapshot {
         let attemptStarted = clock.now
@@ -923,8 +932,10 @@ public actor SQLiteMemoryStore {
             // is handed over only by a snapshot nobody stopped.
             if Task.isCancelled { throw MemoryStoreError.cancelled(.snapshot) }
             try stillOpen()
+            try SQLiteArchiveRetirement.protectFamily(partial)
+            try SQLiteArchiveRetirement.excludeFamily(partial)
             try Self.move(copying.partialPath, to: target.path)
-            copying.removeJournals()
+            retireSnapshotFiles(copying.partialPath, residues: true)
             snapshots += 1
             let duration = clock.now - attemptStarted
             completedDuration = duration
@@ -937,6 +948,7 @@ public actor SQLiteMemoryStore {
             )
         } catch {
             copying.abandon(releasing: self)
+            retireSnapshotFiles(copying.partialPath, residues: false)
             throw Self.classified(error, phase: .snapshot)
         }
     }
@@ -951,24 +963,31 @@ public actor SQLiteMemoryStore {
         var backup     : SQLiteBackup?
 
         /// Ends the copy without handing it over: the backup object first, so the connections can
-        /// close, then the files. A finish that fails here is not answered: the primary error is
+        /// close, then retires the files. A finish failure is recorded separately: the primary error is
         /// the one that brought the snapshot here.
         mutating func abandon(releasing store: isolated SQLiteMemoryStore) {
-            if let backup { try? backup.finish() }
+            if let backup {
+                do { try backup.finish() }
+                catch { store.lastRetirementError = "backup finish: \(error)" }
+            }
             backup = nil
             if let copy { store.release(copy) }
             copy = nil
             if let source { store.release(source) }
             source = nil
-            for path in family { try? FileManager.default.removeItem(atPath: path) }
         }
+    }
 
-        /// Removes the journal siblings a verification may have created beside a finished copy.
-        func removeJournals() {
-            for path in family.dropFirst() { try? FileManager.default.removeItem(atPath: path) }
+    private func retireSnapshotFiles(_ path: String, residues: Bool) {
+        let base = URL(fileURLWithPath: path)
+        let directory = base.deletingLastPathComponent().appendingPathComponent(".retired")
+        do {
+            lastRetirement = try residues
+                ? SQLiteArchiveRetirement.retireResidues(base, into: directory)
+                : SQLiteArchiveRetirement.retire(base, into: directory)
+        } catch {
+            lastRetirementError = String(describing: error)
         }
-
-        private var family: [String] { ["", "-wal", "-shm", "-journal"].map { partialPath + $0 } }
     }
 
     /// Opens the read transaction the whole copy reads through. A busy answer leaves no
@@ -985,7 +1004,7 @@ public actor SQLiteMemoryStore {
 
     /// Checks the finished copy and answers its page size. Anything short of `ok`, no violation
     /// and exactly the schema expected (the current one, or the earlier one a migration copies) is a
-    /// refusal, and the copy is removed by the caller.
+    /// refusal, and the copy is retired by the caller.
     private static func verify(copy: SQLiteConnection, expecting wanted: Inspection = .current) throws -> Int {
         let integrity = try copy.query("PRAGMA integrity_check") { try $0.text(0) ?? "" }
         guard integrity == ["ok"] else { throw MemoryStoreError.snapshot(.copyFailedIntegrityCheck(integrity)) }
@@ -1050,7 +1069,7 @@ public actor SQLiteMemoryStore {
     /// the migration text from its version runs, the version is set and recorded with the copy's
     /// name, and the result must be exactly the current shape: anything else rolls the whole
     /// migration back and leaves the archive at its earlier schema, with the copy beside it. Answers
-    /// nil when another process migrated it meanwhile; this open's copy is then removed.
+    /// nil when another process migrated it meanwhile; this open's copy is then retired.
     private func migrate(
         _ writer    : SQLiteConnection,
         from found  : Inspection,
@@ -1068,6 +1087,8 @@ public actor SQLiteMemoryStore {
         let copyName = "\(url.lastPathComponent).schema-\(shape?.name ?? String(version))-\(Self.stamp(Date()))"
         let copy     = url.deletingLastPathComponent().appendingPathComponent(copyName)
         try await copyBeforeMigration(to: copy, expecting: found)
+        defer { retireEarlierSchemaCopies() }
+        if let beforeMigrationCommit { await beforeMigrationCommit() }
         try stillOpening()
         let text  = shape == nil ? try SQLiteMemorySchema.migrationText(from: version) : ""
         let nowMS = Self.nowMS()
@@ -1107,17 +1128,42 @@ public actor SQLiteMemoryStore {
             return true
         }
         guard migrated else {
-            for suffix in ["", "-wal", "-shm", "-journal"] {
-                try? FileManager.default.removeItem(atPath: copy.path + suffix)
-            }
+            retireSnapshotFiles(copy.path, residues: false)
             return nil
         }
         return Migration(fromVersion: version, toVersion: SQLiteMemorySchema.version, copyName: copyName, fromShape: shape?.name)
     }
 
+    package func holdMigrationCommit(_ gate: (@Sendable () async -> Void)?) {
+        beforeMigrationCommit = gate
+    }
+
+    private func retireEarlierSchemaCopies() {
+        do {
+            let directory = url.deletingLastPathComponent()
+            let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            let copies = files.filter {
+                $0.lastPathComponent.hasPrefix(url.lastPathComponent + ".schema-")
+                    && !["-wal", "-shm", "-journal"].contains(where: $0.lastPathComponent.hasSuffix)
+            }.sorted { $0.lastPathComponent.suffix(22) > $1.lastPathComponent.suffix(22) }
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "UTC")
+            formatter.dateFormat = "yyyy-MM-dd'T'HHmmss.SSS'Z'"
+            formatter.isLenient = false
+            guard copies.allSatisfy({ formatter.date(from: String($0.lastPathComponent.suffix(22))) != nil }) else {
+                lastRetirementError = "retirementNeedsReview: schema creation timestamp is unknown"
+                return
+            }
+            for copy in copies.dropFirst() { retireSnapshotFiles(copy.path, residues: false) }
+        } catch {
+            lastRetirementError = String(describing: error)
+        }
+    }
+
     /// Copies the archive, at its earlier schema, to `target` through the backup API, consistent as of
     /// one read transaction, verified (integrity, foreign keys, exactly that schema), in rollback
-    /// journal mode and renamed into place without clobbering. Any failure removes what it made.
+    /// journal mode and renamed into place without clobbering. Any failure preserves the temporary family in retirement.
     private func copyBeforeMigration(to target: URL, expecting found: Inspection) async throws {
         guard !FileManager.default.fileExists(atPath: target.path) else {
             throw MemoryStoreError.snapshot(.destinationExists)
@@ -1150,10 +1196,13 @@ public actor SQLiteMemoryStore {
             try Self.settle(copy: copy)
             release(copy)
             copying.copy = nil
+            try SQLiteArchiveRetirement.protectFamily(partial)
+            try SQLiteArchiveRetirement.excludeFamily(partial)
             try Self.move(copying.partialPath, to: target.path)
-            copying.removeJournals()
+            retireSnapshotFiles(copying.partialPath, residues: true)
         } catch {
             copying.abandon(releasing: self)
+            retireSnapshotFiles(copying.partialPath, residues: false)
             throw Self.classified(error, phase: .snapshot)
         }
     }
@@ -1210,6 +1259,13 @@ public actor SQLiteMemoryStore {
                     primary: SQLITE_CANTOPEN, extended: SQLITE_CANTOPEN, message: "unable to open database file"
                 ), phase: .open)
             }
+            let parent = url.deletingLastPathComponent()
+            guard FileManager.default.fileExists(atPath: parent.path) else {
+                throw MemoryStoreError(SQLiteConnection.Failure(
+                    primary: SQLITE_CANTOPEN, extended: SQLITE_CANTOPEN, message: "unable to open database directory"
+                ), phase: .open)
+            }
+            try SQLiteArchiveRetirement.privateDirectory(parent)
             try await takePresence()
             // Under the shared presence no recovery is in progress, so a record beside the archive is one
             // that stopped half way: nothing opens the archive, or makes an empty one, until a recovery
@@ -1400,6 +1456,7 @@ public actor SQLiteMemoryStore {
             guard try integerPragma(connection, "foreign_keys") == 1 else {
                 throw refusal(.open, "foreign_keys could not be enabled")
             }
+            try SQLiteArchiveRetirement.protectFamily(URL(fileURLWithPath: path))
             return connection
         } catch let failure as SQLiteConnection.Failure {
             throw MemoryStoreError(failure, phase: .open)
@@ -1417,6 +1474,7 @@ public actor SQLiteMemoryStore {
         try connection.execute("PRAGMA synchronous = FULL")
         try connection.execute("PRAGMA wal_autocheckpoint = 0")
         try connection.execute("PRAGMA journal_size_limit = 67108864")
+        try SQLiteArchiveRetirement.protectFamily(URL(fileURLWithPath: connection.path))
     }
 
     /// Confirms the file is in WAL, sets `synchronous=FULL`, and makes the connection read-only.
