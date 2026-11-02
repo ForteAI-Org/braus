@@ -558,7 +558,7 @@ let package = Package(
                            "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "AutomationRuntime",
                            "ChatCore", "CLIProviders", "FileConversations", "LocalMCP", "AutomationMCP", "SceneOverlay", "InteractionListener", "InteractionObservation",
                            "LocalEmbedding", "SeatBroker", "AppAdapters", "MacDriver", "MacDriving", "MacDelivery",
-                           "MacSession", "Router", "WebSession", "WebDriver", "TaskRouting"]
+                           "MacSession", "Router", "WebSession", "WebDriver", "TaskRouting", "Turn"]
                 .map { .target(name: $0) },
             path: "Tools/Engine/braus",
             swiftSettings: facility
@@ -660,7 +660,7 @@ let package = Package(
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
             name: "BrausCLITests",
-            dependencies: ["braus", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
+            dependencies: ["braus", "Turn", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
                            "Memory", "SQLiteMemory", "SeatBroker", "SeatDriving", "FileConversations", "TestScratch",
                            "AppAdapters"],
             path: "Tests/Engine/BrausCLITests",

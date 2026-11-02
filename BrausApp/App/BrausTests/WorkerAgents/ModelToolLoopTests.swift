@@ -17,6 +17,7 @@ import Memory
 import PerceptionCore
 import Synchronization
 import Testing
+import Turn
 @testable import Braus
 
 private let usage = ModelUsage(
@@ -746,7 +747,7 @@ struct ModelToolLoopTests {
         #expect(transport.wasCancelled)
         #expect(session.log.isEmpty)
         #expect(!host.isRunning)
-        await #expect(throws: AutomationFailure.self) {
+        await #expect(throws: TurnRefusal.personHasControl) {
             try await host.run(
                 prompt   : "Too early.",
                 selection: ollama,
@@ -754,7 +755,7 @@ struct ModelToolLoopTests {
                 role     : nil
             ) { _ in }
         }
-        await #expect(throws: AutomationFailure.self) {
+        await #expect(throws: TurnRefusal.personHasControl) {
             _ = try await host.compact(
                 selection: ollama,
                 sessionID: nil,
@@ -762,10 +763,10 @@ struct ModelToolLoopTests {
                 trigger  : .manual
             )
         }
-        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(UUID()) }
+        #expect(throws: TurnRefusal.staleEpisode) { try host.endHumanIntervention(UUID()) }
         #expect(transport.sent.count == 1)
         try host.endHumanIntervention(token)
-        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+        #expect(throws: TurnRefusal.staleEpisode) { try host.endHumanIntervention(token) }
         #expect(transport.sent.count == 1, "ending suspension starts no provider and replays no tools")
         try await host.close()
         #expect(session.log == ["close"])
@@ -867,7 +868,7 @@ struct ModelToolLoopTests {
         }
         try await Self.wait { session.isOpening }
         let token = try host.suspendForHumanIntervention()
-        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+        #expect(throws: TurnRefusal.staleEpisode) { try host.endHumanIntervention(token) }
         #expect(session.log == ["open"])
         var drained = false
         let cleanup = Task {
@@ -998,11 +999,11 @@ struct ModelToolLoopTests {
             try await host.close()
         } else {
             host.stop()
-            #expect(throws: AutomationFailure.self) { try host.suspendForHumanIntervention() }
+            #expect(throws: TurnRefusal.previousTurnStopping) { try host.suspendForHumanIntervention() }
         }
         await #expect(throws: CancellationError.self) { try await turn.value }
         #expect(session.log.contains("close"))
-        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+        #expect(throws: TurnRefusal.staleEpisode) { try host.endHumanIntervention(token) }
     }
 
     @Test
@@ -1033,8 +1034,8 @@ struct ModelToolLoopTests {
         session.holdsClose = true
         host.stop()
         try await Self.wait { session.isClosing }
-        #expect(throws: AutomationFailure.self) { try host.suspendForHumanIntervention() }
-        await #expect(throws: AutomationFailure.self) {
+        #expect(throws: TurnRefusal.previousEpisodeReleasing) { try host.suspendForHumanIntervention() }
+        await #expect(throws: TurnRefusal.personHasControl) {
             try await host.run(
                 prompt   : "Too early.",
                 selection: ollama,
@@ -1042,7 +1043,7 @@ struct ModelToolLoopTests {
                 role     : nil
             ) { _ in }
         }
-        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+        #expect(throws: TurnRefusal.staleEpisode) { try host.endHumanIntervention(token) }
         session.holdsClose = false
         session.finishClosing()
         await host.waitForHumanInterventionCleanup()
