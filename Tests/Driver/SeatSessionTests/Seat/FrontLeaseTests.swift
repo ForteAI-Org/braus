@@ -7,6 +7,7 @@
 
 import CoreGraphics
 import SeatCore
+import SeatInput
 @testable import SeatSession
 import Testing
 
@@ -188,6 +189,186 @@ struct FrontLeaseTests {
         guard case .completed = outcome else { Issue.record("not completed: \(outcome)"); return }
         #expect(warped == (personMovesIt ? [] : [start]))
         #expect(sensing.cursorLocation == (personMovesIt ? moved : start))
+    }
+
+    // MARK: Clicks through the seat's own route
+
+    /// The held window as the window server lists it, the only surface of the target unless a test adds one.
+    private static func listTarget(_ sensing: FakeSensing, _ target: WindowReference) {
+        sensing.surfaces = [WindowSurface(reference: target, level: 0, isVisible: true)]
+    }
+
+    private static func centre(of frame: CGRect) -> CGPoint { CGPoint(x: frame.midX, y: frame.midY) }
+
+    @Test("clicks inside the lease reach the target's process with its window, point, count, button and modifiers")
+    func clicksReachTheProcessRoute() async throws {
+        let sensing = FakeSensing()
+        let sender = FakeSender()
+        let (seat, _, _) = try await BriefActivationTests.seat(sensing: sensing, sender: sender)
+        let target = try #require(seat.currentTarget).reference
+        Self.listTarget(sensing, target)
+        let point = Self.centre(of: target.frame)
+        let start = try #require(sensing.cursorLocation)
+        var warped: [CGPoint] = []
+        seat.warpPointer = { warped.append($0); return .success }
+
+        let (result, outcome) = await seat.lendFront { input in
+            #expect(input.isActive)
+            #expect(input.processID == target.processID)
+            let routing = try await input.click(at: point, count: 2, modifiers: [.shift, .option])
+            let menu = try await input.rightClick(at: point)
+            return (routing, menu, input.marker)
+        }
+
+        guard case .completed = outcome else { Issue.record("not completed: \(outcome)"); return }
+        let (routing, menu, marker) = try #require(try result?.get())
+        for receipt in [routing, menu] {
+            #expect(receipt.processID == target.processID)
+            #expect(receipt.windowNumber == target.windowNumber)
+            #expect(receipt.location == point)
+        }
+        #expect(sender.sent.count == 2)
+        #expect(sender.sent.allSatisfy { $0.correlationID == marker })
+        #expect(sender.addressed.allSatisfy { $0.window == target })
+        guard case .click(let location, .left, 2) = sender.sent[0].command,
+              case .click(let menuLocation, .right, 1) = sender.sent[1].command
+        else { Issue.record("not a double left click then a right click: \(sender.sent)"); return }
+        let fromTop = CGPoint(x: point.x - target.frame.minX, y: point.y - target.frame.minY)
+        #expect(location.screenPoint == point && location.windowPointFromTop == fromTop)
+        #expect(menuLocation.screenPoint == point && menuLocation.windowPointFromTop == fromTop)
+
+        // The events the driver builds, decorated by the recipe the click was addressed with.
+        let modified = try #require(sender.addressed[0].platform as? ModifiedClickPlatform)
+        #expect(modified.modifiers == [.shift, .option])
+        #expect(!(sender.addressed[1].platform is ModifiedClickPlatform), "a click with no modifiers keeps its recipe")
+        var events: [PreparedEvent] = []
+        try InputEvents.append(
+            sender.sent[0].command,
+            source       : try #require(CGEventSource(stateID: .privateState)),
+            pacing       : modified.dragPacing,
+            correlationID: marker,
+            into         : &events
+        )
+        #expect(events.count == 4)
+        for prepared in events {
+            modified.decorate(prepared.event, for: sender.sent[0].command)
+            #expect(prepared.event.flags == [.maskShift, .maskAlternate], "held on every down and up")
+        }
+
+        // Nothing went through the HID stream, so the person's pointer never moved.
+        #expect(sensing.cursorLocation == start)
+        #expect(warped.isEmpty)
+    }
+
+    @Test("a click after the lease ended, or after the body was cancelled, throws and posts nothing")
+    func clicksOutsideTheLeaseAreRefused() async throws {
+        let sensing = FakeSensing()
+        let sender = FakeSender()
+        let (seat, _, _) = try await BriefActivationTests.seat(sensing: sensing, sender: sender)
+        let target = try #require(seat.currentTarget).reference
+        Self.listTarget(sensing, target)
+        let point = Self.centre(of: target.frame)
+
+        var kept: FrontLeaseInput?
+        let ended = await seat.lendFront { input in kept = input }
+        guard case .completed = ended.outcome else { Issue.record("not completed: \(ended.outcome)"); return }
+        let input = try #require(kept)
+        #expect(!input.isActive)
+        await #expect(throws: FrontLeaseInput.Refusal.leaseEnded) { try await input.click(at: point) }
+
+        let (result, outcome) = await seat.lendFront(atMost: .milliseconds(300)) { input -> Bool in
+            await Self.untilCancelled()
+            #expect(!input.isActive)
+            do { try await input.rightClick(at: point); return false } catch is CancellationError { return true }
+        }
+
+        guard case .boundReached = outcome else { Issue.record("not bounded: \(outcome)"); return }
+        #expect(try result?.get() == true, "the cancelled body's click threw a cancellation")
+        #expect(sender.sent.isEmpty)
+    }
+
+    @Test("a point off the application's windows on the virtual display is refused with nothing posted")
+    func pointsOutsideTheApplicationAreRefused() async throws {
+        let sensing = FakeSensing()
+        let sender = FakeSender()
+        let (seat, _, _) = try await BriefActivationTests.seat(sensing: sensing, sender: sender)
+        let target = try #require(seat.currentTarget).reference
+        Self.listTarget(sensing, target)
+        // Another process's window on the virtual display, which the lent application does not own.
+        let other = FakeGeometry.reference(
+            frame       : CGRect(x: FakeGeometry.virtual.minX + 10, y: 10, width: 300, height: 200),
+            processID   : FakeGeometry.userPID,
+            windowNumber: 902
+        )
+        sensing.surfaces?.append(WindowSurface(reference: other, level: 0, isVisible: true))
+        let points = [
+            Self.centre(of: other.frame),
+            CGPoint(x: FakeGeometry.virtual.maxX - 5, y: FakeGeometry.virtual.maxY - 5),
+            Self.centre(of: BriefActivationTests.user.frame),
+        ]
+
+        let (result, outcome) = await seat.lendFront { input -> [FrontLeaseInput.Refusal] in
+            var refusals: [FrontLeaseInput.Refusal] = []
+            for point in points {
+                do { try await input.click(at: point) } catch let refusal as FrontLeaseInput.Refusal {
+                    refusals.append(refusal)
+                }
+            }
+            return refusals
+        }
+
+        guard case .completed = outcome else { Issue.record("not completed: \(outcome)"); return }
+        #expect(try result?.get() == points.map { .outsideApplication($0) })
+        #expect(sender.sent.isEmpty)
+    }
+
+    @Test("a window the application opened during the lease is its own, and the one in front takes the click")
+    func aWindowOpenedDuringTheLeaseIsAccepted() async throws {
+        let sensing = FakeSensing()
+        let sender = FakeSender()
+        let (seat, _, _) = try await BriefActivationTests.seat(sensing: sensing, sender: sender)
+        let target = try #require(seat.currentTarget).reference
+        Self.listTarget(sensing, target)
+        let panel = FakeGeometry.reference(
+            frame       : CGRect(x: target.frame.minX + 50, y: target.frame.minY + 50, width: 200, height: 150),
+            windowNumber: 901
+        )
+        let point = Self.centre(of: panel.frame)
+
+        let (result, outcome) = await seat.lendFront { input in
+            // The application opens a panel over its window, listed in front of it.
+            sensing.surfaces?.insert(WindowSurface(reference: panel, level: 3, isVisible: true), at: 0)
+            defer { Self.listTarget(sensing, target) }
+            return try await input.click(at: point)
+        }
+
+        guard case .completed = outcome else { Issue.record("not completed: \(outcome)"); return }
+        let receipt = try #require(try result?.get())
+        #expect(receipt.windowNumber == panel.windowNumber)
+        #expect(receipt.processID == target.processID)
+        #expect(sender.addressed.map(\.window) == [panel])
+    }
+
+    @Test("the command gate admits the lease's marker while the lease runs, and only then")
+    func theGateAdmitsTheLeaseAlone() async throws {
+        let sensing = FakeSensing()
+        let sender = FakeSender()
+        let (seat, _, recovery) = try await BriefActivationTests.seat(sensing: sensing, sender: sender)
+        seat.installCommandPreparation(on: sender.gate, recovery: recovery)
+
+        let (result, outcome) = await seat.lendFront { input -> Int64 in
+            try await sender.gate.prepare(correlationID: input.marker)
+            await #expect(throws: InputFailure.inputPaused([.turnChanged])) {
+                try await sender.gate.prepare(correlationID: input.marker &+ 1)
+            }
+            return input.marker
+        }
+
+        guard case .completed = outcome else { Issue.record("not completed: \(outcome)"); return }
+        let marker = try #require(try result?.get())
+        await #expect(throws: InputFailure.inputPaused([.noActionInFlight])) {
+            try await sender.gate.prepare(correlationID: marker)
+        }
     }
 
     @Test("a seat with no focus recovery refuses by name and never runs the body")

@@ -148,6 +148,13 @@ public final class AgentSeat {
 
     private let turns: TurnQueue
 
+    /// Where the correlation markers come from, the Turns' and a front lease's.
+    private let markers: () -> Int64
+
+    /// The marker of the front lease whose body runs now, nil outside one. The
+    /// command gate admits it for that lease alone.
+    private var frontLeaseMarker: Int64?
+
     var session                    = SeatWindowSession()
     private var transferGeneration : UInt64 = 0
     private var transfersInFlight  = 0
@@ -515,6 +522,7 @@ public final class AgentSeat {
         self.expectedMainDisplayID = expectedMainDisplayID
         self.defaultPlatform       = defaultPlatform
         self.turns                 = TurnQueue(markers: markers)
+        self.markers               = markers
 
         let assignment = SeatAssignmentKit()
         self.assignmentKit      = assignment
@@ -5375,6 +5383,110 @@ public final class AgentSeat {
         return (result, run.outcome)
     }
 
+    /// Lends the front exactly as the overload above does, and gives `body` a
+    /// `FrontLeaseInput` that clicks in the lent application through the seat's
+    /// per-process route instead of the HID stream, which the cursor fence keeps
+    /// off the virtual display. The input ends when the body returns, and a
+    /// click after that, or after the body was cancelled, throws and posts
+    /// nothing. Everything else, the refusals, the bound and the handback, is
+    /// the overload above.
+    public func lendFront<Value: Sendable>(
+        admittingOpenDialog: Bool = false,
+        atMost bound       : Duration = frontLeaseLimit,
+        _ body             : @escaping @MainActor (FrontLeaseInput) async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: FrontLeaseOutcome) {
+        await lendFront(
+            admittingOpenDialog: admittingOpenDialog,
+            atMost             : bound
+        ) { [self] () async throws -> Value in
+            // The overload above runs the body only for the target it lent the front to.
+            guard let target = session.currentTarget?.window.reference else {
+                throw FrontLeaseInput.Refusal.leaseEnded
+            }
+            let input = FrontLeaseInput(
+                seat     : self,
+                processID: target.processID,
+                marker   : markers()
+            )
+            frontLeaseMarker = input.marker
+            defer {
+                input.end()
+                frontLeaseMarker = nil
+            }
+            return try await body(input)
+        }
+    }
+
+    /// Posts one click of a front lease's body to the window of the lent
+    /// process under `point`, read from the window server now. It is refused,
+    /// with nothing posted, outside the lease, off the virtual display, or off
+    /// that process's windows; it is never retried. It goes to the sender
+    /// directly and not through `send`, whose observation barrier refuses while
+    /// the seat is acting, which it is for the whole lease.
+    func clickInFrontLease(
+        _ input  : FrontLeaseInput,
+        at point : CGPoint,
+        button   : MouseButton,
+        count    : Int,
+        modifiers: Modifiers
+    ) async throws -> FrontLeaseInput.Receipt {
+
+        try input.requireActive()
+        guard frontLeaseMarker == input.marker, actionInFlight, state == .acting else {
+            throw FrontLeaseInput.Refusal.leaseEnded
+        }
+        guard point.x.isFinite, point.y.isFinite else { throw InputFailure.invalidLocation }
+        guard sensing.virtualDisplayBounds.contains(point) else {
+            throw FrontLeaseInput.Refusal.outsideApplication(point)
+        }
+        guard let surfaces = sensing.windowSurfaces(ownedBy: [input.processID]) else {
+            throw FrontLeaseInput.Refusal.windowsUnreadable
+        }
+        // The list runs front to back, so the first window holding the point is the one under it.
+        guard let window = surfaces.first(where: {
+            $0.isVisible && !$0.isOnInactiveSpace && $0.reference.frame.contains(point)
+        })?.reference else {
+            throw FrontLeaseInput.Refusal.outsideApplication(point)
+        }
+        guard let geometry = sensing.windowGeometryObservation(of: window),
+              let location = InputLocation(screenPoint: point, observedIn: geometry)
+        else { throw InputFailure.currentCoordinateGeometryUnavailable }
+
+        let command  = InputCommand.click(location, button: button, count: count)
+        let family   = platformForDetected(window)
+        let platform = modifiers.isEmpty ? family : ModifiedClickPlatform(family, modifiers: modifiers)
+        let receipt = try await sender.send(
+            command,
+            to             : window,
+            correlationID  : input.marker,
+            platform       : platform,
+            traceContext   : InputTraceIdentity.submitted(
+                command      : command,
+                window       : window,
+                correlationID: input.marker
+            ),
+            beforeFirstPost: { [weak self] in
+                try await MainActor.run {
+                    try input.requireActive()
+                    guard let self, self.frontLeaseMarker == input.marker else {
+                        throw FrontLeaseInput.Refusal.leaseEnded
+                    }
+                }
+            }
+        )
+        if receipt.hasUnrestoredPreparation { report([.preparationNotRestored]) }
+        Self.log.notice("""
+            a front lease clicked pid \(input.processID, privacy: .public) \
+            window \(window.windowNumber, privacy: .public) at \(point.debugDescription, privacy: .public)
+            """)
+        return FrontLeaseInput.Receipt(
+            processID   : input.processID,
+            windowNumber: window.windowNumber,
+            location    : point,
+            input       : receipt
+        )
+    }
+
     /// Puts the pointer back at `start` when the lease is what moved it: it is
     /// on the seat's display, where the person's own never is, or still at
     /// `left`, where the body left it. Anywhere else the person moved it.
@@ -5494,7 +5606,31 @@ public final class AgentSeat {
             allowsHumanActivation: { [weak self] in self?.allowsHumanActivation(processID: $0) == true },
             changed: { [weak self] report in self?.focusRecoveryChanged(report) })
         focusRecovery = recovery
-        driver.commandGate.setPreparation { [weak self, weak recovery] correlationID in
+        installCommandPreparation(
+            on      : driver.commandGate,
+            recovery: recovery
+        )
+        focusWatch = UserFocusWatch(changed: { [weak recovery] pid, received in
+                recovery?.activationChanged(to: pid, source: .workspaceNotification, receivedAt: received)
+            },
+            windowChanged: { [weak recovery] in recovery?.userWindowChanged() },
+            isUserApplication: { [weak self] pid in
+                guard let self else { return false }
+                return !self.adoptedWindows.contains { $0.reference.processID == pid }
+            })
+    }
+
+    /// Installs what the gate runs before a Command's first event: the checks
+    /// that the action is still this one, then the recovery's preparation.
+    ///
+    /// A click of the running front lease, recognised by its marker, passes
+    /// the same checks in place of the Turn's and skips the preparation: the
+    /// lease already holds the front and gives it back itself.
+    func installCommandPreparation(
+        on gate : InputCommandGate,
+        recovery: UserFocusRecovery
+    ) {
+        gate.setPreparation { [weak self, weak recovery] correlationID in
             guard let self, let recovery else {
                 throw InputFailure.inputPaused([.recoveryUnavailable])
             }
@@ -5511,22 +5647,16 @@ public final class AgentSeat {
                 guard self.state == .acting else {
                     throw InputFailure.inputPaused([.seatNotActing])
                 }
-                guard self.turns.current?.correlationID == correlationID else {
+                guard self.turns.current?.correlationID == correlationID
+                      || self.frontLeaseMarker == correlationID else {
                     throw InputFailure.inputPaused([.turnChanged])
                 }
             }
             try checkAction()
+            if self.frontLeaseMarker == correlationID { return }
             try await recovery.prepareBeforeAction()
             try checkAction()
         }
-        focusWatch = UserFocusWatch(changed: { [weak recovery] pid, received in
-                recovery?.activationChanged(to: pid, source: .workspaceNotification, receivedAt: received)
-            },
-            windowChanged: { [weak recovery] in recovery?.userWindowChanged() },
-            isUserApplication: { [weak self] pid in
-                guard let self else { return false }
-                return !self.adoptedWindows.contains { $0.reference.processID == pid }
-            })
     }
 
     /// Closes the input gate because the person said stop, and leaves it

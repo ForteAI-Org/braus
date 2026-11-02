@@ -36,12 +36,12 @@ struct BriefActivationTests {
         sensing          : FakeSensing,
         requestsActivate : Bool = true,
         hasBriefRestorer : Bool = false,
-        handbackIsReadable: Bool = true
+        handbackIsReadable: Bool = true,
+        sender           : FakeSender = FakeSender()
     ) async throws -> (seat: AgentSeat, record: Record, recovery: UserFocusRecovery) {
         sensing.additionalWindows[user.windowNumber] = user
         sensing.focusedUserWindow = user
         sensing.frontmostProcessID = user.processID
-        let sender = FakeSender()
         let (seat, _) = try await MultiWindowTests.seat(sensing: sensing, sender: sender)
         let record = Record()
         let recovery = UserFocusRecovery(
