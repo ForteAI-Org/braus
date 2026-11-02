@@ -59,10 +59,10 @@ public final class CLIProvider {
         child.standardOutput = output
         child.standardError = errors
         child.standardInput = input
-        var environment = turn.environment ?? ProcessInfo.processInfo.environment
-        environment.removeValue(forKey: "CLAUDECODE")
-        environment.removeValue(forKey: "CLAUDE_CODE_ENTRYPOINT")
-        child.environment = environment
+        child.environment = ProviderInvocation.environment(
+            for      : turn,
+            inherited: turn.environment ?? ProcessInfo.processInfo.environment
+        )
         cancelled = false
         preservesObservedFailure = false
         hasObservedFailure = false
