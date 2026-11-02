@@ -209,6 +209,7 @@ struct InterruptionPolicyLocationTests {
             default: expected = .mutating
             }
             #expect(policy == expected)
+            #expect(policy == ToolCatalogue.interruptionPolicy(for: name))
         }
     }
 }
