@@ -78,6 +78,15 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         _ body: @escaping @MainActor () async -> Void
     ) async -> FrontLeaseOutcome
 
+    /// Runs the body with the current lease's click route, returning after handback.
+    /// Controlled tests replace the same platform boundary as `FrontLending`.
+    typealias FrontClickLending = @MainActor (
+        _ target: SeatTarget,
+        _ admittingOpenDialog: Bool,
+        _ bound: Duration,
+        _ body: @escaping @MainActor (FrontClicks) async -> Void
+    ) async -> FrontLeaseOutcome
+
     /// Escape quits DaVinci Resolve instead of closing its dialog, so it is never suggested there.
     static let quitsOnEscape: Set<String> = ["com.blackmagic-design.DaVinciResolve"]
 
@@ -116,6 +125,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private let waitIdle: IdleWaiting
     @ObservationIgnored private let readDialog: DialogReading
     @ObservationIgnored private let lending: FrontLending
+    @ObservationIgnored private let clickLending: FrontClickLending
 
     /// Whether the seat a held target borrows stopped for good, which ends this session.
     @ObservationIgnored private let stoppedForGood: @MainActor (SeatTarget) -> Bool
@@ -267,6 +277,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         readDialog        : @escaping DialogReading = { DialogButtonPress.openDialog(of: $0) },
         switching         : @escaping @MainActor (SeatTarget, pid_t, String) async throws -> Void = switchWindow,
         lending           : @escaping FrontLending = lentThroughTheSeat,
+        clickLending      : @escaping FrontClickLending = lentWithClicksThroughTheSeat,
         stoppedForGood    : @escaping @MainActor (SeatTarget) -> Bool = {
             SeatAdmission.stoppedForGood(try? $0.agentSeat())
         }
@@ -288,6 +299,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         self.waitIdle           = waitIdle
         self.readDialog         = readDialog
         self.lending            = lending
+        self.clickLending       = clickLending
         self.stoppedForGood     = stoppedForGood
         self.switching          = switching
     }
@@ -465,6 +477,104 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             catch { result = .failure(error) }
         }
         return (result, Self.toolOutcome(outcome))
+    }
+
+    /// Borrows the same held front and activity scope, with clicks routed through its lease input.
+    public func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost bound       : Duration,
+        _ body             : @escaping @MainActor (FrontClicks) async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
+        guard id != nil, lease != nil, closing == nil, case .holding = phase,
+              let application, !application.isTerminated,
+              memoryApplication?.caseInsensitiveCompare(bundleID) == .orderedSame,
+              let target else { return (nil, .notHeld) }
+
+        var result: Result<Value, any Error>?
+        let outcome = await clickLending(
+            target,
+            admittingOpenDialog,
+            bound
+        ) { clicks in
+            do { result = .success(try await body(clicks)) }
+            catch { result = .failure(error) }
+        }
+        return (result, Self.toolOutcome(outcome))
+    }
+
+    /// Uses the input overload so the cursor fence cannot redirect a tool's click.
+    static let lentWithClicksThroughTheSeat: FrontClickLending = { target, admitsDialog, bound, body in
+        let seat: AgentSeat
+        do { seat = try target.agentSeat() }
+        catch { return .refused(.targetNotPrepared) }
+        return await seat.lendFront(
+            admittingOpenDialog: admitsDialog,
+            atMost             : bound
+        ) { (input: FrontLeaseInput) in
+            await body(frontClicks(
+                isActive  : { input.isActive },
+                click     : { point, count, modifiers in
+                    toolReceipt(try await input.click(
+                        at       : point,
+                        count    : count,
+                        modifiers: modifiers
+                    ))
+                },
+                rightClick: { point, modifiers in
+                    toolReceipt(try await input.rightClick(
+                        at       : point,
+                        modifiers: modifiers
+                    ))
+                }
+            ))
+        }.outcome
+    }
+
+    /// Adapts the Driver's click vocabulary without exposing it to tool bodies.
+    /// Closures remain bound to the input's lifetime and preserve every thrown failure.
+    static func frontClicks(
+        isActive  : @escaping @MainActor () -> Bool,
+        click     : @escaping @MainActor (CGPoint, Int, SeatCore.Modifiers) async throws -> FrontClicks.Receipt,
+        rightClick: @escaping @MainActor (CGPoint, SeatCore.Modifiers) async throws -> FrontClicks.Receipt
+    ) -> FrontClicks {
+        FrontClicks(
+            isActive  : isActive,
+            click     : { point, count, modifiers in
+                try await click(
+                    point,
+                    count,
+                    seatModifiers(modifiers)
+                )
+            },
+            rightClick: { point, modifiers in
+                try await rightClick(
+                    point,
+                    seatModifiers(modifiers)
+                )
+            }
+        )
+    }
+
+    private static func toolReceipt(_ receipt: FrontLeaseInput.Receipt) -> FrontClicks.Receipt {
+        FrontClicks.Receipt(
+            processID    : receipt.processID,
+            windowNumber : receipt.windowNumber,
+            location     : receipt.location,
+            eventCount   : receipt.input.eventCount,
+            needsRecovery: receipt.input.hasUnrestoredPreparation
+        )
+    }
+
+    private static func seatModifiers(_ modifiers: FrontClicks.Modifiers) -> SeatCore.Modifiers {
+        var result: SeatCore.Modifiers = []
+        if modifiers.contains(.command) { result.insert(.command) }
+        if modifiers.contains(.shift)   { result.insert(.shift) }
+        if modifiers.contains(.option)  { result.insert(.option) }
+        if modifiers.contains(.control) { result.insert(.control) }
+        return result
     }
 
     /// Lends through the current borrowed target; a target whose borrow ended cannot prepare a lease.

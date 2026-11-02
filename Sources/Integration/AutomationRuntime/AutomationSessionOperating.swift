@@ -79,6 +79,16 @@ public protocol AutomationSessionOperating: AnyObject {
         _ body             : @escaping @MainActor () async throws -> Value
     ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome)
 
+    /// Borrows the front with a lease-bound click route through the Seat, avoiding the HID cursor fence.
+    /// The hold check, result, cancellation bound and handback are the same as the variant above.
+    /// `FrontClicks` becomes inactive when the body returns; later clicks throw and are never retried.
+    func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost             : Duration,
+        _ body             : @escaping @MainActor (FrontClicks) async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome)
+
     /// The profile the session's pages are in, as a call's data context names it (P2-05): which Chrome, never an account.
     var dataProfile: String? { get }
 }
@@ -91,6 +101,16 @@ public extension AutomationSessionOperating {
         admittingOpenDialog: Bool,
         atMost             : Duration,
         _ body             : @escaping @MainActor () async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
+        (nil, .notHeld)
+    }
+
+    /// A session without a Seat lends no click route and never runs the command.
+    func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost             : Duration,
+        _ body             : @escaping @MainActor (FrontClicks) async throws -> Value
     ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
         (nil, .notHeld)
     }

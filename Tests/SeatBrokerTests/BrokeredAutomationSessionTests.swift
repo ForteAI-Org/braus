@@ -111,6 +111,7 @@ struct BrokeredAutomationSessionTests {
         waitIdle  : @escaping BrokeredAutomationSession.IdleWaiting = { try await Task.sleep(for: $0) },
         dialog    : DialogButtonPress.OpenDialog? = nil,
         lending   : @escaping BrokeredAutomationSession.FrontLending = BrokeredAutomationSession.lentThroughTheSeat,
+        clickLending: @escaping BrokeredAutomationSession.FrontClickLending = BrokeredAutomationSession.lentWithClicksThroughTheSeat,
         seating   : @escaping BrokeredAutomationSession.Seating
     ) -> BrokeredAutomationSession {
         BrokeredAutomationSession(
@@ -128,7 +129,8 @@ struct BrokeredAutomationSessionTests {
             idleWindow        : idleWindow,
             waitIdle          : waitIdle,
             readDialog        : { _ in dialog },
-            lending           : lending
+            lending           : lending,
+            clickLending      : clickLending
         )
     }
 
@@ -137,7 +139,8 @@ struct BrokeredAutomationSessionTests {
         _ broker: SeatBroker,
         idle    : IdleClock? = nil,
         target  : SeatTarget = SeatTarget(),
-        lending : @escaping BrokeredAutomationSession.FrontLending = BrokeredAutomationSession.lentThroughTheSeat
+        lending : @escaping BrokeredAutomationSession.FrontLending = BrokeredAutomationSession.lentThroughTheSeat,
+        clickLending: @escaping BrokeredAutomationSession.FrontClickLending = BrokeredAutomationSession.lentWithClicksThroughTheSeat
     ) -> BrokeredAutomationSession {
         let scene = SceneSnapshot(
             bundleID         : "test.process",
@@ -157,7 +160,8 @@ struct BrokeredAutomationSessionTests {
                 if let idle { await idle.wait(window) }
                 else { try await Task.sleep(for: window) }
             },
-            lending   : lending
+            lending   : lending,
+            clickLending: clickLending
         ) { _, _, _ in
             (TargetApp(
                 pid      : ProcessInfo.processInfo.processIdentifier,
@@ -167,6 +171,233 @@ struct BrokeredAutomationSessionTests {
                 windows  : []
             ), target)
         }
+    }
+
+    /// A controlled lease input: the same Driver vocabulary consumed by the production adapter.
+    @MainActor
+    private final class LeaseClicks {
+        var isActive = true
+        var refusal: FrontLeaseInput.Refusal?
+        var attempts = 0
+        var left: [(CGPoint, Int, SeatCore.Modifiers)] = []
+        var right: [(CGPoint, SeatCore.Modifiers)] = []
+
+        func requireActive() throws {
+            attempts += 1
+            try Task.checkCancellation()
+            guard isActive else { throw FrontLeaseInput.Refusal.leaseEnded }
+            if let refusal { throw refusal }
+        }
+
+        var clicks: FrontClicks {
+            BrokeredAutomationSession.frontClicks(
+                isActive  : { self.isActive && !Task.isCancelled },
+                click     : { point, count, modifiers in
+                    try self.requireActive()
+                    self.left.append((point, count, modifiers))
+                    return Self.receipt(at: point)
+                },
+                rightClick: { point, modifiers in
+                    try self.requireActive()
+                    self.right.append((point, modifiers))
+                    return Self.receipt(at: point)
+                }
+            )
+        }
+
+        static func receipt(at point: CGPoint) -> FrontClicks.Receipt {
+            FrontClicks.Receipt(
+                processID    : 123,
+                windowNumber : 456,
+                location     : point,
+                eventCount   : 4,
+                needsRecovery: true
+            )
+        }
+    }
+
+    @Test("tool clicks reach the lease input with points, counts and each modifier", arguments: zip(
+        [FrontClicks.Modifiers(), .command, .shift, .option, .control,
+         [.command, .shift, .option, .control]],
+        [SeatCore.Modifiers(), .command, .shift, .option, .control,
+         [.command, .shift, .option, .control]]
+    ))
+    func clicksUseLeaseInput(
+        tool  : FrontClicks.Modifiers,
+        driver: SeatCore.Modifiers
+    ) async throws {
+        let target = SeatTarget()
+        let input = LeaseClicks()
+        var leases = 0
+        let desktop = Self.frontSession(
+            SeatBroker(),
+            target: target,
+            clickLending: { supplied, admitsDialog, bound, body in
+                #expect(supplied === target)
+                #expect(admitsDialog)
+                #expect(bound == .seconds(7))
+                leases += 1
+                await body(input.clicks)
+                input.isActive = false
+                return .completed(afterMilliseconds: 12)
+            }
+        )
+        _ = try await desktop.open(
+            application: "Test",
+            window     : nil
+        )
+        let session: any AutomationSessionOperating = desktop
+        var retained: FrontClicks?
+        let point = CGPoint(
+            x: 2345,
+            y: 678
+        )
+        let other = CGPoint(
+            x: 2350,
+            y: 690
+        )
+        let answer = await session.withFront(
+            of                 : "TEST.PROCESS",
+            admittingOpenDialog: true,
+            atMost             : .seconds(7)
+        ) { clicks in
+            retained = clicks
+            #expect(clicks.isActive)
+            let left = try await clicks.click(
+                at       : point,
+                count    : 2,
+                modifiers: tool
+            )
+            let right = try await clicks.rightClick(
+                at       : other,
+                modifiers: tool
+            )
+            try await clicks.click(at: other)
+            #expect(left == LeaseClicks.receipt(at: point))
+            #expect(right == LeaseClicks.receipt(at: other))
+            return 42
+        }
+        #expect(try answer.result?.get() == 42)
+        #expect(answer.outcome == .completed)
+        #expect(leases == 1)
+        #expect(input.left.count == 2)
+        #expect(input.left.first?.0 == point)
+        #expect(input.left.first?.1 == 2)
+        #expect(input.left.first?.2 == driver)
+        #expect(input.left.last?.0 == other)
+        #expect(input.left.last?.1 == 1)
+        #expect(input.left.last?.2 == [])
+        #expect(input.right.count == 1)
+        #expect(input.right.first?.0 == other)
+        #expect(input.right.first?.1 == driver)
+        let ended = try #require(retained)
+        #expect(!ended.isActive)
+        await #expect(throws: FrontLeaseInput.Refusal.leaseEnded) {
+            _ = try await ended.click(at: point)
+        }
+        await #expect(throws: FrontLeaseInput.Refusal.leaseEnded) {
+            _ = try await ended.rightClick(at: point)
+        }
+        #expect(input.left.count == 2)
+        #expect(input.right.count == 1)
+        await desktop.close()
+    }
+
+    @Test("click failures reach the body and its result without retry", arguments: [
+        FrontLeaseInput.Refusal.leaseEnded, .outsideApplication(.zero), .windowsUnreadable
+    ], [false, true])
+    func clickFailuresReachBody(
+        refusal: FrontLeaseInput.Refusal,
+        right  : Bool
+    ) async throws {
+        let input = LeaseClicks()
+        input.refusal = refusal
+        input.isActive = refusal != .leaseEnded
+        let desktop = Self.frontSession(
+            SeatBroker(),
+            clickLending: { _, _, _, body in
+                await body(input.clicks)
+                return .completed(afterMilliseconds: 1)
+            }
+        )
+        _ = try await desktop.open(
+            application: "Test",
+            window     : nil
+        )
+        var caught: FrontLeaseInput.Refusal?
+        let answer = await desktop.withFront(
+            of                 : "test.process",
+            admittingOpenDialog: false,
+            atMost             : .seconds(1)
+        ) { clicks in
+            do {
+                if right { try await clicks.rightClick(at: .zero) }
+                else { try await clicks.click(at: .zero) }
+            } catch {
+                caught = error as? FrontLeaseInput.Refusal
+                throw error
+            }
+        }
+        #expect(caught == refusal)
+        let result = try #require(answer.result)
+        #expect(throws: refusal) { try result.get() }
+        #expect(answer.outcome == .completed)
+        #expect(input.attempts == 1)
+        #expect(input.left.isEmpty)
+        #expect(input.right.isEmpty)
+        await desktop.close()
+    }
+
+    @Test("click leases reject absent, different and closed holds before lending")
+    func unheldClickLeaseDoesNothing() async throws {
+        var leases = 0
+        var runs = 0
+        let desktop = Self.frontSession(
+            SeatBroker(),
+            clickLending: { _, _, _, _ in
+                leases += 1
+                return .completed(afterMilliseconds: 0)
+            }
+        )
+        for state in 0..<3 {
+            if state == 1 {
+                _ = try await desktop.open(
+                    application: "Test",
+                    window     : nil
+                )
+            }
+            if state == 2 { await desktop.close() }
+            let answer = await desktop.withFront(
+                of                 : state == 1 ? "other.process" : "test.process",
+                admittingOpenDialog: false,
+                atMost             : .seconds(1)
+            ) { _ in runs += 1 }
+            #expect(answer.result == nil)
+            #expect(answer.outcome == .notHeld)
+        }
+        #expect(runs == 0)
+        #expect(leases == 0)
+    }
+
+    @Test("a missing Seat refuses the click lease without running its body")
+    func missingSeatCannotLendClicks() async throws {
+        let desktop = Self.frontSession(SeatBroker())
+        _ = try await desktop.open(
+            application: "Test",
+            window     : nil
+        )
+        var runs = 0
+        let answer = await desktop.withFront(
+            of                 : "test.process",
+            admittingOpenDialog: false,
+            atMost             : .seconds(1)
+        ) { _ in runs += 1 }
+        #expect(answer.result == nil)
+        #expect(answer.outcome == .refused(
+            reason: "The front was not lent because the held application's target window could not be identified."
+        ))
+        #expect(runs == 0)
+        await desktop.close()
     }
 
     @Test("only the held bundle runs inside the current target's lease, ignoring bundle ID case")
@@ -277,6 +508,26 @@ struct BrokeredAutomationSessionTests {
         await desktop.close()
     }
 
+    private static func borrowFront<Value: Sendable>(
+        _ desktop: BrokeredAutomationSession,
+        withClicks: Bool,
+        _ body: @escaping @MainActor () async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
+        if withClicks {
+            return await desktop.withFront(
+                of                 : "test.process",
+                admittingOpenDialog: false,
+                atMost             : .seconds(5)
+            ) { _ in try await body() }
+        }
+        return await desktop.withFront(
+            of                 : "test.process",
+            admittingOpenDialog: false,
+            atMost             : .seconds(5),
+            body
+        )
+    }
+
     @Test("each Driver lease ending reaches the tool without erasing a command's result", arguments: [
         (FrontLeaseOutcome.completed(afterMilliseconds: 1), SessionFrontOutcome.completed, true),
         (.boundReached(afterMilliseconds: 2), .boundReached, true),
@@ -310,48 +561,64 @@ struct BrokeredAutomationSessionTests {
         tool  : SessionFrontOutcome,
         runs  : Bool
     ) async throws {
-        let desktop = Self.frontSession(SeatBroker()) { _, _, _, body in
-            if runs { await body() }
-            return driver
+        for withClicks in [false, true] {
+            let desktop = Self.frontSession(
+                SeatBroker(),
+                lending: { _, _, _, body in
+                    if runs { await body() }
+                    return driver
+                },
+                clickLending: { _, _, _, body in
+                    if runs { await body(LeaseClicks().clicks) }
+                    return driver
+                }
+            )
+            _ = try await desktop.open(
+                application: "Test",
+                window     : nil
+            )
+            var calls = 0
+            let answer = await Self.borrowFront(
+                desktop,
+                withClicks: withClicks
+            ) {
+                calls += 1
+                return "effect already happened"
+            }
+            #expect(answer.outcome == tool)
+            #expect(answer.outcome.isSuccess == (tool == .completed))
+            #expect(!answer.outcome.reason.isEmpty)
+            #expect(calls == (runs ? 1 : 0))
+            if runs { #expect(try answer.result?.get() == "effect already happened") }
+            else { #expect(answer.result == nil) }
+            await desktop.close()
         }
-        _ = try await desktop.open(
-            application: "Test",
-            window     : nil
-        )
-        var calls = 0
-        let answer = await desktop.withFront(
-            of                 : "test.process",
-            admittingOpenDialog: false,
-            atMost             : .seconds(1)
-        ) {
-            calls += 1
-            return "effect already happened"
-        }
-        #expect(answer.outcome == tool)
-        #expect(answer.outcome.isSuccess == (tool == .completed))
-        #expect(!answer.outcome.reason.isEmpty)
-        #expect(calls == (runs ? 1 : 0))
-        if runs { #expect(try answer.result?.get() == "effect already happened") }
-        else { #expect(answer.result == nil) }
-        await desktop.close()
     }
 
     @Test("a front lease keeps activity through the body and handback, and restarts idle on every exit",
-          arguments: CallEnding.allCases)
-    func frontLeaseKeepsActivity(_ ending: CallEnding) async throws {
+          arguments: CallEnding.allCases, [false, true])
+    func frontLeaseKeepsActivity(_ ending: CallEnding, withClicks: Bool) async throws {
         let broker = SeatBroker()
         let idle = IdleClock()
         var handingBack = false
         var finishHandback: CheckedContinuation<Void, Never>?
-        let desktop = Self.frontSession(
-            broker,
-            idle: idle
-        ) { _, _, _, body in
-            await body()
+        let handback: @MainActor () async -> FrontLeaseOutcome = {
             handingBack = true
             await withCheckedContinuation { finishHandback = $0 }
             return .completed(afterMilliseconds: 1)
         }
+        let desktop = Self.frontSession(
+            broker,
+            idle: idle,
+            lending: { _, _, _, body in
+                await body()
+                return await handback()
+            },
+            clickLending: { _, _, _, body in
+                await body(LeaseClicks().clicks)
+                return await handback()
+            }
+        )
         try await desktop.turn {
             _ = try await desktop.open(
                 application: "Test",
@@ -362,10 +629,9 @@ struct BrokeredAutomationSessionTests {
             var inBody = false
             var finishBody: CheckedContinuation<Void, Never>?
             let call = Task {
-                await desktop.withFront(
-                    of                 : "test.process",
-                    admittingOpenDialog: false,
-                    atMost             : .seconds(5)
+                await Self.borrowFront(
+                    desktop,
+                    withClicks: withClicks
                 ) {
                     inBody = true
                     await withCheckedContinuation { finishBody = $0 }

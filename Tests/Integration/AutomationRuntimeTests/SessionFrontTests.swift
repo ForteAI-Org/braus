@@ -36,6 +36,17 @@ struct SessionFrontTests {
         #expect(!answer.outcome.reason.isEmpty)
         #expect(answer.result == nil)
         #expect(runs == 0)
+        let clicking = await operating.withFront(
+            of                 : "test.process",
+            admittingOpenDialog: true,
+            atMost             : .seconds(1)
+        ) { _ in
+            runs += 1
+            return 42
+        }
+        #expect(clicking.outcome == .notHeld)
+        #expect(clicking.result == nil)
+        #expect(runs == 0)
         await session.close()
     }
 }
