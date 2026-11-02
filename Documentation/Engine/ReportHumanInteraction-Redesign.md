@@ -621,7 +621,7 @@ whole read stays about the same, since the structural read (about 130 ms) now ru
 
 ```
 BRAUS_REPORT_AUDIT=1 BRAUS_REPORT_AUDIT_OUT=/path/audit.md \
-CLANG_MODULE_CACHE_PATH=/tmp/mecum-emb-module-cache /usr/bin/swift test --disable-sandbox \
+CLANG_MODULE_CACHE_PATH=/tmp/braus-emb-module-cache /usr/bin/swift test --disable-sandbox \
   --no-parallel --filter HumanInterventionLossAuditTests
 ```
 
