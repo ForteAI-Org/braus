@@ -884,6 +884,249 @@ extension AutomationToolsTests {
     }
 }
 
+extension AutomationToolsTests {
+
+    /// A made-up dense window: a top bar, a large mixer, a smaller rail, a sheet and a bottom bar, with
+    /// `rows` strips in the mixer and `rail` tracks in the rail, and fields past the window's edge.
+    private static func denseScene(rows: Int = 900, rail: Int = 400) -> SceneSnapshot {
+        func members(_ count: Int, _ name: String, _ label: String, _ frame: NormalizedRect) -> [SceneElement] {
+            (0..<count).map { index in
+                SceneElement(
+                    id     : "\(name)-\(index)",
+                    kind   : .control,
+                    label  : "\(label) \(index) level",
+                    bounds : NormalizedRect(
+                        x     : frame.x + frame.width * Double(index % 10) / 10,
+                        y     : frame.y + frame.height * Double(index / 10) / Double(max(count / 10, 1) + 1),
+                        width : frame.width / 12,
+                        height: 0.002
+                    ),
+                    section: name
+                )
+            }
+        }
+        let frames: [(String, String, Int, NormalizedRect)] = [
+            ("top bar", "Tool", 10, NormalizedRect(x: 0, y: 0, width: 1, height: 0.03)),
+            ("nav rail (TRACKS)", "Track", rail, NormalizedRect(x: 0, y: 0.05, width: 0.06, height: 0.9)),
+            ("content (Mixer)", "Strip", rows, NormalizedRect(x: 0.07, y: 0.26, width: 0.7, height: 0.7)),
+            ("sheet", "Option", 5, NormalizedRect(x: 0.8, y: 0.1, width: 0.15, height: 0.2)),
+            ("bottom bar", "Status", 8, NormalizedRect(x: 0, y: 0.97, width: 1, height: 0.03)),
+        ]
+        return SceneSnapshot(
+            bundleID         : "test.dense",
+            appName          : "Dense Console",
+            windowTitle      : "Session",
+            viewportPixelSize: ViewportPixelSize(width: 1600, height: 1000),
+            elements         : frames.flatMap { members($0.2, $0.0, $0.1, $0.3) },
+            outOfViewFields  : [OutOfViewField(label: "Notes", value: "kept", role: "AXTextField")],
+            sections         : frames.map { SceneSection(name: $0.0, bounds: $0.3) },
+            commands         : ["File > Save", "Edit > Undo"]
+        )
+    }
+
+    private static func part(_ title: String, of scene: SceneSnapshot) throws -> SceneTextPart {
+        try #require(scene.textLayout().parts.first { $0.title == title })
+    }
+
+    @Test("a scene over the budget keeps its header, outlines every section and sends whole sections within it")
+    func aDenseSceneIsOutlinedWithinTheBudget() async throws {
+        let session = SyntheticSession()
+        let tools = AutomationTools(session: session)
+        let id = JSONValue.string(try #require(session.id).uuidString)
+        session.scene = Self.denseScene()
+        let whole = session.scene.text()
+        try #require(whole.count > 36_000)
+
+        let text = try #require(try await tools.call("observe", .object(["session": id])).payload["scene"].string)
+        #expect(text.count <= 36_000)
+        #expect(text.hasPrefix(String(whole.prefix { $0 != "\n" }) + "\n"))
+        for part in session.scene.textLayout().parts {
+            #expect(text.contains("- \(part.heading.dropFirst(3).dropLast()): \(part.elementCount) elements, "))
+        }
+        // The sheet and the bars come first, then the smaller rail: the large mixer is the one left out.
+        for title in ["top bar", "nav rail (TRACKS)", "sheet", "bottom bar"] {
+            #expect(text.contains(try Self.part(title, of: session.scene).text), "\(title)")
+            #expect(text.contains("\(title)") && !text.contains("Left out: \"\(title)\""))
+        }
+        #expect(!text.contains("## content (Mixer)"))
+        #expect(text.contains("content (Mixer) @7,26 70x70: 900 elements, left out\n"))
+        #expect(text.contains("Left out: \"content (Mixer)\". Read one with observe and section"))
+        #expect(text.contains("commands (2): File > Save · Edit > Undo\n"))
+    }
+
+    @Test("the section an action aimed at is kept before smaller ones in the budgeted scene after it")
+    func anActionsSectionIsKeptFirst() async throws {
+        let session = SyntheticSession()
+        let tools = AutomationTools(session: session)
+        let id = JSONValue.string(try #require(session.id).uuidString)
+        session.scene = Self.denseScene()
+        let acted = try await tools.call("act", .object(["session": id, "target": .string("Strip 3 level")]))
+        let text = try #require(acted.payload["observation"]["scene"].string)
+        #expect(text.count <= 36_000)
+        #expect(text.contains(try Self.part("content (Mixer)", of: session.scene).text))
+        #expect(text.contains("Left out: \"nav rail (TRACKS)\""))
+    }
+
+    @Test("a section left out is read whole from the scene the model was answered, without a new reading")
+    func aSectionIsReadWhole() async throws {
+        let session = SyntheticSession()
+        let tools = AutomationTools(session: session)
+        let id = JSONValue.string(try #require(session.id).uuidString)
+        session.scene = Self.denseScene()
+        let observed = try await tools.call("observe", .object(["session": id])).payload
+        let calls = session.calls
+
+        let read = try await tools.call("observe", .object(["session": id, "section": .string("Content (mixer)")]))
+        #expect(read.payload["scene"].string == (try Self.part("content (Mixer)", of: session.scene).text))
+        #expect(read.payload["section"] == .string("content (Mixer)"))
+        #expect(read.payload["revision"] == observed["revision"])
+        #expect(read.payload["page"] == .null)
+        #expect(session.calls == calls)
+        // A bar is matched by its role, as act's section is.
+        let bar = try await tools.call("observe", .object(["session": id, "section": .string("top bar")])).payload
+        #expect(bar["scene"].string == (try Self.part("top bar", of: session.scene).text))
+
+        await #expect(throws: AutomationFailure.self) {
+            try await tools.call("observe", .object(["session": id, "section": .string("mixer")]))
+        }
+        await #expect(throws: AutomationFailure.self) {
+            try await tools.call("observe", .object(["session": id, "section": .string("sheet"), "full": .bool(true)]))
+        }
+        await #expect(throws: AutomationFailure.self) {
+            try await tools.call("observe", .object(["session": id, "section": .string("sheet"), "page": .number(2)]))
+        }
+    }
+
+    @Test("a section over the budget is read in pages of whole lines that together make the section")
+    func aHugeSectionIsPaged() async throws {
+        let session = SyntheticSession()
+        let tools = AutomationTools(session: session)
+        let id = JSONValue.string(try #require(session.id).uuidString)
+        session.scene = Self.denseScene(rows: 2_500)
+        let mixer = try Self.part("content (Mixer)", of: session.scene)
+        try #require(mixer.text.count > 72_000)
+        let outline = try #require(try await tools.call("observe", .object(["session": id])).payload["scene"].string)
+        #expect(outline.contains("content (Mixer) @7,26 70x70: 2500 elements, left out, 3 pages\n"))
+
+        var body = ""
+        for page in 1...3 {
+            let read = try await tools.call("observe", .object([
+                "session": id, "section": .string("content (Mixer)"), "page": .number(Double(page))
+            ])).payload
+            let text = try #require(read["scene"].string)
+            #expect(text.count <= 36_000)
+            #expect(read["pages"] == .number(3))
+            #expect(text.hasPrefix(mixer.heading))
+            let note = page < 3 ? "Page \(page) of 3: page \(page + 1) continues it.\n" : ""
+            #expect(text.hasSuffix(note))
+            body += text.dropFirst(mixer.heading.count).dropLast(note.count)
+        }
+        #expect(body == mixer.body)
+        await #expect(throws: AutomationFailure.self) {
+            try await tools.call("observe", .object([
+                "session": id, "section": .string("content (Mixer)"), "page": .number(4)
+            ]))
+        }
+    }
+
+    @Test("a line longer than a page is split across pages and nothing is lost")
+    func aLongLineIsSplitAcrossPages() async throws {
+        var scene = Self.scene(Self.rows)
+        scene.elements[3].value = String(repeating: "abcdefghij", count: 9_000)
+        let session = SyntheticSession()
+        let tools = AutomationTools(session: session)
+        let id = JSONValue.string(try #require(session.id).uuidString)
+        session.scene = scene
+        _ = try await tools.call("observe", .object(["session": id]))
+        let tracks = try Self.part("Tracks", of: scene)
+        var body = ""
+        var page = 1
+        var pages = 1
+        repeat {
+            let read = try await tools.call("observe", .object([
+                "session": id, "section": .string("Tracks"), "page": .number(Double(page))
+            ])).payload
+            let text = try #require(read["scene"].string)
+            #expect(text.count <= 36_000)
+            if case .number(let count) = read["pages"] { pages = Int(count) }
+            let note = page < pages ? "Page \(page) of \(pages): page \(page + 1) continues it.\n" : ""
+            body += text.dropFirst(tracks.heading.count).dropLast(note.count)
+            page += 1
+        } while page <= pages
+        // The three lines before the long one fill page 1; the long line takes pages 2 to 4.
+        #expect(pages == 4)
+        #expect(body == tracks.body)
+    }
+
+    @Test("a budgeted answer keeps the whole scene as the baseline: a change in a left-out section is in the next changes")
+    func theBaselineStaysTheWholeScene() async throws {
+        let session = SyntheticSession()
+        let tools = AutomationTools(session: session)
+        let id = JSONValue.string(try #require(session.id).uuidString)
+        session.scene = Self.denseScene()
+        let first = try await tools.call("observe", .object(["session": id])).payload
+        _ = try await tools.call("observe", .object(["session": id, "section": .string("content (Mixer)")]))
+
+        let index = try #require(session.scene.elements.firstIndex { $0.label == "Strip 42 level" })
+        session.scene.elements[index].state = .on
+        let changed = try await tools.call("observe", .object(["session": id])).payload
+        #expect(changed["since"] == first["revision"])
+        #expect(changed["changes"].string?.contains("~ [control] Strip 42 level [on]") == true)
+        #expect(changed["scene"] == .null)
+        // The section read now gives the new scene's section, under the new revision.
+        let read = try await tools.call("observe", .object(["session": id, "section": .string("content (Mixer)")]))
+        #expect(read.payload["revision"] == changed["revision"])
+        #expect(read.payload["scene"].string?.contains("Strip 42 level [on]") == true)
+    }
+
+    @Test("changes over the budget are sent as the budgeted scene, and the next changes are since it")
+    func changesOverTheBudgetSendTheBudgetedScene() async throws {
+        let session = SyntheticSession()
+        let tools = AutomationTools(session: session)
+        let id = JSONValue.string(try #require(session.id).uuidString)
+        let before = Self.denseScene(rows: 3_000)
+        var after = before
+        for index in after.elements.indices where after.elements[index].section == "content (Mixer)"
+            && index % 5 == 0 {
+            after.elements[index].label += " muted"
+        }
+        let changes = SceneChanges.text(from: before, to: after, since: 1)
+        try #require(changes.count > 36_000 && changes.count * 2 < after.text().count)
+
+        session.scene = before
+        _ = try await tools.call("observe", .object(["session": id]))
+        session.scene = after
+        let acted = try await tools.call("act", .object(["session": id, "target": .string("Tool 1 level")]))
+        let observation = acted.payload["observation"]
+        #expect(observation["changes"] == .null)
+        let text = try #require(observation["scene"].string)
+        #expect(text.count <= 36_000 && text.contains("Left out: \"content (Mixer)\""))
+        let polled = try await tools.call("observe", .object(["session": id])).payload
+        #expect(polled["changes"] == .string("Unchanged since revision 2."))
+    }
+
+    @Test("a scene within the budget is sent byte for byte, and a section of it can still be read")
+    func aSmallSceneIsUnchanged() async throws {
+        let session = SyntheticSession()
+        let tools = AutomationTools(session: session)
+        session.scene = Self.denseScene(rows: 20, rail: 10)
+        let opened = try await tools.call("open_session", .object(["app": .string("Dense Console")])).payload
+        #expect(opened["scene"].string == session.scene.text())
+        let id = JSONValue.string(try #require(session.id).uuidString)
+        let read = try await tools.call("observe", .object(["session": id, "section": .string("sheet")]))
+        #expect(read.payload["scene"].string == (try Self.part("sheet", of: session.scene).text))
+    }
+
+    @Test("observe offers section and page beside full")
+    func observeDefinesSectionAndPage() throws {
+        let definition = try #require(AutomationTools.definitions.first { $0["name"].string == "observe" })
+        let properties = definition["inputSchema"]["properties"]
+        #expect(properties["section"]["type"] == .string("string"))
+        #expect(properties["page"]["type"] == .string("integer"))
+        #expect(definition["description"].string?.contains("read one with observe and section") == true)
+    }
+}
+
 /// CatalogueSession answers only apps, with a fixed list, and has no session to open.
 @MainActor
 private final class CatalogueSession: AutomationSessionOperating {

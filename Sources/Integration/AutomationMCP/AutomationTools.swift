@@ -410,6 +410,13 @@ public final class AutomationTools {
         id×n means n icons share that id and none can be targeted by it.
         """
 
+    /// What an answer over the size limit carries instead of the whole scene.
+    static let budgetLegend = """
+        A scene too long for one answer keeps its first line, lists every section with its place, \
+        element count and whether it is shown, then the sections shown whole, and names those left out: \
+        read one with observe and section.
+        """
+
     /// What the lines of a changes answer mean.
     static let changesLegend = """
         Changes list "+ added", "- removed" and "~ changed (was ...)" lines under their ## section, and \
@@ -512,8 +519,21 @@ public final class AutomationTools {
                  + "resuming chat. Not after an action whose result carries observation: that is already the "
                  + "scene after it. A window already read answers its changes since that revision, or that it "
                  + "is unchanged; full true answers the whole scene, for when that revision is no longer in "
-                 + "the conversation. " + Self.changesLegend,
-                 session.merging(["full": .object(["type": .string("boolean")])], uniquingKeysWith: { $1 }),
+                 + "the conversation. " + Self.changesLegend + " " + Self.budgetLegend,
+                 session.merging([
+                    "full"   : .object(["type": .string("boolean")]),
+                    "section": .object([
+                        "type"       : .string("string"),
+                        "description": .string("Exact title of one ## section of this session's latest scene, "
+                                               + "such as one an answer left out: answers that section whole, "
+                                               + "without reading the window again. Not with full.")
+                    ]),
+                    "page"   : .object([
+                        "type"       : .string("integer"),
+                        "minimum"    : .number(1),
+                        "description": .string("The page of a section too long for one answer, from 1.")
+                    ])
+                 ], uniquingKeysWith: { $1 }),
                  ["session"], readOnly: true),
             tool("act", "Resolve a current label or element ID, act, and verify; observation is the scene after "
                  + "acting. set_toggle requires value on/off. Never automatically repeat acted_unverified. "
@@ -2228,10 +2248,19 @@ public final class AutomationTools {
             if values["full"] != nil, arguments["full"].bool == nil {
                 throw AutomationFailure("full must be true or false.")
             }
-            await noteDispatch()
-            let scene = try await session.observe()
-            value = await observation(scene, changesOnly: arguments["full"].bool != true)
-            lastResult = await observed(by: recorder)
+            if values["section"] != nil || values["page"] != nil {
+                guard values["full"] == nil else { throw AutomationFailure("Pass section or full, not both.") }
+                guard let title = arguments["section"].string, !title.isEmpty else {
+                    throw AutomationFailure("section must be the title of a section of the scene.")
+                }
+                // Read from the scene the model was answered, so nothing is dispatched and no observation is recorded.
+                value = try await sectionReading(title, page: Self.whole(arguments, "page", 1...1_000, default: 1))
+            } else {
+                await noteDispatch()
+                let scene = try await session.observe()
+                value = await observation(scene, changesOnly: arguments["full"].bool != true)
+                lastResult = await observed(by: recorder)
+            }
         case "menu":
             await noteDispatch()
             let done = try await session.menu(path: string(arguments, "path"))
@@ -2256,7 +2285,7 @@ public final class AutomationTools {
         case "act", "select", "type_text", "insert_text", "press_key", "scroll", "drag", "context_menu":
             let step = try Step(name, arguments)
             let done = try await perform(step, dispatch: CallScope.current.dispatch(of: step.texts, at: 0))
-            value = await outcome(done)
+            value = await outcome(done, aim: step.aim)
             lastResult = .outcome(done.kind, message: done.message)
             lastCheck  = done.withStatedCheck.check
         case "batch":
@@ -2338,7 +2367,7 @@ public final class AutomationTools {
                     complete = false
                     break
                 }
-                let value = await outcome(result)
+                let value = await outcome(result, aim: step.aim)
                 results.append(value)
                 do {
                     try await child?.end(.completed, result: .outcome(result.kind, message: result.message),
@@ -2530,14 +2559,20 @@ public final class AutomationTools {
     /// `nested` is for an observation inside an action result, which already names the session and
     /// is the scene just after the action: it repeats neither the session nor the time.
     ///
+    /// The text sent fits `SceneAnswerBudget`: a scene over it is sent as its outline and whole sections, the
+    /// section an action aimed at (`aim`) kept first after any dialog, and changes over it are sent that way too.
+    /// The baseline keeps the whole scene either way, so later changes and section reads stay exact.
+    ///
     /// The scene's text and its changes are written on the concurrent pool. The revision and the baselines are read
     /// and updated together between those two waits, so a call that interleaves sees them either before or after.
-    private func observation(_ scene: SceneSnapshot, changesOnly: Bool = false, nested: Bool = false) async -> JSONValue {
+    private func observation(_ scene: SceneSnapshot, changesOnly: Bool = false, nested: Bool = false,
+                             aim: (section: String?, target: String?) = (nil, nil)) async -> JSONValue {
         #if BRAUS_PHASES
         let rendering = PhaseInterval.begin("render.scene")
         defer { rendering.end() }
         #endif
-        let (scene, text) = await Self.rendered(scene, minimizing: shownMinimization)
+        let (scene, layout) = await Self.rendered(scene, minimizing: shownMinimization)
+        let text = layout.text
         revision += 1
         let number = session.observedWindowNumber
         var values: [String: JSONValue] = ["revision": .number(Double(revision))]
@@ -2557,22 +2592,51 @@ public final class AutomationTools {
         }
         if changesOnly, let baseline {
             let changes = await Self.changes(from: baseline.scene, to: scene, since: baseline.revision)
-            if changes.count * 2 < text.count {
+            if changes.count * 2 < text.count, changes.count <= SceneAnswerBudget.characters {
                 values["changes"] = .string(changes)
                 values["since"] = .number(Double(baseline.revision))
             }
         }
-        if values["changes"] == nil { values["scene"] = .string(text) }
+        if values["changes"] == nil {
+            let aimed = SceneAnswerBudget.aimedTitle(in: scene, section: aim.section, target: aim.target)
+            values["scene"] = .string(SceneAnswerBudget.text(of: layout, aimed: aimed))
+        }
         return .object(values)
+    }
+
+    /// One section of the latest scene this session answered, read from its baseline: no new reading, so
+    /// the revision and the baselines stay as they are and a later changes answer is still since that scene.
+    private func sectionReading(_ title: String, page: Int) async throws -> JSONValue {
+        guard let id = session.id, let baseline = seen.last(where: { $0.session == id }) else {
+            throw AutomationFailure("No scene of this session has been answered yet: observe it first.")
+        }
+        let read = try await Self.section(title, page: page, of: baseline.scene)
+        var values: [String: JSONValue] = [
+            "revision": .number(Double(baseline.revision)), "session": .string(id.uuidString),
+            "section" : .string(read.title), "scene": .string(read.text)
+        ]
+        if read.pages > 1 {
+            values["page"]  = .number(Double(page))
+            values["pages"] = .number(Double(read.pages))
+        }
+        return .object(values)
+    }
+
+    @concurrent
+    private static func section(_ title: String, page: Int,
+                                of scene: SceneSnapshot) async throws -> (title: String, text: String, pages: Int) {
+        try SceneAnswerBudget.section(title, page: page, of: scene, layout: scene.textLayout())
     }
 
     /// The scene as it is shown and its text. The producer's secrets and what the call withholds are withheld from
     /// the scene's elements before the scene is written as text, where a value is quoted and escaped.
     @concurrent
-    private static func rendered(_ scene: SceneSnapshot,
-                                 minimizing shown: ValueMinimization) async -> (scene: SceneSnapshot, text: String) {
+    private static func rendered(
+        _ scene        : SceneSnapshot,
+        minimizing shown: ValueMinimization
+    ) async -> (scene: SceneSnapshot, layout: SceneTextLayout) {
         let scene = shown.knowsNoText ? scene : shown.minimize(scene: scene)
-        return (scene, scene.text())
+        return (scene, scene.textLayout())
     }
 
     @concurrent
@@ -2654,12 +2718,15 @@ public final class AutomationTools {
         }
     }
 
-    private func outcome(_ outcome: ActOutcome) async -> JSONValue {
+    /// The answer of an action; `aim` is the section and target the step named, for a budgeted scene after it.
+    private func outcome(_ outcome: ActOutcome, aim: (section: String?, target: String?) = (nil, nil)) async -> JSONValue {
         var values: [String: JSONValue] = [
             "status": .string(outcome.kind.rawValue), "message": .string(outcome.message),
             "session": session.id.map { .string($0.uuidString) } ?? .null
         ]
-        if let scene = outcome.scene { values["observation"] = await observation(scene, changesOnly: true, nested: true) }
+        if let scene = outcome.scene {
+            values["observation"] = await observation(scene, changesOnly: true, nested: true, aim: aim)
+        }
         // P2-03: what the operation's own oracle found, apart from the command's acceptance and the task's goal.
         if let evidence = Self.evidence(outcome.withStatedCheck.check, kind: outcome.kind) { values["evidence"] = evidence }
         return .object(values)
@@ -2773,6 +2840,22 @@ public final class AutomationTools {
                 case .typeText(let text, _, _)          : [text]
                 case .insertText(let text, let expected): [text] + (expected.map { [$0] } ?? [])
                 default                                 : []
+            }
+        }
+
+        /// The section and the target the step names, which a budgeted scene after it keeps first.
+        var aim: (section: String?, target: String?) {
+            switch self {
+                case .act(let target, _, let section, _): (section, target)
+                case .select(let control, _)            : (nil, control)
+                case .input(let input, let section):
+                    switch input {
+                        case .typeText(_, let target, _)  : (section, target)
+                        case .scroll(_, let target)       : (section, target)
+                        case .drag(let target, _)         : (section, target)
+                        case .contextMenu(let target, _)  : (section, target)
+                        case .insertText, .pressKey       : (section, nil)
+                    }
             }
         }
 
