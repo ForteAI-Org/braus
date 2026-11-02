@@ -19,7 +19,7 @@ import Testing
 /// The whole report path on real applications of this Mac, with no person: the events a person's input would
 /// raise are handed to the recorder as the listener hands them, the changes they stand for are made through
 /// accessibility or on disk at the same moment, and the reads after each action, the ledger and the report are
-/// the app's own. Scratch data only. Off unless BRAUS_LIVE_REPORT names the scenarios (finder,calculator,textedit).
+/// the app's own. Scratch data only. Off unless BRAUS_LIVE_REPORT names the scenarios (finder,calculator,textedit,canvas).
 @Suite(.serialized)
 @MainActor
 struct HumanInterventionLiveTests {
@@ -233,6 +233,35 @@ struct HumanInterventionLiveTests {
         print("LIVE calculator\n\(digest.text)\nLIVE stated: \(digest.stated)")
         // The display is static text, not a value: "1 + 2" and "3" read as controls shown and hidden, which are noise.
         withKnownIssue("a result shown as static text is not reported") { #expect(digest.text.contains("3")) }
+    }
+
+    /// The canvas fixture (BRAUS_CANVAS_FIXTURE names the app `Tools/Fixtures/CanvasFixture/build.sh` builds): its meter
+    /// and caret move by themselves inside the timeline. They are learned as noise while nobody acts, so a click on Play,
+    /// which draws nothing, reports no canvas. Mouse events posted to the fixture alone do not reach its views and a
+    /// system-wide drag would move the person's pointer, so a canvas changed by a drag is left to the recorded episodes.
+    @Test(.enabled(if: scenarios.contains("canvas"))) func canvas() async throws {
+        let path = try #require(ProcessInfo.processInfo.environment["BRAUS_CANVAS_FIXTURE"])
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        let fixture = try await NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: configuration)
+        defer { fixture.terminate() }
+        await Self.pause(1500)
+        let window = try await Self.window(of: fixture.processIdentifier)
+        let app = AXUIElementCreateApplication(fixture.processIdentifier)
+        let play = try #require(Self.find(in: app) { Self.text($0).contains("Play") }.flatMap(Self.centre))
+        let episode = try Episode(window: window)
+        // Control passes: the canvases are read, then idle frames teach the meter and the caret as noise.
+        await Self.pause(3000)
+        episode.send(.click, at: play)
+        await Self.pause(2500)
+        let digest = try await episode.report()
+        let review = try #require(episode.recorder.review)
+        for canvas in review.findings.flatMap({ $0.canvases ?? [] }) {
+            print("LIVE canvas \(canvas.id): PNG \(canvas.before.count)+\(canvas.after.count) bytes\n\(canvas.caption)")
+        }
+        print("LIVE canvas\n\(digest.text)")
+        #expect(!digest.text.contains("Canvas changed"))
+        #expect(review.findings.allSatisfy { $0.canvases == nil })
     }
 
     /// TextEdit on a scratch document: text typed into it.

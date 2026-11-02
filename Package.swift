@@ -354,7 +354,9 @@ let package = Package(
             ["SeatBroker", "PerceptionCore", "SeatCore", "SeatCapture",
              "SeatSession", "SeatInput", "TargetReader", "EngineCore", "ModelTransports",
              "SeatDriving", "AutomationRuntime", "Engine", "AutomationMCP", "LocalMCP", "Memory", "TestScratch",
-             "WindowServerListing", "TaskRouting", "InteractionListener", "InteractionObservation"]
+             "WindowServerListing", "TaskRouting", "InteractionListener", "InteractionObservation",
+             // The recorded canvas fixture, perceived as an action's read would perceive it.
+             "Perception", "MacDriver"]
         ),
         brokerTests("ModelTransports", ["ModelTransports"]),
         // The living memory wired to the tools, the sessions and the engine: the queue, the recorder, the

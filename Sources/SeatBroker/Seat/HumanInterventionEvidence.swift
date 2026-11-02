@@ -43,7 +43,18 @@ nonisolated struct HumanInterventionEvidence: Sendable {
         }
     }
 
+    /// A canvas some read saw change, named once, with the steps (one-based) whose pictures show it.
+    struct CanvasChange: Sendable {
+        let window: Int
+        let id: String
+        var name: String
+        var steps: [Int]
+    }
+
     var steps: [Step] = []
+    var canvases: [CanvasChange] = []
+    /// The threads whose read pictured a canvas change: an effect the scenes cannot show.
+    var canvasThreads: Set<Int> = []
     var windows: [Int: String] = [:]
     var notice: String?
 
@@ -224,7 +235,8 @@ nonisolated struct HumanInterventionEvidence: Sendable {
             for finding in findings {
                 guard let action = finding.recordedAction else { continue }
                 append(action, sequence: finding.sequence,
-                       effects: stepEffects[finding.coveredBySequence ?? finding.sequence] ?? [])
+                       effects: stepEffects[finding.coveredBySequence ?? finding.sequence] ?? [],
+                       isPictured: finding.canvases?.isEmpty == false)
             }
             // Keep suppressed actions reachable without renumbering existing detail steps.
             var stepBySequence: [UInt64: Int] = [:]
@@ -243,6 +255,21 @@ nonisolated struct HumanInterventionEvidence: Sendable {
                     for sequence in owned { stepBySequence[sequence] = steps.count }
                     steps.append(Step(action: action, text: Self.action(action), sequences: owned.sorted(),
                                       effects: [], isMenu: false, atoms: []))
+                }
+            }
+            for finding in findings {
+                if finding.canvases?.isEmpty == false, let action = actionIndexes[finding.sequence],
+                   threads.owners.indices.contains(action) {
+                    canvasThreads.insert(threads.owners[action])
+                }
+                guard let step = stepBySequence[finding.sequence] else { continue }
+                for canvas in finding.canvases ?? [] {
+                    if let index = canvases.firstIndex(where: { $0.window == canvas.windowNumber && $0.id == canvas.id }) {
+                        if !canvases[index].steps.contains(step + 1) { canvases[index].steps.append(step + 1) }
+                    } else {
+                        canvases.append(CanvasChange(window: canvas.windowNumber, id: canvas.id, name: canvas.name,
+                                                     steps: [step + 1]))
+                    }
                 }
             }
             // A step lists what the reads covering its actions observed, once per read.
@@ -307,6 +334,11 @@ nonisolated struct HumanInterventionEvidence: Sendable {
             step.action = action(step.action)
             return step
         }
+        result.canvases = canvases.map {
+            var canvas = $0
+            canvas.name = safe(canvas.name)
+            return canvas
+        }
         result.windows = windows.mapValues(safe)
         result.notice = notice.map(safe)
         result.appName = safe(appName)
@@ -340,10 +372,12 @@ nonisolated struct HumanInterventionEvidence: Sendable {
     private mutating func append(
         _ action: HumanRecordedInteraction.SummaryAction,
         sequence: UInt64,
-        effects: [Effect]
+        effects: [Effect],
+        isPictured: Bool = false
     ) {
-        if [.scroll, .hover, .focus].contains(action.kind), effects.isEmpty { return }
-        if action.kind == .click, action.isUnknown, effects.isEmpty { return }
+        // A read that pictured a canvas keeps its step: the picture is that step's effect.
+        if !isPictured, [.scroll, .hover, .focus].contains(action.kind), effects.isEmpty { return }
+        if !isPictured, action.kind == .click, action.isUnknown, effects.isEmpty { return }
         if let last = steps.last {
             let same = last.action.sameTarget(as: action)
             let typing = same && action.kind == .typing
