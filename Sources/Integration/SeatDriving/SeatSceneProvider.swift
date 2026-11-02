@@ -34,8 +34,9 @@ import SeatSession
 /// the existing fresh-still check still prevents an old stream frame from proving equal pixels.
 /// Display crops are always recognized again.
 ///
-/// Each canvas of the scene says whether its pixels changed since this provider's previous
-/// observation of the same window (`CanvasTiles`); only their tile hashes are kept in between.
+/// Each canvas of the scene says whether its pixels changed since the previous observation of the
+/// same window, apart from the noise learned while nobody acted; the target's `canvasHistory` keeps
+/// the canvases' tile hashes and pixels in between, never a whole frame.
 public struct SeatSceneProvider: SceneProviding {
 
     private let target: SeatTarget
@@ -114,6 +115,8 @@ public struct SeatSceneProvider: SceneProviding {
         var image: CGImage
         let frame: CGRect
         var comparable: SeatFrame?
+        // When the frame `image` holds was displayed, so canvas noise learns only between idle frames.
+        var shownAt: UInt64?
         if popups.isEmpty {
             let still = observation.frame
             #if BRAUS_PHASES
@@ -128,6 +131,7 @@ public struct SeatSceneProvider: SceneProviding {
             image = pixels
             frame = still.geometry.screenRect
             comparable = still
+            shownAt = Self.uptime(still)
         } else {
             #if BRAUS_PHASES
             let displayCapture = PhaseInterval.begin("capture.displayStill")
@@ -152,6 +156,7 @@ public struct SeatSceneProvider: SceneProviding {
             guard let cropped = pixels.cropping(to: crop) else { throw SeatDrivingFailure.frameUnusable }
             image = cropped
             frame = union
+            shownAt = Self.uptime(still)
             guard await target.isCurrentObservation(observation.reference) else {
                 throw SeatDrivingFailure.frameUnusable
             }
@@ -178,14 +183,17 @@ public struct SeatSceneProvider: SceneProviding {
         // A canvas is compared only with the previous observation of this same window.
         let windowNumber = observedWindow.id
         func marked(_ perceived: PerceivedWindow, in image: CGImage) async -> PerceivedWindow {
-            let previous = await lastScene.canvases
+            var history = await target.canvasHistory
             var scene = perceived.scene
-            let tiles = CanvasTiles.mark(
+            history.observe(
                 &scene,
-                in   : image,
-                since: previous?.window == windowNumber ? previous?.tiles : nil
+                in           : image,
+                window       : windowNumber,
+                windowSize   : frame.size,
+                displayedAt  : shownAt,
+                lastCommandAt: await target.lastCommandAt
             )
-            await MainActor.run { lastScene.canvases = tiles.map { (windowNumber, $0) } }
+            await MainActor.run { target.canvasHistory = history }
             return PerceivedWindow(
                 scene  : scene,
                 frame  : perceived.frame,
@@ -233,6 +241,7 @@ public struct SeatSceneProvider: SceneProviding {
             if let fresh, fresh.geometry.screenRect == frame, let pixels = fresh.makeCGImage() {
                 image      = pixels
                 comparable = fresh
+                shownAt    = Self.uptime(fresh)
             }
         }
         #if BRAUS_PHASES
@@ -258,10 +267,14 @@ public struct SeatSceneProvider: SceneProviding {
         return keptDisplayedAt > lastCommandAt
     }
 
+    /// When `frame` was displayed, in uptime nanoseconds; nil when the frame carries no display time.
+    private static func uptime(_ frame: SeatFrame) -> UInt64? {
+        frame.displayTime.flatMap { MachAbsoluteContentClock().displayTimeNanoseconds(fromMachTicks: $0) }
+    }
+
     /// LastScene keeps the window still with its window facts and pixel-derived scene, so the next
     /// still can reuse recognition. Only the latest is kept, and replacing it
-    /// releases the Frame, which owns its surface (a stopped Still's, or a detached copy). Beside it,
-    /// the tile hashes of the last observation's canvases with the window they were read from.
+    /// releases the Frame, which owns its surface (a stopped Still's, or a detached copy).
     @MainActor
     private final class LastScene {
 
@@ -272,7 +285,6 @@ public struct SeatSceneProvider: SceneProviding {
         }
 
         var kept: Kept?
-        var canvases: (window: Int, tiles: CanvasTiles)?
     }
 }
 
