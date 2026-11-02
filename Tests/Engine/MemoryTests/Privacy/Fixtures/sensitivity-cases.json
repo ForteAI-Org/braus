@@ -1,0 +1,2975 @@
+[
+  {
+    "id": "decisive-0",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "password"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-1",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "passwd"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-2",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "passcode"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-3",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "passphrase"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-4",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "secret"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-5",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "otp"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-6",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "totp"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-7",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "2fa"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-8",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "mfa"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-9",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "cvv"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-10",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "cvc"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-11",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "apikey"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-12",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "api key"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-13",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "access key"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-14",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "secret key"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-15",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "private key"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-16",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "security code"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-17",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "verification code"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-18",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "one time code"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-19",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "auth code"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-20",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "parola d ordine"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-21",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "codice segreto"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-22",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "codice di sicurezza"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-23",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "codice di verifica"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-24",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "chiave api"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "decisive-25",
+    "value": "fake-value",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "chiave segreta"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "decisiveLabel",
+    "was": "S"
+  },
+  {
+    "id": "reclassified-Key",
+    "value": "C major",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Key"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "was": "S"
+  },
+  {
+    "id": "reclassified-Token",
+    "value": "abc",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Token"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "was": "S"
+  },
+  {
+    "id": "reclassified-PIN",
+    "value": "Off",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "PIN"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "was": "S"
+  },
+  {
+    "id": "short-key",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "key"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "random-key",
+    "value": "aB3!dE5?fG7#",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "key"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "short-token",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "token"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "random-token",
+    "value": "aB3!dE5?fG7#",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "token"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "short-pin",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "pin"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "random-pin",
+    "value": "aB3!dE5?fG7#",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "pin"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "short-code",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "code"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "random-code",
+    "value": "aB3!dE5?fG7#",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "code"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "short-codice",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "codice"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "random-codice",
+    "value": "aB3!dE5?fG7#",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "codice"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "short-chiave",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "chiave"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "random-chiave",
+    "value": "aB3!dE5?fG7#",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "chiave"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "randomShape"
+  },
+  {
+    "id": "ordinary-Volume",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Volume"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Track",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Track"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Title",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Title"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-ZIP",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "ZIP"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Quantity",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Quantity"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Name",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Name"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Color",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Color"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Tempo",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Tempo"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Mode",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Mode"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Program",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Program"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-File",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "File"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Folder",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Folder"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Date",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Date"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Search",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Search"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Gain",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Gain"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Pan",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Pan"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Language",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Language"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Format",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Format"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Version",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Version"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "ordinary-Count",
+    "value": "1234",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Count"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "checksum-0",
+    "value": "4111111111111111",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "checksum"
+  },
+  {
+    "id": "checksum-1",
+    "value": "4111111111111112",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "checksum-2",
+    "value": "4111 1111 1111 1111",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "checksum"
+  },
+  {
+    "id": "checksum-3",
+    "value": "5555-5555-5555-4444",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "checksum"
+  },
+  {
+    "id": "checksum-4",
+    "value": "0000000000000000",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "checksum-5",
+    "value": "GB82 WEST 1234 5698 7654 32",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "checksum"
+  },
+  {
+    "id": "checksum-6",
+    "value": "GB81 WEST 1234 5698 7654 32",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "checksum-7",
+    "value": "IT60X0542811101000000123456",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "checksum"
+  },
+  {
+    "id": "checksum-8",
+    "value": "DE89370400440532013000",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "checksum"
+  },
+  {
+    "id": "checksum-9",
+    "value": "DE88370400440532013000",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O"
+  },
+  {
+    "id": "shape-0",
+    "value": "sk-aaaaaaaaaaaaaaaa",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "shape-1",
+    "value": "sk-ant-bbbbbbbbbbbbbbbb",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "shape-2",
+    "value": "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "shape-3",
+    "value": "github_pat_bbbbbbbbbbbbbbbbbbbb",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "shape-4",
+    "value": "xoxb-aaaaaaaaaa",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "shape-5",
+    "value": "AKIAAAAAAAAAAAAAAAAA",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "shape-6",
+    "value": "AIzaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "shape-7",
+    "value": "eyJabcdefgh.abcdefgh.abcdefgh",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "shape-8",
+    "value": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "shape-9",
+    "value": "aB3dE5fG7hI9jK1laB3dE5fG7hI9jK1l",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "role-AXSecureTextField",
+    "value": "fake",
+    "field": {
+      "role": "AXSecureTextField",
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "secureRole",
+    "was": "S"
+  },
+  {
+    "id": "role-AXTextField",
+    "value": "fake",
+    "field": {
+      "role": "AXTextField",
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "unreadableSubrole",
+    "was": "S"
+  },
+  {
+    "id": "role-AXTextArea",
+    "value": "fake",
+    "field": {
+      "role": "AXTextArea",
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "unreadableSubrole",
+    "was": "S"
+  },
+  {
+    "id": "role-AXComboBox",
+    "value": "fake",
+    "field": {
+      "role": "AXComboBox",
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "unreadableSubrole",
+    "was": "S"
+  },
+  {
+    "id": "role-AXSearchField",
+    "value": "fake",
+    "field": {
+      "role": "AXSearchField",
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "unreadableSubrole",
+    "was": "S"
+  },
+  {
+    "id": "subrole",
+    "value": "fake",
+    "field": {
+      "role": "AXTextField",
+      "subrole": "AXSecureTextField",
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "secureRole",
+    "was": "S"
+  },
+  {
+    "id": "declared",
+    "value": "fake",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": true,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "declared",
+    "was": "S"
+  },
+  {
+    "id": "mail-body",
+    "value": "Hello, this is personal correspondence.",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": true,
+      "markupDeclaresSecret": false
+    },
+    "expected": "P",
+    "reason": "contentSurface"
+  },
+  {
+    "id": "personal-name",
+    "value": "Alex Example",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "gap",
+    "gapClass": "P"
+  },
+  {
+    "id": "personal-address",
+    "value": "42 Example Street",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "gap",
+    "gapClass": "P"
+  },
+  {
+    "id": "personal-phone",
+    "value": "+39 02 123 4567",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "gap",
+    "gapClass": "P"
+  },
+  {
+    "id": "seed-phrase",
+    "value": "abandon ability able about above absent absorb abstract absurd abuse access accident",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "gap",
+    "gapClass": "S"
+  },
+  {
+    "id": "web-secretAutocomplete-0",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "autocomplete": "current-password"
+    }
+  },
+  {
+    "id": "web-secretAutocomplete-1",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "autocomplete": "new-password"
+    }
+  },
+  {
+    "id": "web-secretAutocomplete-2",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "autocomplete": "one-time-code"
+    }
+  },
+  {
+    "id": "web-secretAutocomplete-3",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "autocomplete": "cc-number"
+    }
+  },
+  {
+    "id": "web-secretAutocomplete-4",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "autocomplete": "cc-csc"
+    }
+  },
+  {
+    "id": "web-secretAutocomplete-5",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "autocomplete": "cc-exp"
+    }
+  },
+  {
+    "id": "web-secretAutocomplete-6",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "autocomplete": "cc-exp-month"
+    }
+  },
+  {
+    "id": "web-secretAutocomplete-7",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "autocomplete": "cc-exp-year"
+    }
+  },
+  {
+    "id": "web-secretNames-0",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "password"
+    }
+  },
+  {
+    "id": "web-secretNames-1",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "passwd"
+    }
+  },
+  {
+    "id": "web-secretNames-2",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "pwd"
+    }
+  },
+  {
+    "id": "web-secretNames-3",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "passcode"
+    }
+  },
+  {
+    "id": "web-secretNames-4",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "passphrase"
+    }
+  },
+  {
+    "id": "web-secretNames-5",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "otp"
+    }
+  },
+  {
+    "id": "web-secretNames-6",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "totp"
+    }
+  },
+  {
+    "id": "web-secretNames-7",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "hotp"
+    }
+  },
+  {
+    "id": "web-secretNames-8",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "onetimecode"
+    }
+  },
+  {
+    "id": "web-secretNames-9",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "onetimepassword"
+    }
+  },
+  {
+    "id": "web-secretNames-10",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "onetimepin"
+    }
+  },
+  {
+    "id": "web-secretNames-11",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "verificationcode"
+    }
+  },
+  {
+    "id": "web-secretNames-12",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "smscode"
+    }
+  },
+  {
+    "id": "web-secretNames-13",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "authcode"
+    }
+  },
+  {
+    "id": "web-secretNames-14",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "securitycode"
+    }
+  },
+  {
+    "id": "web-secretNames-15",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "mfa"
+    }
+  },
+  {
+    "id": "web-secretNames-16",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "twofactor"
+    }
+  },
+  {
+    "id": "web-secretNames-17",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "2fa"
+    }
+  },
+  {
+    "id": "web-secretNames-18",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cardnumber"
+    }
+  },
+  {
+    "id": "web-secretNames-19",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cardnum"
+    }
+  },
+  {
+    "id": "web-secretNames-20",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cardno"
+    }
+  },
+  {
+    "id": "web-secretNames-21",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "ccnumber"
+    }
+  },
+  {
+    "id": "web-secretNames-22",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "ccnum"
+    }
+  },
+  {
+    "id": "web-secretNames-23",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "ccno"
+    }
+  },
+  {
+    "id": "web-secretNames-24",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cvv"
+    }
+  },
+  {
+    "id": "web-secretNames-25",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cvv2"
+    }
+  },
+  {
+    "id": "web-secretNames-26",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cvc"
+    }
+  },
+  {
+    "id": "web-secretNames-27",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cvc2"
+    }
+  },
+  {
+    "id": "web-secretNames-28",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "csc"
+    }
+  },
+  {
+    "id": "web-secretNames-29",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cvn"
+    }
+  },
+  {
+    "id": "web-secretNames-30",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cardcode"
+    }
+  },
+  {
+    "id": "web-secretNames-31",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cardverification"
+    }
+  },
+  {
+    "id": "web-secretNames-32",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "ccexp"
+    }
+  },
+  {
+    "id": "web-secretNames-33",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "ccexpiry"
+    }
+  },
+  {
+    "id": "web-secretNames-34",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "ccexpiration"
+    }
+  },
+  {
+    "id": "web-secretNames-35",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "ccmonth"
+    }
+  },
+  {
+    "id": "web-secretNames-36",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "ccyear"
+    }
+  },
+  {
+    "id": "web-secretNames-37",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cardexp"
+    }
+  },
+  {
+    "id": "web-secretNames-38",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cardexpiry"
+    }
+  },
+  {
+    "id": "web-secretNames-39",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "cardexpiration"
+    }
+  },
+  {
+    "id": "web-secretNames-40",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "expmonth"
+    }
+  },
+  {
+    "id": "web-secretNames-41",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "expyear"
+    }
+  },
+  {
+    "id": "web-secretNames-42",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "expirymonth"
+    }
+  },
+  {
+    "id": "web-secretNames-43",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "expiryyear"
+    }
+  },
+  {
+    "id": "web-secretNames-44",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "expirationmonth"
+    }
+  },
+  {
+    "id": "web-secretNames-45",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "expirationyear"
+    }
+  },
+  {
+    "id": "web-password",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": true
+    },
+    "expected": "S",
+    "reason": "secureMarkup",
+    "was": "S",
+    "tag": "INPUT",
+    "attributes": {
+      "type": "password"
+    }
+  },
+  {
+    "id": "web-ordinary-0",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "pin"
+    }
+  },
+  {
+    "id": "web-ordinary-1",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "code"
+    }
+  },
+  {
+    "id": "web-ordinary-2",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "zipcode"
+    }
+  },
+  {
+    "id": "web-ordinary-3",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "phone_number"
+    }
+  },
+  {
+    "id": "web-ordinary-4",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "order_no"
+    }
+  },
+  {
+    "id": "web-ordinary-5",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "pincode"
+    }
+  },
+  {
+    "id": "web-ordinary-6",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "promo_code"
+    }
+  },
+  {
+    "id": "web-ordinary-7",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "card_holder"
+    }
+  },
+  {
+    "id": "web-ordinary-8",
+    "value": null,
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "tag": "INPUT",
+    "attributes": {
+      "name": "quantity"
+    }
+  },
+  {
+    "id": "retained-signal-157",
+    "value": "ordinary",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "sk-aaaaaaaaaaaaaaaa"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "retained-signal-158",
+    "value": "ordinary",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "eyJabcdefgh.abcdefgh.abcdefgh"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "strongShape",
+    "was": "S"
+  },
+  {
+    "id": "retained-signal-159",
+    "value": "gb82 west 1234 5698 7654 32",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Account"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "reason": "checksum"
+  },
+  {
+    "id": "reclassified-Token-one-digit",
+    "value": "1",
+    "expected": "O",
+    "was": "S",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Session token"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    }
+  },
+  {
+    "id": "reclassified-Token-two-digits",
+    "value": "12",
+    "expected": "O",
+    "was": "S",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Session token"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    }
+  },
+  {
+    "id": "reclassified-Token-quoted",
+    "value": "a\"b\\c",
+    "expected": "O",
+    "was": "S",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "Session token"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    }
+  },
+  {
+    "id": "review-api-token-hex",
+    "value": "0123456789abcdef0123456789abcdef",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "API token"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "was": "O",
+    "reason": "decisiveLabel"
+  },
+  {
+    "id": "review-api-token-uuid",
+    "value": "01234567-89ab-cdef-0123-456789abcdef",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "API token"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "was": "O",
+    "reason": "decisiveLabel"
+  },
+  {
+    "id": "review-short-pin",
+    "value": "123",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "PIN"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "S",
+    "was": "O",
+    "reason": "weakLabel"
+  },
+  {
+    "id": "review-postal-code",
+    "value": "20121",
+    "field": {
+      "role": null,
+      "subrole": null,
+      "labels": [
+        "ZIP code"
+      ],
+      "declaredSecret": false,
+      "bundleID": null,
+      "isContent": false,
+      "markupDeclaresSecret": false
+    },
+    "expected": "O",
+    "was": "S"
+  }
+]

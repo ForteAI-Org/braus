@@ -447,7 +447,8 @@ let package = Package(
         engine("WorkspaceActivation", ["EngineCore"], settings: pure),
 
         // What the agent remembers: observed objects, the brain, routes, recall, and the storing role. Pure.
-        engine("Memory", ["EngineCore", "PerceptionCore"], settings: pure),
+        engine("Memory", ["EngineCore", "PerceptionCore"], settings: pure,
+               resources: [.copy("Privacy/Sensitivity/Rules")]),
 
         // `KnowledgeStoring` over one JSON file per application, with backups and write-behind.
         engine("FileKnowledge", ["Memory"], settings: pure),
@@ -652,7 +653,7 @@ let package = Package(
         engineTests("Engine", ["Engine", "EngineCore", "PerceptionCore"]),
         engineTests("Memory", ["Memory", "EngineCore", "PerceptionCore"],
                     resources: [.copy("Fixtures/route-corpus.json"), .copy("Fixtures/misfire-corpus.json"),
-                                .copy("Fixtures/misfire-corpus.md")]),
+                                .copy("Fixtures/misfire-corpus.md"), .copy("Privacy/Fixtures/sensitivity-cases.json")]),
         engineTests("FileKnowledge", ["FileKnowledge", "Memory", "PerceptionCore", "TestScratch"]),
         // The local model's tokenizer and encoder against Hugging Face's own outputs; the model files come from
         // BRAUS_RECALL_MODELS and the suites that need them are skipped, saying so, without it.
