@@ -173,7 +173,12 @@ public struct ScenePipeline: Sendable {
         #endif
         try Task.checkCancellation()
         let merged = measure(.merge) {
-            Self.augmented(pixels.scene, with: Self.withoutEmptyCanvases(harvest, in: image)).scene
+            let canvased = Self.withoutEmptyCanvases(
+                harvest,
+                in         : image,
+                windowWidth: window.frame?.width
+            )
+            return Self.augmented(pixels.scene, with: canvased).scene
         }
         #if BRAUS_PHASES
         merging.end()
@@ -258,23 +263,45 @@ public struct ScenePipeline: Sendable {
     /// look at. The region is sampled inset by 3% on each side, so a border or a rounded corner is
     /// not content, at most 128 samples along its longer side, and is empty when its luminance spans
     /// at most 8 of 255 levels. A region that cannot be sampled keeps its canvas: nothing proved it empty.
-    static func withoutEmptyCanvases(_ harvest: AccessibilityHarvest, in image: CGImage) -> AccessibilityHarvest {
-        guard harvest.elements.contains(where: { $0.kind == .canvas }) else { return harvest }
+    ///
+    /// A hole no element covers (`uncoveredCanvases`) joins the canvases by the opposite proof: only
+    /// when it is sampled and its luminance spans more than 8 levels, so a window margin or a plain
+    /// background never becomes one. A hole is sampled inset by at least one grid cell
+    /// (`UncoveredAreas.cell`, scaled by the image's width over `windowWidth` points when given): its
+    /// edges hold its neighbors' borders, separators and the foot of a title bar taller than assumed.
+    static func withoutEmptyCanvases(
+        _ harvest  : AccessibilityHarvest,
+        in image   : CGImage,
+        windowWidth: CGFloat? = nil
+    ) -> AccessibilityHarvest {
+        guard harvest.elements.contains(where: { $0.kind == .canvas }) || !harvest.uncoveredCanvases.isEmpty
+        else { return harvest }
         let size = CGSize(width: image.width, height: image.height)
+        let scale = windowWidth.map { $0 > 0 ? size.width / $0 : 1 } ?? 1
+        func spread(_ element: SceneElement, inset: CGFloat = 0) -> Int? {
+            let box = element.bounds.pixelBox(in: size)
+            return luminanceSpread(image, in: box.insetBy(
+                dx: max(box.width * 0.03, inset),
+                dy: max(box.height * 0.03, inset)
+            ))
+        }
         var kept = harvest
         kept.elements.removeAll { element in
-            guard element.kind == .canvas else { return false }
-            let box = element.bounds.pixelBox(in: size)
-            return isFlat(image, in: box.insetBy(dx: box.width * 0.03, dy: box.height * 0.03))
+            guard element.kind == .canvas, let spread = spread(element) else { return false }
+            return spread <= 8
         }
+        kept.elements += harvest.uncoveredCanvases.filter {
+            (spread($0, inset: UncoveredAreas.cell * scale) ?? 0) > 8
+        }
+        kept.uncoveredCanvases = []
         return kept
     }
 
-    /// True when the region's luminance spans at most 8 levels; false when it cannot be sampled.
-    private static func isFlat(_ image: CGImage, in region: CGRect) -> Bool {
+    /// The span of the region's luminance, in levels of 255; nil when it cannot be sampled.
+    private static func luminanceSpread(_ image: CGImage, in region: CGRect) -> Int? {
         let region = region.integral.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
         guard !region.isNull, region.width >= 1, region.height >= 1,
-              let crop = image.cropping(to: region) else { return false }
+              let crop = image.cropping(to: region) else { return nil }
         let scale = min(1, 128 / max(region.width, region.height))
         let width = max(1, Int(region.width * scale)), height = max(1, Int(region.height * scale))
         var samples = [UInt8](repeating: 0, count: width * height)
@@ -293,8 +320,8 @@ public struct ScenePipeline: Sendable {
             context.draw(crop, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
         }
-        guard drawn, let darkest = samples.min(), let brightest = samples.max() else { return false }
-        return Int(brightest) - Int(darkest) <= 8
+        guard drawn, let darkest = samples.min(), let brightest = samples.max() else { return nil }
+        return Int(brightest) - Int(darkest)
     }
 
     /// Asks the control state reader about every switch, checkbox and radio the grouper's candidate

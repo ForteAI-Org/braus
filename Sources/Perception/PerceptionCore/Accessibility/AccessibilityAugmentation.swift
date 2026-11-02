@@ -127,6 +127,11 @@ public enum AccessibilityAugmentation {
     /// `canvas 2`, ... in tree order, at most `maxCanvases`, so a canvas keeps its id while it keeps
     /// its place among the window's canvases. Whether its pixels are empty is decided where pixels
     /// are (`ScenePipeline`), after the ordinals: drawing into an empty view renames no other canvas.
+    ///
+    /// An application can also draw where no element is at all. A walk no limit cut short answers the
+    /// holes of its window, the areas no visible node frame covers (`UncoveredAreas`), as
+    /// `uncoveredCanvases`: labeled after the element canvases, in the order of their position, and
+    /// canvases only once their pixels show structure.
     public static func harvest<Reader: AccessibilityTreeReading>(
         under window: Reader.Node,
         windowFrame : CGRect,
@@ -152,6 +157,8 @@ public enum AccessibilityAugmentation {
         var nodesVisited = 0
         // Accepted canvases with the walk order of their node, so ordinals follow the tree.
         var canvases: [(order: Int, frame: CGRect, role: String, container: String?)] = []
+        // The visible part of every node below the window, for the holes no element covers.
+        var covered: [CGRect] = []
         var stoppedBy: CaptureQuality.StopReason?
         // A list of children that did not answer (M2): the walk goes on with the siblings it can read, but
         // the capture is not whole. No limit stopped it, so none is named.
@@ -249,6 +256,10 @@ public enum AccessibilityAugmentation {
             guard !limits.isPastDeadline() else { stop(.deadline); return true }
             nodesVisited += 1
             let order = nodesVisited
+            if depth > 0, let frame = reader.frame(node) {
+                let visible = frame.intersection(clip)
+                if !visible.isNull, !visible.isEmpty { covered.append(visible) }
+            }
             let nativeRole = (depth == 0 ? windowRole : reader.role(node)) ?? ""
             let subrole: String?
             if depth == 0 {
@@ -437,6 +448,8 @@ public enum AccessibilityAugmentation {
             return holdsReadable
         }
         walk(window, 0, windowFrame, nil, collectionPath: nil)
+        // A walk a limit cut short left nodes unread, whose areas would read as holes.
+        let isCoverageWhole = stoppedBy == nil
         let room = max(0, limits.maxElements - out.count)
         if staticText.count > room { stop(.elementLimit) }
         out.append(contentsOf: staticText.prefix(room))
@@ -452,6 +465,23 @@ public enum AccessibilityAugmentation {
                 role     : canvas.role.isEmpty ? nil : canvas.role,
                 container: canvas.container
             ))
+        }
+        let elementCanvases = min(canvases.count, maxCanvases)
+        let holes = isCoverageWhole ? UncoveredAreas.areas(
+            in          : windowFrame,
+            covered     : covered,
+            limit       : maxCanvases - elementCanvases,
+            maximumShare: maximumCanvasShare
+        ) : []
+        let uncovered = holes.enumerated().compactMap { index, hole -> SceneElement? in
+            guard let bounds = AccessibilityFrameTrust.normalized(hole, in: windowFrame) else { return nil }
+            let label = "canvas \(elementCanvases + index + 1)"
+            return SceneElement(
+                id    : SceneIdentity.key(kind: .canvas, label: label, bounds: bounds, isUnlabeled: false),
+                kind  : .canvas,
+                label : label,
+                bounds: bounds
+            )
         }
 
         var seen: [String: Int] = [:]
@@ -469,7 +499,7 @@ public enum AccessibilityAugmentation {
             windowSubrole  : windowSubrole,
             nodesVisited   : nodesVisited,
             elementsEmitted: out.count
-        ), outOfViewFields: outOfViewFields)
+        ), outOfViewFields: outOfViewFields, uncoveredCanvases: uncovered)
     }
 
     // MARK: Merge

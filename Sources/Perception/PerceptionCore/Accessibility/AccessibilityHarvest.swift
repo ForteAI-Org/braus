@@ -15,11 +15,20 @@ public struct AccessibilityHarvest: Sendable, Equatable {
     /// Named fields with readable values but no trusted click target.
     public var outOfViewFields: [OutOfViewField]
     public var quality: CaptureQuality
+    /// Canvases no element covers (`UncoveredAreas`), labeled after the element canvases in `elements`.
+    /// Each is a canvas only once its pixels show structure, which `ScenePipeline` decides.
+    public var uncoveredCanvases: [SceneElement]
 
-    public init(elements: [SceneElement], quality: CaptureQuality, outOfViewFields: [OutOfViewField] = []) {
-        self.outOfViewFields = outOfViewFields
-        self.elements = elements
-        self.quality  = quality
+    public init(
+        elements         : [SceneElement],
+        quality          : CaptureQuality,
+        outOfViewFields  : [OutOfViewField] = [],
+        uncoveredCanvases: [SceneElement] = []
+    ) {
+        self.outOfViewFields   = outOfViewFields
+        self.elements          = elements
+        self.quality           = quality
+        self.uncoveredCanvases = uncoveredCanvases
     }
 
     /// No read took place: no elements, quality unknown.
