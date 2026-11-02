@@ -330,6 +330,32 @@ struct FactWiringTests {
         await memory.close()
     }
 
+    @Test("Stop closes the old task as abandoned and the next request starts a separate task")
+    func stoppedTaskDoesNotAbsorbTheNextRequest() async throws {
+        let session = FactSession(directory: try W.directory())
+        let tools = tools(session)
+        let begun = try await task(tools, ["operation": .string("begin"), "goal": .string("Change the tempo"),
+                                          "recall": .bool(false)])
+        let taskID = try #require(begun["task"].string)
+        tools.markTaskInterrupted()
+        _ = try await act(tools, session, "Apply")
+        let gestures = session.gestures
+        try await tools.finishInterruptedTask()
+        try await tools.finishInterruptedTask()
+        #expect(tools.openTask == nil)
+        #expect(tools.takeInterpretationReminder() == nil)
+        let next = try await task(tools, ["operation": .string("begin"), "goal": .string("Open the dialog"),
+                                         "recall": .bool(false)])
+        #expect(next["status"].string == "begun")
+        #expect(next["task"].string != taskID)
+        let memory = service(session)
+        let owner = try TaskProducer(source: .app, streamID: "worker-1")
+        let stored = try await memory.perform { try await $0.tasks.task(taskID, for: owner) }
+        #expect(stored?.status == .abandoned)
+        #expect(session.gestures == gestures, "cleanup never repeats an action")
+        await memory.close()
+    }
+
     @Test("a task cannot be begun twice, read or resumed by another producer; a resumption after a restart opens a linked attempt and replays nothing")
     func ownershipAndResumption() async throws {
         let session = FactSession(directory: try W.directory())

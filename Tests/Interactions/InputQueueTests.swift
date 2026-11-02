@@ -32,8 +32,8 @@ struct InputQueueTests {
             (\.windowWidth, 96), (\.windowHeight, 100),
         ]
         for (path, offset) in offsets { #expect(MemoryLayout<InputRecord>.offset(of: path) == offset, "\(path)") }
-        let kinds: [InputRecord.Kind] = [.empty, .click, .rightClick, .scrollDelta, .hover, .focus, .gap]
-        #expect(kinds.map(\.rawValue) == [0, 1, 2, 3, 4, 5, 6])
+        let kinds: [InputRecord.Kind] = [.empty, .click, .rightClick, .scrollDelta, .hover, .focus, .gap, .shortcut, .typing, .drag]
+        #expect(kinds.map(\.rawValue) == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
         let flags: [InputRecord.Flag] = [.windowResolved, .staleAttribution, .hasSourceProcess]
         #expect(flags.map(\.rawValue) == [1, 2, 4])
     }

@@ -44,9 +44,12 @@ public final class AgentSession {
     public var isUsingApp: Bool { held != nil }
 
     private let driver: SeatDriver
+    /// The lease's leave-open decision survives preview abandonment; replaceable in lifecycle tests.
+    var leavesLentApplicationOpen: () -> Bool
 
     /// The virtual display the session's seat is made with.
     var display: SeatDisplay { driver.display }
+    var windowPreviews: WindowPreviewStreams { driver.windowPreviews }
     private let ledger: LaunchLedger
     /// The runtime that made this session. It is here for one reason: opening
     /// an application is launching one, and `SeatBroker.launch` is the
@@ -91,13 +94,72 @@ public final class AgentSession {
     /// only bound there is: it answers whether the window server stopped listing it within a second.
     var closeWindow: (BrowserOpening.OpenedWindow) async -> Bool = { await BrowserOpening.close($0) }
 
+    /// How long the host of a clean lease waits for the next lease before it is taken down. Each
+    /// removal of a virtual display and each creation of one is a display reconfiguration that every
+    /// application on the Mac lays out again for (ADR 0030). Two minutes covers
+    /// the gaps between a worker's turns once `BrokeredAutomationSession.idleWindow` has given the
+    /// lease back, and bounds how long an unused display stays in the person's display list.
+    static let idleRetirementDelay: Duration = .seconds(120)
+
+    /// `idleRetirementDelay`, shorter in the controlled tests.
+    var idleRetirementDelay = AgentSession.idleRetirementDelay
+
+    /// Takes the host and its display down: `driver.stop`, counted in the controlled tests.
+    var stopHost: @MainActor () async -> String?
+
+    /// The retirement waiting for `idleRetirementDelay`. A new lease and `close` advance the
+    /// generation, so a retirement that wakes after either does nothing, even when its cancel raced.
+    private var retirement: Task<Void, Never>?
+    private var retirementGeneration = 0
+    /// True once a retirement took the host down, until the next lease: `close` then stops nothing.
+    private var isRetired = false
+
     init(driver: SeatDriver, ledger: LaunchLedger, perception: ScenePipeline,
          recorder: RunRecorder, environment: SeatBroker) {
         self.driver = driver
+        self.leavesLentApplicationOpen = { driver.leavesLentApplicationOpen }
+        self.stopHost = { await driver.stop() }
         self.ledger = ledger
         self.perception = perception
         self.recorder = recorder
         self.environment = environment
+    }
+
+    /// Lends the held application to the person's chosen screen while the worker is suspended.
+    public func lendApplication(
+        on screen: NSScreen,
+        around anchor: CGRect? = nil,
+        willMove: ((WindowReference, CGRect) async -> Void)? = nil
+    ) async throws -> ApplicationLendingReport {
+        try await lendApplication(on: screen, around: anchor, willMove: willMove, willMoveAll: nil)
+    }
+
+    /// Forwards the whole application layout to the human presentation adapter.
+    func lendApplication(
+        on screen: NSScreen,
+        around anchor: CGRect? = nil,
+        lendingFrames: [Int: CGRect] = [:],
+        willMove: ((WindowReference, CGRect) async -> Void)? = nil,
+        willMoveAll: (([WindowReference]) async -> Void)?
+    ) async throws -> ApplicationLendingReport {
+        guard isOpen, held != nil else { throw SeatBrokerError.sessionClosed }
+        return try await driver.lendApplication(
+            on: screen,
+            around: anchor,
+            lendingFrames: lendingFrames,
+            willMove: willMove,
+            willMoveAll: willMoveAll
+        )
+    }
+
+    /// Takes the lent application back before ending human control.
+    public func takeBackApplication() async throws -> ApplicationLendingReport {
+        try await takeBackApplication(willMoveAll: nil)
+    }
+
+    func takeBackApplication(willMoveAll: (([WindowReference]) async -> Void)?) async throws -> ApplicationLendingReport {
+        guard isOpen else { throw SeatBrokerError.sessionClosed }
+        return try await driver.takeBackApplication(willMoveAll: willMoveAll)
     }
 
     /// Finishes with the application the seat is holding and adopts `window`
@@ -179,7 +241,7 @@ public final class AgentSession {
     @discardableResult
     public func open(applicationNamed name: String, windowTitled title: String? = nil) async throws -> TargetApp {
         guard isOpen else { throw SeatBrokerError.sessionClosed }
-        let wanted = try ApplicationOpening.resolve(name, in: TargetEnumerator.targets())
+        let wanted = try await ApplicationOpening.resolvedOffMain(name, in: TargetEnumerator.preparedTargets())
         // Re-opening the held application would finish with it first, which
         // quits it when the agent opened it, and then adopt its dying window.
         guard !isUsingApp || wanted.pid != target?.pid else {
@@ -270,33 +332,72 @@ public final class AgentSession {
     }
 
     /// Finishes with the held application and keeps the queue's session reusable.
-    /// A lease retires its display rather than parking it between workers.
-    /// This adds display removal and startup at the lease boundary. Only a
-    /// window return the host still owes keeps it alive.
+    /// A clean lease keeps its host for `idleRetirementDelay` and retires it then,
+    /// unless another lease takes the session first (`beginLease`). Only a window
+    /// return the host still owes keeps it past that. Called at the end of a lease.
     func finishUsingApp() async -> String? {
         guard isOpen else { return nil }
         let finish = await finishWithHeldApp()
         let canRetire = driver.canRetireHost()
-        let action = canRetire ? "taking the host down" : "keeping the host and its display"
+        let action = canRetire
+            ? "keeping the host for \(idleRetirementDelay) with no lease, then taking it down"
+            : "keeping the host and its display"
         Self.diagnosticLog.notice("""
             lease finished: warning \(finish != nil, privacy: .public), \
             canRetireHost \(canRetire, privacy: .public), \
             \(self.driver.restorationDiagnostics, privacy: .public): \
             \(action, privacy: .public)
             """)
-        return await Self.endingLease(finish: finish, canRetire: canRetire, stop: { await self.driver.stop() })
+        return Self.endingLease(finish: finish, canRetire: canRetire, retire: scheduleRetirement)
     }
 
-    /// What ending a lease says, after taking the host down when nothing on it is owed. A finish
-    /// warning alone keeps no display: an app left running is not a window left out.
+    /// What ending a lease says, after scheduling the host's retirement when nothing on it is owed.
+    /// A finish warning alone keeps no display: an app left running is not a window left out. The
+    /// teardown is not part of the sentence: it happens with no lease to hand it to, and is logged.
     static func endingLease(
         finish   : String?,
         canRetire: Bool,
-        stop     : () async -> String?
-    ) async -> String? {
-        guard canRetire else { return finish }
-        let sentences = [finish, await stop()].compactMap { $0 }
-        return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+        retire   : () -> Void
+    ) -> String? {
+        if canRetire { retire() }
+        return finish
+    }
+
+    /// Takes the host down once `idleRetirementDelay` passes with the session open and no new lease.
+    private func scheduleRetirement() {
+        retirement?.cancel()
+        retirementGeneration += 1
+        let generation = retirementGeneration
+        retirement = Task { [weak self, delay = idleRetirementDelay] in
+            // Ends early only when cancelled, and the generation has moved on by then.
+            try? await Task.sleep(for: delay)
+            guard let self, isOpen, retirementGeneration == generation else { return }
+            isRetired = true
+            // Its own task, so a lease or close that cancels this one waits for the teardown whole.
+            let teardown = await Task { await self.stopHost() }.value
+            Self.diagnosticLog.notice("""
+                idle lease retirement: host taken down, \
+                \(teardown ?? "nothing left out", privacy: .public)
+                """)
+        }
+    }
+
+    /// Ends a pending retirement: one still waiting does nothing, and one already taking the host
+    /// down is waited for, so nothing adopts on a host that is going down.
+    private func cancelRetirement() async {
+        retirementGeneration += 1
+        let pending = retirement
+        retirement = nil
+        pending?.cancel()
+        await pending?.value
+    }
+
+    /// Called by the queue as it hands this session to a new lease, before anything is prepared or
+    /// adopted. A host the retirement took down comes back with the lease's first adoption.
+    func beginLease() async {
+        await cancelRetirement()
+        await driver.beginLease()
+        isRetired = false
     }
 
     /// Gives the held window back and, when the agent opened the application
@@ -326,6 +427,13 @@ public final class AgentSession {
     /// and it has to precede the termination, because an assignment bound to a
     /// process nobody can quit is one nothing can end.
     private func finishWithHeldApp() async -> String? {
+        let wasLent = leavesLentApplicationOpen()
+        await driver.abandonHumanInput()
+        if wasLent {
+            held = nil
+            await driver.release()
+            return driver.releaseAssignedApplication()
+        }
         guard let held else { return nil }
         self.held = nil
         let leftOpen = await Self.closingThenReleasing(
@@ -435,18 +543,6 @@ public final class AgentSession {
     /// A view that shows the adopted window live.
     public func makePreviewView(contentsScale: CGFloat) -> NSView {
         LivePreviewView(driver: driver, contentsScale: contentsScale)
-    }
-
-    /// True while the monitor shows the whole background display instead of
-    /// the adopted window. The agent is unaffected: a decision is still taken
-    /// on its own capture of the window, whatever the person is watching.
-    public var previewShowsDisplay: Bool { driver.previewShowsDisplay }
-
-    /// Switches the monitor between the whole background display and the
-    /// adopted window, and answers which of the two it now shows, which is
-    /// what was asked for unless there is no display yet to watch.
-    public func setPreviewShowsDisplay(_ showsDisplay: Bool) -> Bool {
-        driver.setPreviewShowsDisplay(showsDisplay)
     }
 
     /// Why the live picture is not live, and nil while it is or while nothing
@@ -766,8 +862,10 @@ public final class AgentSession {
         // Before anything is given back or taken down: the gate is what stops
         // the next Command, and it costs nothing to close first.
         stopAdmittingCommands()
+        // A retirement still waiting does nothing now, and one under way is waited for.
+        await cancelRetirement()
         let refusal = await finishWithHeldApp()
-        let teardown = await driver.stop()
+        let teardown = isRetired ? nil : await stopHost()
         let sentences = [refusal, teardown].compactMap { $0 }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }

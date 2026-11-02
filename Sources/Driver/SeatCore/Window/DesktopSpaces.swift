@@ -59,6 +59,13 @@ nonisolated public struct DesktopLayout: Sendable, Equatable {
         displays.contains { $0.current == space }
     }
 
+    /// True when some display has a desktop it does not show now. Without one,
+    /// `containsOnlyInactive` is false for every window, so a reader can stop
+    /// before it asks a single window where it is.
+    package var hasInactiveSpace: Bool {
+        displays.contains { display in display.spaces.contains { !isShown($0) } }
+    }
+
     /// Unknown or empty membership cannot establish that a window is on another desktop.
     package func containsOnlyInactive(_ spaces: [Int]?) -> Bool {
         guard let spaces, !spaces.isEmpty else { return false }

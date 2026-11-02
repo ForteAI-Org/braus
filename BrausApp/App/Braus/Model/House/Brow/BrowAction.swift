@@ -8,7 +8,8 @@
 import Foundation
 
 /// BrowAction is one small thing a worker's brows do between rests: a look, a raise, a frown, a
-/// flick, a sleeping breath or a deeper one. Each performance varies a little in reach and hold.
+/// flick, a sleeping breath or a deeper one, and for the companion watching a person work, a check of
+/// their work, a ponder, a chuckle and a nod. Each performance varies a little in reach and hold.
 ///
 /// A performance starts and ends at rest, so actions chain in any order. Moves that change an
 /// outline take at least the calm morph's time; a frown is decisive and moves both brows at once.
@@ -35,6 +36,10 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
     case work
     case sleepBreath
     case deepBreath
+    case checkWork
+    case ponder
+    case chuckle
+    case nod
 
     /// Curve is how a move eases into its pose.
     enum Curve: Equatable, Sendable {
@@ -312,6 +317,74 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
                 staggers: false,
                 poses   : poses
             )
+        case .checkWork:
+            // Down and to the left, where the person's window lies from the screen's top-right corner.
+            return Self.glance(
+                at    : BrowPose(
+                    dx: -0.034 * reach,
+                    dy: -0.024 * reach
+                ),
+                hold  : 1.2...2.4,
+                body  : Self.towardScreen(-1),
+                random: &random
+            )
+        case .ponder:
+            // One brow up, the other a little down, both looking up, the head tilted while it thinks.
+            let left  = BrowPose(
+                dx      : -0.008 * reach,
+                dy      : 0.05 * reach,
+                rotation: 0.06
+            )
+            let right = BrowPose(
+                dx      : -0.008 * reach,
+                dy      : 0.006,
+                rotation: 0.05
+            )
+            let steps: [(left: BrowPose, right: BrowPose, duration: Double)] = [
+                (left, right, 0.6),
+                (left, right, Self.hold(2.4...3.4, &random)),
+                (.rest, .rest, 0.6),
+            ]
+            return Performance(
+                moves   : steps.map {
+                    Move(
+                        duration: $0.duration,
+                        left    : $0.left,
+                        right   : $0.right,
+                        curve   : .move
+                    )
+                },
+                staggers: false,
+                poses   : [Self.pondering, Self.pondering, .rest]
+            )
+        case .chuckle:
+            // Three quick bounces of the brows, the body bobbing a hair with each.
+            let up = BrowPose(dy: 0.03 * reach)
+            var steps: [(pose: BrowPose, duration: Double, curve: Curve)] = []
+            var poses: [BodyPose] = []
+            for _ in 0..<3 {
+                steps += [(up, 0.11, .snap), (.rest, 0.11, .move)]
+                poses += [Self.chuckledUp, Self.chuckledDown]
+            }
+            steps.append((.rest, 0.12, .move))
+            poses.append(.rest)
+            return Performance(
+                moves   : Self.mirrored(steps),
+                staggers: false,
+                poses   : poses
+            )
+        case .nod:
+            let dip = BrowPose(dy: -0.016 * reach)
+            return Performance(
+                moves   : Self.mirrored([
+                    (dip, 0.22, .move),
+                    (.rest, 0.22, .move),
+                    (dip, 0.2, .move),
+                    (.rest, 0.3, .move),
+                ]),
+                staggers: false,
+                poses   : [Self.leaning, .rest, Self.leaning, .rest]
+            )
         case .sleepBreath, .deepBreath:
             let isDeep = self == .deepBreath
             let low    = BrowPose(dy: (isDeep ? -0.0242 : -0.0154) * reach)
@@ -377,6 +450,15 @@ nonisolated enum BrowAction: CaseIterable, Sendable {
         lean   : 0.07,
         stretch: -0.03
     )
+
+    /// The companion's poses: the head tilted while it ponders, half a turn so the room bakes no new
+    /// frame, and the hair of a bounce and of a squat a chuckle bobs between.
+    private static let pondering    = BodyPose(tilt: 0.05)
+    private static let chuckledUp   = BodyPose(
+        hop    : 0.012,
+        stretch: 0.02
+    )
+    private static let chuckledDown = BodyPose(stretch: -0.02)
 
     /// The body's keys over `moves`: rest at the start, then the pose `poses` gives at the end of each
     /// move, and on a slow move of a large gesture also the pose half way, so it travels through it.

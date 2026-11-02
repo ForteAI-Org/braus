@@ -9,6 +9,26 @@ import Testing
 
 @Suite("Automation MCP application boundary")
 struct AutomationToolsTests {
+    @Test("every served tool has an explicit interruption policy")
+    @MainActor
+    func interruptionClassification() {
+        let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities", "human_step"]
+        let writes: Set<String> = ["act", "select", "type_text", "insert_text", "press_key", "scroll", "drag",
+                                  "context_menu", "batch", "menu", "press", "app_call", "close_session",
+                                  "collect_posts", "memory_task"]
+        let names = Set(AutomationTools.definitions(for: [.native, .web, .adapters]).compactMap { $0["name"].string })
+        #expect(names == reads.union(writes).union(["open_session"]))
+        for tool in AutomationTools.definitions(for: [.native, .web, .adapters]) {
+            let name = tool["name"].string ?? ""
+            #expect((AutomationTools.interruptionPolicy(for: name) == .readOnly)
+                == (tool["annotations"]["readOnlyHint"].bool == true))
+        }
+        for name in reads { #expect(AutomationTools.interruptionPolicy(for: name) == .readOnly) }
+        for name in writes { #expect(AutomationTools.interruptionPolicy(for: name) == .mutating) }
+        #expect(AutomationTools.interruptionPolicy(for: "open_session") == .openingScene)
+        #expect(AutomationTools.interruptionPolicy(for: "unknown") == .mutating)
+    }
+
     @Test("shortcut guidance preserves target-specific support and observed file-panel state")
     func shortcutGuidanceMatchesQualifiedTargets() {
         let instructions = AutomationTools.instructions

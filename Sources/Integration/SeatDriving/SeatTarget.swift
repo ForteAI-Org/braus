@@ -149,6 +149,7 @@ public final class SeatTarget {
     /// application's window again, which is what closing and reopening the session used to do.
     @discardableResult
     public func observe() async throws -> SeatObservationDelivery {
+        try Task.checkCancellation()
         #if BRAUS_PHASES
         let observing = PhaseInterval.begin("target.observe")
         defer { observing.end() }
@@ -170,6 +171,7 @@ public final class SeatTarget {
                 case .failure(let reason)  : throw reason
             }
         }
+        try Task.checkCancellation()
         try verifyInitialWindow(delivered.reference.recipient)
         initialWindow = nil
         delivery           = delivered
@@ -283,7 +285,9 @@ public final class SeatTarget {
     private static func retrying<T>(_ body: () async throws -> T) async throws -> T {
         var lastError: any Error = SeatDrivingFailure.frameUnusable
         for attempt in 1...3 {
+            try Task.checkCancellation()
             do { return try await body() } catch {
+                try Task.checkCancellation()
                 lastError = error
                 if error is CancellationError { break }
                 if case .initialWindowChanged? = error as? SeatDrivingFailure { break }

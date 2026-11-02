@@ -37,6 +37,13 @@ nonisolated struct WorkerBehaviourLoop: Equatable, Sendable {
         let keys    : [Key]
     }
 
+    /// Span is when one action of the loop plays: from `start` seconds into the loop, for `duration`
+    /// seconds, the second brow's stagger included.
+    struct Span: Equatable, Sendable {
+        let start   : Double
+        let duration: Double
+    }
+
     /// Side names one of the two brows, as the person sees them.
     enum Side: CaseIterable, Sendable {
         case left, right
@@ -51,6 +58,9 @@ nonisolated struct WorkerBehaviourLoop: Equatable, Sendable {
 
     /// The actions in the order they play, for checking how the loop varies.
     let actions  : [BrowAction]
+
+    /// When each of `actions` plays, in the same order, for what follows the loop's own beats.
+    let spans    : [Span]
 
     /// The outline the brows hold at rest in this status.
     var base: BrowState {

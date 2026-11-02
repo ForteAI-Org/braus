@@ -73,6 +73,31 @@ struct OperationalGeometryTests {
         #expect(placing.resizes.isEmpty, "a window that fits the display is not adapted")
     }
 
+    @Test("the person's size is written, read back as the application kept it, and operated at")
+    func thePersonsSizeIsReadBack() async throws {
+
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let (seat, adopted) = try await AgentSeatTests.adopted(sensing: sensing, placing: placing)
+        let kept    = CGSize(width: 880, height: 640)
+        // An application with a least size keeps it whatever is asked.
+        placing.resizeResult = kept
+        sensing.geometry     = Self.resized
+
+        let took = seat.resizeHeldWindow(
+            adopted.id,
+            to: CGSize(width: 700, height: 500)
+        )
+
+        #expect(took == kept)
+        #expect(placing.resizes.map(\.size) == [CGSize(width: 700, height: 500)])
+        let held = try #require(seat.adoptedWindows.first)
+        #expect(held.reference.frame == Self.resized.frame, "the window server agreed, so it is the operating geometry")
+        #expect(held.originalFrame == adopted.originalFrame, "what the window is owed does not move")
+        #expect(seat.state == .ready)
+        #expect(seat.resizeHeldWindow(adopted.id + 1, to: kept) == nil, "a window the seat does not hold")
+    }
+
     @Test("only a contained full body can be read after an unknown effect without replaying it",
           arguments: [true, false])
     func aResizeAfterUnknownInputIsReadOnly(coherentBody: Bool) async throws {

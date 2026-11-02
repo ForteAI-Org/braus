@@ -7,6 +7,7 @@ enum InteractionAXLabel {
         var role: String?
         var title: String?
         var description: String?
+        var help: String?
         var displayValue: String?
         var filename: String?
     }
@@ -23,7 +24,7 @@ enum InteractionAXLabel {
     ) -> (label: String, source: String)? {
         func direct(_ value: Facts) -> (label: String, source: String)? {
             for (raw, source) in [(value.title, "title"), (value.description, "description"),
-                                  (value.filename, "filename"), (value.displayValue, "display_value")] {
+                                  (value.help, "help"), (value.filename, "filename"), (value.displayValue, "display_value")] {
                 guard let text = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !text.isEmpty, text != "missing value",
                       !["cell", "row", "text"].contains(text.lowercased()) else { continue }

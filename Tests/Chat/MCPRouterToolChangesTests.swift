@@ -48,6 +48,57 @@ struct MCPRouterToolChangesTests {
     }
 
     @Test @MainActor
+    func humanSuspensionDrainsAnAdmittedCallWithoutCancellingIt() async throws {
+        var release: CheckedContinuation<Void, Never>?
+        var calls = 0
+        var cancelled = false
+        let router = MCPRouter(tools: [.object(["name": .string("observe")])]) { _, _ in
+            calls += 1
+            await withCheckedContinuation { release = $0 }
+            cancelled = Task.isCancelled
+            return .string("finished")
+        }
+        let first = Task { await router.handle(request("tools/call")) }
+        for _ in 0..<1000 where release == nil { await Task.yield() }
+        let finish = try #require(release)
+        router.suspendForHumanIntervention()
+        _ = await router.handle(.object([
+            "jsonrpc": .string("2.0"), "method": .string("notifications/cancelled"),
+            "params": .object(["requestId": .number(1)])
+        ]))
+        let refused = try #require(await router.handle(request("tools/call", id: 2)))
+        #expect(refused["error"] != .null)
+        finish.resume()
+        #expect(await first.value?["result"] == .string("finished"))
+        await router.drain()
+        #expect(calls == 1)
+        #expect(!cancelled)
+        #expect(!router.isAcceptingTools)
+        router.resume()
+        #expect(router.isAcceptingTools)
+    }
+
+    @Test @MainActor
+    func ordinaryStopOverridesHumanSuspension() async throws {
+        var release: CheckedContinuation<Void, Never>?
+        var cancelled = false
+        let router = MCPRouter(tools: [.object(["name": .string("observe")])]) { _, _ in
+            await withCheckedContinuation { release = $0 }
+            cancelled = Task.isCancelled
+            return .null
+        }
+        let first = Task { await router.handle(request("tools/call")) }
+        for _ in 0..<1000 where release == nil { await Task.yield() }
+        let finish = try #require(release)
+        router.suspendForHumanIntervention()
+        router.pause()
+        finish.resume()
+        _ = await first.value
+        #expect(cancelled)
+        #expect(!router.isAcceptingTools)
+    }
+
+    @Test @MainActor
     func aConnectedClientReceivesTheNotification() async throws {
         let router = MCPRouter(tools: [], announcesToolListChanges: true) { _, _ in .object([:]) }
         let host = LocalMCPHost(router: router)

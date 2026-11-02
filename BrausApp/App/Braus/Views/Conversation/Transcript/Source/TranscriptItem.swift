@@ -34,6 +34,9 @@ nonisolated struct TranscriptItem: Sendable, Hashable, Identifiable {
 
         /// The separator above a day's first message: that day's start.
         case day(Date)
+
+        /// The person using the worker's application right now; there is one at most.
+        case humanControl
     }
 
     /// How the turn a row belongs to ended.
@@ -41,6 +44,9 @@ nonisolated struct TranscriptItem: Sendable, Hashable, Identifiable {
         case completed
         case stopped
         case failed
+
+        /// The person took control of the application the turn was using.
+        case handedToPerson
     }
 
     /// What happened to the model's context at a context separator.
@@ -75,6 +81,18 @@ nonisolated struct TranscriptItem: Sendable, Hashable, Identifiable {
         /// Where the model's context was compacted or started again; the messages stay.
         case contextSeparator(ContextChange)
 
+        /// Where the person handed an application back. `report` is what the worker received,
+        /// shown under the row once it is opened; nil when there is none, and the row never opens.
+        case humanControlFinished(report: String?, isExpanded: Bool)
+
+        /// Where the person ended control without handing the application
+        /// back, which stopped the task. Nothing was sent to the worker.
+        case humanControlStopped
+
+        /// The person is using the worker's application. Never stored: it
+        /// lasts while the control does, where the thinking bubble would be.
+        case humanControl
+
         case executionFailed(reason: String)
         case executionInterrupted(note: String)
 
@@ -104,11 +122,21 @@ nonisolated struct TranscriptItem: Sendable, Hashable, Identifiable {
     /// part of the row's text: selecting and copying the message leave it out.
     var quote: MessageQuote?
 
-    /// True for a day's line and a context's, headings between rows drawn between two hairlines.
+    /// True for a day's line, a context's and a hand-back's, headings between rows drawn between two hairlines.
     var isSeparator: Bool {
         switch kind {
-        case .daySeparator, .contextSeparator: true
-        default:                               false
+        case .daySeparator, .contextSeparator, .humanControlFinished, .humanControlStopped: true
+        default:                                                                            false
+        }
+    }
+
+    /// Whether the row is open, for a row that opens and folds: a tool line, and a hand-back
+    /// with a report. Nil for every other row.
+    var disclosure: Bool? {
+        switch kind {
+        case .toolRun(_, let isExpanded, _):               isExpanded
+        case .humanControlFinished(.some, let isExpanded): isExpanded
+        default:                                           nil
         }
     }
 
@@ -132,6 +160,10 @@ nonisolated struct TranscriptItem: Sendable, Hashable, Identifiable {
             )
         case .daySeparator(let label):                                label
         case .contextSeparator(let change):                           TranscriptWording.context(change, at: date)
+        case .humanControlFinished(let report?, true):                TranscriptWording.humanControlFinished + "\n" + report
+        case .humanControlFinished:                                   TranscriptWording.humanControlFinished
+        case .humanControlStopped:                                    TranscriptWording.humanControlStopped
+        case .humanControl:                                           TranscriptWording.humanControl
         case .executionFailed(let reason):                            reason
         case .executionInterrupted(let note):                         note
         case .activityNotShown:                                       TranscriptWording.activityNotShown

@@ -41,6 +41,7 @@ final class ModelToolLoop {
 
     /// Set by `stop`; checked before each round and each tool call.
     private var isStopRequested = false
+    private var preservesObservedFailure = false
 
     /// The round streaming now, cancelled by `stop`.
     private var round: Task<Round, Never>?
@@ -159,6 +160,9 @@ final class ModelToolLoop {
 
             let text = reply.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty { onEvent(.provider(.assistant(text))) }
+            if preservesObservedFailure, let failure = reply.failure, !(failure is CancellationError) {
+                throw failure
+            }
             if isStopRequested { throw CancellationError() }
             if let failure = reply.failure { throw failure }
             guard !reply.calls.isEmpty else {
@@ -239,6 +243,9 @@ final class ModelToolLoop {
         let reply = await task.value
         round = nil
 
+        if preservesObservedFailure, let failure = reply.failure, !(failure is CancellationError) {
+            throw failure
+        }
         if isStopRequested { throw CancellationError() }
         if let failure = reply.failure { throw failure }
         let summary = reply.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -252,8 +259,16 @@ final class ModelToolLoop {
     /// further tool call starts. A call already running finishes, and `run`
     /// then throws.
     func stop() {
+        preservesObservedFailure = false
         isStopRequested = true
         round?.cancel()
+    }
+
+    /// Interrupts generation for a human episode without erasing a transport failure the completed
+    /// round already observed. Such a failure still takes the host's ordinary failure-cleanup path.
+    func suspendForHumanIntervention() {
+        stop()
+        preservesObservedFailure = true
     }
 
     // MARK: Rounds

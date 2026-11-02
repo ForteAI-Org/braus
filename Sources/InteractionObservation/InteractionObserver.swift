@@ -63,7 +63,9 @@ public final class InteractionObserver {
                 var observation: InteractionDifference?
                 var afterStatus = event.kind == .focus || event.kind == .gap ? "not_applicable" : "intervening_input"
                 var accessibility: AccessibilityPointResult?
-                if event.kind == .hover {
+                if event.kind == .shortcut || event.kind == .typing {
+                    afterStatus = "not_requested_for_keyboard"
+                } else if event.kind == .hover {
                     afterStatus = "not_requested_for_hover"
                 } else if event.kind != .focus, event.kind != .gap, let window = event.window,
                           listener.revision == event.revision {

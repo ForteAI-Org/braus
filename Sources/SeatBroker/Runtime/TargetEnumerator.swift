@@ -9,7 +9,7 @@ import WindowPlacement
 /// Offscreen candidates require positive native evidence. The seat driver
 /// attests a window again before adoption.
 enum TargetEnumerator {
-    private static let applicationFolders = [
+    nonisolated private static let applicationFolders = [
         URL(fileURLWithPath: "/Applications"),
         URL(fileURLWithPath: "/System/Applications"),
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications"),
@@ -55,7 +55,7 @@ enum TargetEnumerator {
     // MARK: Which applications are installed
 
     /// One application bundle found on disk, before its bundle is read.
-    struct InstalledRow: Equatable {
+    nonisolated struct InstalledRow: Equatable, Sendable {
         let path       : String
         let bundleID   : String?
         let displayName: String?
@@ -76,6 +76,22 @@ enum TargetEnumerator {
     @MainActor
     private static var installedCache: (taken: ContinuousClock.Instant, apps: [TargetApp])?
 
+    /// `targets`, with the installed list read on the concurrent pool first when the cached one is stale, so the
+    /// main thread never waits on Spotlight or on reading every bundle. The list is the one `targets` would read.
+    @MainActor
+    static func preparedTargets(minimumSize: CGFloat = 120) async -> [TargetApp] {
+        if !hasFreshInstalledList {
+            let apps = await installedOffMain()
+            installedCache = (ContinuousClock.now, apps)
+        }
+        return targets(minimumSize: minimumSize)
+    }
+
+    @MainActor
+    private static var hasFreshInstalledList: Bool {
+        installedCache.map { ContinuousClock.now - $0.taken < installedLifetime } ?? false
+    }
+
     /// Every installed application: Spotlight's rows and the folder scan's together (`merged`), one per bundle
     /// identifier (`installable`). Never Spotlight's alone: with indexing off it still answers a residual list (one
     /// row, Safari, on this Mac on 18 October 2026), and a list taken for complete made "Calendar" resolve to another
@@ -83,20 +99,27 @@ enum TargetEnumerator {
     /// `installedLifetime` old.
     @MainActor
     private static func installedApplications() -> [TargetApp] {
-        if let installedCache, ContinuousClock.now - installedCache.taken < installedLifetime {
-            return installedCache.apps
-        }
-        let rows = merged(spotlight: spotlightRows() ?? [], scanned: scannedRows(in: applicationFolders))
-        let kept = installable(rows) { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0)?.path }
-        let apps = kept.compactMap { application(at: URL(fileURLWithPath: $0.path), row: $0) }
+        if let installedCache, hasFreshInstalledList { return installedCache.apps }
+        let apps = readInstalledApplications()
         installedCache = (ContinuousClock.now, apps)
         return apps
+    }
+
+    @concurrent
+    private static func installedOffMain() async -> [TargetApp] {
+        readInstalledApplications()
+    }
+
+    nonisolated private static func readInstalledApplications() -> [TargetApp] {
+        let rows = merged(spotlight: spotlightRows() ?? [], scanned: scannedRows(in: applicationFolders))
+        let kept = installable(rows) { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0)?.path }
+        return kept.compactMap { application(at: URL(fileURLWithPath: $0.path), row: $0) }
     }
 
     /// The application bundles under `folders` (two levels deep, a folder that is not there scanned as empty) as
     /// rows: the path and the identifier the bundle declares, with no name or date, which Spotlight's row of the same
     /// path keeps.
-    static func scannedRows(in folders: [URL]) -> [InstalledRow] {
+    nonisolated static func scannedRows(in folders: [URL]) -> [InstalledRow] {
         applicationURLs(in: folders).map { url in
             InstalledRow(path: url.path, bundleID: Bundle(url: url)?.bundleIdentifier, displayName: nil, lastUsed: nil)
         }
@@ -107,7 +130,7 @@ enum TargetEnumerator {
     /// that same bundle, or none: an identifier Spotlight remembers from another bundle at that path is stale, and its
     /// name and date go with it. A scanned bundle that declares no identifier leaves Spotlight's row as it was.
     /// Nothing is read from disk here.
-    static func merged(spotlight: [InstalledRow], scanned: [InstalledRow]) -> [InstalledRow] {
+    nonisolated static func merged(spotlight: [InstalledRow], scanned: [InstalledRow]) -> [InstalledRow] {
         var byPath: [String: InstalledRow] = [:]
         for row in spotlight { byPath[row.path] = row }
         for row in scanned {
@@ -123,7 +146,7 @@ enum TargetEnumerator {
 
     /// The application at `url`, not running, named as its bundle names it. A system agent is none:
     /// see `isSystemAgent`.
-    private static func application(at url: URL, row: InstalledRow?) -> TargetApp? {
+    nonisolated private static func application(at url: URL, row: InstalledRow?) -> TargetApp? {
         guard let bundle = Bundle(url: url),
               !isSystemAgent(path: url.path, info: bundle.infoDictionary ?? [:]) else { return nil }
         let bundleName = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
@@ -148,7 +171,7 @@ enum TargetEnumerator {
     /// identifier sits at several paths, the one Launch Services names (`preferred`) is kept, then
     /// one under `/Applications`, then the first by path; the name and date the kept row lacks come from the
     /// others, so Spotlight's date of a copy follows the identifier to the path kept.
-    static func installable(_ rows: [InstalledRow], preferred: (String) -> String?) -> [InstalledRow] {
+    nonisolated static func installable(_ rows: [InstalledRow], preferred: (String) -> String?) -> [InstalledRow] {
         func isApplication(_ path: String) -> Bool {
             let components = path.split(separator: "/")
             return !components.dropLast().contains { $0.hasSuffix(".app") }
@@ -175,7 +198,7 @@ enum TargetEnumerator {
     /// names: PeopleViewService shows as "Contacts", GameTrampoline as "Games", TipsSpotlightHandler
     /// as "Tips", so kept they made "open Contacts" ambiguous while Contacts was not running. A
     /// running agent is left out the same way (`listable`).
-    static func isSystemAgent(path: String, info: [String: Any]) -> Bool {
+    nonisolated static func isSystemAgent(path: String, info: [String: Any]) -> Bool {
         func isOn(_ key: String) -> Bool {
             switch info[key] {
             case let flag as Bool:   flag
@@ -191,7 +214,7 @@ enum TargetEnumerator {
     /// The query runs synchronously, so no run loop is needed. The path is read from each item,
     /// and the other attributes from the query's own value lists, which is what keeps it fast:
     /// copying them item by item took 260 ms for 376 bundles here, against 4 ms this way.
-    private static func spotlightRows() -> [InstalledRow]? {
+    nonisolated private static func spotlightRows() -> [InstalledRow]? {
         let attributes = [kMDItemCFBundleIdentifier, kMDItemDisplayName, kMDItemLastUsedDate] as CFArray
         guard let query = MDQueryCreate(kCFAllocatorDefault,
                                         "kMDItemContentType == \"com.apple.application-bundle\"" as CFString,
@@ -661,7 +684,7 @@ enum TargetEnumerator {
     /// down, where a suite installs itself ("DaVinci Resolve/DaVinci Resolve.app", or a vendor's
     /// folder holding a suite's) and macOS keeps its Utilities. An application's own bundle is never
     /// looked into. This is the fallback for when Spotlight finds nothing.
-    static func applicationURLs(in folders: [URL], depth: Int = 2) -> [URL] {
+    nonisolated static func applicationURLs(in folders: [URL], depth: Int = 2) -> [URL] {
         folders.flatMap { folder in
             let entries = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil,
                                                                          options: [.skipsHiddenFiles])) ?? []

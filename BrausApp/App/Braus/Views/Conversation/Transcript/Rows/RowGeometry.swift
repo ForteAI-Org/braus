@@ -112,6 +112,13 @@ nonisolated struct RowGeometry: Sendable, Hashable {
     /// The extra room above and below a day's label.
     static let houseDividerRoom: CGFloat = 6
 
+    /// The wave before the words of the row shown while the person uses the app, and the gap after it.
+    static let humanControlWave    = CGSize(width: 36, height: 10)
+    static let humanControlWaveGap : CGFloat = 8
+
+    /// The gap between a human control row's content and the hairlines on its sides.
+    static let humanControlRuleGap : CGFloat = 12
+
     /// Where the conversation's column starts in a row `rowWidth` wide, and how wide it is: centred,
     /// at most `houseColumn`.
     static func column(rowWidth: CGFloat) -> (start: CGFloat, width: CGFloat) {
@@ -334,20 +341,25 @@ nonisolated struct RowGeometry: Sendable, Hashable {
             self.height  = (surface.maxY + (hasCard ? Self.toolShadowRoom : 0)).rounded(.up)
 
         case .divider:
+            // The label is the first block; an opened hand-back row's report card follows it, below the line.
             let column  = Self.column(rowWidth: rowWidth)
             let room    = Self.houseDividerRoom
+            let label   = local.first?.size ?? .zero
             let surface = CGRect(x: column.start, y: 0, width: column.width,
-                                 height: max(caption, textSize.height) + 8 + 2 * room)
-            let textWidth = min(surface.width, textSize.width)
+                                 height: max(caption, label.height) + 8 + 2 * room)
+            let textWidth = min(surface.width, label.width)
+            // The wave before the person's row's words is centred with them.
+            let lead      = item.kind == .humanControl ? Self.humanControlWave.width + Self.humanControlWaveGap : 0
             self.surface = surface
             // On a whole point, so the label does not shimmer as the row is laid out again.
-            self.text    = CGRect(x: (surface.midX - textWidth / 2).rounded(), y: 4 + room, width: textWidth,
-                                  height: textSize.height)
+            self.text    = CGRect(x: (surface.midX - textWidth / 2 + lead / 2).rounded(), y: 4 + room,
+                                  width: textWidth, height: label.height)
             self.header  = nil
             self.footer  = nil
             self.avatar  = nil
             self.badge   = nil
-            self.height  = surface.maxY.rounded(.up)
+            let card     = local.count > 1 ? local.last.map { 4 + room + $0.maxY + room } : nil
+            self.height  = max(surface.maxY, card ?? 0).rounded(.up)
         }
 
         self.quote     = placedQuote?.block
@@ -360,6 +372,12 @@ nonisolated struct RowGeometry: Sendable, Hashable {
         for (index, kind) in blocks.enumerated() {
             var frame = local[index].offsetBy(dx: origin.x, dy: origin.y)
             if Self.spansColumn(kind) { frame.size.width = max(frame.width, self.text.width) }
+            if index > 0, Self.shape(of: item.kind) == .divider {
+                // Under a centred label, the card keeps the column a card's padding in from each side.
+                let column = Self.column(rowWidth: rowWidth)
+                frame.origin.x   = column.start + Self.cardPadding.width
+                frame.size.width = column.width - 2 * Self.cardPadding.width
+            }
             let insets = Self.blockInsets(kind, style: style)
             let width  = Self.textWidthLimit(for: kind, in: item.kind, rowWidth: rowWidth, style: style)
             frames.append(frame)
@@ -394,7 +412,8 @@ nonisolated struct RowGeometry: Sendable, Hashable {
         case .code(_, true): NSEdgeInsets(top: style.captionLineHeight + 6, left: 10, bottom: 8, right: 10)
         case .quote:         NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 0)
         case .toolSummary:   NSEdgeInsets(top: 0, left: 0, bottom: 0, right: disclosureSide(style) + 4)
-        case .toolSteps:     NSEdgeInsets(top: toolCardPadding.height, left: toolCardPadding.width,
+        case .toolSteps, .report:
+                             NSEdgeInsets(top: toolCardPadding.height, left: toolCardPadding.width,
                                           bottom: toolCardPadding.height, right: toolCardPadding.width)
         default:             NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         }
@@ -423,7 +442,8 @@ nonisolated struct RowGeometry: Sendable, Hashable {
         case .personMessage, .workerReply, .thinking:  .bubble
         case .executionFailed, .executionInterrupted:  .card
         case .toolRun:                                 .line
-        case .daySeparator, .contextSeparator,
+        case .daySeparator, .contextSeparator, .humanControl,
+             .humanControlFinished, .humanControlStopped,
              .activityNotShown:                        .divider
         }
     }

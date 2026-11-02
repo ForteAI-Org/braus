@@ -38,6 +38,8 @@ final class UserFocusRecovery {
     private let prepareDestination: (WindowReference, [WindowReference]) throws -> Void
     private let renewDestination: (WindowReference) throws -> Void
     private let isFrontmost: (Int32) -> Bool
+    private let isLendingProcessFrontmost: (ProcessIdentity) -> Bool
+    private let allowsHumanActivation: (Int32) -> Bool
     private var requestRefusal: String?
     private var timing = UserFocusRecoveryTiming()
 
@@ -240,6 +242,8 @@ final class UserFocusRecovery {
          prepareDestination: @escaping (WindowReference, [WindowReference]) throws -> Void = { _, _ in },
          renewDestination: @escaping (WindowReference) throws -> Void = { _ in },
          isFrontmost: ((Int32) -> Bool)? = nil,
+         isLendingProcessFrontmost: ((ProcessIdentity) -> Bool)? = nil,
+         allowsHumanActivation: @escaping (Int32) -> Bool = { _ in false },
          changed: @escaping (UserFocusRecoveryReport) -> Void) {
         self.sensing = sensing
         self.gate = gate
@@ -251,7 +255,9 @@ final class UserFocusRecovery {
         self.prepareDestination = prepareDestination
         self.renewDestination = renewDestination
         self.isFrontmost = isFrontmost ?? { sensing.frontmostProcessID == $0 }
+        self.isLendingProcessFrontmost = isLendingProcessFrontmost ?? { sensing.frontmostProcessID == $0.processID }
         self.changed = changed
+        self.allowsHumanActivation = allowsHumanActivation
     }
 
     /// True while an episode is open, whichever opened it. An episode is one
@@ -701,6 +707,9 @@ final class UserFocusRecovery {
         to person: WindowReference,
         targets  : [WindowReference]
     ) async -> (verified: Bool, refusal: String?) {
+        guard !targets.contains(where: { allowsHumanActivation($0.processID) }) else {
+            return (false, "the human owns the target's activation")
+        }
         do {
             try prepareDestination(person, targets)
             let code = try restoreForBriefActivation(person)
@@ -763,6 +772,8 @@ final class UserFocusRecovery {
         // second lifetime, and every fact re-checked at the activation.
         supersedePreparation()
         guard sensing.fenceIsActive else { throw InputFailure.inputPaused([.fenceInactive]) }
+        if let front = sensing.frontmostProcessID, allowsHumanActivation(front) { return }
+
         // A transition out of time is over: leaving it would hold the budget of
         // the next Command closed until the next beat noticed.
         if let transition = closure, now() >= transition.deadline { endClosureTransition() }
@@ -834,6 +845,7 @@ final class UserFocusRecovery {
         // The seat holds the front on purpose, so nothing of the person's is in
         // front to prepare, and the restorer's participant is in use.
         guard !isExpectingActivation else { return }
+        if let front = sensing.frontmostProcessID, allowsHumanActivation(front) { return }
         // A closure transition is the one episode that may refresh with the gate
         // closed, and it refreshes something else: see `reconcileClosureEvidence`.
         guard !isPaused else {
@@ -942,6 +954,36 @@ final class UserFocusRecovery {
         return true
     }
 
+    /// Refreshes evidence for the previously attested user destination after
+    /// a human episode. It posts nothing and never learns a destination from
+    /// the active target. Human authority remains held during this await.
+    func prepareHumanHandback(processID: Int32) async -> Bool {
+        preparedHumanHandbackProcessID = nil
+        guard allowed, !isPaused, allowsHumanActivation(processID),
+              sensing.fenceIsActive, let destination else { return false }
+        supersedePreparation()
+        let generation = preparationGeneration
+        let start = now()
+        let targets = adopted()
+        guard let live = sensing.windowGeometry(of: destination.windowNumber),
+              live.hasSameIdentity(as: destination) else { return false }
+        let identityStart = now()
+        do { try prepareDestination(destination, targets) } catch { return false }
+        let identityDuration = now() &- identityStart
+        let snapshot = await sensing.prepareFocusRecoverySnapshot(
+            for: Set(targets.map(\.processID)).union([destination.processID, processID]), adopting: targets)
+        guard !Task.isCancelled, allowed, !isPaused, generation == preparationGeneration,
+              allowsHumanActivation(processID), sensing.fenceIsActive,
+              self.destination?.hasSameIdentity(as: destination) == true,
+              adopted() == targets, now() &- start <= Self.preparationLifetimeNanoseconds,
+              let current = sensing.windowGeometry(of: destination.windowNumber),
+              current.hasSameIdentity(as: destination), let snapshot else { return false }
+        prepared = PreparedAction(snapshot: snapshot, destination: destination, targets: targets,
+            started: start, duration: now() &- start, identityDuration: identityDuration)
+        preparedHumanHandbackProcessID = processID
+        return true
+    }
+
     private func makePreparation(readingUserWindow: Bool) async -> PreparedAction? {
         preparationAttempts += 1
         guard sensing.fenceIsActive else { return unprepared("the cursor fence is not active") }
@@ -1044,7 +1086,31 @@ final class UserFocusRecovery {
         prepared = nil
     }
 
+    /// Lending keeps the pre-intervention destination until handback or abandonment.
+    private var preservesLendingDestination = false
+    private var lendingProcess: ProcessIdentity?
+    private var preparedHumanHandbackProcessID: Int32?
+    private var applicationHandbackProcess: ProcessIdentity?
+
+    /// Attributes activation to handback only until verification completes or fails.
+    /// The process lifetime survives loan cleanup, but never the verification deadline.
+    func isHandingBackApplication(_ process: ProcessIdentity) -> Bool {
+        isPaused && applicationHandbackProcess == process && verificationIsOpen
+    }
+
+    func beginApplicationLending(process: ProcessIdentity) {
+        lendingProcess = process
+        rememberUserWindow()
+        preservesLendingDestination = true
+    }
+
+    func endApplicationLending() {
+        preservesLendingDestination = false
+        lendingProcess = nil
+    }
+
     func rememberUserWindow() {
+        guard !preservesLendingDestination else { return }
         guard !isPaused else { return }
         guard !adopted().contains(where: { $0.processID == sensing.frontmostProcessID }) else { return }
         let current = currentUserWindow()
@@ -1064,7 +1130,10 @@ final class UserFocusRecovery {
         let targets = adopted()
         // Whose activation this is. A remote service of an attested surface is
         // the application taking the front; an unknown process is nobody.
-        let isSeatActor = targets.contains { $0.processID == processID }
+        let isHumanHandback = source == .humanInterventionHandback || source == .applicationLendingHandback
+        let isPreparedHandback = isHumanHandback && preparedHumanHandbackProcessID == processID
+        if isHumanHandback { preparedHumanHandbackProcessID = nil }
+        let isSeatActor = isPreparedHandback || targets.contains { $0.processID == processID }
             || closure?.stealActors.contains(processID) == true
         guard isSeatActor else {
             if isPaused {
@@ -1097,6 +1166,7 @@ final class UserFocusRecovery {
         }
         // The seat brought this process in front itself: not a steal, and it
         // spends nothing. See `expectActivation(of:until:)`.
+        if allowsHumanActivation(processID) { return }
         if isExpected(processID) {
             note("process \(processID) is in front because the seat brought it there on purpose")
             return
@@ -1118,6 +1188,8 @@ final class UserFocusRecovery {
         timing.detectedAtUptimeNanoseconds = started
         timing.activationSource = source
         timing.notificationReceivedAtUptimeNanoseconds = receivedAt
+        applicationHandbackProcess = isPreparedHandback && source == .applicationLendingHandback
+            ? lendingProcess : nil
         gate.pause(.focusRecovery)
         isPaused = true
         activatingPID = processID
@@ -1129,7 +1201,8 @@ final class UserFocusRecovery {
         requestedThisActivation = false
         emit(.restoring)
 
-        requestRestoration(detected: detected, targets: targets, processID: processID)
+        requestRestoration(detected: detected, targets: targets, processID: processID,
+            permitsEmptyHandback: isPreparedHandback && targets.isEmpty)
 
         guard isPaused else { return }
         timer = Timer(timeInterval: 0.005, repeats: true) { [weak self] _ in
@@ -1148,7 +1221,8 @@ final class UserFocusRecovery {
     /// request is counted, and the count happens where the call is made: the
     /// flag it replaced was raised here before any of this was known, so a
     /// stale preparation spent the episode's budget without restoring anything.
-    private func requestRestoration(detected: UInt64, targets: [WindowReference], processID: Int32) {
+    private func requestRestoration(detected: UInt64, targets: [WindowReference], processID: Int32,
+                                    permitsEmptyHandback: Bool = false) {
         var checkpoint = now()
         timing.pauseAndPublicationNanoseconds = checkpoint &- started
         let action = prepared
@@ -1186,7 +1260,8 @@ final class UserFocusRecovery {
             && physicalStable && virtualOnline && virtualUnmoved
         timing.environmentNanoseconds = now() &- checkpoint
         checkpoint = now()
-        let adoptedValid = environmentValid && snapshot?.containsAdoptedWindows(targets) == true
+        let adoptedValid = environmentValid
+            && (permitsEmptyHandback || snapshot?.containsAdoptedWindows(targets) == true)
         timing.adoptedWindowsNanoseconds = now() &- checkpoint
         checkpoint = now()
         let visibleValid = adoptedValid && Set(targets.map(\.processID)).allSatisfy {
@@ -1200,7 +1275,9 @@ final class UserFocusRecovery {
         } == true
         timing.destinationNanoseconds = now() &- checkpoint
         checkpoint = now()
-        let frontMatches = destinationValid && isFrontmost(processID)
+        let frontMatches = destinationValid && (permitsEmptyHandback
+            ? lendingProcess.map { $0.processID == processID && isLendingProcessFrontmost($0) } == true
+            : isFrontmost(processID))
         // The gate is already closed and activation posts no pointer input.
         // A WindowServer tapIsEnabled round trip belongs before input and in
         // verify(), not between losing focus and returning it to the user.
@@ -1440,6 +1517,7 @@ final class UserFocusRecovery {
     }
 
     private func emit(_ outcome: UserFocusRecoveryReport.Outcome, detail: String = "") {
+        if outcome != .restoring { applicationHandbackProcess = nil }
         changed(UserFocusRecoveryReport(outcome: outcome, destination: destination,
             activatingProcessID: activatingPID, requestCode: code,
             frontmostRestoredNanoseconds: frontmostRestored,
@@ -1573,6 +1651,7 @@ final class UserFocusRecovery {
     private func completeCommandHandback() async {
         guard var record = commandProvenance, !record.handbackRetried, !Task.isCancelled else { return }
         let processID = record.process.processID
+        guard !allowsHumanActivation(processID) else { return }
         guard isFrontmost(processID), sensing.frontmostProcessID == processID else { return }
         record.handbackRetried = true
         commandProvenance = record

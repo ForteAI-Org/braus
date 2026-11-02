@@ -148,6 +148,7 @@ nonisolated public struct SeatFrame: @unchecked Sendable {
         }) ?? Self.fallbackGeometry(
             source            : source,
             pixelSize         : pixelSize,
+            scales            : Self.scales(in: attachment),
             version           : version,
             capturesFullWindow: capturesFullWindow,
             framing           : framing,
@@ -259,13 +260,22 @@ nonisolated public struct SeatFrame: @unchecked Sendable {
         return geometry.isValid ? geometry : nil
     }
 
-    /// Geometry for a frame that arrived without attachments: the surface is
-    /// the whole source, whose screen rectangle the window server reports.
+    /// Geometry for a frame that arrived without its rectangle attachments: the surface is the
+    /// whole source, whose screen rectangle the window server reports.
     /// Refuses when the pixel aspect does not match the source, because then
     /// the surface is not simply the source scaled.
-    private static func fallbackGeometry(
+    ///
+    /// Scale attachments, when the frame has them, say how much of the buffer the source filled:
+    /// ScreenCaptureKit scales a window down to fit a smaller buffer and never up, so a window on
+    /// the 1x seat display streamed into a buffer sized for a 2x screen, or capped below it, sits
+    /// at its own size in the top left corner with black around it. Seen as a 1148 by 751 point
+    /// window in a 1651 by 1080 buffer on a 2x screen: read as the whole surface, the picture did
+    /// not fill its frame. The content is then `screenRect` times both scales, in the buffer's
+    /// pixels.
+    static func fallbackGeometry(
         source            : FrameSourceIdentity,
         pixelSize         : CGSize,
+        scales            : (factor: Double?, content: Double?) = (nil, nil),
         version           : GeometryObservationVersion,
         capturesFullWindow: Bool,
         framing           : (screenRect: CGRect, sourceWindowFrame: CGRect?)?,
@@ -276,6 +286,30 @@ nonisolated public struct SeatFrame: @unchecked Sendable {
         guard let screenRect, screenRect.width > 0, screenRect.height > 0,
               pixelSize.width > 0, pixelSize.height > 0
         else { return nil }
+        if let factor = scales.factor, let content = scales.content,
+           factor.isFinite, factor > 0, content.isFinite, content > 0 {
+            let filled = CGSize(
+                width : screenRect.width  * content,
+                height: screenRect.height * content
+            )
+            // One pixel of rounding either way, as `isValid` allows; scales that claim more than
+            // the buffer holds are not believed, and the whole surface is read as before.
+            if filled.width * factor <= pixelSize.width + 1,
+               filled.height * factor <= pixelSize.height + 1 {
+                let geometry = FrameGeometryObservation(
+                    source              : source,
+                    screenRect          : screenRect,
+                    sourceWindowFrame   : sourceWindowFrame,
+                    contentRectInSurface: CGRect(origin: .zero, size: filled),
+                    scaleFactor         : CGFloat(factor),
+                    contentScale        : CGFloat(content),
+                    pixelSize           : pixelSize,
+                    version             : version,
+                    capturesFullWindow  : capturesFullWindow
+                )
+                if geometry.isValid { return geometry }
+            }
+        }
         let scaleX = pixelSize.width / screenRect.width
         let scaleY = pixelSize.height / screenRect.height
         guard abs(scaleX - scaleY) <= max(0.02, 1 / screenRect.width) else { return nil }

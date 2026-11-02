@@ -123,6 +123,31 @@ struct SurfacesInFrontReadingTests {
         )
     }
 
+    @Test(arguments: [0, 3], [false, true])
+    func screenOrderIncludesNonOverlappingWindows(layer: Int, sameApplication: Bool) throws {
+        let other = row(9090, processID: sameApplication ? Self.surfacePID : 777, name: "Other",
+            bounds: CGRect(x: 1800, y: 200, width: 300, height: 200), layer: layer)
+        let result = try #require(WindowServerProbe.readSurfaces(
+            inFrontOf: surface, within: Self.display, rows: [other, surfaceRow],
+            executableOf: executable, attesting: attest))
+        #expect(result.count == (layer == 0 && !sameApplication ? 1 : 0))
+    }
+
+    @Test func screenOrderExcludesOtherDisplaysAndRequiresVisibleLayerZeroTarget() throws {
+        let other = row(9090, processID: 777, name: "Other",
+            bounds: CGRect(x: 3000, y: 200, width: 300, height: 200))
+        #expect(try #require(WindowServerProbe.readSurfaces(
+            inFrontOf: surface, within: Self.display, rows: [other, surfaceRow],
+            executableOf: executable, attesting: attest)).isEmpty)
+        for key in [kCGWindowLayer as String, kCGWindowIsOnscreen as String] {
+            var target = surfaceRow
+            target[key] = key == kCGWindowLayer as String ? 3 : false
+            #expect(WindowServerProbe.readSurfaces(
+                inFrontOf: surface, within: Self.display, rows: [target],
+                executableOf: executable, attesting: attest) == nil)
+        }
+    }
+
     @Test("the window server's own rows in front are left out, asked of the kernel once")
     func theWindowServersRowsAreLeftOut() throws {
         var asked: [Int32] = []

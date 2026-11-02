@@ -30,14 +30,20 @@ struct FirstLaunchView: View {
                 systemImage: "person.2"
             )
         } description: {
-            Text("Add a worker, connect a provider, and allow Mac access so workers can use apps.")
+            Text("A worker is an AI assistant that can use apps on this Mac for you. Create one, connect the AI service it runs on, and allow it to use your apps.")
         } actions: {
-            Button("Create Worker") { team.isCreatingWorker = true }
-                .buttonStyle(.borderedProminent)
+            // Capsule controls, as the house's own buttons (QueueStrip's Send Now); the first is prominent.
+            Group {
+                Button("Create Worker") { team.isCreatingWorker = true }
+                    .buttonStyle(.borderedProminent)
 
-            Button("Connect Provider…") { team.isShowingConnections = true }
+                Button("Connect Provider…") { team.isShowingConnections = true }
+                    .buttonStyle(.bordered)
 
-            Button("Allow Mac Access…") { team.isShowingPermissions = true }
+                Button("Allow Mac Access…") { team.isShowingPermissions = true }
+                    .buttonStyle(.bordered)
+            }
+            .buttonBorderShape(.capsule)
         }
         .task {
             // A check run draws this screen and leaves the person's preference alone.

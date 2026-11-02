@@ -201,6 +201,12 @@ nonisolated final class MascotLayer: CALayer {
         brow === leftBrow ? leftContact : rightContact
     }
 
+    /// The layers every shift and turn of `brow` moves: the brow and its contact shadow, so a brow that
+    /// lifts carries the thread under it and stays set in the metal instead of floating off it.
+    func movingLayers(of brow: CAShapeLayer) -> [CAShapeLayer] {
+        [brow, contact(of: brow)]
+    }
+
     /// Forwards the scale to every sublayer, so the gradients and brows render at the display's
     /// resolution.
     override var contentsScale: CGFloat {
@@ -364,6 +370,10 @@ nonisolated final class MascotLayer: CALayer {
     /// The loop the brows play in the current status, or nil while they hold still.
     private(set) var behaviour: WorkerBehaviourLoop?
 
+    /// The behaviour the brows play in place of their status's own, for a worker that behaves
+    /// differently outside the house (`WorkerBehaviour.watching`); its status must be the layer's.
+    var behaviourSource: WorkerBehaviour?
+
     /// When `behaviour` started, or starts after the state change's blend, on the host clock.
     private(set) var behaviourStart: CFTimeInterval = 0
 
@@ -382,7 +392,7 @@ nonisolated final class MascotLayer: CALayer {
             : behaviour?.seed == seed && behaviour?.status == status
         guard !isUnchanged else { return }
         let previous = behaviour
-        behaviour = seed.map { WorkerBehaviour(status).loop(seed: $0) }
+        behaviour = seed.map { (behaviourSource ?? WorkerBehaviour(status)).loop(seed: $0) }
 
         let animates   = !HouseMotion.reducesMotion
         let host       = CACurrentMediaTime()
@@ -407,8 +417,10 @@ nonisolated final class MascotLayer: CALayer {
                 y: (shown?.position.y ?? brow.position.y) - brow.position.y
             )
             let turn = Self.rotation(of: shown ?? brow) - Self.rotation(of: brow)
-            for key in Self.behaviourKeys {
-                brow.removeAnimation(forKey: key)
+            for layer in movingLayers(of: brow) {
+                for key in Self.behaviourKeys {
+                    layer.removeAnimation(forKey: key)
+                }
             }
             for layer in outlineLayers(of: brow) {
                 layer.removeAnimation(forKey: WorkerBehaviourLoop.pathKey)
@@ -428,10 +440,12 @@ nonisolated final class MascotLayer: CALayer {
                 blend.beginTime      = now + delay
                 blend.fillMode       = .backwards
                 blend.timingFunction = Self.morphCurve
-                brow.add(
-                    blend,
-                    forKey: key
-                )
+                for layer in movingLayers(of: brow) {
+                    layer.add(
+                        blend,
+                        forKey: key
+                    )
+                }
             }
             guard let behaviour, !isGazing else { continue }
             addLoop(
@@ -526,8 +540,10 @@ nonisolated final class MascotLayer: CALayer {
                 y: (shown?.position.y ?? brow.position.y) - brow.position.y
             )
             let turn = Self.rotation(of: shown ?? brow) - Self.rotation(of: brow)
-            for key in Self.behaviourKeys {
-                brow.removeAnimation(forKey: key)
+            for layer in movingLayers(of: brow) {
+                for key in Self.behaviourKeys {
+                    layer.removeAnimation(forKey: key)
+                }
             }
             for layer in outlineLayers(of: brow) {
                 layer.removeAnimation(forKey: WorkerBehaviourLoop.pathKey)
@@ -544,10 +560,12 @@ nonisolated final class MascotLayer: CALayer {
                 blend.duration       = Self.lookSeconds
                 blend.beginTime      = now
                 blend.timingFunction = Self.morphCurve
-                brow.add(
-                    blend,
-                    forKey: key
-                )
+                for layer in movingLayers(of: brow) {
+                    layer.add(
+                        blend,
+                        forKey: key
+                    )
+                }
             }
         }
     }
@@ -567,7 +585,7 @@ nonisolated final class MascotLayer: CALayer {
         )
         for (key, animation) in animations {
             animation.beginTime = start
-            let layers = key == WorkerBehaviourLoop.pathKey ? outlineLayers(of: brow) : [brow]
+            let layers = key == WorkerBehaviourLoop.pathKey ? outlineLayers(of: brow) : movingLayers(of: brow)
             for layer in layers {
                 layer.add(
                     animation,
@@ -671,10 +689,12 @@ nonisolated final class MascotLayer: CALayer {
                 y: shown.y - brow.position.y
             )
             fresh.beginTime = old.beginTime
-            brow.add(
-                fresh,
-                forKey: WorkerBehaviourLoop.positionKey
-            )
+            for layer in movingLayers(of: brow) {
+                layer.add(
+                    fresh,
+                    forKey: WorkerBehaviourLoop.positionKey
+                )
+            }
             let jump = CGPoint(
                 x: shift.x * (1 - ratio.width),
                 y: shift.y * (1 - ratio.height)
@@ -686,10 +706,12 @@ nonisolated final class MascotLayer: CALayer {
             blend.isAdditive     = true
             blend.duration       = Self.refreshBlend
             blend.timingFunction = Self.morphCurve
-            brow.add(
-                blend,
-                forKey: Self.refreshBlendKey
-            )
+            for layer in movingLayers(of: brow) {
+                layer.add(
+                    blend,
+                    forKey: Self.refreshBlendKey
+                )
+            }
         }
     }
 
@@ -800,10 +822,10 @@ nonisolated final class MascotLayer: CALayer {
         _ passage : RoomPassage?,
         from start: CFTimeInterval
     ) {
-        for key in Self.passageKeys {
-            removeAnimation(forKey: key)
-            leftBrow.removeAnimation(forKey: key)
-            rightBrow.removeAnimation(forKey: key)
+        for layer in [self] + movingLayers(of: leftBrow) + movingLayers(of: rightBrow) {
+            for key in Self.passageKeys {
+                layer.removeAnimation(forKey: key)
+            }
         }
         guard let passage else { return }
         var parts: [(layer: CALayer, key: String, animation: CAAnimation)] = [
@@ -844,14 +866,20 @@ nonisolated final class MascotLayer: CALayer {
             (Self.passageKeys[3], "position", [NSValue(point: .zero), NSValue(point: CGPoint(x: 0, y: rise))]),
             (Self.passageKeys[4], "transform.rotation.z", [0.0, turn]),
         ]
-        return keys.map { key, keyPath, values in
+        return keys.flatMap { key, keyPath, values in
             let look = CAKeyframeAnimation(keyPath: keyPath)
             look.values          = values + [values[1]]
             look.keyTimes        = [0, NSNumber(value: RoomPassage.lookShare), 1]
             look.timingFunctions = [Self.morphCurve, CAMediaTimingFunction(name: .linear)]
             look.duration        = duration
             look.isAdditive      = true
-            return (brow, key, look)
+            return movingLayers(of: brow).map {
+                (
+                    layer    : $0 as CALayer,
+                    key      : key,
+                    animation: look as CAAnimation
+                )
+            }
         }
     }
 

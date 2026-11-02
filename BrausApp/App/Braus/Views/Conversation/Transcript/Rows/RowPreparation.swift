@@ -252,6 +252,18 @@ nonisolated enum RowPreparation {
         case .contextSeparator(let change):
             return PreparedText(TranscriptWording.context(change, at: item.date), role: .caption)
 
+        case .humanControlFinished(nil, _):
+            return PreparedText(TranscriptWording.humanControlFinished, role: .caption)
+
+        case .humanControlFinished(let report?, let isExpanded):
+            return handBack(report, isExpanded: isExpanded)
+
+        case .humanControlStopped:
+            return PreparedText(TranscriptWording.humanControlStopped, role: .caption)
+
+        case .humanControl:
+            return PreparedText(TranscriptWording.humanControl, role: .caption)
+
         case .executionFailed(let reason):
             // A signed-out command line fails every turn the same way: the card says how to sign in,
             // where sending the message again would only fail again.
@@ -274,6 +286,18 @@ nonisolated enum RowPreparation {
         case .activityNotShown:
             return PreparedText(TranscriptWording.activityNotShown, role: .caption)
         }
+    }
+
+    /// The hand-back row with a report: its label, which the chevron follows, as a tool line's
+    /// summary is; opened, the report on a card under it, one line each, as it was written.
+    private static func handBack(_ report: String, isExpanded: Bool) -> PreparedText {
+        var label = PreparedBlock(kind: .toolSummary)
+        label.append(TranscriptWording.humanControlFinished, role: .caption)
+        guard isExpanded else { return PreparedText(blocks: [label]) }
+
+        var card = PreparedBlock(kind: .report)
+        card.append(report, role: .toolCaption)
+        return PreparedText(blocks: [label, card])
     }
 
     /// The tool line: its summary, one quiet line the chevron follows; opened, the steps on a card

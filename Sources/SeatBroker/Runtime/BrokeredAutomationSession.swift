@@ -19,6 +19,8 @@ import PrivateSymbols
 import SeatCore
 import SeatDriving
 import SeatSession
+import SeatInput
+import AccessibilityFacts
 import VisionText
 
 /// BrokeredAutomationSession is one worker's application session over the seat SeatBroker's queue
@@ -61,7 +63,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
 
     /// The bundle ID of the application `word` names, as the seat would open it, before anything is launched or
     /// adopted. A seam for the controlled tests; the public init resolves as `AgentSession.open` does.
-    typealias Resolving = @MainActor (_ word: String) throws -> String
+    typealias Resolving = @MainActor (_ word: String) async throws -> String
 
     /// Reads the dialog the application `pid` has open. A seam for the controlled tests; the public
     /// init reads it through accessibility.
@@ -100,6 +102,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private let seating: Seating
     @ObservationIgnored private let switching: @MainActor (SeatTarget, pid_t, String) async throws -> Void
     @ObservationIgnored private let perceiving: Perceiving
+    @ObservationIgnored private let runningApplication: @MainActor (pid_t) -> NSRunningApplication?
     @ObservationIgnored private let idleWindow: Duration
     @ObservationIgnored private let waitIdle: IdleWaiting
     @ObservationIgnored private let readDialog: DialogReading
@@ -119,7 +122,18 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private var closing: Task<Void, Never>?
     public private(set) var closeWarning: String?
     @ObservationIgnored private var isInTurn = false
+    @ObservationIgnored private var humanDetails: HumanInterventionDetails?
     @ObservationIgnored private var idleRelease: Task<Void, Never>?
+    /// Pins the current lease across turn endings while the person controls its preview.
+    @ObservationIgnored
+    private var humanIntervention: UUID?
+    @ObservationIgnored private var lendingWatch: Task<Void, Never>?
+    @ObservationIgnored private weak var previewControl: HumanPreviewControl?
+
+    /// All visible held windows, in WindowServer coordinates and front-to-back order.
+    public private(set) var heldWindows: [HeldWindow] = []
+    @ObservationIgnored private var windowPreviews = WindowPreviewStreams()
+    @ObservationIgnored private var heldWindowsDelivery: Task<Void, Never>?
 
     /// The application the last successful `open` seated, with its window's title in the first scene,
     /// empty when the scene had none. Kept across `close`, so a later turn can name it.
@@ -163,7 +177,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
 
     /// The seat's own resolution, the one `AgentSession.open(applicationNamed:)` makes, without opening anything.
     static let resolvedByTheSeat: Resolving = { word in
-        try ApplicationOpening.resolve(word, in: TargetEnumerator.targets()).bundleID
+        try await ApplicationOpening.resolvedOffMain(word, in: TargetEnumerator.preparedTargets()).bundleID
     }
 
     /// The broker's own path: `open(applicationNamed:windowTitled:)` launches an application that
@@ -176,8 +190,16 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// Ron's scene provider over the borrowed target, observed into the Brain through the call's
     /// recorder, or one of its own for a call made without the tools, and enriched by the Brain.
     static let perceivedThroughTheEngine: Perceiving = { runtime, pid in
+        let reading = ContinuousClock.now
+        BrokeredAutomationSession.log.info("scene read: capture/perception starting")
         let perceived = try await runtime.scenes.currentScene(of: pid)
-        return await recorder(runtime, sessionID: nil).observe(perceived)
+        BrokeredAutomationSession.log.info("scene read: capture/perception finished in \(reading.duration(to: .now).description, privacy: .public)")
+        try Task.checkCancellation()
+        let recording = ContinuousClock.now
+        let scene = await recorder(runtime, sessionID: nil).observe(perceived)
+        BrokeredAutomationSession.log.info("scene read: memory observation finished in \(recording.duration(to: .now).description, privacy: .public)")
+        try Task.checkCancellation()
+        return scene
     }
 
     /// Selects one exact current title among held windows, retaining the application's lease.
@@ -228,6 +250,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         requestGrants     : @escaping @MainActor () -> Void,
         seating           : @escaping Seating,
         perceiving        : @escaping Perceiving,
+        runningApplication: @escaping @MainActor (pid_t) -> NSRunningApplication? = { NSRunningApplication(processIdentifier: $0) },
         idleWindow        : Duration = idleWindow,
         waitIdle          : @escaping IdleWaiting = { try await Task.sleep(for: $0) },
         readDialog        : @escaping DialogReading = { DialogButtonPress.openDialog(of: $0) },
@@ -248,6 +271,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         self.requestGrants      = requestGrants
         self.seating            = seating
         self.perceiving         = perceiving
+        self.runningApplication = runningApplication
         self.idleWindow         = idleWindow
         self.waitIdle           = waitIdle
         self.readDialog         = readDialog
@@ -282,6 +306,74 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     public func makeScreenView(contentsScale: CGFloat) -> NSView? {
         guard hasScreen, let lease else { return nil }
         return lease.session.makePreviewView(contentsScale: contentsScale)
+    }
+
+    /// How many fixed-window views stream at once, the main window's included; the observation's
+    /// stream is reserved apart.
+    nonisolated public static let windowStreamLimit = WindowStreamTiers.streamLimit
+
+    /// Returns a fixed-window capture view, or nil when absent or `windowStreamLimit` is reached.
+    /// The main window runs at 30 fps capped to 1080p; the others at the tier `WindowStreamTiers`
+    /// gives them as windows open, close and change order.
+    /// A view waiting for a retiring slot starts after confirmed release. Views stop on closure
+    /// or session release and never follow another window.
+    public func makeWindowView(windowNumber: Int, contentsScale: CGFloat) -> NSView? {
+        guard hasScreen, lease != nil else { return nil }
+        return windowPreviews.makeView(windowNumber: windowNumber, contentsScale: contentsScale)
+    }
+
+    /// Resizes a held window as the person resizes its picture on their screen, and answers the size
+    /// the window took (`AgentSeat.resizeHeldWindow`); nil while the person has the application or
+    /// the seat cannot write it now.
+    public func resizeHeldWindow(_ windowNumber: Int, to size: CGSize) -> CGSize? {
+        guard hasScreen, humanIntervention == nil, closing == nil else { return nil }
+        return heldSeat?.resizeHeldWindow(windowNumber, to: size)
+    }
+
+    private func watchHeldWindows() {
+        guard let seat = heldSeat, let lease else { return }
+        windowPreviews = lease.session.windowPreviews
+        windowPreviews.begin()
+        seat.heldWindowsChanged = { [weak self, weak seat] in
+            guard let self, let seat, self.heldSeat === seat, self.heldWindowsDelivery == nil else { return }
+            // Coalesce event bursts, without starting a repeating timer or another inventory reader.
+            self.heldWindowsDelivery = Task { @MainActor [weak self, weak seat] in
+                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                guard let self, let seat, self.heldSeat === seat, self.lease != nil else { return }
+                self.heldWindowsDelivery = nil
+                self.updateHeldWindows(seat.heldWindowSurfaces, metadata: seat.heldWindowMetadata)
+            }
+        }
+        seat.refreshHeldWindows()
+        updateHeldWindows(seat.heldWindowSurfaces, metadata: seat.heldWindowMetadata)
+    }
+
+    func updateHeldWindows(_ surfaces: [WindowSurface], metadata: [WindowIdentity: WindowPresentationMetadata]) {
+        let windows = surfaces.enumerated().map { order, surface in
+            HeldWindow(surface: surface, metadata: surface.reference.identity.flatMap { metadata[$0] }, order: order)
+        }
+        let main = windows.filter { $0.kind == .main }.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+            ?? windows.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+        windowPreviews.update(surfaces, mainWindowNumber: main?.windowNumber)
+        guard windows != heldWindows else { return }
+        heldWindows = windows
+        Self.log.info("held windows changed: \(windows.map(\.windowNumber), privacy: .public)")
+    }
+
+    /// Creates the preview's temporary control adapter. The caller supplies host suspension and drain.
+    public func makeHumanPreviewControl(
+        suspend: @escaping @MainActor () throws -> Void,
+        waitForAgent: @escaping @MainActor () async throws -> Void,
+        endAgent: @escaping @MainActor () -> Void,
+        waitForWorker: @escaping @MainActor () async -> Void = {},
+        withholding: @escaping @MainActor (String) -> String = { $0 },
+        resumeAgent: (@MainActor (String, @escaping @MainActor () async throws -> Void) async throws -> Void)? = nil
+    ) -> HumanPreviewControl {
+        let control = HumanPreviewControl(session: self, suspend: suspend,
+            waitForAgent: waitForAgent, endAgent: endAgent,
+            waitForWorker: waitForWorker, withholding: withholding, resumeAgent: resumeAgent)
+        previewControl = control
+        return control
     }
 
     /// The driven window's frame, for the view's proportions; zero while there is none to watch.
@@ -320,11 +412,16 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
 
     /// Checks the grants, waits for a seat, opens the application on it and returns the first
     /// scene, which the Brain observes. A missing grant is asked for through the broker and
-    /// refused at once, before the queue. Any failure after the seat was granted closes, so the
-    /// seat is given back before this throws; a cancellation is thrown as it came.
+    /// refused at once, before the queue. Failures close and return the seat before throwing.
+    /// Human takeover during the first scene read preserves the completed adoption and rethrows
+    /// CancellationError for the tool to answer with the opened session and no scene.
     public func open(application word: String, window title: String?) async throws -> SceneSnapshot {
+        let started = ContinuousClock.now
+        Self.log.info("open_session: waiting for prior close")
+        defer { Self.log.info("open_session: ended after \(started.duration(to: .now).description, privacy: .public)") }
         // A release between turns may still be finishing; this open comes after it.
         await closing?.value
+        Self.log.info("open_session: prior close finished after \(started.duration(to: .now).description, privacy: .public)")
         // A seat that stopped for good ends its session: this open replaces it, as close_session would.
         if case .holding = phase, let target, stoppedForGood(target) { await close() }
         if case .holding = phase, let target, let running = application, let title,
@@ -332,7 +429,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             || running.localizedName?.caseInsensitiveCompare(word) == .orderedSame
             || lastOpened?.name.caseInsensitiveCompare(word) == .orderedSame) {
             try await switching(target, running.processIdentifier, title)
-            let scene = try await perceivedScene()
+            let scene = try await AutomationCallInterruption.openingScene { try await perceivedScene() }
             if var opened = lastOpened {
                 opened.window = scene.windowTitle
                 lastOpened = opened
@@ -350,7 +447,10 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         phase = .waiting
         let lease: SeatLease
         do {
+            let queued = ContinuousClock.now
+            Self.log.info("open_session: acquiring seat")
             lease = try await broker.queue.acquire(label)
+            Self.log.info("open_session: seat acquired in \(queued.duration(to: .now).description, privacy: .public)")
         } catch {
             phase = .idle
             throw error
@@ -362,30 +462,47 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             try Task.checkCancellation()
             // Claimed before anything is launched or adopted: another owner's session, on any route or in another
             // Braus process, holding it refuses this open with nothing sent.
-            let bundleID = try resolving(word)
+            let bundleID = try await resolving(word)
             switch claims.acquire(bundleID, owner: claimOwner) {
                 case .success(let hold): claim = hold
                 case .failure(let refusal): throw AutomationFailure(AppClaims.sentence(refusal, name: word))
             }
             // Opened by the bundle ID claimed, never the word again: a resolution that changed meanwhile cannot launch
             // or adopt another application.
+            let adopting = ContinuousClock.now
+            Self.log.info("open_session: launch/adoption starting")
             let seated = try await seating(lease.session, bundleID, title)
+            Self.log.info("open_session: launch/adoption finished in \(adopting.duration(to: .now).description, privacy: .public)")
             guard seated.opened.bundleID == bundleID else {
                 throw AutomationFailure("\(seated.opened.name) is not the application claimed for \(word); nothing "
                     + "more was sent to it. Open it again by its bundle ID.")
             }
             target  = seated.target
             runtime = EngineRuntime(knowledgeDirectory: knowledgeDirectory, seat: seated.target)
-            guard let pid = seated.opened.pid, let running = NSRunningApplication(processIdentifier: pid) else {
+            guard let pid = seated.opened.pid, let running = runningApplication(pid) else {
                 throw AutomationFailure("\(seated.opened.name) opened and then could not be found running.")
             }
             application = running
             phase = .holding(application: seated.opened.name)
+            watchHeldWindows()
             id = UUID()
-            let scene = try await perceivedScene()
+            let reading = ContinuousClock.now
+            Self.log.info("open_session: first scene starting, seat consistent")
+            defer { Self.log.info("open_session: first scene ended after \(reading.duration(to: .now).description, privacy: .public)") }
+            let scene: SceneSnapshot
+            do {
+                scene = try await AutomationCallInterruption.openingScene { try await perceivedScene() }
+            } catch is CancellationError where AutomationCallInterruption.current?.wasInterrupted == true {
+                lastOpened = (seated.opened.name, seated.opened.bundleID, title ?? "")
+                watchQueue(for: lease)
+                throw CancellationError()
+            }
             lastOpened = (seated.opened.name, seated.opened.bundleID, scene.windowTitle)
             watchQueue(for: lease)
             return scene
+        } catch is CancellationError where AutomationCallInterruption.current?.wasInterrupted == true && id != nil {
+            Self.log.info("open_session: first scene interrupted for human control, retaining session")
+            throw CancellationError()
         } catch {
             // A modal the application has open keeps the first observation off the adopted window.
             var blocking: String?
@@ -450,14 +567,14 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The installed and running applications `query` names, ranked as `open` resolves a name, so
     /// what the worker is offered and what it may open cannot disagree. Needs no seat and no grant.
     public func applications(matching query: String?) async throws -> [ApplicationCandidate] {
-        Self.candidates(ApplicationOpening.ranked(query, in: TargetEnumerator.targets()))
+        Self.candidates(await ApplicationOpening.rankedOffMain(query, in: TargetEnumerator.preparedTargets()))
     }
 
     /// The bundle ID `open` resolves `application` to, through the same `ApplicationOpening.resolve`, so a name in
     /// the person's language routes as the app's own does. Nil, by design, for a name `open` would refuse: that
     /// open then says why. Needs no seat and no grant.
     public func resolvedBundleID(of application: String) async -> String? {
-        try? ApplicationOpening.resolve(application, in: TargetEnumerator.targets()).bundleID
+        try? await ApplicationOpening.resolvedOffMain(application, in: TargetEnumerator.preparedTargets()).bundleID
     }
 
     /// The windows of `processID`, the seat's already adopted windows included: a held floating window keeps its
@@ -939,11 +1056,23 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// second call waits for the first. What finishing leaves the person to do (an application the
     /// seat could not confirm home, so left running) has no channel in this role, so it is logged.
     public func close() async {
+        let details = humanDetails
+        humanDetails = nil
+        lendingWatch?.cancel()
+        lendingWatch = nil
+        humanIntervention = nil
         idleRelease?.cancel()
         idleRelease = nil
         if let closing { await closing.value; return }
-        guard phase != .idle else { return }
+        guard phase != .idle else { await details?.finish(); return }
         closeWarning = nil
+        let previewControl = self.previewControl
+        previewControl?.sessionWillClose()
+        heldSeat?.heldWindowsChanged = nil
+        heldWindowsDelivery?.cancel()
+        heldWindowsDelivery = nil
+        if !heldWindows.isEmpty { heldWindows = [] }
+        let windowPreviews = self.windowPreviews
         let runtime = self.runtime
         let target  = self.target
         let lease   = self.lease
@@ -953,6 +1082,9 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         application  = nil
         id           = nil
         let cleanup = Task {
+            await windowPreviews.stop()
+            await details?.finish()
+            await previewControl?.drainForSessionClose()
             await runtime?.finish()
             await target?.stop()
             if let lease {
@@ -962,6 +1094,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 }
                 lease.giveBack()
             }
+            previewControl?.sessionDidClose()
             // Given back once the application is finished with: only this session's hold.
             claim = nil
             // Reset here, so every caller awaiting this task finds the session idle when it resumes.
@@ -989,16 +1122,149 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         await endTurn()
     }
 
-    private func endTurn() async {
-        isInTurn = false
+    /// Retains the existing session for one human episode, without granting input authority. The
+    /// composer calls this before suspending the agent, on MainActor without an intervening await.
+    /// Repeated calls return the same token. Explicit close always overrides this retention.
+    public func retainForHumanIntervention() throws -> UUID {
+        guard lease != nil, id != nil, closing == nil else {
+            throw AutomationFailure("Human control requires an open application session.")
+        }
+        if let humanIntervention { return humanIntervention }
+        let details = humanDetails
+        humanDetails = nil
+        if let details { Task { await details.finish() } }
+        let token = UUID()
+        humanIntervention = token
+        idleRelease?.cancel()
+        idleRelease = nil
+        return token
+    }
+
+    /// Lends after the caller has suspended and drained its worker. The episode retains the lease.
+    @discardableResult
+    public func lendApplication(
+        on screen: NSScreen,
+        around anchor: CGRect? = nil,
+        willMove: ((WindowReference, CGRect) async -> Void)? = nil
+    ) async throws -> ApplicationLendingReport {
+        try await lendApplication(on: screen, around: anchor, willMove: willMove, willMoveAll: nil)
+    }
+
+    /// Forwards the whole application layout to the human presentation adapter.
+    func lendApplication(
+        on screen: NSScreen,
+        around anchor: CGRect? = nil,
+        lendingFrames: [Int: CGRect] = [:],
+        willMove: ((WindowReference, CGRect) async -> Void)? = nil,
+        willMoveAll: (([WindowReference]) async -> Void)?
+    ) async throws -> ApplicationLendingReport {
+        guard humanIntervention != nil, let lease, closing == nil else {
+            throw AutomationFailure("Human control no longer owns this application session.")
+        }
+        let episode = humanIntervention
+        let heldID = id
+        let report = try await lease.session.lendApplication(
+            on: screen,
+            around: anchor,
+            lendingFrames: lendingFrames,
+            willMove: willMove,
+            willMoveAll: willMoveAll
+        )
+        guard id == heldID, humanIntervention == episode, closing == nil else { throw CancellationError() }
+        watchLentApplication(heldID: heldID)
+        return report
+    }
+
+    /// A person can quit while suspended. A preview retains its decision; otherwise close the lease.
+    private func watchLentApplication(heldID: UUID?) {
+        guard lendingWatch == nil else { return }
+        lendingWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                guard let self, self.id == heldID, closing == nil, heldSeat?.isApplicationLent == true else { return }
+                if heldSeat?.lentApplicationHasExited == true {
+                    // Keep the episode available for Yes to report the vanished app and resume its worker.
+                    if previewControl?.hasStarted == true, previewControl?.isFinished == false { return }
+                    await close()
+                    return
+                }
+            }
+        }
+    }
+
+    /// Takes back before resume. End Control, explicit Stop and close instead abandon lending.
+    @discardableResult
+    public func takeBackApplication() async throws -> ApplicationLendingReport {
+        guard let lease, closing == nil else { throw AutomationFailure("The application session has ended.") }
+        lendingWatch?.cancel()
+        lendingWatch = nil
+        let heldID = id
+        let report = try await lease.session.takeBackApplication(willMoveAll: { [weak self] windows in
+            await self?.previewControl?.prepareTakeBack(windows)
+        })
+        guard id == heldID, closing == nil else { throw CancellationError() }
+        try Self.requireCompleteLending(report)
+        if report.applicationVanished, previewControl?.isFinishing != true { await close() }
+        return report
+    }
+
+    private static func requireCompleteLending(_ report: ApplicationLendingReport) throws {
+        guard report.failures.isEmpty else {
+            throw AutomationFailure(report.failures.map { "Window \($0.windowNumber): \($0.reason)" }.joined(separator: " "))
+        }
+    }
+
+    /// Ends only the matching episode and restores normal idle/queue release. To keep the lease
+    /// for a reviewed continuation, call inside its new turn. Ending alone never starts an agent.
+    public func endHumanIntervention(_ token: UUID) async throws {
+        guard humanIntervention == token else {
+            throw AutomationFailure("This human intervention no longer owns the session.")
+        }
+        _ = try await takeBackApplication()
+        try await completeHumanIntervention(token)
+    }
+
+    /// Completes the matching, already returned episode inside its new turn, without moving twice.
+    func completeHumanIntervention(_ token: UUID, details: HumanInterventionDetails? = nil) async throws {
+        guard humanIntervention == token, heldSeat?.isApplicationLent != true else {
+            await details?.finish()
+            throw AutomationFailure("This human intervention is stale or its application is still lent.")
+        }
+        humanIntervention = nil
+        if let details { await retainHumanDetails(details) }
         await releaseIfSomeoneWaits()
         releaseWhenIdle()
+    }
+
+    private func endTurn() async {
+        isInTurn = false
+        let details = humanDetails
+        humanDetails = nil
+        await details?.finish()
+        await releaseIfSomeoneWaits()
+        releaseWhenIdle()
+    }
+
+    /// Installs lazy history inside the resumed worker turn, after the human lease has returned.
+    func retainHumanDetails(_ details: HumanInterventionDetails) async {
+        guard isInTurn, humanIntervention == nil, closing == nil else {
+            await details.finish()
+            return
+        }
+        let previous = humanDetails
+        humanDetails = details
+        await previous?.finish()
+    }
+
+    public func humanStep(_ request: HumanStepRequest) async -> HumanStepResult {
+        guard isInTurn, humanIntervention == nil, closing == nil, let humanDetails else { return .unavailable }
+        return humanDetails.result(request)
     }
 
     /// Closes once an open session has gone `idleWindow` without a turn. The wait is tied to the
     /// lease held now, so one that outlives a close, or returns under a later lease, closes nothing.
     private func releaseWhenIdle() {
-        guard let lease, id != nil, closing == nil else { return }
+        guard let lease, id != nil, closing == nil, !isInTurn, humanIntervention == nil else { return }
         idleRelease?.cancel()
         idleRelease = Task { [weak self, waitIdle, idleWindow] in
             do {
@@ -1007,14 +1273,15 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 // The wait ends early only when cancelled: a turn started or the session closed.
                 return
             }
-            guard let self, !Task.isCancelled, self.lease === lease, !isInTurn, closing == nil else { return }
+            guard let self, !Task.isCancelled, self.lease === lease,
+                  !isInTurn, humanIntervention == nil, closing == nil else { return }
             await close()
         }
     }
 
     /// Closes when an open session is idle between turns and an entry is waiting for the seat.
     private func releaseIfSomeoneWaits() async {
-        guard !isInTurn, id != nil, closing == nil,
+        guard !isInTurn, humanIntervention == nil, id != nil, closing == nil,
               broker.queue.entries.contains(where: { $0.state == .waiting })
         else { return }
         await close()

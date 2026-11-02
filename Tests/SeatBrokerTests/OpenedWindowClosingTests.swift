@@ -113,4 +113,17 @@ struct OpenedWindowClosingTests {
                                                            close: { _ in true }, release: {})
         #expect(!none)
     }
+    @Test("ending a lent lease leaves its session-created browser window open")
+    func lentBrowserStaysOpen() async {
+        let session = SeatBroker().openSession()
+        var closes = 0
+        session.leavesLentApplicationOpen = { true }
+        session.isWindowPresent = { _ in true }
+        session.closeWindow = { _ in closes += 1; return true }
+        session.holdWithoutAdopting(getpid(), name: "Browser", openedWindow: Self.record)
+        #expect(await session.close() == nil)
+        #expect(closes == 0)
+        #expect(!session.isUsingApp)
+    }
+
 }

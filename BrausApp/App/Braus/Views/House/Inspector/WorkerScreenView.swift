@@ -21,6 +21,8 @@ import SwiftUI
 /// draws nothing into it and it keeps its last frame.
 struct WorkerScreenView: NSViewRepresentable {
 
+    @Environment(\.displayScale) private var displayScale
+
     let team    : TeamModel
     let workerID: UUID
     let place   : ScreenPlace
@@ -28,13 +30,15 @@ struct WorkerScreenView: NSViewRepresentable {
 
     /// Told the shape of the picture the view draws, which can differ from the view's own.
     var onPictureAspect: ((CGFloat) -> Void)?
+    var onPictureSize: ((CGSize) -> Void)?
 
     func makeNSView(context: Context) -> NSView {
         let view = team.makeScreenView(
             of           : workerID,
-            contentsScale: NSScreen.main?.backingScaleFactor ?? 2
+            contentsScale: displayScale
         ) ?? NSView()
         (view as? LivePreviewView)?.onPictureAspect = onPictureAspect
+        (view as? LivePreviewView)?.onPictureSize = onPictureSize
         team.registerScreenView(
             view,
             in: place
@@ -47,5 +51,6 @@ struct WorkerScreenView: NSViewRepresentable {
         context: Context
     ) {
         (view as? LivePreviewView)?.isPaused = isPaused
+        (view as? LivePreviewView)?.onPictureSize = onPictureSize
     }
 }

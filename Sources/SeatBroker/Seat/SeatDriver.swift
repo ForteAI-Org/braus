@@ -68,8 +68,13 @@ final class SeatDriver {
         ))
     }
     private var seat: AgentSeat?
+    private var lendingLeavesApplicationOpen = false
+    private var lendingHandbackFailure: String?
+    private var lendingTakeBackFailure: ApplicationLendingReport?
+    private var lendingHumanToken: InputCommandGate.HumanInput?
     private(set) var window: AdoptedWindow?
     private let preview = PreviewStreamController()
+    let windowPreviews = WindowPreviewStreams()
 
     /// Every target `borrowedTarget` lent since the last revocation. They are
     /// revoked before this driver adopts or releases anything, so no borrower
@@ -134,43 +139,10 @@ final class SeatDriver {
         lastReleases.first { !Self.isHome($0) } ?? lastReleases.first
     }
 
-    /// The rectangle the monitor shapes itself by: the background display's
-    /// bounds while the preview is pinned to the whole display, and otherwise
-    /// the adopted window's frame on it, global top-left points.
+    /// The rectangle the monitor shapes itself by: the adopted window's frame
+    /// on the background display, global top-left points.
     var windowFrame: CGRect? {
-        if preview.isPinnedToDisplay, let bounds = host.sensing?.virtualDisplayBounds {
-            return bounds
-        }
-        return preview.windowFrame ?? window?.reference.frame
-    }
-
-    /// True while the preview shows the whole background display rather than
-    /// the adopted window. It says nothing about what the agent perceives:
-    /// `observe` takes its own Still of the window either way.
-    var previewShowsDisplay: Bool { preview.isPinnedToDisplay }
-
-    /// Switches the preview between the whole background display and the
-    /// adopted window, and answers which of the two it is now showing.
-    ///
-    /// It answers false rather than true when the display was asked for and
-    /// there is none yet: the display is created with the host, on the first
-    /// adoption, and before that there is nothing to watch.
-    func setPreviewShowsDisplay(_ showsDisplay: Bool) -> Bool {
-        #if BRAUS_PHASES
-        PhaseInterval.event("preview.showsDisplay", "asked=\(showsDisplay)")
-        #endif
-        guard showsDisplay, let displayID = host.displayID,
-              let bounds = host.sensing?.virtualDisplayBounds
-        else {
-            preview.pin(to: nil, pixelSize: .zero)
-            return false
-        }
-        let scale = displayScale
-        preview.pin(
-            to: .display(displayID),
-            pixelSize: CGSize(width: bounds.width * scale, height: bounds.height * scale)
-        )
-        return true
+        preview.windowFrame ?? window?.reference.frame
     }
 
     /// True while a window the seat took is not confirmed back on the person's
@@ -1005,6 +977,120 @@ final class SeatDriver {
         seat?.lastFocusRecovery.map { SeatErrorMapper.detail(of: $0) }
     }
 
+    var isApplicationLent: Bool { seat?.isApplicationLent == true }
+    var leavesLentApplicationOpen: Bool {
+        lendingLeavesApplicationOpen || isApplicationLent || seat?.didAbandonApplicationLending == true
+    }
+
+    /// Called only after the host suspended and drained the worker.
+    func lendApplication(
+        on screen: NSScreen,
+        around anchor: CGRect? = nil,
+        lendingFrames: [Int: CGRect] = [:],
+        willMove: ((WindowReference, CGRect) async -> Void)? = nil,
+        willMoveAll: (([WindowReference]) async -> Void)? = nil
+    ) async throws -> ApplicationLendingReport {
+        guard let seat, let visible = ApplicationLendingScreen.visibleFrame(of: screen) else {
+            throw SeatBrokerError.driver("The chosen display is unavailable for human control.")
+        }
+        lendingHumanToken = try seat.beginHumanInput()
+        let report = try await seat.lendApplication(
+            visibleFrame: visible,
+            screenFrame: CGDisplayBounds(PersonScreen.displayID(of: screen)),
+            around: anchor,
+            lendingFrames: lendingFrames,
+            willMove: willMove,
+            willMoveAll: willMoveAll,
+            preactivate: { window in
+                guard let restorer = try? UserFocusRestorer(allowUnvalidatedBuild: false),
+                      (try? restorer.prepare(window, targets: [])) != nil else { return }
+                _ = try? restorer.restore(window, primesKeyWindow: true)
+            }
+        ) { try await Self.activateLent($0) }
+        lendingLeavesApplicationOpen = true
+        return report
+    }
+
+    /// Activates the lent application on `window` and waits until it is in front with that window
+    /// focused. AXRaise after the activation brings the window out of the Stage Manager strip.
+    private static func activateLent(_ window: WindowReference) async throws {
+        let restorer = try UserFocusRestorer(allowUnvalidatedBuild: false)
+        try restorer.prepare(window, targets: [])
+        let code = try restorer.restore(window, primesKeyWindow: true)
+        guard code == 0 else { throw SeatBrokerError.driver("Application activation refused: \(code).") }
+        try WindowRelocator.raise(window)
+        let deadline = ContinuousClock.now + .seconds(2)
+        while NSWorkspace.shared.frontmostApplication?.processIdentifier != window.processID
+            || LaunchFocusComeback.focusedWindow(of: window.processID)?.hasSameIdentity(as: window) != true {
+            try Task.checkCancellation()
+            guard ContinuousClock.now < deadline else {
+                throw SeatBrokerError.driver("The application did not take the front.")
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// What the take-back asks for a window it cannot see: a hidden application is shown without
+    /// being activated, since the person may be working elsewhere; a stashed window is activated.
+    private static func bringOutLent(_ window: WindowReference) async throws {
+        if let application = NSRunningApplication(processIdentifier: window.processID), application.isHidden {
+            application.unhide()
+        } else if WindowServerProbe.geometry(of: window.windowNumber) != nil {
+            try await activateLent(window)
+        }
+    }
+
+    /// Readopts before ending the episode. Failed placement never reopens agent input.
+    func takeBackApplication(willMoveAll: (([WindowReference]) async -> Void)? = nil) async throws -> ApplicationLendingReport {
+        if let lendingHandbackFailure { throw SeatBrokerError.driver(lendingHandbackFailure) }
+        if let lendingTakeBackFailure { return lendingTakeBackFailure }
+        guard let seat, seat.isApplicationLent else { return ApplicationLendingReport() }
+        let report = try await seat.takeBackApplication(
+            willMoveAll: willMoveAll,
+            bringOut: { try await Self.bringOutLent($0) }
+        )
+        guard report.failures.isEmpty else {
+            lendingTakeBackFailure = report
+            return report
+        }
+        if report.applicationVanished {
+            await abandonHumanInput()
+        } else if let token = lendingHumanToken {
+            do {
+                try await seat.endLendingHumanInput(token)
+                lendingHumanToken = nil
+                let restored = await waitWhileRecoveringFocus(within: .seconds(5))
+                guard restored.admitted else {
+                    throw SeatBrokerError.driver(restored.detail ?? "Focus handback is not verified.")
+                }
+            } catch {
+                lendingHandbackFailure = error.localizedDescription
+                throw error
+            }
+        }
+        lendingLeavesApplicationOpen = false
+        return report
+    }
+
+    /// Clears lease-owned human authority even when there is no held window to release.
+    func abandonHumanInput() async {
+        lendingHumanToken = nil
+        lendingTakeBackFailure = nil
+        lendingHandbackFailure = nil
+        await seat?.abandonHumanInput(reason: .leaseEnded)
+    }
+
+    /// A parked host lends its seat only after any stale episode has been drained.
+    func beginLease() async {
+        await seat?.abandonHumanInput(reason: .staleLease)
+        seat?.didAbandonApplicationLending = false
+        lendingLeavesApplicationOpen = false
+        lendingTakeBackFailure = nil
+        lendingHandbackFailure = nil
+        lendingHumanToken = nil
+        assert(seat?.hasHumanInput != true)
+    }
+
     /// Gives every window the seat holds of the adopted application back to the
     /// person's seat and leaves the display and the seat up for the next one.
     ///
@@ -1022,6 +1108,8 @@ final class SeatDriver {
     /// moving on to a second application.
     func release() async {
         await revokeBorrows()
+        await abandonHumanInput()
+        await windowPreviews.stop()
         await preview.stop()
         self.window = nil
         // Kept, not discarded, and one per window: "release returned" and "the

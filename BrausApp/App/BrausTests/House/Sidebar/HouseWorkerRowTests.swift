@@ -143,6 +143,30 @@ struct HouseWorkerRowTests {
         #expect(label == "\(worker.name), \(worker.subtitle)")
     }
 
+    @Test("With no subtitle the name stands alone: no line is kept for it and the label has no empty part")
+    func noSubtitleKeepsNoRoom() throws {
+        var worker = try #require(HouseFixture.workers.first { $0.status == .free })
+        worker.role = ""
+        #expect(worker.subtitle.isEmpty)
+        #expect(HouseRoomCell.spokenRowLabel(
+            for       : worker,
+            isSelected: false
+        ) == worker.name)
+
+        func captionHeight(_ activity: String) -> CGFloat {
+            NSHostingView(rootView: HouseHeroCaption(
+                HouseHeroCaption.Words(
+                    name    : worker.name,
+                    activity: activity
+                ),
+                help: "",
+                from: nil
+            )).fittingSize.height
+        }
+        #expect(captionHeight("") < captionHeight("Mixes and masters"))
+        #expect(captionHeight("  ") == captionHeight(""))
+    }
+
     @Test("Compacting keeps the same views")
     func compactingKeepsIdentity() async throws {
         let worker = try #require(HouseFixture.workers.first { $0.badge != nil })

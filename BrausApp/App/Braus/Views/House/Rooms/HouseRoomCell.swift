@@ -95,7 +95,7 @@ struct HouseRoomCell: View {
     }
 
     private static func spoken(_ worker: HouseWorker) -> String {
-        worker.spokenLabel ?? "\(worker.name), \(worker.subtitle)"
+        worker.spokenLabel ?? [worker.name, worker.subtitle].filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
     /// How long the plaque waits before it drops in: in a tilted room, until the worker has stepped
@@ -301,12 +301,20 @@ struct HouseRoomCell: View {
                             weight: .semibold
                         ))
                         .foregroundStyle(.primary)
-                    Text(worker.subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .truncationMode(.tail)
+                    if !worker.subtitle.isEmpty {
+                        Text(worker.subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .truncationMode(.tail)
+                            .help(worker.subtitle)
+                            .transition(.opacity)
+                    }
                 }
                 .lineLimit(1)
+                .animation(
+                    HouseLayout.reshaping(reducesMotion: HouseMotion.reducesMotion),
+                    value: worker.subtitle.isEmpty
+                )
                 .frame(
                     maxWidth : .infinity,
                     alignment: .leading

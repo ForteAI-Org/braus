@@ -192,7 +192,8 @@ struct BrainMemoryTests {
         let relations = RelationsDouble(state: "S")
         let store = InMemoryBrainStore()
         let memory = BrainMemory(brains: store, applications: store, relations: relations, clock: { Fixtures.t0 })
-        let untouched = scene([export])
+        var untouched = scene([export])
+        untouched.outOfViewFields = [OutOfViewField(label: "Tempo", value: "97", role: "AXTextField")]
         #expect(await memory.enrich(untouched) == untouched)
         let capture = try #require(CaptureElement(export))
         let key = try #require(SceneElementKey.key(of: capture))
@@ -206,6 +207,7 @@ struct BrainMemoryTests {
         #expect(does.contains("click: windowTitleChanged → unknown state (contradicted ×1)"))
         #expect(!does.contains("right_click"), "a relation below its threshold is kept and not offered")
         #expect(enriched.elements[0].bounds == export.bounds)
+        #expect(enriched.outOfViewFields == untouched.outOfViewFields)
         #expect(enriched.token == untouched.token, "an annotation never moves the token an action must echo")
         #expect(await memory.enrich(untouched, state: "elsewhere").elements[0].does == nil,
                 "nothing is carried over from another state")

@@ -21,6 +21,7 @@ public struct InteractionResolution: Sendable, Codable, Equatable {
     public static func resolve(
         event: InteractionEvent, sample: InteractionSample?, maximumAge: Double = 2
     ) -> Self {
+        guard event.kind != .shortcut, event.kind != .typing else { return .missing("not_pointer_input") }
         guard let sample else { return .missing("no_before_scene") }
         guard sample.window == event.window else { return .missing("different_window") }
         guard sample.revision == event.precedingRevision else { return .missing("intervening_input") }

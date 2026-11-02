@@ -29,6 +29,9 @@ enum WindowSnapshots {
     /// True while a snapshot draws the composer with its model popup open.
     static var opensModelPopup = false
 
+    /// True while a snapshot draws the conversation as the person uses the worker's application.
+    static var showsHumanControl = false
+
     /// The defaults the drawn views read, a suite of their own apart from the person's.
     static let appStorage = UserDefaults(suiteName: "dev.forte.Braus.snapshots")
 
@@ -182,6 +185,54 @@ enum WindowSnapshots {
                 width    : 1200,
                 inspector: false,
                 to       : output.appending(path: "house-compacted.png")
+            )
+
+            // Atlas's conversation after the person handed an application back: one row, then its answer.
+            let handedBack = try await syntheticTeam(
+                in      : store.appending(
+                    path         : "HandBack",
+                    directoryHint: .isDirectory
+                ),
+                handBack: true
+            )
+            try await writeHouseWindow(
+                handedBack,
+                width    : 1200,
+                inspector: false,
+                to       : output.appending(path: "house-handback.png")
+            )
+
+            // Atlas's conversation while the person uses Pro Tools in its place.
+            let takenOver = try await syntheticTeam(
+                in       : store.appending(
+                    path         : "TakenOver",
+                    directoryHint: .isDirectory
+                ),
+                takenOver: true
+            )
+            showsHumanControl = true
+            try await writeHouseWindow(
+                takenOver,
+                width    : 1200,
+                inspector: false,
+                to       : output.appending(path: "house-human-control.png")
+            )
+            showsHumanControl = false
+
+            // Atlas's conversation after the person ended control without handing Pro Tools back.
+            let stopped = try await syntheticTeam(
+                in       : store.appending(
+                    path         : "Stopped",
+                    directoryHint: .isDirectory
+                ),
+                takenOver: true,
+                stopped  : true
+            )
+            try await writeHouseWindow(
+                stopped,
+                width    : 1200,
+                inspector: false,
+                to       : output.appending(path: "house-stopped.png")
             )
 
             // Atlas's turn read a page and searched the web: its tool line closed, then open.
@@ -423,10 +474,16 @@ enum WindowSnapshots {
     /// turn records its usage too (`atlasUsage`), so the toolbar's context ring and the
     /// token counter are drawn. With `compaction` the context is compacted
     /// after the turn, to 38,200 tokens. `tools` are the turn's tool records.
+    /// With `handBack` the person then hands an application back, and Atlas answers the summary.
+    /// With `takenOver` the last message's turn ends with the person taking its application over,
+    /// and with `stopped` too the person then ends control without handing it back.
     static func syntheticTeam(
         in directory : URL,
         contextTokens: Int?                       = nil,
         compaction   : ContextCompaction.Trigger? = nil,
+        handBack     : Bool                       = false,
+        takenOver    : Bool                       = false,
+        stopped      : Bool                       = false,
         tools        : [String]                   = [
             "→ read_log {\"job\":\"nightly\"}",
             "← read_log 2 bundles failed",
@@ -586,12 +643,69 @@ enum WindowSnapshots {
                 payload       : try compacted.encoded()
             ))
         }
-        try await store.appendMessage(
-            to      : conversation.id,
-            text    : "Rerun the capture suite first.",
-            at      : origin.addingTimeInterval(90),
-            delivery: .savedLocally
-        )
+        if handBack {
+            try await store.appendMessage(
+                to              : conversation.id,
+                text            : "Human control ended.\nclicked Run in Xcode\nFinal state: capture suite running",
+                at              : origin.addingTimeInterval(50),
+                delivery        : .completed,
+                endsHumanControl: true
+            )
+            try await store.appendMessage(
+                to      : conversation.id,
+                author  : atlas.id,
+                text    : "You started the capture suite again in Xcode. I’ll watch it and tell you how it ends.",
+                at      : origin.addingTimeInterval(60),
+                delivery: .completed
+            )
+        }
+        if takenOver {
+            let ask = try await store.appendMessage(
+                to      : conversation.id,
+                text    : "Open Pro Tools and add a stereo track.",
+                at      : origin.addingTimeInterval(70),
+                delivery: .completed
+            )
+            let turn = try await store.startExecution(
+                worker      : atlas.id,
+                conversation: conversation.id,
+                at          : origin.addingTimeInterval(71)
+            )
+            for (second, type, text) in [
+                (71.0, EventType.executionStarted, nil),
+                (72, .toolActivity, "→ open_session {\"app\":\"Pro Tools\"}"),
+                (73, .toolActivity, "← open_session {\"session\":\"s\"}"),
+                (74, .executionHandedToPerson, nil),
+            ] as [(Double, EventType, String?)] {
+                try await store.append(NewEvent(
+                    workspaceID   : workspaceID,
+                    subjectID     : turn.id,
+                    conversationID: conversation.id,
+                    workerID      : atlas.id,
+                    timestamp     : origin.addingTimeInterval(second),
+                    type          : type,
+                    payload       : text.map { Data($0.utf8) },
+                    correlationID : ask.id
+                ))
+            }
+            if stopped {
+                try await store.append(NewEvent(
+                    workspaceID   : workspaceID,
+                    subjectID     : conversation.id,
+                    conversationID: conversation.id,
+                    workerID      : atlas.id,
+                    timestamp     : origin.addingTimeInterval(80),
+                    type          : .humanControlStopped
+                ))
+            }
+        } else {
+            try await store.appendMessage(
+                to      : conversation.id,
+                text    : "Rerun the capture suite first.",
+                at      : origin.addingTimeInterval(90),
+                delivery: .savedLocally
+            )
+        }
         try await store.configure(
             worker   : atlas.id,
             selection: ModelSelection(

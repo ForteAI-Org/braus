@@ -97,11 +97,12 @@ struct InspectorTurnSection: View {
         else { reason = summary.stateTitle }
 
         let (symbol, style): (String, AnyShapeStyle) = switch summary.state {
-        case .running:    ("circle.dotted", AnyShapeStyle(.tint))
-        case .completed:  ("checkmark.circle.fill", AnyShapeStyle(.green))
-        case .stopped:    ("stop.circle.fill", AnyShapeStyle(.secondary))
-        case .failed:     ("exclamationmark.triangle.fill", AnyShapeStyle(.red))
-        case .unfinished: ("exclamationmark.triangle.fill", AnyShapeStyle(.orange))
+        case .running:        ("circle.dotted", AnyShapeStyle(.tint))
+        case .completed:      ("checkmark.circle.fill", AnyShapeStyle(.green))
+        case .stopped:        ("stop.circle.fill", AnyShapeStyle(.secondary))
+        case .handedToPerson: ("hand.point.up.left", AnyShapeStyle(.secondary))
+        case .failed:         ("exclamationmark.triangle.fill", AnyShapeStyle(.red))
+        case .unfinished:     ("exclamationmark.triangle.fill", AnyShapeStyle(.orange))
         }
 
         return Label {

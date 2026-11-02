@@ -45,7 +45,4 @@ enum PreviewActivity: String {
 
     /// A layer was attached or detached: the person opened or closed the picture.
     case layer
-
-    /// The preview was pinned to the display or given back to the window.
-    case pin
 }

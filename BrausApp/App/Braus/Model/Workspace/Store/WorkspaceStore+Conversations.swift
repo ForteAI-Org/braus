@@ -81,13 +81,14 @@ extension WorkspaceStore {
     /// what the message replies to, kept with it as a copy.
     @discardableResult
     func appendMessage(
-        to conversation: UUID,
-        id             : UUID            = UUID(),
-        author         : UUID?           = nil,
-        text           : String,
-        at             : Date            = Date(),
-        delivery       : MessageDelivery = .savedLocally,
-        quote          : MessageQuote?   = nil
+        to conversation : UUID,
+        id              : UUID            = UUID(),
+        author          : UUID?           = nil,
+        text            : String,
+        at              : Date            = Date(),
+        delivery        : MessageDelivery = .savedLocally,
+        quote           : MessageQuote?   = nil,
+        endsHumanControl: Bool            = false
     ) throws -> MessageSnapshot {
 
         guard try conversationRow(conversation) != nil else {
@@ -95,14 +96,15 @@ extension WorkspaceStore {
         }
 
         let message = Message(
-            id            : id,
-            conversationID: conversation,
-            authorWorkerID: author,
-            text          : text,
-            createdAt     : at,
-            sequence      : try nextSequence(in: conversation),
-            delivery      : delivery,
-            quote         : quote
+            id              : id,
+            conversationID  : conversation,
+            authorWorkerID  : author,
+            text            : text,
+            createdAt       : at,
+            sequence        : try nextSequence(in: conversation),
+            delivery        : delivery,
+            quote           : quote,
+            endsHumanControl: endsHumanControl
         )
         modelContext.insert(message)
         try saveOrRollBack()

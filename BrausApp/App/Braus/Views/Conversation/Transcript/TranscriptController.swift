@@ -102,6 +102,11 @@ final class TranscriptController: NSObject {
     /// The running turn's latest tool step in its tool line's words; nil before one or with no turn.
     var runningStep: String? { runningTurn?.step }
 
+    /// True while the person uses the shown conversation's worker's application; the host sets it.
+    var isHumanControlled = false {
+        didSet { if isHumanControlled != oldValue { enqueue { await self.reproject() } } }
+    }
+
     /// The conversation whose rows the view shows, set once an `open` has applied them; nil before.
     private(set) var shownConversationID: UUID?
 
@@ -368,7 +373,13 @@ final class TranscriptController: NSObject {
         let cache    = cache
         let pipeline = pipeline
         let now      = Date()
-        let items    = await Self.project(window, expanded: expanded, opensToolSteps: style.opensToolSteps, now: now)
+        let items    = await Self.project(
+            window,
+            expanded         : expanded,
+            opensToolSteps   : style.opensToolSteps,
+            isHumanControlled: isHumanControlled,
+            now              : now
+        )
         let result   = await RowPreparation.prepare(items, workerName: name, workerProvider: provider, width: width,
                                                     style: style, cache: cache, pipeline: pipeline)
         guard window.conversationID == conversationID else { return }
@@ -415,6 +426,7 @@ final class TranscriptController: NSObject {
                 )
             }
             let replied = latestReply
+            let focused = focusedIndex.flatMap { rows.indices.contains($0) ? rows[$0].item.id : nil }
             rows = result.rows
             let held = mode == .live ? holdArrivals(update) : []
             viewUpdateCount += 1
@@ -423,6 +435,8 @@ final class TranscriptController: NSObject {
                 collectionView.deleteItems(at: Set(update.removed.map { IndexPath(item: $0, section: 0) }))
                 collectionView.insertItems(at: Set(update.inserted.map { IndexPath(item: $0, section: 0) }))
             }, completionHandler: nil)
+            // The batch drops the collection view's selection, the keyboard's focus: it stays on its row.
+            if let focused { focus(focused) }
             let changed = mode == .relayout ? Set(rows.map(\.item.id)) : Set(update.changed)
             reconfigureVisible(changed)
             layout.invalidateLayout()
@@ -468,11 +482,24 @@ final class TranscriptController: NSObject {
     private static let resizeRelayoutInterval = Duration.milliseconds(100)
 
     @concurrent
-    private static func project(_ window: TranscriptWindow, expanded: Set<TranscriptItem.ID>, opensToolSteps: Bool,
-                                now: Date) async -> [TranscriptItem] {
-        ConversationProjection.items(messages: window.messages, events: window.events, expanded: expanded,
-                                     opensToolSteps: opensToolSteps, elidedBefore: window.elidedBefore, now: now, calendar: .autoupdatingCurrent,
-                                     isAtNewest: window.isAtNewest)
+    private static func project(
+        _ window         : TranscriptWindow,
+        expanded         : Set<TranscriptItem.ID>,
+        opensToolSteps   : Bool,
+        isHumanControlled: Bool,
+        now              : Date
+    ) async -> [TranscriptItem] {
+        ConversationProjection.items(
+            messages         : window.messages,
+            events           : window.events,
+            expanded         : expanded,
+            opensToolSteps   : opensToolSteps,
+            elidedBefore     : window.elidedBefore,
+            now              : now,
+            calendar         : .autoupdatingCurrent,
+            isAtNewest       : window.isAtNewest,
+            isHumanControlled: isHumanControlled
+        )
     }
 
     /// Projects again when the earliest saved message still inside its grace
@@ -931,8 +958,10 @@ final class TranscriptController: NSObject {
     private func moveFocus(by step: Int) {
         guard !rows.isEmpty else { return }
         var next = min(max(0, (focusedIndex ?? (step > 0 ? -1 : rows.count)) + step), rows.count - 1)
-        // A separator is a heading between rows, not a stop for the keyboard.
-        while rows[next].item.isSeparator, rows.indices.contains(next + step) { next += step }
+        // A separator is a heading between rows, not a stop for the keyboard, unless it opens.
+        while rows[next].item.isSeparator, rows[next].item.disclosure == nil, rows.indices.contains(next + step) {
+            next += step
+        }
         let path = IndexPath(item: next, section: 0)
         setFocusedAction(nil)
         collectionView.selectionIndexPaths = [path]
@@ -966,7 +995,7 @@ final class TranscriptController: NSObject {
         let id = rows[index].item.id
         if let focused = focusedAction, focused.id == id {
             perform(focused.action, in: id)
-        } else if case .toolRun = rows[index].item.kind {
+        } else if rows[index].item.disclosure != nil {
             toggle(id)
         }
     }

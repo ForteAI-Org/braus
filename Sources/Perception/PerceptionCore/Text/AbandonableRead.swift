@@ -20,6 +20,7 @@ public enum AbandonableRead {
 
     public static func run<Value: Sendable>(
         _ read: @escaping @Sendable () throws -> Value,
+        queue: DispatchQueue = .global(qos: .userInitiated),
         stop: @escaping @Sendable () -> Void = {}
     ) async throws -> Value {
         try Task.checkCancellation()
@@ -27,7 +28,8 @@ public enum AbandonableRead {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 guard pending.wait(continuation) else { return }
-                DispatchQueue.global(qos: .userInitiated).async {
+                queue.async {
+                    guard pending.isWaiting else { return }
                     pending.finish(Result { try read() })
                 }
             }
@@ -58,6 +60,13 @@ public enum AbandonableRead {
             }
             if answered { continuation.resume(throwing: CancellationError()) }
             return !answered
+        }
+
+        var isWaiting: Bool {
+            state.withLock { state in
+                if case .waiting = state { return true }
+                return false
+            }
         }
 
         func finish(_ result: Result<Value, any Error>) {

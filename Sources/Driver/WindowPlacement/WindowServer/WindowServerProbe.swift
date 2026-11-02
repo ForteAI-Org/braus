@@ -371,7 +371,44 @@ nonisolated public enum WindowServerProbe {
     /// on screen. The index spans every display, so it answers "is this in
     /// front of that", never "is this on stage".
     public static func orderIndex(of windowNumber: Int) -> Int? {
-        orderedWindows()?.firstIndex { number(of: $0) == windowNumber }
+        orderReading(
+            of                     : windowNumber,
+            behindFrontmostWindowOf: nil
+        ).orderIndex
+    }
+
+    /// The window's order index and, when a process is named, whether it sits
+    /// behind that process's frontmost window, both from one window list. It
+    /// exists so a caller that wants both pays one window server read, not two.
+    public static func orderReading(
+        of windowNumber                  : Int,
+        behindFrontmostWindowOf processID: Int32?
+    ) -> (orderIndex: Int?, isBehind: Bool?) {
+        orderReading(
+            of                     : windowNumber,
+            behindFrontmostWindowOf: processID,
+            in                     : orderedWindows() ?? []
+        )
+    }
+
+    /// The pure half of `orderReading`, over rows in the window server's front
+    /// to back order. `isBehind` is nil without a process, without the target
+    /// row or without a normal-layer row of that process.
+    static func orderReading(
+        of windowNumber                  : Int,
+        behindFrontmostWindowOf processID: Int32?,
+        in windows                       : [[String: Any]]
+    ) -> (orderIndex: Int?, isBehind: Bool?) {
+
+        let targetIndex = windows.firstIndex { number(of: $0) == windowNumber }
+        guard let processID, let targetIndex,
+              let userIndex = windows.firstIndex(where: {
+                  owner(of: $0) == processID && layer(of: $0) == 0
+              })
+        else { return (targetIndex, nil) }
+
+        // The list runs front to back, so a larger index is further back.
+        return (targetIndex, targetIndex > userIndex)
     }
 
     /// The level a contextual menu is drawn at, asked of the system rather than
@@ -459,16 +496,23 @@ nonisolated public enum WindowServerProbe {
             table                : table
         )
         guard gate.mayAct else { return nil }
-        guard let descriptions = CGWindowListCopyWindowInfo(
+        guard let listed = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly],
             kCGNullWindowID
-        ) as? [[String: Any]] else { return nil }
+        ) as NSArray? else { return nil }
 
         var processes = OwnerProcesses()
         var surfaces: [WindowSurface] = []
-        for description in descriptions {
-            guard let processID = owner(of: description), processIDs.contains(processID),
-                  let windowNumber = number(of: description),
+        // Only the rows of `processIDs` become Swift dictionaries. Most of the
+        // list is other processes' windows, and bridging every row was the
+        // largest part of a follow pass on the main thread (measured with
+        // Pro Tools in the seat).
+        for case let row as NSDictionary in listed {
+            guard let processID = (row[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                  processIDs.contains(processID)
+            else { continue }
+            guard let description = row as? [String: Any] else { return nil }
+            guard let windowNumber = number(of: description),
                   let frame = frame(of: description),
                   let reference = reference(
                       processID       : processID,
@@ -509,11 +553,15 @@ nonisolated public enum WindowServerProbe {
     /// `windowServer`; the owner name a row carries is the application's own
     /// display name and decides nothing.
     ///
+    /// With `screen`, requires a visible layer-0 target and considers other layer-0
+    /// windows anywhere on that screen, even when they do not overlap the target.
+    ///
     /// `nil` is a reading that failed: no list, no row for the surface, or a row
     /// in front whose owner, frame or identity could not be read. Such a row is
     /// not an empty area, and a caller that refuses on `nil` refuses then too.
     public static func surfaces(
         inFrontOf surface    : WindowIdentity,
+        within screen        : CGRect? = nil,
         allowUnvalidatedBuild: Bool = false,
         table                : SymbolTable = .shared
     ) -> [WindowSurface]? {
@@ -533,6 +581,7 @@ nonisolated public enum WindowServerProbe {
         var processes = OwnerProcesses()
         return readSurfaces(
             inFrontOf   : surface,
+            within      : screen,
             rows        : descriptions,
             executableOf: executable(of:),
             attesting   : { processID, windowNumber, frame in
@@ -554,6 +603,7 @@ nonisolated public enum WindowServerProbe {
     /// `nil` when it cannot be read: such a row counts, it is never left out.
     static func readSurfaces(
         inFrontOf surface: WindowIdentity,
+        within screen    : CGRect? = nil,
         rows             : [[String: Any]],
         executableOf     : (Int32) -> ProcessExecutable?,
         attesting        : (Int32, Int, CGRect) -> WindowReference?
@@ -564,6 +614,11 @@ nonisolated public enum WindowServerProbe {
               attesting(surface.processID, surface.windowNumber, surfaceFrame)?.identity == surface
         else { return nil }
 
+        if let screen {
+            guard layer(of: rows[own]) == 0, isOnScreen(rows[own]), alpha(of: rows[own]) > 0,
+                  surfaceFrame.intersects(screen) else { return nil }
+        }
+
         // Asked once per owner and forgotten with this reading: a PID handed to
         // a later process after a window server restart is described afresh.
         var isWindowServer: [Int32: Bool] = [:]
@@ -573,10 +628,14 @@ nonisolated public enum WindowServerProbe {
                   let rowFrame = frame(of: row)
             else { return nil }
             guard owner != surface.processID,
-                  rowFrame.intersects(surfaceFrame),
+                  rowFrame.intersects(screen ?? surfaceFrame),
                   isOnScreen(row), alpha(of: row) > 0,
                   rowFrame.width > 0, rowFrame.height > 0
             else { continue }
+            if screen != nil {
+                guard let level = layer(of: row) else { return nil }
+                if level != 0 { continue }
+            }
             if isWindowServer[owner] == nil { isWindowServer[owner] = executableOf(owner) == windowServer }
             if isWindowServer[owner] == true { continue }
             guard let windowNumber = number(of: row),
@@ -785,16 +844,10 @@ nonisolated public enum WindowServerProbe {
         windowNumber: Int,
         ownedBy processID: Int32
     ) -> Bool? {
-
-        guard let windows = orderedWindows(),
-              let targetIndex = windows.firstIndex(where: { number(of: $0) == windowNumber }),
-              let userIndex = windows.firstIndex(where: {
-                  owner(of: $0) == processID && layer(of: $0) == 0
-              })
-        else { return nil }
-
-        // The list runs front to back, so a larger index is further back.
-        return targetIndex > userIndex
+        orderReading(
+            of                     : windowNumber,
+            behindFrontmostWindowOf: processID
+        ).isBehind
     }
 
     /// An AppKit point (origin bottom left of its own screen) as a Quartz point

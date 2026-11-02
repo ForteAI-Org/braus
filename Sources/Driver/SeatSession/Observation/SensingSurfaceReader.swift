@@ -7,6 +7,7 @@
 
 import Dispatch
 import OSLog
+import Synchronization
 import SeatCore
 import WindowPlacement
 
@@ -63,6 +64,10 @@ nonisolated package struct SensingSurfaceReader: AssignedSurfaceReading {
         AccessibilityWindowNumberCache
     ) -> Result<AssignedSurfaceSnapshot, CrossCheckedSurfaceReadFailure>
 
+    private let backgroundQueue = DispatchQueue(label: "dev.forte.seat.surface-reading", qos: .userInitiated)
+    // The revision and transition fold are atomic; no IPC runs while this lock is held.
+    private let revision = SurfaceReadRevision()
+
     private let sensing: any SeatSensing
     private let targetTransitions: ApplicationTargetTransitionFilter
     private let windowNumbers: AccessibilityWindowNumberCache
@@ -87,7 +92,32 @@ nonisolated package struct SensingSurfaceReader: AssignedSurfaceReading {
         }
     }
 
+    /// Serializes background IPC without occupying the main actor. A synchronous input gate
+    /// may supersede this pass; its later reading wins and this pass then returns nil.
+    package func snapshotInBackground(ownedBy processIDs: Set<Int32>) async -> AssignedSurfaceSnapshot? {
+        guard !Task.isCancelled else { return nil }
+        let pass = await withCheckedContinuation { continuation in
+            backgroundQueue.async {
+                continuation.resume(returning: read(ownedBy: processIDs))
+            }
+        }
+        guard !Task.isCancelled else { return nil }
+        // Fold on the caller's executor, after the hop back, so delivery cannot lag a newer gate.
+        return finish(pass.snapshot, ticket: pass.ticket)
+    }
+
     package func snapshot(ownedBy processIDs: Set<Int32>) -> AssignedSurfaceSnapshot {
+        let pass = read(ownedBy: processIDs)
+        return finish(pass.snapshot, ticket: pass.ticket) ?? AssignedSurfaceSnapshot(
+            inventory: .unavailable(reason: "A newer surface read superseded this pass")
+        )
+    }
+
+    private func read(ownedBy processIDs: Set<Int32>) -> (ticket: UInt64, snapshot: AssignedSurfaceSnapshot) {
+        let ticket = revision.value.withLock { value in
+            value &+= 1
+            return value
+        }
 
         let nativeFailure: CrossCheckedSurfaceReadFailure
         let retained = targetTransitions.retainedIdentities(ownedBy: processIDs)
@@ -114,7 +144,7 @@ nonisolated package struct SensingSurfaceReader: AssignedSurfaceReading {
                 // A remembered Window ID that no longer belongs to its element
                 // can only surface here, as a window nothing attested.
                 if !native.inventory.completeness.isQualified { windowNumbers.removeAll() }
-                return targetTransitions.filter(native, at: DispatchTime.now().uptimeNanoseconds)
+                return (ticket, native)
             case .failure(let failure):
                 windowNumbers.removeAll()
                 nativeFailure = failure
@@ -126,12 +156,12 @@ nonisolated package struct SensingSurfaceReader: AssignedSurfaceReading {
         }
 
         guard let surfaces = sensing.windowSurfaces(ownedBy: processIDs) else {
-            return AssignedSurfaceSnapshot(
+            return (ticket, AssignedSurfaceSnapshot(
                 inventory: .unavailable(
                     reason: "The native cross-check was unavailable: \(nativeFailure). "
                         + "The window server fallback list could not be read"
                 )
-            )
+            ))
         }
         let rows = surfaces.map {
             SurfaceInventoryReading.Row(surface: $0, provenance: .windowServerAttestedIdentity)
@@ -153,9 +183,20 @@ nonisolated package struct SensingSurfaceReader: AssignedSurfaceReading {
         // exact request ever names it, leaving containment to wait on a raw
         // absence forever.  An entirely unavailable fallback returns above,
         // because it supplies no identity that may safely be retained.
-        return targetTransitions.filter(
-            fallback,
-            at: DispatchTime.now().uptimeNanoseconds
-        )
+        return (ticket, fallback)
     }
+
+    private func finish(_ snapshot: AssignedSurfaceSnapshot, ticket: UInt64) -> AssignedSurfaceSnapshot? {
+        revision.value.withLock { current in
+            guard current == ticket else {
+                return nil
+            }
+            return targetTransitions.filter(snapshot, at: DispatchTime.now().uptimeNanoseconds)
+        }
+    }
+}
+
+/// SurfaceReadRevision keeps overlapping native reads from reversing the transition history.
+nonisolated private final class SurfaceReadRevision: Sendable {
+    let value = Mutex<UInt64>(0)
 }

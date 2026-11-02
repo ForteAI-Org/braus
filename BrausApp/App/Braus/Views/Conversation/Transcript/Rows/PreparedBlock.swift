@@ -35,6 +35,10 @@ nonisolated struct PreparedBlock: Sendable, Hashable {
         /// An opened tool line's steps, one a line, on a card of their own under the line, a
         /// hairline between two steps.
         case toolSteps
+
+        /// An opened hand-back row's report, drawn as a tool line's steps are, with every line
+        /// wrapped rather than cut, so all of it can be read.
+        case report
     }
 
     /// The source offset, in UTF-16 units, of the chunk the block came from,
@@ -142,6 +146,7 @@ nonisolated struct PreparedBlock: Sendable, Hashable {
         case .code:             Self.applyHangingIndents(to: result, style: style)
         case .toolSummary:      Self.applySingleLine(to: result)
         case .toolSteps:        Self.applyStepSpacing(to: result)
+        case .report:           Self.applyStepSpacing(to: result, wraps: true)
         default:                break
         }
         return result
@@ -162,15 +167,18 @@ nonisolated struct PreparedBlock: Sendable, Hashable {
     static let stepSpacing: CGFloat = 12
 
     /// Opens a gap above every step but the first, and keeps each step on one line, cut with an
-    /// ellipsis where it would wrap.
-    private static func applyStepSpacing(to text: NSMutableAttributedString) {
+    /// ellipsis where it would wrap, unless `wraps`.
+    private static func applyStepSpacing(
+        to text: NSMutableAttributedString,
+        wraps  : Bool = false
+    ) {
         let source = text.string as NSString
         var start  = 0
         while start < source.length {
             let line      = source.paragraphRange(for: NSRange(location: start, length: 0))
             let paragraph = NSMutableParagraphStyle()
             paragraph.paragraphSpacingBefore = start == 0 ? 0 : stepSpacing
-            paragraph.lineBreakMode          = .byTruncatingTail
+            paragraph.lineBreakMode          = wraps ? .byWordWrapping : .byTruncatingTail
             text.addAttribute(.paragraphStyle, value: paragraph, range: line)
             start = NSMaxRange(line)
         }

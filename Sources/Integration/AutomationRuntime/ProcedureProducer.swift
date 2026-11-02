@@ -125,6 +125,13 @@ nonisolated public enum ProcedureProducer {
         return TaskResultCheck.FileFacts(exists: true, modifiedAtMS: modified, size: size, digest: digest, holdsText: holds)
     }
 
+    /// `read` on the concurrent pool: a file's digest reads up to `digestLimit` from disk, which the main thread
+    /// need not wait on.
+    @concurrent
+    public static func readingOffMain(path: String, holding text: String? = nil) async -> TaskResultCheck.FileFacts {
+        read(path: path, holding: text)
+    }
+
     /// Records Braus's check of one thing an attempt says its result is, from what was read (`TaskResultCheck`): the
     /// disk for a file, read here at `read`'s path with `before` as the reading from the task's beginning, or the screen
     /// as the caller read it. `read` is the expectation as the agent gave it, judged and never stored; `kept` is the one
@@ -139,10 +146,10 @@ nonisolated public enum ProcedureProducer {
             if case .fileContains(_, let wanted) = read { text = wanted }
             var other: TaskResultCheck.FileFacts?
             switch read {
-                case .fileMoved(_, let to), .fileCopied(_, let to): other = Self.read(path: to)
+                case .fileMoved(_, let to), .fileCopied(_, let to): other = await Self.readingOffMain(path: to)
                 default: break
             }
-            reading = .disk(before: before, now: Self.read(path: path, holding: text), other: other)
+            reading = .disk(before: before, now: await Self.readingOffMain(path: path, holding: text), other: other)
         } else {
             reading = screen ?? .nothing
         }

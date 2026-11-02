@@ -29,6 +29,11 @@ public protocol AccessibilityTreeReading: Sendable {
     func identifier(_ node: Node) -> String?
     /// The exact text value, including button values. Empty is a successful read; nil is unavailable.
     func value(_ node: Node) -> String?
+    /// Whether the walker must supply classification before a value read. False adds no messages.
+    var requiresValueClassification: Bool { get }
+    /// Uses the walker's classification, including nil when a subrole could not be read.
+    func value(_ node: Node, role: String?, subrole: String?) -> String?
+    func numericValue(_ node: Node, role: String?, subrole: String?) -> Int?
     /// The node's own selection in UTF-16 units; nil when the provider cannot read it.
     func selectedRange(_ node: Node) -> NSRange?
     /// Whether the node owns keyboard focus within its application; nil when unreadable.
@@ -52,6 +57,9 @@ public protocol AccessibilityTreeReading: Sendable {
 }
 
 extension AccessibilityTreeReading {
+    public var requiresValueClassification: Bool { false }
+    public func value(_ node: Node, role: String?, subrole: String?) -> String? { value(node) }
+    public func numericValue(_ node: Node, role: String?, subrole: String?) -> Int? { numericValue(node) }
     public func isSameNode(_ first: Node, _ second: Node) -> Bool { false }
     public func readChildren(_ node: Node) -> [Node]? { children(node) }
     public func selectedRange(_ node: Node) -> NSRange? { nil }

@@ -3,7 +3,7 @@ import Synchronization
 
 /// InputQueue is the preallocated single-producer single-consumer ring between the tap thread and the
 /// consumer thread. The producer never waits. Short of room it degrades in order: it keeps the last
-/// hover, aggregates compatible scrolls, keeps clicks and focus in capacity reserved for them and, once
+/// hover, aggregates compatible scrolls, keeps critical gestures in capacity reserved for them and, once
 /// that is full too, owes a gap record published as soon as a slot frees. Nothing is dropped uncounted.
 ///
 /// A sequence is assigned when a record is published or declared lost, never when it is coalesced, so

@@ -88,6 +88,16 @@ package final class UserFocusRestorer {
         return code == 0 && current == expected
     }
 
+    /// Explicit lending handback retains the attested process lifetime even after its last window closes.
+    package func isFrontmost(process: ProcessIdentity) -> Bool {
+        var current = AppKitStatePreparation.Participant.SerialNumber()
+        let code = withUnsafeMutablePointer(to: &current) {
+            getFrontProcess(UnsafeMutableRawPointer($0))
+        }
+        return code == 0 && current.high == process.serialNumberHigh
+            && current.low == process.serialNumberLow
+    }
+
     /// Requests the prepared destination and reports the whole call's duration.
     ///
     /// The full-call timer opens on the first line, before the timing reset and

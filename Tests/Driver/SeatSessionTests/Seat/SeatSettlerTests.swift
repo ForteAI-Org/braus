@@ -206,7 +206,7 @@ struct SeatSettlerTests {
     }
 
     @Test("a source that declines at once is today's fixed pause exactly",
-          arguments: [LiveFrameFallback.notLive, .pinnedToDisplay, .recovering, .resting, .otherWindow])
+          arguments: [LiveFrameFallback.notLive, .recovering, .resting, .otherWindow])
     func unavailableSourceIsTheFixedPause(_ refusal: LiveFrameFallback) async {
         let stream = ScriptedStream { _ in 7 }
         stream.refusal = refusal
@@ -291,7 +291,7 @@ struct SeatSettlerTests {
             within bound            : Duration
         ) async -> Result<SeatFrame, LiveFrameFallback> {
             asked.append(identity)
-            return .failure(.pinnedToDisplay)
+            return .failure(.otherWindow)
         }
     }
 
@@ -304,7 +304,7 @@ struct SeatSettlerTests {
         let recorded = SleptDurations()
         let settler = SeatSettler(target: target, sleep: { recorded.append($0) })
 
-        #expect(await settler.settled(cap: .milliseconds(300)) == .fallback(.pinnedToDisplay))
+        #expect(await settler.settled(cap: .milliseconds(300)) == .fallback(.otherWindow))
         #expect(live.asked == [try #require(context.window.reference.identity)])
         let slept = try #require(recorded.values.first)
         #expect(recorded.values.count == 1)

@@ -242,7 +242,7 @@ struct EndpointDiscovery {
     /// The applications outside Apple's whose ordinary windows also take their clicks through
     /// accessibility, from the observed window down: Pro Tools repeats control labels across
     /// tracks and its Mix hit test can omit the track strips. Add a bundle identifier to widen it.
-    static let windowTreeClickedApplications: Set<String> = ["com.avid.ProTools"]
+    nonisolated static let windowTreeClickedApplications: Set<String> = ["com.avid.ProTools"]
 
     /// Whether a click accessibility declined before acting on `window` may be posted instead.
     /// `windowTreeClickedApplications` refuse: a posted click there could reach another track.
@@ -252,7 +252,8 @@ struct EndpointDiscovery {
     /// assigned application's accessibility instead of posted (ADR 0031).
     /// The fourth argument asks an Apple extension's press to go through the host's own tree, the
     /// last names the control the caller aimed at, which a press refuses to replace.
-    var remoteActuation: (
+    /// It blocks on the application's answers, so the seat runs it on its actuation queue, off this actor.
+    var remoteActuation: @Sendable (
         Int32, InputCommand, ResolvedInputEndpoint, Bool, String?
     ) -> Result<RemoteContentActuation, RemoteContentActuationRefusal> = { _, _, _, _, _ in
         .failure(.unreadable)
@@ -458,11 +459,35 @@ extension AgentSeat {
     func readSurfaces() -> AssignedSurfaceSnapshot {
 
         let snapshot = surfaceReader.snapshot(ownedBy: session.processIDs)
+        rememberDestruction(in: snapshot)
+        return snapshot
+    }
+
+    private func rememberDestruction(in snapshot: AssignedSurfaceSnapshot) {
         for identity in snapshot.destroyedByWindowServer {
             logicalClosureEvidence[identity] = .destroyed
             pendingDestruction.insert(identity)
         }
-        return snapshot
+    }
+
+    /// Performs the blocking native pass away from the UI. No reading crosses a lifecycle,
+    /// selection or observation barrier; a newer synchronous gate also supersedes it in the reader.
+    @discardableResult
+    func foldCurrentReadingInBackground() async -> Bool {
+        guard !isTearingDown, let assignment = assignmentKit.lifecycle.current else { return false }
+        let generation = selectionKit.selectionGeneration
+        let barrier = observationIssuer.barrier
+        let processes = session.processIDs
+        guard let snapshot = await surfaceReader.snapshotInBackground(ownedBy: processes),
+              !isTearingDown, state != .failed,
+              assignmentKit.lifecycle.current == assignment,
+              session.processIDs == processes else { return false }
+        // Destruction is a one-shot fact about this assignment, even if its selection moved.
+        rememberDestruction(in: snapshot)
+        guard !Task.isCancelled, selectionKit.selectionGeneration == generation,
+              observationIssuer.barrier == barrier else { return false }
+        fold(snapshot, at: DispatchTime.now().uptimeNanoseconds)
+        return true
     }
 
     /// Folds one reading of the assigned instance's surfaces through both nuclei.
@@ -483,7 +508,17 @@ extension AgentSeat {
         defer { phase.end() }
         #endif
         guard assignmentKit.lifecycle.isAssigned else { return }
-        let snapshot = readSurfaces()
+        fold(readSurfaces(), at: now)
+    }
+
+    /// Take-back refreshes attachment evidence while automatic containment remains paused.
+    func foldLendingTakeBackReading() {
+        guard lendingOperationInFlight, isApplicationLent else { return }
+        fold(readSurfaces(), at: DispatchTime.now().uptimeNanoseconds, takingBack: true)
+    }
+
+    private func fold(_ snapshot: AssignedSurfaceSnapshot, at now: UInt64, takingBack: Bool = false) {
+        guard !isApplicationLent || takingBack else { return }
         var reading  = snapshot.inventory
         let claims   = snapshot.claims
 
@@ -564,6 +599,7 @@ extension AgentSeat {
         // application is raised, and it tells nobody: so staging is read here.
         session.refreshStaging { sensing.windowGeometry(of: $0)?.frame.size }
         synchronizeSessionTargetWithSelection()
+        rememberHeldWindowPresentation(snapshot)
     }
 
     /// Reads the assigned application's own scoped surface evidence for one
@@ -1760,6 +1796,7 @@ extension AgentSeat {
     /// goes first, before any window moves, and the restitution the release left
     /// behind stays an explicit obligation rather than a success.
     func endAssignmentAndObservation(reason: ObservationInvalidation) {
+        lentWindowsLeftWithPerson.removeAll()
         logicalClosureEvidence.removeAll()
         reconciledLogicalClosures.removeAll()
         pendingDestruction.removeAll()
@@ -1809,6 +1846,9 @@ extension AgentSeat {
     /// rather than issued: a late capture of the previous selection is not an
     /// observation of the current one.
     public func observe() async -> Result<SeatObservationDelivery, ObservationUnavailable> {
+        guard !isApplicationLent else {
+            return .failure(.captureFailed(reason: "The application is lent to the person"))
+        }
 
         if let context = menuContext {
             return .failure(.menuInteractionActive(parent: context.parent))
@@ -1818,7 +1858,10 @@ extension AgentSeat {
         #endif
         let deadlineNanoseconds = DispatchTime.now().uptimeNanoseconds
             &+ observationProfile.captureDeadlineNanoseconds
-        foldCurrentReading()
+        guard assignmentKit.lifecycle.isAssigned, !isTearingDown else { return .failure(.notAssigned) }
+        guard await foldCurrentReadingInBackground() else {
+            return .failure(.captureFailed(reason: "The surface reading was superseded or cancelled"))
+        }
 
         // A surface first seen by this request needs the second reading the
         // assignment nucleus requires before either selection or containment
@@ -1845,7 +1888,9 @@ extension AgentSeat {
             guard DispatchTime.now().uptimeNanoseconds < deadlineNanoseconds else {
                 return .failure(.captureDeadlineExpired(attemptsSpent: 0))
             }
-            foldCurrentReading()
+            guard await foldCurrentReadingInBackground() else {
+                return .failure(.captureFailed(reason: "The surface reading was superseded or cancelled"))
+            }
         }
 
         guard let assignment = assignmentKit.lifecycle.current else {
@@ -1908,7 +1953,9 @@ extension AgentSeat {
             guard DispatchTime.now().uptimeNanoseconds < deadlineNanoseconds else {
                 return .failure(.captureDeadlineExpired(attemptsSpent: 0))
             }
-            foldCurrentReading()
+            guard await foldCurrentReadingInBackground() else {
+                return .failure(.captureFailed(reason: "The surface reading was superseded or cancelled"))
+            }
             guard let settled = selectionKit.selected else { return .failure(.noSelectedTarget) }
             chosen  = settled
             picture = observationPicture(for: chosen.surface)
@@ -2228,7 +2275,7 @@ extension AgentSeat {
             // Read again after the await. A capture that came back after the
             // target moved, the assignment ended or the menu was revoked is a
             // result of a situation that no longer exists.
-            if let refusal = stillCurrent(
+            if let refusal = await stillCurrent(
                 surface            : surface,
                 role               : role,
                 instance           : instance,
@@ -2293,7 +2340,7 @@ extension AgentSeat {
         selectionGeneration: UInt64,
         barrier            : UInt64,
         isMenu             : Bool
-    ) -> ObservationUnavailable? {
+    ) async -> ObservationUnavailable? {
 
         #if BRAUS_PHASES
         let phase = PhaseInterval.begin("seat.stillCurrent")
@@ -2310,7 +2357,13 @@ extension AgentSeat {
             )])
         }
         guard isMenu else {
-            foldCurrentReading()
+            guard await foldCurrentReadingInBackground(),
+                  observationIssuer.barrier == barrier else {
+                return .suspended([.observationSuperseded(
+                    observed: selectionGeneration,
+                    current: selectionKit.selectionGeneration
+                )])
+            }
             // The operating surface is the selected one; `surface` is where the
             // pixels came from, which for a hosted sheet is its host.
             guard let selected = selectionKit.selected,

@@ -12,6 +12,7 @@ protocol PreviewCaptureStreaming: AnyObject {
     var target: SeatCaptureTarget { get }
     var isRunning: Bool { get }
     var hasUnconfirmedResource: Bool { get }
+    var presentedFrameCount: Int { get }
 
     func start(configuration: SeatCaptureConfiguration, timeout: Duration) async throws
     func updateConfiguration(_ configuration: SeatCaptureConfiguration, timeout: Duration) async throws
@@ -23,6 +24,10 @@ protocol PreviewCaptureStreaming: AnyObject {
 }
 
 extension SeatCaptureStream: PreviewCaptureStreaming {}
+
+extension PreviewCaptureStreaming {
+    var presentedFrameCount: Int { 0 }
+}
 
 /// What the person's live picture is worth right now, which is not what the
 /// adoption is worth. The seat holds the window in every one of these.
@@ -38,7 +43,7 @@ enum PreviewAvailability: Equatable {
     case suspended(String)
 
     /// The bounded recovery ended with no stream. Nothing else is tried until
-    /// the next adoption, pin or observation asks for one.
+    /// the next adoption or observation asks for one.
     case unavailable(String)
 }
 
@@ -77,19 +82,8 @@ final class PreviewStreamController {
     private var transitionGeneration: UInt64 = 0
     private var isStoppingOrStopped = false
 
-    /// The whole display while the person has pinned the preview to it, and
-    /// nil while the preview follows the window.
-    ///
-    /// The pin exists because a window on the background display captures its
-    /// first frame and then breaks, and watching the display instead of the
-    /// one window is what says whether the capture or the window is at fault.
-    /// It outranks observation: `follow` runs on every one of them and would
-    /// otherwise drag the picture back to the window within milliseconds.
-    private var pinnedTarget: SeatCaptureTarget?
-
-    /// The window the preview shows when nothing is pinned, and the size it
-    /// shows it at: the adopted window until an observation names another
-    /// recipient, then that one. It is what unpinning goes back to.
+    /// The window the preview shows, and the size it shows it at: the adopted
+    /// window until an observation names another recipient, then that one.
     private var windowTarget: SeatCaptureTarget?
     private var windowPixelSize: CGSize?
 
@@ -137,6 +131,7 @@ final class PreviewStreamController {
 
     /// The rate the stream runs at while it is used or shown.
     static let activeFramesPerSecond = 30
+    private var activeRate: Int
 
     /// The rest (ADR 0036): whether the rate wanted is the plan's, the rate the running stream
     /// was last started or updated with, the uptime of the last use, and the task that waits for
@@ -155,16 +150,16 @@ final class PreviewStreamController {
     init(
         recovery  : PreviewRecoveryPlan = PreviewRecoveryPlan(),
         rest      : PreviewRestPlan = PreviewRestPlan(),
+        activeFramesPerSecond: Int = PreviewStreamController.activeFramesPerSecond,
         makeStream: @escaping StreamFactory = { SeatCaptureStream(target: $0) }
     ) {
+        self.activeRate = activeFramesPerSecond
         self.recovery   = recovery
         self.rest       = rest
         self.makeStream = makeStream
     }
 
     var target: SeatCaptureTarget? { stream?.target }
-
-    var isPinnedToDisplay: Bool { pinnedTarget != nil }
 
     func start(identity: WindowIdentity, frame: CGRect, pixelSize: CGSize) async throws {
         // A stop ends one application's preview, not the controller: the seat
@@ -175,10 +170,6 @@ final class PreviewStreamController {
         windowTarget = target
         windowPixelSize = pixelSize
         previousWindowPixelSize = nil
-        // An adoption under a pin records the window it would show and leaves
-        // the display stream running. Starting one here beside it is the two
-        // streams the transition exists to make impossible.
-        guard pinnedTarget == nil else { return }
         desiredTarget          = target
         desiredPixelSize       = pixelSize
         desiredPreviousReading = nil
@@ -217,20 +208,12 @@ final class PreviewStreamController {
     /// invalidate an observation that Braus has already qualified.
     func follow(_ delivery: SeatObservationDelivery) {
         guard !isStoppingOrStopped else { return }
-        #if BRAUS_PHASES
-        PhaseInterval.event("preview.follow", "pinned=\(pinnedTarget != nil)")
-        #endif
         let target = delivery.captureTarget
             ?? .attestedWindow(delivery.reference.recipient)
-        // Under a pin the window's own frame is the one thing taken from the
-        // delivery. Presenting it would put a frame of the window into layers
-        // showing the display, which is the picture the person asked to leave.
-        if pinnedTarget == nil {
-            if stream?.target != target || stream?.isRunning != true {
-                detachLayersFromCurrentStream()
-            }
-            for layer in layers { layer.present(delivery.frame) }
+        if stream?.target != target || stream?.isRunning != true {
+            detachLayersFromCurrentStream()
         }
+        for layer in layers { layer.present(delivery.frame) }
         follow(
             target: target,
             frame: delivery.frame.geometry.screenRect,
@@ -263,38 +246,8 @@ final class PreviewStreamController {
         previousWindowPixelSize = windowTarget == target ? windowPixelSize : nil
         windowTarget = target
         windowPixelSize = pixelSize
-        guard pinnedTarget == nil else { return }
         transition(to: windowTarget, pixelSize: pixelSize,
                    previousReading: previousWindowPixelSize)
-    }
-
-    /// Pins the live picture to `target` — the whole background display — or
-    /// gives it back to the window when `target` is nil.
-    ///
-    /// Both directions go through the one transition a window change uses, so
-    /// the generation guard, the layer re-attachment and the refusal to leave
-    /// an unconfirmed resource behind cover the pin as they cover everything
-    /// else. Unpinning with nothing ever adopted leaves no stream at all,
-    /// which is the honest answer to a seat holding nothing.
-    func pin(to target: SeatCaptureTarget?, pixelSize: CGSize) {
-        pinnedTarget = target
-        // A pinned stream is shown like an attached layer: pinning wakes it,
-        // unpinning starts the rest delay.
-        noteActivity(.pin)
-        // A pinned size is the display's bounds and not a measurement of what a
-        // capture filled, so it needs no settle budget: it is handed in as its
-        // own previous reading, which is what says "already settled".
-        guard let target else {
-            guard !isStoppingOrStopped else { return }
-            let size = windowPixelSize ?? pixelSize
-            transition(to: windowTarget, pixelSize: size, previousReading: size)
-            return
-        }
-        // A stop ends one application's preview, not the controller, and the
-        // display outlives every window put on it: watching it with the seat
-        // empty is the case the pin exists for.
-        isStoppingOrStopped = false
-        transition(to: target, pixelSize: pixelSize, previousReading: pixelSize)
     }
 
     private func transition(to target: SeatCaptureTarget?, pixelSize: CGSize,
@@ -358,31 +311,17 @@ final class PreviewStreamController {
         await transition?.value
     }
 
-    /// Ends the preview of one application's window.
-    ///
-    /// A pin to the whole display outlives it, and that is the whole point of
-    /// the pin. The display is not the application's: it is what applications
-    /// are put on, and the seat gives one back and takes the next one on the
-    /// same display. A release runs at the start of every handover, a moment
-    /// before the next window is moved in, so taking the picture away here
-    /// would blank the monitor exactly when it is worth watching.
-    ///
-    /// A host that is taking the display away with it calls `tearDown`.
+    /// Ends the preview of one application's window. The controller outlives
+    /// it: the next adoption starts on the same layers.
     func stop() async {
-        windowTarget = nil
-        windowPixelSize = nil
-        previousWindowPixelSize = nil
-        guard pinnedTarget == nil else { return }
         await tearDown()
     }
 
-    /// Ends the preview outright, pin included. It is the teardown for a driver
-    /// that is about to stop the host, which is what makes the display the pin
-    /// is watching cease to exist.
+    /// Ends the preview outright. It is the teardown for a driver that is
+    /// about to stop the host.
     func tearDown() async {
         isStoppingOrStopped = true
         desiredTarget = nil
-        pinnedTarget = nil
         windowTarget = nil
         windowPixelSize = nil
         previousWindowPixelSize = nil
@@ -465,8 +404,7 @@ final class PreviewStreamController {
               desiredTarget == target
         else { return }
 
-        // Unpinning with no window to go back to wants no stream, not a
-        // display the person has just asked to stop watching.
+        // No window wanted means no stream.
         guard let target else {
             availability = .idle
             return
@@ -543,8 +481,15 @@ final class PreviewStreamController {
         }
     }
 
+    /// Changes only this controller's quality; the legacy controller keeps its default rate.
+    func setActiveFramesPerSecond(_ rate: Int) {
+        guard activeRate != rate else { return }
+        activeRate = rate
+        applyRate()
+    }
+
     private var framesPerSecond: Int {
-        isResting ? rest.framesPerSecond : Self.activeFramesPerSecond
+        isResting ? min(rest.framesPerSecond, activeRate) : activeRate
     }
 
     /// Starts the wait for the rest delay unless one is running. It ends by resting the stream
@@ -566,11 +511,10 @@ final class PreviewStreamController {
         }
     }
 
-    /// Rests the stream when nobody shows it (no layer, no pin) and it runs live on the window or
-    /// display wanted.
+    /// Rests the stream when nobody shows it (no layer) and it runs live on the window wanted.
     /// Anything else leaves it alone, and the next use arms the delay again.
     private func enterRestIfUnused() {
-        guard !isResting, layers.isEmpty, pinnedTarget == nil, !isStoppingOrStopped,
+        guard !isResting, layers.isEmpty, !isStoppingOrStopped,
               availability == .live, let stream, stream.isRunning, stream.target == desiredTarget
         else { return }
         isResting = true
@@ -636,7 +580,7 @@ final class PreviewStreamController {
             guard let self, !Task.isCancelled else { return }
             self.recoveryTask = nil
             // Bounded means bounded: nothing else is tried until the next
-            // adoption, pin or observation asks for a stream again.
+            // adoption or observation asks for a stream again.
             if self.stream == nil, case .suspended(let why) = self.availability {
                 self.availability = .unavailable(why)
             }
@@ -665,7 +609,7 @@ final class PreviewStreamController {
 
 /// The preview is the running stream of the adopted window that observation reads first.
 ///
-/// It offers a frame only while it is live on exactly that window: pinned to the display, in
+/// It offers a frame only while it is live on exactly that window: in
 /// recovery, idle, unavailable or on another target, it declines at once and the seat takes a
 /// Still of its own. What it hands over is checked again by the seat; see `LiveFrameHandover`.
 ///
@@ -700,7 +644,6 @@ extension PreviewStreamController: LiveWindowFrameSourcing {
 
         let wasResting = isResting
         noteActivity(.frameRequest)
-        guard pinnedTarget == nil else { return .failure(.pinnedToDisplay) }
         switch availability {
             case .live                : break
             case .suspended           : return .failure(.recovering)

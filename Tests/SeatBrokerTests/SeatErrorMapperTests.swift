@@ -440,7 +440,12 @@ private let everySuspensionCause: [SeatSuspensionCause] = [
         (.unsupportedRole("AXSlider"), "Nothing clickable is at that point (AXSlider)"),
         (.opensMenu("AXPopUpButton"), "Use select with this control and the item, or context_menu"),
         (.actionRefused(action: "AXPress", code: -25200), "the action may have taken effect. Observe before retrying"),
+        (.actionRefused(action: "AXPress", code: -25206), "so it did nothing"),
         (.selectionNotVerified("AXImage"), "Switch the view to list view"),
+        (.selectionNotVerified("AXRow"), "Observe again before retrying"),
+        (.selectedNotOpened(code: nil), "The row was selected"),
+        (.selectedNotOpened(code: -25206), "opening it is not supported there"),
+        (.selectedNotOpened(code: -25205), "Observe before retrying"),
         (.columnView, "in a column view, where a click cannot select yet"),
     ]
     for (refusal, phrase) in refusals {

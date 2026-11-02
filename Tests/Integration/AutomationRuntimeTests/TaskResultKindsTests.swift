@@ -5,7 +5,7 @@
 //  Created by Tommaso Mazzarini on 14/10/2026.
 //
 
-import AutomationMCP
+@testable import AutomationMCP
 @testable import AutomationRuntime
 import EngineCore
 import Foundation
@@ -23,6 +23,26 @@ import Testing
 @Suite("The kinds of a task's result", .serialized)
 struct TaskResultKindsTests {
 
+    @Test("a result check reads a field past the edge without inventing a control state")
+    func outOfViewResult() {
+        let scene = SceneSnapshot(
+            bundleID: "com.avid.ProTools", appName: "Pro Tools", windowTitle: "Edit",
+            viewportPixelSize: .init(width: 1261, height: 827), elements: [],
+            outOfViewFields: [OutOfViewField(label: "Tempo value", value: "  97.0000", role: "AXTextField")]
+        )
+        func judge(_ expected: TaskResultCheck.ElementExpectation) -> TaskResultCheck {
+            TaskResultCheck.judge(.element(app: nil, label: "tempo VALUE", expect: expected),
+                                  attemptID: "tempo", windows: nil, scene: scene)
+        }
+        #expect(judge(.present).verdict == .passed)
+        #expect(judge(.absent).verdict == .failed)
+        #expect(judge(.value("97.0000")).verdict == .passed)
+        #expect(judge(.value("120.0000")).verdict == .failed)
+        #expect(judge(.state(.on)).verdict == .unknown)
+        #expect(judge(.value("97.0000")).observed.contains("past the window's edge"))
+        #expect(judge(.state(.on)).observed.contains("past the window's edge"))
+    }
+
     typealias P = ProcedureLearningTests
 
     static let unknownEffect = ProcedureMethodTests.unknownEffect
@@ -32,6 +52,20 @@ struct TaskResultKindsTests {
         let folder = Scratch.directory("braus-lavoro")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
+    }
+
+    @Test("opening Tempo Operations does not certify that its tempo was applied")
+    func aWindowCheckReportsItsLimitedScope() throws {
+        let checks = try MemoryTaskTool.resultChecks(
+            .object(["window": .string("Tempo Operations"), "open": .bool(true)]),
+            minimization: ValueMinimization()
+        )
+        let evidence = AutomationTools.completionEvidence(checks, checked: .array([
+            .object(["verdict": .string("passed")])
+        ]))
+        #expect(evidence["checks"].string == "passed")
+        #expect(evidence["scope"].string == "window_presence_only")
+        #expect(evidence["goal_match"].string == "not_assessed")
     }
 
     @Test("a file changed in place passes when its content differs from the start, and fails when it was only saved again")
@@ -60,6 +94,8 @@ struct TaskResultKindsTests {
                 {"operation":"end","outcome":"completed","result_check":[{"file_changed":"\#(document.path)"},
                  {"file_unchanged":"\#(original.path)"}]}
                 """#)
+            #expect(ended["completion_evidence"]["checks"].string == (changed ? "passed" : "failed"))
+            #expect(ended["completion_evidence"]["goal_match"].string == "not_assessed")
             let verdicts = ended["result_check"].array?.map { $0["verdict"].string ?? "" }
             #expect(verdicts == [changed ? "passed" : "failed", "passed", "passed"], "the folder's guard third: \(ended["result_check"])")
             let candidate = try #require(ended["candidate"]["id"].string)

@@ -256,6 +256,13 @@ struct RemoteContentActuationTests {
 
     // MARK: 1. A mapped element is acted on, and nothing is posted
 
+    @Test("effect evidence distinguishes a wrong target from an unverified selection write")
+    func humanRefusalEffectEvidence() {
+        #expect(!RemoteContentActuationRefusal.opensMenu("AXPopUpButton").mayHaveTakenEffect)
+        #expect(!RemoteContentActuationRefusal.wrongElement(requested: "Create", found: "Cancel").mayHaveTakenEffect)
+        #expect(RemoteContentActuationRefusal.selectionNotVerified("AXRow").mayHaveTakenEffect)
+    }
+
     @Test("a click on a control's caption presses the control and posts no event")
     func aClickPressesTheControlUnderIt() async throws {
         let hit   = Hit()
@@ -590,6 +597,43 @@ struct RemoteContentActuationTests {
         #expect(typed.route.poster == .accessibilityAction)
         #expect(typed.route.windowNumber == panel.remote.windowNumber)
         #expect(typed.textMeasure == text.textMeasure)
+        try panel.routing.seat.confirm(typed, .unknown)
+        try panel.routing.seat.release(turn)
+    }
+
+    @Test("a click and the text after it are actuated off the main thread, which awaits them")
+    func actuationRunsOffTheMainThread() async throws {
+        let hit   = Hit()
+        let panel = try await Self.panel(hit)
+        hit.element = panel.field
+        let discovery = panel.routing.discovery
+        let actuate   = discovery.actuation
+        // The remembered field's text is recorded where the click's actuation is. No `map`: a closure
+        // of this main actor test handed to the standard library is checked to run on the main actor.
+        discovery.actuation = { command, endpoint in
+            let answer = actuate(command, endpoint)
+            guard case .success(let acted) = answer, let field = acted.textField else { return answer }
+            return .success(RemoteContentActuation(action: acted.action, role: acted.role, textField: .init(
+                isAnswering     : field.isAnswering,
+                replaceSelection: { text in
+                    discovery.actuatedOnMainThread.append(pthread_main_np() != 0)
+                    return field.replaceSelection(text)
+                }
+            )))
+        }
+
+        let turn  = try await panel.routing.seat.acquire()
+        let click = try await panel.routing.seat.send(
+            Self.click(panel, count: 3), observation: panel.observation, turn: turn
+        )
+        try panel.routing.seat.confirm(click, .unknown)
+        let typed = try await panel.routing.seat.send(
+            .text("name.txt"), observation: try await observedReference(panel.routing.seat), turn: turn
+        )
+
+        #expect(discovery.actuatedOnMainThread == [false, false], "the click, then the text")
+        #expect(panel.field.value == "name.txt")
+        #expect(click.route.poster == .accessibilityAction && typed.route.poster == .accessibilityAction)
         try panel.routing.seat.confirm(typed, .unknown)
         try panel.routing.seat.release(turn)
     }

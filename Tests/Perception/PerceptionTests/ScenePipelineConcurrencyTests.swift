@@ -8,6 +8,36 @@ import Testing
 
 @Suite("Perception scheduling")
 struct ScenePipelineConcurrencyTests {
+    private struct BlockingRegions: RegionSegmenting {
+        let probe: AbandonProbe
+        func segments(in image: CGImage) throws -> [CGRect] {
+            probe.started.signal()
+            _ = probe.abandoned.wait(timeout: .now() + 5)
+            return []
+        }
+    }
+
+    @Test func cancelledObservationAbandonsSegmentation() async throws {
+        let probe = AbandonProbe()
+        let capture = try image()
+        let pipeline = ScenePipeline(text: ScenePipelineTests.FixedText(runs: []),
+                                     regions: BlockingRegions(probe: probe))
+        let ended = Mutex(false)
+        let read = Task {
+            defer { ended.withLock { $0 = true } }
+            return try await pipeline.perceive(capture, of: .init(bundleID: "test", appName: "Test", title: ""))
+        }
+        #expect(await Task.detached { probe.waitUntilStarted() }.value)
+        read.cancel()
+        let deadline = ContinuousClock.now + .milliseconds(300)
+        while !ended.withLock({ $0 }), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(ended.withLock { $0 }, "cancellation must not wait for segmentation")
+        probe.abandoned.signal()
+        await #expect(throws: CancellationError.self) { try await read.value }
+    }
+
     private final class OverlapProbe: Sendable {
         let nativeStarted = DispatchSemaphore(value: 0)
         let overlapped = Mutex(false)

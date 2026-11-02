@@ -314,7 +314,8 @@ let package = Package(
              "Perception", "VisionText", "PixelRegions", "PixelSections", "PixelControlState",
              "AccessibilityFacts", "EngineCore", "IncrementalText", "ModelTransports", "SeatDriving",
              // A worker's tools reach the desktop through the broker's own conformer of their session role.
-             "AutomationRuntime", "Engine", "Memory", "PhaseSignposts"]
+             "AutomationRuntime", "Engine", "Memory", "LocalEmbedding", "PhaseSignposts",
+             "InteractionListener", "InteractionObservation", "ScreenCapture"]
         ),
 
         // MARK: Driver tools
@@ -353,7 +354,7 @@ let package = Package(
             ["SeatBroker", "PerceptionCore", "SeatCore", "SeatCapture",
              "SeatSession", "SeatInput", "TargetReader", "EngineCore", "ModelTransports",
              "SeatDriving", "AutomationRuntime", "Engine", "AutomationMCP", "LocalMCP", "Memory", "TestScratch",
-             "WindowServerListing", "TaskRouting"]
+             "WindowServerListing", "TaskRouting", "InteractionListener", "InteractionObservation"]
         ),
         brokerTests("ModelTransports", ["ModelTransports"]),
         // The living memory wired to the tools, the sessions and the engine: the queue, the recorder, the
@@ -479,7 +480,10 @@ let package = Package(
 
         // `TextEmbedding` over a pinned local model: the XLM-RoBERTa tokenizer and a BERT-family encoder on
         // Accelerate, reading the model's files from disk. Imports Memory, Foundation and Accelerate; no network.
-        engine("LocalEmbedding", ["Memory", "LocalEmbeddingKernels"], settings: pure),
+        // A debug build still runs the encoder optimized: unoptimized Swift took 57 ms a text against 2.7 ms in
+        // release (granite-107m, 28 Oct 2026), too slow for the handoff digest's deadline.
+        engine("LocalEmbedding", ["Memory", "LocalEmbeddingKernels"],
+               settings: pure + [.unsafeFlags(["-O"], .when(configuration: .debug))]),
         // The matrix product of the local model over Accelerate's current CBLAS interface, which needs a C define.
         .target(name: "LocalEmbeddingKernels", path: "Sources/Engine/LocalEmbeddingKernels",
                 cSettings: [.define("ACCELERATE_NEW_LAPACK")], linkerSettings: [.linkedFramework("Accelerate")]),

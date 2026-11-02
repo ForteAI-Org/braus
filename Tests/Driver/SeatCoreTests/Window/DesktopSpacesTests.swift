@@ -22,6 +22,19 @@ struct DesktopSpacesTests {
         .init(displayID: 3, spaces: [2079, 2313], current: 2079),
     ])
 
+    @Test("a layout knows whether any desktop is hidden, and agrees with every window's answer")
+    func aLayoutWithNoHiddenDesktopHoldsNoInactiveWindow() {
+        #expect(Self.layout.hasInactiveSpace)
+        let shownOnly = DesktopLayout(displays: [
+            .init(displayID: 1, spaces: [1],    current: 1),
+            .init(displayID: 3, spaces: [2079], current: 2079),
+        ])
+        #expect(!shownOnly.hasInactiveSpace)
+        for spaces in [[1], [2079], [1, 2079], [9999], []] as [[Int]] {
+            #expect(!shownOnly.containsOnlyInactive(spaces), "no window can be on a desktop no display hides")
+        }
+    }
+
     // MARK: The target
 
     @Test("the original desktop is the target while a display still lists it")

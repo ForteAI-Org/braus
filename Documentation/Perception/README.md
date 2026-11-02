@@ -31,6 +31,20 @@ facts and merges a fresh native harvest on every observation, including its curr
 A control outside the visible viewport can change without changing the image. An unavailable
 native read leaves that state unknown rather than repeating the last value.
 
+`ProductionPerception.pipeline` owns the shared production adapter configuration. Its optional timing
+hook is nil for workers. Stage durations include failures and can overlap: OCR, segmentation and
+native harvesting run concurrently. Full and text-only pipelines both come from that definition.
+Per-action reads omit segmentation, media filtering and colour sections, and compare only against
+text-only baselines per window. Final-state reads retain the full pipeline. Each finding and its log
+identify the mode. Both pipelines route the hook through a task-local timing context, so concurrent
+reads never share measurements. Construction is reported
+once, separately from read latency. Consumer timings cover minimization, compact rendering, differences,
+diagnostic redaction and compression; difference timing includes its own line rendering.
+
+The native value guard accepts the walker's role and subrole. Non-text children need no additional
+classification messages; editable nodes read their subrole once and guard only their labels before
+AXValue. With no guard, string and numeric values retain the original single AXValue request and retry.
+
 ## Using it
 
 ```swift
@@ -145,6 +159,23 @@ scene.resolve(target: "Export")               // .found, .ambiguous(n) or .none
   Native controls and static values also need at least two visible points on each axis after
   clipping to their container and the capture. Chrome's one-point proxies for offscreen elements
   supply neither an actionable control nor a visible value; scrolling can make them eligible.
+- Named native text-entry fields wholly past the window's edge are carried separately as
+  `OutOfViewField` facts in `AccessibilityHarvest.outOfViewFields` and `SceneSnapshot.outOfViewFields`.
+  The field must have finite bounds with area, its own title, description or identifier label
+  (at most 48 characters), and a nonempty, non-placeholder value. The current clip must still be
+  the window frame, with no scrolling-container ancestor. Borrowed captions, unnamed-editor
+  handles, scrolled-out content and partially visible controls do not enter this list.
+  The first 16 qualifying fields in walk order survive; this cap is a filtering rule, not a stop
+  reason, and does not consume the visible element budget. It bounds stale-frame trees such as
+  Premiere's without trusting their geometry. The raw value, role, availability and container
+  path survive, but no bounds or target identity do. Existing element filters are unchanged.
+  Both scene text tiers append `past the window's edge (read only, not visible)` only when needed,
+  without positions or IDs. `SceneChanges` reports value changes, additions and removals there.
+  Action and text-entry resolution still search only `elements`; these facts cannot be targets.
+  Their values contribute to `SceneToken`, because action verification and observation recording
+  use token equality to detect unchanged scenes. A read-only value change must not be discarded
+  as a duplicate observation or reported as a ghost action; it does not by itself prove delivery.
+  Empty lists preserve earlier tokens, and older scene JSON decodes a missing list as empty.
 - `AccessibilityAugmentation.harvest` answers the elements with the quality of the walk
   (`CaptureQuality`): `walkCompleted` is measured, never inferred from the element count, and the
   first limit met is `stoppedBy` (deadline, element, table or depth budget). Static text the element

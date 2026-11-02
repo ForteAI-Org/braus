@@ -23,8 +23,9 @@ import SwiftUI
 /// A change of worker plays `HouseSwitch`: the worker drops into its capsule and the next one hops out
 /// of it. The capsule stays: an arriving hero's capsule starts from the previous worker's words and
 /// light (`houseSwitchPrevious`) and writes its own in, and a leaving hero's hides at once beneath it.
-/// The hero's frame is the same for every shape and every subtitle, so the transcript under it never
-/// moves.
+/// The hero's frame is the same for every shape. The capsule holds one line, the name, while the
+/// subtitle is empty, and grows a second for it, so only a subtitle coming or going moves the
+/// transcript under it, with the capsule's spring. The capsule is at most `captionWidth` wide.
 struct HouseHero: View {
     let worker     : HouseWorker
     let status     : WorkerStatus
@@ -56,6 +57,9 @@ struct HouseHero: View {
 
     /// The side of the worker's sphere, in points.
     static let workerSize: CGFloat = 60
+
+    /// The widest the capsule grows, in points; a longer name or subtitle ends in an ellipsis.
+    static let captionWidth: CGFloat = 320
 
     /// The height the worker stands in: the tallest shape's, so every worker takes the same room.
     static let portraitHeight = WorkerShape.allCases.map { shape in
@@ -140,6 +144,8 @@ struct HouseHero: View {
                     .offset(y: -4)
                     .allowsHitTesting(false)
             }
+            // Only the room the capsule may take: the capsule still hugs its words inside it.
+            .frame(maxWidth: Self.captionWidth)
             // The arriving hero's capsule stands in the same place, so the leaving one goes at once.
             .opacity(stage == .leaving ? 0 : 1)
             .animation(

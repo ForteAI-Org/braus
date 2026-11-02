@@ -15,6 +15,21 @@ import Testing
 @Suite("Classified withholding (W1 typed secrets)")
 struct ClassifiedWithholdingTests {
 
+    @Test("read-only fields follow the scene's value withholding rules")
+    func outOfViewWithholding() {
+        let scene = SceneSnapshot(
+            bundleID: "fixture", appName: "Fixture", windowTitle: "Editor",
+            viewportPixelSize: .init(width: 100, height: 100), elements: [],
+            outOfViewFields: [OutOfViewField(label: "Name " + Self.typed, value: Self.typed,
+                                            role: "AXTextField", container: "Panel " + Self.typed)]
+        )
+        let kept = ValueMinimization(classified: [Self.typed: .secureField]).minimize(scene: scene)
+        #expect(!kept.text().contains(Self.typed))
+        #expect(kept.outOfViewFields.first?.value == ValueMinimization.marker)
+        #expect(ConfidentialSurfaces.structure(of: scene).outOfViewFields.isEmpty)
+        #expect(ConfidentialSurfaces.contentTexts(of: scene).contains(Self.typed))
+    }
+
     static let typed = "typed-W1-4417"
 
     @Test("type_text into a secure field: the text is withheld with secure_field, the target kept")

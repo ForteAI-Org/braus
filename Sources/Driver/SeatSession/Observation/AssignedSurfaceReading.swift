@@ -85,6 +85,7 @@ nonisolated package struct AssignedSurfaceSnapshot: Sendable, Equatable {
 
     package let inventory: SurfaceInventoryReading
     package let claims   : SelectionClaimBatch
+    package let presentation: [WindowIdentity: WindowPresentationMetadata]
 
     /// What this pass established about each surface it looked up by identity
     /// and did not find in the application's own window scope. A surface the
@@ -117,11 +118,13 @@ nonisolated package struct AssignedSurfaceSnapshot: Sendable, Equatable {
     package init(
         inventory: SurfaceInventoryReading,
         claims   : SelectionClaimBatch = .none,
-        retained : [WindowIdentity: RetainedSurfaceDisposition] = [:]
+        retained : [WindowIdentity: RetainedSurfaceDisposition] = [:],
+        presentation: [WindowIdentity: WindowPresentationMetadata] = [:]
     ) {
         self.inventory = inventory
         self.claims    = claims
         self.retained  = retained
+        self.presentation = presentation
     }
 
     private func identities(_ disposition: RetainedSurfaceDisposition) -> [WindowIdentity] {
@@ -156,4 +159,17 @@ nonisolated package protocol AssignedSurfaceReading: Sendable {
     /// `SurfaceInventoryReading.unavailable`, which leaves membership untouched
     /// and is never an application with no windows.
     func snapshot(ownedBy processIDs: Set<Int32>) -> AssignedSurfaceSnapshot
+
+    /// Takes a fresh asynchronous pass. Nil means supersession or cancellation, so the caller
+    /// must not fold it. Native IPC runs away from the main thread in the shipped conformer.
+    func snapshotInBackground(ownedBy processIDs: Set<Int32>) async -> AssignedSurfaceSnapshot?
+}
+
+nonisolated extension AssignedSurfaceReading {
+
+    /// Reads from an asynchronous caller. Native adapters override this to move blocking IPC
+    /// off the caller's executor; controlled in-memory readers need no executor hop.
+    package func snapshotInBackground(ownedBy processIDs: Set<Int32>) async -> AssignedSurfaceSnapshot? {
+        snapshot(ownedBy: processIDs)
+    }
 }

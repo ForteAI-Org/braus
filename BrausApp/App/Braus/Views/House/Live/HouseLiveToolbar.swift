@@ -84,7 +84,7 @@ struct HouseLiveToolbar: ToolbarContent {
 
     private var screenOverConversation: Binding<Bool> {
         Binding(
-            get: { team.showsScreenInConversation },
+            get: { team.selection.map(team.screenPlace(of:)) == .conversation },
             set: { shows in withAnimation(.snappy) { team.showsScreenInConversation = shows } }
         )
     }

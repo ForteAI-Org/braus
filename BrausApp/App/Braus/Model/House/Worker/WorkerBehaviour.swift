@@ -80,6 +80,7 @@ nonisolated struct WorkerBehaviour: Sendable {
         var right     = [start]
         var intents   : [WorkerBehaviourLoop.BodyIntent] = []
         var actions   : [BrowAction] = []
+        var spans     : [WorkerBehaviourLoop.Span] = []
         var leftLeads = true
         var time = Double.random(
             in   : rests,
@@ -123,6 +124,10 @@ nonisolated struct WorkerBehaviour: Sendable {
                 ))
             }
             actions.append(action)
+            spans.append(WorkerBehaviourLoop.Span(
+                start   : time,
+                duration: performance.duration + stagger
+            ))
             if performance.staggers { leftLeads.toggle() }
             time += performance.duration + stagger + Double.random(
                 in   : rests,
@@ -141,7 +146,8 @@ nonisolated struct WorkerBehaviour: Sendable {
             left    : left + [end],
             right   : right + [end],
             intents : intents,
-            actions : actions
+            actions : actions,
+            spans   : spans
         )
     }
 

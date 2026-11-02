@@ -4,8 +4,8 @@ import Foundation
 /// InteractionWindowReader resolves OS-routed recipients without activating an application.
 /// Popup and desktop surfaces remain eligible; stacking order alone is not evidence of ownership.
 public enum InteractionWindowReader {
-    public static func windows(excluding processID: Int32) -> [InteractionWindow] {
-        guard let rows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], 0)
+    public static func windows(excluding processID: Int32, onScreenOnly: Bool = true) -> [InteractionWindow] {
+        guard let rows = CGWindowListCopyWindowInfo(onScreenOnly ? [.optionOnScreenOnly] : [.optionAll], 0)
             as? [[String: Any]] else { return [] }
         return rows.compactMap(window(row:)).filter { $0.processID != processID }
     }
@@ -14,6 +14,8 @@ public enum InteractionWindowReader {
     /// record that names a window: the title of a confirmed surface, or the routed window the snapshot
     /// predated, such as a popup opened just before the click.
     package static func event(for record: InputRecord, excluding processID: Int32) -> InteractionEvent? {
+        // Keyboard attribution needs no title read: a document title may itself contain typed text.
+        if record.kind == .shortcut || record.kind == .typing { return InteractionEvent(record: record, title: nil) }
         let named = record.windowNumber > 0 && (record.has(.windowResolved) || record.has(.staleAttribution))
         let row = named ? row(of: Int(record.windowNumber)) : nil
         let late = lateWindow(for: record, row: row, excluding: processID)
@@ -120,6 +122,18 @@ struct AttributionSnapshot: Sendable {
             if recipientWindowNumber > 0 || targetProcessID > 0 { record.set(.staleAttribution) }
             return
         }
+        stamp(&record, window: window)
+    }
+
+    /// Uses the frontmost cached window for a keyboard recipient without consulting pointer geometry.
+    func attributeKeyboard(_ record: inout InputRecord, targetProcessID: Int32) {
+        record.targetPID = targetProcessID
+        record.attributionGeneration = generation
+        guard targetProcessID > 0, let window = windows.first(where: { $0.processID == targetProcessID }) else { return }
+        stamp(&record, window: window)
+    }
+
+    private func stamp(_ record: inout InputRecord, window: Window) {
         record.set(.windowResolved)
         record.targetPID = window.processID
         record.windowNumber = UInt32(clamping: window.number)

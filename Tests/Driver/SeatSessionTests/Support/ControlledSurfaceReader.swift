@@ -82,6 +82,15 @@ final class ControlledSurfaceReader: AssignedSurfaceReading, @unchecked Sendable
         self.sensing = sensing
     }
 
+    /// Runs after an asynchronous pass was read but before its caller receives it.
+    var beforeBackgroundDelivery: (@MainActor @Sendable () async -> Void)?
+
+    func snapshotInBackground(ownedBy processIDs: Set<Int32>) async -> AssignedSurfaceSnapshot? {
+        let reading = snapshot(ownedBy: processIDs)
+        await beforeBackgroundDelivery?()
+        return reading
+    }
+
     func snapshot(ownedBy processIDs: Set<Int32>) -> AssignedSurfaceSnapshot {
 
         passes += 1

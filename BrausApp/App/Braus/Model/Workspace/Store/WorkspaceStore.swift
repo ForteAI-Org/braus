@@ -19,14 +19,37 @@ import SwiftData
 /// The actor, rather than the main actor, because a workspace holds tens of
 /// thousands of events and ten thousand messages in one conversation, and
 /// opening, migrating and querying that must not sit on the thread the
-/// transcript scrolls on.
+/// transcript scrolls on. The app opens off the main thread
+/// (`openingOffMain(in:)`), and every call runs on the store's own queue
+/// (`unownedExecutor`).
 ///
 /// One instance per store directory per process. Orders (`Message.sequence`,
 /// `WorkspaceEvent.localOrder`) are assigned by reading the current maximum
 /// under this actor, which is exclusive within the process and not across
 /// two processes opening the same directory.
-@ModelActor
-actor WorkspaceStore {
+actor WorkspaceStore: ModelActor {
+
+    nonisolated let modelContainer: ModelContainer
+
+    nonisolated let modelExecutor: any ModelExecutor
+
+    /// The queue every call of the store runs on.
+    ///
+    /// Written out rather than taken from `@ModelActor`, whose executor runs
+    /// each call on the thread that made it, measured on macOS 27 (SDK 27.0):
+    /// a call from the main actor ran on the main thread, wherever the context
+    /// was made. With this queue as the actor's executor, the context is only
+    /// ever used on it. `WorkspaceStoreThreadTests` pins it.
+    private nonisolated let queue = DispatchSerialQueue(label: "dev.forte.braus.workspace-store", qos: .userInitiated)
+
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        queue.asUnownedSerialExecutor()
+    }
+
+    init(modelContainer: ModelContainer) {
+        self.modelContainer = modelContainer
+        self.modelExecutor  = DefaultSerialModelExecutor(modelContext: ModelContext(modelContainer))
+    }
 
     /// Executions this instance started. They belong to this process, so
     /// `endExecutionsLeftUnfinished` never ends one of them.
@@ -40,8 +63,28 @@ actor WorkspaceStore {
     ///
     /// The directory is the caller's decision: this module resolves no path of
     /// its own. Throws `WorkspaceStoreError`; see `WorkspaceStoreFile`.
+    ///
+    /// Called from the main actor, this opens the file there: creating the
+    /// directory, the copy before an upgrade, the container and its migration.
+    /// The app opens through `openingOffMain(in:)`; this one stays for the
+    /// check runs and the tests, which need the store synchronously. Where the
+    /// store's later calls run does not depend on the opener: on its queue.
     static func opening(in directory: URL) throws -> WorkspaceStore {
         WorkspaceStore(modelContainer: try WorkspaceStoreFile.open(in: directory))
+    }
+
+    /// Opens the store as `opening(in:)` does, on the concurrent pool, so the
+    /// open, the copy and the migration never sit on the main thread. This is
+    /// the opener the app uses.
+    @concurrent
+    static func openingOffMain(in directory: URL) async throws -> WorkspaceStore {
+        try opening(in: directory)
+    }
+
+    /// Whether the actor's work runs on the main thread. It exists for
+    /// `WorkspaceStoreThreadTests`, which pins where the store's calls run.
+    func runsOnMainThread() -> Bool {
+        Thread.isMainThread
     }
 
     /// Saves every pending change, or leaves none behind.

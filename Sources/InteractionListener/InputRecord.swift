@@ -18,11 +18,18 @@ import Foundation
 ///    48 windowNumber      UInt32
 ///    52 windowLayer       Int32
 ///
+/// For shortcuts, `lostCritical` holds the virtual key code and `lostCoalescible` the modifier mask.
+/// For clicks and right clicks, `lostCritical` holds the click count; the wire offsets do not change.
+/// For drags, `x/y` is the press point and `valueA/valueB` the release point; scrolls use the latter
+/// for deltas. Typing keeps only target, source, window geometry, timestamps and revision tokens,
+/// never key identity, modifiers, text or a count. All unused payload fields remain zero.
+///
 /// A gap stands for records the queue could not keep: `sequence` is the last lost one and the range
 /// starts `lostCritical + lostCoalescible - 1` before it. Its timestamps and revisions span the loss.
 public struct InputRecord: Sendable, Equatable {
     public enum Kind: UInt16, Sendable {
         case empty = 0, click = 1, rightClick = 2, scrollDelta = 3, hover = 4, focus = 5, gap = 6
+        case shortcut = 7, typing = 8, drag = 9
     }
 
     public enum Flag: UInt16, Sendable {
@@ -71,7 +78,8 @@ public struct InputRecord: Sendable, Equatable {
 
     public var kind: Kind { Kind(rawValue: type) ?? .empty }
 
-    /// Clicks, focus and loss markers take reserved capacity; hovers and scrolls may be coalesced.
+    /// Clicks, shortcuts, typing bursts, drags, focus and gaps take reserved capacity.
+    /// Only hovers and scrolls may be coalesced under queue pressure.
     public var isCritical: Bool { kind != .hover && kind != .scrollDelta }
 
     public var startedAt: Double { Double(startTimestamp) / 1e9 }
@@ -105,9 +113,13 @@ extension InteractionEvent {
         case .hover: kind = .hover
         case .focus: kind = .focus
         case .gap: kind = .gap
+        case .shortcut: kind = .shortcut
+        case .typing: kind = .typing
+        case .drag: kind = .drag
         }
+        let keyboard = kind == .shortcut || kind == .typing
         let window = record.has(.windowResolved) ? InteractionWindow(
-            processID: record.targetPID, number: Int(record.windowNumber), title: title,
+            processID: record.targetPID, number: Int(record.windowNumber), title: keyboard ? nil : title,
             layer: Int(record.windowLayer),
             frame: CGRect(x: Double(record.windowX), y: Double(record.windowY),
                           width: Double(record.windowWidth), height: Double(record.windowHeight))
@@ -122,9 +134,14 @@ extension InteractionEvent {
             precedingRevision: record.precedingRevision, revision: record.revision,
             point: CGPoint(x: Double(record.x), y: Double(record.y)), window: window,
             processID: window?.processID ?? record.targetPID,
-            deltaX: Double(record.valueA), deltaY: Double(record.valueB),
+            deltaX: kind == .scroll ? Double(record.valueA) : 0,
+            deltaY: kind == .scroll ? Double(record.valueB) : 0,
             sourceProcessID: record.has(.hasSourceProcess) ? record.sourcePID : nil,
-            sequence: record.sequence, gap: gap
+            sequence: record.sequence, gap: gap,
+            keyCode: kind == .shortcut ? UInt16(clamping: record.lostCritical) : nil,
+            modifiers: kind == .shortcut ? Modifiers(rawValue: record.lostCoalescible) : nil,
+            endPoint: kind == .drag ? CGPoint(x: Double(record.valueA), y: Double(record.valueB)) : nil,
+            clickCount: kind == .click || kind == .rightClick ? record.lostCritical : nil
         )
     }
 }

@@ -25,6 +25,7 @@ nonisolated package struct AccessibilitySurfaceRecord: Sendable, Equatable {
     package let isFocused   : Bool?
     package let parentWindowNumber: Int?
     package let appIsHidden : Bool
+    package let presentation: WindowPresentationMetadata
 
     package init(
         processID   : Int32,
@@ -35,7 +36,8 @@ nonisolated package struct AccessibilitySurfaceRecord: Sendable, Equatable {
         isMain      : Bool? = nil,
         isFocused   : Bool? = nil,
         parentWindowNumber: Int? = nil,
-        appIsHidden : Bool
+        appIsHidden : Bool,
+        presentation: WindowPresentationMetadata = .init()
     ) {
         self.processID    = processID
         self.windowNumber = windowNumber
@@ -46,6 +48,7 @@ nonisolated package struct AccessibilitySurfaceRecord: Sendable, Equatable {
         self.isFocused    = isFocused
         self.parentWindowNumber = parentWindowNumber
         self.appIsHidden  = appIsHidden
+        self.presentation = presentation
     }
 }
 
@@ -421,6 +424,7 @@ nonisolated package enum CrossCheckedSurfaceReader {
 
         var rows   : [SurfaceInventoryReading.Row] = []
         var claims = SelectionClaimBatch()
+        var presentation: [WindowIdentity: WindowPresentationMetadata] = [:]
         for key in matched {
             guard let surface = serverByKey[key],
                   let record = axByKey[key],
@@ -433,6 +437,10 @@ nonisolated package enum CrossCheckedSurfaceReader {
                     provenance: .windowServerAttestedIdentity
                 )
             )
+
+            var labels = record.presentation
+            labels.parentWindowNumber = record.parentWindowNumber
+            presentation[identity] = labels
 
             if let role = record.role {
                 claims.roles.append(
@@ -566,7 +574,8 @@ nonisolated package enum CrossCheckedSurfaceReader {
         return AssignedSurfaceSnapshot(
             inventory: SurfaceInventoryReading(rows: rows, completeness: completeness),
             claims   : claims,
-            retained : retained
+            retained : retained,
+            presentation: presentation
         )
     }
 
@@ -667,7 +676,8 @@ nonisolated package enum CrossCheckedSurfaceReader {
                             deadlineNanoseconds: deadlineNanoseconds,
                             windowNumbers: windowNumbers
                         ) : nil,
-                        appIsHidden : running.isHidden
+                        appIsHidden : running.isHidden,
+                        presentation: facts.presentation
                     )
                 )
             }
@@ -716,6 +726,7 @@ nonisolated package enum CrossCheckedSurfaceReader {
     }
 
     private struct WindowFacts {
+        let presentation: WindowPresentationMetadata
         let windowNumber: Int
         let role        : SurfaceRole?
         let isMinimised : Bool?
@@ -871,7 +882,8 @@ nonisolated package enum CrossCheckedSurfaceReader {
         kAXRoleAttribute,
         kAXSubroleAttribute,
         kAXMinimizedAttribute,
-        kAXModalAttribute
+        kAXModalAttribute,
+        kAXTitleAttribute
     ]
 
     /// The application attributes one batched read collects, both optional and
@@ -971,6 +983,10 @@ nonisolated package enum CrossCheckedSurfaceReader {
 
         func facts(_ role: SurfaceRole?) -> Result<WindowFacts?, CrossCheckedSurfaceReadFailure> {
             .success(WindowFacts(
+                presentation: WindowPresentationMetadata(
+                    role: roleName, subrole: slots[kAXSubroleAttribute] as? String,
+                    title: slots[kAXTitleAttribute] as? String ?? ""
+                ),
                 windowNumber: windowNumber,
                 role        : role,
                 isMinimised : isMinimised,

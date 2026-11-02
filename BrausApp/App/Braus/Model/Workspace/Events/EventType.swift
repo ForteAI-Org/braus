@@ -30,6 +30,10 @@ nonisolated enum EventType: Sendable, Hashable {
     case executionFailed
     case executionCancelled
 
+    /// The turn ended because the person took control of its application.
+    /// Nothing went wrong: no failure, no stop. No payload.
+    case executionHandedToPerson
+
     /// One line of a turn's tool use, as the agent's tools recorded it. The
     /// payload is that line as UTF-8. Replies are messages, never this.
     case toolActivity
@@ -53,6 +57,10 @@ nonisolated enum EventType: Sendable, Hashable {
     /// before it; the messages stay. No payload; its subject is the conversation.
     case contextReset
 
+    /// The person ended control of the worker's application without handing
+    /// it back, which stopped the task. No payload; its subject is the conversation.
+    case humanControlStopped
+
     /// A type this build does not know, with the raw value it was stored as.
     ///
     /// Readers skip it. It is never terminal here: whether the row ended its
@@ -67,10 +75,11 @@ nonisolated enum EventType: Sendable, Hashable {
     /// `NewEvent.deduplicationKey`.
     var isTerminal: Bool {
         switch self {
-        case .executionCompleted, .executionFailed, .executionCancelled: true
+        case .executionCompleted, .executionFailed, .executionCancelled, .executionHandedToPerson: true
         case .workerCreated, .workerConfigured, .workerArchived, .conversationOpened,
              .messageRecorded, .messageDeliveryChanged, .executionStarted, .toolActivity,
-             .agentProcessStarted, .turnUsage, .contextCompacted, .contextReset, .unknown: false
+             .agentProcessStarted, .turnUsage, .contextCompacted, .contextReset, .humanControlStopped,
+             .unknown: false
         }
     }
 
@@ -79,6 +88,7 @@ nonisolated enum EventType: Sendable, Hashable {
         .workerCreated, .workerConfigured, .workerArchived, .conversationOpened,
         .messageRecorded, .messageDeliveryChanged, .executionStarted, .executionCompleted, .executionFailed,
         .executionCancelled, .toolActivity, .agentProcessStarted, .turnUsage, .contextCompacted, .contextReset,
+        .executionHandedToPerson, .humanControlStopped,
     ]
 }
 
@@ -91,22 +101,24 @@ nonisolated extension EventType: RawRepresentable, Codable {
 
     var rawValue: String {
         switch self {
-        case .workerCreated:          "workerCreated"
-        case .workerConfigured:       "workerConfigured"
-        case .workerArchived:         "workerArchived"
-        case .conversationOpened:     "conversationOpened"
-        case .messageRecorded:        "messageRecorded"
-        case .messageDeliveryChanged: "messageDeliveryChanged"
-        case .executionStarted:       "executionStarted"
-        case .executionCompleted:     "executionCompleted"
-        case .executionFailed:        "executionFailed"
-        case .executionCancelled:     "executionCancelled"
-        case .toolActivity:           "toolActivity"
-        case .agentProcessStarted:    "agentProcessStarted"
-        case .turnUsage:              "turnUsage"
-        case .contextCompacted:       "contextCompacted"
-        case .contextReset:           "contextReset"
-        case .unknown(let value):     value
+        case .workerCreated:           "workerCreated"
+        case .workerConfigured:        "workerConfigured"
+        case .workerArchived:          "workerArchived"
+        case .conversationOpened:      "conversationOpened"
+        case .messageRecorded:         "messageRecorded"
+        case .messageDeliveryChanged:  "messageDeliveryChanged"
+        case .executionStarted:        "executionStarted"
+        case .executionCompleted:      "executionCompleted"
+        case .executionFailed:         "executionFailed"
+        case .executionCancelled:      "executionCancelled"
+        case .executionHandedToPerson: "executionHandedToPerson"
+        case .toolActivity:            "toolActivity"
+        case .agentProcessStarted:     "agentProcessStarted"
+        case .turnUsage:               "turnUsage"
+        case .contextCompacted:        "contextCompacted"
+        case .contextReset:            "contextReset"
+        case .humanControlStopped:     "humanControlStopped"
+        case .unknown(let value):      value
         }
     }
 }

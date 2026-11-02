@@ -1,7 +1,83 @@
 # Retire a clean worker lease's display
 
-Status: candidate, 2026-10-05. Application qualification is recorded in
-[the stabilization rounds](../reports/StabilizationRounds.md).
+Status: amended 2026-10-26: a clean lease keeps its display for an idle
+period and retires it then (below). Candidate 2026-10-05; application
+qualification is recorded in [the stabilization rounds](../reports/StabilizationRounds.md).
+
+## Amended 2026-10-26: keep a clean lease's display for an idle period
+
+### Cost of retiring at every lease
+
+Measured system-wide on 2026-10-26 with a bystander AppKit application (its
+own main-thread stalls and `CGDisplayRegisterReconfigurationCallback`) and
+Instruments Animation Hitches across all processes. Each display creation and
+each removal is one CoreGraphics reconfiguration
+(`add,moved,setMode,enabled,desktopShape` and `remove,disabled,desktopShape`),
+followed by AppKit's own second `didChangeScreenParameters` with identical
+screens, and sometimes a third about 5 s later. At each notification every
+application on the Mac lays out again: the bystander stalled 64-449 ms,
+simultaneous hitches of 190-313 ms appeared in Safari, Music, Notion, Finder,
+NotificationCenter and Pro Tools, and WindowServer CPU rose from about 40% to
+82-119%. Retiring at every lease therefore cost the person two system-wide
+freezes when a worker took the seat and two when it gave it back.
+
+### Reproduction of the reason for retiring
+
+The refusals below were looked for again with the display kept across leases
+(retirement skipped), Stage Manager globally enabled, in one process:
+
+| Application | How it entered the seat | Result | Window size |
+| --- | --- | --- | --- |
+| QuickTime Player | launched by each lease, its Open panel adopted, quit at the end | 3/3 adopted | 891x448, full size |
+| Pro Tools | already running, its Edit window adopted and returned | 3/3 adopted | 1112x827, full size |
+| Prism Launcher | launched by each lease, quit at the end | 3/3 adopted | 800x603, full size |
+| DaVinci Resolve | launched by each lease, its Project Manager adopted, quit at the end | 3/3 adopted | 910x640, full size |
+| Google Chrome | launched by each lease with the default profile, quit at the end | 3/3 adopted | 1293x922, full size |
+| Adobe Photoshop 2026 | launched by the first lease, already running for the other two | 2/3 adopted | 1280x878, full size |
+
+No adoption in the 18 leases was refused as a Stage Manager thumbnail. The
+one failure was Photoshop's first lease, on a freshly created display: an
+untitled launch dialog blocked the adopted window, so it is not an effect of
+reuse. The baseline commits named below (Release0468ac57, Release8f22792c) no
+longer exist in the repository, and several stash, thumbnail and adoption
+fixes landed after ca834d04.
+
+### Decision
+
+A clean lease (the finish warning rule and the restitution predicate below,
+`canRetireHost`) keeps its host and display for
+`AgentSession.idleRetirementDelay`, two minutes. That covers the gaps between
+a worker's turns after `BrokeredAutomationSession.idleWindow` (30 s) has given
+the lease back, and bounds how long an unused display stays. When the delay
+passes with no new lease and the session still open, the same
+`SeatDriver.stop` the immediate path ran takes the host down; there is no
+lease to hand its sentence to, so it is logged. The queue hands the parked
+session to the next lease through `AgentSession.beginLease`, which cancels a
+pending retirement before anything is prepared or adopted, and waits for one
+already taking the host down. A generation counter makes a retirement that
+wakes after a new lease or a close do nothing, even when its cancel raced.
+
+`AgentSession.close`, which an explicit close and the queue's shutdown at
+quit both reach, still takes the host down at once, after cancelling a
+pending retirement; it stops nothing more when a retirement already did. An
+unclean lease keeps its host exactly as before, and a failed seat is still
+remade by the next adoption. The gated `cleanLeasesKeepTheirSeat` test,
+formerly `cleanLeasesRetireTheirSeat`, now expects the same Seat across its
+three queue reacquisitions.
+
+### Limits
+
+- The cause of the October refusals is not pinned: they did not recur, and
+  which change since ca834d04 removed them, if any, is not known.
+- Photoshop's launch dialog on a fresh display is a separate failure and is
+  not addressed here.
+- An idle display costs its preview stream at rest, and it stays in the
+  person's display list for up to two minutes after the last lease.
+
+## Original decision (2026-10-05)
+
+The record below is unchanged. Where it says a clean lease stops the host,
+the amendment above replaces that with the idle retirement.
 
 ## Evidence
 

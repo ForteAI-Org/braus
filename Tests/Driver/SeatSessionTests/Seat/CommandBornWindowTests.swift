@@ -35,6 +35,7 @@ struct CommandBornWindowTests {
         /// move past the margin without waiting for it.
         var offset   : UInt64                    = 0
         var handbackWorks                        = true
+        var humanOwnsTarget                       = false
         let sensing  = FakeSensing()
         let placing  = FakePlacing()
         var seat     : AgentSeat!
@@ -72,6 +73,7 @@ struct CommandBornWindowTests {
                 return 0
             },
             now    : { [weak rig] in DispatchTime.now().uptimeNanoseconds &+ (rig?.offset ?? 0) },
+            allowsHumanActivation: { [weak rig] in rig?.humanOwnsTarget == true && $0 == rig?.target.processID },
             changed: { [weak rig] report in
                 guard let rig else { return }
                 rig.reports.append(report)
@@ -94,6 +96,23 @@ struct CommandBornWindowTests {
     }
 
     // MARK: Lever A, an activation that is the Command's effect
+
+    @Test("a delayed command window cannot take focus away from the human")
+    func delayedHandbackDuringHumanInput() async throws {
+        let rig = try await Self.rig(marker: 7_599)
+        defer { rig.recovery.stop() }
+        _ = await Self.press(rig)
+        let initialRequests = rig.requested.count
+        rig.humanOwnsTarget = true
+        rig.sensing.frontmostProcessID = rig.target.processID
+        Self.openPanel(rig)
+        #expect(await AppWindowFollowTests.settle { rig.seat.adoptedWindows.count == 2 })
+        #expect(rig.requested.count == initialRequests)
+        #expect(rig.sensing.frontmostProcessID == rig.target.processID)
+        rig.humanOwnsTarget = false
+        await rig.recovery.commandWindowWasAdopted(Self.panelNumber)
+        #expect(rig.requested.count == initialRequests + 1)
+    }
 
     @Test("the command's own notification arriving late, with the front already back, is no waiting")
     func aLateNotificationIsTheCommandsOwn() async throws {

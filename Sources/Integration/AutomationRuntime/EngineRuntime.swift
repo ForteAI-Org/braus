@@ -13,6 +13,7 @@ import Foundation
 import HIDActuation
 import Memory
 import OSLog
+import Perception
 import SeatDriving
 import WindowServerListing
 import WorkspaceActivation
@@ -40,7 +41,11 @@ public struct EngineRuntime {
 
     public init(knowledgeDirectory: URL, seat: SeatTarget? = nil) {
         if let seat {
-            scenes = SeatSceneProvider(target: seat, pipeline: ProductionPerception.pipeline(), windows: windows,
+            let pipeline = ProductionPerception.pipeline(timingHook: { stage, duration in
+                Logger(subsystem: "dev.forte.Braus", category: "Perception")
+                    .info("scene phase \(stage.rawValue, privacy: .public): \(duration.description, privacy: .public)")
+            })
+            scenes = SeatSceneProvider(target: seat, pipeline: pipeline, windows: windows,
                                        identity: { RunningApplicationLookup.identity(of: $0) })
             actuator   = SeatActuator(target: seat)
             controls   = SeatControls()

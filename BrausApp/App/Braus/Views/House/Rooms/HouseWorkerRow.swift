@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// HouseWorkerRow presents a compact card with a lit worker, its name and its badge.
-/// Wide, the name and what the worker is doing sit beside the worker and the badge ends the card. Narrow (`isCompact`), the
+/// Wide, the name and what the worker is doing sit beside the worker and the badge ends the card; with
+/// nothing to say under the name, the name stands alone and the line grows in when there is. Narrow (`isCompact`), the
 /// worker is centred with its name alone under it, as in a compact room, and the badge marks the corner.
 /// Both forms are the same views in a different layout, so a change between them moves and resizes
 /// them. The worker stays visible when selected; the card and accessibility traits mark the choice.
@@ -17,6 +18,9 @@ struct HouseWorkerRow: View {
     @State private var gaze = WorkerGaze()
 
     private var badge: HouseBadge? { isSelected ? nil : worker.badge }
+
+    /// Whether the name has a line under it; without one the name stands alone, centred by the worker.
+    private var hasSubtitle: Bool { !worker.subtitle.isEmpty }
 
     var body: some View {
         let layout = isCompact
@@ -47,13 +51,20 @@ struct HouseWorkerRow: View {
                     ))
                     .foregroundStyle(isCompact ? .secondary : .primary)
                     .lineLimit(1)
-                if !isCompact {
+                if !isCompact && hasSubtitle {
                     Text(worker.subtitle)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(worker.subtitle)
+                        .transition(.opacity)
                 }
             }
+            .animation(
+                HouseLayout.reshaping(reducesMotion: HouseMotion.reducesMotion),
+                value: hasSubtitle
+            )
             .padding(
                 .trailing,
                 isCompact || badge == nil ? 0 : Self.badgeRoom

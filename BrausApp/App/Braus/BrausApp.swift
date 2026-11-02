@@ -30,6 +30,8 @@ struct BrausApp: App {
             || TranscriptCopyCheck.isRequested
             || WindowClickCheck.isRequested
             || RoomCostCheck.isRequested
+            || HumanControlCheck.isRequested
+            || ScreenWindowCheck.isRequested
             || isTestHost
     }
 

@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 23/09/2026.
 //
 
+import SeatBroker
 import SwiftUI
 
 /// WorkerScreenCard is the worker's live screen, in the inspector or at the top
@@ -13,7 +14,7 @@ import SwiftUI
 /// It keeps the window's proportions, 16 by 10 until a window is measured.
 /// While there is no window to watch it draws nothing; the inspector says why.
 ///
-/// A click on the card, or its button, enlarges the screen over the conversation.
+/// The picture is for watching; the corner button enlarges the screen.
 /// The button shows while the pointer is over the card or it has the keyboard,
 /// and is always there for VoiceOver.
 struct WorkerScreenCard: View {
@@ -51,21 +52,12 @@ struct WorkerScreenCard: View {
                 ratio,
                 contentMode: .fit
             )
-            .overlay {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: enlarge)
-                    .accessibilityHidden(true)
-            }
-            // The picture can be narrower than the card, with bars inside it; the button sits on the picture.
-            .overlay {
-                Color.clear
-                    .aspectRatio(
-                        pictureAspect ?? ratio,
-                        contentMode: .fit
-                    )
-                    .overlay(alignment: .topTrailing) { enlargeButton }
-                    .overlay(alignment: .topLeading) { windowButton }
+            .overlay(alignment: .topTrailing) { enlargeButton }
+            .overlay(alignment: .topLeading) { windowButton }
+            .overlay(alignment: .bottom) {
+                if let control = team.humanControls[worker.id] {
+                    HumanControlBar(control: control)
+                }
             }
             .onHover { isHovering = $0 }
             .onChange(of: worker.id) { pictureAspect = nil }

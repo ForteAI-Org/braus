@@ -134,8 +134,9 @@ final class FakeSensing: SeatSensing, @unchecked Sendable {
     /// pair of accessibility round trips into their application, so a test that
     /// cares about the cost of a beat counts this the way it counts snapshots.
     var userWindowReadCount = 0
+    var onUserWindowRead: (() -> Void)?
     var focusedUserWindow: WindowReference? {
-        get { userWindowReadCount += 1; return preparedUserWindow }
+        get { userWindowReadCount += 1; onUserWindowRead?(); return preparedUserWindow }
         set { preparedUserWindow = newValue }
     }
     var preparedSnapshot: FocusRecoverySnapshot?
@@ -238,6 +239,20 @@ final class FakeSensing: SeatSensing, @unchecked Sendable {
 
     func windowOrderIndex(of windowNumber: Int) -> Int? { orderIndex }
 
+    /// How many combined order readings were taken, and the process the last
+    /// one asked the relation for. The answers are the two readings above.
+    private(set) var windowOrderReadCount = 0
+    private(set) var lastWindowOrderProcessID: Int32?
+
+    func windowOrder(
+        of windowNumber                  : Int,
+        behindFrontmostWindowOf processID: Int32?
+    ) -> (orderIndex: Int?, isBehind: Bool?) {
+        windowOrderReadCount     += 1
+        lastWindowOrderProcessID  = processID
+        return (orderIndex, processID == nil ? nil : isBehind)
+    }
+
     /// The menu windows of the target, as the window server would answer them.
     /// The whole contextual menu action is driven through this one list: empty
     /// is no menu, one entry is a menu that is up. A test opens and closes it
@@ -287,6 +302,15 @@ final class FakeSensing: SeatSensing, @unchecked Sendable {
         onSurfaceRead?()
         guard let surfaces else { return nil }
         return surfaces.filter { processIDs.contains($0.reference.processID) }
+    }
+
+    var lendingWindowIsFrontmost: Bool? = true
+    var lendingOrderReads = 0
+    var lendingOrderScreen: CGRect?
+    func windowIsFrontmost(_ window: WindowReference, on screen: CGRect) -> Bool? {
+        lendingOrderReads += 1
+        lendingOrderScreen = screen
+        return lendingWindowIsFrontmost
     }
 
     /// One row of the fake's on-screen list: a window, a row the window server
@@ -386,11 +410,17 @@ final class FakePlacing: WindowPlacing, @unchecked Sendable {
     /// What the sensing will answer after a move, so a test can make the window
     /// arrive where it was put.
     var onMove: ((CGPoint) -> Void)?
+    var onWindowMove: ((WindowReference, CGPoint) -> Void)?
+
+    /// Refusals answered once each, in order, before any move succeeds.
+    var moveErrors: [any Error] = []
 
     func move(_ window: WindowReference, to origin: CGPoint) throws {
         moves.append(origin)
         if let moveError { throw moveError }
+        if !moveErrors.isEmpty { throw moveErrors.removeFirst() }
         onMove?(origin)
+        onWindowMove?(window, origin)
         if let afterMoveError { throw afterMoveError }
     }
 

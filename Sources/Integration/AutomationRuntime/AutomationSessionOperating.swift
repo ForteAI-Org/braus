@@ -32,6 +32,8 @@ public protocol AutomationSessionOperating: AnyObject {
     /// Reads the posts or articles of the web page the session holds, scrolling it for more within `request`'s
     /// bounds; only a web session has one.
     func collectPosts(_ request: PostCollectionRequest) async throws -> PostCollection
+    /// Reads retained human-control details only during the worker turn that resumed that episode.
+    func humanStep(_ request: HumanStepRequest) async -> HumanStepResult
     func close() async
     /// Any work left after the latest completed close, such as an application deferring its quit.
     var closeWarning: String? { get }
@@ -65,6 +67,8 @@ public protocol AutomationSessionOperating: AnyObject {
 }
 
 public extension AutomationSessionOperating {
+
+    func humanStep(_ request: HumanStepRequest) async -> HumanStepResult { .unavailable }
 
     var dispatchRoute: CallRoute.Route? { nil }
 

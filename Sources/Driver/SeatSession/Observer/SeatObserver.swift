@@ -57,6 +57,7 @@ public final class SeatObserver {
     /// a stored `SeatGuard` because the readings it needs are the seat's, and
     /// the seat is the one holding them.
     private let issueCheck: (() -> [SeatIssue])?
+    private let allowsTargetActivation: () -> Bool
 
     private var baselineCursor: CGPoint
     private var timer         : Timer?
@@ -86,6 +87,7 @@ public final class SeatObserver {
         sensing                   : any SeatSensing,
         audit                     : (fence: CursorFence, marker: Int64)? = nil,
         recordsUserContext        : Bool = true,
+        allowsTargetActivation    : @escaping () -> Bool = { false },
         issueCheck                : (() -> [SeatIssue])? = nil
     ) {
         self.target                     = target
@@ -95,6 +97,7 @@ public final class SeatObserver {
         self.audit                      = audit
         self.recordsUserContext         = recordsUserContext
         self.issueCheck                 = issueCheck
+        self.allowsTargetActivation      = allowsTargetActivation
         self.expectedMainDisplayID      = sensing.mainDisplayID
         self.baselineWindowOrder         = sensing.windowOrderIndex(of: target.windowNumber)
 
@@ -124,7 +127,7 @@ public final class SeatObserver {
             else { return }
 
             MainActor.assumeIsolated {
-                if application.processIdentifier == self.target.processID {
+                if application.processIdentifier == self.target.processID, !self.allowsTargetActivation() {
                     self.targetWasActivated = true
                 }
                 if self.recordsUserContext,
@@ -238,7 +241,7 @@ public final class SeatObserver {
     /// round trip run every third sample, which is the measured cadence.
     private func sample() {
 
-        if sensing.isActive(processID: target.processID) == true {
+        if sensing.isActive(processID: target.processID) == true, !allowsTargetActivation() {
             targetWasActivated = true
         }
 
@@ -274,15 +277,18 @@ public final class SeatObserver {
 
         guard recordsUserContext else { return }
 
-        if sensing.windowOrderIndex(of: target.windowNumber) != baselineWindowOrder {
+        // One window list answers both checks; the relation is asked only for
+        // a target that started behind the person's application.
+        let order = sensing.windowOrder(
+            of                     : target.windowNumber,
+            behindFrontmostWindowOf: targetStartedBehindUserApp == true ? expectedFrontmostProcessID : nil
+        )
+
+        if order.orderIndex != baselineWindowOrder {
             windowOrderChanged = true
         }
 
-        if targetStartedBehindUserApp == true, let expectedFrontmostProcessID,
-           sensing.isBehindFrontmostWindow(
-               windowNumber: target.windowNumber,
-               ownedBy     : expectedFrontmostProcessID
-           ) == false {
+        if order.isBehind == false {
             targetMovedAheadOfUserApp = true
         }
     }

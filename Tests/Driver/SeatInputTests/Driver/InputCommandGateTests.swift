@@ -76,4 +76,71 @@ struct InputCommandGateTests {
         #expect(gate.isPaused, "The terminal cause is nobody else's to resolve")
         #expect(throws: InputFailure.inputPaused([.focusRecoveryStopped])) { try gate.check() }
     }
+
+    @Test("a human episode blocks agent input and never clears common causes")
+    func humanAdmissionKeepsCommonCauses() async throws {
+        let gate = InputCommandGate()
+        let token = try gate.beginHumanInput()
+        #expect(gate.pauseReasons == [.humanIntervention])
+        #expect(throws: InputFailure.inputPaused([.humanIntervention])) { try gate.check() }
+        gate.pause(.windowTransfer)
+        #expect(gate.pauseReasons.contains(.windowTransfer))
+        #expect(gate.pauseReasons.contains(.humanIntervention))
+        gate.resume(.windowTransfer)
+        #expect(throws: InputFailure.inputPaused([.humanIntervention])) { try gate.check() }
+        try await gate.endHumanInput(token)
+        try gate.check()
+    }
+
+    @Test("an agent request waiting across a human episode stays revoked")
+    func pendingAgentRequestNeverRevives() async throws {
+        let gate = InputCommandGate()
+        var waiting: CheckedContinuation<Void, Never>?
+        let request = Task {
+            try await gate.withAdmission {
+                await withCheckedContinuation { waiting = $0 }
+                try gate.check()
+            }
+        }
+        while waiting == nil { await Task.yield() }
+        let token = try gate.beginHumanInput()
+        try await gate.endHumanInput(token)
+        waiting?.resume()
+        await #expect(throws: InputFailure.inputPaused([.inputAuthorityExpired])) {
+            try await request.value
+        }
+        try await gate.withAdmission { try gate.check() }
+    }
+
+    @Test("human tokens cannot be replayed or used on another gate")
+    func humanTokensAreBoundToTheirEpisode() async throws {
+        let gate = InputCommandGate()
+        let other = InputCommandGate()
+        let first = try gate.beginHumanInput()
+        #expect(try gate.beginHumanInput() == first)
+        await #expect(throws: InputFailure.inputPaused([.inputAuthorityExpired])) {
+            try await other.endHumanInput(first)
+        }
+        try await gate.endHumanInput(first)
+        let second = try gate.beginHumanInput()
+        #expect(first != second)
+        await #expect(throws: InputFailure.inputPaused([.inputAuthorityExpired])) {
+            try await gate.endHumanInput(first)
+        }
+        #expect(gate.isCurrentHumanInput(second))
+        #expect(throws: InputFailure.inputPaused([.humanIntervention])) { try gate.check() }
+    }
+
+    @Test("terminal stop wins over human admission and ending a human episode")
+    func stopWinsOverHumanInput() async throws {
+        let gate = InputCommandGate()
+        let token = try gate.beginHumanInput()
+        gate.pause(.deliberateStop)
+        #expect(gate.pauseReasons.contains(.deliberateStop))
+        #expect(gate.pauseReasons.contains(.humanIntervention))
+        try await gate.endHumanInput(token)
+        #expect(throws: InputFailure.inputPaused([.deliberateStop])) { try gate.check() }
+        #expect(throws: InputFailure.inputPaused([.deliberateStop])) { try gate.beginHumanInput() }
+    }
+
 }

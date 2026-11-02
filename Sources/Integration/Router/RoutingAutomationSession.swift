@@ -136,6 +136,11 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
         try await routed { try await $0.collectPosts(request) }
     }
 
+    /// Human-control history belongs to the desktop even if the active route has since changed.
+    public func humanStep(_ request: HumanStepRequest) async -> HumanStepResult {
+        await desktop.humanStep(request)
+    }
+
     /// Runs `call` on the current session. When the native session gives the app back instead (it acts on
     /// nothing then), the desktop session opens the app and `call` runs there.
     private func routed<Answer>(_ call: (any AutomationSessionOperating) async throws -> Answer) async throws -> Answer {

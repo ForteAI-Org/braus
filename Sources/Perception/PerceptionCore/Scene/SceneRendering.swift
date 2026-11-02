@@ -49,7 +49,7 @@ extension SceneSnapshot {
         let loose = elements.filter { $0.section == nil }.count
         if loose > 0 { out += "(+\(loose) unsectioned elements)\n" }
         if !commands.isEmpty { out += "commands: \(commands.count) menu paths known\n" }
-        return out
+        return out + outOfViewText()
     }
 
     /// Renders the full scene in the compact form the model reads: one header line, then one line
@@ -81,7 +81,21 @@ extension SceneSnapshot {
             }
         }
         if !commands.isEmpty { out += commandsLine() }
-        return out
+        return out + outOfViewText()
+    }
+
+    static let outOfViewHeading = "## past the window's edge (read only, not visible)\n"
+
+    private func outOfViewText() -> String {
+        guard !outOfViewFields.isEmpty else { return "" }
+        return Self.outOfViewHeading + outOfViewFields.map { Self.outOfViewLine($0) + "\n" }.joined()
+    }
+
+    static func outOfViewLine(_ field: OutOfViewField) -> String {
+        let value = String(reflecting: field.value.trimmingCharacters(in: .whitespacesAndNewlines))
+        let availability = field.isEnabled == false ? " [disabled]" : ""
+        let owner = field.container.map { " {\($0)}" } ?? ""
+        return "[field] \(field.label) = \(value)\(availability)\(owner)"
     }
 
     /// The heading of the elements that belong to no section.

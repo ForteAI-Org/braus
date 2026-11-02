@@ -130,7 +130,8 @@ nonisolated package final class ApplicationTargetTransitionFilter: @unchecked Se
             return AssignedSurfaceSnapshot(
                 inventory: snapshot.inventory,
                 claims   : claims,
-                retained : retained
+                retained : retained,
+                presentation: snapshot.presentation
             )
         }
 
@@ -148,7 +149,8 @@ nonisolated package final class ApplicationTargetTransitionFilter: @unchecked Se
             return AssignedSurfaceSnapshot(
                 inventory: snapshot.inventory,
                 claims   : claims,
-                retained : retained
+                retained : retained,
+                presentation: snapshot.presentation
             )
         }
 
@@ -179,7 +181,8 @@ nonisolated package final class ApplicationTargetTransitionFilter: @unchecked Se
         return AssignedSurfaceSnapshot(
             inventory: snapshot.inventory,
             claims   : claims,
-            retained : retained
+            retained : retained,
+            presentation: snapshot.presentation
         )
     }
 

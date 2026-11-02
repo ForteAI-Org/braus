@@ -8,11 +8,19 @@ enum WatchRendering {
     static func raw(_ event: InteractionEvent) -> String {
         if event.kind == .focus { return "focus pid=\(event.processID) (application activated)" }
         if let gap = event.gap {
-            return "gap sequences \(gap.firstSequence)-\(gap.lastSequence) lost: \(gap.lostCritical) clicks/focus, \(gap.lostCoalescible) hovers/scrolls"
+            return "gap sequences \(gap.firstSequence)-\(gap.lastSequence) lost: \(gap.lostCritical) critical records, \(gap.lostCoalescible) hovers/scrolls"
         }
         let owner = event.window.map { "window #\($0.number) \"\(clean($0.title ?? ""))\" layer=\($0.layer)" } ?? "no window"
+        if event.kind == .shortcut {
+            return "shortcut \(InteractionCommandName.render(event) ?? "unknown key") pid=\(event.processID) \(owner)"
+        }
+        if event.kind == .typing { return "typing pid=\(event.processID) \(owner)" }
+        if event.kind == .drag, let end = event.endPoint {
+            return "drag (\(Int(event.point.x)),\(Int(event.point.y)))→(\(Int(end.x)),\(Int(end.y))) pid=\(event.processID) \(owner)"
+        }
+        let clicks = event.clickCount.map { " count=\($0)" } ?? ""
         let delta = event.kind == .scroll ? " dx=\(event.deltaX) dy=\(event.deltaY)pt" : ""
-        return "\(event.kind.rawValue) pid=\(event.processID) \(owner) @\(Int(event.point.x)),\(Int(event.point.y))\(delta)"
+        return "\(event.kind.rawValue) pid=\(event.processID) \(owner) @\(Int(event.point.x)),\(Int(event.point.y))\(delta)\(clicks)"
     }
 
     static func text(_ report: InteractionReport) -> String {
@@ -46,7 +54,7 @@ enum WatchRendering {
     /// The listener's stop line: what its queue published, coalesced and lost. The tap never blocks.
     static func counters(observed: UInt64, _ queue: InputQueueCounters) -> String {
         "counters: observed \(observed), queued \(queue.published), coalesced \(queue.coalescedHovers) hovers "
-            + "\(queue.aggregatedScrolls) scrolls, lost \(queue.lostCritical) clicks/focus "
+            + "\(queue.aggregatedScrolls) scrolls, lost \(queue.lostCritical) critical records "
             + "\(queue.lostCoalescible) hovers/scrolls in \(queue.gaps) gaps"
     }
 

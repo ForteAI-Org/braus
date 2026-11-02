@@ -26,6 +26,25 @@ import PhaseSignposts
 /// defaulted to a silent no-op.
 public struct ScenePipeline: Sendable {
 
+    /// Stage durations are independent elapsed intervals. OCR, segmentation and AX overlap.
+    /// The hook runs on the stage's executor, including on failure; consumers must synchronize it.
+    public enum Stage: String, CaseIterable, Sendable {
+        case visionInitialization = "Vision init"
+        case pipelineInitialization = "pipeline init (includes Vision)"
+        case ocr = "OCR"
+        case regions = "segmentation"
+        case mediaFilter = "media filter"
+        case sections
+        case sceneBuilding = "scene building"
+        case augmentation = "AX"
+        case merge
+        case controlState = "control state"
+    }
+
+    public typealias TimingHook = @Sendable (Stage, Duration) -> Void
+
+    private let timingHook: TimingHook?
+
     /// What the pipeline needs about the window besides its pixels.
     public struct Window: Sendable, Equatable {
         public var bundleID: String
@@ -87,8 +106,10 @@ public struct ScenePipeline: Sendable {
         sections    : (any SectionDetecting)? = nil,
         augmentation: (any SceneAugmenting)? = nil,
         controlState: (any ControlStateReading)? = nil,
-        accuracy    : TextRecognitionAccuracy = .accurate
+        accuracy    : TextRecognitionAccuracy = .accurate,
+        timingHook  : TimingHook? = nil
     ) {
+        self.timingHook   = timingHook
         self.text         = text
         self.regions      = regions
         self.regionFilter = regionFilter
@@ -129,9 +150,11 @@ public struct ScenePipeline: Sendable {
     ) async throws -> (capture: SceneCapture, visual: VisualScene) {
         try Task.checkCancellation()
         #if BRAUS_PHASES
-        async let harvested = PhaseInterval.measure("pipeline.ax") { try await augmentationElements(for: window) }
+        async let harvested = PhaseInterval.measure("pipeline.ax") {
+            try await measureAsync(.augmentation) { try await augmentationElements(for: window) }
+        }
         #else
-        async let harvested = augmentationElements(for: window)
+        async let harvested = measureAsync(.augmentation) { try await augmentationElements(for: window) }
         #endif
         let pixels: VisualScene
         if let visual, visual.window == window,
@@ -149,14 +172,14 @@ public struct ScenePipeline: Sendable {
         let merging = PhaseInterval.begin("pipeline.merge")
         #endif
         try Task.checkCancellation()
-        let merged = Self.augmented(pixels.scene, with: harvest.elements)
+        let merged = measure(.merge) { Self.augmented(pixels.scene, with: harvest).scene }
         #if BRAUS_PHASES
         merging.end()
         let stating = controlState == nil ? nil : PhaseInterval.begin("pipeline.controlState")
         defer { stating?.end() }
         #endif
-        let scene = controlState.map {
-            Self.stated(merged, from: image, segments: pixels.segments, reader: $0)
+        let scene = controlState.map { reader in
+            measure(.controlState) { Self.stated(merged, from: image, segments: pixels.segments, reader: reader) }
         } ?? merged
         return (SceneCapture(scene: scene, quality: harvest.quality), pixels)
     }
@@ -166,41 +189,67 @@ public struct ScenePipeline: Sendable {
         let regions = self.regions, sections = self.sections
         #if BRAUS_PHASES
         async let recognized = PhaseInterval.measure("pipeline.ocr") {
-            try await recognizeText(in: image, of: window)
+            try await measureAsync(.ocr) { try await recognizeText(in: image, of: window) }
         }
         async let segmented = PhaseInterval.measure("pipeline.segments") {
-            try regions?.segments(in: image) ?? []
+            try await measureAsync(.regions) {
+                try await AbandonableRead.run { try regions?.segments(in: image) ?? [] }
+            }
         }
         #else
-        async let recognized = recognizeText(in: image, of: window)
-        async let segmented = regions?.segments(in: image) ?? []
+        async let recognized = measureAsync(.ocr) { try await recognizeText(in: image, of: window) }
+        async let segmented = measureAsync(.regions) {
+            try await AbandonableRead.run { try regions?.segments(in: image) ?? [] }
+        }
         #endif
         let (runs, segments) = try await (recognized, segmented)
         try Task.checkCancellation()
         #if BRAUS_PHASES
         let composing = PhaseInterval.begin("pipeline.compose")
         #endif
-        let visual = try regionFilter?.filter(segments, in: image, protecting: runs.map(\.pixelBox))
-            ?? VisualRegions(icons: segments)
+        let visual = try measure(.mediaFilter) {
+            try regionFilter?.filter(segments, in: image, protecting: runs.map(\.pixelBox))
+                ?? VisualRegions(icons: segments)
+        }
         try Task.checkCancellation()
         var composedWindow = window
         if composedWindow.sectionRects.isEmpty {
-            let panels = try sections?.sections(in: image, protecting: runs.map(\.pixelBox)) ?? []
+            let panels = try measure(.sections) {
+                try sections?.sections(in: image, protecting: runs.map(\.pixelBox)) ?? []
+            }
             let size = CGSize(width: image.width, height: image.height)
             composedWindow.sectionRects = panels.map { NormalizedRect(pixelBox: $0, in: size) }
         }
-        let scene = Self.assemble(
-            runs     : runs,
-            segments : visual.icons,
-            imageSize: CGSize(width: image.width, height: image.height),
-            window   : composedWindow,
-            images   : visual.images,
-            overlays : visual.overlays
-        )
+        let scene = measure(.sceneBuilding) {
+            Self.assemble(
+                runs     : runs,
+                segments : visual.icons,
+                imageSize: CGSize(width: image.width, height: image.height),
+                window   : composedWindow,
+                images   : visual.images,
+                overlays : visual.overlays
+            )
+        }
         #if BRAUS_PHASES
         composing.end()
         #endif
         return VisualScene(scene: scene, segments: visual.icons, window: window)
+    }
+
+    private func measure<T>(_ stage: Stage, _ operation: () throws -> T) rethrows -> T {
+        guard let timingHook else { return try operation() }
+        let started = ContinuousClock.now
+        defer { timingHook(stage, started.duration(to: .now)) }
+        return try operation()
+    }
+
+    private func measureAsync<T: Sendable>(
+        _ stage: Stage, _ operation: @Sendable () async throws -> T
+    ) async rethrows -> T {
+        guard let timingHook else { return try await operation() }
+        let started = ContinuousClock.now
+        defer { timingHook(stage, started.duration(to: .now)) }
+        return try await operation()
     }
 
     /// Asks the control state reader about every switch, checkbox and radio the grouper's candidate
@@ -257,6 +306,7 @@ public struct ScenePipeline: Sendable {
             windowTitle      : scene.windowTitle,
             viewportPixelSize: scene.viewportPixelSize,
             elements         : elements,
+            outOfViewFields  : scene.outOfViewFields,
             sections         : scene.sections,
             commands         : scene.commands
         )
@@ -340,7 +390,13 @@ public struct ScenePipeline: Sendable {
     /// Merges a harvest into a pixel-built scene and keeps its quality beside the result. Pure; what
     /// a fixture calls to produce a capture without an image.
     public static func augmented(_ scene: SceneSnapshot, with harvest: AccessibilityHarvest) -> SceneCapture {
-        SceneCapture(scene: augmented(scene, with: harvest.elements), quality: harvest.quality)
+        var merged = augmented(scene, with: harvest.elements)
+        merged.outOfViewFields = harvest.outOfViewFields
+        merged.token = SceneToken(
+            bundleID: merged.bundleID, windowTitle: merged.windowTitle,
+            elements: merged.elements, outOfViewFields: merged.outOfViewFields
+        )
+        return SceneCapture(scene: merged, quality: harvest.quality)
     }
 
     /// Merges harvested elements into a pixel-built scene and recomputes the token. Pure; what
@@ -368,6 +424,7 @@ public struct ScenePipeline: Sendable {
             windowTitle      : scene.windowTitle,
             viewportPixelSize: scene.viewportPixelSize,
             elements         : merged,
+            outOfViewFields  : scene.outOfViewFields,
             sections         : scene.sections,
             commands         : scene.commands
         )
