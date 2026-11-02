@@ -128,8 +128,16 @@ public struct ValueMinimization: Sendable {
     /// a declared secret's, a credential's; nil when the text is kept as it is.
     public func minimize(text: String, typedInto target: String? = nil) -> (String, WithholdingReason?) {
         let (kept, reasons) = Self.withholding(text, classified: classified, secrets: secrets, credentials: scrubsCredentials)
-        if let target, Self.classifier.classify(text, in: .init(labels: [target])).sensitivity == .secret, !text.isEmpty {
-            return (Self.marker, Self.strongest(reasons.union([.secretTarget])))
+        if let target, !text.isEmpty {
+            // A credential in a label is minimized there; it does not declare the field's value secret.
+            let label = Self.withholding(target, classified: [:], secrets: [], credentials: true).0
+            let field = FieldSignals(labels: [label])
+            let verdict = Self.classifier.classify(text, in: field)
+            if verdict.sensitivity == .secret,
+               Self.classifier.classify(nil, in: field).sensitivity == .secret
+                || Self.classifier.classify(text, in: .init()).sensitivity != .secret {
+                return (Self.marker, Self.strongest(reasons.union([.secretTarget])))
+            }
         }
         if let whole = exact[text] { return (Self.marker, Self.strongest(reasons.union([whole]))) }
         return (kept, Self.strongest(reasons))

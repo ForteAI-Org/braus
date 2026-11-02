@@ -667,7 +667,8 @@ let package = Package(
                     path: "Tests/AgentLoop", swiftSettings: suite),
         .testTarget(name: "ChatTests", dependencies: ["Switches", "ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
-                                                    "TestScratch", "AppAdapters", "TaskRouting", "Capabilities", "Engine", "SeatDriving", "SeatSession"],
+                                                    "TestScratch", "AppAdapters", "TaskRouting", "Capabilities", "Engine", "SeatDriving", "SeatSession",
+                                                    "braus-bridge"],
                     path: "Tests/Chat", resources: [.copy("Fixtures")], swiftSettings: facility),
         .testTarget(
             name: "BrausCLITests",
