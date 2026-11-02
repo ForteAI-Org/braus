@@ -62,11 +62,38 @@ public protocol AutomationSessionOperating: AnyObject {
     /// (`AppAdapters.seatConflict`).
     var memoryApplication: String? { get }
 
+    /// Runs a command with the held application frontmost on its Seat, then waits for handback.
+    /// The bundle ID must match the current hold, ignoring case; another or absent hold answers
+    /// `notHeld` without running `body` or opening anything. Sessions without a Seat do the same.
+    ///
+    /// The result is what `body` returned or threw, nil when it never ran, beside the lease outcome.
+    /// A successful body does not make an unverified handback successful, and effects are never retried.
+    /// `atMost` bounds the lease from its front request: the body must honour cancellation, since
+    /// handback waits for it to return after the bound passes or the person takes the front.
+    /// `admittingOpenDialog` permits a command intended to answer a dialog already open on the Seat.
+    /// Calls remain serialized by the owner, including the whole lease and handback.
+    func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost             : Duration,
+        _ body             : @escaping @MainActor () async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome)
+
     /// The profile the session's pages are in, as a call's data context names it (P2-05): which Chrome, never an account.
     var dataProfile: String? { get }
 }
 
 public extension AutomationSessionOperating {
+
+    /// A session without a Seat lends nothing and never runs the command.
+    func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost             : Duration,
+        _ body             : @escaping @MainActor () async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
+        (nil, .notHeld)
+    }
 
     func humanStep(_ request: HumanStepRequest) async -> HumanStepResult { .unavailable }
 

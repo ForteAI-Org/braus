@@ -69,6 +69,15 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// init reads it through accessibility.
     typealias DialogReading = @MainActor (_ pid: pid_t) -> DialogButtonPress.OpenDialog?
 
+    /// Runs the body only inside the target's front lease, returning after handback.
+    /// The public init uses the Seat; controlled tests replace this platform boundary.
+    typealias FrontLending = @MainActor (
+        _ target: SeatTarget,
+        _ admittingOpenDialog: Bool,
+        _ bound: Duration,
+        _ body: @escaping @MainActor () async -> Void
+    ) async -> FrontLeaseOutcome
+
     /// Escape quits DaVinci Resolve instead of closing its dialog, so it is never suggested there.
     static let quitsOnEscape: Set<String> = ["com.blackmagic-design.DaVinciResolve"]
 
@@ -106,6 +115,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private let idleWindow: Duration
     @ObservationIgnored private let waitIdle: IdleWaiting
     @ObservationIgnored private let readDialog: DialogReading
+    @ObservationIgnored private let lending: FrontLending
 
     /// Whether the seat a held target borrows stopped for good, which ends this session.
     @ObservationIgnored private let stoppedForGood: @MainActor (SeatTarget) -> Bool
@@ -256,6 +266,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         waitIdle          : @escaping IdleWaiting = { try await Task.sleep(for: $0) },
         readDialog        : @escaping DialogReading = { DialogButtonPress.openDialog(of: $0) },
         switching         : @escaping @MainActor (SeatTarget, pid_t, String) async throws -> Void = switchWindow,
+        lending           : @escaping FrontLending = lentThroughTheSeat,
         stoppedForGood    : @escaping @MainActor (SeatTarget) -> Bool = {
             SeatAdmission.stoppedForGood(try? $0.agentSeat())
         }
@@ -276,6 +287,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         self.idleWindow         = idleWindow
         self.waitIdle           = waitIdle
         self.readDialog         = readDialog
+        self.lending            = lending
         self.stoppedForGood     = stoppedForGood
         self.switching          = switching
     }
@@ -427,6 +439,72 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     public func endActivity(_ token: UUID) {
         guard inFlightCalls.remove(token) != nil, inFlightCalls.isEmpty else { return }
         releaseWhenIdle()
+    }
+
+    /// Borrows the front only for this session's current application, keeping activity through handback.
+    public func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost bound       : Duration,
+        _ body             : @escaping @MainActor () async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
+        guard id != nil, lease != nil, closing == nil, case .holding = phase,
+              let application, !application.isTerminated,
+              memoryApplication?.caseInsensitiveCompare(bundleID) == .orderedSame,
+              let target else { return (nil, .notHeld) }
+
+        var result: Result<Value, any Error>?
+        let outcome = await lending(
+            target,
+            admittingOpenDialog,
+            bound
+        ) {
+            do { result = .success(try await body()) }
+            catch { result = .failure(error) }
+        }
+        return (result, Self.toolOutcome(outcome))
+    }
+
+    /// Lends through the current borrowed target; a target whose borrow ended cannot prepare a lease.
+    static let lentThroughTheSeat: FrontLending = { target, admitsDialog, bound, body in
+        let seat: AgentSeat
+        do { seat = try target.agentSeat() }
+        catch { return .refused(.targetNotPrepared) }
+        return await seat.lendFront(
+            admittingOpenDialog: admitsDialog,
+            atMost             : bound,
+            body
+        ).outcome
+    }
+
+    /// Translates the Driver's lease into the tool boundary, preserving every unsuccessful ending.
+    private static func toolOutcome(_ outcome: FrontLeaseOutcome) -> SessionFrontOutcome {
+        switch outcome {
+            case .completed: return .completed
+            case .boundReached: return .boundReached
+            case .handbackNotVerified: return .handbackNotVerified
+            case .frontTaken: return .frontTaken
+            case .neverInFront: return .neverInFront
+            case .refused(let refusal):
+                let reason: String
+                switch refusal {
+                    case .noFocusRecovery:
+                        reason = "this Seat cannot restore the person's focus"
+                    case .seatNotReady:
+                        reason = "the Seat is not ready for a command"
+                    case .dialogOpen:
+                        reason = "the application has an open dialog that this command did not admit"
+                    case .noUserWindow:
+                        reason = "no window of the person's own could be identified for handback"
+                    case .targetNotPrepared:
+                        reason = "the held application's target window could not be identified"
+                    case .frontRequestRefused:
+                        return .refused(reason: "The front request was refused by macOS, and the command did not run.")
+                }
+                return .refused(reason: "The front was not lent because \(reason).")
+        }
     }
 
     /// Checks the grants, waits for a seat, opens the application on it and returns the first
