@@ -352,7 +352,7 @@ public final class HumanPreviewControl {
                         .appendingPathComponent("handoff-\(stamp)-\(UUID().uuidString)")
                     do {
                         try await HumanInterventionReplay.write(review, embeddingModel: vectors.model, to: directory)
-                        Self.log.notice("human review replay saved: \(directory.path, privacy: .public)")
+                        Self.log.notice("human review replay saved: \(directory.path, privacy: .private)")
                     } catch {
                         Self.log.error("human review replay failed: \(String(describing: error), privacy: .public)")
                     }

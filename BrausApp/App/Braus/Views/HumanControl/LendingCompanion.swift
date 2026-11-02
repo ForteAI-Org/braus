@@ -1144,7 +1144,7 @@ final class LendingCompanion: NSObject {
         pressedAt = nil
         grab      = nil
         dragged   = false
-        if let trace { Self.log.notice("\(trace.summary, privacy: .public)") }
+        if let trace { Self.log.notice("\(trace.summary, privacy: .private)") }
         trace = nil
     }
 
