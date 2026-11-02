@@ -236,6 +236,7 @@ extension SceneSnapshot {
     /// The one line of an element: its tag unless it is plain text, label, the id when a target needs
     /// it, state, live details, learned effect and place. `ownerNote` is the `{container}` text to
     /// print, or nil to print the element's own, which is what a line read on its own needs.
+    /// A canvas also prints its size after its place: `[canvas] canvas 1 @15,23 82x44`.
     static func elementLine(_ element: SceneElement, ownerNote: String? = nil) -> String {
         let field = AccessibilityAugmentation.textEntryRoles.contains(element.role ?? "")
         // A text line that could read as a tag or as another line keeps its tag.
@@ -250,7 +251,14 @@ extension SceneSnapshot {
         let owner    = ownerNote ?? element.container.map { " {\($0)}" } ?? ""
         let recalled = element.isRecalled ? " ~recalled" : ""
         let does     = element.does.map { ": \($0)" } ?? ""
-        return "\(head)\(identity)\(state)\(compactDetails(element))\(owner)\(recalled)\(does) \(place(element.bounds))\n"
+        let extent   = element.kind == .canvas ? " " + size(element.bounds) : ""
+        return "\(head)\(identity)\(state)\(compactDetails(element))\(owner)\(recalled)\(does) "
+            + "\(place(element.bounds))\(extent)\n"
+    }
+
+    /// `wxh`: an element's size in whole percent of the window.
+    static func size(_ bounds: NormalizedRect) -> String {
+        "\(percent(bounds.width))x\(percent(bounds.height))"
     }
 
     /// The label an element without a name carries; the line leaves it out, the `[icon?]` tag says it.
@@ -312,11 +320,11 @@ extension SceneSnapshot {
         return value
     }
 
-    /// Map order: stateful first, learned affordance second, any labeled control or icon third.
+    /// Map order: stateful first, learned affordance second, any labeled control, icon or canvas third.
     private static func mapRank(_ element: SceneElement) -> Int {
         if element.state != nil { return 0 }
         if element.does != nil { return 1 }
-        if (element.kind == .control || element.kind == .icon), !element.isUnlabeled { return 2 }
+        if [.control, .icon, .canvas].contains(element.kind), !element.isUnlabeled { return 2 }
         return 3
     }
 }
