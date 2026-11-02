@@ -53,10 +53,11 @@ public enum AccessibilityAugmentation {
     /// a real click target.
     public static let interactiveRoles: Set<String> = [
         "AXCheckBox", "AXRadioButton", "AXComboBox", "AXButton", "AXMenuButton", "AXTextField", "AXTextArea", "AXPopUpButton",
+        "AXSecureTextField",
     ]
 
     /// Native roles that accept text. A pixel-inferred control does not establish this fact.
-    public static let textEntryRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox"]
+    public static let textEntryRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox", "AXSecureTextField"]
 
     private static let tableRoles: Set<String> = ["AXTable", "AXOutline", "AXList", "AXGrid"]
     private static let clippingRoles: Set<String> = ["AXScrollArea", "AXList", "AXOutline", "AXTable", "AXGrid"]
@@ -248,15 +249,16 @@ public enum AccessibilityAugmentation {
             guard !limits.isPastDeadline() else { stop(.deadline); return true }
             nodesVisited += 1
             let order = nodesVisited
-            let role = (depth == 0 ? windowRole : reader.role(node)) ?? ""
+            let nativeRole = (depth == 0 ? windowRole : reader.role(node)) ?? ""
             let subrole: String?
             if depth == 0 {
                 subrole = windowSubrole
-            } else if reader.requiresValueClassification && textEntryRoles.contains(role) {
+            } else if textEntryRoles.contains(nativeRole) {
                 subrole = reader.subrole(node)
             } else {
                 subrole = nil
             }
+            let role = subrole == "AXSecureTextField" ? "AXSecureTextField" : nativeRole
             let webContent = insideWebContent || role == "AXWebArea"
             let scrollingContent = insideScrollingContent || clippingRoles.contains(role)
             var childContainer = container
@@ -339,8 +341,9 @@ public enum AccessibilityAugmentation {
                     isEnabled: reader.isEnabled(node), container: container
                 ))
             }
-            if role == "AXTextField" || role == "AXTextArea" || role == "AXPopUpButton", let frame = reader.frame(node) {
-                let rawValue = reader.value(node, role: role, subrole: subrole)
+            if role == "AXTextField" || role == "AXTextArea" || role == "AXPopUpButton"
+                || role == "AXSecureTextField", let frame = reader.frame(node) {
+                let rawValue = role == "AXSecureTextField" ? nil : reader.value(node, role: role, subrole: subrole)
                 // An unnamed empty native editor still has a measured role and frame.
                 let anonymousHandle = role == "AXTextArea" ? "Text area" : "Text field"
                 // A form names an unnamed field by the "Name:" text just before it, and its value is only

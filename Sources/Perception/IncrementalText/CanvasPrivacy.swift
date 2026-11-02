@@ -18,8 +18,8 @@ import PerceptionCore
 /// values with (a label naming a secret, or credential-shaped text): a field it withholds is
 /// protected there exactly as a secure field is, so here it refuses the crop too.
 ///
-/// A secure field AppKit reports as a text field with a secure subrole reaches the scene with its role
-/// only, so it is blanked as an editable field unless its label is withheld.
+/// A secure AX subrole reaches the scene as `AXSecureTextField`, so it refuses a crop regardless
+/// of the field's label.
 public enum CanvasPrivacy {
 
     /// The role of a field whose value is never read.

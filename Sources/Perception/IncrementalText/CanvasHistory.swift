@@ -61,6 +61,48 @@ public struct CanvasHistory: Sendable {
     /// Whether the last observation held a canvas, so an idle frame is worth hashing.
     public var hasCanvases: Bool { tiles != nil }
 
+    /// Whether the last observation names `id` as a canvas, independently of retained pixels.
+    public func contains(_ id: String) -> Bool {
+        latest?.scene.elements.contains { $0.id == id && $0.kind == .canvas } == true
+    }
+
+    /// The current whole canvas, reduced as a whole changed canvas is. Both crop pictures are the
+    /// latest observation; a caller sends only `after`. No capture or observation is made here.
+    public func current(
+        _ id      : String,
+        zoom      : Int = 1,
+        isWithheld: (String) -> Bool
+    ) throws(CanvasCrop.Failure) -> Answer {
+        guard let latest, let source = latest.pictures[id],
+              let canvas = latest.scene.elements.first(where: { $0.id == id && $0.kind == .canvas }),
+              let layout = CanvasCrop.layout(
+                  canvas : source.frame,
+                  changed: [source.frame],
+                  zoom   : zoom
+              ) else { return .unavailable }
+        guard let blanking = CanvasPrivacy.blanking(
+            layout.rect,
+            in        : latest.scene,
+            windowSize: latest.windowSize,
+            isWithheld: isWithheld
+        ) else { return .refused }
+        let crop = try CanvasCrop.make(
+            before  : source,
+            after   : source,
+            layout  : layout,
+            blanking: blanking
+        )
+        return .crop(
+            crop,
+            caption: CanvasCaption.text(
+                of        : canvas,
+                crop      : layout,
+                in        : latest.scene,
+                windowSize: latest.windowSize
+            )
+        )
+    }
+
     /// Bytes of canvas pixels held for the last two observations.
     public var retainedBytes: Int {
         [previous, latest].compactMap { $0 }.reduce(0) { total, generation in
