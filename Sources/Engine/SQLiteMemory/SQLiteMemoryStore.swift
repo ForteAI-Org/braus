@@ -9,6 +9,10 @@ import Foundation
 import Memory
 import SQLiteAmalgamation
 import Synchronization
+#if BRAUS_PHASES
+import Darwin
+import os
+#endif
 
 /// SQLiteMemoryStore is the living memory's one SQLite file, opened explicitly at a path the
 /// composition root chose and used through typed transactions. It owns two connections: a writer,
@@ -144,6 +148,8 @@ public actor SQLiteMemoryStore {
 
         /// Snapshots handed over since the open.
         public let snapshots: Int
+        /// Duration of the most recent snapshot attempt, including a failed attempt.
+        public let lastSnapshotDuration: Duration?
     }
 
     /// Checkpoint is the report of one explicit passive checkpoint: how many frames the log held,
@@ -216,6 +222,7 @@ public actor SQLiteMemoryStore {
     private var checkpoints     = 0
     private var lastCheckpoint  : Checkpoint?
     private var snapshots       = 0
+    private var lastSnapshotDuration: Duration?
     private var waitObserver    : (@Sendable (WaitEvent) -> Void)?
     private var slowObserver    : (threshold: Duration, report: @Sendable (SlowOperation) -> Void)?
     private var refusedRollback : SQLiteConnection.Failure?
@@ -380,6 +387,33 @@ public actor SQLiteMemoryStore {
         return store
     }
 
+    #if BRAUS_PHASES
+    private static let signposter = OSSignposter(subsystem: "dev.forte.Braus.phases", category: "phases")
+
+    private static func recordOpening(at url: URL) {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size
+        )
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+            signposter.emitEvent("memory.open",
+                "archive_bytes=\(size) phys_footprint=\(info.phys_footprint) task_info_result=\(result)")
+        } catch {
+            signposter.emitEvent(
+                "memory.open",
+                "archive_bytes=-1 phys_footprint=\(info.phys_footprint) task_info_result=\(result) archive_size_error=\(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+    #endif
+
     // MARK: Lifecycle
 
     /// Opens the writer and the reader, checks the linked library, enables foreign keys, sets WAL
@@ -453,7 +487,8 @@ public actor SQLiteMemoryStore {
                 autoCheckpointFrames: try Self.integerPragma(writer, "wal_autocheckpoint"),
                 checkpoints         : checkpoints,
                 lastCheckpoint      : lastCheckpoint,
-                snapshots           : snapshots
+                snapshots           : snapshots,
+                lastSnapshotDuration: lastSnapshotDuration
             )
         } catch {
             throw Self.classified(error, phase: .statement)
@@ -601,6 +636,10 @@ public actor SQLiteMemoryStore {
             )
             checkpoints   += 1
             lastCheckpoint = report
+            #if BRAUS_PHASES
+            Self.signposter.emitEvent("memory.wal",
+                "frames=\(report.frames) checkpointed=\(report.checkpointedFrames)")
+            #endif
             return report
         } catch let failure as SQLiteConnection.Failure {
             throw MemoryStoreError(failure, phase: .checkpoint)
@@ -621,6 +660,9 @@ public actor SQLiteMemoryStore {
     /// the temporary files this call created and leaves no copy: an interrupted copy is never
     /// handed over, and nothing is restored from a copy on the store's own initiative.
     public func snapshot(to destination: URL) async throws -> Snapshot {
+        let attemptStarted = clock.now
+        var completedDuration: Duration?
+        defer { lastSnapshotDuration = completedDuration ?? (clock.now - attemptStarted) }
         _ = try connection(.writer)
         let target = Self.resolved(destination)
         let own    = Self.resolved(url).path
@@ -632,7 +674,6 @@ public actor SQLiteMemoryStore {
         }
         let partial = target.deletingLastPathComponent()
             .appendingPathComponent(".\(target.lastPathComponent).partial-\(UUID().uuidString)")
-        let started = clock.now
         var copying = SnapshotResources(partialPath: partial.path)
         do {
             let source = try acquire(url.path, readOnly: true)
@@ -690,12 +731,14 @@ public actor SQLiteMemoryStore {
             try Self.move(copying.partialPath, to: target.path)
             copying.removeJournals()
             snapshots += 1
+            let duration = clock.now - attemptStarted
+            completedDuration = duration
             return Snapshot(
                 destination: target,
                 pageCount  : pageCount,
                 pageSize   : pageSize,
                 steps      : steps,
-                duration   : clock.now - started
+                duration   : duration
             )
         } catch {
             copying.abandon(releasing: self)
@@ -949,6 +992,9 @@ public actor SQLiteMemoryStore {
     /// first connection), leaves the store not opened with no handle held, so a later open on this
     /// instance may try again.
     private func performOpen(_ kind: Opening) async throws {
+        #if BRAUS_PHASES
+        defer { Self.recordOpening(at: url) }
+        #endif
         defer { opening = nil }
         let path = url.path
         let ddl     : String

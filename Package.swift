@@ -297,9 +297,11 @@ let package = Package(
         driver("TargetReader", ["SeatCore", "WindowPlacement"]),
 
         // MARK: PhaseSignposts
-        // The `os_signpost` intervals of a phase measurement build. Empty unless `BRAUS_PHASES` is set,
-        // which no default build does; see Documentation/Driver/README.md, "Measuring the phases".
+        // Work classes are always available; phase measurements require `BRAUS_PHASES`.
+        // See Documentation/Driver/README.md, "Measuring the phases".
         broker("PhaseSignposts", []),
+        .testTarget(name: "PhaseSignpostsTests", dependencies: ["PhaseSignposts", "Perception"],
+                    path: "Tests/PhaseSignposts", swiftSettings: suite),
 
         // MARK: ModelTransports
         // How a model is talked to: one structured request, one streamed
@@ -363,7 +365,7 @@ let package = Package(
             name         : "AutomationRuntimeTests",
             dependencies : ["AutomationRuntime", "AutomationMCP", "AppAdapters", "Memory", "SQLiteMemory", "EngineCore",
                             "Engine", "PerceptionCore", "Perception", "LocalMCP", "LocalEmbedding", "WindowServerListing",
-                            "TestScratch"].map { .target(name: $0) },
+                            "TestScratch", "PhaseSignposts"].map { .target(name: $0) },
             path         : "Tests/Integration/AutomationRuntimeTests",
             // The Recall's quality corpus: knowledge learned through the tools and queries split by family.
             resources    : [.copy("Fixtures/recall-corpus-v1.json"), .copy("Fixtures/recall-calibration-v1.json"),
@@ -521,7 +523,7 @@ let package = Package(
                     "WorkspaceActivation", "Memory", "SQLiteMemory", "LiveScenes", "PerceptionCore",
                     "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding",
                     // The one reader of an app's names in the person's languages (`BundleNames`); MacDriver depends on nothing.
-                    "MacDriver"]),
+                    "MacDriver", "PhaseSignposts"]),
         integration("AutomationMCP", ["AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts",
                                      "AppAdapters", "TaskRouting"]),
