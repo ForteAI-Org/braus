@@ -33,14 +33,12 @@ BASELINES := Tests/Driver/Benchmarks/Baselines
 BENCH_OUT := .build/bench
 REPORTS   := Documentation/Driver/compatibility
 
-# SwiftPM filters out SeatSession and reports 40 Swift Testing summaries.
-# Filtering also omits the empty Swift Testing companions of the two XCTest-only
-# targets; their XCTest tests still run. SeatSession's tests run separately
-# through the synchronous native entry point, for 41 required summaries:
-# AppKit RunLoop pumping can also end this otherwise pure bundle before its
-# async main reports completion.
+# SwiftPM reports a summary for each nonempty Swift Testing bundle. IncrementalText
+# now has a Swift Testing suite alongside its XCTest tests. SeatSession runs
+# separately through the synchronous native entry point because AppKit RunLoop
+# pumping can end its async main before it reports completion.
 # The app's own tests remain in BrausTests. This is a run count, not a test count.
-UNIT_BUNDLES := 39
+UNIT_BUNDLES := 40
 
 # The seat cycle, alone in its own process.
 HOST_CYCLE_TESTS := 1
