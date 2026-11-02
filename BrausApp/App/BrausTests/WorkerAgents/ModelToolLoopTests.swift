@@ -59,18 +59,21 @@ private final class ScriptedTransport: ModelTransport {
         var wasCancelled = false
     }
 
-    private let failure: (any Error)?
-    private let supportsTools: Bool
-    private let state        : Mutex<State>
+    private let failure       : (any Error)?
+    private let supportsTools : Bool
+    private let supportsVision: Bool
+    private let state         : Mutex<State>
 
     init(
-        supportsTools: Bool,
-        rounds       : [[TurnEvent]],
-        failure      : (any Error)? = nil
+        supportsTools : Bool,
+        rounds        : [[TurnEvent]],
+        failure       : (any Error)? = nil,
+        supportsVision: Bool         = false
     ) {
-        self.failure = failure
-        self.supportsTools = supportsTools
-        self.state         = Mutex(State(rounds: rounds))
+        self.failure        = failure
+        self.supportsTools  = supportsTools
+        self.supportsVision = supportsVision
+        self.state          = Mutex(State(rounds: rounds))
     }
 
     var streaming: StreamingSupport { .incremental }
@@ -88,7 +91,10 @@ private final class ScriptedTransport: ModelTransport {
     }
 
     func capabilities() async throws -> ModelCapabilities {
-        ModelCapabilities(supportsTools: supportsTools)
+        ModelCapabilities(
+            supportsTools : supportsTools,
+            supportsVision: supportsVision
+        )
     }
 
     func converse(
@@ -261,6 +267,213 @@ private final class UnchangingSession: AutomationSessionOperating {
 @MainActor
 @Suite("Braus's own loop over a model provider")
 struct ModelToolLoopTests {
+
+    @Test(arguments: [true, false])
+    func picturesReachTheCurrentRunWithoutRewritingEarlierRounds(supportsVision: Bool) async throws {
+        let record = TurnRecord(
+            provider: .anthropic,
+            blocks  : [Data(#"{"type":"tool_use","id":"call_0","name":"status","input":{}}"#.utf8)]
+        )
+        let transport = ScriptedTransport(
+            supportsTools : true,
+            rounds        : [
+                [.toolCall(statusCall), .record(record), .completed(usage)],
+                [.toolCall(statusCall), .record(record), .completed(usage)],
+                [.delta("Done."), .completed(usage)]
+            ],
+            supportsVision: supportsVision
+        )
+        let payload = Data([1, 2, 3]).base64EncodedString()
+        let mediaTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"]
+        let content: [JSONValue] = [.object(["type": .string("text"), "text": .string("Before")])] +
+            mediaTypes.map { .object(["type": .string("image"), "data": .string(payload), "mimeType": .string($0)]) } +
+            [.object(["type": .string("text"), "text": .string("After")])]
+        let loop = ModelToolLoop { _, _ in
+            .object([
+                "content": .array(content),
+                "structuredContent": .object(["changed": .bool(true)]),
+                "isError": .bool(true)
+            ])
+        }
+        var events: [WorkerAgentEvent] = []
+        try await loop.run(
+            transport: transport,
+            role     : nil,
+            history  : [],
+            prompt   : "Read the pictures"
+        ) { events.append($0) }
+        let sent = transport.sent
+        #expect(sent.count == 3)
+        let result = try #require(sent[1].messages.last)
+        #expect(result.text.hasPrefix("Before\nAfter\n"))
+        #expect(result.text.contains(#"{"changed":true}"#))
+        #expect(result.isError)
+        #expect(result.images.map(\.mediaType) == (supportsVision ? mediaTypes : []))
+        #expect(result.images.allSatisfy { $0.data == Data([1, 2, 3]) })
+        #expect(result.text.contains("picture omitted: this model does not read images") == !supportsVision)
+        #expect(sent[1].messages.dropLast().last?.record == record)
+        #expect(Array(sent[2].messages.prefix(sent[1].messages.count)) == sent[1].messages)
+        #expect(!String(describing: events).contains(payload))
+
+        // The later request must keep the exact earlier Messages API prefix, including its picture blocks.
+        let client = AnthropicClient(
+            model : "claude-sonnet-4-5",
+            effort: .high,
+            apiKey: "test"
+        )
+        let earlier = try #require(client.requestBody(
+            messages: sent[1].messages,
+            tools   : []
+        )["messages"] as? [[String: Any]])
+        let later = try #require(client.requestBody(
+            messages: sent[2].messages,
+            tools   : []
+        )["messages"] as? [[String: Any]])
+        let earlierJSON = try JSONSerialization.data(
+            withJSONObject: earlier,
+            options       : .sortedKeys
+        )
+        let prefixJSON = try JSONSerialization.data(
+            withJSONObject: Array(later.prefix(earlier.count)),
+            options       : .sortedKeys
+        )
+        #expect(earlierJSON == prefixJSON)
+
+        let next = ScriptedTransport(
+            supportsTools : true,
+            rounds        : [[.delta("Next."), .completed(usage)]],
+            supportsVision: true
+        )
+        try await loop.run(
+            transport: next,
+            role     : nil,
+            history  : Array(sent[1].messages.dropFirst()),
+            prompt   : "Continue"
+        ) { _ in }
+        let nextMessages = try #require(next.sent.first?.messages)
+        #expect(nextMessages.allSatisfy { $0.images.isEmpty })
+        let markers = nextMessages.filter { $0.role == .tool }.map(\.text).joined()
+        #expect(markers.components(separatedBy: "[picture omitted from earlier turn]").count
+            == (supportsVision ? mediaTypes.count + 1 : 1))
+    }
+
+    @Test func summariesReplacePicturesBeforeSendingHistory() async throws {
+        let image = try #require(TurnImage(
+            data     : Data([1, 2, 3]),
+            mediaType: "image/png"
+        ))
+        let transport = ScriptedTransport(
+            supportsTools : true,
+            rounds        : [[.delta("Summary."), .completed(usage)]],
+            supportsVision: true
+        )
+        _ = try await ModelToolLoop { _, _ in .null }.summarize(
+            transport: transport,
+            history  : [TurnMessage(
+                result : "Picture",
+                of     : statusCall,
+                isError: false,
+                images : [image]
+            )]
+        )
+        let messages = try #require(transport.sent.first?.messages)
+        #expect(messages.allSatisfy { $0.images.isEmpty })
+        #expect(messages[1].text == "Picture\n[picture omitted from earlier turn]")
+    }
+
+    @Test func unavailablePicturesLeaveTextWithoutSendingTheirPayload() async throws {
+        let transport = ScriptedTransport(
+            supportsTools : true,
+            rounds        : [[.toolCall(statusCall), .completed(usage)], [.completed(usage)]],
+            supportsVision: true
+        )
+        try await ModelToolLoop { _, _ in
+            .object(["content": .array([
+                .object(["type": .string("image"), "data": .string("not base64"), "mimeType": .string("image/png")]),
+                .object(["type": .string("image"), "data": .string("AQID"), "mimeType": .string("image/heic")]),
+                .object(["type": .string("text"), "text": .string("Still readable")])
+            ])])
+        }.run(
+            transport: transport,
+            role     : nil,
+            history  : [],
+            prompt   : "Read"
+        ) { _ in }
+        let result = try #require(transport.sent.last?.messages.last)
+        #expect(result.images.isEmpty)
+        #expect(result.text.hasSuffix("Still readable"))
+        #expect(result.text.components(separatedBy: "[picture unavailable:").count == 3)
+        #expect(!result.text.contains("AQID"))
+    }
+
+    @Test func pictureBytesNeverEnterStoredConversationHistory() async throws {
+        let directory = URL.temporaryDirectory.appending(path: "braus-picture-history-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try WorkspaceStore.opening(in: directory)
+        let worker = try await store.createWorker(
+            name      : "Nova",
+            appearance: WorkerAppearance(
+                seed            : 7,
+                generatorVersion: 3,
+                palette         : "dusk",
+                roundness       : 0.5,
+                wobble          : 0.5,
+                glow            : 0.5
+            )
+        ).id
+        try await store.configure(
+            worker   : worker,
+            selection: ollama
+        )
+        let conversation = try await store.createConversation(participants: [worker]).id
+        let message = try await store.appendMessage(
+            to  : conversation,
+            text: "Read the picture"
+        ).id
+        let transport = ScriptedTransport(
+            supportsTools : true,
+            rounds        : [[.toolCall(statusCall), .completed(usage)], [.delta("Read it."), .completed(usage)]],
+            supportsVision: true
+        )
+        let payload = Data("picture bytes for the current run only".utf8).base64EncodedString()
+        let loop = ModelToolLoop { _, _ in
+            .object(["content": .array([
+                .object(["type": .string("image"), "data": .string(payload), "mimeType": .string("image/png")])
+            ])])
+        }
+        let recorder = WorkerTurnRecorder(
+            store         : store,
+            workspaceID   : UUID(),
+            workerID      : worker,
+            conversationID: conversation,
+            messageID     : message
+        ) {}
+        let ending = try await recorder.run { _, _, emit in
+            try await loop.run(
+                transport: transport,
+                role     : nil,
+                history  : [],
+                prompt   : "Read the picture",
+                onEvent  : emit
+            )
+        }
+        #expect(ending == .completed)
+        #expect(transport.sent.last?.messages.last?.images.count == 1)
+        let messages = try await store.messages(in: conversation)
+        let history = TeamModel.turnHistory(
+            messages,
+            by: worker
+        )
+        #expect(history.map(\.text) == ["Read the picture", "Read it."])
+        #expect(history.allSatisfy { $0.images.isEmpty })
+        let events = try await store.events(matching: EventQuery(scope: .conversation(conversation)))
+        #expect(events.compactMap(\.payload).allSatisfy {
+            !String(
+                decoding: $0,
+                as      : UTF8.self
+            ).contains(payload)
+        })
+    }
 
     @Test func aToolRoundThenAnAnswerReportsTheRecordsOneBlockAndTheEnd() async throws {
         let transport = ScriptedTransport(

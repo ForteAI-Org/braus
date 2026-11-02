@@ -113,7 +113,8 @@ final class ModelToolLoop {
         instructions : String = AutomationTools.instructions,
         onEvent      : @escaping @MainActor (WorkerAgentEvent) -> Void
     ) async throws {
-        let hasTools = try await transport.capabilities().supportsTools
+        let capabilities = try await transport.capabilities()
+        let hasTools = capabilities.supportsTools
         let offered  = try Self.toolDefinitions(baseTools ?? definitions)
         let tools    = hasTools ? offered : []
         var messages = [TurnMessage(
@@ -124,7 +125,7 @@ final class ModelToolLoop {
                 tools     : instructions
             )
         )]
-        messages += history
+        messages += history.map { $0.forHistory }
         let asked = if hasTools, let seat { seat + "\n\n" + prompt } else { prompt }
         messages.append(TurnMessage(
             role: .user,
@@ -195,9 +196,10 @@ final class ModelToolLoop {
             ))
             for toolCall in reply.calls {
                 if isStopRequested { throw CancellationError() }
-                messages.append(try await result(
+                let answered = try await result(
                     of: toolCall
-                ))
+                )
+                messages.append(answered.forModel(with: capabilities))
             }
         }
     }
@@ -231,7 +233,7 @@ final class ModelToolLoop {
             role: .system,
             text: Self.summaryInstructions
         )]
-        messages += history
+        messages += history.map { $0.forHistory }
         messages.append(TurnMessage(
             role: .user,
             text: Self.summaryRequest
@@ -329,7 +331,7 @@ final class ModelToolLoop {
         }
     }
 
-    /// The tool's answer as the model reads it: the text of the MCP result, and
+    /// The tool's answer as the model reads it: every text and picture block of the MCP result, and
     /// on a thrown error the same failure result `MCPRouter` gives a command line.
     private func result(
         of toolCall: ToolCall
@@ -350,14 +352,37 @@ final class ModelToolLoop {
         }
 
         try recordResult(toolCall, result, startedAt)
-        var text = result["content"].array?.first?["text"].string ?? ""
+        var texts: [String] = []
+        var images: [TurnImage] = []
+        for block in result["content"].array ?? [] {
+            switch block["type"].string {
+            case "text":
+                if let text = block["text"].string { texts.append(text) }
+            case "image":
+                if let encoded = block["data"].string,
+                   let data = Data(base64Encoded: encoded),
+                   let mediaType = block["mimeType"].string,
+                   let image = TurnImage(
+                       data     : data,
+                       mediaType: mediaType
+                   ) {
+                    images.append(image)
+                } else {
+                    texts.append("[picture unavailable: unsupported media type or invalid data]")
+                }
+            default:
+                break
+            }
+        }
+        var text = texts.joined(separator: "\n")
         if result["structuredContent"] != .null, let data = try? JSONEncoder().encode(result["structuredContent"]) {
             text += "\n" + String(decoding: data, as: UTF8.self)
         }
         return TurnMessage(
             result : text,
             of     : toolCall,
-            isError: result["isError"].bool == true
+            isError: result["isError"].bool == true,
+            images : images
         )
     }
 }
