@@ -1,0 +1,1 @@
+{"evidence":{"command":"not_sent","effect":{"condition":"none","limits":["target_not_resolved"],"method":"none","verdict":"unknown","version":"engine-oracle-1"},"goal":"not judged by a call: the task's result check says it"},"message":"Synthetic action result.","session":null,"status":"ambiguous"}
