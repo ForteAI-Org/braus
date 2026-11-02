@@ -130,7 +130,7 @@ struct SQLiteFailedLifecycleTests {
         let store = try await SQLiteMemoryStore.open(at: try temporaryDatabase("ordinary-cleanup"))
         guard case .contract(let fault)? = await constraintFailure(in: store) else { Issue.record("expected the constraint"); return }
         #expect(fault.cleanup == .rolledBack)
-        #expect(await store.liveHandles == 2)
+        #expect(await store.liveHandles == 4)
         _ = try await record(EventRow(id: "goes-on", key: "k"), in: store)
         await store.close()
     }

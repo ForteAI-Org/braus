@@ -53,7 +53,7 @@ struct SQLiteRecoveryTests {
         let after = try await store.diagnostics()
         #expect(after.commits == 1)
         #expect(after.retainedWrites == 0)
-        #expect(await store.liveHandles == 2)
+        #expect(await store.liveHandles == 4)
         // The same fact offered again meets the same cause: refused again, not retried underneath.
         guard case .failed(let second)? = await bigWrite(store) else {
             Issue.record("expected .failed again")

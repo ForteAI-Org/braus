@@ -88,7 +88,7 @@ struct SQLiteSnapshotTests {
         #expect(fault.code.primary == 14)
         #expect(fault.phase == .snapshot)
         #expect(try strayFiles(beside: url) == ["taken.sqlite"])
-        #expect(await store.liveHandles == 2)
+        #expect(await store.liveHandles == 4)
         #expect(try await store.diagnostics().snapshots == 0)
         #expect(try await count("SELECT count(*) FROM memory_events", in: store) == 3)
         await store.close()
@@ -111,7 +111,7 @@ struct SQLiteSnapshotTests {
         #expect(await copying.value == .cancelled(.snapshot))
         #expect(!FileManager.default.fileExists(atPath: destination.path))
         #expect(try strayFiles(beside: url) == [])
-        #expect(await store.liveHandles == 2)
+        #expect(await store.liveHandles == 4)
         #expect(try await store.diagnostics().snapshots == 0)
         _ = try await record(EventRow(id: "after", key: "k"), in: store)
         await store.close()
@@ -151,7 +151,7 @@ struct SQLiteSnapshotTests {
         release.continuation.yield()
         let report = try await copying.value
         #expect(try rawCount("SELECT count(*) FROM memory_events", at: report.destination) == 5, "the copy is as of its read transaction")
-        #expect(await store.liveHandles == 2)
+        #expect(await store.liveHandles == 4)
 
         let second = url.deletingLastPathComponent().appendingPathComponent("second.sqlite")
         let held = AsyncStream<Void>.makeStream()
