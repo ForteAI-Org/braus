@@ -36,18 +36,10 @@ public struct SceneKnowledge: Sendable, Equatable, Hashable, Codable {
         self.window = window
     }
 
-    /// The lines a model reads, after the scene's header.
+    /// The lines a model reads after the scene's header, only when the memory offers operations on
+    /// the window itself. A status alone serves the memory and adds no line for the reader.
     public var lines: [String] {
-        let head: String = switch status {
-            case .applied:
-                "memory: what was learned in this window's state is shown" + (window.isEmpty ? " on its elements" : "")
-            case .nothing:
-                "memory: nothing learned in this window's state yet"
-            case .unrecognized:
-                "memory: this window's state is not recognized (new, uncertain or captured incompletely); nothing learned applies"
-            case .unavailable:
-                "memory: unavailable right now; the scene is live, what was learned is not shown"
-        }
-        return [head] + window.map { "  window: \($0)" }
+        guard status == .applied, !window.isEmpty else { return [] }
+        return ["memory: what was learned in this window's state is shown"] + window.map { "  window: \($0)" }
     }
 }

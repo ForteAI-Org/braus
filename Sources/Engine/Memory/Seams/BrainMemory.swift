@@ -154,7 +154,8 @@ public actor BrainMemory: EffectExpecting {
 
     /// The scene with its elements named from the projection (sibling groups, recalled labels), and
     /// nothing said about the state: for a scene whose capture is not at hand, so its state cannot be
-    /// placed. The live scene, said unavailable, when the projection cannot be read.
+    /// placed, so its knowledge is nil and the reader prints no memory line. If the projection
+    /// cannot be read, the live scene carries unavailable knowledge without a rendered status line.
     public func enrich(_ scene: SceneSnapshot) async -> SceneSnapshot {
         guard let elements = await named(scene) else { return Self.unavailable(scene) }
         return Self.rebuilt(scene, elements: elements, knowledge: nil)
