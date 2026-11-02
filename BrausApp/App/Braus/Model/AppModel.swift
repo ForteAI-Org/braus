@@ -122,10 +122,10 @@ final class AppModel {
     /// The channels Settings or a launch argument chose (`AppPreferences.channels`): a value that does not
     /// parse composes none, and says so in the log, so a misspelled name never turns a route on.
     static var storedChannels: AutomationChannels {
-        let stored = UserDefaults.standard.string(forKey: AppPreferences.channels) ?? AppPreferences.channelsDefault
+        let stored = AppDefaults.current.string(forKey: AppPreferences.channels) ?? AppPreferences.channelsDefault
         do {
             var channels = try AutomationChannels(parsing: stored)
-            if UserDefaults.standard.bool(forKey: AppPreferences.web) { channels.insert(.web) }
+            if AppDefaults.current.bool(forKey: AppPreferences.web) { channels.insert(.web) }
             return channels
         } catch {
             Logger(subsystem: "dev.forte.Braus", category: "Channels")
@@ -179,7 +179,7 @@ final class AppModel {
         // into the shared memory when it first opens. A check run reads no folder of the person's.
         MemoryService.unify(KnowledgeLocation.knowledge(under: WorkspaceLaunch.directory),
                             with: KnowledgeLocation.legacyProfiles(under: WorkspaceLaunch.directory)
-                                + (BrausApp.isCheckRun ? [] : KnowledgeLocation.previousProductOrigins()))
+                                + (BrausApp.isCheckRun || LaunchIsolation.current.isIsolated ? [] : KnowledgeLocation.previousProductOrigins()))
         let checks = AppPreferences.bool(
             AppPreferences.checksConnectionsAtLaunch,
             default: AppPreferences.checksConnectionsAtLaunchDefault
@@ -196,7 +196,7 @@ final class AppModel {
 
     /// The virtual display Settings chose, the standard one until it chooses another.
     static var storedDisplay: SeatDisplay {
-        let defaults = UserDefaults.standard
+        let defaults = AppDefaults.current
         let size     = defaults.string(forKey: AppPreferences.seatDisplaySize) ?? AppPreferences.seatDisplaySizeDefault
         let rate     = defaults.object(forKey: AppPreferences.seatRefreshRate) as? Int ?? AppPreferences.seatRefreshRateDefault
         return SeatDisplay(size: size, refreshRate: rate) ?? .standard

@@ -236,12 +236,12 @@ final class TeamModel {
 
     /// The conversations that show Braus's Chrome as a window instead of headless, kept across launches.
     private(set) var browserWindows = Set(
-        (UserDefaults.standard.stringArray(forKey: AppPreferences.showsBrowserWindow) ?? []).compactMap(UUID.init)
+        (AppDefaults.current.stringArray(forKey: AppPreferences.showsBrowserWindow) ?? []).compactMap(UUID.init)
     )
 
     /// The conversations that open their pages in the person's own Chrome instead of Braus's, kept across launches.
     private(set) var personalChromes = Set(
-        (UserDefaults.standard.stringArray(forKey: AppPreferences.usesPersonalChrome) ?? []).compactMap(UUID.init)
+        (AppDefaults.current.stringArray(forKey: AppPreferences.usesPersonalChrome) ?? []).compactMap(UUID.init)
     )
 
     /// The person's Chrome profiles paired with the Braus extension, the app's one hub; nil offers none.
@@ -289,7 +289,7 @@ final class TeamModel {
         broker          : SeatBroker,
         agents          : @escaping (ModelProvider) throws -> (ChatProvider, URL) = WorkerAgentHost.agent(for:),
         bridgeExecutable: URL = Bundle.main.bundleURL.appending(path: "Contents/Helpers/braus-bridge"),
-        preferences     : UserDefaults = .standard,
+        preferences     : UserDefaults = AppDefaults.current,
         channels        : AutomationChannels = [],
         chromeProfiles  : ChromeProfileHub? = nil,
         approvals       : AdapterApprovals? = nil
@@ -1003,6 +1003,7 @@ final class TeamModel {
     /// reading Connected, so the alert says how and the light turns to Access Rejected; the next
     /// turn that completes checks the connection again.
     private func settle(_ provider: ModelProvider, after ending: WorkerTurnRecorder.Ending) {
+        guard !LaunchIsolation.current.isIsolated else { return }
         switch ending {
         case .failed(let reason):
             guard let expired = Self.signInExpired(provider: provider, reason: reason) else { return }
@@ -1880,7 +1881,7 @@ final class TeamModel {
 
     /// The choices `AppPreferences.chromeProfiles` holds: by conversation, the instance's ID and the name.
     private static func storedChromeProfiles() -> [UUID: ChromeProfileChoice] {
-        let stored = UserDefaults.standard.dictionary(forKey: AppPreferences.chromeProfiles) as? [String: [String]]
+        let stored = AppDefaults.current.dictionary(forKey: AppPreferences.chromeProfiles) as? [String: [String]]
         return (stored ?? [:]).reduce(into: [:]) { choices, entry in
             guard let conversation = UUID(uuidString: entry.key), entry.value.count == 2 else { return }
             choices[conversation] = ChromeProfileChoice(instanceID: entry.value[0], label: entry.value[1])
@@ -2104,6 +2105,7 @@ final class TeamModel {
     /// Asks the worker's provider whether its model is still in the catalogue.
     /// A worker whose model is gone keeps it; only the person replaces it.
     func checkModel(of id: UUID) async {
+        guard !LaunchIsolation.current.isIsolated else { return }
         guard let selection = worker(id)?.configuration else {
             modelStates[id] = nil
             return

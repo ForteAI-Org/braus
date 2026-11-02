@@ -90,6 +90,7 @@ final class WorkerAgentHost {
     private let agents          : (ModelProvider) throws -> (ChatProvider, URL)
     private let transports      : (ModelSelection) -> any ModelTransport
     private let contextWindows  : (ModelSelection) -> Int?
+    private let scriptedWorker  : @MainActor () throws -> ScriptedWorkerRun?
     private let seatLine        : @MainActor () -> String?
 
     private var temporary     : URL?
@@ -97,6 +98,9 @@ final class WorkerAgentHost {
 
     /// The running loop turn's loop. Non-nil exactly while a loop turn runs.
     private var loop: ModelToolLoop?
+
+    /// The latest isolated script's outcome, read only after the turn and its recorder have ended.
+    private(set) var scriptedReport: ScriptedWorkerRun.Report?
 
     /// `close` calls waiting for the running loop turn to end, resumed as it ends.
     private var loopEndWaiters: [CheckedContinuation<Void, Never>] = []
@@ -237,8 +241,10 @@ final class WorkerAgentHost {
         adapterApprover: (any AdapterApproving)? = nil,
         approvals: AdapterApprovals? = nil,
         approvalScope: UUID = UUID(),
-        offersWeb: Bool = false
+        offersWeb: Bool = false,
+        scriptedWorker: @escaping @MainActor () throws -> ScriptedWorkerRun? = ScriptedWorkerRun.openIfRequested
     ) {
+        self.scriptedWorker   = scriptedWorker
         self.approvals        = approvals
         self.workingDirectory = workingDirectory
         self.bridgeExecutable = bridgeExecutable
@@ -382,16 +388,35 @@ final class WorkerAgentHost {
                          reviewingHumanIntervention ? Self.humanInterventionInstructions : nil].compactMap { $0 }
         let seat = seatParts.isEmpty ? nil : seatParts.joined(separator: "\n\n")
 
-        if WorkerAnswer(provider: selection.provider) == .modelLoop {
+        scriptedReport = nil
+        let scripted: ScriptedWorkerRun?
+        do {
+            scripted = try scriptedWorker()
+        } catch {
+            scriptedReport = ScriptedWorkerRun.Report(errors: [String(describing: error)])
+            await tools.session.close()
+            throw error
+        }
+        if scripted != nil || WorkerAnswer(provider: selection.provider) == .modelLoop {
             let loop  = ModelToolLoop(
-                call    : brausCall,
-                reminder: { [tools] in tools.takeInterpretationReminder() }
+                call        : brausCall,
+                reminder    : { [tools] in tools.takeInterpretationReminder() },
+                recordResult: { call, result, startedAt in
+                    try scripted?.record(
+                        call     : call,
+                        result   : result,
+                        startedAt: startedAt
+                    )
+                }
             )
             self.loop = loop
-            defer { endLoop() }
+            defer {
+                scriptedReport = scripted?.report
+                endLoop()
+            }
             do {
                 try await ApprovalScope.$current.withValue(approvalScope) { try await loop.run(
-                    transport    : transports(selection),
+                    transport    : scripted?.transport ?? transports(selection),
                     role         : role,
                     history      : history,
                     prompt       : prompt,
@@ -411,7 +436,9 @@ final class WorkerAgentHost {
                     )))
                 } }
                 if isStopRequested { throw CancellationError() }
+                scripted?.finish()
             } catch {
+                scripted?.finish(error: error)
                 // The loop ends only after a tool call in flight has finished, so no action is cut short.
                 if let token = humanIntervention, error is CancellationError {
                     tools.forgetScene()
@@ -587,6 +614,12 @@ final class WorkerAgentHost {
         lastUsage           : TurnUsage? = nil,
         inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws -> (compaction: ContextCompaction, usage: TurnUsage?) {
+        guard try ScriptedWorkerRun.scriptURL(
+            isolation  : .current,
+            environment: ProcessInfo.processInfo.environment
+        ) == nil else {
+            throw AutomationFailure("Context compaction is unavailable during a scripted worker run.")
+        }
         guard humanIntervention == nil, humanInterventionCleanup == nil else {
             throw AutomationFailure("Context compaction waits until the human intervention is reviewed.")
         }

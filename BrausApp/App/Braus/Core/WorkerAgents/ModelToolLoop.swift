@@ -35,6 +35,9 @@ final class ModelToolLoop {
 
     private let call: @MainActor (String, JSONValue) async throws -> JSONValue
 
+    /// The isolated scripted run's audit, after every real result, including failures and pictures.
+    private let recordResult: @MainActor (ToolCall, JSONValue, ContinuousClock.Instant) throws -> Void
+
     /// What a final answer is followed by, once: `AutomationTools.takeInterpretationReminder`, the request for a
     /// learning candidate the model left uninterpreted. Nil goes on to the end of the turn.
     private let reminder: @MainActor () -> String?
@@ -55,15 +58,17 @@ final class ModelToolLoop {
     /// `call` runs one tool by name, as `AutomationTools.call` does, and reports
     /// its records itself; `definitions` are the tools it serves.
     init(
-        call       : @escaping @MainActor (String, JSONValue) async throws -> JSONValue,
-        reminder   : @escaping @MainActor () -> String? = { nil },
-        definitions: [JSONValue] = AutomationTools.definitions,
-        offersWeb  : Bool        = false
+        call        : @escaping @MainActor (String, JSONValue) async throws -> JSONValue,
+        reminder    : @escaping @MainActor () -> String? = { nil },
+        definitions : [JSONValue] = AutomationTools.definitions,
+        offersWeb   : Bool        = false,
+        recordResult: @escaping @MainActor (ToolCall, JSONValue, ContinuousClock.Instant) throws -> Void = { _, _, _ in }
     ) {
-        self.call        = call
-        self.reminder    = reminder
-        self.definitions = definitions
-        self.offersWeb   = offersWeb
+        self.call         = call
+        self.recordResult = recordResult
+        self.reminder     = reminder
+        self.definitions  = definitions
+        self.offersWeb    = offersWeb
     }
 
     /// The window a loop turn on `selection` runs in: the `num_ctx` Braus sends
@@ -190,7 +195,7 @@ final class ModelToolLoop {
             ))
             for toolCall in reply.calls {
                 if isStopRequested { throw CancellationError() }
-                messages.append(await result(
+                messages.append(try await result(
                     of: toolCall
                 ))
             }
@@ -328,7 +333,8 @@ final class ModelToolLoop {
     /// on a thrown error the same failure result `MCPRouter` gives a command line.
     private func result(
         of toolCall: ToolCall
-    ) async -> TurnMessage {
+    ) async throws -> TurnMessage {
+        let startedAt = ContinuousClock.now
         let result: JSONValue
         do {
             let arguments = try JSONDecoder().decode(
@@ -343,6 +349,7 @@ final class ModelToolLoop {
             result = MCPRouter.failureResult(error)
         }
 
+        try recordResult(toolCall, result, startedAt)
         var text = result["content"].array?.first?["text"].string ?? ""
         if result["structuredContent"] != .null, let data = try? JSONEncoder().encode(result["structuredContent"]) {
             text += "\n" + String(decoding: data, as: UTF8.self)

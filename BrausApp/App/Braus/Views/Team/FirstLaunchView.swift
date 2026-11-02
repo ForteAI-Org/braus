@@ -20,7 +20,10 @@ struct FirstLaunchView: View {
     let team: TeamModel
 
     /// Set once the Mac Access sheet has opened by itself, so it does so on one launch only.
-    @AppStorage("firstLaunch.offeredMacAccess")
+    @AppStorage(
+        "firstLaunch.offeredMacAccess",
+        store: AppDefaults.current
+    )
     private var offeredMacAccess = false
 
     var body: some View {

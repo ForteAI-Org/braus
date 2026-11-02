@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 22/09/2026.
 //
 
+import AutomationRuntime
 import Foundation
 import ModelTransports
 import Observation
@@ -24,7 +25,7 @@ import Observation
 @MainActor
 final class ModelSettingsStore {
 
-    private let defaults = UserDefaults.standard
+    private let defaults = AppDefaults.current
 
     var anthropicAPIKey: String {
         didSet {
@@ -172,6 +173,7 @@ final class ModelSettingsStore {
 
     /// Checks the named connections again, each on its own.
     func refresh(_ providers: [ModelProvider] = ModelProvider.allCases) {
+        guard !LaunchIsolation.current.isIsolated else { return }
         let settings = providerSettings
         for provider in providers {
             checks[provider]?.cancel()
@@ -213,7 +215,10 @@ final class ModelSettingsStore {
         _ provider: ModelProvider,
         model     : String
     ) async -> ConnectionState {
-        await ProviderCatalog.check(
+        guard !LaunchIsolation.current.isIsolated else {
+            return .refused(detail: "Connection checks are disabled in an isolated run.")
+        }
+        return await ProviderCatalog.check(
             provider,
             model   : model,
             settings: providerSettings
@@ -284,7 +289,8 @@ final class ModelSettingsStore {
     /// missing key, and a provider with neither kept nor fixed models; the connection's state says why.
     @discardableResult
     func loadCatalogue(for provider: ModelProvider) async throws -> [ModelInfo] {
-        
+        guard !LaunchIsolation.current.isIsolated else { return catalogues[provider] ?? [] }
+
         let listing: Result<[ModelInfo], any Error>
         
         do {

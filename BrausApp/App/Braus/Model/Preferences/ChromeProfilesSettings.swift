@@ -144,7 +144,7 @@ final class ChromeProfilesSettings {
     private static func webPages() -> WebPages {
         if LaunchIsolation.current.isIsolated { return .isolated }
         if AppModel.launchChannels.contains(.web) { return .on }
-        let stored = UserDefaults.standard.string(forKey: AppPreferences.channels) ?? AppPreferences.channelsDefault
+        let stored = AppDefaults.current.string(forKey: AppPreferences.channels) ?? AppPreferences.channelsDefault
         guard let channels = try? AutomationChannels(parsing: stored) else { return .unreadable(stored) }
         return channels.contains(.web) ? .onAfterRestart : .off
     }
@@ -372,7 +372,7 @@ final class ChromeProfilesSettings {
     /// Stores `channel` on for the next launch, keeping every other channel stored; a stored value that does not
     /// read as channels is left as it is. What could not be done, or nil.
     static func store(_ channel: AutomationChannels) -> String? {
-        let defaults = UserDefaults.standard
+        let defaults = AppDefaults.current
         let stored = defaults.string(forKey: AppPreferences.channels) ?? AppPreferences.channelsDefault
         guard var channels = try? AutomationChannels(parsing: stored) else {
             return "Braus did not change its routes: the stored value “\(stored)” does not read as a list of them."

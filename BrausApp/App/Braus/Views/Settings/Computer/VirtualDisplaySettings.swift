@@ -15,10 +15,16 @@ struct VirtualDisplaySettings: View {
 
     let broker: SeatBroker
 
-    @AppStorage(AppPreferences.seatDisplaySize)
+    @AppStorage(
+        AppPreferences.seatDisplaySize,
+        store: AppDefaults.current
+    )
     private var size = AppPreferences.seatDisplaySizeDefault
 
-    @AppStorage(AppPreferences.seatRefreshRate)
+    @AppStorage(
+        AppPreferences.seatRefreshRate,
+        store: AppDefaults.current
+    )
     private var refreshRate = AppPreferences.seatRefreshRateDefault
 
     var body: some View {

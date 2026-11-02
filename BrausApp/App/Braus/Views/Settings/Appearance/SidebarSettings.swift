@@ -11,16 +11,28 @@ import SwiftUI
 /// name, and whether it has a field to find a worker.
 struct SidebarSettings: View {
 
-    @AppStorage(AppPreferences.sidebarShowsModel)
+    @AppStorage(
+        AppPreferences.sidebarShowsModel,
+        store: AppDefaults.current
+    )
     private var showsModel = AppPreferences.sidebarShowsModelDefault
 
-    @AppStorage(AppPreferences.sidebarShowsUnreadCount)
+    @AppStorage(
+        AppPreferences.sidebarShowsUnreadCount,
+        store: AppDefaults.current
+    )
     private var showsUnreadCount = AppPreferences.sidebarShowsUnreadCountDefault
 
-    @AppStorage(AppPreferences.sidebarShowsSearch)
+    @AppStorage(
+        AppPreferences.sidebarShowsSearch,
+        store: AppDefaults.current
+    )
     private var showsSearch = AppPreferences.sidebarShowsSearchDefault
 
-    @AppStorage(AppPreferences.houseSidebarMode)
+    @AppStorage(
+        AppPreferences.houseSidebarMode,
+        store: AppDefaults.current
+    )
     private var houseSidebarMode = SidebarMode(preference: AppPreferences.houseSidebarModeDefault)
 
     var body: some View {

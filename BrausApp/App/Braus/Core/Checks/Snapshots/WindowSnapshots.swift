@@ -779,7 +779,7 @@ enum WindowSnapshots {
         NSApp.appearance = NSAppearance(named: .darkAqua)
 
         let hosting = NSHostingView(rootView: content
-            .defaultAppStorage(appStorage ?? .standard))
+            .defaultAppStorage(appStorage ?? AppDefaults.current))
         hosting.sceneBridgingOptions = [.toolbars, .title]
 
         let window = NSWindow(
