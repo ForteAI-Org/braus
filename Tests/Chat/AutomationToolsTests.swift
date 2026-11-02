@@ -51,6 +51,24 @@ struct AutomationToolsTests {
         #expect(instructions.contains("enter the path with insert_text"))
     }
 
+    @Test("session guidance covers in-turn release, reopening and explicit app switches")
+    func sessionLifetimeGuidance() throws {
+        for channels: AutomationChannels in [[], .all] {
+            let instructions = AutomationTools.instructions(for: channels)
+            #expect(instructions.contains("After 30 s without calls on an app, Braus releases it from the Seat, even within a turn."))
+            #expect(instructions.contains("Reopen an ended session with open_session"))
+            #expect(instructions.contains("app_call re-holds its app by itself") == channels.contains(.adapters))
+            #expect(instructions.contains("Never call close_session because a task is done"))
+            #expect(!instructions.contains("switching the held app from its interface to an adapter"))
+            let definitions = AutomationTools.definitions(for: channels)
+            let close = try #require(definitions.first { $0["name"].string == "close_session" })
+            #expect(close["description"].string?.contains("before calling open_session for a different app") == true)
+            let observe = try #require(definitions.first { $0["name"].string == "observe" })
+            #expect(observe["inputSchema"]["properties"]["section"]["description"].string?
+                .contains("answers that section, in pages if needed") == true)
+        }
+    }
+
     @Test("a target copied with the scene's id mark names the element by its id; any other target is kept as written")
     func elementReferenceOfACopiedMark() async throws {
         #expect(AutomationTools.elementReference("Text field id:'control|textfield'") == "control|textfield")

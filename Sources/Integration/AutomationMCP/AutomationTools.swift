@@ -391,11 +391,13 @@ public final class AutomationTools {
     \(files(for: channels))
     \(channels.contains(.adapters) ? "For application data, use app_capabilities and app_call; prefer a verb there over driving the app's interface. Irreversible adapter calls require the person's approval for that call and a read-back contract." : "")
     Session IDs refer only to this running Braus host. Saved chats may contain stale IDs and old screen state.
+    After 30 s without calls on an app, Braus releases it from the Seat, even within a turn.
+    Reopen an ended session with open_session\(channels.contains(.adapters) ? "; app_call re-holds its app by itself" : "").
     If an observation ends the session, use status and discover current windows before explicitly opening
     the intended window. Never observe the ended ID or replay the input that preceded its disappearance.
     Never call close_session because a task is done: Braus releases the Seat by itself when it is no longer
-    needed. Call it only when the person asks you to release the Seat, before opening a different app, or before
-    switching the held app from its interface to an adapter.
+    needed. Call it only when the person asks you to release the Seat or before opening a different app with
+    open_session.
     An action result's observation is the scene taken just after the action settled: read it, do not observe again.
     Observe only when a result has none, when a dialog or window may still be opening, or before repeating an
     acted_unverified action whose observation shows no effect, since that scene is taken moments after acting.
@@ -603,7 +605,7 @@ public final class AutomationTools {
                     "section": .object([
                         "type"       : .string("string"),
                         "description": .string("Exact title of one ## section of this session's latest scene, "
-                                               + "such as one an answer left out: answers that section whole, "
+                                               + "such as one an answer left out: answers that section, in pages if needed, "
                                                + "without reading the window again. Not with full.")
                     ]),
                     "page"   : .object([
@@ -664,13 +666,15 @@ public final class AutomationTools {
                  + "button as text. Answers with the scene after the press. Disabled and destructive buttons are "
                  + "refused.",
                  session.merging(["button": text], uniquingKeysWith: { $1 }), ["session", "button"]),
-            tool("app_capabilities", "List what Braus can do in an app through its API, with the app in the background "
-                 + "or closed and no session: the adapter's availability and its verbs, each with its arguments, "
+            tool("app_capabilities", "List what Braus can do in an app through its API: "
+                 + "the adapter's availability and its verbs, each with its arguments, "
                  + "safety class and read-back. Prefer a verb there over driving the app's interface. Optional "
                  + "query: words of the verbs wanted.",
                  ["app": text, "query": text], ["app"], readOnly: true),
             tool("app_call", "Run one verb of an app's adapter (see app_capabilities) and read its effect back; "
-                 + "no session needed. The outcome is found_acted when the read-back confirmed the effect, "
+                 + "a verb that scripts its app holds it on the Seat when available, switching apps if needed. "
+                 + "A session: line names the session it opened, which observe can read. "
+                 + "The outcome is found_acted when the read-back confirmed the effect, "
                  + "acted_unverified when it did not (read the state again before anything else), acted_noop "
                  + "when nothing needed doing, honest_miss when the thing named does not exist, refused when "
                  + "nothing was done and the message says why. Setters answer the previous value.",
@@ -679,7 +683,7 @@ public final class AutomationTools {
                                         "description": .string("The verb's arguments, as app_capabilities lists them.")])],
                  ["app", "verb"]),
             tool("close_session", "Return the application's windows and release its Seat. Only when the person "
-                 + "asks, or before calling open_session again; never to finish a task, since Braus releases the "
+                 + "asks, or before calling open_session for a different app; never to finish a task, since Braus releases the "
                  + "Seat by itself.",
                  session, ["session"]),
             tool("collect_posts", "Read many posts or articles of the web page this session holds in one call, "

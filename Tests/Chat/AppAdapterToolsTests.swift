@@ -33,6 +33,18 @@ struct AppAdapterToolsTests {
         #expect(with.instructions.contains("never through Finder, TextEdit"))
     }
 
+    @Test("adapter guidance describes holding scripted apps and the session answered")
+    func adapterSessionGuidance() throws {
+        let definitions = AutomationTools.definitions(for: .adapters)
+        let capabilities = try #require(definitions.first { $0["name"].string == "app_capabilities" })
+        let call = try #require(definitions.first { $0["name"].string == "app_call" })
+        #expect(capabilities["description"].string?.contains("background or closed and no session") == false)
+        let description = try #require(call["description"].string)
+        #expect(!description.contains("no session needed"))
+        #expect(description.contains("holds it on the Seat when available, switching apps if needed"))
+        #expect(description.contains("A session: line names the session it opened, which observe can read."))
+    }
+
     @Test("without adapters an app_call is refused and reaches nothing")
     func refusedWithoutAdapters() async {
         let tools = AutomationTools(session: AdapterOnlySession())
