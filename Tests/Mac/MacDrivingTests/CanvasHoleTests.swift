@@ -320,4 +320,72 @@ struct CanvasHoleTests {
             \(harvest.quality.nodesVisited ?? 0) nodes, \(harvest.elements.count) elements
             """)
     }
+
+    // MARK: Caption
+
+    @Test("The caption lists the track names by row and nothing else beside the playlist")
+    func captionNamesTracks() async throws {
+        let (scene, _) = try await Self.scene()
+        let canvas = try #require(scene.elements.first { $0.kind == .canvas })
+        let local = canvas.bounds.pixelBox(in: Self.window.size)
+        let layout = try #require(CanvasCrop.layout(canvas: local, changed: [local]))
+        let caption = CanvasCaption.text(of: canvas, crop: layout, in: scene, windowSize: Self.window.size)
+        print("HOLE_CAPTION\n\(caption)")
+        let rows = try #require(caption.components(separatedBy: "\n").first { $0.hasPrefix("rows (y px): ") })
+        let names = rows.dropFirst("rows (y px): ".count).components(separatedBy: ", ").compactMap {
+            $0.components(separatedBy: "\"").dropFirst().first
+        }
+        let visible = ["Drums folder", "Crash 1", "Kick 1", "Snare fill", "Tom 1", "Bass folder", "Bass 1"]
+        #expect(Array(names.prefix(visible.count)) == visible, "\(rows)")
+        #expect(names.allSatisfy { name in Self.tracks.contains { $0.name == name } }, "\(rows)")
+        // Kick 1's elements span window y 434 to 530 (its inserts to its markers), 395 points into the window.
+        let top = Int((395 - layout.rect.minY).rounded())
+        #expect(rows.contains("\"Kick 1\" \(top)..\(top + 96)"), "\(rows)")
+    }
+
+    @Test("A group under half the canvas height is one row; a wrapper over the rows leaves its labels as rows")
+    func captionGroupRows() throws {
+        let windowSize = CGSize(width: 1000, height: 800)
+        func element(
+            _ label    : String,
+            _ container: String?,
+            _ frame    : CGRect,
+            kind       : ElementKind = .control
+        ) -> SceneElement {
+            SceneElement(
+                id       : "\(kind.rawValue)|\(label)",
+                kind     : kind,
+                label    : label,
+                bounds   : NormalizedRect(pixelBox: frame, in: windowSize),
+                container: container
+            )
+        }
+        let canvas = element("canvas 1", nil, CGRect(x: 400, y: 100, width: 500, height: 600), kind: .canvas)
+        let scene = SceneSnapshot(
+            bundleID         : "com.braus.fixture.hole",
+            appName          : "Hole Fixture",
+            windowTitle      : "Rows",
+            viewportPixelSize: ViewportPixelSize(width: 1000, height: 800),
+            elements         : [
+                canvas,
+                element("Solo", "Kick", CGRect(x: 150, y: 120, width: 100, height: 20)),
+                element("Mute", "Kick", CGRect(x: 300, y: 150, width: 80, height: 20)),
+                element("Insert 1", "Kick / Inserts", CGRect(x: 330, y: 180, width: 60, height: 10)),
+                element("Solo", "Snare", CGRect(x: 150, y: 220, width: 100, height: 20)),
+                element("Mute", "Snare", CGRect(x: 300, y: 250, width: 80, height: 20)),
+                // "Arrange" spans 380 points, over half the canvas: a wrapper, so its label is the row.
+                element("Lane 3", "Arrange", CGRect(x: 300, y: 330, width: 80, height: 20), kind: .text),
+                element("Zoom", "Arrange", CGRect(x: 300, y: 690, width: 80, height: 20)),
+            ]
+        )
+        let frame = canvas.bounds.pixelBox(in: windowSize)
+        let layout = try #require(CanvasCrop.layout(canvas: frame, changed: [frame]))
+        let caption = CanvasCaption.text(of: canvas, crop: layout, in: scene, windowSize: windowSize)
+        let rows = try #require(caption.components(separatedBy: "\n").first { $0.hasPrefix("rows (y px): ") })
+        #expect(rows.hasPrefix("rows (y px): \"Kick\" "), "\(rows)")
+        let names = rows.dropFirst("rows (y px): ".count).components(separatedBy: ", ").compactMap {
+            $0.components(separatedBy: "\"").dropFirst().first
+        }
+        #expect(names == ["Kick", "Snare", "Lane 3"], "\(rows)")
+    }
 }
