@@ -120,6 +120,10 @@ final class TranscriptController: NSObject {
     @ObservationIgnored
     var onReply: ((MessageQuote) -> Void)?
 
+    /// Called to enlarge a tool line's pictures over the window, which the host shows.
+    @ObservationIgnored
+    var onOpenPictures: ((PicturesEnlargement) -> Void)?
+
     var style: TranscriptStyle {
         didSet { if style != oldValue { enqueue { await self.relayout() } } }
     }
@@ -1022,8 +1026,9 @@ final class TranscriptController: NSObject {
             revealQuoted(quote.messageID)
         case .openPictures(let index):
             if let item = rows.firstIndex(where: { $0.item.id == id }),
-               let cell = collectionView.item(at: IndexPath(item: item, section: 0)) as? TranscriptCell {
-                cell.rowView.openPictures(block: index)
+               let cell = collectionView.item(at: IndexPath(item: item, section: 0)) as? TranscriptCell,
+               let enlargement = cell.rowView.enlargement(ofPictures: index) {
+                onOpenPictures?(enlargement)
             }
         }
     }

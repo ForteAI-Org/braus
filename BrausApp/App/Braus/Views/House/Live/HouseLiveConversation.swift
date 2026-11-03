@@ -400,6 +400,7 @@ struct HouseLiveConversation: View {
         let controller = transcript ?? TranscriptController(source: team.transcriptSource)
         transcript = controller
         controller.isHumanControlled = isHumanControlled
+        controller.onOpenPictures    = { [team] in team.enlargePictures($0) }
 
         let conversationID = conversation.id
         controller.onReadingPositionChange = { [team] anchor, offset in

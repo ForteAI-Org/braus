@@ -70,6 +70,7 @@ struct HouseShellView: View {
             inspector
         }
         .overlay { enlargedScreen }
+        .overlay { enlargedPictures }
         .environment(
             \.openWorkerScreen,
             { [team] workerID in
@@ -80,8 +81,9 @@ struct HouseShellView: View {
             }
         )
         .onChange(of: team.selection) {
-            // Another worker takes the enlarged screen away with no shrink to land.
+            // Another worker takes the enlarged screen and pictures away with no shrink to land.
             team.dismissEnlargedScreen()
+            team.dismissEnlargedPictures()
             Task { await team.openSelectedConversation() }
             // A name asked for another worker is no longer wanted.
             if team.editingWorker != team.selection { team.editingWorker = nil }
@@ -217,6 +219,21 @@ struct HouseShellView: View {
             ConversationEnlargedScreen(
                 team       : team,
                 worker     : worker,
+                enlargement: enlargement
+            )
+            .ignoresSafeArea(
+                .container,
+                edges: .top
+            )
+        }
+    }
+
+    /// A tool line's pictures over the whole window, while they are enlarged.
+    @ViewBuilder
+    private var enlargedPictures: some View {
+        if let enlargement = team.enlargedPictures {
+            ConversationEnlargedPictures(
+                team       : team,
                 enlargement: enlargement
             )
             .ignoresSafeArea(

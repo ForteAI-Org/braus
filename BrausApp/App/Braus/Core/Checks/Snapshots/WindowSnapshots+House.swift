@@ -157,9 +157,6 @@ extension WindowSnapshots {
         let rooms        : Int
         let lit          : Int
         let allocated    : Int
-
-        /// An enlarged pictures overlay over the content, drawn last (`enlargedOverlay`).
-        let overlay      : (picture: NSBitmapImageRep, place: CGRect)?
     }
 
     /// Draws the house window at `width` by 900. Its sidebar column draws blank offscreen, so the
@@ -229,18 +226,6 @@ extension WindowSnapshots {
             width : window.inspectorWidth,
             height: size.height
         ))
-        if let overlay = window.overlay {
-            NSColor.black.withAlphaComponent(0.45).setFill()
-            overlay.place.fill(using: .sourceOver)
-            overlay.picture.draw(
-                in            : overlay.place,
-                from          : .zero,
-                operation     : .sourceOver,
-                fraction      : 1,
-                respectFlipped: false,
-                hints         : nil
-            )
-        }
         context.flushGraphics()
 
         guard let png = window.bitmap.representation(
@@ -309,24 +294,6 @@ extension WindowSnapshots {
                     .ignoresSafeArea()
             }
         }
-    }
-
-    /// The AppKit overlay that enlarges a tool line's pictures, drawn alone, and where it sits in
-    /// `frame`; nil without one. The hosting view draws only its own content, so the overlay is drawn
-    /// over the finished window, its dimmed backdrop, a bare layer, filled with the same black.
-    private static func enlargedOverlay(
-        of hosting: NSView,
-        in frame  : NSView
-    ) -> (picture: NSBitmapImageRep, place: CGRect)? {
-        guard let overlay = hosting.subviews.last(where: { $0 is EnlargedScreenHostView }),
-              let picture = overlay.bitmapImageRepForCachingDisplay(in: overlay.bounds)
-        else { return nil }
-
-        overlay.cacheDisplay(
-            in: overlay.bounds,
-            to: picture
-        )
-        return (picture, frame.convert(overlay.bounds, from: overlay))
     }
 
     /// Hosts `content` at `width` by `height` in a window that is never shown, lets it settle, puts
@@ -433,8 +400,7 @@ extension WindowSnapshots {
             inspectorWidth: columnWidth(in: frame, leading: false),
             rooms        : rooms.count,
             lit          : pictures.count,
-            allocated    : Int(allocated),
-            overlay      : enlargedOverlay(of: hosting, in: frame)
+            allocated    : Int(allocated)
         )
         for picture in pictures { picture.removeFromSuperlayer() }
         window.close()

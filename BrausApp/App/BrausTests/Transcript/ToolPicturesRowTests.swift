@@ -94,7 +94,7 @@ struct ToolPicturesRowTests {
         #expect(line.geometry.pictureFrames[1].count == 1)
     }
 
-    @Test("A click on the pictures in the transcript enlarges them")
+    @Test("A click on the pictures in the transcript asks for them enlarged")
     @MainActor
     func clickEnlarges() async throws {
         let fixture = try await TranscriptFixture()
@@ -127,6 +127,8 @@ struct ToolPicturesRowTests {
         await controller.settle()
         window.contentView?.layoutSubtreeIfNeeded()
 
+        var opened: PicturesEnlargement?
+        controller.onOpenPictures = { opened = $0 }
         func views(in view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
         let strip  = try #require(views(in: controller.view).compactMap { $0 as? ToolPicturesView }.first)
         let middle = strip.convert(NSPoint(x: strip.bounds.width / 4, y: strip.bounds.midY), to: nil)
@@ -138,10 +140,10 @@ struct ToolPicturesRowTests {
                                                         clickCount: 1, pressure: 1))
             window.sendEvent(event)
         }
-        #expect(views(in: window.contentView!).contains { $0 is EnlargedScreenHostView })
+        #expect(opened?.opener === strip && opened?.images.count == 1)
     }
 
-    @Test("A row shows its pictures in a view per block and enlarges them over the window, closing back")
+    @Test("A row shows its pictures in a view per block and gives them to enlarge, grown from the small ones")
     @MainActor
     func rowViewShowsAndEnlarges() async throws {
         let lines = try Self.canvasLines(before: try Self.png(width: 160, height: 60),
@@ -164,12 +166,9 @@ struct ToolPicturesRowTests {
         view.focusedAction = .openPictures(block: 1)
         #expect(strip.isFocused)
 
-        view.openPictures(block: 1)
-        let host = try #require(window.contentView?.subviews.compactMap { $0 as? EnlargedScreenHostView }.first)
-        host.layoutSubtreeIfNeeded()
-        #expect(host.accessibilityLabel() == "Pictures of Timeline · lane 2")
-        host.cancelOperation(nil)
-        for _ in 0..<80 where host.superview != nil { try await Task.sleep(for: .milliseconds(25)) }
-        #expect(host.superview == nil, "Escape shrinks the pictures back and removes the overlay")
+        let enlargement = try #require(view.enlargement(ofPictures: 1))
+        #expect(enlargement.label == "Pictures of Timeline · lane 2")
+        #expect(enlargement.images.count == 1 && enlargement.opener === strip)
+        #expect(view.enlargement(ofPictures: 0) == nil, "the summary shows no pictures")
     }
 }

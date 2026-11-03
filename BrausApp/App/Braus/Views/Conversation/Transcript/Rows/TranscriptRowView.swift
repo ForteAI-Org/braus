@@ -307,7 +307,7 @@ final class TranscriptRowView: NSView {
 
     private func makePictureView(block index: Int) -> ToolPicturesView {
         let view = ToolPicturesView()
-        view.onOpen = { [weak self] in self?.openPictures(block: index) }
+        view.onOpen = { [weak self] in self?.onAction?(.openPictures(block: index)) }
         addSubview(view)
         return view
     }
@@ -321,32 +321,17 @@ final class TranscriptRowView: NSView {
         }
     }
 
-    /// Enlarges the pictures of the pictures block at `index` over the whole window, grown from
-    /// where they are small and shrunk back into them, as a worker's screen is (`EnlargedScreenHostView`).
-    func openPictures(block index: Int) {
-        guard let strip = pictureViews[index], let pictures = strip.pictures, let content = window?.contentView
-        else { return }
+    /// The pictures of the pictures block at `index`, to enlarge over the window, grown from where
+    /// they are small and shrunk back into them; nil while the block shows none.
+    func enlargement(ofPictures index: Int) -> PicturesEnlargement? {
+        guard let strip = pictureViews[index], let pictures = strip.pictures else { return nil }
 
-        let screen = ToolPicturesScreenView(
-            strip.shownImages,
-            pixelSizes: pictures.pictures.map { CGSize(width: $0.width, height: $0.height) }
+        return PicturesEnlargement(
+            images: strip.shownImages,
+            sizes : pictures.pictures.map { CGSize(width: $0.width, height: $0.height) },
+            label : pictures.label.map { "Pictures of \($0)" } ?? "Pictures",
+            opener: strip
         )
-        var close: () -> Void = {}
-        let host = EnlargedScreenHostView(
-            screen        : screen,
-            nativeSize    : screen.nativeSize,
-            opener        : strip,
-            reducesMotion : NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-            label         : pictures.label.map { "Pictures of \($0)" } ?? "Pictures",
-            copiesFrames  : false,
-            onRequestClose: { close() }
-        )
-        close = { [weak host, weak strip] in
-            host?.close(into: strip) { host?.removeFromSuperview() }
-        }
-        host.frame            = content.bounds
-        host.autoresizingMask = [.width, .height]
-        content.addSubview(host)
     }
 
     /// The copy icons of the row's finished code blocks. Another row starts
