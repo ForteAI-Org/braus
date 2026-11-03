@@ -1563,8 +1563,10 @@ final class TeamModel {
                 await self?.humanHosts[workerID]?.host.waitForHumanInterventionCleanup()
                 await self?.answerTasks[workerID]?.value
             },
+            // The episode's host still withholds once the resumed turn has taken it off `humanHosts`: that turn is
+            // when the worker reads the details.
             withholding: { [weak self] text in
-                self?.humanHosts[workerID]?.host.withheld(text) ?? "Human intervention evidence unavailable."
+                (self?.humanHosts[workerID]?.host ?? interventionHost)?.withheld(text) ?? "Human intervention evidence unavailable."
             },
             resumeAgent: { [weak self] summary, beginTurn in
                 guard let self else { throw CancellationError() }
