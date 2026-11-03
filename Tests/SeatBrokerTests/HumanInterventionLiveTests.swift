@@ -234,8 +234,10 @@ struct HumanInterventionLiveTests {
     }
 
     /// The front on-screen window of `processID` whose title contains `title` (any when nil).
+    /// The application's first normal window, waited for up to 30 seconds: a second launch of an app on a busy Mac
+    /// can take well over ten.
     private static func window(of processID: Int32, titled title: String? = nil) async throws -> InteractionWindow {
-        for _ in 0..<40 {
+        for _ in 0..<120 {
             let found = InteractionWindowReader.windows(excluding: -1).first {
                 $0.processID == processID && $0.layer == 0 && $0.frame.width > 200
                     && (title == nil || ($0.title ?? "").contains(title!))
@@ -243,6 +245,8 @@ struct HumanInterventionLiveTests {
             if let found { return found }
             try await Task.sleep(for: .milliseconds(250))
         }
+        let shown = InteractionWindowReader.windows(excluding: -1).filter { $0.processID == processID }
+        print("LIVE no window of PID \(processID) after 30 s; its windows: \(shown.map { "\($0.layer) \($0.frame)" })")
         throw CancellationError()
     }
 
