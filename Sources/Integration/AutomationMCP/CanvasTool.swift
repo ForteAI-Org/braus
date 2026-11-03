@@ -122,7 +122,7 @@ enum CanvasTool {
         Pictures: \(isPair ? "before, then after the changed area" : "current whole canvas").
         Coordinates: window = origin + point / zoom (top-left origin; point is in picture pixels).
         Caption:
-        \(caption)
+        \(caption.isEmpty ? request.id : caption)
         Estimated image tokens (\(images.count) pictures): Claude \(claude), GPT \(gpt).
         """
         let content: [JSONValue] = [.object(["type": .string("text"), "text": .string(withholding(text))])]

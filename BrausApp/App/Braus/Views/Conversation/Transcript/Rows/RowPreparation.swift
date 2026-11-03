@@ -303,16 +303,15 @@ nonisolated enum RowPreparation {
     }
 
     /// The tool line: its summary, one quiet line the chevron follows, then the pictures its steps
-    /// showed the model, a block each with its label; opened, the steps on a card under them, one
-    /// line each. Nothing on it is marked as a problem: a turn that failed has its own card.
+    /// showed the model, a block each with the last picture alone (a canvas's after) and no text, its
+    /// label left to VoiceOver; opened, the steps on a card under them, one line each. Nothing on it
+    /// is marked as a problem: a turn that failed has its own card.
     private static func toolLine(_ steps: [ToolStep], isExpanded: Bool, ending: TranscriptItem.TurnEnding?)
         -> PreparedText {
         var summary = PreparedBlock(kind: .toolSummary)
         summary.append(TranscriptWording.toolSummary(steps, ending: ending), role: .toolCaption)
         let pictures = steps.compactMap(\.pictures).suffix(ToolPictures.recordsPerTurn).map { shown in
-            var block = PreparedBlock(kind: .pictures(shown))
-            block.append(shown.label ?? "", role: .toolCaption)
-            return block
+            PreparedBlock(kind: .pictures(ToolPictures(label: shown.label, pictures: Array(shown.pictures.suffix(1)))))
         }
         let lines = isExpanded ? TranscriptWording.toolSteps(steps, ending: ending) : []
         guard !lines.isEmpty else { return PreparedText(blocks: [summary] + pictures) }

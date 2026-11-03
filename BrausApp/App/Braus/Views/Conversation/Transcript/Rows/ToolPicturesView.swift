@@ -119,6 +119,10 @@ final class ToolPicturesView: NSView {
         if WindowSnapshots.opensToolPictures, window != nil { DispatchQueue.main.async { self.onOpen?() } }
     }
 
+    /// A click opens the pictures even when the conversation's window is not the key one, as when the
+    /// person was just in a worker's screen window.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func mouseDown(with event: NSEvent) {
         let point = convert(
             event.locationInWindow,
