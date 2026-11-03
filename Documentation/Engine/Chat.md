@@ -146,9 +146,17 @@ directories. Within that host, concurrent tool effects are refused rather than
 interleaved. The first version controls one application session at a time.
 A provider process disconnect between turns does not release the Seat.
 
+## Tool pictures
+
+The `canvas` tool returns a changed area before and after, or the current whole canvas.
+The worker loop passes pictures to models that read them and keeps omission markers for later
+turns. The app shows only the after picture under the tool line, with a labelled action to
+enlarge it through the window overlay. See [canvas perception](../Perception/Canvases.md)
+for arguments, provider formats, privacy and picture coordinates.
+
 ## Tools and results
 
-`status`, `windows`, `apps`, `open_session`, `observe`, `act`, `select`,
+`status`, `windows`, `apps`, `open_session`, `observe`, `canvas`, `act`, `select`,
 `type_text`, `insert_text`, `press_key`, `scroll`, `drag`, `context_menu`,
 `menu`, `press`, `batch`, `close_session`. CLI chat and the signed Braus app
 share these definitions and their validation.
