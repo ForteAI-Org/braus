@@ -227,7 +227,15 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// Selects one exact current title among held windows, retaining the application's lease.
     static func switchWindow(_ target: SeatTarget, processID: pid_t, title: String) async throws {
         let seat = try target.agentSeat()
-        _ = try await target.observe()
+        // A seat suspended because it cannot choose between windows is what this switch resolves:
+        // the readings are folded without the observation it refuses, and switchTarget decides.
+        do {
+            _ = try await target.observe()
+        } catch ObservationUnavailable.suspended(let causes) where causes.contains(where: {
+            if case .explicitSelectionRequired = $0 { true } else { false }
+        }) {
+            seat.refreshTargetReadings()
+        }
         let candidates = TargetEnumerator.windows(
             of: processID, includingHeld: seat.adoptedWindows.map(\.reference)
         ).filter { $0.title == title }
