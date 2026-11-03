@@ -8,7 +8,8 @@
 import AppKit
 
 /// PicturesEnlargement is a tool line's pictures enlarged over the window: grown from the small
-/// pictures in the transcript (`opener`) and shrunk back into them when it closes.
+/// pictures in the transcript (`opener`) and shrunk back into them, wherever they are by then, when it
+/// closes.
 ///
 /// Closing only marks the value; the overlay removes it once its animation has landed, as a
 /// worker's enlarged screen (`ScreenEnlargement`).
@@ -19,8 +20,9 @@ struct PicturesEnlargement: Equatable {
     let sizes : [CGSize]
     let label : String
 
-    /// The small pictures it grows from and shrinks into, gone when their row scrolled away.
-    weak var opener: NSView?
+    /// The small pictures it grows from and shrinks into, looked up each time: while it is open the
+    /// transcript may scroll or show the line in another view. Nil while the line is not on screen.
+    let opener: () -> NSView?
 
     /// True from the request to close until the overlay is removed.
     private(set) var isClosing = false
@@ -29,7 +31,7 @@ struct PicturesEnlargement: Equatable {
         images: [NSImage],
         sizes : [CGSize],
         label : String,
-        opener: NSView?
+        opener: @escaping () -> NSView?
     ) {
         self.images = images
         self.sizes  = sizes

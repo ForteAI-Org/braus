@@ -28,7 +28,7 @@ struct ConversationEnlargedPictures: NSViewRepresentable {
         return EnlargedScreenHostView(
             screen        : screen,
             nativeSize    : screen.nativeSize,
-            opener        : enlargement.opener,
+            opener        : enlargement.opener(),
             reducesMotion : reducesMotion,
             label         : enlargement.label,
             copiesFrames  : false,
@@ -43,6 +43,6 @@ struct ConversationEnlargedPictures: NSViewRepresentable {
         host.reducesMotion = reducesMotion
         guard enlargement.isClosing else { return }
 
-        host.close(into: enlargement.opener) { [team] in team.dismissEnlargedPictures() }
+        host.close(into: enlargement.opener()) { [team] in team.dismissEnlargedPictures() }
     }
 }

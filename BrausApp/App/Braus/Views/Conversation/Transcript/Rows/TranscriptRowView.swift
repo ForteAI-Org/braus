@@ -321,18 +321,8 @@ final class TranscriptRowView: NSView {
         }
     }
 
-    /// The pictures of the pictures block at `index`, to enlarge over the window, grown from where
-    /// they are small and shrunk back into them; nil while the block shows none.
-    func enlargement(ofPictures index: Int) -> PicturesEnlargement? {
-        guard let strip = pictureViews[index], let pictures = strip.pictures else { return nil }
-
-        return PicturesEnlargement(
-            images: strip.shownImages,
-            sizes : pictures.pictures.map { CGSize(width: $0.width, height: $0.height) },
-            label : pictures.label.map { "Pictures of \($0)" } ?? "Pictures",
-            opener: strip
-        )
-    }
+    /// The small pictures of the pictures block at `index`, nil while the block shows none.
+    func pictureView(block index: Int) -> ToolPicturesView? { pictureViews[index] }
 
     /// The copy icons of the row's finished code blocks. Another row starts
     /// them as copy icons; the same row growing keeps a check still showing.

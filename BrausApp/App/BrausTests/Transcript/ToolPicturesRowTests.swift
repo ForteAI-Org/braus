@@ -140,10 +140,11 @@ struct ToolPicturesRowTests {
                                                         clickCount: 1, pressure: 1))
             window.sendEvent(event)
         }
-        #expect(opened?.opener === strip && opened?.images.count == 1)
+        #expect(opened?.opener() === strip && opened?.images.count == 1)
+        #expect(opened?.label == "Pictures of Timeline · lane 2")
     }
 
-    @Test("A row shows its pictures in a view per block and gives them to enlarge, grown from the small ones")
+    @Test("A row shows its pictures in a view per block")
     @MainActor
     func rowViewShowsAndEnlarges() async throws {
         let lines = try Self.canvasLines(before: try Self.png(width: 160, height: 60),
@@ -166,9 +167,7 @@ struct ToolPicturesRowTests {
         view.focusedAction = .openPictures(block: 1)
         #expect(strip.isFocused)
 
-        let enlargement = try #require(view.enlargement(ofPictures: 1))
-        #expect(enlargement.label == "Pictures of Timeline · lane 2")
-        #expect(enlargement.images.count == 1 && enlargement.opener === strip)
-        #expect(view.enlargement(ofPictures: 0) == nil, "the summary shows no pictures")
+        #expect(view.pictureView(block: 1) === strip)
+        #expect(view.pictureView(block: 0) == nil, "the summary shows no pictures")
     }
 }
