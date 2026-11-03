@@ -1098,5 +1098,125 @@ extension ModelText {
             text: "{count}",
             legacy: false
         ),
+        Entry(
+            key: .init(rawValue: "scene_text_policy.unanswered.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "observe"),
+            budgetCharacters: 65,
+            text: "No scene of this session has been answered yet: observe it first.",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_text_policy.stale.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "observe"),
+            budgetCharacters: 79,
+            text: "A call may have changed the application since its last scene: observe it first.",
+            legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "call_dispatcher.section.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "observe"),
+            budgetCharacters: 31,
+            text: "Pass section or full, not both.",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "call_dispatcher.section.v1.2"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "observe"),
+            budgetCharacters: 52,
+            text: "section must be the title of a section of the scene.",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.titles.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "observe"),
+            budgetCharacters: 22,
+            text: "No section is titled \"",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.titles.v1.2"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "observe"),
+            budgetCharacters: 20,
+            text: "\". The sections are ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.titles.v1.3"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "observe"),
+            budgetCharacters: 1,
+            text: ".",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.pages.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "observe"),
+            budgetCharacters: 9,
+            text: "Section \"",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.pages.v1.2"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "observe"),
+            budgetCharacters: 22,
+            text: "\" has {count} page(s).",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "call_dispatcher.seat.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "app_call"),
+            budgetCharacters: 21,
+            text: "Braus could not hold ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "call_dispatcher.seat.v1.2"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "app_call"),
+            budgetCharacters: 35,
+            text: " on the seat, so nothing was done: ",
+            legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "call_dispatcher.seat.v1.3"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "app_call"),
+            budgetCharacters: 13,
+            text: "Braus opened ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "call_dispatcher.seat.v1.4"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "app_call"),
+            budgetCharacters: 50,
+            text: " but the seat does not hold it (the session holds ",
+            legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "call_dispatcher.seat.v1.5"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "app_call"),
+            budgetCharacters: 7,
+            text: "nothing",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "call_dispatcher.seat.v1.6"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "app_call"),
+            budgetCharacters: 23,
+            text: "), so nothing was done.",
+            legacy: false
+        ),
     ]
 }

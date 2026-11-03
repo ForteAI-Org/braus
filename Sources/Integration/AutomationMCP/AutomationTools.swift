@@ -46,7 +46,8 @@ public final class AutomationTools {
     /// (`toolDefinitions`) and whether `adapters` and `router` start set. Empty serves the Seat alone.
     public let channels: AutomationChannels
 
-    /// The app adapters `app_capabilities` and `app_call` reach, without a session or a seat; nil
+    /// The app adapters `app_capabilities` and `app_call` reach, without a session or a seat unless the
+    /// verb scripts its app, which the session then holds as `holding(_:mayChange:_:)` holds one; nil
     /// without `.adapters`, where those tools are refused. Irreversible verbs are refused unless the host
     /// built them with a per-call approver.
     public var adapters: AppAdapters? {
@@ -162,6 +163,43 @@ public final class AutomationTools {
     /// Forgets every scene the model read, so the next scene of any window is sent whole: for a new
     /// turn or a compacted context, which may no longer hold those scenes.
     public func forgetScene() { sceneText.forgetScene() }
+
+    /// HoldRefused is a hold `holding(_:mayChange:_:)` could not take on a Seat that exists: nothing of the caller's
+    /// command ran, and `reason` says why in a sentence the agent can be answered with.
+    nonisolated public struct HoldRefused: Error, Sendable, CustomStringConvertible {
+        public let reason: String
+
+        public var description: String { reason }
+    }
+
+    /// SeatHold is how a command `holding(_:mayChange:_:)` ran: with the application held on the session's Seat, or
+    /// unheld because the session has no Seat at all (a host without desktop access), where a command that needs
+    /// the Seat stops and one that also works without it goes on.
+    nonisolated public enum SeatHold: Sendable, Equatable {
+        case held
+        case noSeat
+    }
+
+    /// Holds the application `bundleID` on the Seat for the length of `body`, for a tool family registered beside
+    /// these tools that drives or scripts an application (its scripting protocol, its own windows) and only knows
+    /// the bundle ID. When the session does not hold it on its Seat yet, it is opened there as `open_session` opens
+    /// one (the queue, the grants, the adoption), never on a native route, after closing what the session holds:
+    /// one application per session. A session with no Seat holds nothing and runs `body` with `.noSeat`. The call
+    /// counts as the session's activity until `body` returns, so the inactivity release never fires under it and
+    /// restarts after it; `body` may borrow the front with `session.withFront`.
+    ///
+    /// Throws `HoldRefused` without running `body` only when a Seat exists and could not hold the application
+    /// (another owner holds it, the open failed or landed elsewhere), and a cancellation as it comes. Unless
+    /// `mayChange` is false (a read-only command), the session's next scene is answered whole, never as changes
+    /// against one read before `body`. Calls are serialized with the tool calls by the owner, as every session
+    /// call is.
+    public func holding<Value>(
+        _ bundleID: String,
+        mayChange : Bool = true,
+        _ body    : (SeatHold) async throws -> Value
+    ) async throws -> Value {
+        try await dispatcher.holding(bundleID, mayChange: mayChange, body)
+    }
 
     /// A text the host writes beside these records, such as what a command line's own web search asks or reads
     /// (`WebToolRecords`), with what they withhold withheld: the producer's secrets and the credential shapes (M07).

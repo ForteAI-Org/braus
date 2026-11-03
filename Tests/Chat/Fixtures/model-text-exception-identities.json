@@ -358,7 +358,7 @@
   "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|closingRefusal|d4c861fed060c57977099ec07ae878070a020cdd85185ba4b38865d0d3d5c00e",
   "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|command|d4c861fed060c57977099ec07ae878070a020cdd85185ba4b38865d0d3d5c00e",
   "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|completeHumanIntervention|37cb8b0df0550d8109813e9e49b8d4a3fcea1fd90da7482e11416e1642136829",
-  "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|deliver|0e2e16e650bba6c4cf83371e3156bca77c774f3ee719241d8194fcb04523bf10",
+  "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|activity|0e2e16e650bba6c4cf83371e3156bca77c774f3ee719241d8194fcb04523bf10",
   "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|endHumanIntervention|0fff2ebf1234cb257ed783a3de95b090d4d2e2a24e3d9bc2d1a4eb3f6e13d7ae",
   "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|fact|0114e2ea76d72869b37a4616f88b477fbda1466a276565b8e673a00067ab59c0",
   "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|fact|4404da206bc4db601432fb4052aad60145ddbd794a944cb6d930adf1d88563e9",
@@ -845,5 +845,12 @@
   "Sources/Turn/TurnRunner.swift|environment|2f85e580b9a1f5796f8b34f14ba8873122fef14178b80faa3ab13ae10ac7bc20",
   "Sources/Turn/TurnRunner.swift|file|63ef0fa64db31661d22e1e9e42b5ecddb8feda5867e9ea88b06efeef7c1a9808",
   "Sources/Turn/TurnRunner.swift|loop|657f12e2c31b869c5605cb8f31f0bbbd403c3ca7601f62d717a3cd000cd16187",
-  "Sources/Turn/TurnRunner.swift|tail|00a43bda499eeb3a1516d49337dc4fa9fcbfbd81e0145de2a1079652d8127481"
+  "Sources/Turn/TurnRunner.swift|tail|00a43bda499eeb3a1516d49337dc4fa9fcbfbd81e0145de2a1079652d8127481",
+  "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|reason|2911f6e7e06ebbddfca2e719cff04f5d2848c49afe3d58ceefc567b3c3395264",
+  "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|reason|8cec3eff17b5e57652b932e20e8d7315d6bb9fccdc87320771b27166e728514f",
+  "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|reason|223a3fd1be12ba09d6b8b8aa13d0e154b3b0f4dd9fb96ee26538f6066b37e943",
+  "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|reason|06695851704bb3f837e1f41947f2a4014ed5759892ee00270ba66a76f29e0127",
+  "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|reason|dbcf3f7e84ce0fd1d234467e227aaa777e6ad9d3b84c44c344f87cd0bea06a9c",
+  "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|reason|cd5b9d7d8a76331033201d0c3a087bfaaba8408230d371a9c14cbe2a24d75bf6",
+  "Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift|reason|58306dc743f5c8b608895952d15ad4e40df34a32aa2e6bdef0b8555444dca9d0"
 ]

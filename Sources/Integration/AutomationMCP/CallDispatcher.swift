@@ -142,11 +142,63 @@ final class CallDispatcher {
         return ResultFormatter.RefusalContext(sessionID: id, windowNumber: window, tool: tool, arguments: arguments)
     }
 
-    private func outcome(_ value: ActOutcome, refusal: ResultFormatter.RefusalContext?) async -> JSONValue {
+    private func outcome(
+        _ value: ActOutcome,
+        refusal: ResultFormatter.RefusalContext?,
+        aim    : (section: String?, target: String?) = (nil, nil)
+    ) async -> JSONValue {
         let stable = refusal.flatMap {
             $0.sessionID == session.id && $0.windowNumber == session.observedWindowNumber ? $0 : nil
         }
-        return await formatter.outcome(value, refusal: stable)
+        return await formatter.outcome(value, refusal: stable, aim: aim)
+    }
+
+    /// Holds `bundleID` on the session's Seat for the length of `body`, as `AutomationTools.holding(_:mayChange:_:)`
+    /// documents: the call is the session's activity until `body` returns, and unless `mayChange` is false the
+    /// session's next scene is answered whole.
+    func holding<Value>(
+        _ bundleID: String,
+        mayChange : Bool,
+        _ body    : (AutomationTools.SeatHold) async throws -> Value
+    ) async throws -> Value {
+        let activity = session.beginActivity()
+        defer { session.endActivity(activity) }
+        let hold = try await seat(bundleID)
+        defer { if mayChange { sceneText.markSceneStale(of: session.id) } }
+        return try await body(hold)
+    }
+
+    /// Makes the session hold `bundleID` on its Seat as `open_session` opens an application, on the Seat route
+    /// whatever a native route would take, closing what it holds first; `.noSeat` without touching anything when
+    /// the session has none. The first scene is read and not answered: the model reads the application with
+    /// observe. Throws `HoldRefused` with nothing sent to the application, or a cancellation (the person taking
+    /// control during that first read).
+    private func seat(_ bundleID: String) async throws -> AutomationTools.SeatHold {
+        guard session.hasSeat else { return .noSeat }
+        let holds = {
+            self.session.holdsOnSeat
+                && self.session.memoryApplication?.caseInsensitiveCompare(bundleID) == .orderedSame
+        }
+        if holds() { return .held }
+        if session.id != nil || session.memoryApplication != nil { await session.close() }
+        do {
+            _ = try await session.openOnSeat(application: bundleID)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw AutomationTools.HoldRefused(reason: ModelText.text(.init(rawValue: "call_dispatcher.seat.v1"))
+                + bundleID
+                + ModelText.text(.init(rawValue: "call_dispatcher.seat.v1.2"))
+                + "\(error)")
+        }
+        guard holds() else {
+            throw AutomationTools.HoldRefused(reason: ModelText.text(.init(rawValue: "call_dispatcher.seat.v1.3"))
+                + bundleID
+                + ModelText.text(.init(rawValue: "call_dispatcher.seat.v1.4"))
+                + (session.memoryApplication ?? ModelText.text(.init(rawValue: "call_dispatcher.seat.v1.5")))
+                + ModelText.text(.init(rawValue: "call_dispatcher.seat.v1.6")))
+        }
+        return .held
     }
 
     private func observation(
@@ -738,20 +790,42 @@ final class CallDispatcher {
                 await recorder?.noted(context: ResultFormatter.dataContext(of: resolved, arguments: arguments["arguments"], result: nil))
             }
             // The adapter verb is noted right before the adapter runs, never for a call its guards refused (M05).
+            // An adapter that scripts its app runs while the session holds that app, as an activity of the session.
             let outcome: AdapterOutcome
+            let activity = session.beginActivity()
+            defer { session.endActivity(activity) }
+            let opened    = session.id
+            let mayChange = resolved.map { $0.verb.safety != .read } ?? false
             do {
-                if let refusal = adapters.seatConflict(app: app, held: session.memoryApplication, elsewhere: SeatHolds.bundleIDs) {
+                let others = SeatHolds.bundleIDs.subtracting(session.memoryApplication.map { [$0] } ?? [])
+                if let refusal = adapters.seatConflict(app: app, elsewhere: others) {
                     outcome = .refused(refusal)
                 } else {
-                    outcome = try await adapters.call(app: app, verb: verb, arguments: arguments["arguments"]) { dispatch in
+                    outcome = try await adapters.call(
+                        app      : app,
+                        verb     : verb,
+                        arguments: arguments["arguments"],
+                        holding  : { bundleID in
+                            // Without a Seat the verb runs unheld, as it always did; only a Seat that fails refuses.
+                            do {
+                                _ = try await self.seat(bundleID)
+                                return nil
+                            } catch let refused as AutomationTools.HoldRefused {
+                                return refused.reason
+                            }
+                        }
+                    ) { dispatch in
                         await recorder?.dispatched(adapter: dispatch)
                     }
                 }
             } catch {
+                if mayChange { sceneText.markSceneStale(of: session.id) }
                 guard let verb = resolved?.verb, verb.resultConfidentiality != .ordinary,
                       !(error is CancellationError) else { throw error }
                 throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.verb.v1")))
             }
+            // A session the hold opened is named, so the model can observe it by its ID.
+            let held = session.id.flatMap { $0 == opened ? nil : $0.uuidString }
             // A confidential verb's result (P1-06) is the model's: its fields are withheld from the record and the
             // transcript, each value whole and the long ones wherever they appear (the outcome's message among them).
             if let verb = resolved?.verb, verb.resultConfidentiality != .ordinary {
@@ -768,9 +842,14 @@ final class CallDispatcher {
                 await recorder?.noted(context: ResultFormatter.dataContext(of: resolved, arguments: arguments["arguments"],
                                                                 result: outcome.result))
             }
+            if mayChange, outcome.kind != .refused { sceneText.markSceneStale(of: session.id) }
             output.modelText = AdapterText.outcome(outcome)
             output.contentTexts = ResultFormatter.content(of: resolved?.verb, arguments: arguments["arguments"], outcome: outcome)
+            output.modelText = held.map {
+                (output.modelText ?? "") + ModelText.text(.init(rawValue: "call_dispatcher.held.v1")) + $0
+            } ?? output.modelText
             value = outcome.json.adding("evidence", ResultFormatter.evidence(output.lastCheck, kind: outcome.kind))
+                .adding("session", held.map(JSONValue.string))
             output.lastResult = .outcome(outcome.kind, message: outcome.message)
         case "open_session":
             if values["named"] != nil, arguments["named"].bool == nil {
@@ -814,10 +893,25 @@ final class CallDispatcher {
             if values["full"] != nil, arguments["full"].bool == nil {
                 throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1.4")))
             }
-            await noteDispatch()
-            let scene = try await session.observe()
-            value = await observation(scene, changesOnly: arguments["full"].bool != true)
-            output.lastResult = await observed(by: recorder)
+            if values["section"] != nil || values["page"] != nil {
+                guard values["full"] == nil else {
+                    throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.section.v1")))
+                }
+                guard let title = arguments["section"].string, !title.isEmpty else {
+                    throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.section.v1.2")))
+                }
+                // Read from the scene the model was answered, so nothing is dispatched and no observation is recorded.
+                value = try await sceneText.sectionReading(
+                    title,
+                    page   : ToolArguments.whole(arguments, "page", 1...1_000, default: 1),
+                    session: session.id
+                )
+            } else {
+                await noteDispatch()
+                let scene = try await session.observe()
+                value = await observation(scene, changesOnly: arguments["full"].bool != true)
+                output.lastResult = await observed(by: recorder)
+            }
         case "menu":
             await noteDispatch()
             let refusal = refusalContext(tool: name, arguments: arguments)
@@ -845,7 +939,7 @@ final class CallDispatcher {
             let step = try Step(name, arguments)
             let refusal = refusalContext(tool: name, arguments: arguments)
             let done = try await perform(step, dispatch: CallScope.current.dispatch(of: step.texts, at: 0))
-            value = await outcome(done, refusal: refusal)
+            value = await outcome(done, refusal: refusal, aim: step.aim)
             output.lastResult = .outcome(done.kind, message: done.message)
             output.lastCheck  = done.withStatedCheck.check
         case "batch":
@@ -934,7 +1028,7 @@ final class CallDispatcher {
                     complete = false
                     break
                 }
-                let value = await outcome(result, refusal: refusal)
+                let value = await outcome(result, refusal: refusal, aim: step.aim)
                 results.append(value)
                 do {
                     try await child?.end(.completed, result: .outcome(result.kind, message: result.message),

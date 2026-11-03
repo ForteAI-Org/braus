@@ -1806,6 +1806,41 @@ struct AppWindowFollowTests {
         #expect(change.reason == .detected)
     }
 
+    @Test("a target the seat took as the only candidate is not unseated by a later unordered window")
+    func theOnlyCandidateTargetSurvivesAnUnorderedNewcomer() async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let reader  = ControlledSurfaceReader(sensing: sensing)
+        let (seat, first) = try await Self.followingSeat(
+            sensing: sensing,
+            placing: placing,
+            marker : 7_071,
+            reader : reader
+        )
+
+        let window = Self.offer(Self.secondWindowNumber, to: sensing, placing)
+        await Self.pass(seat)
+        reader.visibilities[first.id] = .minimisedEstablished
+        seat.refreshTargetReadings()
+        #expect(seat.currentTarget?.id == window.windowNumber)
+
+        // A dialog that comes up beside it with no qualified recency, as an
+        // application's own new window can when its focus change was not taken.
+        reader.roles[Self.thirdWindowNumber] = .dialog
+        let newcomer = Self.offer(Self.thirdWindowNumber, to: sensing, placing)
+        await Self.pass(seat)
+        seat.refreshTargetReadings()
+
+        let candidates = seat.selectionKit.status().candidates
+        #expect(candidates.contains(try #require(newcomer.identity)),
+                "the newcomer is a candidate the nucleus could choose")
+        #expect(seat.currentTarget?.id == window.windowNumber)
+        #expect(seat.selectionKit.selected?.surface == window.identity)
+        #expect(!seat.selectionKit.status().operability.causes.contains {
+            if case .explicitSelectionRequired = $0 { true } else { false }
+        }, "the window the seat operates is still its target, so nothing has to be chosen")
+    }
+
     @Test("the consumer moves the target onto a held detected window with switchTarget")
     func switchTargetMovesOntoADetectedWindow() async throws {
         let sensing = FakeSensing()

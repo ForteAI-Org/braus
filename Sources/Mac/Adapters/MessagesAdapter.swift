@@ -53,6 +53,9 @@ public struct MessagesAdapter: AppAdapting {
     public let appNames   = ["Messages", "Messaggi", "iMessage"]
     public let bundleIDs: Set<String> = ["com.apple.MobileSMS"]
 
+    /// Only the Mac's own transport scripts Messages; another (a test's) reaches no application.
+    public var scriptedApplication: String? { transport is MacMessagesTransport ? MacMessagesTransport.bundleID : nil }
+
     private let transport    : any MessagesTransporting
     private let readBackTries: Int
     private let readBackPause: Duration

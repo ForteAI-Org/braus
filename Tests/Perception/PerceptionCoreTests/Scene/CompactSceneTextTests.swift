@@ -164,6 +164,39 @@ struct CompactSceneTextTests {
         #expect(!scene.text().contains("(unlabeled)"))
     }
 
+    @Test("the text in parts joins to the same text: sections, unsectioned, commands, then past the edge")
+    func layoutJoinsToTheText() {
+        var scene = Self.scene([
+            Self.control("Save", 0.1, 0.1),
+            Self.control("Mute", 0.1, 0.6, section: "other"),
+            Self.control("Loose", 0.2, 0.2, section: nil),
+        ], sections: ["content", "other"])
+        scene.sections[1].bounds = Self.rect(0, 0.5, 1, 0.5)
+        scene.commands = ["File > Save"]
+        scene.outOfViewFields = [OutOfViewField(label: "Notes", value: "kept", role: "AXTextField")]
+        #expect(scene.text() == """
+            Example (com.example.app) "Doc" 1000x800, 3 elements
+            ## content @0,0 100x100
+            [control] Save @10,10
+            ## other @0,50 100x50
+            [control] Mute @10,60
+            ## unsectioned
+            [control] Loose @20,20
+            commands (1): File > Save
+            ## past the window's edge (read only, not visible)
+            [field] Notes = "kept"
+
+            """)
+        let layout = scene.textLayout()
+        #expect(layout.text == scene.text())
+        #expect(layout.parts.map(\.title)
+            == ["content", "other", "unsectioned", "past the window's edge (read only, not visible)"])
+        #expect(layout.parts.map(\.elementCount) == [1, 1, 1, 1])
+        let flat = Self.scene([Self.control("Save", 0.1, 0.1, section: nil)], sections: [])
+        #expect(flat.textLayout().parts.map(\.heading) == [""])
+        #expect(flat.textLayout().text == flat.text())
+    }
+
     @Test("a text line that could read as a tag or another line keeps its tag")
     func ambiguousTextKeepsItsTag() {
         let texts = ["[Draft] title", "## heading", "icons: none", "commands today", "plain"].enumerated().map {

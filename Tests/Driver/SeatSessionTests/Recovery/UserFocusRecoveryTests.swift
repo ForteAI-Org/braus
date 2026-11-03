@@ -1467,6 +1467,65 @@ struct UserFocusRecoveryTests {
         fixture.recovery.stop()
     }
 
+    @Test("a lease runs its body on the target's front and gives the front back, reporting nothing")
+    func aLeaseGivesTheFrontBack() async {
+        let fixture = Harness()
+        fixture.requiresPausedGate = false
+        fixture.onRestore = { [unowned fixture] in fixture.bringInFront($0) }
+        var runs = 0
+        let run = await fixture.recovery.lendFront(FakeGeometry.adoptedWindow, atMost: 1_000_000_000) {
+            runs += 1
+            #expect(fixture.sensing.frontmostProcessID == FakeGeometry.targetPID)
+            fixture.time += 50_000_000
+            // The target activating again for a window of its own is the body's doing.
+            fixture.recovery.activationChanged(to: FakeGeometry.targetPID)
+            #expect(!fixture.gate.isPaused)
+        }
+        #expect(run.outcome == .completed(afterMilliseconds: 50))
+        #expect(runs == 1)
+        #expect(fixture.requested == [FakeGeometry.adoptedWindow, Self.user], "in front once, back once")
+        #expect(fixture.reports.isEmpty)
+        #expect(!fixture.gate.isPaused)
+
+        // Over, and past its Command's margin, the target taking the front is a steal again.
+        fixture.time += CommandProvenance.marginNanoseconds + 1
+        fixture.activateTarget()
+        #expect(fixture.gate.isPaused)
+        fixture.recovery.stop()
+    }
+
+    @Test("a target never seen in front never runs the body, and nothing is handed back")
+    func aLeaseNeedsTheTargetInFront() async {
+        let fixture = Harness()
+        fixture.requiresPausedGate = false
+        var runs = 0
+        let run = await fixture.recovery.lendFront(FakeGeometry.adoptedWindow, atMost: 100_000_000) { runs += 1 }
+        #expect(run.outcome == .neverInFront(afterMilliseconds: 0))
+        #expect(runs == 0)
+        #expect(fixture.requested == [FakeGeometry.adoptedWindow])
+        #expect(fixture.reports.isEmpty)
+        #expect(!fixture.gate.isPaused)
+        fixture.recovery.stop()
+    }
+
+    @Test("a lease whose clock stands still is still bounded, by its count of readings")
+    func aLeaseIsBoundedByItsReadings() async {
+        let fixture = Harness()
+        fixture.requiresPausedGate = false
+        fixture.onRestore = { [unowned fixture] in fixture.bringInFront($0) }
+        var cancelled = false
+        let run = await fixture.recovery.lendFront(FakeGeometry.adoptedWindow, atMost: 100_000_000) {
+            while !Task.isCancelled { await EventLoopWait.sleep(.milliseconds(20)) }
+            cancelled = true
+        }
+        #expect(run.outcome == .boundReached(afterMilliseconds: 0))
+        #expect(cancelled)
+        #expect(fixture.requested == [FakeGeometry.adoptedWindow, Self.user])
+        #expect(fixture.reports.isEmpty)
+        #expect(!fixture.gate.isPaused)
+        fixture.recovery.stop()
+    }
+
     @MainActor
     private final class Harness {
         let sensing = FakeSensing()

@@ -2,6 +2,7 @@ import AppAdapters
 import EngineCore
 import Foundation
 import LocalMCP
+import Synchronization
 import Testing
 
 /// The one guarded path to the adapters: finding the adapter, checking arguments against the schema,
@@ -142,21 +143,49 @@ struct AppAdaptersTests {
         #expect(unknown["adapter"] == .null)
     }
 
-    @Test("An adapter whose app the seat holds is refused; one for another app, or files under Finder, is not")
+    @Test("An adapter whose app another session holds is refused; one for another app, or files under Finder, is not")
     func seatConflict() {
-        let adapters = AppAdapters.standard()
-        let refusal  = adapters.seatConflict(app: "Mail", held: "com.apple.mail")
-        #expect(refusal?.contains("Finish with Mail's interface") == true, "\(refusal ?? "no refusal")")
-        #expect(adapters.seatConflict(app: "mail", held: "COM.APPLE.MAIL") != nil)
-        #expect(adapters.seatConflict(app: "calendar", held: "com.apple.mail") == nil)
-        #expect(adapters.seatConflict(app: "files", held: "com.apple.finder") == nil)
-        #expect(adapters.seatConflict(app: "Mail", held: nil) == nil)
-        let elsewhere = adapters.seatConflict(app: "Mail", held: nil, elsewhere: ["com.apple.iCal", "COM.APPLE.MAIL"])
+        let adapters  = AppAdapters.standard()
+        let elsewhere = adapters.seatConflict(app: "Mail", elsewhere: ["com.apple.iCal", "COM.APPLE.MAIL"])
         #expect(elsewhere?.hasPrefix("Another session is driving Mail") == true, "\(elsewhere ?? "no refusal")")
-        #expect(adapters.seatConflict(app: "Mail", held: "com.apple.mail", elsewhere: ["com.apple.mail"])?
-            .contains("in this session") == true)
-        #expect(adapters.seatConflict(app: "notes", held: nil, elsewhere: ["com.apple.mail"]) == nil)
-        #expect(adapters.seatConflict(app: "files", held: nil, elsewhere: ["com.apple.finder"]) == nil)
+        #expect(adapters.seatConflict(app: "mail", elsewhere: ["com.apple.mail"]) != nil)
+        #expect(adapters.seatConflict(app: "Mail", elsewhere: []) == nil)
+        #expect(adapters.seatConflict(app: "calendar", elsewhere: ["com.apple.mail"]) == nil)
+        #expect(adapters.seatConflict(app: "notes", elsewhere: ["com.apple.mail"]) == nil)
+        #expect(adapters.seatConflict(app: "files", elsewhere: ["com.apple.finder"]) == nil)
+    }
+
+    @Test("Only the adapters that script their app on the Mac's own transport name it to be held on the seat")
+    func scriptedApplications() {
+        let scripted = Dictionary(uniqueKeysWithValues: AppAdapters.standard().adapters.map {
+            ($0.name, $0.scriptedApplication)
+        })
+        #expect(scripted["mail"] == .some("com.apple.mail"))
+        #expect(scripted["messages"] == .some("com.apple.MobileSMS"))
+        #expect(scripted["notes"] == .some("com.apple.Notes"))
+        for name in ["system", "calendar", "reminders", "files", "contacts"] {
+            #expect(scripted[name] == .some(nil), "\(name)")
+        }
+    }
+
+    @Test("The hold is asked for a scripted app after every guard, and its refusal runs nothing")
+    func holdingAfterTheGuards() async throws {
+        let scripted = ScriptingFixture()
+        let adapters = AppAdapters([scripted, CalendarAdapter(store: FakeEventStore())])
+        let asked    = Asked()
+        let held: @Sendable (String) async -> String? = { bundleID in
+            await asked.add(bundleID)
+            return nil
+        }
+        _ = try await adapters.call(app: "fixture", verb: "erase", arguments: .null, holding: held)
+        #expect(await asked.ids.isEmpty, "an irreversible verb nobody can allow is refused before the hold")
+        let written = try await adapters.call(app: "fixture", verb: "write", arguments: .null, holding: held)
+        #expect(written.kind == .foundActed)
+        #expect(await asked.ids == ["test.fixture"] && scripted.runs == 1)
+        _ = try await adapters.call(app: "calendar", verb: "list_calendars", arguments: .null, holding: held)
+        #expect(await asked.ids == ["test.fixture"], "an adapter that scripts no app holds nothing")
+        let refused = try await adapters.call(app: "fixture", verb: "write", arguments: .null) { _ in "not held" }
+        #expect(refused == .refused("not held") && scripted.runs == 1)
     }
 
     @Test("Every adapter of the build names a read-back for every verb, and no verb twice")
@@ -171,4 +200,34 @@ struct AppAdaptersTests {
             }
         }
     }
+}
+
+/// ScriptingFixture names an app it scripts and counts its verbs' runs.
+private final class ScriptingFixture: AppAdapting {
+    let name                 = "fixture"
+    let appNames             = ["Fixture"]
+    let bundleIDs: Set<String> = ["test.fixture"]
+    let scriptedApplication: String? = "test.fixture"
+    let verbs = [
+        AdapterVerb("write", "Writes.", safety: .write, readBack: "none, a fake"),
+        AdapterVerb("erase", "Erases.", safety: .irreversible, readBack: "none, a fake", confirms: .readBack),
+    ]
+
+    private let count = Mutex(0)
+
+    var runs: Int { count.withLock { $0 } }
+
+    func availability() async -> AdapterAvailability { .ready }
+
+    func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome {
+        count.withLock { $0 += 1 }
+        return .confirmed("Done.")
+    }
+}
+
+/// Asked keeps the bundle ids a hold was asked for, in order.
+private actor Asked {
+    var ids: [String] = []
+
+    func add(_ id: String) { ids.append(id) }
 }

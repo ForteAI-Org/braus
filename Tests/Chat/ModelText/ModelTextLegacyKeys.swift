@@ -36,6 +36,8 @@ let legacyKeys: Set<String> = [
     "tool_catalogue.baseInstructions.v1.2",
     "tool_catalogue.baseInstructions.v1.3",
     "tool_catalogue.baseInstructions.v1.4",
+    "tool_catalogue.sessionRelease.v1",
+    "tool_catalogue.sessionRelease.v1.2",
     "tool_catalogue.baseInstructions.v1.5",
     "tool_catalogue.sceneLegend.v1",
     "tool_catalogue.changesLegend.v1",
@@ -441,4 +443,7 @@ let legacyKeys: Set<String> = [
     "answer.TaskCycleHandler.Evidence.bounds.v1.fragment.2",
     "answer.TaskCycleHandler.Evidence.fields.v1.fragment.0",
     "answer.TaskCycleHandler.Evidence.fields.v1.fragment.2",
+    "call_dispatcher.seat.v1.2",
+    "call_dispatcher.seat.v1.4",
+    "scene_text_policy.stale.v1",
 ]

@@ -50,6 +50,18 @@ struct RouterTests {
         #expect(desktop.observed == 1, "later calls stay on the desktop session")
     }
 
+    @Test("activity goes to the desktop session whatever route is current, so a pair never splits")
+    func activityOnTheDesktop() async throws {
+        let native  = SessionStub()
+        let desktop = SessionStub()
+        let routing = RoutingAutomationSession(native: native, desktop: desktop)
+        _ = try await routing.open(application: "Notes", window: nil)
+        let token = routing.beginActivity()
+        #expect(desktop.activity == [token] && native.activity.isEmpty)
+        routing.endActivity(token)
+        #expect(desktop.activity.isEmpty)
+    }
+
     @Test("M05: each call's record keeps the route it was dispatched on, and the MacDriver's reason when it gave the app back; a call that reached no session keeps none")
     func routesRecorded() async throws {
         let directory = Scratch.directory("router-routes")
@@ -208,8 +220,13 @@ final class SessionStub: AutomationSessionOperating {
     var acted: [String] = []
     /// Given back at the start of the next call after `open`, as the MacDriver does after a front steal.
     var laterHandoff: HandoffStub?
+    /// The activity tokens begun and not yet ended.
+    var activity: Set<UUID> = []
 
     init(handoff: HandoffStub? = nil) { self.handoff = handoff }
+
+    func beginActivity() -> UUID { activity.insert(UUID()).memberAfterInsert }
+    func endActivity(_ token: UUID) { activity.remove(token) }
 
     static let scene = SceneSnapshot(bundleID: "com.example", appName: "Example", windowTitle: "Example",
                                      viewportPixelSize: ViewportPixelSize(width: 800, height: 600), elements: [])

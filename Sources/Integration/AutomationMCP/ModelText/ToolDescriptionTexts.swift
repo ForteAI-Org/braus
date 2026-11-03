@@ -219,6 +219,22 @@ extension ModelText {
             legacy: true
         ),
         Entry(
+            key: .init(rawValue: "tool_catalogue.observeSection.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolDescription(tool: "observe"),
+            budgetCharacters: 184,
+            text: "Exact title of one ## section of this session's latest scene, such as one an answer left out: answers that section, in pages if needed, without reading the window again. Not with full.",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "tool_catalogue.observePage.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolDescription(tool: "observe"),
+            budgetCharacters: 54,
+            text: "The page of a section too long for one answer, from 1.",
+            legacy: false
+        ),
+        Entry(
             key: .init(rawValue: "tool_catalogue.step.v1.22"),
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "act"),
@@ -526,16 +542,16 @@ extension ModelText {
             key: .init(rawValue: "tool_catalogue.step.v1.60"),
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "app_capabilities"),
-            budgetCharacters: 81,
-            text: "List what Braus can do in an app through its API, with the app in the background ",
+            budgetCharacters: 50,
+            text: "List what Braus can do in an app through its API: ",
             legacy: true
         ),
         Entry(
             key: .init(rawValue: "tool_catalogue.step.v1.61"),
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "app_capabilities"),
-            budgetCharacters: 93,
-            text: "or closed and no session: the adapter's availability and its verbs, each with its arguments, ",
+            budgetCharacters: 67,
+            text: "the adapter's availability and its verbs, each with its arguments, ",
             legacy: true
         ),
         Entry(
@@ -566,8 +582,8 @@ extension ModelText {
             key: .init(rawValue: "tool_catalogue.step.v1.65"),
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "app_call"),
-            budgetCharacters: 87,
-            text: "no session needed. The outcome is found_acted when the read-back confirmed the effect, ",
+            budgetCharacters: 228,
+            text: "a verb that scripts its app holds it on the Seat when available, switching apps if needed. A session: line names the session it opened, which observe can read. The outcome is found_acted when the read-back confirmed the effect, ",
             legacy: true
         ),
         Entry(
@@ -614,8 +630,8 @@ extension ModelText {
             key: .init(rawValue: "tool_catalogue.step.v1.71"),
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "close_session"),
-            budgetCharacters: 93,
-            text: "asks, or before calling open_session again; never to finish a task, since Braus releases the ",
+            budgetCharacters: 107,
+            text: "asks, or before calling open_session for a different app; never to finish a task, since Braus releases the ",
             legacy: true
         ),
         Entry(

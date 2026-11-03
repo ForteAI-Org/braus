@@ -93,6 +93,8 @@ enum ToolCatalogue {
             + "\(files(for: channels))"
             + ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1.4"))
             + "\(channels.contains(.adapters) ? ModelText.text(.init(rawValue: "prompt.adapters.v1")) : "")"
+            + ModelText.text(.init(rawValue: "tool_catalogue.sessionRelease.v1"))
+            + (channels.contains(.adapters) ? ModelText.text(.init(rawValue: "tool_catalogue.sessionRelease.v1.2")) : "")
             + ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1.5")))
     }
 
@@ -102,6 +104,9 @@ enum ToolCatalogue {
 
     /// What the lines of a changes answer mean.
     static let changesLegend = ModelText.text(.init(rawValue: "tool_catalogue.changesLegend.v1"))
+
+    /// What an answer over the size limit carries instead of the whole scene.
+    static let budgetLegend = ModelText.text(.init(rawValue: "tool_catalogue.budgetLegend.v1"))
 
     static let webOpening = ModelText.text(.init(rawValue: "tool_catalogue.webOpening.v1"))
         + ModelText.text(.init(rawValue: "tool_catalogue.webOpening.v1.2"))
@@ -199,8 +204,20 @@ enum ToolCatalogue {
                  + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.18"))
                  + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.19"))
                  + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.20"))
-                 + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.21")) + Self.changesLegend,
-                 session.merging(["full": .object(["type": .string("boolean")])], uniquingKeysWith: { $1 }),
+                 + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.21")) + Self.changesLegend
+                 + " " + Self.budgetLegend,
+                 session.merging([
+                    "full"   : .object(["type": .string("boolean")]),
+                    "section": .object([
+                        "type"       : .string("string"),
+                        "description": .string(ModelText.text(.init(rawValue: "tool_catalogue.observeSection.v1")))
+                    ]),
+                    "page"   : .object([
+                        "type"       : .string("integer"),
+                        "minimum"    : .number(1),
+                        "description": .string(ModelText.text(.init(rawValue: "tool_catalogue.observePage.v1")))
+                    ])
+                 ], uniquingKeysWith: { $1 }),
                  ["session"], readOnly: true),
             tool("act", ModelText.text(.init(rawValue: "tool_catalogue.step.v1.22"))
                  + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.23"))

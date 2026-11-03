@@ -83,6 +83,9 @@ public struct NotesAdapter: AppAdapting {
     public let appNames   = ["Notes", "Note", "Apple Notes"]
     public let bundleIDs: Set<String> = ["com.apple.Notes"]
 
+    /// Only the Mac's own transport scripts Notes; another (a test's) reaches no application.
+    public var scriptedApplication: String? { transport is MacNotesTransport ? MacNotesTransport.bundleID : nil }
+
     static let maximumNotes   = 50
     static let maximumContent = 20_000
     /// A note's words; its id, folder, account and dates stay recorded.

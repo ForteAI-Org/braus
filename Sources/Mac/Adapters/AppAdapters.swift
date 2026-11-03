@@ -47,23 +47,18 @@ public struct AppAdapters: Sendable {
         }
     }
 
-    /// The refusal of a call on `app` while the seat drives `held` (a bundle id) in the calling session, or one of
-    /// `elsewhere` in another session of this process: an adapter that stands for that app would change it behind the
-    /// interface the seat is reading, and the seat behind the adapter's read-back. Nil when the adapter stands for
+    /// The refusal of a call on `app` while another session of this process holds it on the seat (`elsewhere`, bundle
+    /// ids without the caller's own hold): an adapter that stands for that app would change it behind the interface
+    /// that session is reading, and that session behind the adapter's read-back. Nil when the adapter stands for
     /// another app, or for files, whose verbs are file operations on paths that a Finder window on the seat neither
-    /// holds nor has to read back.
-    public func seatConflict(app: String, held: String?, elsewhere: Set<String> = []) -> String? {
+    /// holds nor has to read back. The caller's own hold is no conflict: the adapter runs while it holds the app.
+    public func seatConflict(app: String, elsewhere: Set<String>) -> String? {
         guard let adapter = adapter(for: app), !(adapter is FilesAdapter) else { return nil }
         let stands = { (bundleID: String) in
             adapter.bundleIDs.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame }
         }
-        let shown = adapter.appNames.first ?? adapter.name
-        if let held, stands(held) {
-            return "The seat is driving \(shown) in this session, so the \(adapter.name) adapter is refused: nothing "
-                + "was done. Finish with \(shown)'s interface and close_session first, or do the whole task through one "
-                + "route."
-        }
         guard elsewhere.contains(where: stands) else { return nil }
+        let shown = adapter.appNames.first ?? adapter.name
         return "Another session is driving \(shown) on the seat, so the \(adapter.name) adapter is refused: nothing "
             + "was done. Try again once that session has closed \(shown), or tell the person it is in use."
     }
@@ -137,8 +132,13 @@ public struct AppAdapters: Sendable {
     ///
     /// It runs off the caller's actor: a verb may block its thread on a script, a contacts fetch, a
     /// database read or a process, and a caller on the main actor keeps the interface answering.
+    ///
+    /// `holding` makes the caller's session hold the application the adapter scripts (`scriptedApplication`), once
+    /// every guard allowed the call and right before the verb runs; a reason it answers refuses the call with nothing
+    /// run, and an error it throws is thrown with nothing run. It is not asked for an adapter that scripts no app.
     @concurrent
     public func call(app: String, verb: String, arguments: JSONValue,
+                     holding : (@Sendable (_ bundleID: String) async throws -> String?)? = nil,
                      invoking: (@Sendable (AdapterDispatch) async -> Void)? = nil) async throws -> AdapterOutcome {
         let (adapter, found) = try resolve(app: app, verb: verb, arguments: arguments)
         let arguments = arguments == .null ? JSONValue.object([:]) : arguments
@@ -176,6 +176,9 @@ public struct AppAdapters: Sendable {
                 return .refused("The person did not allow \(qualified), or did not answer in time: nothing was done. "
                                 + "Do not try it again unless the person asks.")
             }
+        }
+        if let scripted = adapter.scriptedApplication, let holding, let refusal = try await holding(scripted) {
+            return .refused(refusal)
         }
         await invoking?(AdapterDispatch(adapter: adapter.name, verb: found.name))
         let outcome = try await adapter.call(found.name, arguments)

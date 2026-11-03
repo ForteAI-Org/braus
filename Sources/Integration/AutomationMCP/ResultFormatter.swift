@@ -341,7 +341,9 @@ final class ResultFormatter {
         ])
     }
 
-    func outcome(_ outcome: ActOutcome, refusal: RefusalContext? = nil) async -> JSONValue {
+    /// The answer of an action; `aim` is the section and target the step named, for a budgeted scene after it.
+    func outcome(_ outcome: ActOutcome, refusal: RefusalContext? = nil,
+                 aim: (section: String?, target: String?) = (nil, nil)) async -> JSONValue {
         if let scene = outcome.scene, let id = session.id, let window = session.observedWindowNumber {
             noteScene(scene, sessionID: id, windowNumber: window)
         }
@@ -349,7 +351,7 @@ final class ResultFormatter {
             "status": .string(outcome.kind.rawValue), "message": .string(outcome.message),
             "session": session.id.map { .string($0.uuidString) } ?? .null
         ]
-        if let scene = outcome.scene { values["observation"] = await sceneText.observation(scene, changesOnly: true, nested: true,
+        if let scene = outcome.scene { values["observation"] = await sceneText.observation(scene, changesOnly: true, nested: true, aim: aim,
                                                                                           session: session, shown: secrets.shownMinimization) }
         if Self.usesOutcomeV2 {
             values.removeValue(forKey: "status")

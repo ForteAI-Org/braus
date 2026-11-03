@@ -1146,5 +1146,77 @@ extension ModelText {
             text: ")",
             legacy: true
         ),
+        Entry(
+            key: .init(rawValue: "call_dispatcher.held.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "app_call"),
+            budgetCharacters: 10,
+            text: "\nsession: ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.more.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 50,
+            text: "Page {page} of {pages}: page {next} continues it.\n",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.intro.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 142,
+            text: "This scene is over the {budget}-character answer limit: {shown} of its {count} sections are shown whole below, in the scene's order. Outline:\n",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.state.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 5,
+            text: "shown",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.state.v1.2"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 23,
+            text: "left out, {count} pages",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.state.v1.3"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 8,
+            text: "left out",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.state.v1.4"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 20,
+            text: ": {count} elements, ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.leftOutNote.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 10,
+            text: "Left out: ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "scene_answer_budget.leftOutNote.v1.2"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 152,
+            text: ". Read one with observe and section set to its title (page 2 and on for a section of more pages): it reads that section of this session's latest scene.\n",
+            legacy: false
+        ),
     ]
 }
