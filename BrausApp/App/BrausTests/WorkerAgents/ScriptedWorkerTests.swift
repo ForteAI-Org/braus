@@ -5,6 +5,8 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 02/11/2026.
 //
 
+import AgentLoop
+import AutomationMCP
 import AutomationRuntime
 import ChatCore
 import Foundation
@@ -50,6 +52,8 @@ struct ScriptedWorkerTests {
                     .object(["type": .string("text"), "text": .string("before, after")]), image, image
                 ])])
             },
+            definitions : AutomationTools.definitions,
+            instructions: WorkerLoopInstructions(),
             recordResult: { call, result, startedAt in
                 try run.record(
                     call     : call,
@@ -62,7 +66,8 @@ struct ScriptedWorkerTests {
             transport: run.transport,
             role     : nil,
             history  : [],
-            prompt   : "Start."
+            prompt   : "Start.",
+            instructions: AutomationTools.instructions
         ) { _ in }
         let log = try String(
             contentsOf: root.appending(path: "scripted-tools.jsonl"),
@@ -189,6 +194,8 @@ struct ScriptedWorkerTests {
                     .object(["type": .string("image"), "data": .string("fixture")]),
                 ])])
             },
+            definitions : AutomationTools.definitions,
+            instructions: WorkerLoopInstructions(),
             recordResult: { call, result, startedAt in
                 try run.record(
                     call     : call,
@@ -201,7 +208,8 @@ struct ScriptedWorkerTests {
             transport: run.transport,
             role     : nil,
             history  : [],
-            prompt   : "Start."
+            prompt   : "Start.",
+            instructions: AutomationTools.instructions
         ) { _ in }
         run.finish()
         let lines = try String(
@@ -328,6 +336,8 @@ struct ScriptedWorkerTests {
         )
         let loop = ModelToolLoop(
             call        : { _, _ in .object([:]) },
+            definitions : AutomationTools.definitions,
+            instructions: WorkerLoopInstructions(),
             recordResult: { call, result, startedAt in
                 try run.record(
                     call     : call,
@@ -341,7 +351,8 @@ struct ScriptedWorkerTests {
                 transport: run.transport,
                 role     : nil,
                 history  : [],
-                prompt   : "Start."
+                prompt   : "Start.",
+                instructions: AutomationTools.instructions
             ) { _ in }
         }
         #expect(run.transport.roundsPlayed == 1)

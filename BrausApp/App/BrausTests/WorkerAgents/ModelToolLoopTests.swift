@@ -290,20 +290,21 @@ struct ModelToolLoopTests {
         let content: [JSONValue] = [.object(["type": .string("text"), "text": .string("Before")])] +
             mediaTypes.map { .object(["type": .string("image"), "data": .string(payload), "mimeType": .string($0)]) } +
             [.object(["type": .string("text"), "text": .string("After")])]
-        let loop = ModelToolLoop { _, _ in
+        let loop = ModelToolLoop(call: { _, _ in
             .object([
                 "content": .array(content),
                 "structuredContent": .object(["changed": .bool(true)]),
                 "isError": .bool(true)
             ])
-        }
+        }, definitions: AutomationTools.definitions, instructions: WorkerLoopInstructions())
         var events: [WorkerAgentEvent] = []
         try await loop.run(
             transport: transport,
             role     : nil,
             history  : [],
-            prompt   : "Read the pictures"
-        ) { events.append($0) }
+            prompt   : "Read the pictures",
+            instructions: AutomationTools.instructions
+        ) { events.append(.provider($0)) }
         let sent = transport.sent
         #expect(sent.count == 3)
         let result = try #require(sent[1].messages.last)
@@ -350,7 +351,8 @@ struct ModelToolLoopTests {
             transport: next,
             role     : nil,
             history  : Array(sent[1].messages.dropFirst()),
-            prompt   : "Continue"
+            prompt   : "Continue",
+            instructions: AutomationTools.instructions
         ) { _ in }
         let nextMessages = try #require(next.sent.first?.messages)
         #expect(nextMessages.allSatisfy { $0.images.isEmpty })
@@ -369,7 +371,7 @@ struct ModelToolLoopTests {
             rounds        : [[.delta("Summary."), .completed(usage)]],
             supportsVision: true
         )
-        _ = try await ModelToolLoop { _, _ in .null }.summarize(
+        _ = try await ModelToolLoop(call: { _, _ in .null }, definitions: AutomationTools.definitions, instructions: WorkerLoopInstructions()).summarize(
             transport: transport,
             history  : [TurnMessage(
                 result : "Picture",
@@ -389,17 +391,18 @@ struct ModelToolLoopTests {
             rounds        : [[.toolCall(statusCall), .completed(usage)], [.completed(usage)]],
             supportsVision: true
         )
-        try await ModelToolLoop { _, _ in
+        try await ModelToolLoop(call: { _, _ in
             .object(["content": .array([
                 .object(["type": .string("image"), "data": .string("not base64"), "mimeType": .string("image/png")]),
                 .object(["type": .string("image"), "data": .string("AQID"), "mimeType": .string("image/heic")]),
                 .object(["type": .string("text"), "text": .string("Still readable")])
             ])])
-        }.run(
+        }, definitions: AutomationTools.definitions, instructions: WorkerLoopInstructions()).run(
             transport: transport,
             role     : nil,
             history  : [],
-            prompt   : "Read"
+            prompt   : "Read",
+            instructions: AutomationTools.instructions
         ) { _ in }
         let result = try #require(transport.sent.last?.messages.last)
         #expect(result.images.isEmpty)
@@ -438,11 +441,11 @@ struct ModelToolLoopTests {
             supportsVision: true
         )
         let payload = Data("picture bytes for the current run only".utf8).base64EncodedString()
-        let loop = ModelToolLoop { _, _ in
+        let loop = ModelToolLoop(call: { _, _ in
             .object(["content": .array([
                 .object(["type": .string("image"), "data": .string(payload), "mimeType": .string("image/png")])
             ])])
-        }
+        }, definitions: AutomationTools.definitions, instructions: WorkerLoopInstructions())
         let recorder = WorkerTurnRecorder(
             store         : store,
             workspaceID   : UUID(),
@@ -456,7 +459,8 @@ struct ModelToolLoopTests {
                 role     : nil,
                 history  : [],
                 prompt   : "Read the picture",
-                onEvent  : emit
+                instructions: AutomationTools.instructions,
+                onEvent  : { emit(.provider($0)) }
             )
         }
         #expect(ending == .completed)
