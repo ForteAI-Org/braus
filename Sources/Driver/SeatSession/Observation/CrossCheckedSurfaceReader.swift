@@ -446,7 +446,7 @@ nonisolated package enum CrossCheckedSurfaceReader {
                 claims.roles.append(
                     SurfaceRoleClaim(
                         surface   : identity,
-                        role      : Self.role(of: record, readAs: role, frame: surface.reference.frame),
+                        role      : role,
                         provenance: .qualifiedRoleAttestation
                     )
                 )
@@ -1022,7 +1022,14 @@ nonisolated package enum CrossCheckedSurfaceReader {
             positionIsSettable: false,
             actions: [],
             childCount: children,
-            isModal: isModal
+            isModal: isModal,
+            children: {
+                children == 1 ? onlyChild(
+                    of: window,
+                    processID: processID,
+                    deadlineNanoseconds: deadlineNanoseconds
+                ) : []
+            }
         )
         if let knownRole { return facts(knownRole) }
         guard subrole == "AXUnknown" else { return facts(nil) }
@@ -1068,17 +1075,16 @@ nonisolated package enum CrossCheckedSurfaceReader {
     /// utility panel with controls in it is a legitimate target.
     ///
     /// **The rule is sound and it was not sufficient**, and the surface it was
-    /// written for is what proved that. It is the traffic light overlay macOS
-    /// draws over every window it raises: AXWindow, subrole AXDialog, title
-    /// "Window", 66 by 20 points, position settable, AXRaise supported, a new
-    /// Window ID every time and destroyed within seconds. It is born with zero
-    /// accessibility children and **gains one within 18 ms**, measured twice,
-    /// so a fold a moment later reads it as a dialog, claims that role, and a
-    /// claimed role is never withdrawn. Nothing readable separates it from a
-    /// save panel, which is an AXDialog with children too, so no rule that can
-    /// be written here settles it. That is why the seat no longer moves its
-    /// operating target for a window it detected: this reader narrows what may
-    /// be selected, and deciding what is driven is not its job.
+    /// written for is what proved that. It is the system's window sharing
+    /// indicator (`WindowSharingIndicator`): AXWindow, subrole AXDialog, title
+    /// "Window", 66 by 20 points, a new Window ID every time. It is born with
+    /// zero accessibility children and **gains one within 18 ms**, measured
+    /// twice, so a fold a moment later reads it with children. That one child,
+    /// an `AXButton` titled `WindowSharingSessionButton` on a window that is
+    /// not modal, is what separates it from a dialog: `children` is read for
+    /// such a window alone, and it answers a decoration. The seat still never
+    /// moves its operating target for a window it detected: this reader
+    /// narrows what may be selected, and deciding what is driven is not its job.
     ///
     /// **An unknown subrole needs the two operability traits**, a writable
     /// position and raise, which admits DaVinci's main window without turning
@@ -1111,7 +1117,8 @@ nonisolated package enum CrossCheckedSurfaceReader {
         positionIsSettable: Bool,
         actions           : Set<String>,
         childCount        : Int?,
-        isModal           : Bool? = nil
+        isModal           : Bool? = nil,
+        children          : () -> [(role: String?, title: String?)] = { [] }
     ) -> SurfaceRole? {
 
         guard isModal == true || (childCount ?? 0) > 0 else { return nil }
@@ -1119,6 +1126,11 @@ nonisolated package enum CrossCheckedSurfaceReader {
         if role == (kAXDrawerRole as String) { return .interactivePanel }
         guard role == (kAXWindowRole as String), let subrole else { return nil }
         if subrole == (kAXStandardWindowSubrole as String) { return .document }
+        if WindowSharingIndicator.matches(
+            subrole : subrole,
+            isModal : isModal,
+            children: children
+        ) { return .decoration }
         if subrole == (kAXDialogSubrole as String)
             || subrole == (kAXSystemDialogSubrole as String) { return .dialog }
         if subrole == (kAXFloatingWindowSubrole as String)
@@ -1200,6 +1212,31 @@ nonisolated package enum CrossCheckedSurfaceReader {
                 return (error, error == .success ? Int(count) : nil)
             }
         return nativeResult(result, processID: processID, attribute: "AXChildren/count")
+    }
+
+    /// The role and title of a window's one child, read only for a window that
+    /// may be the window sharing indicator. A read that fails answers nothing,
+    /// which leaves the window the dialog it reads as.
+    private static func onlyChild(
+        of window          : AXUIElement,
+        processID          : Int32,
+        deadlineNanoseconds: UInt64
+    ) -> [(role: String?, title: String?)] {
+
+        guard case .success(let children) = requiredAttribute(
+                  window,
+                  name: kAXChildrenAttribute,
+                  processID: processID,
+                  deadlineNanoseconds: deadlineNanoseconds
+              ) as Result<[AXUIElement], CrossCheckedSurfaceReadFailure>,
+              children.count == 1,
+              case .success(let slots) = multipleAttributes(
+                  children[0],
+                  names: [kAXRoleAttribute, kAXTitleAttribute],
+                  deadlineNanoseconds: deadlineNanoseconds
+              )
+        else { return [] }
+        return [(slots[kAXRoleAttribute] as? String, slots[kAXTitleAttribute] as? String)]
     }
 
     private static func requiredAttribute<Value>(
@@ -1487,29 +1524,6 @@ nonisolated package enum CrossCheckedSurfaceReader {
                 }
             }
         return try? number.get()
-    }
-
-    /// The role a record is claimed with: the one it read, except for the 66 by
-    /// 20 point overlay `role(named:subrole:...)` describes, which is claimed a
-    /// decoration.
-    ///
-    /// Measured again on 05 and 06/10/2026 in DaVinci Resolve and in TextEdit,
-    /// level 0, subrole `AXDialog`, not modal, a new Window ID each time, seen
-    /// after a text field took focus. Read as a dialog it became a candidate
-    /// beside the document and the selection asked for an explicit choice at
-    /// every observation. Nothing else this reader takes separates it from a
-    /// dialog, so the size decides; a modal answers for itself whatever its size.
-    package static func role(
-        of record   : AccessibilitySurfaceRecord,
-        readAs role : SurfaceRole,
-        frame       : CGRect
-    ) -> SurfaceRole {
-        // ponytail: a size class from the measured 66x20 point surface; replace it with a
-        // native trait of that window (title, identifier) once one is read and measured.
-        guard role == .dialog, record.isModal != true,
-              frame.width <= 80, frame.height <= 24
-        else { return role }
-        return .decoration
     }
 
     private static func visibility(

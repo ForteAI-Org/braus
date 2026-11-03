@@ -581,7 +581,7 @@ let package = Package(
         // The MacDriver's accessibility side (tree reader, launcher) and the engine roles built on it
         // (scenes, windows, coverage). The builder is pure and tested on recorded trees.
         mac("MacDriver", path: "Driver"),
-        mac("MacDriving", path: "Driving", ["MacDriver", "EngineCore", "PerceptionCore"]),
+        mac("MacDriving", path: "Driving", ["MacDriver", "EngineCore", "PerceptionCore", "SeatCore"]),
         // Mode 2 in place: the seat's Background Driver aimed at a window on the person's screen.
         mac("MacDelivery", path: "Delivery", ["MacDriving", "EngineCore", "SeatCore", "SeatInput", "WindowPlacement"],
             settings: facility),

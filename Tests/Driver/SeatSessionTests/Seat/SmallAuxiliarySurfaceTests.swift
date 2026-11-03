@@ -89,8 +89,8 @@ struct SmallAuxiliarySurfaceTests {
     /// The indicator, born in the seat and held by the follower as it was live.
     ///
     /// The controlled reader writes roles directly, so the indicator's role is
-    /// the one the shipped reader claims for the record AX reads for it: a
-    /// non-modal dialog at the measured size.
+    /// the one the shipped reader claims for what AX reads of it: a non-modal
+    /// dialog whose one child is the sharing button.
     static func showIndicator(
         _ seat : AgentSeat,
         sensing: FakeSensing,
@@ -101,18 +101,7 @@ struct SmallAuxiliarySurfaceTests {
             windowNumber: Self.indicatorNumber
         )
         sensing.additionalWindows[Self.indicatorNumber] = indicator
-        reader.roles[Self.indicatorNumber] = CrossCheckedSurfaceReader.role(
-            of    : AccessibilitySurfaceRecord(
-                processID   : indicator.processID,
-                windowNumber: Self.indicatorNumber,
-                role        : .dialog,
-                isMinimised : false,
-                isModal     : false,
-                appIsHidden : false
-            ),
-            readAs: .dialog,
-            frame : Self.indicatorFrame
-        )
+        reader.roles[Self.indicatorNumber] = Self.readRole(isModal: false, children: Self.sharingButton)
         await seat.ownWindowBornInSeat(indicator, level: 0)
         seat.refreshTargetReadings()
     }
@@ -184,61 +173,71 @@ struct SmallAuxiliarySurfaceTests {
         #expect(seat.currentTarget?.id == window.id)
     }
 
-    @Test("the reader names the indicator a decoration, and a dialog of a real size a dialog")
-    func theReaderNamesTheIndicatorADecoration() throws {
+    /// The indicator's one child, as AX reads it.
+    static let sharingButton: [(role: String?, title: String?)] = [("AXButton", "WindowSharingSessionButton")]
 
-        func identity(_ number: Int) -> WindowIdentity {
-            WindowIdentity(
-                process          : ProcessIdentity(processID: 77, serialNumberHigh: 0, serialNumberLow: 9),
-                windowNumber     : number,
-                ownerConnectionID: 5
-            )
-        }
-        func surface(_ number: Int, _ frame: CGRect) -> WindowSurface {
-            WindowSurface(
-                reference: WindowReference(identity: identity(number), frame: frame),
-                level    : 0,
-                isVisible: true
-            )
-        }
-        func dialog(_ number: Int, modal: Bool) -> AccessibilitySurfaceRecord {
-            AccessibilitySurfaceRecord(
-                processID   : 77,
-                windowNumber: number,
-                role        : .dialog,
-                isMinimised : false,
-                isModal     : modal,
-                appIsHidden : false
-            )
-        }
+    /// The role the reader claims for an `AXWindow` with subrole `AXDialog` and these children.
+    static func readRole(
+        isModal : Bool,
+        children: [(role: String?, title: String?)]
+    ) -> SurfaceRole? {
+        CrossCheckedSurfaceReader.role(
+            named             : "AXWindow",
+            subrole           : "AXDialog",
+            positionIsSettable: true,
+            actions           : ["AXRaise"],
+            childCount        : children.count,
+            isModal           : isModal,
+            children          : { children }
+        )
+    }
 
+    @Test("the reader names the indicator a decoration by its one button, and a real dialog a dialog")
+    func theReaderNamesTheIndicatorADecoration() {
+
+        #expect(Self.readRole(isModal: false, children: Self.sharingButton) == .decoration)
+        #expect(
+            Self.readRole(isModal: false, children: [("AXButton", "OK")]) == .dialog,
+            "a non-modal dialog with one button of its own is a dialog whatever its size"
+        )
+        #expect(
+            Self.readRole(isModal: false, children: [("AXStaticText", "Replace?"), ("AXButton", "Cancel")]) == .dialog,
+            "a titled non-modal dialog stays a dialog"
+        )
+        #expect(
+            Self.readRole(isModal: true, children: Self.sharingButton) == .dialog,
+            "a modal answers for itself"
+        )
+    }
+
+    @Test("an indicator read as a decoration blocks nothing and takes no modal claim")
+    func theIndicatorIsNoModal() {
+
+        let identity = WindowIdentity(
+            process          : ProcessIdentity(processID: 77, serialNumberHigh: 0, serialNumberLow: 9),
+            windowNumber     : 12,
+            ownerConnectionID: 5
+        )
+        let record = AccessibilitySurfaceRecord(
+            processID   : 77,
+            windowNumber: 12,
+            role        : Self.readRole(isModal: false, children: Self.sharingButton),
+            isMinimised : false,
+            isModal     : false,
+            isFocused   : true,
+            appIsHidden : false
+        )
         let snapshot = CrossCheckedSurfaceReader.assemble(
             windowServer : [
-                surface(11, CGRect(x: 0, y: 0, width: 1345, height: 949)),
-                surface(12, Self.indicatorFrame),
-                surface(13, CGRect(x: 100, y: 100, width: 501, height: 225)),
-                surface(14, Self.indicatorFrame)
+                WindowSurface(
+                    reference: WindowReference(identity: identity, frame: Self.indicatorFrame),
+                    level    : CrossCheckedSurfaceReader.modalPanelLevel,
+                    isVisible: true
+                )
             ],
-            accessibility: [
-                AccessibilitySurfaceRecord(
-                    processID   : 77,
-                    windowNumber: 11,
-                    role        : .document,
-                    isMinimised : false,
-                    isModal     : false,
-                    appIsHidden : false
-                ),
-                dialog(12, modal: false),
-                dialog(13, modal: false),
-                dialog(14, modal: true)
-            ]
+            accessibility: [record]
         )
-        let roles = Dictionary(
-            uniqueKeysWithValues: snapshot.claims.roles.map { ($0.surface.windowNumber, $0.role) }
-        )
-        #expect(roles[11] == .document)
-        #expect(roles[12] == .decoration, "a non-modal dialog of the indicator's size is no target")
-        #expect(roles[13] == .dialog)
-        #expect(roles[14] == .dialog, "a modal answers for itself whatever its size")
+        #expect(snapshot.claims.roles.map(\.role) == [.decoration])
+        #expect(snapshot.claims.modals.isEmpty, "a focused indicator at the modal panel level is still no modal")
     }
 }
