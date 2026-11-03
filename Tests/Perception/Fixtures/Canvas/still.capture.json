@@ -1,0 +1,21 @@
+{
+  "arguments" : [
+    "--still"
+  ],
+  "bundleID" : "com.braus.fixture.canvas",
+  "nativeHeight" : 1464,
+  "nativeWidth" : 2200,
+  "storedHeight" : 732,
+  "storedWidth" : 1100,
+  "windowFrame" : [
+    [
+      214,
+      33
+    ],
+    [
+      1100,
+      732
+    ]
+  ],
+  "windowNumber" : 53528
+}

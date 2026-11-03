@@ -70,7 +70,12 @@ final class TranscriptRowView: NSView {
     }
 
     /// The action the keyboard has reached inside the focused row, outlined.
-    var focusedAction: RowAction? { didSet { needsDisplay = true } }
+    var focusedAction: RowAction? {
+        didSet {
+            needsDisplay = true
+            for (index, view) in pictureViews { view.isFocused = focusedAction == .openPictures(block: index) }
+        }
+    }
 
     private var row        : PreparedRow?
 
@@ -97,6 +102,9 @@ final class TranscriptRowView: NSView {
 
     /// A tool line's disclosure chevron, which turns to point down while the line is open.
     private var chevron    : NSImageView?
+
+    /// The pictures of each of a tool line's pictures blocks, by block.
+    private var pictureViews: [Int: ToolPicturesView] = [:]
 
     /// The spinner before a running tool line's words.
     private var spinner    : NSProgressIndicator?
@@ -161,6 +169,7 @@ final class TranscriptRowView: NSView {
         showHumanWave(row)
         showSpinner(row)
         showCopyIcons(row, keepsCopied: previous != nil)
+        showPictures(row, previous: previousRow)
         showChevron(row, wasExpanded: Self.isExpanded(previousRow))
         configureAccessibility(row)
         // Only when the summary or the quote moved or came and went: every other update keeps the same cursor.
@@ -262,6 +271,58 @@ final class TranscriptRowView: NSView {
         let side = RowGeometry.disclosureSide(style)
         return CGRect(x: summary.maxX - side, y: summary.midY - side / 2, width: side, height: side).integral
     }
+
+    /// One view over each pictures block of the row, above its label. A block the same row did not
+    /// have before, the pictures of a step that just ended, appears; any other is shown as it is.
+    private func showPictures(_ row: PreparedRow, previous: PreparedRow?) {
+        let blocks = row.text.blocks.indices.filter { index in
+            guard case .pictures = row.text.blocks[index].kind else { return false }
+            return row.geometry.pictureFrames.indices.contains(index)
+        }
+        for (index, view) in pictureViews where !blocks.contains(index) {
+            view.removeFromSuperview()
+            pictureViews[index] = nil
+        }
+        var arrived: [ToolPicturesView] = []
+        for index in blocks {
+            guard case .pictures(let pictures) = row.text.blocks[index].kind else { continue }
+            let view   = pictureViews[index] ?? makePictureView(block: index)
+            let frames = row.geometry.pictureFrames[index]
+            let strip  = frames.reduce(CGRect.null) { $0.union($1) }
+            pictureViews[index] = view
+            view.isFocused      = focusedAction == .openPictures(block: index)
+            view.show(
+                pictures,
+                at: frames.map { $0.offsetBy(dx: -strip.minX, dy: -strip.minY) }
+            )
+            let block = row.text.blocks[index]
+            if let previous, !previous.text.blocks.indices.contains(index) || previous.text.blocks[index] != block {
+                arrived.append(view)
+            }
+        }
+        placePictures()
+        let reducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        for view in arrived { view.appear(reducesMotion: reducesMotion) }
+    }
+
+    private func makePictureView(block index: Int) -> ToolPicturesView {
+        let view = ToolPicturesView()
+        view.onOpen = { [weak self] in self?.onAction?(.openPictures(block: index)) }
+        addSubview(view)
+        return view
+    }
+
+    private func placePictures() {
+        guard let row else { return }
+        for (index, view) in pictureViews where row.geometry.pictureFrames.indices.contains(index) {
+            let strip = row.geometry.pictureFrames[index].reduce(CGRect.null) { $0.union($1) }
+            guard !strip.isNull else { continue }
+            view.frame = strip.offsetBy(dx: drift(of: row), dy: 0)
+        }
+    }
+
+    /// The small pictures of the pictures block at `index`, nil while the block shows none.
+    func pictureView(block index: Int) -> ToolPicturesView? { pictureViews[index] }
 
     /// The copy icons of the row's finished code blocks. Another row starts
     /// them as copy icons; the same row growing keeps a check still showing.
@@ -476,6 +537,7 @@ final class TranscriptRowView: NSView {
         super.setFrameSize(newSize)
         guard changed else { return }
         placeCopyIcons()
+        placePictures()
         needsDisplay = true
     }
 
@@ -1289,7 +1351,7 @@ final class TranscriptRowView: NSView {
                 element.setAccessibilityRole(.staticText)
                 element.setAccessibilityRoleDescription("table")
                 element.setAccessibilityValue(block.string.replacingOccurrences(of: "\n", with: ", "))
-            case .text, .quote, .toolSummary, .toolSteps, .report:
+            case .text, .quote, .toolSummary, .toolSteps, .report, .pictures:
                 element.setAccessibilityRole(.staticText)
                 element.setAccessibilityValue(block.string)
             }

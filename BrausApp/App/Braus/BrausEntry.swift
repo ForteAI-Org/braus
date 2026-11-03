@@ -17,12 +17,19 @@ import os
 enum BrausEntry {
 
     static func main() {
+        ScriptedWorkerRun.noteLaunch()
         AutomationTools.reportInvalidSwitches()
         if let refusal = LaunchIsolation.current.refusal(bundleID: Bundle.main.bundleIdentifier) {
             // A launch from Finder or by the system has no terminal: the log keeps the reason too.
             Logger(subsystem: "dev.forte.Braus", category: "Launch").error("Did not start: \(refusal, privacy: .public)")
             FileHandle.standardError.write(Data("Braus did not start: \(refusal)\n".utf8))
             exit(78) // EX_CONFIG
+        }
+        do {
+            try IsolatedLaunchEnvironment.prepare()
+        } catch {
+            FileHandle.standardError.write(Data("Braus isolation failed: \(error)\n".utf8))
+            exit(78)
         }
         BrausApp.main()
     }

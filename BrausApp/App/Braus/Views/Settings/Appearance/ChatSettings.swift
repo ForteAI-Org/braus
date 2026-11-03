@@ -10,16 +10,28 @@ import SwiftUI
 /// ChatSettings is how a conversation reads, how a message is sent, and whether workers may go online.
 struct ChatSettings: View {
 
-    @AppStorage(AppPreferences.chatShowsTimes)
+    @AppStorage(
+        AppPreferences.chatShowsTimes,
+        store: AppDefaults.current
+    )
     private var showsTimes = AppPreferences.chatShowsTimesDefault
 
-    @AppStorage(AppPreferences.chatOpensToolSteps)
+    @AppStorage(
+        AppPreferences.chatOpensToolSteps,
+        store: AppDefaults.current
+    )
     private var opensToolSteps = AppPreferences.chatOpensToolStepsDefault
 
-    @AppStorage(AppPreferences.chatSendsWithCommandReturn)
+    @AppStorage(
+        AppPreferences.chatSendsWithCommandReturn,
+        store: AppDefaults.current
+    )
     private var sendsWithCommandReturn = AppPreferences.chatSendsWithCommandReturnDefault
 
-    @AppStorage(AppPreferences.workersSearchWeb)
+    @AppStorage(
+        AppPreferences.workersSearchWeb,
+        store: AppDefaults.current
+    )
     private var workersSearchWeb = AppPreferences.workersSearchWebDefault
 
     var body: some View {

@@ -308,7 +308,7 @@ extension WindowSnapshots {
         NSApp.appearance = appearance
 
         let hosting = NSHostingView(rootView: content
-            .defaultAppStorage(appStorage ?? .standard))
+            .defaultAppStorage(appStorage ?? AppDefaults.current))
         hosting.sceneBridgingOptions = titled ? [.toolbars, .title] : []
 
         let window = NSWindow(

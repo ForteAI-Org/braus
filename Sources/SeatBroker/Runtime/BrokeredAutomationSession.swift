@@ -10,6 +10,7 @@ import AutomationRuntime
 import Engine
 import EngineCore
 import Foundation
+import IncrementalText
 import Memory
 import Observation
 import os
@@ -1515,6 +1516,13 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         defer { endActivity(activity) }
         guard isInTurn, humanIntervention == nil, closing == nil, let humanDetails else { return .unavailable }
         return humanDetails.result(request)
+    }
+
+    public var canvasHistory: CanvasHistory? {
+        guard id != nil, closing == nil, humanIntervention == nil,
+              let (_, _, target) = try? current(),
+              target.canvasHistory.window == target.lastCapturedWindow?.id else { return nil }
+        return target.canvasHistory
     }
 
     /// Closes once an open session has gone `idleWindow` without a call in flight. The wait is tied to the

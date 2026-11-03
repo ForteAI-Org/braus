@@ -7,6 +7,7 @@
 
 import EngineCore
 import Foundation
+import IncrementalText
 #if BRAUS_PHASES
 import PhaseSignposts
 #endif
@@ -46,6 +47,12 @@ import SeatSession
 /// Only the target window: a menu or a panel that opens as a window of its own after the target
 /// settled is not waited for. The scene an action answers is still taken after this returns,
 /// through a new observation, so it is never older than the settle (ADR 0035).
+///
+/// ## Canvas noise
+///
+/// The baseline is also the one frame a worker's cycle yields between an observation and the next
+/// gesture with no input between them, so when the observed window has canvases it is handed to the
+/// target's `canvasHistory` to learn their noise from. No capture is added for it.
 ///
 /// It reads the frames observation reads, one wait after the other: the act cycle settles and then
 /// observes, never both at once. It holds one frame at a time, which keeps one of the stream's pool
@@ -163,6 +170,14 @@ public struct SeatSettler: Settling {
             identity   : identity,
             displayedAt: displayedAt,
             markedAt   : DispatchTime.now().uptimeNanoseconds
+        )
+        // The frame shown since the last observation, before this gesture: the free idle frame.
+        guard target.canvasHistory.hasCanvases, let image = copy.makeCGImage() else { return }
+        target.canvasHistory.learnIdle(
+            from         : image,
+            window       : identity.windowNumber,
+            displayedAt  : displayedAt,
+            lastCommandAt: target.lastCommandAt
         )
     }
 

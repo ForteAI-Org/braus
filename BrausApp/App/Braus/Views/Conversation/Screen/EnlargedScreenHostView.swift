@@ -26,6 +26,8 @@ import QuartzCore
 /// shows, never a second capture. It is seeded with the small one's last frame
 /// so a still window does not open black, and hands its own last frame to the
 /// small one it lands in, which the stream does not draw into while hidden.
+/// A screen that draws itself, such as a tool line's pictures, passes
+/// `copiesFrames` false and keeps its own drawing both ways.
 ///
 /// While it is in a window it owns the keyboard: Escape and a click on the
 /// backdrop close it, and Tab goes nowhere else. It shows no close button; the
@@ -41,12 +43,22 @@ final class EnlargedScreenHostView: NSView {
     /// The backdrop's black: light enough to keep the window behind readable.
     private static let backdropAlpha: CGFloat = 0.45
 
-    /// A spring that settles with a little overshoot, its duration the time it takes to rest.
-    private static func spring(
+    /// The grow: a spring that settles with a little overshoot, its duration the time it takes to rest.
+    /// The shrink: a short ease out that stops on the small view, with no spring's tail to settle into it.
+    private static func motion(
         _ keyPath: String,
         from     : Any,
-        to       : Any
-    ) -> CASpringAnimation {
+        to       : Any,
+        landing  : Bool
+    ) -> CABasicAnimation {
+        guard !landing else {
+            let ease = CABasicAnimation(keyPath: keyPath)
+            ease.fromValue      = from
+            ease.toValue        = to
+            ease.duration       = landingDuration
+            ease.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+            return ease
+        }
         let spring = CASpringAnimation(keyPath: keyPath)
         spring.fromValue = from
         spring.toValue   = to
@@ -57,9 +69,12 @@ final class EnlargedScreenHostView: NSView {
         return spring
     }
 
+    static let landingDuration: CFTimeInterval = 0.24
+
     private let screen        : NSView
     private let backdrop      = CALayer()
     private let onRequestClose: () -> Void
+    private let copiesFrames  : Bool
 
     /// The small view the grow starts from, held until the first layout has a size to grow to.
     private weak var opener: NSView?
@@ -82,6 +97,11 @@ final class EnlargedScreenHostView: NSView {
     /// The width of the small view it grows from, which the enlarged screen never goes below.
     private let minimumWidth: CGFloat
 
+    /// The screen's frame that shows its content on a small view's frame: a screen with a margin of its
+    /// own reaches past the small view, so what it shows lands on it. The small view's frame itself
+    /// without it.
+    private let landingFrame: (CGRect) -> CGRect
+
     /// The top edge the screen keeps clear: how far the title bar and toolbar reach into this view.
     private(set) var topInset: CGFloat = 0
 
@@ -91,8 +111,12 @@ final class EnlargedScreenHostView: NSView {
         opener        : NSView?,
         reducesMotion : Bool,
         label         : String,
+        copiesFrames  : Bool = true,
+        landingFrame  : @escaping (CGRect) -> CGRect = { $0 },
         onRequestClose: @escaping () -> Void
     ) {
+        self.copiesFrames   = copiesFrames
+        self.landingFrame   = landingFrame
         self.screen         = screen
         self.nativeSize     = nativeSize
         self.opener         = opener
@@ -217,11 +241,13 @@ final class EnlargedScreenHostView: NSView {
         hasOpened = true
         let target = restFrame
         screen.frame = target
-        let origin = convertedFrame(of: opener) ?? target
-        Self.copyFrame(
-            from: opener,
-            to  : screen
-        )
+        let origin = convertedFrame(of: opener).map(landingFrame) ?? target
+        if copiesFrames {
+            Self.copyFrame(
+                from: opener,
+                to  : screen
+            )
+        }
 
         guard !reducesMotion else {
             fade(
@@ -234,7 +260,8 @@ final class EnlargedScreenHostView: NSView {
             from      : origin,
             to        : target,
             radiusFrom: Self.smallRadius,
-            radiusTo  : Self.largeRadius
+            radiusTo  : Self.largeRadius,
+            landing   : false
         )
         animateBackdrop(
             from: 0,
@@ -254,15 +281,17 @@ final class EnlargedScreenHostView: NSView {
         isClosing = true
         window?.makeFirstResponder(previousResponder)
         // The small view was paused while hidden, so it takes the newest frame before it shows again.
-        let landed = { [screen, weak small] in
-            Self.copyFrame(
-                from: screen,
-                to  : small
-            )
+        let landed = { [screen, copiesFrames, weak small] in
+            if copiesFrames {
+                Self.copyFrame(
+                    from: screen,
+                    to  : small
+                )
+            }
             finished()
         }
 
-        guard !reducesMotion, let landing = convertedFrame(of: small) else {
+        guard !reducesMotion, let landing = convertedFrame(of: small).map(landingFrame) else {
             fade(
                 from    : 1,
                 to      : 0,
@@ -282,7 +311,8 @@ final class EnlargedScreenHostView: NSView {
             from      : from,
             to        : landing,
             radiusFrom: Self.largeRadius,
-            radiusTo  : Self.smallRadius
+            radiusTo  : Self.smallRadius,
+            landing   : true
         )
         animateBackdrop(
             from: backdrop.presentation()?.opacity ?? 1,
@@ -318,12 +348,14 @@ final class EnlargedScreenHostView: NSView {
 
     // MARK: Animation
 
-    /// Moves the screen's layer between two frames; the model values are already the end.
+    /// Moves the screen's layer between two frames, with the shrink's ease when `landing` in a small
+    /// view and the grow's spring otherwise; the model values are already the end.
     private func travel(
         from      : CGRect,
         to        : CGRect,
         radiusFrom: CGFloat,
-        radiusTo  : CGFloat
+        radiusTo  : CGFloat,
+        landing   : Bool
     ) {
         guard let layer = screen.layer else { return }
 
@@ -335,26 +367,29 @@ final class EnlargedScreenHostView: NSView {
             )
         }
         layer.add(
-            Self.spring(
+            Self.motion(
                 "position",
-                from: position(of: from),
-                to  : position(of: to)
+                from   : position(of: from),
+                to     : position(of: to),
+                landing: landing
             ),
             forKey: "position"
         )
         layer.add(
-            Self.spring(
+            Self.motion(
                 "bounds.size",
-                from: from.size,
-                to  : to.size
+                from   : from.size,
+                to     : to.size,
+                landing: landing
             ),
             forKey: "size"
         )
         layer.add(
-            Self.spring(
+            Self.motion(
                 "cornerRadius",
-                from: radiusFrom,
-                to  : radiusTo
+                from   : radiusFrom,
+                to     : radiusTo,
+                landing: landing
             ),
             forKey: "radius"
         )

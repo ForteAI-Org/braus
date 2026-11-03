@@ -355,6 +355,24 @@ final class CallDispatcher {
             let result = await session.humanStep(request)
             return HumanStepTool.result(result, withholding: producerSecrets.withheld)
         }
+        if name == CanvasTool.name {
+            let request = try CanvasTool.request(arguments)
+            guard session.id != nil else {
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.canvasSession.v1")))
+            }
+            guard let history = session.canvasHistory else {
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.canvasHistory.v1")))
+            }
+            return try CanvasTool.result(
+                request,
+                history    : history,
+                isWithheld : {
+                    SensitivityClassifier().classify($0, in: .init(labels: [$0])).sensitivity == .secret
+                        || self.producerSecrets.withheld($0) != $0
+                },
+                withholding: producerSecrets.withheld
+            )
+        }
         let before = sceneText.seen
         // A session that ended leaves no scene to compare the next one against.
         defer { if session.id == nil { sceneText.forgetScene() } }

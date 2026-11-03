@@ -8,6 +8,7 @@
 import CoreGraphics
 import EngineCore
 import Foundation
+import IncrementalText
 import Perception
 import PerceptionCore
 #if BRAUS_PHASES
@@ -32,6 +33,10 @@ import SeatSession
 /// without drawing, including when its track is outside the visible viewport. After a Command,
 /// the existing fresh-still check still prevents an old stream frame from proving equal pixels.
 /// Display crops are always recognized again.
+///
+/// Each canvas of the scene says whether its pixels changed since the previous observation of the
+/// same window, apart from the noise learned while nobody acted; the target's `canvasHistory` keeps
+/// the canvases' tile hashes and pixels in between, never a whole frame.
 public struct SeatSceneProvider: SceneProviding {
 
     private let target: SeatTarget
@@ -110,6 +115,8 @@ public struct SeatSceneProvider: SceneProviding {
         var image: CGImage
         let frame: CGRect
         var comparable: SeatFrame?
+        // When the frame `image` holds was displayed, so canvas noise learns only between idle frames.
+        var shownAt: UInt64?
         if popups.isEmpty {
             let still = observation.frame
             #if BRAUS_PHASES
@@ -124,6 +131,7 @@ public struct SeatSceneProvider: SceneProviding {
             image = pixels
             frame = still.geometry.screenRect
             comparable = still
+            shownAt = Self.uptime(still)
         } else {
             #if BRAUS_PHASES
             let displayCapture = PhaseInterval.begin("capture.displayStill")
@@ -148,6 +156,7 @@ public struct SeatSceneProvider: SceneProviding {
             guard let cropped = pixels.cropping(to: crop) else { throw SeatDrivingFailure.frameUnusable }
             image = cropped
             frame = union
+            shownAt = Self.uptime(still)
             guard await target.isCurrentObservation(observation.reference) else {
                 throw SeatDrivingFailure.frameUnusable
             }
@@ -171,6 +180,27 @@ public struct SeatSceneProvider: SceneProviding {
                 : CaptureSurface.popupUnion
             return PerceivedWindow(scene: capture.scene, frame: frame, capture: capture.quality, surface: surface)
         }
+        // A canvas is compared only with the previous observation of this same window.
+        let windowNumber = observedWindow.id
+        func marked(_ perceived: PerceivedWindow, in image: CGImage) async -> PerceivedWindow {
+            var history = await target.canvasHistory
+            var scene = perceived.scene
+            history.observe(
+                &scene,
+                in           : image,
+                window       : windowNumber,
+                windowSize   : frame.size,
+                displayedAt  : shownAt,
+                lastCommandAt: await target.lastCommandAt
+            )
+            await MainActor.run { target.canvasHistory = history }
+            return PerceivedWindow(
+                scene  : scene,
+                frame  : perceived.frame,
+                capture: perceived.capture,
+                surface: perceived.surface
+            )
+        }
         // Equal pixels can reuse recognition, never the native facts merged into the previous scene.
         if let still = comparable, let kept = await lastScene.kept, kept.window == window,
            kept.frame.showsSameContent(as: still) {
@@ -182,7 +212,10 @@ public struct SeatSceneProvider: SceneProviding {
                 reusing.end()
                 #endif
                 await MainActor.run { target.lastSceneImage = image }
-                return perceived(try await pipeline.capture(image, of: window, reusing: kept.visual).capture)
+                return await marked(
+                    perceived(try await pipeline.capture(image, of: window, reusing: kept.visual).capture),
+                    in: image
+                )
             }
             #if BRAUS_PHASES
             let confirming = PhaseInterval.begin("capture.freshStill")
@@ -199,12 +232,16 @@ public struct SeatSceneProvider: SceneProviding {
                     target.lastSceneImage = image
                     lastScene.kept = LastScene.Kept(frame: fresh, window: window, visual: kept.visual)
                 }
-                return perceived(try await pipeline.capture(image, of: window, reusing: kept.visual).capture)
+                return await marked(
+                    perceived(try await pipeline.capture(image, of: window, reusing: kept.visual).capture),
+                    in: image
+                )
             }
             // The fresh pixels are read only at the observed rectangle, which the next Command maps through.
             if let fresh, fresh.geometry.screenRect == frame, let pixels = fresh.makeCGImage() {
                 image      = pixels
                 comparable = fresh
+                shownAt    = Self.uptime(fresh)
             }
         }
         #if BRAUS_PHASES
@@ -218,7 +255,7 @@ public struct SeatSceneProvider: SceneProviding {
             target.lastSceneImage = image
             if let comparable { lastScene.kept = LastScene.Kept(frame: comparable, window: window, visual: reading.visual) }
         }
-        return perceived(reading.capture)
+        return await marked(perceived(reading.capture), in: image)
     }
 
     /// Whether a kept scene may answer a still whose pixels equal its frame's, from the uptime
@@ -228,6 +265,11 @@ public struct SeatSceneProvider: SceneProviding {
         guard let lastCommandAt else { return true }
         guard let keptDisplayedAt else { return false }
         return keptDisplayedAt > lastCommandAt
+    }
+
+    /// When `frame` was displayed, in uptime nanoseconds; nil when the frame carries no display time.
+    private static func uptime(_ frame: SeatFrame) -> UInt64? {
+        frame.displayTime.flatMap { MachAbsoluteContentClock().displayTimeNanoseconds(fromMachTicks: $0) }
     }
 
     /// LastScene keeps the window still with its window facts and pixel-derived scene, so the next

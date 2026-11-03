@@ -113,7 +113,8 @@ public final class TurnRunner {
                 call: { [unowned self] in try await call($0, $1) },
                 reminder: takeReminder,
                 definitions: AutomationTools.definitions,
-                instructions: TurnLoopInstructions()
+                instructions: TurnLoopInstructions(),
+                recordResult: { [weak self] in try self?.hosting?.recordResult($0, $1, startedAt: $2) }
             )
             self.loop = loop
             defer { self.loop = nil }
@@ -282,7 +283,9 @@ public final class TurnRunner {
         toolCalls += 1
         calls[id] = TurnCall(tool: name, task: task, interruption: interruption)
         defer { calls[id] = nil }
-        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        try hosting.answered(tool: name, result: result)
+        return result
     }
 
     private func interruptReads() {

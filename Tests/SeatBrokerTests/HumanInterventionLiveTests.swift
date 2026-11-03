@@ -7,19 +7,27 @@
 
 #if DEBUG
 import AppKit
+@testable import AutomationMCP
+import AutomationRuntime
 import ApplicationServices
 import Engine
 import Foundation
+import ImageIO
 import InteractionListener
 import InteractionObservation
+import LocalMCP
+import Perception
 import PerceptionCore
+import SeatCore
+import SeatInput
+import WindowPlacement
 import Testing
 @testable import SeatBroker
 
 /// The whole report path on real applications of this Mac, with no person: the events a person's input would
 /// raise are handed to the recorder as the listener hands them, the changes they stand for are made through
 /// accessibility or on disk at the same moment, and the reads after each action, the ledger and the report are
-/// the app's own. Scratch data only. Off unless BRAUS_LIVE_REPORT names the scenarios (finder,calculator,textedit).
+/// the app's own. Scratch data only. Off unless BRAUS_LIVE_REPORT names the scenarios (finder,calculator,textedit,canvas).
 @Suite(.serialized)
 @MainActor
 struct HumanInterventionLiveTests {
@@ -44,25 +52,53 @@ struct HumanInterventionLiveTests {
         let recorder: HumanInterventionRecorder
         private var sequence: UInt64 = 0
 
-        init(window: InteractionWindow) throws {
+        init(
+            window     : InteractionWindow,
+            sceneReader: any HumanSceneReading = NativeHumanSceneReader()
+        ) throws {
             self.window = window
             recorder = try HumanInterventionRecorder(
-                window: LentWindow(windowNumber: window.number, processID: window.processID, frame: window.frame),
-                source: source, reader: NativeHumanInteractionReader(), sceneReader: NativeHumanSceneReader(),
-                onFailure: { Issue.record("recorder failed: \($0)") })
+                window: LentWindow(
+                    windowNumber: window.number,
+                    processID   : window.processID,
+                    frame       : window.frame
+                ),
+                source     : source,
+                reader     : NativeHumanInteractionReader(),
+                sceneReader: sceneReader,
+                onFailure  : { Issue.record("recorder failed: \($0)") }
+            )
         }
 
         /// An event of `kind` at `point`, in window-server space, as the listener reports it.
-        func send(_ kind: InteractionEvent.Kind, at point: CGPoint? = nil, keyCode: UInt16? = nil,
-                  modifiers: InteractionEvent.Modifiers? = nil) {
+        func send(
+            _ kind   : InteractionEvent.Kind,
+            at point : CGPoint? = nil,
+            keyCode  : UInt16? = nil,
+            modifiers: InteractionEvent.Modifiers? = nil,
+            endPoint : CGPoint? = nil
+        ) {
             sequence += 1
             let now = ProcessInfo.processInfo.systemUptime
             source.continuation.yield(InteractionEvent(
-                kind: kind, timestamp: Date(), startedAt: now, endedAt: now + 0.05,
-                precedingRevision: sequence - 1, revision: sequence,
-                point: point ?? CGPoint(x: window.frame.midX, y: window.frame.midY),
-                window: window, processID: window.processID, sequence: sequence,
-                keyCode: keyCode, modifiers: modifiers, clickCount: kind == .click ? 1 : nil))
+                kind             : kind,
+                timestamp        : Date(),
+                startedAt        : now,
+                endedAt          : now + 0.05,
+                precedingRevision: sequence - 1,
+                revision         : sequence,
+                point            : point ?? CGPoint(
+                    x: window.frame.midX,
+                    y: window.frame.midY
+                ),
+                window           : window,
+                processID        : window.processID,
+                sequence         : sequence,
+                keyCode          : keyCode,
+                modifiers        : modifiers,
+                endPoint         : endPoint,
+                clickCount       : kind == .click ? 1 : nil
+            ))
         }
 
         /// Stops the recording and answers the report the worker would receive.
@@ -81,6 +117,83 @@ struct HumanInterventionLiveTests {
             }
             return HumanInterventionSummary.digest(evidence)
         }
+    }
+
+    /// CanvasReader observes native idle capture completion so the live scenario does not race its baseline, and
+    /// steps the fixture's two-level meter before each idle capture, so every one sees the meter's other extreme.
+    private actor CanvasReader: HumanSceneReading {
+        private let native = NativeHumanSceneReader()
+        private(set) var idleFrames = 0
+
+        func read(
+            window: InteractionWindow,
+            mode  : ProductionPerception.Mode,
+            timing: NativeHumanSceneReader.Timing
+        ) async throws -> (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame?) {
+            do {
+                return try await native.read(
+                    window: window,
+                    mode  : mode,
+                    timing: timing
+                )
+            } catch {
+                print("LIVE canvas read \(mode) failed: \(error)")
+                throw error
+            }
+        }
+
+        func scene(
+            window: InteractionWindow,
+            mode  : ProductionPerception.Mode,
+            timing: NativeHumanSceneReader.Timing
+        ) async throws -> SceneSnapshot {
+            try await read(
+                window: window,
+                mode  : mode,
+                timing: timing
+            ).scene
+        }
+
+        func canvasRead(window: InteractionWindow) async throws -> (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame)? {
+            try await native.canvasRead(window: window)
+        }
+
+        func frame(of window: InteractionWindow) async throws -> HumanInterventionCanvases.Frame? {
+            await CanvasFixtureMeter.step()
+            let result = try await native.frame(of: window)
+            if result != nil { idleFrames += 1 }
+            return result
+        }
+
+        func windows(processID: Int32) async throws -> [InteractionWindow] {
+            try await native.windows(processID: processID)
+        }
+
+        func finalWindows(processID: Int32) async throws -> [InteractionWindow] {
+            try await native.finalWindows(processID: processID)
+        }
+
+        func structure(
+            processID: Int32,
+            seconds  : Double
+        ) async -> InteractionStructuralRead {
+            await native.structure(
+                processID: processID,
+                seconds  : seconds
+            )
+        }
+    }
+
+    /// Waits for the consumer's four native idle captures, bounded even when the host is busy.
+    private static func canvasReady(_ reader: CanvasReader) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while await reader.idleFrames < HumanInterventionConsumer.idleFrames {
+            try #require(ContinuousClock.now < deadline, "canvas baseline did not finish")
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        await Self.pause(50)
+        let count = await reader.idleFrames
+        print("LIVE canvas ready after \(count) idle frames")
     }
 
     // MARK: Accessibility and windows
@@ -121,8 +234,10 @@ struct HumanInterventionLiveTests {
     }
 
     /// The front on-screen window of `processID` whose title contains `title` (any when nil).
+    /// The application's first normal window, waited for up to 30 seconds: a second launch of an app on a busy Mac
+    /// can take well over ten.
     private static func window(of processID: Int32, titled title: String? = nil) async throws -> InteractionWindow {
-        for _ in 0..<40 {
+        for _ in 0..<120 {
             let found = InteractionWindowReader.windows(excluding: -1).first {
                 $0.processID == processID && $0.layer == 0 && $0.frame.width > 200
                     && (title == nil || ($0.title ?? "").contains(title!))
@@ -130,6 +245,8 @@ struct HumanInterventionLiveTests {
             if let found { return found }
             try await Task.sleep(for: .milliseconds(250))
         }
+        let shown = InteractionWindowReader.windows(excluding: -1).filter { $0.processID == processID }
+        print("LIVE no window of PID \(processID) after 30 s; its windows: \(shown.map { "\($0.layer) \($0.frame)" })")
         throw CancellationError()
     }
 
@@ -235,6 +352,200 @@ struct HumanInterventionLiveTests {
         withKnownIssue("a result shown as static text is not reported") { #expect(digest.text.contains("3")) }
     }
 
+    /// The fixture's idle meter produces no picture; a real, process-directed drag then moves lane 2's clip.
+    /// The listener is a stand-in, while window input, captures, report construction and lazy PNG details are native.
+    @Test(.enabled(if: scenarios.contains("canvas"))) func canvas() async throws {
+        let path = try #require(ProcessInfo.processInfo.environment["BRAUS_CANVAS_FIXTURE"])
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        configuration.arguments = ["--meter-two-levels"]
+        var fixture = try await NSWorkspace.shared.openApplication(
+            at           : URL(fileURLWithPath: path),
+            configuration: configuration
+        )
+        defer { fixture.terminate() }
+        await Self.pause(1500)
+        let window = try await Self.window(of: fixture.processIdentifier)
+        let app = AXUIElementCreateApplication(fixture.processIdentifier)
+        let play = try #require(Self.find(in: app) { Self.text($0).contains("Play") }.flatMap(Self.centre))
+        let idleReader = CanvasReader()
+        let idle = try Episode(
+            window     : window,
+            sceneReader: idleReader
+        )
+        try await Self.canvasReady(idleReader)
+        // The meter moves during the episode too, so only its learned noise keeps it out of the report.
+        await CanvasFixtureMeter.step()
+        idle.send(
+            .click,
+            at: play
+        )
+        await Self.pause(1500)
+        let idleDigest = try await idle.report()
+        let idleReview = try #require(idle.recorder.review)
+        for canvas in idleReview.findings.flatMap({ $0.canvases ?? [] }) {
+            print("LIVE unexpected idle canvas: \(canvas.caption)")
+        }
+        #expect(!idleDigest.text.contains("Canvas changed"))
+        #expect(idleReview.findings.allSatisfy { $0.canvases == nil })
+        print("LIVE canvas meter only\n\(idleDigest.text)")
+
+        fixture.terminate()
+        await Self.until { fixture.isTerminated }
+        try #require(fixture.isTerminated)
+        // A separate still episode isolates the clip's pixels from the independently tested animation.
+        configuration.arguments = ["--still"]
+        fixture = try await NSWorkspace.shared.openApplication(
+            at           : URL(fileURLWithPath: path),
+            configuration: configuration
+        )
+        let dragWindow = try await Self.window(of: fixture.processIdentifier)
+        print("LIVE canvas fixture PID \(fixture.processIdentifier), test PID \(ProcessInfo.processInfo.processIdentifier)")
+        let dragReader = CanvasReader()
+        let episode = try Episode(
+            window     : dragWindow,
+            sceneReader: dragReader
+        )
+        try await Self.canvasReady(dragReader)
+        let start = CGPoint(
+            x: dragWindow.frame.minX + 300,
+            y: dragWindow.frame.minY + 294
+        )
+        let end = CGPoint(
+            x: start.x + 120,
+            y: start.y
+        )
+        let reference = try #require(WindowServerProbe.geometry(
+            of                   : dragWindow.number,
+            allowUnvalidatedBuild: true
+        ))
+        let geometry = try #require(RemoteWindowProbe.recipientGeometry(
+            of                   : reference,
+            allowUnvalidatedBuild: true
+        ))
+        try #require(geometry.window.processID == fixture.processIdentifier)
+        try #require(geometry.window.frame == dragWindow.frame)
+        let from = try #require(InputLocation(
+            screenPoint: start,
+            observedIn : geometry
+        ))
+        let to = try #require(InputLocation(
+            screenPoint: end,
+            observedIn : geometry
+        ))
+        let driver = try InputDriver(allowUnvalidatedBuild: true)
+        let receipt = try await driver.send(
+            .drag(
+                from: from,
+                to  : to
+            ),
+            to           : geometry.window,
+            correlationID: 0x5b,
+            platform     : AppKitPlatform()
+        )
+        #expect(receipt.eventCount == InputCommand.dragStepCount + 3)
+        #expect(!receipt.hasUnrestoredPreparation)
+        print("LIVE canvas driver: \(receipt.eventCount) events, route \(receipt.route)")
+        episode.send(
+            .drag,
+            at      : start,
+            endPoint: end
+        )
+        await Self.pause(1500)
+        let digest = try await episode.report()
+        let review = try #require(episode.recorder.review)
+        let lines = digest.text.split(separator: "\n").filter { $0.hasPrefix("Canvas changed: ") }
+        print("LIVE canvas drag\n\(digest.text)")
+        try #require(lines.count == 1)
+        let stepText = try #require(lines.first?.components(separatedBy: "human_step picture ").last)
+        let step = try #require(Int(stepText.prefix { $0.isNumber }))
+        let details = HumanInterventionDetails(
+            review      : review,
+            digest      : digest,
+            intervention: episode.recorder.intervention,
+            withholding : { $0 }
+        )
+        let request = try HumanStepTool.request(.object(["picture": .number(Double(step))]))
+        let picture = details.result(request)
+        #expect(!picture.isError)
+        #expect(picture.images.map(\.mimeType) == ["image/png", "image/png"])
+        let blocks = try #require(HumanStepTool.result(
+            picture,
+            withholding: { $0 }
+        )["content"].array)
+        #expect(blocks.count == 3)
+        #expect(blocks.dropFirst().map { $0["type"].string } == ["image", "image"])
+        #expect(blocks.dropFirst().map { $0["mimeType"].string } == ["image/png", "image/png"])
+        let canvases = review.findings.flatMap { $0.canvases ?? [] }
+        #expect(canvases.count == 1)
+        let canvas = try #require(canvases.first)
+        #expect(lines == ["Canvas changed: \(canvas.name) (human_step picture \(step))."])
+        #expect(picture.text.contains(canvas.caption))
+        #expect(blocks.first?["text"].string?.contains(canvas.caption) == true)
+        #expect(blocks.dropFirst().compactMap { block in
+            block["data"].string.flatMap { Data(base64Encoded: $0) }
+        } == picture.images.map(\.data))
+        print("LIVE canvas picture \(step)\n\(picture.text)")
+        let coordinates = try #require(canvas.caption.components(separatedBy: "of window points ").last)
+        let rectangle = try #require(coordinates.components(separatedBy: ", ").first)
+        let numbers = rectangle.split { !$0.isNumber }.compactMap { Double($0) }
+        try #require(numbers.count == 4)
+        let crop = CGRect(
+            x     : numbers[0],
+            y     : numbers[1],
+            width : numbers[2],
+            height: numbers[3]
+        )
+        let timeline = CGRect(
+            x     : 160,
+            y     : dragWindow.frame.height - 700 + 140,
+            width : 900,
+            height: 320
+        )
+        #expect(timeline.contains(crop))
+        // The clip's lane, not the timeline: the meter and caret that moved too are another region.
+        #expect(crop.width < timeline.width / 2 && crop.height < timeline.height / 2)
+        for (index, image) in picture.images.enumerated() {
+            let source = try #require(CGImageSourceCreateWithData(
+                image.data as CFData,
+                nil
+            ))
+            let png = try #require(CGImageSourceCreateImageAtIndex(
+                source,
+                0,
+                nil
+            ))
+            #expect(canvas.caption.contains("crop \(png.width)x\(png.height) px"))
+            let scale = CGFloat(png.width) / crop.width
+            #expect(CGFloat(png.height) == crop.height * scale)
+            // Two points on opposite ends distinguish a moved clip from meter noise or a caption-only change.
+            for (x, expected) in [(270.0, index == 0), (500.0, index == 1)] {
+                let point = CGPoint(
+                    x: x,
+                    y: dragWindow.frame.height - 700 + 280
+                )
+                try #require(crop.contains(point))
+                let bitmap = NSBitmapImageRep(cgImage: png)
+                let colour = try #require(bitmap.colorAt(
+                    x: Int((point.x - crop.minX) * scale),
+                    y: Int((point.y - crop.minY) * scale)
+                )?.usingColorSpace(.deviceRGB))
+                let orange = colour.redComponent > 0.6 && colour.greenComponent > 0.2 && colour.blueComponent < 0.4
+                #expect(orange == expected)
+            }
+            if let path = ProcessInfo.processInfo.environment["BRAUS_CANVAS_EVIDENCE_DIR"] {
+                let directory = URL(fileURLWithPath: path)
+                try FileManager.default.createDirectory(
+                    at                          : directory,
+                    withIntermediateDirectories: true
+                )
+                try image.data.write(to: directory.appendingPathComponent("canvas-\(index).png"))
+            }
+        }
+        #expect(picture.images.first?.data != picture.images.last?.data)
+        await details.finish()
+    }
+
     /// TextEdit on a scratch document: text typed into it.
     @Test(.enabled(if: scenarios.contains("textedit"))) func textEdit() async throws {
         let file = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("BrausLive-\(Int(Date().timeIntervalSince1970)).txt")
@@ -261,6 +572,20 @@ struct HumanInterventionLiveTests {
             AXUIElementSetAttributeValue(area, kAXValueAttribute as CFString, "" as CFString)
             AXUIElementPerformAction(close, kAXPressAction as CFString)
         }
+    }
+}
+
+/// CanvasFixtureMeter moves the fixture's `--meter-two-levels` meter to its other extreme and waits for it to draw.
+private enum CanvasFixtureMeter {
+
+    static func step() async {
+        DistributedNotificationCenter.default().postNotificationName(
+            Notification.Name("dev.forte.CanvasFixture.step"),
+            object            : nil,
+            userInfo          : nil,
+            deliverImmediately: true
+        )
+        try? await Task.sleep(for: .milliseconds(80))
     }
 }
 #endif

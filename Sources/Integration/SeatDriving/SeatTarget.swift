@@ -7,6 +7,7 @@
 
 import CoreGraphics
 import Foundation
+import IncrementalText
 #if BRAUS_PHASES
 import PhaseSignposts
 #endif
@@ -51,6 +52,10 @@ public final class SeatTarget {
     public internal(set) var lastSceneImage: CGImage?
     /// When the events of the last Command went out, in uptime nanoseconds; nil before the first.
     public private(set) var lastCommandAt: UInt64?
+    /// The canvases of the observed window between observations: the scene provider records each
+    /// observation, the settler hands over the idle frame it copies before a gesture, and a request for
+    /// a canvas's crop before and after reads it.
+    public internal(set) var canvasHistory = CanvasHistory()
 
     public init(configuration: SeatHostConfiguration = SeatHostConfiguration(restoresUserFocus: true)) {
         host = SeatHost(configuration: configuration)
@@ -202,10 +207,12 @@ public final class SeatTarget {
 
     /// Records that a Command went out under the kept observation, which ends its authority. A
     /// Command refused before any effect leaves the observation exactly as it was, so this is
-    /// called only once the events have gone out.
-    public func spendObservation() {
+    /// called only once the events have gone out. `points` are the window points it acted at, which
+    /// the next canvas crop keeps (`CanvasHistory.noteAction`).
+    public func spendObservation(at points: [CGPoint] = []) {
         deliverySpent = true
         lastCommandAt = DispatchTime.now().uptimeNanoseconds
+        canvasHistory.noteAction(at: points)
     }
 
     /// One still of the observed window, for perception. It is the observation's own Frame, so a
@@ -265,6 +272,7 @@ public final class SeatTarget {
         lastCapturedWindow = nil
         lastWindowGeometry = nil
         lastCommandAt      = nil
+        canvasHistory      = CanvasHistory()
         initialWindow = nil
         if !isBorrowed { _ = await host.stop() }
     }

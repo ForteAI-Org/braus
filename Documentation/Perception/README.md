@@ -9,13 +9,19 @@ path and no pixel field, by construction of its types, so nothing that serialize
 an image. Positions are window-normalized hints for disambiguation and a way back to a pixel when
 an action is taken, never a coordinate of their own.
 
+## Canvases
+
+Drawn areas appear as `[canvas]` elements with change markers. Pictures are requested separately;
+the scene still carries no image. See [canvas perception](Canvases.md) for detection, retained
+history, privacy, crops and the tool contract.
+
 ## Shape
 
 | Module | What it owns |
 |---|---|
 | `PerceptionCore` | pure types and contracts: the scene vocabulary, grouping, composition, difference, pop-up rows, window classification, coordinate conversion, the accessibility harvest with its trust rule and its read quality (`AccessibilityHarvest`, `CaptureQuality`, `LabelOrigin`), and the roles every adapter fills |
 | `VisionText` | `TextRecognizing` over Apple Vision, tuned for UI labels |
-| `IncrementalText` | `TextRecognizing` over another recognizer: tile hashes decide which lines to read again, and the runs of the frame before are kept |
+| `IncrementalText` | `TextRecognizing` over another recognizer: tile hashes decide which lines to read again, and the runs of the frame before are kept; canvas tile differences, noise, bounded pixel history and crops |
 | `WindowServerListing` | `WindowListing` over the window server's on-screen list |
 | `AccessibilityFacts` | `SceneAugmenting` over the live accessibility tree, on the main actor, under a budget; and `PopupRowReading` over the open menu |
 | `PixelControlState` | `ControlStateReading` over pixels: a switch's knob side, a checkbox or radio's mark, or nothing at all |

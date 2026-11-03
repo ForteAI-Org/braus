@@ -231,11 +231,23 @@ nonisolated enum TranscriptWording {
             return ("Searched the web" + object, "search the web" + object, "Searching the web")
         case .webRead(let site):
             return forms("Read", "read", "Reading", site.map(label) ?? "a web page")
+        case .canvas(let id):
+            return forms("Looked at", "look at", "Looking at", id.map(canvasName) ?? "a canvas")
+        case .humanStep:
+            return forms("Viewed", "view", "Viewing", "what you did")
         case .note(let text):
             return (text, text, text)
         case .other(let name):
             return (name, name, name)
         }
+    }
+
+    /// A canvas as its scene line prints it, `canvas 2`, from any form the model passed (`canvas2`,
+    /// `canvas|canvas2`, `2`).
+    private static func canvasName(_ id: String) -> String {
+        let name   = id.split(separator: "|").last.map(String.init) ?? id
+        let number = name.drop { !$0.isNumber }
+        return number.isEmpty || !number.allSatisfy(\.isNumber) ? label(name) : "canvas \(number)"
     }
 
     /// `text` cut to `labelLimit` characters at most, the last an ellipsis.
@@ -303,6 +315,10 @@ nonisolated enum TranscriptWording {
             return "Open link to \(shown)"
         case .openQuote:
             return "Go to quoted message"
+        case .openPictures(let index):
+            guard text.blocks.indices.contains(index), case .pictures(let shown) = text.blocks[index].kind,
+                  let label = shown.label, !label.isEmpty else { return "Open pictures" }
+            return "Open pictures of \(label)"
         }
     }
 

@@ -38,6 +38,21 @@ nonisolated struct HumanSceneFinding: Sendable {
         var closedWindowNumbers: [Int] = []
     }
 
+    /// Canvas is one canvas a read saw change since the previous read of its window: its name, the caption of its
+    /// crop, and the crop of its changed area before and after as PNG. Archives keep the words, never the pixels.
+    struct Canvas: Sendable, Codable {
+        let windowNumber: Int
+        let id          : String
+        let name        : String
+        let caption     : String
+        var before      = Data()
+        var after       = Data()
+
+        private enum CodingKeys: String, CodingKey {
+            case windowNumber, id, name, caption
+        }
+    }
+
     let sequence: UInt64
     var mode: ProductionPerception.Mode { sequence == 0 ? .full : .textOnly }
     let windowNumber: Int?
@@ -52,10 +67,12 @@ nonisolated struct HumanSceneFinding: Sendable {
     var inputDuringRead = false
     var provenance: HumanReadProvenance? = nil
     var recordedAction: HumanRecordedInteraction.SummaryAction?
+    /// The canvases this read saw change, with their crops; nil when none did.
+    var canvases: [Canvas]?
     var compressedBytes: Int {
         compressed.count + compressedScenes.count + (provenance?.surfaces.reduce(256) {
             $0 + 256 + ($1.semantics?.retainedBytes ?? 0)
-        } ?? 0)
+        } ?? 0) + (canvases?.reduce(0) { $0 + $1.before.count + $1.after.count } ?? 0)
     }
 
     init(

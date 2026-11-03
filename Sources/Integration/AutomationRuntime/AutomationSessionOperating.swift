@@ -1,6 +1,7 @@
 import AppKit
 import EngineCore
 import Foundation
+import IncrementalText
 import PerceptionCore
 import WindowServerListing
 
@@ -34,6 +35,9 @@ public protocol AutomationSessionOperating: AnyObject {
     func collectPosts(_ request: PostCollectionRequest) async throws -> PostCollection
     /// Reads retained human-control details only during the worker turn that resumed that episode.
     func humanStep(_ request: HumanStepRequest) async -> HumanStepResult
+    /// The held Seat window's last observations, without capturing or observing again. Nil when
+    /// no Seat window can supply history, including a native or web route.
+    var canvasHistory: CanvasHistory? { get }
     func close() async
     /// Any work left after the latest completed close, such as an application deferring its quit.
     var closeWarning: String? { get }
@@ -138,6 +142,8 @@ public extension AutomationSessionOperating {
     }
 
     func humanStep(_ request: HumanStepRequest) async -> HumanStepResult { .unavailable }
+
+    var canvasHistory: CanvasHistory? { nil }
 
     var dispatchRoute: CallRoute.Route? { nil }
 

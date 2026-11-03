@@ -35,6 +35,9 @@ public final class ModelToolLoop {
 
     private let call: @MainActor (String, JSONValue) async throws -> JSONValue
 
+    /// The isolated scripted run's audit, after every real result, including failures and pictures.
+    private let recordResult: @MainActor (ToolCall, JSONValue, ContinuousClock.Instant) throws -> Void
+
     /// What a final answer is followed by: the host's request for an uninterpreted learning candidate.
     /// Nil goes on to the end of the turn.
     private let reminder: @MainActor () -> String?
@@ -61,9 +64,11 @@ public final class ModelToolLoop {
         reminder    : @escaping @MainActor () -> String? = { nil },
         definitions : [JSONValue],
         offersWeb   : Bool = false,
-        instructions: any LoopInstructionComposing
+        instructions: any LoopInstructionComposing,
+        recordResult: @escaping @MainActor (ToolCall, JSONValue, ContinuousClock.Instant) throws -> Void = { _, _, _ in }
     ) {
         self.call         = call
+        self.recordResult = recordResult
         self.reminder     = reminder
         self.definitions  = definitions
         self.offersWeb    = offersWeb
@@ -111,7 +116,8 @@ public final class ModelToolLoop {
         instructions : String,
         onEvent      : @escaping @MainActor (ProviderEvent) -> Void
     ) async throws {
-        let hasTools = try await transport.capabilities().supportsTools
+        let capabilities = try await transport.capabilities()
+        let hasTools = capabilities.supportsTools
         let offered  = try Self.toolDefinitions(baseTools ?? definitions)
         let tools    = hasTools ? offered : []
         var messages = [TurnMessage(
@@ -122,7 +128,7 @@ public final class ModelToolLoop {
                 tools     : instructions
             )
         )]
-        messages += history
+        messages += history.map { $0.forHistory }
         let asked = if hasTools, let seat { seat + "\n\n" + prompt } else { prompt }
         messages.append(TurnMessage(
             role: .user,
@@ -193,9 +199,10 @@ public final class ModelToolLoop {
             ))
             for toolCall in reply.calls {
                 if isStopRequested { throw CancellationError() }
-                messages.append(await result(
+                let answered = try await result(
                     of: toolCall
-                ))
+                )
+                messages.append(answered.forModel(with: capabilities))
             }
         }
     }
@@ -229,7 +236,7 @@ public final class ModelToolLoop {
             role: .system,
             text: Self.summaryInstructions
         )]
-        messages += history
+        messages += history.map { $0.forHistory }
         messages.append(TurnMessage(
             role: .user,
             text: Self.summaryRequest
@@ -327,11 +334,12 @@ public final class ModelToolLoop {
         }
     }
 
-    /// The tool's answer as the model reads it: the text of the MCP result, and
+    /// The tool's answer as the model reads it: every text and picture block of the MCP result, and
     /// on a thrown error the same failure result `MCPRouter` gives a command line.
     private func result(
         of toolCall: ToolCall
-    ) async -> TurnMessage {
+    ) async throws -> TurnMessage {
+        let startedAt = ContinuousClock.now
         let result: JSONValue
         do {
             let arguments = try JSONDecoder().decode(
@@ -346,14 +354,38 @@ public final class ModelToolLoop {
             result = MCPRouter.failureResult(error)
         }
 
-        var text = result["content"].array?.first?["text"].string ?? ""
+        try recordResult(toolCall, result, startedAt)
+        var texts: [String] = []
+        var images: [TurnImage] = []
+        for block in result["content"].array ?? [] {
+            switch block["type"].string {
+            case "text":
+                if let text = block["text"].string { texts.append(text) }
+            case "image":
+                if let encoded = block["data"].string,
+                   let data = Data(base64Encoded: encoded),
+                   let mediaType = block["mimeType"].string,
+                   let image = TurnImage(
+                       data     : data,
+                       mediaType: mediaType
+                   ) {
+                    images.append(image)
+                } else {
+                    texts.append("[picture unavailable: unsupported media type or invalid data]")
+                }
+            default:
+                break
+            }
+        }
+        var text = texts.joined(separator: "\n")
         if result["structuredContent"] != .null, let data = try? JSONEncoder().encode(result["structuredContent"]) {
             text += "\n" + String(decoding: data, as: UTF8.self)
         }
         return TurnMessage(
             result : text,
             of     : toolCall,
-            isError: result["isError"].bool == true
+            isError: result["isError"].bool == true,
+            images : images
         )
     }
 }

@@ -1027,11 +1027,99 @@ extension ModelText {
             legacy: true
         ),
         Entry(
-            key: .init(rawValue: "human_step_tool.description.v1"),
+            key: .init(rawValue: "human_step_tool.attached.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "human_step"),
+            budgetCharacters: 16,
+            text: "Picture attached",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "human_step_tool.attached.v1.2"),
             owner: "AutomationMCP",
             delivery: .toolAnswer(tool: "human_step"),
             budgetCharacters: 25,
-            text: "\nPicture attached (HEIC).",
+            text: "{count} pictures attached",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.result.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "canvas"),
+            budgetCharacters: 9,
+            text: ": origin ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.result.v1.2"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "canvas"),
+            budgetCharacters: 7,
+            text: "; size ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.result.v1.3"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "canvas"),
+            budgetCharacters: 22,
+            text: " window points.\nZoom: ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.result.v1.4"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "canvas"),
+            budgetCharacters: 29,
+            text: " pixels per point (requested ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.result.v1.5"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "canvas"),
+            budgetCharacters: 12,
+            text: "); each PNG ",
+            legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.result.v1.6"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "canvas"),
+            budgetCharacters: 19,
+            text: " pixels.\nPictures: ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.result.v1.7"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "canvas"),
+            budgetCharacters: 35,
+            text: "before, then after the changed area",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.result.v1.8"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "canvas"),
+            budgetCharacters: 20,
+            text: "current whole canvas",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.result.v1.9"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "canvas"),
+            budgetCharacters: 102,
+            text: ".\nCoordinates: window = origin + point / zoom (top-left origin; point is in picture pixels).\nCaption:\n",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.result.v1.10"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "canvas"),
+            budgetCharacters: 74,
+            text: "\nEstimated image tokens ({pictures} pictures): Claude {claude}, GPT {gpt}.",
             legacy: true
         ),
         Entry(

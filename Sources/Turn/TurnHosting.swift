@@ -1,6 +1,8 @@
+import ModelTransports
 import LocalMCP
 
-/// TurnHosting supplies admission, approval scope and the host's current seat line.
+/// TurnHosting supplies admission, approval scope and the host's current seat line, and hears each tool's
+/// answer: `answered` as the call returns, `recordResult` for every result the model loop is given.
 @MainActor
 public protocol TurnHosting: AnyObject {
     func admission(of tool: String, _ arguments: JSONValue) -> String?
@@ -8,4 +10,11 @@ public protocol TurnHosting: AnyObject {
     func turnBegan()
     func turnStopping()
     func seatLine() -> String?
+    func answered(tool: String, result: JSONValue) throws
+    func recordResult(_ call: ToolCall, _ result: JSONValue, startedAt: ContinuousClock.Instant) throws
+}
+
+extension TurnHosting {
+    public func answered(tool: String, result: JSONValue) throws {}
+    public func recordResult(_ call: ToolCall, _ result: JSONValue, startedAt: ContinuousClock.Instant) throws {}
 }

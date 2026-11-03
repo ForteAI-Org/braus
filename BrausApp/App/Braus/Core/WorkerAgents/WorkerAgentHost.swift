@@ -22,6 +22,11 @@ final class WorkerAgentHost: TurnHosting {
     private let transports: (ModelSelection) -> any ModelTransport
     private let contextWindows: (ModelSelection) -> Int?
     private let readSeatLine: @MainActor () -> String?
+    private let scriptedWorker: @MainActor () throws -> ScriptedWorkerRun?
+    /// The running turn's isolated script, if it is one.
+    private var scripted: ScriptedWorkerRun?
+    /// The latest isolated script's outcome, read only after the turn and its recorder have ended.
+    private(set) var scriptedReport: ScriptedWorkerRun.Report?
     private let barrier: ActionBarrier
     private let approvals: AdapterApprovals?
     private let approvalScope: UUID
@@ -76,8 +81,10 @@ final class WorkerAgentHost: TurnHosting {
         adapterApprover: (any AdapterApproving)? = nil,
         approvals: AdapterApprovals? = nil,
         approvalScope: UUID = UUID(),
-        offersWeb: Bool = false
+        offersWeb: Bool = false,
+        scriptedWorker: @escaping @MainActor () throws -> ScriptedWorkerRun? = ScriptedWorkerRun.openIfRequested
     ) {
+        self.scriptedWorker   = scriptedWorker
         self.approvals        = approvals
         self.workingDirectory = workingDirectory
         self.bridgeExecutable = bridgeExecutable
@@ -114,6 +121,19 @@ final class WorkerAgentHost: TurnHosting {
     func turnStopping() { approvals?.refuse(scope: approvalScope) }
     func seatLine() -> String? { readSeatLine() }
 
+    /// The pictures the model was shown go on the tool line too, after the tool's own records.
+    func answered(tool: String, result: JSONValue) throws {
+        if let pictures = ToolPictures.record(tool: tool, result: result) { try tools.record?(pictures) }
+    }
+
+    func recordResult(_ call: ToolCall, _ result: JSONValue, startedAt: ContinuousClock.Instant) throws {
+        try scripted?.record(
+            call     : call,
+            result   : result,
+            startedAt: startedAt
+        )
+    }
+
     func run(
         prompt: String,
         selection: ModelSelection,
@@ -126,6 +146,18 @@ final class WorkerAgentHost: TurnHosting {
         inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         onEvent: @escaping @MainActor (WorkerAgentEvent) -> Void
     ) async throws {
+        scriptedReport = nil
+        do {
+            scripted = try scriptedWorker()
+        } catch {
+            scriptedReport = ScriptedWorkerRun.Report(errors: [String(describing: error)])
+            await tools.session.close()
+            throw error
+        }
+        defer {
+            scriptedReport = scripted?.report
+            scripted = nil
+        }
         let request = try request(prompt: prompt, selection: selection, sessionID: sessionID, role: role,
             history: history, lastUsage: lastUsage, allowsWebSearch: allowsWebSearch,
             reviewingHumanIntervention: reviewingHumanIntervention, environment: inheritedEnvironment)
@@ -144,8 +176,13 @@ final class WorkerAgentHost: TurnHosting {
                         lastUsage: lastUsage, rollout: nil, total: total)))
                 }
             }
+            scripted?.finish()
         } catch let suspended as TurnSuspended {
+            scripted?.finish(error: suspended)
             throw HumanInterventionSuspended(token: suspended.token.id)
+        } catch {
+            scripted?.finish(error: error)
+            throw error
         }
     }
 
@@ -155,7 +192,9 @@ final class WorkerAgentHost: TurnHosting {
         environment: [String: String]
     ) throws -> TurnRequest {
         let route: TurnRequest.Route
-        if WorkerAnswer(provider: selection.provider) == .modelLoop {
+        if let scripted {
+            route = .modelLoop(transport: scripted.transport, contextWindow: contextWindows(selection))
+        } else if WorkerAnswer(provider: selection.provider) == .modelLoop {
             route = .modelLoop(transport: transports(selection), contextWindow: contextWindows(selection))
         } else {
             let (provider, executable) = try agents(selection.provider)
@@ -182,6 +221,12 @@ final class WorkerAgentHost: TurnHosting {
         lastUsage: TurnUsage? = nil,
         inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws -> (compaction: ContextCompaction, usage: TurnUsage?) {
+        guard try ScriptedWorkerRun.scriptURL(
+            isolation  : .current,
+            environment: ProcessInfo.processInfo.environment
+        ) == nil else {
+            throw AutomationFailure("Context compaction is unavailable during a scripted worker run.")
+        }
         let request = try request(prompt: "", selection: selection, sessionID: sessionID, role: role, history: history,
             lastUsage: lastUsage, allowsWebSearch: false, reviewingHumanIntervention: false, environment: inheritedEnvironment)
         let result = try await runner.compact(request, trigger: trigger == .manual ? .manual : .automatic)

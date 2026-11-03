@@ -85,7 +85,7 @@ struct HumanInterventionDetailsTests {
                         .diff("§999"), .diff("§\(Int.min)"), .picture(Int.min), .picture(0), .picture(3)] {
             let result = fixture.details.result(request)
             #expect(result.isError)
-            #expect(result.picture == nil)
+            #expect(result.images.isEmpty)
             #expect(result.text.utf8.count < 100)
         }
         await fixture.details.finish()
@@ -94,7 +94,7 @@ struct HumanInterventionDetailsTests {
     @Test func retainedPicturesDescribeUnverifiedPixelsWithoutDisclosingThem() async throws {
         let clean = try await fixture(picture: true)
         let picture = clean.details.result(.picture(2))
-        #expect(picture.picture == nil)
+        #expect(picture.images.isEmpty)
         #expect(picture.text.contains("800×600") && picture.text.contains("privacy unverified"))
         #expect(picture.text.contains("HEIC"))
         await clean.details.finish()
@@ -102,7 +102,7 @@ struct HumanInterventionDetailsTests {
 
         let uncertain = try await fixture(picture: true, inputDuringRead: true)
         let withheld = uncertain.details.result(.picture(2))
-        #expect(withheld.picture == nil)
+        #expect(withheld.images.isEmpty)
         #expect(withheld.text.contains("withheld"))
         await uncertain.details.finish()
 
@@ -116,7 +116,7 @@ struct HumanInterventionDetailsTests {
         for request in [HumanStepRequest.steps(1...2), .diff("7"), .picture(2)] {
             let result = fixture.details.result(request)
             #expect(!result.text.contains("private credential"))
-            #expect(result.picture == nil)
+            #expect(result.images.isEmpty)
         }
         #expect(fixture.details.result(.picture(2)).text.contains("withheld"))
         await fixture.details.finish()

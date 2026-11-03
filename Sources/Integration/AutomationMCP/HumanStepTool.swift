@@ -34,7 +34,11 @@ enum HumanStepTool {
                         ]),
                         "description": .string(ModelText.text(.init(rawValue: "human_step_tool.definition.v1.3")))
                     ]),
-                    "picture": .object(["type": .string("integer"), "minimum": .number(1)])
+                    "picture": .object([
+                        "type": .string("integer"),
+                        "minimum": .number(1),
+                        "description": .string(ModelText.text(.init(rawValue: "human_step_tool.definition.v1.4")))
+                    ])
                 ]),
                 "oneOf": .array(["steps", "diff", "picture"].map {
                     .object(["required": .array([.string($0)])])
@@ -73,14 +77,19 @@ enum HumanStepTool {
         _ result: HumanStepResult,
         withholding: (String) -> String
     ) -> JSONValue {
-        let hasPicture = result.picture != nil && !result.isError
-        let description = hasPicture ? result.text + ModelText.text(.init(rawValue: "human_step_tool.description.v1")) : result.text
+        let images = result.isError ? [] : result.images
+        // The text names what follows, for a client that shows no image.
+        let types = Set(images.map { $0.mimeType.split(separator: "/").last.map { $0.uppercased() } ?? $0.mimeType })
+        let attached = images.count == 1 ? ModelText.text(.init(rawValue: "human_step_tool.attached.v1"))
+            : ModelText.render(.init(rawValue: "human_step_tool.attached.v1.2"), ["count": .count(images.count)])
+        let description = images.isEmpty ? result.text
+            : result.text + "\n\(attached) (\(types.sorted().joined(separator: ", ")))."
         var content: [JSONValue] = [.object(["type": .string("text"), "text": .string(withholding(description))])]
-        if let picture = result.picture, !result.isError {
+        for image in images {
             content.append(.object([
                 "type": .string("image"),
-                "data": .string(picture.base64EncodedString()),
-                "mimeType": .string("image/heic")
+                "data": .string(image.data.base64EncodedString()),
+                "mimeType": .string(image.mimeType)
             ]))
         }
         return .object(["content": .array(content), "isError": .bool(result.isError)])

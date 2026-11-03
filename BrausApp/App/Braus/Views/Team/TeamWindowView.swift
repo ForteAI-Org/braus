@@ -61,6 +61,7 @@ struct TeamWindowView: View {
                 minHeight: 560
             )
             .task {
+                guard !ScriptedWorkerCheck.isRequested else { return }
                 await launch.open()
                 guard team == nil, let store = launch.store else { return }
 

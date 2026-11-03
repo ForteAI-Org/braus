@@ -32,6 +32,7 @@ struct BrausApp: App {
             || RoomCostCheck.isRequested
             || HumanControlCheck.isRequested
             || ScreenWindowCheck.isRequested
+            || ScriptedWorkerCheck.isRequested
             || isTestHost
     }
 
@@ -45,9 +46,9 @@ struct BrausApp: App {
     }
 
     init() {
-        // A restored team window would open the person's workspace; a snapshot run must not, nor an isolated one.
-        if Self.isCheckRun || LaunchIsolation.current.isIsolated {
-            UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true])
+        // Isolated launches already have a fresh home; ignoring state would write to the shared system temp folder.
+        if Self.isCheckRun, !LaunchIsolation.current.isIsolated {
+            AppDefaults.current.register(defaults: ["ApplePersistenceIgnoreState": true])
         }
     }
 
@@ -77,6 +78,7 @@ struct BrausApp: App {
         }
         // A snapshot run draws offscreen and quits; it opens no window and no workspace.
         .defaultLaunchBehavior(Self.isCheckRun ? .suppressed : .automatic)
+        .restorationBehavior(LaunchIsolation.current.isIsolated ? .disabled : .automatic)
         .commands {
             // The team's sidebar turns compact and is never hidden, so the View menu has no place for it.
             CommandGroup(replacing: .sidebar) {}

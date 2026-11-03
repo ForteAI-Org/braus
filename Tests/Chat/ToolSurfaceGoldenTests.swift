@@ -225,7 +225,7 @@ struct InterruptionPolicyLocationTests {
             let policy = AutomationTools.interruptionPolicy(for: name)
             let expected: AutomationTools.InterruptionPolicy
             switch name {
-            case "status", "windows", "apps", "observe", "app_capabilities", "human_step": expected = .readOnly
+            case "status", "windows", "apps", "observe", "app_capabilities", "human_step", "canvas": expected = .readOnly
             case "open_session": expected = .openingScene
             default: expected = .mutating
             }

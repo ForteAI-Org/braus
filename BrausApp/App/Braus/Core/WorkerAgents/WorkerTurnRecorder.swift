@@ -199,6 +199,9 @@ final class WorkerTurnRecorder {
 
         /// The session the store holds for this provider, so a repeated id writes nothing.
         var session: String?
+
+        /// The pictures records written so far (`ToolPictures.recordsPerTurn`).
+        var pictureRecords = 0
     }
 
     private func write(
@@ -225,6 +228,12 @@ final class WorkerTurnRecorder {
             try await reply(&state)
             // Kept for the one terminal event; the provider also throws it at the end.
             state.reportedFailure = reason
+        case .tool(let text) where text.hasPrefix(ToolPictures.mark):
+            // At most `recordsPerTurn` per tool line, so a turn that looks often stays small in the store.
+            guard state.pictureRecords < ToolPictures.recordsPerTurn,
+                  let kept = ToolPictures.withholdingLabel(text, withhold: withholding) else { return }
+            state.pictureRecords += 1
+            try await append(.toolActivity, subject: execution, text: kept)
         case .tool(let text):
             if let note = state.held, Self.isNote(note) {
                 state.held = nil

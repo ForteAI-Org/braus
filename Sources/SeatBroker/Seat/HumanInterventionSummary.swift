@@ -12,7 +12,8 @@ import InteractionListener
 import os
 
 /// HumanInterventionSummary renders the net effects within 1,000 UTF-8 bytes: one line per fact type, then what
-/// changed with no known cause and what could not be observed. Causes and intermediate states stay in details.
+/// changed with no known cause, one line per canvas whose pixels changed (its picture is in details) and what could
+/// not be observed. Causes and intermediate states stay in details.
 nonisolated enum HumanInterventionSummary {
     static let maximumBytes = 1000
 
@@ -73,7 +74,12 @@ nonisolated enum HumanInterventionSummary {
         let unobserved = unobservedEntries(evidence)
         let details = detailLine(evidence)
         let notes = (note.map { [safe($0)] } ?? []) + (details.map { [$0] } ?? [])
-        guard !body.isEmpty || !unobserved.isEmpty else {
+        // One line per canvas a read saw change, pointing at its picture; no line when no canvas changed.
+        let canvases: [[Token]] = evidence.canvases.map { canvas in
+            [.literal("Canvas changed: "), .operand(canvas.name),
+             .literal(" (human_step picture " + canvas.steps.map(String.init).joined(separator: ", ") + ").")]
+        }
+        guard !body.isEmpty || !unobserved.isEmpty || !canvases.isEmpty else {
             let lines = ["No changes made."] + notes
             let bounded = lines.joined(separator: "\n").utf8.count <= maximumBytes
                 ? lines : ["No changes made.", "Handoff note available in details."] + (details.map { [$0] } ?? [])
@@ -105,6 +111,7 @@ nonisolated enum HumanInterventionSummary {
                 }
                 lines.append(line + [.literal(".")])
             }
+            lines += canvases
             if more > 0 { lines.append([.literal("+\(more) more change\(more == 1 ? "" : "s") in details.")]) }
             if !unobserved.isEmpty {
                 var line: [Token] = [.literal("Unobserved: ")]
@@ -147,7 +154,7 @@ nonisolated enum HumanInterventionSummary {
         guard let span = detailReference(Array(1...max(1, evidence.steps.count))), !evidence.steps.isEmpty else { return nil }
         let causes = evidence.attribution.deterministicCauses
         let actions = evidence.threads.owners.count
-        let idle = evidence.threads.owners.filter { !causes.contains($0) }.count
+        let idle = evidence.threads.owners.filter { !causes.contains($0) && !evidence.canvasThreads.contains($0) }.count
         return "Details: \(span) (\(actions) action\(actions == 1 ? "" : "s"), \(idle) without an observed change)."
     }
 

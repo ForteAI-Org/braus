@@ -361,7 +361,9 @@ let package = Package(
             ["SeatBroker", "PerceptionCore", "SeatCore", "SeatCapture",
              "SeatSession", "SeatInput", "TargetReader", "EngineCore", "ModelTransports",
              "SeatDriving", "AutomationRuntime", "Engine", "AutomationMCP", "LocalMCP", "Memory", "TestScratch",
-             "WindowServerListing", "TaskRouting", "InteractionListener", "InteractionObservation"]
+             "WindowServerListing", "TaskRouting", "InteractionListener", "InteractionObservation",
+             // The recorded canvas fixture, perceived as an action's read would perceive it.
+             "Perception", "MacDriver"]
         ),
         brokerTests("ModelTransports", ["ModelTransports"]),
         // The living memory wired to the tools, the sessions and the engine: the queue, the recorder, the
@@ -512,7 +514,7 @@ let package = Package(
         // adopted window, routed commands inside a Turn, no activation.
         integration("SeatDriving", ["SeatCore", "SeatSession", "SeatCapture", "SeatInput", "WindowPlacement",
                                     "EngineCore", "PerceptionCore", "Perception", "AccessibilityActions",
-                                    "PhaseSignposts", "Switches"],
+                                    "PhaseSignposts", "Switches", "IncrementalText"],
                     settings: pure),
 
         // MARK: Engine tools
@@ -532,7 +534,7 @@ let package = Package(
         .target(name: "FileConversations", dependencies: ["ChatCore"],
                 path: "Sources/Chat/FileConversations", swiftSettings: pure),
         .target(name: "LocalMCP", path: "Sources/Chat/LocalMCP", swiftSettings: facility),
-        integration("AutomationRuntime", ["LocalMCP", "Perception", "VisionText", "PixelSections", "PixelRegions", "WindowServerListing", "AccessibilityFacts",
+        integration("AutomationRuntime", ["IncrementalText", "LocalMCP", "Perception", "VisionText", "PixelSections", "PixelRegions", "WindowServerListing", "AccessibilityFacts",
                     "ScreenCapture", "Engine", "EngineCore", "HIDActuation", "AccessibilityActions",
                     "WorkspaceActivation", "Memory", "SQLiteMemory", "LiveScenes", "PerceptionCore",
                     "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding",
@@ -546,7 +548,7 @@ let package = Package(
                     dependencies: ["Capabilities", "AutomationMCP", "AutomationRuntime", "AppAdapters", "LocalMCP",
                                    "EngineCore", "PerceptionCore", "Memory"].map { .target(name: $0) },
                     path: "Tests/Capabilities", swiftSettings: suite),
-        integration("AutomationMCP", ["Capabilities", "CapabilityRegistrations",
+        integration("AutomationMCP", ["Capabilities", "CapabilityRegistrations", "IncrementalText",
                                      "AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts",
                                      "AppAdapters", "TaskRouting", "Switches"]),
@@ -554,7 +556,7 @@ let package = Package(
         integration("TaskRouting", settings: pure),
         // The session before the drivers: it sends each open to the web, the native driver or the desktop
         // (seat) session it is handed, and knows none of them.
-        integration("Router", ["AutomationRuntime", "EngineCore", "PerceptionCore", "WindowServerListing"]),
+        integration("Router", ["IncrementalText", "AutomationRuntime", "EngineCore", "PerceptionCore", "WindowServerListing"]),
         // The MacDriver as a session: its runtime over the Mac roles and its session on one native app.
         integration("MacSession", ["AutomationRuntime", "Router", "MacDriving", "MacDriver", "MacDelivery", "Engine", "EngineCore",
                                    "PerceptionCore", "Memory", "AccessibilityActions", "WindowServerListing"]),
@@ -613,7 +615,8 @@ let package = Package(
             settings: facility),
         .testTarget(name: "AppAdaptersTests", dependencies: ["AppAdapters", "EngineCore", "LocalMCP"],
                     path: "Tests/Mac/AppAdaptersTests", swiftSettings: suite),
-        .testTarget(name: "MacDrivingTests", dependencies: ["MacDriving", "MacDriver", "EngineCore", "PerceptionCore"],
+        .testTarget(name: "MacDrivingTests", dependencies: ["MacDriving", "MacDriver", "EngineCore", "PerceptionCore",
+                                                          "Perception", "IncrementalText"],
                     path: "Tests/Mac/MacDrivingTests", resources: [.copy("Trees")], swiftSettings: suite),
         .testTarget(name: "MacSessionTests", dependencies: ["MacSession", "Router", "MacDriving", "MacDriver", "AutomationRuntime",
                                                           "AutomationMCP", "TaskRouting", "EngineCore", "PerceptionCore",
@@ -665,7 +668,7 @@ let package = Package(
         .testTarget(name: "AgentLoopTests", dependencies: ["AgentLoop", "ModelTransports", "ChatCore",
                                                          "LocalMCP", "AutomationRuntime"],
                     path: "Tests/AgentLoop", swiftSettings: suite),
-        .testTarget(name: "ChatTests", dependencies: ["Switches", "ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
+        .testTarget(name: "ChatTests", dependencies: ["Switches", "IncrementalText", "ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
                                                     "TestScratch", "AppAdapters", "TaskRouting", "Capabilities", "Engine", "SeatDriving", "SeatSession",
                                                     "braus-bridge"],

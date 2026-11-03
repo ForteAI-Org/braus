@@ -301,7 +301,8 @@ enum ToolCatalogue {
                                  uniquingKeysWith: { $1 }),
                  ["session", "target"]),
             MemoryTaskTool.definition,
-            HumanStepTool.definition
+            HumanStepTool.definition,
+            CanvasTool.definition
         ].filter { channels.contains(.adapters) || !Self.adapterTools.contains($0["name"].string ?? "") }
             .filter { channels.contains(.web) || $0["name"].string != "collect_posts" }
     }
@@ -312,7 +313,8 @@ enum ToolCatalogue {
     nonisolated static let policyRegistry: CapabilityRegistry = {
         let names = ["status", "windows", "apps", "open_session", "observe", "act", "select", "type_text",
                      "insert_text", "press_key", "scroll", "drag", "context_menu", "batch", "menu", "press",
-                     "app_capabilities", "app_call", "close_session", "collect_posts", "memory_task", "human_step"]
+                     "app_capabilities", "app_call", "close_session", "collect_posts", "memory_task", "human_step",
+                     "canvas"]
         do {
             return try CapabilityRegistry(core: names.compactMap {
                 coreContract(name: $0, description: "", inputSchema: .null)
@@ -385,6 +387,9 @@ enum ToolCatalogue {
         case "observe":
             (effect, interruption, channel) = (.read, .readOnly, .seat)
             verification = .none(reason: "Scene observation")
+        case "canvas":
+            (effect, interruption, channel) = (.read, .readOnly, .seat)
+            verification = .none(reason: "Read-only result")
         case "app_capabilities":
             (effect, interruption, channel) = (.read, .readOnly, .adapter)
             verification = .none(reason: "Read-only result")
