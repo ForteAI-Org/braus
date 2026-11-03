@@ -193,6 +193,8 @@ public actor SeatActuator: Actuating {
             FrameProbe.markInput()
         }
         #endif
+        // The window points the gesture acts at, so a canvas crop keeps the region it changed.
+        var points: [CGPoint] = []
         switch gesture {
             case .click(let point, let button, let count):
                 guard (1...InputCommand.maximumClickCount).contains(count) else {
@@ -200,6 +202,7 @@ public actor SeatActuator: Actuating {
                 }
                 let location = try routed(point, in: observation)
                 let mouse: SeatCore.MouseButton = button == .left ? .left : .right
+                points = [location.windowPointFromTop]
                 receipts.append(try await seat.send(
                     .click(location, button: mouse, count: count),
                     observation: observation.reference,
@@ -208,6 +211,7 @@ public actor SeatActuator: Actuating {
                 ))
             case .scroll(let point, let deltaY, _):
                 let location = try routed(point, in: observation)
+                points = [location.windowPointFromTop]
                 receipts.append(try await seat.send(
                     .scroll(location, deltaY: Int32(deltaY)),
                     observation: observation.reference,
@@ -226,9 +230,12 @@ public actor SeatActuator: Actuating {
                 receipts.append(try await seat.send(.insertText(text), observation: observation.reference, turn: turn))
             case .drag(let start, let end):
                 // Both ends are routed under the one observation, so a drag leaving the window is refused.
+                let from = try routed(start, in: observation)
+                let to   = try routed(end, in: observation)
+                points = [from.windowPointFromTop, to.windowPointFromTop]
                 let path = InputCommand.drag(
-                    from: try routed(start, in: observation),
-                    to  : try routed(end, in: observation)
+                    from: from,
+                    to  : to
                 )
                 receipts.append(try await seat.send(path, observation: observation.reference, turn: turn))
         }
@@ -236,7 +243,7 @@ public actor SeatActuator: Actuating {
         if let receipt = receipts.last { lastSend = SeatSend(receipt) }
         // The events are out: the observation they rode has spent its authority and the next
         // gesture needs a new one.
-        await target.spendObservation()
+        await target.spendObservation(at: points)
     }
 
     public func lastDeliveryRoute(in processID: pid_t) async -> DeliveryRoute { lastRoute }

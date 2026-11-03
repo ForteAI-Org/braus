@@ -207,10 +207,12 @@ public final class SeatTarget {
 
     /// Records that a Command went out under the kept observation, which ends its authority. A
     /// Command refused before any effect leaves the observation exactly as it was, so this is
-    /// called only once the events have gone out.
-    public func spendObservation() {
+    /// called only once the events have gone out. `points` are the window points it acted at, which
+    /// the next canvas crop keeps (`CanvasHistory.noteAction`).
+    public func spendObservation(at points: [CGPoint] = []) {
         deliverySpent = true
         lastCommandAt = DispatchTime.now().uptimeNanoseconds
+        canvasHistory.noteAction(at: points)
     }
 
     /// One still of the observed window, for perception. It is the observation's own Frame, so a
