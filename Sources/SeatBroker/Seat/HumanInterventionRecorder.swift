@@ -123,7 +123,10 @@ final class HumanInterventionRecorder {
                     }
                     guard event.kind != .hover, event.kind != .focus else { continue }
                     // A canvas learns its noise only between frames with none of the person's input.
-                    consumer?.noteInput(endedAt: event.endedAt)
+                    consumer?.noteInput(
+                        startedAt: event.startedAt,
+                        endedAt  : event.endedAt
+                    )
                     if case .dropped = inbox.continuation.yield((event, pictureTask == nil, menuBar, windowRevision)) {
                         reportFailure(PreviewControlFailure("The temporary input queue is full. End control; recording is incomplete."))
                         break

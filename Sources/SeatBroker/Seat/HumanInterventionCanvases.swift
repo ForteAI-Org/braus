@@ -22,9 +22,11 @@ import PerceptionCore
 struct HumanInterventionCanvases {
 
     /// One picture of a window and when its capture began, in uptime nanoseconds.
+    /// A capture of a window: when it began, and when it ended where the reader knows, in uptime nanoseconds.
     struct Frame: Sendable {
-        let image     : CGImage
-        let capturedAt: UInt64
+        let image      : CGImage
+        let capturedAt : UInt64
+        var completedAt: UInt64? = nil
     }
 
     private var histories: [Int: CanvasHistory] = [:]

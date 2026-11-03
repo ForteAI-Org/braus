@@ -61,6 +61,18 @@ struct HumanInterventionCanvasTests {
         print("CANVAS_REPORT drag\n\(episode.text)\nCANVAS_PICTURE\n\(picture.text)")
     }
 
+    @Test("A drag begun while the canvases' scene is still read, after their pixels, still adds its canvas line")
+    func dragWhileTheSceneIsRead() async throws {
+        let episode = try await Self.run(
+            initial  : "still",
+            actions  : [(Self.drag(), "clip-moved")],
+            actsEarly: true
+        )
+        #expect(episode.text.contains("Canvas changed: canvas 1 (human_step picture 1)."))
+        let picture = episode.details.result(.picture(1))
+        #expect(picture.images.count == 2)
+    }
+
     @Test("A click on Play changes no canvas: the report is the one a reader without pixels gives")
     func clickOnPlay() async throws {
         let pictured = try await Self.run(
@@ -110,7 +122,8 @@ struct HumanInterventionCanvasTests {
         initial  : String,
         idle     : [String] = [],
         actions  : [(payload: HumanRecordedInteraction, read: String)],
-        hasPixels: Bool = true
+        hasPixels: Bool = true,
+        actsEarly: Bool = false
     ) async throws -> Episode {
         var recordings: [String: (scene: SceneSnapshot, image: CGImage)] = [:]
         for variant in Set([initial] + idle + actions.map(\.read)) {
@@ -121,7 +134,8 @@ struct HumanInterventionCanvasTests {
             initial   : initial,
             idle      : idle,
             reads     : actions.map(\.read),
-            hasPixels : hasPixels
+            hasPixels : hasPixels,
+            sceneDelay: actsEarly ? .milliseconds(400) : .zero
         )
         let intervention = try HumanIntervention<HumanRecordedInteraction, HumanSceneFinding>(
             maximumEvents       : 20,
@@ -138,10 +152,19 @@ struct HumanInterventionCanvasTests {
             buttons     : InteractionButtonState()
         )
         await consumer.beginInitialRead()
-        // The idle frames are taken one after the other; the request after the last answers nothing.
-        try await until { await reader.frameRequests > idle.count || !hasPixels }
+        if actsEarly {
+            // The person acts once the pixels are taken, while the scene that places the canvases is still read.
+            try await until { await reader.hasCaptured }
+        } else {
+            // The idle frames are taken one after the other; the request after the last answers nothing.
+            try await until { await reader.frameRequests > idle.count || !hasPixels }
+        }
         for (index, action) in actions.enumerated() {
-            consumer.noteInput(endedAt: ProcessInfo.processInfo.systemUptime)
+            let now = ProcessInfo.processInfo.systemUptime
+            consumer.noteInput(
+                startedAt: now,
+                endedAt  : now
+            )
             let sequence = try await intervention.record(
                 action.payload,
                 retainedBytes: action.payload.retainedBytes
@@ -301,7 +324,9 @@ struct HumanInterventionCanvasTests {
         let idle      : [String]
         let reads     : [String]
         let hasPixels : Bool
+        let sceneDelay: Duration
         private(set) var frameRequests = 0
+        private(set) var hasCaptured   = false
         private var readCount = 0
 
         init(
@@ -309,18 +334,21 @@ struct HumanInterventionCanvasTests {
             initial   : String,
             idle      : [String],
             reads     : [String],
-            hasPixels : Bool
+            hasPixels : Bool,
+            sceneDelay: Duration
         ) {
             self.recordings = recordings
             self.initial    = initial
             self.idle       = idle
             self.reads      = reads
             self.hasPixels  = hasPixels
+            self.sceneDelay = sceneDelay
         }
 
         private func recording(_ variant: String) -> (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame) {
             let recording = recordings[variant]!
-            return (recording.scene, .init(image: recording.image, capturedAt: DispatchTime.now().uptimeNanoseconds))
+            let now = DispatchTime.now().uptimeNanoseconds
+            return (recording.scene, .init(image: recording.image, capturedAt: now, completedAt: now))
         }
 
         private func nextRead() -> (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame?) {
@@ -346,7 +374,11 @@ struct HumanInterventionCanvasTests {
         }
 
         func canvasRead(window: InteractionWindow) async throws -> (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame)? {
-            hasPixels ? recording(initial) : nil
+            guard hasPixels else { return nil }
+            let read = recording(initial)
+            hasCaptured = true
+            try await Task.sleep(for: sceneDelay)
+            return read
         }
 
         func frame(of window: InteractionWindow) async throws -> HumanInterventionCanvases.Frame? {

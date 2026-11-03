@@ -156,7 +156,7 @@ nonisolated struct NativeHumanSceneReader: HumanSceneReading {
         let capturedAt = DispatchTime.now().uptimeNanoseconds
         let image = try await capturer.captureWindow(number: window.number, frame: window.frame,
                                                      expectedProcessID: window.processID)
-        return .init(image: image, capturedAt: capturedAt)
+        return .init(image: image, capturedAt: capturedAt, completedAt: DispatchTime.now().uptimeNanoseconds)
     }
 
     private static func descriptor(_ window: InteractionWindow) -> ScenePipeline.Window {
