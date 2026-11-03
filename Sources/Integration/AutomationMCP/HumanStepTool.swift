@@ -37,7 +37,7 @@ enum HumanStepTool {
                     "picture": .object([
                         "type": .string("integer"),
                         "minimum": .number(1),
-                        "description": .string("A step number; a step that changed a canvas answers its crop before and after.")
+                        "description": .string(ModelText.text(.init(rawValue: "human_step_tool.definition.v1.4")))
                     ])
                 ]),
                 "oneOf": .array(["steps", "diff", "picture"].map {
@@ -80,7 +80,8 @@ enum HumanStepTool {
         let images = result.isError ? [] : result.images
         // The text names what follows, for a client that shows no image.
         let types = Set(images.map { $0.mimeType.split(separator: "/").last.map { $0.uppercased() } ?? $0.mimeType })
-        let attached = images.count == 1 ? "Picture attached" : "\(images.count) pictures attached"
+        let attached = images.count == 1 ? ModelText.text(.init(rawValue: "human_step_tool.attached.v1"))
+            : ModelText.render(.init(rawValue: "human_step_tool.attached.v1.2"), ["count": .count(images.count)])
         let description = images.isEmpty ? result.text
             : result.text + "\n\(attached) (\(types.sorted().joined(separator: ", ")))."
         var content: [JSONValue] = [.object(["type": .string("text"), "text": .string(withholding(description))])]

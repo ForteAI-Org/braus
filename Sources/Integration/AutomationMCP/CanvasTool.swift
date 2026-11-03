@@ -25,16 +25,14 @@ enum CanvasTool {
     static var definition: JSONValue {
         .object([
             "name": .string(name),
-            "description": .string("Read a [canvas] from the held Seat window's last observation. "
-                + "Returns small PNGs: before and after the changed area, or the current whole canvas. "
-                + "Observe after an action before requesting its pictures."),
+            "description": .string(ModelText.text(.init(rawValue: "tool.canvas.v1.description"))),
             "inputSchema": .object([
                 "type": .string("object"),
                 "additionalProperties": .bool(false),
                 "properties": .object([
                     "id": .object([
                         "type": .string("string"),
-                        "description": .string("Canvas id printed in the scene, such as canvas 2 or canvas2.")
+                        "description": .string(ModelText.text(.init(rawValue: "canvas_tool.definition.v1")))
                     ]),
                     "zoom": .object([
                         "type": .string("integer"),
@@ -82,10 +80,11 @@ enum CanvasTool {
         withholding: (String) -> String
     ) throws -> JSONValue {
         guard history.window != nil else {
-            throw AutomationFailure("No canvas history. Observe the held Seat window first.")
+            throw AutomationFailure(ModelText.text(.init(rawValue: "canvas_tool.history.v1")))
         }
         guard history.contains(request.id) else {
-            throw AutomationFailure("Unknown canvas id \(request.id). Use an id from the last observed scene.")
+            throw AutomationFailure(ModelText.text(.init(rawValue: "canvas_tool.unknown.v1")) + request.id
+                + ModelText.text(.init(rawValue: "canvas_tool.unknown.v1.2")))
         }
         var answer = try history.crop(
             request.id,
@@ -106,9 +105,9 @@ enum CanvasTool {
         }
         guard case .crop(let crop, let caption) = answer else {
             if answer == .refused {
-                throw AutomationFailure("Canvas privacy refusal: the crop touches a secure or withheld field. No pictures returned.")
+                throw AutomationFailure(ModelText.text(.init(rawValue: "canvas_tool.privacy.v1")))
             }
-            throw AutomationFailure("No retained pixels for this canvas. Observe the held Seat window first.")
+            throw AutomationFailure(ModelText.text(.init(rawValue: "canvas_tool.pixels.v1")))
         }
         let layout = crop.layout
         let rect   = layout.rect
@@ -116,15 +115,20 @@ enum CanvasTool {
         let images = isPair ? [crop.before, crop.after] : [crop.after]
         let claude = isPair ? crop.claudeTokens : crop.claudeTokens / 2
         let gpt    = isPair ? crop.gptTokens : (crop.gptTokens + 1) / 2
-        let text = """
-        \(request.id): origin \(Int(rect.minX)),\(Int(rect.minY)); size \(Int(rect.width))x\(Int(rect.height)) window points.
-        Zoom: \(zoom) pixels per point (requested \(request.zoom)); each PNG \(layout.pixelWidth)x\(layout.pixelHeight) pixels.
-        Pictures: \(isPair ? "before, then after the changed area" : "current whole canvas").
-        Coordinates: window = origin + point / zoom (top-left origin; point is in picture pixels).
-        Caption:
-        \(caption.isEmpty ? request.id : caption)
-        Estimated image tokens (\(images.count) pictures): Claude \(claude), GPT \(gpt).
-        """
+        let text = request.id
+            + ModelText.text(.init(rawValue: "canvas_tool.result.v1")) + "\(Int(rect.minX)),\(Int(rect.minY))"
+            + ModelText.text(.init(rawValue: "canvas_tool.result.v1.2")) + "\(Int(rect.width))x\(Int(rect.height))"
+            + ModelText.text(.init(rawValue: "canvas_tool.result.v1.3")) + zoom
+            + ModelText.text(.init(rawValue: "canvas_tool.result.v1.4")) + String(request.zoom)
+            + ModelText.text(.init(rawValue: "canvas_tool.result.v1.5")) + "\(layout.pixelWidth)x\(layout.pixelHeight)"
+            + ModelText.text(.init(rawValue: "canvas_tool.result.v1.6"))
+            + ModelText.text(.init(rawValue: isPair ? "canvas_tool.result.v1.7" : "canvas_tool.result.v1.8"))
+            + ModelText.text(.init(rawValue: "canvas_tool.result.v1.9")) + (caption.isEmpty ? request.id : caption)
+            + ModelText.render(.init(rawValue: "canvas_tool.result.v1.10"), [
+                "pictures": .count(images.count),
+                "claude"  : .count(claude),
+                "gpt"     : .count(gpt)
+            ])
         let content: [JSONValue] = [.object(["type": .string("text"), "text": .string(withholding(text))])]
             + images.map {
                 .object([
@@ -137,6 +141,6 @@ enum CanvasTool {
     }
 
     private static var invalid: AutomationFailure {
-        AutomationFailure("canvas needs id from the scene (canvas 2 or canvas2), and optional zoom 1 or 2.")
+        AutomationFailure(ModelText.text(.init(rawValue: "tool.canvas.v1.refusal")))
     }
 }

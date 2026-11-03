@@ -427,6 +427,70 @@ extension ModelText {
             legacy: true
         ),
         Entry(
+            key: .init(rawValue: "tool.canvas.v1.refusal"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "canvas"),
+            budgetCharacters: 79,
+            text: "canvas needs id from the scene (canvas 2 or canvas2), and optional zoom 1 or 2.",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.history.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "canvas"),
+            budgetCharacters: 54,
+            text: "No canvas history. Observe the held Seat window first.",
+            legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.unknown.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "canvas"),
+            budgetCharacters: 18,
+            text: "Unknown canvas id ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.unknown.v1.2"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "canvas"),
+            budgetCharacters: 41,
+            text: ". Use an id from the last observed scene.",
+            legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.privacy.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "canvas"),
+            budgetCharacters: 90,
+            text: "Canvas privacy refusal: the crop touches a secure or withheld field. No pictures returned.",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.pixels.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "canvas"),
+            budgetCharacters: 71,
+            text: "No retained pixels for this canvas. Observe the held Seat window first.",
+            legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "call_dispatcher.canvasSession.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "canvas"),
+            budgetCharacters: 42,
+            text: "No held Seat window. Open a session first.",
+            legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "call_dispatcher.canvasHistory.v1"),
+            owner: "AutomationMCP",
+            delivery: .refusal(tool: "canvas"),
+            budgetCharacters: 61,
+            text: "No canvas history for the held Seat window. Observe it first.",
+            legacy: true
+        ),
+        Entry(
             key: .init(rawValue: "memory_task_tool.object.v1"),
             owner: "AutomationMCP",
             delivery: .refusal(tool: "memory_task"),

@@ -305,9 +305,11 @@ final class CallDispatcher {
         }
         if name == CanvasTool.name {
             let request = try CanvasTool.request(arguments)
-            guard session.id != nil else { throw AutomationFailure("No held Seat window. Open a session first.") }
+            guard session.id != nil else {
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.canvasSession.v1")))
+            }
             guard let history = session.canvasHistory else {
-                throw AutomationFailure("No canvas history for the held Seat window. Observe it first.")
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.canvasHistory.v1")))
             }
             return try CanvasTool.result(
                 request,

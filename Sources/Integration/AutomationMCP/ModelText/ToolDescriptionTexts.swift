@@ -715,6 +715,30 @@ extension ModelText {
             legacy: true
         ),
         Entry(
+            key: .init(rawValue: "human_step_tool.definition.v1.4"),
+            owner: "AutomationMCP",
+            delivery: .toolDescription(tool: "human_step"),
+            budgetCharacters: 78,
+            text: "A step number; a step that changed a canvas answers its crop before and after.",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "tool.canvas.v1.description"),
+            owner: "AutomationMCP",
+            delivery: .toolDescription(tool: "canvas"),
+            budgetCharacters: 201,
+            text: "Read a [canvas] from the held Seat window's last observation. Returns small PNGs: before and after the changed area, or the current whole canvas. Observe after an action before requesting its pictures.",
+            legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.definition.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolDescription(tool: "canvas"),
+            budgetCharacters: 60,
+            text: "Canvas id printed in the scene, such as canvas 2 or canvas2.",
+            legacy: false
+        ),
+        Entry(
             key: .init(rawValue: "memory_task_tool.report.v1"),
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "memory_task"),
