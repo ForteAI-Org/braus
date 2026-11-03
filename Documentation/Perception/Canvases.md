@@ -244,6 +244,8 @@ trials per question do not establish general reliability.
 
 ## Limits
 
-Acting inside a canvas with clicks or drags by point is not supported yet. Pro Tools'
-track area is read only. A live crop of a single clip in Pro Tools has not yet been observed;
-the fixture live test does not establish that behavior in another application.
+Acting inside a canvas with clicks or drags by point is not supported yet; Pro Tools'
+track area, for example, is read only. In the human report the crop is the largest changed
+region, since the person's input brings no points: a clip the person moved in Pro Tools came
+back as its lane with the ruler above it (1056×152 of a 1096×776 timeline), the whole
+timeline only when the person also cleared a selection across the tracks.
